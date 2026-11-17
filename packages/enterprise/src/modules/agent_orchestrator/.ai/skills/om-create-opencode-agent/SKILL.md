@@ -59,6 +59,10 @@ confidence always routes to a human (fail-closed).
    `format` (and similar) — they fail generation loudly. Mirror the supported shape used by the
    example (object/array/string/number/boolean, `const`, `enum`, `required`, `properties`,
    `items`, `additionalProperties:false`, `minItems`/`minLength`/`minimum`/`maximum`).
+   Every `object` MUST list its `properties`: an object without them always validates to `{}`
+   (content dropped; `yarn generate` warns). Optional properties are fine — on the native
+   runtime the model gets a strict variant (all required, optional ones `nullable`) and the
+   answer is mapped back and judged by your authored schema.
 5. **Sub-agent depth = 1.** A sub-agent is researcher-only (no proposal OUTCOME) and may not
    declare its own `subAgents`.
 6. **Generated files.** Never hand-edit `generated/file-agents.generated.ts` or

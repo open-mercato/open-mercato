@@ -338,6 +338,37 @@ function assertOutcomeSchemaSupported(node: unknown, where: string, path = '$'):
   }
 }
 
+/**
+ * JSON paths of the objects in an OUTCOME schema that declare no properties.
+ * The runtime compiles such an object to an empty, stripping one, so whatever the
+ * model puts in it is dropped on every runtime — an author almost certainly meant
+ * to list its properties. Generation warns rather than fails: the schema is valid.
+ */
+function findOpenOutcomeObjects(node: unknown, path = '$'): string[] {
+  if (typeof node !== 'object' || node === null || Array.isArray(node)) return []
+  const schema = node as Record<string, unknown>
+  if (schema.type === 'object') {
+    const properties =
+      typeof schema.properties === 'object' && schema.properties !== null && !Array.isArray(schema.properties)
+        ? (schema.properties as Record<string, unknown>)
+        : {}
+    const keys = Object.keys(properties)
+    if (keys.length === 0) return [path]
+    return keys.flatMap((key) => findOpenOutcomeObjects(properties[key], `${path}.${key}`))
+  }
+  if (schema.type === 'array') return findOpenOutcomeObjects(schema.items, `${path}[]`)
+  return []
+}
+
+function warnOpenOutcomeObjects(schema: Record<string, unknown> | undefined, where: string): void {
+  if (!schema) return
+  for (const openPath of findOpenOutcomeObjects(schema)) {
+    console.warn(
+      `[internal] OUTCOME.md at ${where}: the object at ${openPath} declares no properties, so it always validates to {} and any content the agent returns there is dropped. List its properties.`,
+    )
+  }
+}
+
 function sanitizeAgentName(id: string): string {
   return id.replace(/[^a-z0-9_-]/gi, '_')
 }
@@ -707,6 +738,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
     }
     if (outcome.schema) assertOutcomeSchemaSupported(outcome.schema, dir)
+    warnOpenOutcomeObjects(outcome.schema, dir)
     if (outcome.kind !== 'research') {
       throw new Error(
         `[internal] sub-agent at ${dir} must be research (kind: research); only the primary proposes`,
@@ -1362,6 +1394,7 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
         throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
       }
       if (outcome.schema) assertOutcomeSchemaSupported(outcome.schema, dir)
+      warnOpenOutcomeObjects(outcome.schema, dir)
       // The id is the registry/dup key AND the OpenCode `agent` message field —
       // constrain it to a safe charset (module.entity-style: lowercase alnum + . _ -).
       if (!/^[a-z0-9][a-z0-9._-]*$/.test(agent.id!)) {

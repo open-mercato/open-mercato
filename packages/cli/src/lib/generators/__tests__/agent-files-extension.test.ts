@@ -542,6 +542,39 @@ describe('createAgentFilesExtension', () => {
     ).toThrow(/unsupported keyword "oneOf"/)
   })
 
+  it('warns, without failing, about an OUTCOME.md object that declares no properties (A-2)', () => {
+    const fixture = makeRepoFixture()
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(
+      path.join(agentDir, 'OUTCOME.md'),
+      [
+        '---',
+        'kind: research',
+        '---',
+        '```json',
+        JSON.stringify({
+          type: 'object',
+          properties: { summary: { type: 'string' }, meta: { type: 'object' }, rows: { type: 'array', items: { type: 'object' } } },
+        }),
+        '```',
+      ].join('\n'),
+      'utf8',
+    )
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const extension = createAgentFilesExtension()
+      expect(() =>
+        extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+      ).not.toThrow()
+      const messages = warn.mock.calls.map((call) => String(call[0]))
+      expect(messages.some((message) => message.includes('the object at $.meta declares no properties'))).toBe(true)
+      expect(messages.some((message) => message.includes('the object at $.rows[] declares no properties'))).toBe(true)
+      expect(messages.some((message) => message.includes('$.summary'))).toBe(false)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('fails generation when an OUTCOME.md schema node has no supported type (M2)', () => {
     const fixture = makeRepoFixture()
     const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')

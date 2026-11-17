@@ -80,19 +80,13 @@ export function resolveFileAgentRuntime(
  * Give a native file agent a strict-mode variant of its OUTCOME schema for the
  * model, plus the mapping back onto the authored schema (see
  * `strictOutcomeSchema.ts`). The authored `schema` stays the validation contract.
- * A schema with an open object keeps the authored shape and is logged, because a
- * strict provider will reject it.
+ * The strict variant is sent to every provider: OpenAI requires it, and Anthropic
+ * and Google accept it unchanged (verified live, see the runtime spec changelog).
  */
 export function attachStrictModelSchema(entry: AgentRegistryEntry): void {
   const authored = entry.outcomeSchema
   if (!authored || entry.resultKind === 'artifact') return
   const strict = toStrictOutcomeSchema(authored)
-  if (!strict) {
-    logger.warn('OUTCOME schema has an open object; strict structured-output providers will reject it', {
-      agentId: entry.id,
-    })
-    return
-  }
   entry.modelSchema = compileOutcome({ kind: entry.resultKind, schema: strict }).resultSchema
   const key = entry.resultKind === 'proposal' ? 'proposal' : 'data'
   entry.normalizeModelOutput = (raw) => {

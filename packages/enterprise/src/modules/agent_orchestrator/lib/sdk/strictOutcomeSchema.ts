@@ -17,28 +17,28 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * The strict variant of an OUTCOME schema, or null when the schema contains an
- * open object (no declared properties) that a strict mode cannot describe — the
- * caller then keeps the authored schema.
+ * The strict variant of an OUTCOME schema.
+ *
+ * Every object is closed (`additionalProperties: false`). That matches what the
+ * authored schema already accepts: `jsonSchemaToZod` compiles an object to a
+ * stripping `z.object`, so undeclared keys never survive validation. An open
+ * object (`{ "type": "object" }` with no properties) is therefore an EMPTY object
+ * in both variants; `yarn generate` warns about one (`agent-files.ts`).
  */
-export function toStrictOutcomeSchema(node: JsonSchemaNode): JsonSchemaNode | null {
+export function toStrictOutcomeSchema(node: JsonSchemaNode): JsonSchemaNode {
   if (node.type === 'object') {
     const properties = node.properties ?? {}
     const keys = Object.keys(properties)
-    if (keys.length === 0 && node.additionalProperties !== false) return null
     const required = new Set(node.required ?? [])
     const strictProperties: Record<string, JsonSchemaNode> = {}
     for (const key of keys) {
       const child = toStrictOutcomeSchema(properties[key])
-      if (!child) return null
       strictProperties[key] = required.has(key) ? child : { ...child, nullable: true }
     }
     return { ...node, properties: strictProperties, required: keys, additionalProperties: false }
   }
   if (node.type === 'array' && node.items) {
-    const items = toStrictOutcomeSchema(node.items)
-    if (!items) return null
-    return { ...node, items }
+    return { ...node, items: toStrictOutcomeSchema(node.items) }
   }
   return { ...node }
 }

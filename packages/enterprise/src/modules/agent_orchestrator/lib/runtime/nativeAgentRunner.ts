@@ -80,6 +80,11 @@ import {
   shapeResult,
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  describeStructuredOutputFailure,
+  readStructuredOutputFailure,
+  type StructuredOutputFailure,
+} from './structuredOutputFailure'
 import { resolveEffectiveToolAcl } from '../identity/resolveEffectiveToolAcl'
 import { resolvePrincipalToolAclRecord } from '../identity/principalDeniedTools'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -424,6 +429,7 @@ export class NativeAgentRunner {
 
     const modelStartMs = Date.now()
     let rawObject: unknown
+    let structuredFailure: StructuredOutputFailure | null = null
     let fallbackUsage: { inputTokens?: number; outputTokens?: number } | null = null
     let fallbackIgnoredSettings: ReturnType<typeof extractIgnoredCallSettings> = []
     // Usage + estimated-cost stamp for the terminal transition (data-honesty
@@ -598,10 +604,28 @@ export class NativeAgentRunner {
         await captureTrace()
         throw err
       }
-      const message = err instanceof Error ? err.message : String(err)
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
-      await captureTrace()
-      throw err
+      // A file agent's model is given the strict variant of its OUTCOME schema
+      // (A-2). When the provider's structured output fails, the answer goes on to
+      // the output checks below instead of failing the run as a crash: the
+      // AUTHORED schema judges it, and a failure is recorded as a schema check.
+      structuredFailure = entry.modelSchema ? readStructuredOutputFailure(err) : null
+      if (structuredFailure) {
+        logger.warn('structured output failed; judging the answer against the authored schema', {
+          runId,
+          agentId,
+          reason: structuredFailure.reason,
+        })
+        if (structuredFailure.usage && stepRecords.length === 0) fallbackUsage = structuredFailure.usage
+        rawObject =
+          structuredFailure.recovered !== undefined && entry.normalizeModelOutput
+            ? entry.normalizeModelOutput(structuredFailure.recovered)
+            : structuredFailure.recovered
+      } else {
+        const message = err instanceof Error ? err.message : String(err)
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
+        await captureTrace()
+        throw err
+      }
     } finally {
       deadline.cancel()
     }
@@ -711,7 +735,11 @@ export class NativeAgentRunner {
         phase: 'output',
         proposalId: null,
       })
-      const detail = parsed.success ? 'guardrail block' : parsed.error.message
+      const detail = parsed.success
+        ? 'guardrail block'
+        : structuredFailure
+          ? `${describeStructuredOutputFailure(structuredFailure)}: ${parsed.error.message}`
+          : parsed.error.message
       await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...buildUsageStamp() })
       await captureTrace()
       const blocked = verdict.blockedReason

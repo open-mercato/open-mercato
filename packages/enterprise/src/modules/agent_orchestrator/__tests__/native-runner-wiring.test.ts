@@ -88,7 +88,7 @@ import { z } from 'zod'
 import { ARTIFACT_REFS } from '../lib/trace/artifactStore'
 import { integrityRuleSchema, untrustedInputDeclSchema } from '../data/validators'
 import { resolveIntegritySet } from '../lib/guardrails/integrity/integritySets'
-import { AgentGuardrailBlockedError } from '../lib/runtime/errors'
+import { AgentGuardrailBlockedError, AgentOutputInvalidError } from '../lib/runtime/errors'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { resetAgentAdmissionForTests } from '../lib/runtime/admission'
@@ -1583,6 +1583,65 @@ describe('native file agents (A-1)', () => {
     expect(result).toMatchObject({ kind: 'research', data: { summary: 'ok' } })
     expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty('note')
     expect(failRunMock).not.toHaveBeenCalled()
+  })
+
+  function sdkError(name: string, fields: Record<string, unknown> = {}): Error {
+    const error = new Error(name === 'AI_NoOutputGeneratedError' ? 'No output generated.' : 'No object generated: response did not match schema.')
+    error.name = name
+    Object.assign(error, fields)
+    return error
+  }
+
+  it('judges an answer the strict schema rejected against the authored one, and accepts it when it fits (A-2)', async () => {
+    registerStrictFileAgent('native.strict_file_agent_recovered')
+    runAiAgentObjectMock.mockRejectedValue(
+      sdkError('AI_NoObjectGeneratedError', {
+        text: '{"kind":"research","data":{"summary":"ok"}}',
+        usage: { inputTokens: 5, outputTokens: 2 },
+      }),
+    )
+
+    const result = await makeService().run('native.strict_file_agent_recovered', {}, runCtx)
+
+    expect(result).toMatchObject({ kind: 'research', data: { summary: 'ok' } })
+    expect(failRunMock).not.toHaveBeenCalled()
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails an unusable answer as invalid output with a schema check, not as a crash (A-2)', async () => {
+    registerStrictFileAgent('native.strict_file_agent_garbage')
+    runAiAgentObjectMock.mockRejectedValue(sdkError('AI_NoObjectGeneratedError', { text: 'I could not decide.' }))
+
+    const failure = makeService().run('native.strict_file_agent_garbage', {}, runCtx)
+
+    await expect(failure).rejects.toBeInstanceOf(AgentOutputInvalidError)
+    await expect(failure).rejects.toThrow('the model answer did not match the structured-output schema')
+    expect(checkOutputMock.mock.calls[0][0].output).toBeUndefined()
+    expect(persistVerdictMock).toHaveBeenCalled()
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+    expect(String((failRunMock.mock.calls[0][2] as { errorMessage: string }).errorMessage)).toContain(
+      'the model answer did not match the structured-output schema',
+    )
+    expect(createProposalMock).not.toHaveBeenCalled()
+  })
+
+  it('fails a tool loop that ended without a final answer as invalid output (A-2)', async () => {
+    registerStrictFileAgent('native.strict_file_agent_no_output')
+    runAiAgentObjectMock.mockRejectedValue(sdkError('AI_NoOutputGeneratedError'))
+
+    await expect(makeService().run('native.strict_file_agent_no_output', {}, runCtx)).rejects.toThrow(
+      'the model ended without a final structured answer',
+    )
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a code agent structured-output failure as it was: rethrown unchanged', async () => {
+    registerNativeAgent('native.code_agent_no_object')
+    const error = sdkError('AI_NoObjectGeneratedError', { text: '{"kind":"research","data":{"ok":true}}' })
+    runAiAgentObjectMock.mockRejectedValue(error)
+
+    await expect(makeService().run('native.code_agent_no_object', {}, runCtx)).rejects.toBe(error)
+    expect(checkOutputMock).not.toHaveBeenCalled()
   })
 
   it('drops the OpenCode-only __files envelope before the input is persisted or prompted', async () => {
