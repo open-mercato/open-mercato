@@ -84,7 +84,10 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
           token,
           startedInstanceId,
           (instance) => !stepsBeforeCustomerInfo.has(instance.currentStepId ?? ''),
-          { timeoutMs: stallBudgetsMs[attempt] },
+          // The elapsed budget IS the signal here — it means the executor
+          // stalled and the manual fallback below should fire — so this is the
+          // one caller that reads the last snapshot instead of throwing.
+          { timeoutMs: stallBudgetsMs[attempt], onTimeout: 'returnLast' },
         )
         if (!stepsBeforeCustomerInfo.has(snapshot?.currentStepId ?? '')) break
         await expect(advanceButton).toBeVisible()

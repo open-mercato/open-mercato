@@ -452,3 +452,62 @@ describe('RichEditorDropdownButton + RichEditorTextDropdown', () => {
     expect(swatch?.style.backgroundColor).toMatch(/rgb\(125,\s*82,\s*244\)|#7d52f4/i)
   })
 })
+
+describe('RichEditor — source toolbar layouts', () => {
+  it.each([
+    ['01', ['Header', 'Font size', 'Bold', 'Italic', 'Underline', 'Strikethrough', 'Align', 'Add comment', 'Link', 'Mention', 'More']],
+    ['02', ['Header', 'Font size', 'More']],
+    ['03', ['Bold', 'Italic', 'Underline', 'Strikethrough', 'Align', 'More']],
+    ['04', ['Add comment', 'Link', 'Mention', 'More']],
+  ] as const)('renders the source %s composition and keeps other commands in More', (design, names) => {
+    render(<RichEditor value="" onChange={jest.fn()} toolbarDesign={design} />)
+    expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(names)
+    fireEvent.click(screen.getByRole('button', { name: 'More' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Numbered list' }))
+    expect(execMock).toHaveBeenCalledWith('insertOrderedList', false, undefined)
+  })
+
+  it('updates toolbar composition, translations and callbacks when value stays unchanged', () => {
+    const onChange = jest.fn()
+    const oldComment = jest.fn()
+    const newComment = jest.fn()
+    const { rerender } = render(<RichEditor value="" onChange={onChange} toolbarDesign="02" onComment={oldComment} />)
+    rerender(<RichEditor value="" onChange={onChange} toolbarDesign="04" labels={{ comment: 'Komentarz' }} onComment={newComment} />)
+    expect(screen.queryByRole('button', { name: 'Header' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Komentarz' }))
+    expect(newComment).toHaveBeenCalledTimes(1)
+    expect(oldComment).not.toHaveBeenCalled()
+  })
+
+  it('keeps all source toolbar commands disabled', () => {
+    render(<RichEditor value="" onChange={jest.fn()} toolbarDesign="01" disabled />)
+    for (const button of screen.getAllByRole('button')) expect(button).toBeDisabled()
+  })
+
+  it('counts draft text before blur without changing the onChange contract', () => {
+    const onChange = jest.fn()
+    const { container } = render(<RichEditor value="" onChange={onChange} toolbarDesign="03" maxLength={5} />)
+    const content = screen.getByRole('textbox')
+    content.textContent = 'Draft text'
+    fireEvent.input(content)
+    expect(container.querySelector('[data-slot="rich-editor-counter"]')).toHaveTextContent('10/5')
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.blur(content)
+    expect(onChange).toHaveBeenLastCalledWith('Draft text')
+  })
+
+  it('preserves selected formatting and escapes literal markup when applying a font size', () => {
+    render(<RichEditor value="<p><strong>Bold &lt;word&gt;</strong></p>" onChange={jest.fn()} toolbarDesign="02" />)
+    const content = screen.getByRole('textbox')
+    content.innerHTML = '<p><strong>Bold &lt;word&gt;</strong></p>'
+    const range = document.createRange()
+    range.selectNodeContents(content.querySelector('p')!)
+    window.getSelection()?.removeAllRanges()
+    window.getSelection()?.addRange(range)
+    fireEvent.click(screen.getByRole('button', { name: 'Font size' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '20px' }))
+    expect(execMock).toHaveBeenCalledWith('insertHTML', false, expect.stringContaining('font-size: 20px'))
+    expect(execMock).toHaveBeenCalledWith('insertHTML', false, expect.stringContaining('<strong>Bold &lt;word&gt;</strong>'))
+    expect(execMock).not.toHaveBeenCalledWith('removeFormat', expect.anything(), expect.anything())
+  })
+})

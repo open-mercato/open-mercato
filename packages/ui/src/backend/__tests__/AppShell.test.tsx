@@ -3,8 +3,10 @@
  */
 
 import * as React from 'react'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { AppShell, ApplyBreadcrumb } from '../AppShell'
+import { saveBrandStyle } from '../../theme/brand-style'
+import { clearNavBadge, setNavBadge } from '../nav/navBadges'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 const mockInjectionSpot = jest.fn()
@@ -158,6 +160,61 @@ describe('AppShell', () => {
     }
   })
 
+  it.each([
+    ['versioned', { v: 1, data: { core: false } }],
+    ['legacy', { Core: false }],
+  ])('preserves %s sidebar preferences while navigation hydrates', async (variant, preference) => {
+    mockPathname = '/backend'
+    const storageKey = 'om:sidebarOpenGroups'
+    const stored = JSON.stringify(preference)
+    window.localStorage.setItem(storageKey, stored)
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const adminNavApi = `/api/auth/admin/nav-storage-${variant}`
+    let resolveChrome: (response: Response) => void = () => {}
+    const chromeResponse = new Promise<Response>((resolve) => { resolveChrome = resolve })
+    const fetchMock: typeof fetch = jest.fn((input: RequestInfo | URL) =>
+      String(input) === adminNavApi
+        ? chromeResponse
+        : Promise.resolve(new Response('[]', { status: 200 })),
+    )
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell groups={[]} adminNavApi={adminNavApi}><div>Body</div></AppShell>,
+        { dict },
+      )
+      expect(window.localStorage.getItem(storageKey)).toBe(stored)
+
+      await act(async () => {
+        resolveChrome(new Response(JSON.stringify({
+          groups,
+          settingsSections: [],
+          settingsPathPrefixes: [],
+          profileSections: [],
+          profilePathPrefixes: [],
+          grantedFeatures: [],
+          roles: [],
+        }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      })
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Core' })).toHaveAttribute('aria-expanded', 'false'))
+      expect(screen.queryByText('Users List')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(JSON.parse(window.localStorage.getItem(storageKey) ?? 'null')).toEqual({ v: 1, data: { core: false } })
+      })
+    } finally {
+      window.localStorage.removeItem(storageKey)
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
   it('renders navigation and breadcrumbs with translations applied via ApplyBreadcrumb', async () => {
     renderWithProviders(
       <AppShell
@@ -226,6 +283,30 @@ describe('AppShell', () => {
     expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
   })
 
+  // Modules portal banners (e.g. record locks) into `#om-top-banners`; while
+  // nothing is portaled in, the slot must not keep its bottom margin as an
+  // empty gap above every page.
+  it('collapses the top banner slot while it is empty and keeps it as a portal target', () => {
+    renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    const bannerSlot = document.getElementById('om-top-banners')
+    expect(bannerSlot).not.toBeNull()
+    expect(bannerSlot).toHaveClass('empty:hidden')
+    expect(bannerSlot).toBeEmptyDOMElement()
+
+    const banner = document.createElement('div')
+    banner.textContent = 'Multiple users are currently on this record.'
+    bannerSlot?.appendChild(banner)
+
+    expect(bannerSlot).not.toBeEmptyDOMElement()
+    expect(bannerSlot).toHaveTextContent('Multiple users are currently on this record.')
+  })
+
   it('keeps the incoming page breadcrumb when the pathname change and ApplyBreadcrumb land in the same commit', () => {
     const { rerender } = renderWithProviders(
       <AppShell email="demo@example.com" groups={groups}>
@@ -245,6 +326,22 @@ describe('AppShell', () => {
     const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
     expect(activePage).toHaveTextContent('Roles')
     expect(within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/backend')
+  })
+
+  it('applies a local logo immediately and restores the original shell logo', () => {
+    const logo = 'data:image/png;base64,aGVsbG8='
+    renderWithProviders(<AppShell email="demo@example.com" groups={groups} logo={{ src: '/original-logo.png', alt: 'Original brand' }}><div>Body</div></AppShell>, { dict })
+    expect(screen.getByAltText('Original brand')).toHaveAttribute('src', '/original-logo.png')
+    act(() => saveBrandStyle({
+      version: 1,
+      logo,
+      light: { '--primary': '#124488', '--primary-hover': '#113366', '--primary-foreground': '#FFFFFF' },
+      dark: { '--primary': '#AACCFF', '--primary-hover': '#88AADD', '--primary-foreground': '#000000' },
+    }))
+    const brandedImage = screen.getAllByRole('img').find(image => image.getAttribute('src') === logo)
+    expect(brandedImage).toHaveClass('object-contain')
+    act(() => saveBrandStyle(null))
+    expect(screen.getByAltText('Original brand')).toHaveAttribute('src', '/original-logo.png')
   })
 
   it('hides the backend footer status bar when requested', () => {
@@ -640,6 +737,55 @@ describe('AppShell', () => {
       window.fetch = previousWindowFetch
       ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
     }
+  })
+
+  describe('main sidebar nav badges', () => {
+    const badgeGroups = [
+      {
+        id: 'sales',
+        name: 'Sales',
+        items: [
+          {
+            href: '/backend/sales',
+            title: 'Sales',
+            children: [{ href: '/backend/sales/pending', title: 'Pending orders' }],
+          },
+          { href: '/backend/roles', title: 'Roles' },
+        ],
+      },
+    ]
+
+    afterEach(() => {
+      act(() => {
+        clearNavBadge('/backend/sales')
+        clearNavBadge('/backend/sales/pending')
+      })
+    })
+
+    it('renders item count badges on main menu items and their children', () => {
+      mockPathname = '/backend/sales'
+      const { container } = renderWithProviders(
+        <AppShell email="demo@example.com" groups={badgeGroups}>
+          <div>Body</div>
+        </AppShell>,
+        { dict },
+      )
+
+      const sidebar = within(screen.getByTestId('sidebar'))
+      expect(sidebar.queryByLabelText('7 pending')).not.toBeInTheDocument()
+
+      act(() => {
+        setNavBadge('/backend/sales', { count: 7, label: '7 pending' })
+        setNavBadge('/backend/sales/pending', { count: 120 })
+      })
+
+      const parentLink = container.querySelector('[data-menu-item-id="/backend/sales"]') as HTMLElement
+      expect(within(parentLink).getByLabelText('7 pending')).toHaveTextContent('7')
+      const childLink = container.querySelector('[data-menu-item-id="/backend/sales/pending"]') as HTMLElement
+      expect(within(childLink).getByLabelText('99+')).toHaveTextContent('99+')
+      const rolesLink = container.querySelector('[data-menu-item-id="/backend/roles"]') as HTMLElement
+      expect(rolesLink.querySelectorAll('[aria-label]')).toHaveLength(0)
+    })
   })
 
   describe('sidebar layout', () => {

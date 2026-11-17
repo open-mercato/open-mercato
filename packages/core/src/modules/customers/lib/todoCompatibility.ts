@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import {
   CustomerInteraction,
@@ -9,6 +10,7 @@ import {
 import type { InteractionRecord } from './interactionCompatibility'
 import {
   CUSTOMER_INTERACTION_TASK_SOURCE,
+  CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
   resolveExampleIntegrationHref,
 } from './interactionCompatibility'
@@ -16,6 +18,33 @@ import { hydrateCanonicalInteractions, loadCustomerSummaries } from './interacti
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+export async function countCustomerTodos(
+  em: EntityManager,
+  scope: { entityId: string; tenantId: string; organizationId: string },
+  unified: boolean,
+): Promise<number> {
+  const entityScope = {
+    entity: scope.entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }
+  if (unified) {
+    return em.count(CustomerInteraction, { ...entityScope, interactionType: 'task', deletedAt: null })
+  }
+
+  const adapterScope = {
+    ...entityScope,
+    interactionType: 'task',
+    source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+  }
+  const adapterIds = em.createQueryBuilder(CustomerInteraction).select('id').where(adapterScope)
+  const [legacyCount, adapterCount] = await Promise.all([
+    em.count(CustomerTodoLink, { ...entityScope, todoId: { $nin: adapterIds } }),
+    em.count(CustomerInteraction, { ...adapterScope, deletedAt: null }),
+  ])
+  return legacyCount + adapterCount
+}
 
 export type CustomerTodoRow = {
   id: string
@@ -27,6 +56,7 @@ export type CustomerTodoRow = {
   todoSeverity?: string | null
   todoDescription?: string | null
   todoDueAt?: string | null
+  todoTimezone?: string | null
   todoCustomValues?: Record<string, unknown> | null
   todoOrganizationId: string | null
   todoUpdatedAt?: string | null
@@ -98,7 +128,10 @@ function resolveLegacyTodoSource(source: string | null | undefined): string {
 }
 
 function extractTodoTitle(record: Record<string, unknown>): string | null {
-  const candidates = ['title', 'subject', 'name', 'summary', 'text', 'description']
+  // `task_name` / `taskName` carry a workflow user task's name; the query engine
+  // returns the raw column on the ORM path and the camelCase property on the
+  // indexed one, so both spellings are read.
+  const candidates = ['title', 'subject', 'name', 'task_name', 'taskName', 'summary', 'text', 'description']
   for (const key of candidates) {
     const value = record[key]
     if (typeof value === 'string' && value.trim().length > 0) {
@@ -227,6 +260,15 @@ export async function resolveLegacyTodoDetails(
   for (const [source, idSet] of idsBySource.entries()) {
     const ids = Array.from(idSet)
     if (!ids.length) continue
+    if (!isValidEntityIdShape(source)) {
+      // A legacy/malformed `todoSource` (e.g. a bare module name written before
+      // the value was required to be a `module:entity` id) does not resolve to
+      // any real table. Querying it anyway surfaces a raw DB error ("relation
+      // ... does not exist") as a dashboard-wide schema-mismatch banner instead
+      // of just leaving that row's details unresolved.
+      logger.warn('Skipping malformed legacy todo source', { component: 'todoCompatibility', source })
+      continue
+    }
     try {
       const result = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
         tenantId,
@@ -627,6 +669,7 @@ export function mapInteractionRecordToTodoRow(
         : null,
     todoDescription: interaction.body ?? null,
     todoDueAt: interaction.scheduledAt ?? null,
+    todoTimezone: interaction.timezone ?? null,
     todoCustomValues: Object.keys(customValues).length > 0 ? customValues : null,
     todoOrganizationId: interaction.organizationId ?? null,
     todoUpdatedAt: interaction.updatedAt ?? null,

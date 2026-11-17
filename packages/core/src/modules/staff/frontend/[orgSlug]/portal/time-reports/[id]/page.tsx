@@ -11,8 +11,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
+import { replaceWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -50,7 +50,6 @@ type PortalTimeReportDetail = {
 
 export default function PortalTimeReportDetailPage({ params }: Props) {
   const t = useT()
-  const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
 
@@ -60,8 +59,8 @@ export default function PortalTimeReportDetailPage({ params }: Props) {
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    if (!loading && !user) router.replace(`/${params.orgSlug}/portal/login`)
-  }, [loading, user, router, params.orgSlug])
+    if (!loading && !user) replaceWithPageReload(`/${params.orgSlug}/portal/login`)
+  }, [loading, user, params.orgSlug])
 
   const load = React.useCallback(async () => {
     if (!user) return

@@ -24,9 +24,10 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
+import { isUuidListParam, parseIdsParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { readDocumentEmail } from '../../lib/documentEmail'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -111,7 +112,10 @@ const listSchema = z
     totalGrossMax: z.coerce.number().optional(),
     dateFrom: z.string().optional(),
     dateTo: z.string().optional(),
-    tagIds: z.string().optional(),
+    tagIds: z
+      .string()
+      .optional()
+      .refine(isUuidListParam, { message: 'tagIds must be a comma-separated list of UUIDs' }),
     tagIdsEmpty: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -180,11 +184,7 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   if (Object.keys(dateRange).length) {
     filters.created_at = dateRange
   }
-  const tagIdsRaw = typeof query.tagIds === 'string' ? query.tagIds : ''
-  const tagIds = tagIdsRaw
-    .split(',')
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0)
+  const tagIds = splitIdListParam(query.tagIds)
   if (parseBooleanToken(query.tagIdsEmpty) === true) {
     filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
   } else if (tagIds.length) {
@@ -227,8 +227,8 @@ const mapUpdateResponse = (entity: any) => {
     channelId: (entity as any)?.channelId ?? null,
     customerName: resolveCustomerName(customerSnapshot, entity?.customerEntityId ?? null),
     contactEmail:
-      resolveCustomerEmail(customerSnapshot) ??
-      (typeof metadata?.customerEmail === 'string' ? metadata.customerEmail : null),
+      (typeof metadata?.customerEmail === 'string' && metadata.customerEmail.trim() ? metadata.customerEmail.trim() : null) ??
+      resolveCustomerEmail(customerSnapshot),
     currencyCode: entity?.currencyCode ?? null,
     placedAt: entity?.placedAt ? entity.placedAt.toISOString() : null,
     expectedDeliveryAt: entity?.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
@@ -305,6 +305,52 @@ const attachTags = async (payload: any, ctx: any) => {
 // unconditionally for every item carrying a channel id. Anything that later skips this hook on a
 // hit — the way `skipEnrichersOnCacheHit` does for record-pure enrichers — would start serving the
 // stale names baked into the entry.
+// The grid projection leaves `metadata` out (#2233), so the document's own "Send to" address is
+// read separately. Only `metadata` is loaded, for the rows of this page.
+export const attachContactEmails = async (
+  entity: DocumentBinding['entity'],
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx,
+) => {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  if (!items.length) return
+  const snapshotEmail = (item: Record<string, unknown>) =>
+    resolveCustomerEmail(normalizeJsonRecord(item.customerSnapshot))
+  const missingMetadataIds = items
+    .filter((item) => !item.metadata && typeof item.id === 'string')
+    .map((item) => item.id as string)
+  const metadataById = new Map<string, Record<string, unknown> | null>()
+  const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as EntityManager) : null
+  if (missingMetadataIds.length && em) {
+    const where: Record<string, unknown> = { id: { $in: missingMetadataIds }, deletedAt: null }
+    if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
+    const orgIds =
+      Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
+        ? ctx.organizationIds.filter((val: string | null) => !!val)
+        : ctx?.selectedOrganizationId
+          ? [ctx.selectedOrganizationId]
+          : []
+    if (orgIds.length) where.organizationId = { $in: orgIds }
+    const records = await findWithDecryption(
+      em,
+      entity as typeof SalesQuote,
+      where as never,
+      { fields: ['id', 'metadata', 'tenantId', 'organizationId'] as never },
+      {
+        tenantId: ctx?.auth?.tenantId ?? null,
+        organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null,
+      },
+    )
+    records.forEach((record) => metadataById.set(record.id, normalizeJsonRecord(record.metadata)))
+  }
+  items.forEach((item) => {
+    const metadata = item.metadata
+      ? normalizeJsonRecord(item.metadata)
+      : metadataById.get(item.id as string) ?? null
+    item.contactEmail = readDocumentEmail(metadata) ?? snapshotEmail(item)
+  })
+}
+
 export const attachChannelNames = async (
   payload: { items?: Array<Record<string, unknown>> },
   ctx: CrudCtx,
@@ -425,6 +471,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
 
   const orderOnlyFields = [
     'expected_delivery_at',
+    'totals_mode',
     'shipping_net_amount',
     'shipping_gross_amount',
     'surcharge_total_amount',
@@ -473,7 +520,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     indexer: {
       entityType: binding.entityId,
     },
-    enrichers: binding.kind === 'order' ? { entityId: binding.entityId } : undefined,
+    enrichers: { entityId: binding.entityId },
     list: {
       schema: listSchema,
       entityId: binding.entityId,
@@ -536,6 +583,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           paidTotalAmount: toNumber(item.paid_total_amount),
           refundedTotalAmount: toNumber(item.refunded_total_amount),
           outstandingAmount: toNumber(item.outstanding_amount),
+          ...(binding.kind === 'order' ? { totalsMode: item.totals_mode ?? 'computed' } : {}),
           customerSnapshot: normalizeJsonRecord(item.customer_snapshot),
           billingAddressSnapshot: normalizeJsonRecord(item.billing_address_snapshot),
           shippingAddressSnapshot: normalizeJsonRecord(item.shipping_address_snapshot),
@@ -615,6 +663,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       afterList: async (payload: any, ctx: CrudCtx) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
         await attachChannelNames(payload, ctx)
+        await attachContactEmails(binding.entity, payload, ctx)
       },
     },
   }
@@ -649,6 +698,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     channelId: z.string().uuid().nullable(),
     channelName: z.string().nullable().optional(),
     channelCode: z.string().nullable().optional(),
+    contactEmail: z.string().nullable().optional(),
     organizationId: z.string().uuid().nullable(),
     tenantId: z.string().uuid().nullable(),
     validFrom: z.string().nullable().optional(),
@@ -666,6 +716,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     paidTotalAmount: z.number().nullable().optional(),
     refundedTotalAmount: z.number().nullable().optional(),
     outstandingAmount: z.number().nullable().optional(),
+    totalsMode: z.enum(['computed', 'external']).optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
     customFields: z.record(z.string(), z.unknown()).optional(),

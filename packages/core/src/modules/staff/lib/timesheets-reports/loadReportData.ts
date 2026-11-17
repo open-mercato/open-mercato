@@ -35,6 +35,11 @@ export type LoadReportDataInput = {
   timeProjectIds: readonly string[]
   periodFrom: Date
   periodTo: Date
+  /**
+   * The report the data is being loaded for. An entry several closed reports
+   * quote resolves to THIS report's freeze record when it has one.
+   */
+  currentReportId?: string | null
 }
 
 export type ReportData = {
@@ -167,6 +172,7 @@ export async function loadReportData(input: LoadReportDataInput): Promise<Report
     em,
     scope,
     entryRows.map((entry) => entry.id),
+    { preferReportId: input.currentReportId ?? null },
   )
 
   const entries: ReportInputEntry[] = entryRows.map((entry) => ({
@@ -199,19 +205,39 @@ export async function loadReportData(input: LoadReportDataInput): Promise<Report
   }
 }
 
+export type ClosedReportFreeze = {
+  report: StaffTimeReport
+  row: StaffTimeReportEntry
+}
+
+function closedAtTime(report: StaffTimeReport): number {
+  const closedAt = report.closedAt
+  if (closedAt instanceof Date && !Number.isNaN(closedAt.getTime())) return closedAt.getTime()
+  return Number.POSITIVE_INFINITY
+}
+
+function compareClosedReportFreezes(left: ClosedReportFreeze, right: ClosedReportFreeze): number {
+  const leftTime = closedAtTime(left.report)
+  const rightTime = closedAtTime(right.report)
+  if (leftTime !== rightTime) return leftTime < rightTime ? -1 : 1
+  if (left.report.id === right.report.id) return 0
+  return left.report.id < right.report.id ? -1 : 1
+}
+
 /**
- * D-5's indexed lookup. `staff_time_report_entries` is authoritative for "has
- * this hour been billed already?", and only rows belonging to a **closed**
- * report count: a freeze record left behind by a report that has since been
- * unlocked must not keep an hour out of the next invoice.
+ * Every freeze record a **closed** report holds for the given entries. The D-5
+ * opt-in lets a later report re-include an hour an earlier one already froze,
+ * so one entry can be quoted by several closed reports; each list is ordered by
+ * the moment its report closed (report id as the tie-break), which makes the
+ * first item the report that billed the hour first.
  */
-export async function loadFrozenValues(
+export async function loadClosedReportFreezes(
   em: EntityManager,
   scope: ReportDataScope,
   timeEntryIds: readonly string[],
-): Promise<Map<string, FrozenEntryValues>> {
+): Promise<Map<string, ClosedReportFreeze[]>> {
   const ids = Array.from(new Set(timeEntryIds.filter((id) => typeof id === 'string' && id.length > 0)))
-  const result = new Map<string, FrozenEntryValues>()
+  const result = new Map<string, ClosedReportFreeze[]>()
   if (ids.length === 0) return result
 
   const rows = await em.find(StaffTimeReportEntry, {
@@ -234,7 +260,42 @@ export async function loadFrozenValues(
   for (const row of rows) {
     const report = reportById.get(row.reportId)
     if (!report) continue
-    result.set(row.timeEntryId, {
+    const bucket = result.get(row.timeEntryId)
+    if (bucket) bucket.push({ report, row })
+    else result.set(row.timeEntryId, [{ report, row }])
+  }
+  for (const bucket of result.values()) bucket.sort(compareClosedReportFreezes)
+
+  return result
+}
+
+/**
+ * D-5's indexed lookup. `staff_time_report_entries` is authoritative for "has
+ * this hour been billed already?", and only rows belonging to a **closed**
+ * report count: a freeze record left behind by a report that has since been
+ * unlocked must not keep an hour out of the next invoice.
+ *
+ * When several closed reports quote one entry, `preferReportId` picks that
+ * report's own record — a closed report must be able to find what it froze no
+ * matter who else re-included the hour. Without a preferred report the earliest
+ * closed one answers, so the already-reported source named is stable.
+ */
+export async function loadFrozenValues(
+  em: EntityManager,
+  scope: ReportDataScope,
+  timeEntryIds: readonly string[],
+  options: { preferReportId?: string | null } = {},
+): Promise<Map<string, FrozenEntryValues>> {
+  const result = new Map<string, FrozenEntryValues>()
+  const freezesByEntryId = await loadClosedReportFreezes(em, scope, timeEntryIds)
+  const preferReportId = options.preferReportId ?? null
+
+  for (const [timeEntryId, freezes] of freezesByEntryId) {
+    const chosen =
+      (preferReportId ? freezes.find((freeze) => freeze.report.id === preferReportId) : undefined) ?? freezes[0]
+    if (!chosen) continue
+    const { report, row } = chosen
+    result.set(timeEntryId, {
       reportId: report.id,
       reference: report.reference ?? null,
       title: report.title ?? null,

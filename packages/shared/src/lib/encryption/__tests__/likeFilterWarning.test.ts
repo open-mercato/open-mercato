@@ -99,6 +99,49 @@ describe('warnOnEncryptedLikeFilter', () => {
     expect(loggerModule.__warn.mock.calls[0][1].hint).toContain('findEntityIdsBySearchTokens')
   })
 
+  // A predicate built with raw() is keyed by a symbol, which the walker cannot
+  // see, so the caller names the matched properties instead (#6074 / #5051).
+  it('warns for properties supplied as likeFields without a readable where clause', async () => {
+    await warnOnEncryptedLikeFilter({
+      em: makeEm() as any,
+      entityName: 'MailMessage',
+      likeFields: ['subject', 'body'],
+      tenantId: 'tenant-1',
+      encryptionService: makeService(['subject']) as any,
+    })
+
+    expect(loggerModule.__warn).toHaveBeenCalledTimes(1)
+    expect(loggerModule.__warn.mock.calls[0][1]).toMatchObject({
+      entity: 'mail:mail_message',
+      field: 'subject',
+      reason: 'raw-orm-filter',
+    })
+  })
+
+  it('reports a property once when it appears in both the where clause and likeFields', async () => {
+    await warnOnEncryptedLikeFilter({
+      em: makeEm() as any,
+      entityName: 'MailMessage',
+      where: { subject: { $ilike: '%invoice%' } },
+      likeFields: ['subject'],
+      tenantId: 'tenant-1',
+      encryptionService: makeService(['subject']) as any,
+    })
+
+    expect(loggerModule.__warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays quiet for likeFields outside the encryption map', async () => {
+    await warnOnEncryptedLikeFilter({
+      em: makeEm() as any,
+      entityName: 'MailMessage',
+      likeFields: ['subject'],
+      tenantId: 'tenant-1',
+      encryptionService: makeService(['body']) as any,
+    })
+    expect(loggerModule.__warn).not.toHaveBeenCalled()
+  })
+
   it('stays quiet for properties outside the encryption map', async () => {
     await warnOnEncryptedLikeFilter({
       em: makeEm() as any,

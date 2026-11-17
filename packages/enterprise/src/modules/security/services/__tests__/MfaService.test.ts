@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../../events'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
@@ -238,6 +239,43 @@ describe('MfaService', () => {
       statusCode: 409,
       message: "MFA provider 'otp_email' is already configured",
     })
+  })
+
+  test.each(['synchronous', 'asynchronous'])('confirmMethod maps %s validation errors to 400 without activating or emitting enrollment', async (failureMode) => {
+    const { service, provider, methods, em } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    const pending = { ...methods[0] }
+    jest.mocked(provider.confirmSetup).mockImplementationOnce((_userId, _setupId, payload) => {
+      const validate = () => {
+        z.object({ code: z.string() }).parse(payload)
+        return { metadata: {} }
+      }
+      return failureMode === 'synchronous' ? Promise.resolve(validate()) : Promise.resolve().then(validate)
+    })
+    em.flush.mockClear()
+    mockedEmitSecurityEvent.mockClear()
+
+    await expect(service.confirmMethod('user-1', 'setup-1', {})).rejects.toMatchObject({
+      name: 'MfaServiceError',
+      statusCode: 400,
+      message: 'Invalid payload',
+    })
+    expect(methods[0]).toEqual(pending)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+  })
+
+  test('confirmMethod preserves non-validation provider failures without activating a method', async () => {
+    const { service, provider, methods, em } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    const error = new Error('Provider unavailable')
+    jest.mocked(provider.confirmSetup).mockRejectedValueOnce(error)
+    em.flush.mockClear()
+
+    await expect(service.confirmMethod('user-1', 'setup-1', {})).rejects.toBe(error)
+    expect(methods[0].isActive).toBe(false)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
   })
 
   test('confirmMethod rejects duplicate confirmation for a single-instance provider', async () => {

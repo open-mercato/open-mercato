@@ -71,7 +71,7 @@ jest.mock('../CustomFieldValuesList', () => ({
 }))
 
 jest.mock('../DealDialog', () => ({
-  DealDialog: () => null,
+  DealDialog: ({ open }: { open: boolean }) => open ? <div>Create deal dialog</div> : null,
 }))
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
@@ -106,6 +106,33 @@ describe('DealsSection', () => {
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
+  })
+
+  it.each(['person', 'company'] as const)('keeps the %s add action in the section without duplicating it in the tab header', async (kind) => {
+    readApiResultOrThrowMock.mockResolvedValue({ items: [makeDeal()], totalPages: 1 })
+    const onActionChange = jest.fn()
+    const { unmount } = renderWithProviders(
+      <DealsSection
+        scope={{ kind, entityId: `${kind}-1` }}
+        addActionLabel="Add deal"
+        emptyLabel="—"
+        emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+        onActionChange={onActionChange}
+      />,
+    )
+
+    await screen.findByText('Test Deal')
+    expect(onActionChange).toHaveBeenCalledWith(null)
+    expect(onActionChange.mock.calls.every(([action]) => action === null)).toBe(true)
+    expect(screen.getAllByRole('button', { name: 'Add deal', exact: true })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Link existing deal' })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add deal', exact: true }))
+    expect(screen.getByText('Create deal dialog')).toBeInTheDocument()
+
+    onActionChange.mockClear()
+    unmount()
+    expect(onActionChange).toHaveBeenCalledWith(null)
   })
 
   it('renders deals after loading', async () => {

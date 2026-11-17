@@ -17,8 +17,13 @@ import { fileURLToPath } from 'node:url'
 //   - agents.ignore / --ignore-agents suppress an agent's directory entirely
 //   - a repo-local override of an external skill is never symlinked anywhere
 //   - external skills reach every agent that cannot read the canonical directory
+// Both repo scripts are `sh` wrappers over a cross-platform Node port, so the
+// fixture has to stage the implementation next to the entry point it runs.
 const monorepoScript = fileURLToPath(new URL('../../../../scripts/install-skills.sh', import.meta.url))
+const monorepoScriptImpl = fileURLToPath(new URL('../../../../scripts/install-skills.mjs', import.meta.url))
 const monorepoValidator = fileURLToPath(new URL('../../../../scripts/validate-skills-tiers.sh', import.meta.url))
+const monorepoValidatorImpl = fileURLToPath(new URL('../../../../scripts/validate-skills-tiers.mjs', import.meta.url))
+const monorepoSpawnCli = fileURLToPath(new URL('../../../../scripts/lib/spawn-cli.mjs', import.meta.url))
 
 const LOCAL_SKILLS = ['om-alpha', 'om-beta']
 const EXTERNAL_SKILL = 'om-code-review'
@@ -60,10 +65,14 @@ function createFixture(variant: Variant, manifestExtras: Record<string, unknown>
 
   fs.mkdirSync(path.join(appDir, 'scripts'), { recursive: true })
   fs.copyFileSync(monorepoScript, path.join(appDir, 'scripts', 'install-skills.sh'))
+  fs.copyFileSync(monorepoScriptImpl, path.join(appDir, 'scripts', 'install-skills.mjs'))
+  fs.mkdirSync(path.join(appDir, 'scripts', 'lib'), { recursive: true })
+  fs.copyFileSync(monorepoSpawnCli, path.join(appDir, 'scripts', 'lib', 'spawn-cli.mjs'))
 
   if (variant === 'monorepo') {
     // The monorepo script resolves its root via git and runs the tier validator.
     fs.copyFileSync(monorepoValidator, path.join(appDir, 'scripts', 'validate-skills-tiers.sh'))
+    fs.copyFileSync(monorepoValidatorImpl, path.join(appDir, 'scripts', 'validate-skills-tiers.mjs'))
     const init = spawnSync('git', ['init', '-q'], { cwd: appDir })
     assert.equal(init.status, 0, 'git init failed for the monorepo fixture')
   }

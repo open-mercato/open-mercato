@@ -16,17 +16,10 @@ import { getTokenContext } from '@open-mercato/core/modules/core/__integration__
  * This is the committed follow-up requested by the `om-auto-verify-pr-ui` run on #3438,
  * which exercised these flows with a throwaway spec.
  *
- * Asserted behavior (current `develop`): both delete row-actions route through the guard
- * and the failure is surfaced consistently as the page's error flash, while the row
- * survives. The delete fails because of a *pre-existing* bug unrelated to #3438 — the UI
- * sends the record `id` in the request body, but the CRUD factory's DELETE reads it from
- * the `?id=` query (`packages/shared/src/lib/crud/factory.ts` defaults `del.idFrom: 'query'`),
- * so the route returns HTTP 400 "ID is required". The point of this test is the guard
- * routing + consistent error surfacing, not the delete succeeding.
- *
- * NOTE: once the body-vs-query `?id=` delete bug is fixed, flip these asserts to expect the
- * success flash (`Currency deleted successfully` / `Exchange rate deleted successfully`) and
- * the row's removal from the list.
+ * Asserted behavior: both delete row-actions route through the guard, the page shows its
+ * success flash, and the record is gone from the list API. These asserts used to expect the
+ * error flash because the UI sends the record `id` in the request body while the routes read
+ * it only from `?id=`; #3566 made both routes read the id from the body as well.
  */
 
 // The currencies/exchange-rates lists re-render their rows as data settles
@@ -60,7 +53,7 @@ function makeMenuOpener(row: Locator): () => Promise<void> {
 }
 
 test.describe('TC-CUR-012: Currency & exchange-rate Delete routes through the guarded mutation', () => {
-  test('currency list Delete routes through the guard and surfaces the failure flash', async ({ page, request }) => {
+  test('currency list Delete routes through the guard and surfaces the success flash', async ({ page, request }) => {
     // Login + list navigation + portalled-menu retries do not fit the default 30s
     // budget under parallel CI shard load; 60s matches the other UI specs (TC-CUR-004).
     test.setTimeout(60_000);
@@ -92,12 +85,11 @@ test.describe('TC-CUR-012: Currency & exchange-rate Delete routes through the gu
       await expect(confirmButton).toBeVisible({ timeout: 10_000 });
       await confirmButton.click();
 
-      // The guarded DELETE fails (pre-existing ?id= bug) → guard surfaces the error flash.
-      await expect(page.getByText('Failed to delete currency').first()).toBeVisible({
+      await expect(page.getByText('Currency deleted successfully').first()).toBeVisible({
         timeout: 10_000,
       });
 
-      // The delete did not go through: the currency still exists via the API.
+      // The delete went through: the currency is gone from the list API.
       await expect
         .poll(
           async () => {
@@ -112,9 +104,9 @@ test.describe('TC-CUR-012: Currency & exchange-rate Delete routes through the gu
           },
           { timeout: 10_000 },
         )
-        .toBe(true);
+        .toBe(false);
     } finally {
-      // Best-effort teardown via the working query-param delete path.
+      // Best-effort teardown in case the UI delete did not go through.
       await deleteCurrenciesEntityIfExists(
         request,
         token,
@@ -124,7 +116,7 @@ test.describe('TC-CUR-012: Currency & exchange-rate Delete routes through the gu
     }
   });
 
-  test('exchange-rate list Delete routes through the guard and surfaces the failure flash', async ({ page, request }) => {
+  test('exchange-rate list Delete routes through the guard and surfaces the success flash', async ({ page, request }) => {
     test.setTimeout(60_000);
 
     let token: string | null = null;
@@ -174,12 +166,11 @@ test.describe('TC-CUR-012: Currency & exchange-rate Delete routes through the gu
       await expect(confirmButton).toBeVisible({ timeout: 10_000 });
       await confirmButton.click();
 
-      // The guarded DELETE fails (pre-existing ?id= bug) → guard surfaces the error flash.
-      await expect(page.getByText('Failed to delete exchange rate').first()).toBeVisible({
+      await expect(page.getByText('Exchange rate deleted successfully').first()).toBeVisible({
         timeout: 10_000,
       });
 
-      // The delete did not go through: the rate still exists via the API.
+      // The delete went through: the rate is gone from the list API.
       await expect
         .poll(
           async () => {
@@ -194,7 +185,7 @@ test.describe('TC-CUR-012: Currency & exchange-rate Delete routes through the gu
           },
           { timeout: 10_000 },
         )
-        .toBe(true);
+        .toBe(false);
     } finally {
       await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/exchange-rates', rateId).catch(() => {});
       await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', fromId).catch(() => {});

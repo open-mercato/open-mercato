@@ -3,6 +3,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
+import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import { invalidateDictionaryCache } from '@open-mercato/shared/lib/i18n/server'
+import workflowsPl from '../../i18n/pl.json'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (em: any, Entity: any, query: any) => em.findOne(Entity, query)),
@@ -34,7 +38,7 @@ describe('executeCallApi', () => {
     createdApiKeys = []
 
     // Mock EntityManager
-    mockEm = {
+    const entityManagerDouble = createTransactionalEntityManagerDouble({
       create: jest.fn((Entity: any, data: any) => {
         const record = { ...data, id: `key-${createdApiKeys.length}` }
         createdApiKeys.push(record)
@@ -43,10 +47,6 @@ describe('executeCallApi', () => {
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
       remove: jest.fn(function remove(this: any) { return this }),
-      // The one-time API key is created on a forked, context-detached EM so it
-      // commits outside the workflow-execution transaction (issue #4202). The
-      // fork shares the same mock surface so persist/flush/find tracking works.
-      fork: jest.fn(function fork(this: any) { return this }),
       findOne: jest.fn((Entity: any, query: any) => {
         const entityName = Entity?.name ?? ''
         if (entityName === 'WorkflowDefinition') {
@@ -63,6 +63,9 @@ describe('executeCallApi', () => {
             deletedAt: null,
           })
         }
+        if (entityName === 'ApiKey') {
+          return Promise.resolve(createdApiKeys.find((record) => record.id === query.id) ?? null)
+        }
         return Promise.resolve(null)
       }),
       find: jest.fn((Entity: any, query: any) => {
@@ -77,9 +80,15 @@ describe('executeCallApi', () => {
             { id: 'role-author-uuid', name: 'author-role', tenantId: query.tenantId || 'tenant-456' },
           ])
         }
+        if (entityName === 'ApiKey' && Array.isArray(query?.id?.$in)) {
+          return Promise.resolve(createdApiKeys.filter((record) => query.id.$in.includes(record.id)))
+        }
         return Promise.resolve([])
       }),
-    } as any
+    })
+    const createIsolatedFork = entityManagerDouble.fork
+    entityManagerDouble.fork = jest.fn(() => createIsolatedFork())
+    mockEm = entityManagerDouble as any
 
     // Mock Container
     mockContainer = {
@@ -572,6 +581,331 @@ describe('executeCallApi', () => {
 
       expect(createdApiKeys.length).toBe(0)
       expect(mockFetch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('endpoint origin and redirect guard (issue #7235)', () => {
+    const originalAppUrl = process.env.APP_URL
+
+    const okJson = (body: unknown = { ok: true }) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Map([['content-type', 'application/json']]),
+      json: async () => body,
+    }) as any
+
+    const redirectTo = (status: number, location: string | null) => ({
+      ok: false,
+      status,
+      statusText: 'Redirect',
+      headers: new Map(location === null ? [] : [['location', location]]),
+      text: async () => '',
+    }) as any
+
+    beforeEach(() => {
+      mockFetch.mockReset()
+      process.env.APP_URL = 'https://shop.example.com'
+    })
+
+    afterEach(() => {
+      if (originalAppUrl === undefined) delete process.env.APP_URL
+      else process.env.APP_URL = originalAppUrl
+    })
+
+    it('rejects a same-host http:// endpoint when APP_URL is https, before minting a key or sending', async () => {
+      mockFetch.mockResolvedValue(okJson())
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: 'http://shop.example.com/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/origin/i)
+
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it('rejects a same-host endpoint on the explicit default port of the other scheme', async () => {
+      mockFetch.mockResolvedValue(okJson())
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: 'http://shop.example.com:80/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/origin/i)
+
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it('rejects a same-origin absolute endpoint outside /api/', async () => {
+      mockFetch.mockResolvedValue(okJson())
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: 'https://shop.example.com/backend/settings' }, mockContext, mockContainer),
+      ).rejects.toThrow(/only supports \/api\/\*/)
+
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it('rejects a relative endpoint that escapes /api/ through dot segments', async () => {
+      mockFetch.mockResolvedValue(okJson())
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/../backend/settings' }, mockContext, mockContainer),
+      ).rejects.toThrow(/only supports \/api\/\*/)
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/%2e%2e/backend/settings' }, mockContext, mockContainer),
+      ).rejects.toThrow(/only supports \/api\/\*/)
+
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it('accepts a same-origin https /api/ endpoint and sends it unchanged', async () => {
+      mockFetch.mockResolvedValue(okJson())
+
+      await executeCallApi(mockEm, { endpoint: 'https://shop.example.com/api/sales/orders' }, mockContext, mockContainer)
+
+      const [url] = mockFetch.mock.calls[0] as any
+      expect(url).toBe('https://shop.example.com/api/sales/orders')
+    })
+
+    it('accepts an explicit default port that matches the APP_URL scheme', async () => {
+      mockFetch.mockResolvedValue(okJson())
+
+      await executeCallApi(mockEm, { endpoint: 'https://shop.example.com:443/api/sales/orders' }, mockContext, mockContainer)
+
+      const [url] = mockFetch.mock.calls[0] as any
+      expect(url).toBe('https://shop.example.com/api/sales/orders')
+    })
+
+    it('keeps the APP_URL base path and ignores a trailing slash on APP_URL', async () => {
+      process.env.APP_URL = 'https://shop.example.com/store/'
+      mockFetch.mockResolvedValue(okJson())
+
+      await executeCallApi(mockEm, { endpoint: '/api/sales/orders?limit=5' }, mockContext, mockContainer)
+
+      const [url] = mockFetch.mock.calls[0] as any
+      expect(url).toBe('https://shop.example.com/store/api/sales/orders?limit=5')
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: 'https://shop.example.com/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/only supports \/api\/\*/)
+    })
+
+    it('accepts an {{env.APP_URL}}/api/ endpoint when APP_URL ends with a slash', async () => {
+      process.env.APP_URL = 'https://shop.example.com/'
+      mockFetch.mockResolvedValue(okJson())
+
+      await executeCallApi(mockEm, { endpoint: '{{env.APP_URL}}/api/sales/orders' }, mockContext, mockContainer)
+
+      const [url] = mockFetch.mock.calls[0] as any
+      expect(url).toBe('https://shop.example.com/api/sales/orders')
+    })
+
+    it('does not let fetch follow redirects on its own', async () => {
+      mockFetch.mockResolvedValue(okJson())
+
+      await executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer)
+
+      const [, options] = mockFetch.mock.calls[0] as any
+      expect(options.redirect).toBe('manual')
+    })
+
+    it('refuses a redirect that leaves the APP_URL origin and still deletes the key', async () => {
+      mockFetch.mockResolvedValueOnce(redirectTo(302, 'http://shop.example.com/api/sales/orders'))
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/refused to follow redirect 302/)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    })
+
+    it('refuses a same-origin redirect outside /api/ and a redirect without Location', async () => {
+      mockFetch.mockResolvedValueOnce(redirectTo(307, '/backend/login'))
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/refused to follow redirect 307/)
+
+      mockFetch.mockResolvedValueOnce(redirectTo(301, null))
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/refused to follow redirect 301/)
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('follows a same-origin /api/ redirect with the same method, body and credentials', async () => {
+      mockFetch
+        .mockResolvedValueOnce(redirectTo(308, '/api/sales/orders'))
+        .mockResolvedValueOnce(okJson({ id: 'order-1' }))
+
+      const result = await executeCallApi(
+        mockEm,
+        { endpoint: '/api/sales/orders/', method: 'POST', body: { note: 'x' } },
+        mockContext,
+        mockContainer,
+      )
+
+      expect(result.body).toEqual({ id: 'order-1' })
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      const [firstUrl, firstOptions] = mockFetch.mock.calls[0] as any
+      const [secondUrl, secondOptions] = mockFetch.mock.calls[1] as any
+      expect(firstUrl).toBe('https://shop.example.com/api/sales/orders/')
+      expect(secondUrl).toBe('https://shop.example.com/api/sales/orders')
+      expect(secondOptions.method).toBe('POST')
+      expect(secondOptions.body).toBe(JSON.stringify({ note: 'x' }))
+      expect(secondOptions.redirect).toBe('manual')
+      expect(secondOptions.headers.Authorization).toBe(firstOptions.headers.Authorization)
+    })
+
+    it('switches to GET without a body when a POST is answered with 303', async () => {
+      mockFetch
+        .mockResolvedValueOnce(redirectTo(303, 'https://shop.example.com/api/sales/orders/order-1'))
+        .mockResolvedValueOnce(okJson({ id: 'order-1' }))
+
+      await executeCallApi(
+        mockEm,
+        { endpoint: '/api/sales/orders', method: 'POST', body: { note: 'x' } },
+        mockContext,
+        mockContainer,
+      )
+
+      const [, secondOptions] = mockFetch.mock.calls[1] as any
+      expect(secondOptions.method).toBe('GET')
+      expect(secondOptions.body).toBeUndefined()
+    })
+
+    it('switches a POST answered with 302 to GET and drops the body content type', async () => {
+      mockFetch
+        .mockResolvedValueOnce(redirectTo(302, '/api/sales/orders/order-1'))
+        .mockResolvedValueOnce(okJson({ id: 'order-1' }))
+
+      await executeCallApi(
+        mockEm,
+        { endpoint: '/api/sales/orders', method: 'POST', body: { note: 'x' } },
+        mockContext,
+        mockContainer,
+      )
+
+      const [, secondOptions] = mockFetch.mock.calls[1] as any
+      expect(secondOptions.method).toBe('GET')
+      expect(secondOptions.body).toBeUndefined()
+      expect(secondOptions.headers['Content-Type']).toBeUndefined()
+      expect(secondOptions.headers.Authorization).toMatch(/^apikey omk_/)
+    })
+
+    it('cancels the body of a followed redirect response', async () => {
+      const cancel = jest.fn(async () => undefined)
+      mockFetch
+        .mockResolvedValueOnce({ ...redirectTo(308, '/api/sales/orders'), body: { cancel } })
+        .mockResolvedValueOnce(okJson())
+
+      await executeCallApi(mockEm, { endpoint: '/api/sales/orders/' }, mockContext, mockContainer)
+
+      expect(cancel).toHaveBeenCalledTimes(1)
+    })
+
+    it('treats a 304 as a response, not a redirect', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 304,
+        statusText: 'Not Modified',
+        headers: new Map(),
+        text: async () => '',
+      } as any)
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/CALL_API request failed with status 304/)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects protocol-relative and credential-bearing endpoints before minting a key', async () => {
+      mockFetch.mockResolvedValue(okJson())
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '//evil.example.com/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/only supports \/api\/\*/)
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: 'https://user:secret@shop.example.com/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/must not contain credentials/)
+
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it('rejects every endpoint when APP_URL has no http(s) scheme', async () => {
+      process.env.APP_URL = 'localhost:3000'
+      mockFetch.mockResolvedValue(okJson())
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/requires an http\(s\) APP_URL/)
+
+      process.env.APP_URL = 'not a url'
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/requires an http\(s\) APP_URL, got: not a url/)
+
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it('matches an IPv6 APP_URL origin', async () => {
+      process.env.APP_URL = 'http://[::1]:3000'
+      mockFetch.mockResolvedValue(okJson())
+
+      await executeCallApi(mockEm, { endpoint: 'http://[0:0:0:0:0:0:0:1]:3000/api/sales/orders' }, mockContext, mockContainer)
+
+      const [url] = mockFetch.mock.calls[0] as any
+      expect(url).toBe('http://[::1]:3000/api/sales/orders')
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: 'http://[::1]:3001/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/origin/i)
+    })
+
+    it('refuses to follow more than three redirects', async () => {
+      mockFetch.mockResolvedValue(redirectTo(308, '/api/sales/orders'))
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+      ).rejects.toThrow(/refused to follow redirect 308/)
+
+      expect(mockFetch).toHaveBeenCalledTimes(4)
+    })
+
+    it('reports refusals in the resolved locale', async () => {
+      const originalForcedLocale = process.env.OM_FORCE_LOCALE
+      process.env.OM_FORCE_LOCALE = 'pl'
+      registerModules([{ id: 'workflows', translations: { pl: workflowsPl } }] as any)
+      invalidateDictionaryCache()
+      try {
+        await expect(
+          executeCallApi(mockEm, { endpoint: 'http://shop.example.com/api/sales/orders' }, mockContext, mockContainer),
+        ).rejects.toThrow(
+          'Ochrona przed SSRF: origin endpointu CALL_API (http://shop.example.com) nie zgadza się z originem APP_URL (https://shop.example.com)',
+        )
+
+        mockFetch.mockResolvedValueOnce(redirectTo(301, null))
+
+        await expect(
+          executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer),
+        ).rejects.toThrow('CALL_API odmówił podążenia za przekierowaniem 301 do (brak nagłówka Location)')
+      } finally {
+        if (originalForcedLocale === undefined) delete process.env.OM_FORCE_LOCALE
+        else process.env.OM_FORCE_LOCALE = originalForcedLocale
+        registerModules([])
+        invalidateDictionaryCache()
+      }
     })
   })
 })

@@ -29,6 +29,7 @@ const savedPayloads: Array<Record<string, unknown>> = []
 // Flipped by the one case that needs the perspectives permission check to stay
 // in flight; every other case answers it from seeded query data.
 let holdFeatureCheck = false
+let rejectSaveAsDuplicateName = false
 const mockApiCall = jest.fn(async (input: unknown, init?: { method?: string; body?: string }) => {
   const url = String(input)
   const method = (init?.method ?? 'GET').toUpperCase()
@@ -38,6 +39,16 @@ const mockApiCall = jest.fn(async (input: unknown, init?: { method?: string; bod
   if (url.includes('/api/perspectives/') && method === 'POST') {
     const payload = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
     savedPayloads.push(payload)
+    if (rejectSaveAsDuplicateName) {
+      const body = JSON.stringify({ error: 'View with this name already exists', code: 'duplicate_name' })
+      return {
+        ok: false,
+        status: 409,
+        result: undefined,
+        response: { ok: false, status: 409, text: async () => body } as unknown as Response,
+        cacheStatus: null as const,
+      }
+    }
     return {
       ok: true,
       status: 200,
@@ -140,6 +151,13 @@ const columns: ColumnDef<Row>[] = [
   { accessorKey: 'id', header: 'Id' },
 ]
 
+// The shape the People / Companies / Deals lists actually render: a module column that
+// declares its own default (`hidden: def.listVisible === false`) next to ordinary ones.
+const COLUMNS_WITH_DECLARED_DEFAULT: ColumnDef<Row>[] = [
+  ...columns,
+  { accessorKey: 'cf_archived', header: 'Archived', meta: { hidden: true } } as ColumnDef<Row>,
+]
+
 type HarnessProps = {
   apiRef?: React.MutableRefObject<DataTableViewApi | null>
   onDirty?: (state: DataTableViewDirtyState) => void
@@ -149,6 +167,7 @@ type HarnessProps = {
   savedViews?: PerspectivesIndexResponse['perspectives']
   roleViews?: PerspectivesIndexResponse['rolePerspectives']
   initialSettings?: PerspectiveSettings
+  tableColumns?: ColumnDef<Row>[]
   /** `'granted'` seeds the permission check, `'denied'` seeds a refusal, `'pending'` leaves it in flight. */
   perspectivesFeature?: 'granted' | 'denied' | 'pending'
 }
@@ -162,6 +181,7 @@ function renderTable({
   savedViews = [],
   roleViews = [],
   initialSettings,
+  tableColumns = columns,
   perspectivesFeature = 'granted',
 }: HarnessProps) {
   const queryClient = new QueryClient({
@@ -183,7 +203,7 @@ function renderTable({
       <QueryClientProvider client={queryClient}>
         <I18nProvider locale="en" dict={{}}>
           <DataTable<Row>
-            columns={columns}
+            columns={tableColumns}
             data={[]}
             searchValue={searchValue}
             onSearchChange={() => {}}
@@ -216,6 +236,7 @@ describe('DataTable public save-view API', () => {
   beforeEach(() => {
     savedPayloads.length = 0
     holdFeatureCheck = false
+    rejectSaveAsDuplicateName = false
     mockFlash.mockClear()
     mockApiCall.mockClear()
     // DataTable persists the applied view to localStorage + a cookie, and jsdom
@@ -412,9 +433,23 @@ describe('DataTable public save-view API', () => {
     expect(result).toEqual({ ok: true, perspectiveId: 'persp-new' })
     expect(savedPayloads).toHaveLength(1)
     expect(savedPayloads[0].name).toBe('Wide view')
+    expect(savedPayloads[0].createOnly).toBe(true)
     expect((savedPayloads[0].settings as { searchValue?: string }).searchValue).toBe('acme')
     // A completed save re-baselines the view, so nothing stays flagged as unsaved.
     await waitFor(() => expect(apiRef.current?.getDirtyState().isDirty).toBe(false))
+  })
+
+  it('reports a failed save instead of overwriting when the new name is already taken', async () => {
+    rejectSaveAsDuplicateName = true
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    renderTable({ apiRef })
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+
+    const result = await act(async () => apiRef.current!.saveCurrentView({ name: 'My view' }))
+
+    expect(result).toMatchObject({ ok: false, reason: 'failed', error: { code: 'duplicate_name', status: 409 } })
+    expect(savedPayloads).toHaveLength(1)
+    expect(savedPayloads[0].createOnly).toBe(true)
   })
 
   it('updates the active view in place when no name is supplied', async () => {
@@ -431,6 +466,7 @@ describe('DataTable public save-view API', () => {
     expect(result).toEqual({ ok: true, perspectiveId: 'persp-new' })
     expect(savedPayloads).toHaveLength(1)
     expect(savedPayloads[0].perspectiveId).toBe('persp-1')
+    expect(savedPayloads[0].createOnly).toBeUndefined()
     expect(savedPayloads[0].name).toBe('My view')
     expect((savedPayloads[0].settings as { searchValue?: string }).searchValue).toBe('other')
   })
@@ -458,6 +494,125 @@ describe('DataTable public save-view API', () => {
 
     setSearchValue('acme')
     await waitFor(() => expect(screen.getByTestId('save-view-trigger')).not.toBeDisabled())
+  })
+
+  it('describes every column in the settings it serializes, without reporting a change nobody made', async () => {
+    // #5117: the serialized visibility used to be a verbatim copy of the sparse TanStack
+    // state, so a saved view carried no decision for columns the user never toggled and an
+    // absent key renders visible. It is now seeded from the full leaf-column set — and the
+    // dense map must still compare equal to the sparse one the server stored, or every
+    // table with a saved view would report unsaved changes the moment it mounted.
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    const states: DataTableViewDirtyState[] = []
+    renderTable({
+      apiRef,
+      onDirty: (state) => { states.push(state) },
+      initialSettings: { columnVisibility: { name: false } },
+    })
+
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+    expect(apiRef.current!.getCurrentSettings().columnVisibility).toEqual({ name: false, id: true })
+
+    await waitFor(() => expect(states.length).toBeGreaterThan(0))
+    expect(states.every((state) => !state.isDirty)).toBe(true)
+  })
+
+  it('stays clean on a table carrying a meta.hidden column the stored view never named', async () => {
+    // The case the density change can break, and the one the assertion above cannot see:
+    // its columns declare no default, so there is nothing for the live state to diverge on.
+    // Once the `meta.hidden` pass is allowed to run underneath a stored view it writes a
+    // `false` the server's sparse map does not carry, and `normalizeVisibility` keeps every
+    // `false` — so without folding the declared default into the baseline as well, every
+    // People / Companies / Deals view would mount showing "1 unsaved change" nobody made.
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    const states: DataTableViewDirtyState[] = []
+    renderTable({
+      apiRef,
+      onDirty: (state) => { states.push(state) },
+      tableColumns: COLUMNS_WITH_DECLARED_DEFAULT,
+      initialSettings: { columnVisibility: { name: false } },
+    })
+
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+    await waitFor(() => expect(apiRef.current!.getCurrentSettings().columnVisibility)
+      .toEqual({ name: false, id: true, cf_archived: false }))
+
+    await waitFor(() => expect(states.length).toBeGreaterThan(0))
+    expect(states.every((state) => !state.isDirty)).toBe(true)
+    expect(apiRef.current!.getDirtyState().isDirty).toBe(false)
+  })
+
+  it('stays clean on first mount of a table with a meta.hidden column and no stored view at all', async () => {
+    // The case neither test above can see: with no `initialSettings`, the baseline is not
+    // seeded from `useState`'s initializer — it is seeded later by the mount-time effect
+    // from `currentViewSettings`, which closes over the render that *scheduled* the
+    // meta.hidden hide, not the one where it took effect. `setViewBaseline` must let the
+    // auto-hidden default win over that stale snapshot, or the baseline records the column
+    // visible while the live state (correctly) goes hidden on the next render, reporting a
+    // change nobody made the moment the table mounts.
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    const states: DataTableViewDirtyState[] = []
+    renderTable({
+      apiRef,
+      onDirty: (state) => { states.push(state) },
+      tableColumns: COLUMNS_WITH_DECLARED_DEFAULT,
+      showSaveViewButton: true,
+    })
+
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+    await waitFor(() => expect(apiRef.current!.getCurrentSettings().columnVisibility)
+      .toEqual({ name: true, id: true, cf_archived: false }))
+
+    await waitFor(() => expect(states.length).toBeGreaterThan(0))
+    expect(states.every((state) => !state.isDirty)).toBe(true)
+    expect(apiRef.current!.getDirtyState().isDirty).toBe(false)
+  })
+
+  it('keeps a stored visibility decision for a column that has not registered yet', async () => {
+    // Serializing from the live column set alone drops any stored key whose column is not
+    // in the table — every `cf_*` decision, during the whole custom-field hydration window.
+    // Transiently that reports the view dirty; permanently, a save inside that window
+    // writes the user's "hide this custom field" away for good.
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    const states: DataTableViewDirtyState[] = []
+    renderTable({
+      apiRef,
+      onDirty: (state) => { states.push(state) },
+      initialSettings: { columnVisibility: { name: false, cf_not_loaded_yet: false } },
+    })
+
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+    expect(apiRef.current!.getCurrentSettings().columnVisibility)
+      .toEqual({ name: false, cf_not_loaded_yet: false, id: true })
+
+    await waitFor(() => expect(states.length).toBeGreaterThan(0))
+    expect(states.every((state) => !state.isDirty)).toBe(true)
+  })
+
+  it('restores a declared default when the view that overrode it is switched away from', async () => {
+    // `applyPerspectiveSettings` re-seeds the per-column record and bumps the pass counter
+    // so the defaults are re-evaluated for the newly applied view. A view with no
+    // visibility of its own is exactly what "— No view —" applies, so this pins the clear
+    // path too: the column must go back to its declared default rather than staying
+    // visible for the rest of the session because an earlier view once un-hid it.
+    const showsHidden = {
+      ...SAVED_VIEW,
+      id: 'persp-shows-hidden',
+      settings: { columnVisibility: { cf_archived: true } },
+    }
+    const saysNothing = { ...SAVED_VIEW, id: 'persp-says-nothing', settings: {} }
+    renderTable({
+      tableColumns: COLUMNS_WITH_DECLARED_DEFAULT,
+      savedViews: [showsHidden, saysNothing],
+    })
+
+    // The first saved view auto-activates on load, so the column starts overridden.
+    await waitFor(() => expect(screen.getByText('Archived')).toBeTruthy())
+
+    const activateSaysNothing = await screen.findByTestId('activate-view-persp-says-nothing')
+    await act(async () => { fireEvent.click(activateSaysNothing) })
+
+    await waitFor(() => expect(screen.queryByText('Archived')).toBeNull())
   })
 
   it('sends an unnamed save to the sidebar instead of inventing a name', async () => {

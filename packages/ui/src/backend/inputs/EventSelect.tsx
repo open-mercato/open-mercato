@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { EventPayloadSchema } from '@open-mercato/shared/modules/events'
 import { apiCall } from '../utils/apiCall'
 import {
   Select,
@@ -26,6 +27,7 @@ export interface EventDefinition {
   module?: string
   entity?: string
   excludeFromTriggers?: boolean
+  payloadSchema?: EventPayloadSchema
 }
 
 export interface EventSelectProps {

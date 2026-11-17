@@ -9,6 +9,7 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { KanbanBoard, TASK_STATUS_CHANGED_EVENT } from '../KanbanBoard'
+import { SUPPORT_ACTIVITY_EVENT } from '../supportTicketData'
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111'
 const BACKLOG_ID = '22222222-2222-4222-8222-222222222222'
@@ -692,5 +693,28 @@ describe('KanbanBoard', () => {
 
     expect(invalidateSpy.mock.calls.length).toBe(callsAfterOwnMove)
     expect(cardIn(container, IN_PROGRESS_ID, TASK_ID)).not.toBeNull()
+  })
+
+  it('refreshes the unassigned count when a support ticket lands on this project', async () => {
+    const { container, invalidateSpy } = renderBoard()
+    await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+    invalidateSpy.mockClear()
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('om:event', {
+          detail: {
+            id: SUPPORT_ACTIVITY_EVENT,
+            timestamp: Date.now(),
+            organizationId: 'org-1',
+            payload: { taskId: 'task-new', projectId: PROJECT_ID },
+          },
+        }),
+      )
+    })
+
+    const invalidatedKeys = invalidateSpy.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey ?? []))
+    expect(invalidatedKeys.some((key) => key.includes('unassigned-count'))).toBe(true)
+    expect(invalidatedKeys.some((key) => key.includes('column'))).toBe(true)
   })
 })

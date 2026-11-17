@@ -65,6 +65,25 @@ export type CarrierShipmentRow = {
   tenantId: string
 }
 
+export async function insertCarrierShipmentInDb(input: {
+  id: string
+  orderId: string
+  providerKey: string
+  carrierShipmentId: string
+  organizationId: string
+  tenantId: string
+}): Promise<void> {
+  await withClient(async (client) => {
+    await client.query(
+      `insert into carrier_shipments
+        (id, order_id, provider_key, carrier_shipment_id, tracking_number, unified_status,
+         organization_id, tenant_id, created_at, updated_at)
+       values ($1, $2, $3, $4, $4, 'label_created', $5, $6, now(), now())`,
+      [input.id, input.orderId, input.providerKey, input.carrierShipmentId, input.organizationId, input.tenantId],
+    )
+  })
+}
+
 /** Forces a shipment's `unified_status` to a specific value (e.g. `in_transit`). */
 export async function setCarrierShipmentStatusInDb(shipmentId: string, status: string): Promise<void> {
   await withClient(async (client) => {
@@ -129,5 +148,24 @@ export async function deleteCarrierShipmentIdempotencyByKeyInDb(idempotencyKey: 
   if (!idempotencyKey) return
   await withClient(async (client) => {
     await client.query('delete from carrier_shipment_idempotency_keys where idempotency_key = $1', [idempotencyKey])
+  })
+}
+
+/** Whether the webhook worker has claimed (processed) a carrier event with this idempotency key. */
+export async function hasCarrierWebhookClaimInDb(idempotencyKey: string, providerKey: string): Promise<boolean> {
+  return withClient(async (client) => {
+    const result = await client.query(
+      'select 1 from carrier_webhook_events where idempotency_key = $1 and provider_key = $2 limit 1',
+      [idempotencyKey, providerKey],
+    )
+    return (result.rowCount ?? 0) > 0
+  })
+}
+
+/** Hard-deletes webhook claim rows for the given idempotency keys (best-effort test cleanup). */
+export async function deleteCarrierWebhookClaimsInDb(idempotencyKeys: string[]): Promise<void> {
+  if (idempotencyKeys.length === 0) return
+  await withClient(async (client) => {
+    await client.query('delete from carrier_webhook_events where idempotency_key = any($1::text[])', [idempotencyKeys])
   })
 }

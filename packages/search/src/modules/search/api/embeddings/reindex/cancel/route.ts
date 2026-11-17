@@ -8,6 +8,7 @@ import type { Kysely } from 'kysely'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { clearReindexLock } from '../../../../lib/reindex-lock'
 import { cancelReindexProgress } from '../../../../lib/reindex-progress'
+import { tryResolve } from '../../../../lib/tryResolve'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { embeddingsReindexCancelOpenApi } from '../../../openapi'
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = tryResolve<ProgressService>(container, 'progressService')
   const db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 
   let queue: Queue | undefined

@@ -1,9 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildWebhookHeaders, generateMessageId } from '@open-mercato/shared/lib/webhooks'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { emitWebhooksEvent } from '../events'
-import { enqueueWebhookDelivery } from './queue'
+import { enqueueWebhookDelivery, enqueueWebhookDeliveryFromJob } from './queue'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from './integration-state'
 import { sanitizeWebhookCustomHeaders } from './custom-headers'
 import {
@@ -11,6 +13,10 @@ import {
   safeWebhookFetch,
   UnsafeWebhookUrlError,
 } from './url-safety'
+import {
+  invalidateWebhookSubscriptionCacheFor,
+  type WebhookCacheDependencyResolver,
+} from './subscription-cache'
 
 export interface WebhookDeliveryJob {
   deliveryId: string
@@ -25,8 +31,16 @@ export interface CreateWebhookDeliveryInput {
   payload: Record<string, unknown>
 }
 
+const logger = createLogger('webhooks')
+
+const CLAIMABLE_DELIVERY_STATUSES: ReadonlySet<string> = new Set(['pending', 'sending'])
+const SENDING_LEASE_GRACE_MS = 15_000
+const CLAIM_RECHECK_MARGIN_MS = 1_000
+const RETRY_DUE_TOLERANCE_MS = 1_000
+
 type ProcessWebhookDeliveryOptions = {
   scheduleRetries?: boolean
+  resolver?: WebhookCacheDependencyResolver
 }
 
 type WebhookBody = {
@@ -82,6 +96,7 @@ export async function processWebhookDeliveryJob(
   })
 
   if (!delivery) return null
+  if (!CLAIMABLE_DELIVERY_STATUSES.has(delivery.status)) return null
 
   const webhook = await findOneWithDecryption(
     em,
@@ -96,6 +111,32 @@ export async function processWebhookDeliveryJob(
     { tenantId: job.tenantId, organizationId: job.organizationId },
   )
 
+  const claimedAt = new Date()
+  const leaseMs = (webhook?.timeoutMs ?? 0) + SENDING_LEASE_GRACE_MS
+  const claimed = await claimWebhookDelivery(em, delivery, claimedAt, leaseMs)
+  if (!claimed) {
+    if (options.scheduleRetries !== false) {
+      const retryDueInMs = (delivery.nextRetryAt?.getTime() ?? 0) - claimedAt.getTime()
+      await scheduleWebhookDeliveryClaimRecheck(job, Math.max(leaseMs, retryDueInMs))
+    }
+    return null
+  }
+
+  try {
+    return await processClaimedWebhookDelivery(em, delivery, webhook, options, claimedAt)
+  } catch (error) {
+    await releaseWebhookDeliveryClaim(em, delivery, claimedAt)
+    throw error
+  }
+}
+
+async function processClaimedWebhookDelivery(
+  em: EntityManager,
+  delivery: WebhookDeliveryEntity,
+  webhook: WebhookEntity | null,
+  options: ProcessWebhookDeliveryOptions,
+  claimedAt: Date,
+): Promise<{ status: string; deliveryId: string }> {
   if (!webhook) {
     delivery.status = 'failed'
     delivery.errorMessage = 'Webhook not found'
@@ -139,7 +180,7 @@ export async function processWebhookDeliveryJob(
   const bodyPayload = normalizeWebhookBody(delivery.eventType, delivery.payload)
   delivery.payload = bodyPayload
   delivery.status = 'sending'
-  delivery.lastAttemptAt = new Date()
+  delivery.lastAttemptAt = claimedAt
   delivery.errorMessage = null
   await em.flush()
 
@@ -211,6 +252,7 @@ export async function processWebhookDeliveryJob(
       delivery,
       canRetry: shouldRetryStatus(response.status),
       scheduleRetries: options.scheduleRetries !== false,
+      resolver: options.resolver,
       fallbackMessage: `HTTP ${response.status}`,
     })
 
@@ -254,6 +296,7 @@ export async function processWebhookDeliveryJob(
       delivery,
       canRetry: true,
       scheduleRetries: options.scheduleRetries !== false,
+      resolver: options.resolver,
       fallbackMessage: delivery.errorMessage,
     })
 
@@ -270,6 +313,61 @@ export async function processWebhookDeliveryJob(
 
     return { status: delivery.status, deliveryId: delivery.id }
   }
+}
+
+async function claimWebhookDelivery(
+  em: EntityManager,
+  delivery: WebhookDeliveryEntity,
+  claimedAt: Date,
+  leaseMs: number,
+): Promise<boolean> {
+  const staleSendingBefore = new Date(claimedAt.getTime() - leaseMs)
+  const retryDueBy = new Date(claimedAt.getTime() + RETRY_DUE_TOLERANCE_MS)
+  const affected = await em.nativeUpdate(
+    WebhookDeliveryEntity,
+    {
+      id: delivery.id,
+      tenantId: delivery.tenantId,
+      organizationId: delivery.organizationId,
+      $or: [
+        { status: 'pending', nextRetryAt: null },
+        { status: 'pending', nextRetryAt: { $lte: retryDueBy } },
+        { status: 'sending', lastAttemptAt: { $lt: staleSendingBefore } },
+      ],
+    },
+    { status: 'sending', lastAttemptAt: claimedAt, errorMessage: null, updatedAt: claimedAt },
+  )
+  return affected > 0
+}
+
+async function releaseWebhookDeliveryClaim(
+  em: EntityManager,
+  delivery: WebhookDeliveryEntity,
+  claimedAt: Date,
+): Promise<void> {
+  try {
+    await em.nativeUpdate(
+      WebhookDeliveryEntity,
+      {
+        id: delivery.id,
+        tenantId: delivery.tenantId,
+        organizationId: delivery.organizationId,
+        status: 'sending',
+        lastAttemptAt: claimedAt,
+      },
+      { status: 'pending', updatedAt: new Date() },
+    )
+  } catch (error) {
+    logger.error('Failed to release webhook delivery claim', { deliveryId: delivery.id, err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'webhooks', code: 'webhooks.delivery_claim_release_failed' })
+  }
+}
+
+async function scheduleWebhookDeliveryClaimRecheck(job: WebhookDeliveryJob, waitMs: number): Promise<void> {
+  await enqueueWebhookDeliveryFromJob(
+    { deliveryId: job.deliveryId, tenantId: job.tenantId, organizationId: job.organizationId },
+    waitMs + CLAIM_RECHECK_MARGIN_MS,
+  )
 }
 
 type RecordWebhookSafetyFailureInput = {
@@ -318,6 +416,7 @@ type HandleFailedDeliveryInput = {
   canRetry: boolean
   scheduleRetries: boolean
   fallbackMessage: string
+  resolver?: WebhookCacheDependencyResolver
 }
 
 async function handleFailedDelivery(input: HandleFailedDeliveryInput): Promise<void> {
@@ -364,17 +463,19 @@ async function handleFailedDelivery(input: HandleFailedDeliveryInput): Promise<v
     })
   }
 
+  await input.em.flush()
+
   if (webhook.autoDisableThreshold > 0 && webhook.consecutiveFailures >= webhook.autoDisableThreshold) {
     webhook.isActive = false
+    await input.em.flush()
     await emitWebhooksEvent('webhooks.webhook.disabled', {
       webhookId: webhook.id,
       organizationId: webhook.organizationId,
       tenantId: webhook.tenantId,
       consecutiveFailures: webhook.consecutiveFailures,
     })
+    await invalidateWebhookSubscriptionCacheFor(input.resolver, webhook.tenantId)
   }
-
-  await input.em.flush()
 }
 
 function normalizeWebhookBody(eventType: string, payload: Record<string, unknown>): WebhookBody {

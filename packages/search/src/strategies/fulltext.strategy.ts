@@ -6,11 +6,13 @@ import type {
   IndexableRecord,
 } from '../types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { plaintextSearchFields } from '../lib/plaintext-fields'
 import type {
   FullTextSearchDriver,
   FullTextSearchDocument,
   FullTextSearchHit,
   DocumentLookupKey,
+  ListDocumentIdsOptions,
   IndexStats,
 } from '../fulltext/types'
 
@@ -34,6 +36,7 @@ export class FullTextSearchStrategy implements SearchStrategy {
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    if (options.indexDocFilter) return []
     if (Array.isArray(options.organizationIds)) {
       const organizationIds = options.organizationIds
         .map((value) => (typeof value === 'string' ? value.trim() : ''))
@@ -75,11 +78,48 @@ export class FullTextSearchStrategy implements SearchStrategy {
     return this.driver.bulkIndex(docs)
   }
 
+  /**
+   * Whether one entity's documents (optionally one organization's) can be removed without
+   * touching the rest of the tenant index: natively through `driver.purge`, or by enumerating
+   * them with `driver.listDocumentIds` and deleting them one by one.
+   */
+  canPurge(): boolean {
+    return typeof this.driver.purge === 'function' || typeof this.driver.listDocumentIds === 'function'
+  }
+
   async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {
-    if (!this.driver.purge) {
+    if (this.driver.purge) {
+      return this.driver.purge(entityId, tenantId, organizationId)
+    }
+    if (!this.driver.listDocumentIds) {
       return
     }
-    return this.driver.purge(entityId, tenantId, organizationId)
+    const recordIds = await this.listAllDocumentIds(entityId, tenantId, organizationId ?? null)
+    for (const recordId of recordIds) {
+      await this.driver.delete(recordId, tenantId)
+    }
+  }
+
+  private async listAllDocumentIds(
+    entityId: EntityId,
+    tenantId: string,
+    organizationId: string | null,
+  ): Promise<string[]> {
+    const listDocumentIds = this.driver.listDocumentIds
+    if (!listDocumentIds) return []
+    const pageSize = 1000
+    const recordIds = new Set<string>()
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await listDocumentIds.call(this.driver, entityId, tenantId, {
+        offset,
+        limit: pageSize,
+        organizationId,
+      })
+      const knownCount = recordIds.size
+      for (const recordId of page) recordIds.add(recordId)
+      if (page.length < pageSize || recordIds.size === knownCount) break
+    }
+    return [...recordIds]
   }
 
   // Additional methods exposed for enrichment and admin purposes
@@ -131,6 +171,17 @@ export class FullTextSearchStrategy implements SearchStrategy {
     return this.driver.getEntityCounts(tenantId)
   }
 
+  async listDocumentIds(
+    entityId: EntityId,
+    tenantId: string,
+    options?: ListDocumentIdsOptions
+  ): Promise<string[] | null> {
+    if (!this.driver.listDocumentIds) {
+      return null
+    }
+    return this.driver.listDocumentIds(entityId, tenantId, options)
+  }
+
   get driverId(): string {
     return this.driver.id
   }
@@ -155,7 +206,7 @@ export class FullTextSearchStrategy implements SearchStrategy {
       entityId: record.entityId,
       tenantId: record.tenantId,
       organizationId: record.organizationId,
-      fields: record.fields,
+      fields: plaintextSearchFields(record),
       presenter: record.presenter,
       url: record.url,
       links: record.links,

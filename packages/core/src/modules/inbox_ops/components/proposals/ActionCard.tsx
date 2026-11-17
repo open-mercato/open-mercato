@@ -31,7 +31,7 @@ export function useDiscrepancyDescriptions(): (description: string, foundValue?:
   const t = useT()
   const translations: Record<string, string> = {
     'inbox_ops.discrepancy.desc.no_channel': t('inbox_ops.discrepancy.desc.no_channel', 'No sales channel available. Create a channel in Sales settings before accepting this order.'),
-    'inbox_ops.discrepancy.desc.no_currency': t('inbox_ops.discrepancy.desc.no_currency', 'No currency could be resolved for this order. Set a currency code or configure a sales channel with a default currency.'),
+    'inbox_ops.discrepancy.desc.no_currency': t('inbox_ops.discrepancy.desc.no_currency', 'No currency could be resolved for this order. Set a currency code on the order.'),
     'inbox_ops.discrepancy.desc.product_not_matched': t('inbox_ops.discrepancy.desc.product_not_matched', 'Product could not be matched to any catalog product'),
     'inbox_ops.discrepancy.desc.no_matching_contact': t('inbox_ops.discrepancy.desc.no_matching_contact', 'No matching contact found'),
     'inbox_ops.discrepancy.desc.draft_reply_no_contact': t('inbox_ops.discrepancy.desc.draft_reply_no_contact', 'Draft reply target has no matching contact. Create the contact first.'),

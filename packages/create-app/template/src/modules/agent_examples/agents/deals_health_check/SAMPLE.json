@@ -1,0 +1,11 @@
+{
+  "deal": {
+    "id": "demo-deal-1",
+    "name": "Acme Corp — Enterprise plan",
+    "stage": "Proposal",
+    "value": 48000,
+    "probability": 0.65,
+    "daysInStage": 12,
+    "recentActivity": "Sent revised pricing; awaiting procurement sign-off."
+  }
+}
