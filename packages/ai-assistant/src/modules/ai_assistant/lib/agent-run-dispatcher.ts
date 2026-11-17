@@ -43,7 +43,11 @@ export interface AiAgentRunDispatcher {
   runObject(input: AiAgentRunDispatchInput): Promise<AiAgentRunDispatchResult>
 }
 
-export type AiAgentDispatchDeniedCode = 'agent_invoke_denied' | 'agent_principal_missing'
+/**
+ * `agent_call_settings_unsupported`: the request carried call-time model settings the
+ * agent's runtime cannot apply (an Agent Orchestrator agent on OpenCode).
+ */
+export type AiAgentDispatchDeniedCode = 'agent_invoke_denied' | 'agent_principal_missing' | 'agent_call_settings_unsupported'
 
 export class AiAgentDispatchDeniedError extends Error {
   readonly code: AiAgentDispatchDeniedCode

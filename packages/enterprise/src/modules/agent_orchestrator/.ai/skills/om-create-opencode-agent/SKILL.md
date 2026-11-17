@@ -192,6 +192,13 @@ itself at the top level — do NOT wrap it in a `data` key (the runtime wraps it
   JSON-serializable object — synchronous, pure, no side effects.
 - **Sample input (optional):** `agents/<folder>/SAMPLE.json` — pure JSON of one run input; powers
   the Playground "Insert sample" button.
+- **Governance (optional):** `agents/<folder>/GOVERNANCE.json` — `{ "principal"?, "integrity"?,
+  "untrustedInputs"?, "modelSettings"? }`, the same shapes `defineAgent` takes (integrity paths
+  are relative to the result envelope, e.g. `data.findings[*].id`). `yarn generate` fails on an
+  unknown key or bad JSON; the loader refuses to register an agent whose declaration does not
+  validate, and an artifact (OpenCode) agent may not declare `untrustedInputs`, `modelSettings`,
+  a principal in `intersect` mode (declared, or the `OM_AGENT_TOOL_ACL_MODE` default) or an
+  `enforce: "prepare_step"` rule.
 
 Keep `tsconfig.json` `exclude` covering `agents/**/scripts/**` + `agents/**/tools/**` so `tsc`
 does not type-check loose sandbox sources (see `apps/mercato/tsconfig.json`).

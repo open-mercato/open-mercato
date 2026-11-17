@@ -584,6 +584,20 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
       expect((await response.json()).code).toBe('agent_principal_missing')
     })
 
+    it('maps call settings the agent runtime cannot apply to 422 dispatch_option_unsupported', async () => {
+      seedNativeAoAgent()
+      const dispatcher = makeDispatcher()
+      dispatcher.runObject.mockRejectedValueOnce(new AiAgentDispatchDeniedError('agent_call_settings_unsupported', AO_AGENT))
+      containerDispatcher = dispatcher
+
+      const response = await postAgent(undefined, { callSettings: { temperature: 0 } })
+
+      expect(response.status).toBe(422)
+      const body = await response.json()
+      expect(body.code).toBe('dispatch_option_unsupported')
+      expect(body.error).not.toContain(AO_AGENT)
+    })
+
     it('returns 409 without dispatching when the caller has no tenant scope', async () => {
       seedNativeAoAgent()
       const dispatcher = makeDispatcher()

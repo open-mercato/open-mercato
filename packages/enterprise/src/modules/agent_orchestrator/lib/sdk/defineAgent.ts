@@ -316,9 +316,9 @@ export interface AgentRegistryEntry {
 
 const registry = new Map<string, AgentRegistryEntry>()
 
-function parseAgentModelSettings(
+export function parseAgentModelSettings(
   agentId: string,
-  modelSettings: AiAgentCallSettings | undefined,
+  modelSettings: unknown,
 ): AiAgentCallSettings | undefined {
   if (modelSettings === undefined) return undefined
   const parsed = aiAgentCallSettingsSchema.safeParse(modelSettings)
@@ -647,6 +647,8 @@ async function loadFileAgents(): Promise<void> {
     })
     return null
   })
+  const { applyFileAgentGovernance } = await import('./fileAgentGovernance')
+  const listOpenCodeUnsupportedGovernance = await loadOpenCodeGovernanceCheck()
   const isMutationTool = await loadMutationToolPredicate()
   // Flatten each descriptor's nested sub-agents (Phase 4) so they register as
   // individual file agents too: they are researcher, individually runnable, and
@@ -713,6 +715,9 @@ async function loadFileAgents(): Promise<void> {
         tokenUsage: descriptor.tokenUsage,
         sourceFiles: descriptor.sourceFiles,
       }
+      applyFileAgentGovernance(entry, descriptor.governance, {
+        hasSkills: (descriptor.skillsContent?.length ?? 0) > 0,
+      })
       entry.runtime = nativeSupport ? nativeSupport.resolveFileAgentRuntime(entry) : 'opencode'
       let definition: AiAgentDefinition | null = null
       if (nativeSupport && entry.runtime === 'native') {
@@ -727,6 +732,7 @@ async function loadFileAgents(): Promise<void> {
           entry.runtime = 'opencode'
         }
       }
+      if (entry.runtime === 'opencode' && !canRunOnOpenCode(entry, listOpenCodeUnsupportedGovernance)) continue
       registerFileAgent(entry)
       if (definition) nativeDefinitions.push({ entry, definition })
       // Phase 3: register the agent's resolved skill content into the runtime
@@ -765,11 +771,47 @@ async function registerNativeFileAgentDefinitions(
       error: err instanceof Error ? err.message : String(err),
     })
   }
+  const listOpenCodeUnsupportedGovernance = await loadOpenCodeGovernanceCheck()
   for (const { entry } of nativeDefinitions) {
     if (registeredIds.has(entry.id)) continue
+    if (!canRunOnOpenCode(entry, listOpenCodeUnsupportedGovernance)) {
+      registry.delete(entry.id)
+      const { registerAgentSkills } = await import('../runtime/fileAgentSkills')
+      registerAgentSkills(entry.id, [])
+      continue
+    }
     logger.warn('file agent could not run natively; keeping it on OpenCode', { agentId: entry.id })
     entry.runtime = 'opencode'
   }
+}
+
+/**
+ * The OpenCode governance check, resolving a principal's tool ACL mode the way
+ * the runtime does (declared `toolAcl`, else `OM_AGENT_TOOL_ACL_MODE`), so a
+ * deployment-wide `intersect` default is not silently widened on OpenCode.
+ */
+async function loadOpenCodeGovernanceCheck(): Promise<(entry: AgentRegistryEntry) => string[]> {
+  const { listOpenCodeUnsupportedGovernance } = await import('./fileAgentGovernance')
+  const { resolveToolAclMode } = await import('../identity/resolveEffectiveToolAcl')
+  return (entry) => listOpenCodeUnsupportedGovernance(entry, resolveToolAclMode)
+}
+
+/**
+ * Fail closed when a file agent that must stay on, or falls back to, OpenCode
+ * declares governance OpenCode cannot honour: the agent is not registered (or is
+ * removed again), because running it there would silently drop the declaration.
+ */
+function canRunOnOpenCode(
+  entry: AgentRegistryEntry,
+  listUnsupported: (entry: AgentRegistryEntry) => string[],
+): boolean {
+  const unsupported = listUnsupported(entry)
+  if (unsupported.length === 0) return true
+  logger.warn('file agent declares governance the OpenCode runtime cannot enforce; skipping registration', {
+    agentId: entry.id,
+    unsupported,
+  })
+  return false
 }
 
 /**

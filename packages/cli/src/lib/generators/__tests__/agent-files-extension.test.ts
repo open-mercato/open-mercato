@@ -339,6 +339,78 @@ describe('createAgentFilesExtension', () => {
     ).toThrow(/malformed FACTS\.json/)
   })
 
+  it('emits an agent GOVERNANCE.json into the manifest as governance', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    const governance = {
+      principal: { roleFeatures: ['customers.deals.view'], toolAcl: 'intersect' },
+      untrustedInputs: [{ label: 'Notes', path: 'deal.notes' }],
+      modelSettings: { temperature: 0 },
+    }
+    fs.writeFileSync(path.join(agentDir, 'GOVERNANCE.json'), JSON.stringify(governance), 'utf8')
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts'),
+      'utf8',
+    )
+    expect(manifest).toContain(
+      'governance: {"principal":{"roleFeatures":["customers.deals.view"],"toolAcl":"intersect"},"modelSettings":{"temperature":0},"untrustedInputs":[{"label":"Notes","path":"deal.notes"}]}',
+    )
+    expect(manifest).toContain('export type FileAgentGovernance')
+    expect(manifest).toContain('"path":"GOVERNANCE.json"')
+  })
+
+  it('omits governance when GOVERNANCE.json is an empty object', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(path.join(agentDir, 'GOVERNANCE.json'), '{}', 'utf8')
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts'),
+      'utf8',
+    )
+    expect(manifest).not.toContain('governance: {')
+  })
+
+  it.each([
+    ['an unknown key', { allowedActions: [] }, /unknown key "allowedActions"/],
+    ['a non-array integrity', { integrity: { id: 'x' } }, /"integrity" must be an array/],
+    ['a non-object principal', { principal: ['customers.deals.view'] }, /"principal" must be an object/],
+    ['a top-level array', [], /expected a JSON object/],
+  ])('fails generation on a GOVERNANCE.json with %s', (_label, content, message) => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(path.join(agentDir, 'GOVERNANCE.json'), JSON.stringify(content), 'utf8')
+
+    const extension = createAgentFilesExtension()
+    expect(() =>
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+    ).toThrow(message)
+  })
+
+  it('fails generation on a GOVERNANCE.json that is not valid JSON', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(path.join(agentDir, 'GOVERNANCE.json'), '{ principal: ', 'utf8')
+
+    const extension = createAgentFilesExtension()
+    expect(() =>
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+    ).toThrow(/malformed GOVERNANCE\.json/)
+  })
+
   it('fails generation on a malformed agent dir (missing OUTCOME.md)', () => {
     const fixture = makeRepoFixture()
     repoRoot = fixture.repoRoot

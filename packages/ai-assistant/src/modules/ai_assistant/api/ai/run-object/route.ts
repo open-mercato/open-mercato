@@ -182,6 +182,10 @@ function hasUnsupportedDispatchOption(body: AiRunObjectRequest): boolean {
   return Boolean(body.attachmentIds?.length) || body.pageContext !== undefined || Boolean(body.modelOverride)
 }
 
+function unsupportedDispatchOptionResponse(): NextResponse {
+  return jsonError(422, 'This agent does not support the requested options.', 'dispatch_option_unsupported')
+}
+
 function principalMissingResponse(): NextResponse {
   return jsonError(409, 'No principal is available to run this agent.', 'agent_principal_missing')
 }
@@ -211,7 +215,7 @@ async function dispatchRunObject(params: {
     return jsonError(404, `Agent "${agentId}" is not registered.`, 'agent_unknown')
   }
   if (hasUnsupportedDispatchOption(body)) {
-    return jsonError(422, 'This agent does not support the requested options.', 'dispatch_option_unsupported')
+    return unsupportedDispatchOptionResponse()
   }
   const caller = buildDispatchCaller(auth, acl)
   if (!caller) return principalMissingResponse()
@@ -236,6 +240,7 @@ async function dispatchRunObject(params: {
   } catch (error) {
     if (isAiAgentDispatchDeniedError(error)) {
       if (error.code === 'agent_principal_missing') return principalMissingResponse()
+      if (error.code === 'agent_call_settings_unsupported') return unsupportedDispatchOptionResponse()
       return jsonError(403, 'Access to this agent is denied.', 'agent_features_denied')
     }
     throw error

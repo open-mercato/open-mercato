@@ -739,6 +739,7 @@
   "agent_orchestrator.files.fileCount": "파일 {count}개",
   "agent_orchestrator.files.fileDefined": "파일로 정의됨",
   "agent_orchestrator.files.filter": "파일 검색…",
+  "agent_orchestrator.files.governance": "거버넌스",
   "agent_orchestrator.files.lines": "줄",
   "agent_orchestrator.files.loading": "파일을 불러오는 중…",
   "agent_orchestrator.files.noMatches": "필터와 일치하는 파일이 없습니다.",
