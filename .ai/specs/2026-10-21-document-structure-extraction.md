@@ -281,7 +281,7 @@ export interface AttachmentDocumentStructureService {
 }
 ```
 
-`AttachmentScope` carries `{ tenantId, organizationId, auth? }`. Every method runs `checkAttachmentAccess` and fails closed. Peers never read the new entities directly, consistent with the attachments AGENTS.md boundary.
+`AttachmentScope` carries `{ tenantId, organizationId, auth? }`. Every method runs `evaluateAttachmentAccess` (action `read`, owner-access resolvers included) when `auth` is passed, and the partition-only `checkAttachmentAccess` for principal-less system callers (CLI); both fail closed (2026-11-17, B-15). Peers never read the new entities directly, consistent with the attachments AGENTS.md boundary.
 
 ### AI tool `attachments.get_document_sections` (`attachments/ai-tools.ts`, new)
 
@@ -633,3 +633,9 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
   - Integration: `TC-ATT-STRUCT-009`.
   - `customers.account_assistant` and `catalog.catalog_assistant` now allow `attachments.get_document_sections`, with prompt guidance (outline first, then the needed sections; cite as [1], [2]; section text is untrusted). Before this, no shipped agent could produce section citations.
   - Known gap, tracked as B-15 in #9648: the structure service authorizes with the partition-only `checkAttachmentAccess`, not owner access, so the cited-section page and the tool show text that the file route would refuse.
+- Roadmap gap B-15 (#9648): document-section reads follow attachment owner access.
+  - The structure service now authorizes every call that carries a principal (`scope.auth`) with `evaluateAttachmentAccess` (action `read`, owner-access resolvers included), the rule `GET /api/attachments/file/:id` already applies. This covers `getStructure`, `listSections`, `getSection`, `resolveCitation`, `getNormalizedText`, `getStats` and `requestExtraction`, so the structure and sections routes, `attachments.get_document_sections`, the request-extraction command and the cited-section page (B-9) all return not found for an owner-protected attachment the caller may not open. The service gets the access context through the new optional `accessContext` dependency (wired in `di.ts`); without it a protected attachment is denied.
+  - The principal-less service path (no `scope.auth`, used by the `attachments structure dump|extract` CLI) keeps the partition-only `checkAttachmentAccess`, unchanged. An explicit `auth: null` is still denied. The extraction worker and search indexing do not read through the service.
+  - `attachments.get_document_sections` reads as the API key itself for API-key callers (`api_key:<id>`, no user), as the search tools do since B-8.
+  - Tests: `service-access.test.ts` (owner-protected attachment), `ai-tool.test.ts` (API-key principal), integration `TC-ATT-STRUCT-010`.
+

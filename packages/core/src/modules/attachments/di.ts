@@ -27,6 +27,7 @@ export function register(container: AppContainer) {
       createAttachmentDocumentStructureService({
         em,
         enqueue: (input) => enqueueDocumentStructureExtraction(container, input),
+        accessContext,
       }),
     )
       .scoped()

@@ -51,6 +51,7 @@ Verified on `main` (`71cf6e269`). Outside the attachments module, these paths re
 | Other `catalog/*` readers, `ecommerce/*`, `forms/api/[id]/theme-logo`, `eudr/*`, `sync-akeneo`, warranty portal, `staff` portal support-ticket attachments (`api/portal/support-tickets/[id]/attachments`, `lib/support/portalAttachments.ts`), `documents/commands/attachments.ts` | No — filtered to their own owner entity or record | None |
 | `sync_excel/api/import` and other `sync_excel/*` readers | No — read the server-held `attachmentId` of the import's own upload preview | None |
 | Enterprise `agent_orchestrator/lib/runtime/attachmentStager.ts` | Yes | Enterprise follow-up; reported as unguarded by Phase 2 |
+| `attachments/lib/documentStructure/service.ts` (structure and sections routes, `attachments.get_document_sections`, cited-section page; agent-platform branch only) | Yes | Evaluates `read` with `evaluateAttachmentAccess` for callers with a principal since B-15 (#9648); the principal-less CLI path keeps the partition check |
 
 Readers marked "None" select rows by their primary `entity_id`, or, like `sync_excel`, by an id the server stored for its own record, so they never return a row whose primary owner is protected. A row whose primary owner is unprotected but which also carries an assignment to a protected record stays protected on the attachment routes only; its file is already visible to its primary owner's audience.
 
