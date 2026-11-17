@@ -206,18 +206,18 @@ async function assertTaskBelongsToProject(
   task: StaffTimeTask | null,
   projectId: string | null,
 ): Promise<void> {
-  if (timeEntryTaskMatchesProject(task, projectId)) return
+  if (!task || task.timeProjectId === projectId) return
   const { translate } = await resolveTranslations()
   const message = translate('staff.timesheets.errors.taskNotFound', 'Task not found or not accessible.')
   throw new CrudHttpError(422, { error: message, fieldErrors: { taskId: message } })
 }
 
 /**
- * The rule the assertion above enforces, as a predicate: a task belongs to
- * exactly one project, so an entry naming both must name the same one. Exported
- * because the grid bulk save validates a whole batch at once and answers with a
- * per-row error list rather than a thrown 422 — it reuses the rule and only
- * differs in how it reports a violation.
+ * Bulk-save predicate for checking a task against an explicitly resolved project.
+ * A missing project is accepted so bulk save can derive it from the task. The
+ * single-entry assertion above is stricter: a task requires its own project,
+ * including when a caller explicitly clears the project. Bulk save uses this
+ * predicate to collect per-row errors instead of throwing a 422.
  */
 export function timeEntryTaskMatchesProject(
   task: { timeProjectId?: string | null } | null | undefined,
@@ -1941,15 +1941,34 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
 
     // A task carries its project (screen 8), so re-pointing an entry at a task
     // moves the entry with it unless the request names a project explicitly.
-    const nextProjectId =
+    const requestedProjectId =
       parsed.timeProjectId !== undefined
         ? parsed.timeProjectId ?? null
         : task?.timeProjectId ?? entry.timeProjectId ?? null
+    // The request id is compared through the stored row, as create does: Postgres
+    // matches a uuid in any letter case, so the raw string can differ from the
+    // stored id while naming the same project.
+    const requestedProject =
+      requestedProjectId !== (entry.timeProjectId ?? null)
+        ? await requireTimeProjectInScope(em, requestedProjectId, entry.tenantId, entry.organizationId)
+        : null
+    const nextProjectId = requestedProjectId === null ? null : requestedProject?.id ?? entry.timeProjectId ?? null
     const projectChanged = nextProjectId !== (entry.timeProjectId ?? null)
-    const project = projectChanged
-      ? await requireTimeProjectInScope(em, nextProjectId, entry.tenantId, entry.organizationId)
-      : null
+    const project = projectChanged ? requestedProject : null
     await assertTaskBelongsToProject(task, nextProjectId)
+    const storedTaskLeftBehind =
+      parsed.taskId === undefined && project && entry.taskId
+        ? !timeEntryTaskMatchesProject(
+            await findOneWithDecryption(
+              em,
+              StaffTimeTask,
+              { id: entry.taskId, tenantId: entry.tenantId, organizationId: entry.organizationId },
+              undefined,
+              { tenantId: entry.tenantId, organizationId: entry.organizationId },
+            ),
+            project.id,
+          )
+        : false
 
     const settings = await readEntrySettings(ctx, entry.tenantId)
     const write: TimeEntryWriteAccess = {
@@ -2017,7 +2036,8 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       entry.timeProjectId = nextProjectId
       entry.rateCurrencyCode = project?.currencyCode ?? null
     }
-    if (parsed.taskId !== undefined) entry.taskId = task?.id ?? null
+    if (parsed.taskId !== undefined || parsed.timeProjectId === null) entry.taskId = task?.id ?? null
+    else if (storedTaskLeftBehind) entry.taskId = null
     if (parsed.customerId !== undefined) entry.customerId = parsed.customerId ?? null
     if (parsed.dealId !== undefined) entry.dealId = parsed.dealId ?? null
     if (parsed.orderId !== undefined) entry.orderId = parsed.orderId ?? null
