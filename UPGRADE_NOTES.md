@@ -8,6 +8,37 @@ Relation-option lookups now require the target entity's existing read authority,
 
 Module authors querying a table with neither `tenant_id` nor `organization_id` must explicitly use the existing trusted `omitAutomaticTenantOrgScope: true` option and enforce their own visibility filters. Never bind that option to a request parameter. Operators should review metadata-only roles that relied on excessive access and audit unintended secret or cross-tenant reads. No persisted data, migrations, startup options or configuration formats change. The security exception needs named human-maintainer acknowledgment before merge; automation does not supply it. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
 
+## Catalog price-kind seed keeps existing price kinds (#8104)
+
+`seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
+`seed:defaults` now only create a missing `regular` or `sale` price kind and no
+longer change existing price kinds. On tenants with several organizations,
+`regular`/`sale` keep their current `organization_id` instead of moving to the
+organization being seeded (relevant to `sales/api/price-kinds`, which filters by
+organization). A soft-deleted `regular` or `sale` is not restored, so restore it
+before `mercato catalog seed-examples` or `seed-examples-bundle`.
+
+A kind an admin deleted can be undone from the action log. Kinds soft-deleted by
+earlier seed runs have no action-log entry and cannot be recreated through the API
+(the `(tenant_id, code)` constraint covers deleted rows). Find them first, matching
+`deleted_at` to the times `seed:defaults` ran:
+
+```sql
+select id, code, title, is_active, deleted_at from catalog_price_kinds
+where tenant_id = '<tenant>' and deleted_at is not null;
+```
+
+Then restore each one:
+
+```sql
+update catalog_price_kinds set deleted_at = null, is_active = true, updated_at = now()
+where tenant_id = '<tenant>' and code = '<code>';
+```
+
+The earlier active state is unknown, so check `is_active` after restoring. The SQL
+bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
+afterwards. No migration is needed.
+
 ## Event-triggered workflow execution identity (#9137)
 
 Event payload `userId` and `actorUserId` remain data and no longer supply
@@ -848,6 +879,18 @@ continue to omit the bundled Traefik overlay; their base-file port mappings
 are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
+
+### Search sources no longer receive the plaintext of encrypted custom fields (#7872)
+
+`SearchIndexer` and the exported opt-in `VectorIndexService` now leave custom fields whose definition is `encrypted` out of the records and custom fields they hand to search sources (`buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`), including records a source loads through `ctx.queryEngine`. Before, the customers Company and Person sources wrote such values into their search text, which the vector strategy sends to the embedding provider and stores with the vector document, and any source could copy them into the presenter or links stored in the fulltext and vector indexes. The record fields an index receives (`IndexableRecord.fields`) are unchanged so the hashed `search_tokens` index still covers encrypted custom fields. The `plaintextExcludedCustomFields` metadata added in #7894 separately keeps those values out of fulltext document fields and vector fallback text.
+
+A custom-field key declared `encrypted` by the record's tenant (or globally) is left out for every organization of that tenant, since a build context does not know which organization's definition applies. This follows the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: there is no deprecation window, because keeping the old context for a release would keep the plaintext flowing.
+
+**What stops working:** a search source that put an encrypted custom field into its text, presenter, URL or links no longer gets its value, so results stop matching or showing it. Either indexer constructed without the new `encryptedCustomFieldKeysResolver` option leaves out every custom field, encrypted or not; the `searchIndexer` resolved from DI is wired and keeps non-encrypted custom fields.
+
+**Action for module authors:** resolve `searchIndexer` from the container. If you construct `SearchIndexer` or `VectorIndexService` yourself, pass `encryptedCustomFieldKeysResolver: createEncryptedCustomFieldKeysResolver(em.getKysely())` (from `@open-mercato/search/di`). Do not read encrypted custom fields back into a source some other way.
+
+**Action for operators:** text, presenters and links indexed before the upgrade keep their values until their records are reindexed. If you declare encrypted custom fields on searchable entities, reindex those entities from the search settings page (or the vector and fulltext reindex routes) after upgrading. Values of such fields may already have been sent to the configured embedding provider and stored in the fulltext and vector indexes; treat them as disclosed to those services and apply your data-retention or deletion process to them.
 
 ### Canonical module origins and duplicate enabled IDs (#8309)
 
