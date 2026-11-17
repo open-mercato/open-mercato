@@ -30,8 +30,9 @@ general-ledger account, at minimum monthly, showing the opening
 balance, this period's turnover, cumulative turnover since the start
 of the fiscal year, and the closing balance, with the turnover figures
 required to reconcile against the journal (dziennik).
-This document adds that capability on top of #5663's already-reviewed
-schema, without touching it.
+This document proposes that capability on top of #5663. Coordinated
+schema, posting and account-writer changes are prerequisites; neither
+the core ledger nor those changes are implemented here.
 
 Target audience: the accountant persona already established by #5663's
 own User Stories (the same person who manages the chart of accounts
@@ -280,8 +281,9 @@ an open hot spot for exactly this report, and separately resolves
 (HS-08/09) that buffer/draft state lives in AP/AR, not `ledger`. This
 document reads only `JournalEntryLine` rows belonging to a posted
 `JournalEntry` — by construction, since nothing else exists in this
-schema — so it has zero dependency on AP/AR/JELD and can ship as soon
-as this document is approved. A future "include AP/AR drafts" toggle
+schema — so it has no dependency on AP/AR/JELD for draft entries. It
+cannot ship until the release prerequisites in this document pass.
+A future "include AP/AR drafts" toggle
 is a real, designed cross-module read this document does not attempt
 here; `2026-09-06-accounts-payable.md`'s Out of scope now carries a
 matching note (added 2026-09-09) that AP's own implementation is the
@@ -420,7 +422,14 @@ balances from `getAccountBalance`.
   cannot be added. `balanceInAccountCurrency` is returned only when the
   account has a `currencyId` and either is a leaf or every account in its
   subtree has the same `currencyId`; otherwise it is `null` (and so is
-  `currency`), while `balance` is returned as before.
+  `currency`), while `balance` is returned as before. For an as-of
+  balance, determine leaf status and currency eligibility using only
+  accounts effective on `asOf`; a future-effective child must not change
+  a past result. The analogous opening and closing classifications use
+  their respective boundary dates. Freeze `currencyId` from effective
+  start, including for an empty account, or provide verified dated values;
+  #5663's post-first-line freeze alone does not prove this. This
+  account-currency behavior remains Phase 2 pending human approval.
 - *Why the sum is well defined.* The GL core engine rejects a line on an
   account with a `currencyId` unless the line carries that currency
   (`postJournalEntry`, 422 `lineCurrencyDiffersFromAccount`) and freezes the
@@ -431,7 +440,7 @@ balances from `getAccountBalance`.
 
 | Alternative | Why Rejected |
 |-------------|---------------|
-| Maintain a running balance on `LedgerAccount` (or a new table), updated inside `postJournalEntry` | Touches the already-reviewed posting transaction for a performance need that isn't measured yet; a live query gets the same answer with zero write-path risk (see Design decisions) |
+| Maintain a running balance on `LedgerAccount` (or a new table), updated inside `postJournalEntry` | Adds a second financial aggregate for an unmeasured performance need; live queries still require the separately specified posting guards and their write-path review |
 | Restrict ZSiO/balance to leaf (analityk) accounts only, since #5663 never restricted posting to leaves | Would silently produce a wrong balance for any syntetyk account that also has direct postings — Phase 1 explicitly allows that (no leaf-only posting restriction exists yet), so the rollup must account for it |
 | Bundle Bilans/P&L into this same document, since the workshop wall lists them together | Fails the scope-cohesion test (Bilans/P&L depend on ZSiO, not vice versa) — bundling would make this document depend on statutory-mapping decisions that have nothing to do with whether account arithmetic is correct |
 | Include an AP/AR "bufor" toggle in Phase 1 | Real cross-module dependency this document would need AP/AR's draft-document shape to design against, and AP/AR's own draft/submitted states aren't built yet — deferred to Phase 2, with the cross-reference recorded in `2026-09-06-accounts-payable.md` |
@@ -646,7 +655,10 @@ wiring):
   scoped by tenant/organization, filtered to `operation_date < asOf +
   1 day` (UTC — Design decisions, "Every fiscal-period boundary here
   filters on the accounting date"), returns a single signed balance
-  (already normalized to the account's `normalBalance` side). Since
+  (already normalized to the account's `normalBalance` side). Its
+  coverage/authority checks, whole-scope integrity validation and balance
+  query also share the same scoped repeatable-read, read-only transaction
+  and database snapshot described for `getTrialBalance` below. Since
   2026-10-26 it also returns `balanceInAccountCurrency` and `currency` for
   an account with a `currencyId` (Design decisions, "Balance in the
   account's currency"; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not
@@ -659,11 +671,20 @@ wiring):
   opening/period-turnover/YTD-turnover/closing per account via
   conditional aggregation (Design decisions,
   "`getTrialBalance` computes every account's row in one set-based
-  pass") — not `getAccountBalance` called per account. Two results
-  come out of this call, from two independent queries:
+  pass") — not `getAccountBalance` called per account. Coverage and
+  authority checks, whole-scope integrity validation, period and fiscal
+  lookup, row/count aggregation and `zeroSumCheck` must run inside one
+  tenant/organization-scoped PostgreSQL `REPEATABLE READ READ ONLY`
+  transaction on the same connection and snapshot. No rows or totals may
+  be sent before every check succeeds. The authorities must be stored and
+  versioned in that same transactionally consistent database, or provide
+  a separately proven coherent snapshot contract; otherwise fail closed.
+  This per-request snapshot does not solve cross-page consistency, which
+  remains an independent release gate. Two results come out of this call
+  from two separate statements in that same snapshot:
   - `rows` (one `TrialBalanceRowDto` per account) — the per-account
     CTE result above, returned **page/pageSize-paginated**, ordered by
-    the account number (`LedgerAccount.number`), `pageSize` capped at 100
+    the account number and ID (`LedgerAccount.number`, `id`), `pageSize` capped at 100
     (default 100) — offset-based, matching `DataTable`'s actual
     pagination contract (`page`/`pageSize`/`total`/`totalPages`; the
     component has no cursor/keyset mode). This is the concrete answer
@@ -750,10 +771,13 @@ wiring):
 
 - nullable UUID `parentAccountId` FK to `ledger_accounts.id` (`ON DELETE RESTRICT`), `NULL` for a root, always in the child's tenant and organization. Never silently detach children when deleting a parent;
 - the parent column and `(organization_id, parent_account_id)` index do not establish historical ancestry. A scoped, externally evidenced and accounting-owner-attested baseline must establish a complete, acyclic chart and coverage date before reports are enabled. Existing rows defaulting to `NULL` are not evidence that they were historical roots. Unknown or unsupported history fails closed; never rewrite journal lines to invent it;
+- baseline evidence must establish that every relevant edge, root, effective start and historical signing/currency attribute remained unchanged over the entire claimed covered interval through the atomic activation point, not merely describe the tree at activation. An empty subtree moved during that interval is not exempt. Retain the evidence and a scope-bound, versioned attestation; if any interval, writer or attribute cannot be verified, exclude that history and return the coverage error rather than infer it from the current chart;
 - Phase 1 deliberately freezes every parent edge and root assignment from that baseline, including empty accounts. New accounts may select a same-scope eligible parent at creation, with an immutable accounting-effective start no earlier than verified coverage; reject posting before that start. Reject later reparent, clear-parent, parent deletion and any undo/restore path that would alter a frozen edge. Preserve historical accounts and ancestors for all covered reports; do not hard-delete a node or omit a posted archived node from rollups. Freeze account type and normal-balance attributes used for historical figures, or fail closed until their historical values are available. Future reparenting needs effective-dated ancestry and separately specified transfers across report boundaries;
 - a new account's parent must already exist and be effective for its entire covered lifetime. Historical account reads before that account's effective start return 404; trial-balance rows exclude accounts not effective by the requested period end. All covered journal lines must resolve to effective same-scope accounts and ancestors; an orphan, cycle, missing coverage or historical attribute makes the whole report fail closed, never a partial total. Display names and numbers are current report-snapshot metadata, not a claim of historical labels;
 - both reports require verified coverage for every date contributing to the requested figure, including the opening-balance date before a trial period. A date outside coverage returns `422 { error: 'hierarchy_history_unavailable' }`; an unavailable authority or detected corrupt covered chart returns 503 with no figures. Do not assume an opening of zero at the coverage boundary until the separate opening-entry policy proves it;
 - the entity, validators, account commands and API must enforce same-scope parents, acyclicity and eligible type/group before activation. Every chart activation, create, attempted reparent/clear/delete/restore/undo and other hierarchy mutation takes the same exclusive transaction-scoped PostgreSQL advisory lock keyed by trusted tenant and organization before checking frozen state and ancestry. All posting paths, including imports, retries and undo/redo, take a compatible shared lock before validating account coverage and hold it through commit or rollback. Specify one global order with fiscal-period and account locks across every writer; fail closed when the lock or coverage authority is unavailable. This is a coordinated #5663 posting/account compatibility change, not a read-only addition;
+- cutover must fence every legacy or unmanaged writer at the database boundary, drain in-flight transactions, acquire the exclusive scope lock, revalidate the full attested interval and current state, and publish the verified baseline, coverage and enforcement generation atomically in the same transaction. A process-level feature flag alone is insufficient. New and legacy readers fail closed until publication; if any writer cannot be fenced or evidence revalidated, abort activation and keep reports disabled. Rollback must retain the fence until a documented compatible state is restored; never reopen legacy writers while reports rely on frozen history;
+- coordinated writers acquire locks in this order: scope hierarchy lock first (shared for postings, exclusive for topology or activation), then the scoped fiscal-period lock required by #5663, then account and account-type row locks in a deterministic ID order. Period-boundary/lock and shared account-type writers must participate in the same order whenever they can affect these invariants. Do not enable until every import, reversal, retry, administrative, delete/restore and undo path, including independently deployed writers, demonstrably follows the protocol; no external call or backoff holds a database transaction open;
 - reads and ordering use the account business key `number` (formerly `slug`); `description` is the display name;
 - the parent column is additive, but the coverage and immutability guards change write behavior. Review staged migration, compatibility and mixed-version writer enforcement before activation.
 
@@ -829,8 +853,15 @@ disabled for the affected scope.
   `report_hierarchy_invalid`), or the enforced query deadline expired
   (`{ error: 'report_timeout' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
-  query is admitted without a valid shared decision; neither failure is
+  query is admitted without a valid shared decision; no failure is
   retried server-side.
+
+After authentication, feature authorization and syntactic validation,
+resolve the account in the trusted scope first (404 if absent or foreign),
+then validate coverage (422 if the date is outside it), then apply the
+effective-start check (404 if the date is covered but predates the
+account). This precedence avoids leaking foreign account existence and
+makes a date before both boundaries unambiguous.
 
 ### `GET /api/ledger/reports/trial-balance`
 
@@ -870,6 +901,15 @@ disabled for the affected scope.
   query is admitted without a valid shared decision; no failure is
   retried server-side.
 
+Account create/update/delete/restore and undo APIs must return a scoped
+`409 { error: 'hierarchy_frozen' }` for an edge-changing operation after
+activation, `422 { error: 'account_effective_date_invalid' }` for an
+invalid effective start, and `503 { error: 'hierarchy_authority_unavailable' }`
+when the guard cannot be checked. The account UI uses localized errors,
+keeps unsaved inputs where possible, and never displays a successful save
+for a rejected operation. Exact compatibility with #5663's existing API
+and undo contracts remains a reviewed rollout prerequisite.
+
 ## Internationalization (i18n)
 
 No new server-rendered or hard-coded copy. `trial-balance/page.tsx` and
@@ -895,6 +935,8 @@ existing flat, dot-namespaced key convention (e.g.
 - `ledger.reports.errors.hierarchyHistoryUnavailable` — shared localized
   explanation for reports outside verified hierarchy coverage; clear prior
   results and direct the user to an authorized accounting administrator.
+- `ledger.accounts.errors.{hierarchyFrozen,accountEffectiveDateInvalid,
+  hierarchyAuthorityUnavailable}` — account write and undo failure states.
 - `ledger.reports.balancePanel.{title,asOfLabel}` — the account-page
   panel.
 
@@ -1014,9 +1056,9 @@ top of the live query.
   and assert the parent's `getAccountBalance` includes the child's
   postings; then post directly to the parent too and assert both are
   summed without double-counting.
-- Assert `getAccountBalance(accountId, asOf)` for a date before any
-  entry exists returns zero, and that entries posted after `asOf` are
-  excluded.
+- Assert `getAccountBalance(accountId, asOf)` for a covered date on or
+  after the account's effective start but before any entry returns zero,
+  and that entries posted after `asOf` are excluded.
 - Balance in the account's currency (Design decisions, "Balance in the
   account's currency"; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)):
   - a foreign-currency account (`currencyId` EUR): debit EUR 100 and credit
@@ -1125,6 +1167,20 @@ top of the live query.
   rewriting journal lines. Verify account effective-start boundaries,
   including a child created after the queried date and a period spanning
   its creation; no pre-start post may appear.
+- Cutover and snapshot races: exercise a January A→B move of an empty
+  child before March activation with a claimed January baseline; reject
+  the unverifiable interval, including a late January post. Race legacy
+  and current writers, activation, rollback, account-type changes and
+  period locks across separate transactions; prove drain/fencing and the
+  common lock order. Pause after integrity validation while another
+  transaction creates an effective account and posts; rows, totals and
+  authority checks must remain from one snapshot or the response fails.
+  Test 404/422 precedence, write errors and localized UI states.
+- Phase 2 currency classification: a EUR parent and an April-effective
+  USD child must leave a January as-of result classified as a EUR leaf;
+  on and after April the mixed subtree is ineligible for a single
+  account-currency sum. Verify opening and closing boundary classifications
+  and immutable or historically versioned currency assignments.
 - Availability: exceed user and organization concurrency caps and rate
   budgets across both routes and two instances; assert `429` and usable
   `Retry-After`, no query for rejected requests, sustained load and
@@ -1206,8 +1262,8 @@ or the balance panel.**
   is a direct ledger aggregate") — a flat aggregate over
   `JournalEntryLine`, cheaper than the per-account CTE, not just
   independent of it.
-- Affected area: this document's two routes and the reports page only
-  — `postJournalEntry` and every other write path are untouched.
+- Affected area: both routes and the reports page; coordinated hierarchy
+  and coverage enforcement also affects posting and account write paths.
 - Mitigation: `(organization_id, account_id)` on `journal_entry_lines`
   and `(organization_id, operation_date)` on `journal_entries`
   (`journal_entries_operation_date_idx`) are specified in #5663's own
