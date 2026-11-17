@@ -1622,7 +1622,17 @@ top of the live query.
   Cover window reset, burst boundaries, coordinator outage/missing shared
   configuration (`503`) for each budget and semaphore, missing DI or
   constructor failure with no report query, crash/abort slot release and a slow query
-  returning `503` and releasing its connection and admission slot.
+  returning `503` and releasing its connection and admission slot only after
+  database termination is confirmed. Exercise both routes and internal
+  callers with several statements individually shorter than five seconds but
+  totaling more than the single deadline; assert `report_timeout`, no late or
+  partial success, and no later statement or retry. Pause connection setup,
+  timeout-setting, authority reads, serialization and lease renewal across
+  the deadline. A sub-millisecond remainder must start no statement and
+  never set a zero PostgreSQL timeout. Hold cancellation or lose a worker and
+  assert the slot stays fenced until confirmed backend termination across
+  expiry, crash, recovery and failover; another scope retains fair capacity.
+  Test real PostgreSQL cancellation as well as a controlled monotonic clock.
 - Coordinator continuity: acknowledge active leases and rate usage on one
   instance, promote a replica missing those writes, and partition an old
   coordinator while its database queries still run. Assert no new epoch
@@ -1815,10 +1825,11 @@ enforces the following for both routes and every admitted direct caller:
   so an expired lease cannot release a successor's slot. Expiry or a
   `finally` block initiates release; the slot is not reusable until database
   work has actually stopped as required below. The lease must remain
-  valid throughout database execution: enforce the server-side statement
-  timeout below its expiry with a safety margin, renew while needed, and
-  cancel execution before expiry if renewal cannot be confirmed. Reject
-  before the query.
+  valid throughout database execution: enforce each remaining-time statement
+  timeout below its expiry with a safety margin, renew while needed without
+  extending the single operation deadline below, and cancel execution before
+  expiry if renewal cannot be confirmed. Reject before the query if the
+  lease or remaining budget is insufficient.
 - **Deployment-wide fair admission** bounds the total live report work
   across all organizations and service principals, not only each tenant.
   Size a dedicated connection/work budget below independently protected
@@ -1869,11 +1880,32 @@ enforces the following for both routes and every admitted direct caller:
   against the same global admission. If the host cannot enforce these limits
   or safe cancellation, do not enable live reports. Page size and timeout
   limit neither full-chart intermediate memory nor quadratic chain work.
-- **An enforced query deadline** (a server-side statement timeout,
-  default 5 s) that aborts the query and returns `503` with
-  `{ error: 'report_timeout' }`; above the supported live-query budget
-  the request fails with that response rather than falling back to an
-  unbounded scan or a stale cache.
+- **One enforced elapsed operation deadline**, default 5 s, starts when
+  shared admission grants a report slot and ends only after all authorized
+  snapshot, clock/authority, integrity, row/count/zero-sum queries and result
+  construction for that report have completed. This applies to both routes
+  and every internal or job caller. Pre-admission queues are separately
+  bounded; they cannot consume an unbounded connection or waiter. Track the
+  remaining time with a monotonic clock and a cancelable deadline through
+  every application and database step, including connection acquisition,
+  validation, repeatable-read setup and serialization. Before each SQL
+  statement, derive a positive PostgreSQL `statement_timeout` no greater
+  than the remaining budget and a margin below the current fenced lease
+  expiry; if less than the minimum enforceable interval remains, start no
+  statement (never set PostgreSQL timeout to zero, which disables it). Also
+  bound setting the timeout and other database round trips with the same
+  client-side deadline. Per-statement limits supplement the single elapsed
+  timer; neither repeated statements nor lease renewal resets it.
+  On expiry, reject new work, cancel the active query, roll back/terminate the
+  transaction and return `503 { error: 'report_timeout' }` without figures;
+  do not emit a late success, retry the report, or fall back to stale data.
+  The response may be returned while cancellation is pending, but retain and
+  fence the admission slot until the database confirms all work stopped. A
+  cancel timeout, lost worker or uncertain connection remains charged and
+  fail-closed through recovery; a lease expiry alone never frees it. Tie
+  successful result publication to the deadline and document the deadline
+  and cleanup semantics in both route contracts. If monotonic timing, query
+  cancellation or failover fencing cannot be enforced, disable reporting.
 - **Documented budget** in both routes' `openApi` and their API
   Contracts (`429`/`503`), with the UI rendering the error state via
   `ErrorMessage` instead of a spinner.
