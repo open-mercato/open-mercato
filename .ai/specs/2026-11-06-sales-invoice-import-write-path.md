@@ -21,27 +21,31 @@
 - Phase 3: line replacement on update, with line restore on undo
 
 **Concerns:**
-- Phases 2 and 3 rest on one decision the sales maintainers have not made yet: see [Decision needed](#decision-needed).
+- Phases 2 and 3 rest on a decision the sales maintainers have not made yet, Q1 in [Decision needed](#decision-needed).
 - Undo of `sales.invoices.create` and `sales.invoices.update` changes behavior: it answers 409 where it used to overwrite or delete the row, or report success without doing anything.
 
 ## Decision needed
 
-`sales/AGENTS.md:7-9` asks for `salesCalculationService` for document math, the Quote → Order → Invoice flow and a channel on every document. Invoices already work differently: `SalesInvoice` has no channel column, `orderId` is optional, and `.ai/specs/2026-09-07-sales-external-amounts-mode.md` leaves invoices out because they already take caller-asserted amounts.
+`sales/AGENTS.md:7-9` asks for `salesCalculationService` for document math, the Quote → Order → Invoice flow and a channel on every document. Invoices already work differently: `SalesInvoice` has no channel column, `orderId` is optional, and `.ai/specs/2026-09-07-sales-external-amounts-mode.md` leaves invoices out because they already take caller-asserted amounts. Two questions for the sales maintainers follow, and only Q1 gates code.
 
-**Question for the sales maintainers:** may the invoice commands store amounts as the caller sends them, and may an invoice imported from an external ledger exist without an order or a channel?
+**Q1, which gates Phases 2 and 3:** may `sales.invoices.create` and `sales.invoices.update` store the amounts the caller sends, without deriving header totals from the lines, including:
+- negative amounts on the five line fields, on any line `kind`, and on `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount`, while the gross totals stay ≥ 0;
+- replacing every line through `replaceLines: true`, also on an invoice that has payment allocations?
 
-- **Recommended, and assumed by this spec:** yes, with this scope:
-  - `sales.invoices.create` and `sales.invoices.update` store amounts as sent and never recompute them, so lines need not add up to the header.
-  - Code that issues an invoice inside Open Mercato, such as the worker in `.ai/specs/2026-10-21-sales-recurring-orders.md`, still computes it from its order with `salesCalculationService` and links that order.
-  - Only an imported invoice may stand without an order or a channel. It is identified by a `SyncExternalIdMapping` row with `internalEntityType='sales.invoice'`, as the Xero App Spec defines.
-  - Credit memos are not covered; no phase changes them.
+**Q2, which gates only the `sales/AGENTS.md` line and the Xero App Spec:** may an invoice that mirrors an external ledger exist without an order, and so without a channel, which invoices do not have?
 
-  This decision leaves open who owns an imported invoice's paid and outstanding amounts. No phase changes how they are written (the commands store them when sent, as on `main`), and the answer belongs to the Xero App Spec and #7202, together with credit memo create in the recurring orders spec. The rule also rests on convention: invoices have no explicit amounts mode like the orders' `totals_mode`, which [Out of Scope](#out-of-scope) lists.
+- **Recommended, and assumed by this spec:** yes to both, with this scope:
+  - Code that issues an invoice inside Open Mercato, such as the worker in `.ai/specs/2026-10-21-sales-recurring-orders.md`, still computes it from its order with `salesCalculationService` and links that order. The link is stored once #9482 lands.
+  - Q2 is guidance, not a check. The API keeps `orderId` optional, because requiring it would narrow the request schema. The Xero App Spec recognizes an imported invoice by a `SyncExternalIdMapping` row with `internalEntityType='sales.invoice'`, written after the invoice commits.
+  - An invoice without an order takes no Open Mercato payments, because `sales.payments.create` requires an order (`commands/payments.ts:467`). An imported invoice is therefore a mirror whose paid and outstanding amounts come from the source. Changing that is for #7202 and the Xero App Spec.
+  - Credit memos are not covered. Importing credit notes needs its own decision.
+  - One exception to amounts as sent remains: `deriveLineNetFromGross` rewrites a line with a net of 0 and a positive gross (see [Risks](#risk-register)).
 
-  Phase 2 records this as one line under **Always** in `sales/AGENTS.md` that points to this spec; the agent instruction budget (`yarn agents:check-budget`) lets that chain only shrink, so this section and [Negative amounts](#negative-amounts-phase-2) carry the full rule.
-- **Alternative:** a synthetic order and channel per source organization. Orders accept external totals (`totals_mode='external'`), so the amounts would fit, but each imported invoice would add an order nobody placed: it takes a number from the order sequence and shows in order lists and the new-orders dashboard widget.
+  Phase 2 records both answers as one line under **Always** in `sales/AGENTS.md` that points to this spec; if Q2 is declined, the line keeps only its first half. The agent instruction budget (`yarn agents:check-budget`) lets that chain only shrink, so this section and [Negative amounts](#negative-amounts-phase-2) carry the full rule.
+- **Rejected: synthetic orders.** One order per imported invoice, with external totals (`totals_mode='external'`), would fit the amounts, but each would be an order nobody placed: it takes a number from the order sequence and shows in order lists and the new-orders dashboard widget. One order per source organization does not work either, because the customer lives on the order and one ledger bills many customers.
+- **Deferred: an explicit provenance or amounts-mode column on invoices.** It would make "imported" checkable and give #7202 and the GL posting work something to branch on, but it needs a migration. It is listed in [Out of Scope](#out-of-scope) as the long-term follow-up.
 
-Phase 1 does not depend on the answer. Phases 2 and 3 are built on the recommended answer and need it confirmed before merge.
+Phase 1 does not depend on the answers. Phases 2 and 3 need Q1 confirmed before merge.
 
 ## Overview
 
@@ -350,7 +354,7 @@ Independent of [Decision needed](#decision-needed).
 
 ### Phase 2: Negative amounts
 
-Built on the recommended answer to the decision; it merges only once the maintainers confirm it.
+Built on the recommended answer to Q1 in [Decision needed](#decision-needed); it merges only once the maintainers confirm it.
 
 1. Record the invoice exemption in `sales/AGENTS.md`, as one line that points to this spec.
 2. Relax the five line fields and add the line rule, its keys and its compatibility rows. Test: each field on every `kind`; rejections for `quantity`, `discountAmount`, a missing total, and a net ≤ 0 with a positive gross.
@@ -358,7 +362,7 @@ Built on the recommended answer to the decision; it merges only once the maintai
 
 ### Phase 3: Line replacement
 
-Built on the recommended answer to the decision and on Phases 1 and 2; it merges only once the maintainers confirm the decision.
+Built on the recommended answer to Q1 and on Phases 1 and 2; it merges only once the maintainers confirm Q1.
 
 1. Add `replaceLines` and `invoiceUpdateInputSchema`, with OpenAPI, keys and compatibility rows. Test: the rejections; an update without the flag leaves lines untouched.
 2. Replace lines in their phase and remove old lines from the index. Test: replacement stores lines and totals; concurrent updates end with one line set.
@@ -569,7 +573,7 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 | `BACKWARD_COMPATIBILITY.md` | Validators must not narrow | Compliant | New schema rules apply only to input that is rejected today, or to the new flag. Custom-field values that cannot be stored now fail in the write, not in the schema, and are recorded in the compatibility table |
 | root AGENTS.md | No hard-coded user strings | Compliant | Keys listed per phase |
 | `.ai/qa/AGENTS.md` | Integration coverage for affected paths | Compliant | Acceptance per phase, `TC-SALES-7336-*` |
-| `sales/AGENTS.md` | `salesCalculationService`, document flow, channel scope | Open | Decision needed; Phases 2 and 3 follow the recommended answer until it is confirmed |
+| `sales/AGENTS.md` | `salesCalculationService`, document flow, channel scope | Open | Decision needed; Phases 2 and 3 follow the recommended answer to Q1 until it is confirmed |
 | `sales/AGENTS.md` | Ask before changing flow or channel behavior | Compliant | Raised in Decision needed |
 | `packages/core/AGENTS.md` | `makeCrudRoute` with `indexer`, `openApi` exported | Compliant | Route shape unchanged; `openApi` updated |
 | root AGENTS.md | Optimistic locking on new entities | N/A | No new entity; existing guard kept |
@@ -588,7 +592,7 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 
 ### Verdict
 
-Fully compliant for Phase 1. Phases 2 and 3 follow the recommended answer to the decision and need the maintainers' confirmation before merge.
+Fully compliant for Phase 1. Phases 2 and 3 follow the recommended answer to Q1 and need the maintainers' confirmation before merge.
 
 ## Implementation Status
 
