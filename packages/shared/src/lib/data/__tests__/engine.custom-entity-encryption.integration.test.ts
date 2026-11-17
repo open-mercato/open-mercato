@@ -1,3 +1,7 @@
+jest.mock('../../db/advisoryLock', () => ({
+  withAdvisoryXactLock: async <T>(em: unknown, _key: string, work: (txEm: unknown) => Promise<T>): Promise<T> => work(em),
+}))
+
 import { randomUUID } from 'node:crypto'
 import { Kysely, PostgresDialect, sql } from 'kysely'
 import { Pool } from 'pg'
