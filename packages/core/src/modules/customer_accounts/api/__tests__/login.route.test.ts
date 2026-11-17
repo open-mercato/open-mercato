@@ -31,6 +31,7 @@ const mockRehashPasswordIfNeeded = jest.fn()
 const mockBcryptCompare = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 const mockReportError = jest.fn()
+const mockTranslate = jest.fn((_key: string, fallback: string) => fallback)
 
 const mockCustomerUserService = {
   findByEmail: mockFindByEmail,
@@ -50,6 +51,10 @@ const mockContainer = {
     return null
   }),
 }
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: mockTranslate }),
+}))
 
 jest.mock('bcryptjs', () => ({
   compare: (...args: unknown[]) => mockBcryptCompare(...args),
@@ -377,6 +382,17 @@ describe('POST /api/customer_accounts/login — password work profile across rej
       expect(rejected).toEqual(wrongPassword)
     }
     expect(mockCreateSession).not.toHaveBeenCalled()
+  })
+
+  test('localizes the same generic overload refusal without revealing account details', async () => {
+    mockFindByEmail.mockResolvedValueOnce(verifiedUser())
+    mockVerifyPassword.mockRejectedValueOnce(new PasswordHasherBusyError())
+    mockTranslate.mockReturnValueOnce('Nieprawidłowy e-mail lub hasło')
+    const response = await POST(makeRequest(baseBody()))
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ ok: false, error: 'Nieprawidłowy e-mail lub hasło' })
+    expect(mockTranslate).toHaveBeenCalledWith('auth.login.errors.invalidCredentials', 'Invalid email or password')
+    expect(mockIncrementFailedAttempts).not.toHaveBeenCalled()
   })
 
   test('answers a full password-hashing queue with a generic 503 and Retry-After', async () => {

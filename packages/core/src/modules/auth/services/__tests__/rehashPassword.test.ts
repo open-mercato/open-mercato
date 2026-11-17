@@ -1,5 +1,7 @@
 /** @jest-environment node */
 import { hash as bcryptHash } from 'bcryptjs'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   createPasswordHasher,
   getPasswordHasher,
@@ -28,14 +30,14 @@ describe('AuthService.rehashPasswordIfNeeded', () => {
     setPasswordHasher(null)
     expect(getPasswordHasher().algorithm).toBe('bcrypt')
     const em = makeEm()
-    const user = {
+    const user = Object.assign(new User(), {
       id: 'u1',
       tenantId: 't1',
       organizationId: 'o1',
       passwordHash: await bcryptHash('Secret#1', 4),
-    }
-    const svc = new AuthService(em as any)
-    await expect(svc.rehashPasswordIfNeeded(user as any, 'Secret#1')).resolves.toBe(false)
+    })
+    const svc = new AuthService(em as unknown as EntityManager)
+    await expect(svc.rehashPasswordIfNeeded(user, 'Secret#1')).resolves.toBe(false)
     expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 
@@ -43,11 +45,11 @@ describe('AuthService.rehashPasswordIfNeeded', () => {
     const hasher = useHasher('argon2id')
     const oldHash = await bcryptHash('Secret#1', 4)
     const em = makeEm()
-    const user = { id: 'u1', tenantId: 't1', organizationId: 'o1', passwordHash: oldHash }
-    const svc = new AuthService(em as any)
+    const user = Object.assign(new User(), { id: 'u1', tenantId: 't1', organizationId: 'o1', passwordHash: oldHash })
+    const svc = new AuthService(em as unknown as EntityManager)
 
-    await expect(svc.verifyPassword(user as any, 'Secret#1')).resolves.toBe(true)
-    await expect(svc.rehashPasswordIfNeeded(user as any, 'Secret#1')).resolves.toBe(true)
+    await expect(svc.verifyPassword(user, 'Secret#1')).resolves.toBe(true)
+    await expect(svc.rehashPasswordIfNeeded(user, 'Secret#1')).resolves.toBe(true)
 
     expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
     const [, where, data] = em.nativeUpdate.mock.calls[0] as unknown as [unknown, Record<string, unknown>, Record<string, string>]
@@ -61,13 +63,13 @@ describe('AuthService.rehashPasswordIfNeeded', () => {
     expect(data.passwordHash).toMatch(/^\$argon2id\$/)
     expect(user.passwordHash).toBe(oldHash)
     await expect(hasher.verify('Secret#1', data.passwordHash)).resolves.toBe(true)
-    await expect(svc.verifyPassword(user as any, 'Secret#1')).resolves.toBe(true)
+    await expect(svc.verifyPassword(user, 'Secret#1')).resolves.toBe(true)
   })
 
   it('does not let a later managed-entity flush overwrite a concurrent password reset', async () => {
     useHasher('argon2id')
     const oldHash = await bcryptHash('Secret#1', 4)
-    const user = { id: 'u1', tenantId: null, organizationId: null, passwordHash: oldHash }
+    const user = Object.assign(new User(), { id: 'u1', tenantId: null, organizationId: null, passwordHash: oldHash })
     let persistedHash = oldHash
     const em = {
       nativeUpdate: jest.fn(async (
@@ -83,9 +85,9 @@ describe('AuthService.rehashPasswordIfNeeded', () => {
         if (user.passwordHash !== oldHash) persistedHash = user.passwordHash
       }),
     }
-    const svc = new AuthService(em as any)
+    const svc = new AuthService(em as unknown as EntityManager)
 
-    await expect(svc.rehashPasswordIfNeeded(user as any, 'Secret#1')).resolves.toBe(true)
+    await expect(svc.rehashPasswordIfNeeded(user, 'Secret#1')).resolves.toBe(true)
     expect(em.nativeUpdate.mock.calls[0]?.[1]).toEqual({
       id: 'u1',
       tenantId: null,
@@ -105,35 +107,35 @@ describe('AuthService.rehashPasswordIfNeeded', () => {
     useHasher('argon2id')
     const oldHash = await bcryptHash('Secret#1', 4)
     const em = makeEm(0)
-    const user = { id: 'u1', tenantId: 't1', organizationId: 'o1', passwordHash: oldHash }
-    const svc = new AuthService(em as any)
-    await expect(svc.rehashPasswordIfNeeded(user as any, 'Secret#1')).resolves.toBe(false)
+    const user = Object.assign(new User(), { id: 'u1', tenantId: 't1', organizationId: 'o1', passwordHash: oldHash })
+    const svc = new AuthService(em as unknown as EntityManager)
+    await expect(svc.rehashPasswordIfNeeded(user, 'Secret#1')).resolves.toBe(false)
     expect(user.passwordHash).toBe(oldHash)
   })
 
   it('never throws when the rehash fails', async () => {
     useHasher('argon2id')
     const em = { nativeUpdate: jest.fn(async () => { throw new Error('db down') }) }
-    const user = {
+    const user = Object.assign(new User(), {
       id: 'u1',
       tenantId: 't1',
       organizationId: 'o1',
       passwordHash: await bcryptHash('Secret#1', 4),
-    }
-    const svc = new AuthService(em as any)
-    await expect(svc.rehashPasswordIfNeeded(user as any, 'Secret#1')).resolves.toBe(false)
+    })
+    const svc = new AuthService(em as unknown as EntityManager)
+    await expect(svc.rehashPasswordIfNeeded(user, 'Secret#1')).resolves.toBe(false)
   })
 
   it('does nothing for a user without a password', async () => {
     useHasher('argon2id')
     const em = makeEm()
-    const svc = new AuthService(em as any)
-    await expect(svc.rehashPasswordIfNeeded({
+    const svc = new AuthService(em as unknown as EntityManager)
+    await expect(svc.rehashPasswordIfNeeded(Object.assign(new User(), {
       id: 'u1',
       tenantId: null,
       organizationId: null,
       passwordHash: null,
-    } as any, 'x')).resolves.toBe(false)
+    }), 'x')).resolves.toBe(false)
     expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 })

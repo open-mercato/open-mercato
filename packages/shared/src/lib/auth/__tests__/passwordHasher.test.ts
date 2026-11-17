@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { hash as bcryptHash } from 'bcryptjs'
+import { registerTelemetryRuntime, resetTelemetryRuntime } from '../../telemetry/runtime'
 import {
   DEFAULT_ARGON2ID_PARAMS,
   createPasswordHasher,
@@ -382,6 +383,38 @@ describe('createPasswordHasher', () => {
     expect(argon2.verify).toHaveBeenLastCalledWith(argon2.timingHash, 'wrong')
   })
 
+  it.each([false, true])('reports a sanitized verifier failure without changing mismatch behavior when telemetry throws: %s', async (throws) => {
+    const reportError = jest.fn(() => {
+      if (throws) throw new Error('[internal] Reporter unavailable')
+    })
+    registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _name, operation) => operation(),
+      recordHttpDuration: () => undefined,
+      reportError,
+      shutdown: async () => undefined,
+    })
+    try {
+      const storedHash = argon2Hash()
+      const argon2 = fakeArgon2()
+      argon2.verify.mockImplementation(async (candidate: string) => {
+        if (candidate === storedHash) throw new Error('Secret#1 ' + storedHash)
+        return false
+      })
+      const hasher = createPasswordHasher(config({ algorithm: 'argon2id' }), { loadArgon2: async () => argon2 })
+      await expect(hasher.verify('Secret#1', storedHash)).resolves.toBe(false)
+      expect(reportError).toHaveBeenCalledTimes(1)
+      const [error, context] = reportError.mock.calls[0] as unknown as [Error, Record<string, string>]
+      expect(error.message).toBe('[internal] Password hash verification failed')
+      expect(error.cause).toBeUndefined()
+      expect(context).toEqual({ module: 'shared', code: 'shared.password_hash_verification_failed' })
+      expect(argon2.verify).toHaveBeenCalledTimes(2)
+    } finally {
+      resetTelemetryRuntime()
+    }
+  })
+
   it('surfaces a missing Argon2 implementation instead of reporting a wrong password', async () => {
     const loadArgon2 = jest.fn(async () => {
       throw new Error('Argon2id password hashing needs the "@node-rs/argon2" package')
@@ -457,6 +490,35 @@ describe('createPasswordHasher', () => {
       const after = hasher.hash('e')
       await fake.releaseAll()
       await expect(after).resolves.toMatch(/^\$argon2id\$/)
+    })
+
+    it.each(['argon2id', 'bcrypt', 'absent'] as const)('spends the bcrypt floor before rejecting a saturated %s verification', async (accountType) => {
+      const bcryptjs = jest.requireActual<typeof import('bcryptjs')>('bcryptjs')
+      const compareSpy = jest.spyOn(bcryptjs, 'compare').mockResolvedValue(false as never)
+      const fake = deferredArgon2()
+      const hasher = createPasswordHasher(
+        config({ algorithm: 'argon2id', argon2Limits: { maxConcurrency: 1, maxQueue: 1 } }),
+        { loadArgon2: async () => fake.argon2 },
+      )
+      const accepted: Array<Promise<string>> = []
+      try {
+        const warmUp = hasher.equalizeTiming('warm-up')
+        await fake.releaseAll()
+        await warmUp
+        accepted.push(hasher.hash('active'), hasher.hash('queued'))
+        await flush()
+        expect(fake.running()).toBe(1)
+        compareSpy.mockClear()
+        const rejected = accountType === 'absent'
+          ? hasher.equalizeTiming('wrong')
+          : hasher.verify('wrong', accountType === 'argon2id' ? argon2Hash() : '$2b$04$abcdefghijklmnopqrstuuVgD6v4QLVs8.eL7pqubCkwVftBZ3rUe')
+        await expect(rejected).rejects.toBeInstanceOf(PasswordHasherBusyError)
+        expect(compareSpy).toHaveBeenCalledTimes(1)
+      } finally {
+        await fake.releaseAll()
+        await Promise.all(accepted)
+        compareSpy.mockRestore()
+      }
     })
 
     it('rejects an overflowing login verification instead of reporting a wrong password', async () => {

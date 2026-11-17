@@ -37,7 +37,10 @@ export async function POST(req: Request) {
   try {
     return await handlePortalLoginRequest(req)
   } catch (error) {
-    if (isPasswordHasherBusyError(error)) return passwordHasherBusyResponse('Invalid email or password')
+    if (isPasswordHasherBusyError(error)) {
+      const { translate } = await resolveTranslations()
+      return passwordHasherBusyResponse(translate('auth.login.errors.invalidCredentials', 'Invalid email or password'))
+    }
     throw error
   }
 }

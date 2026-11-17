@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { compare as bcryptCompare, hash as bcryptHash } from 'bcryptjs'
 import { createLogger } from '../logger'
 import { parseBooleanWithDefault } from '../boolean'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 
 /**
  * Pluggable password hashing for user and customer-portal passwords.
@@ -368,6 +369,12 @@ export function createPasswordHasher(
       return await withArgon2Slot(() => argon2.verify(storedHash, password))
     } catch (error) {
       if (error instanceof PasswordHasherBusyError) throw error
+      try {
+        getTelemetryRuntime()?.reportError(new Error('[internal] Password hash verification failed'), {
+          module: 'shared',
+          code: 'shared.password_hash_verification_failed',
+        })
+      } catch {}
       // A stored hash the library rejects (e.g. parameters below its minimum) fails fast;
       // spend the dummy verification so it still matches the profile.
       if (argon2InProfile) await verifyArgon2TimingHash(password)
@@ -399,11 +406,11 @@ export function createPasswordHasher(
         await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
         return false
       }
+      await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
       const parsed = parseArgon2idHash(storedHash)
       let matched = false
       if (parsed) matched = await verifyStoredArgon2id(password, storedHash)
       else if (argon2InProfile) await verifyArgon2TimingHash(password)
-      await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
       return matched
     }
     const matched = await bcryptCompare(password, algorithm === 'bcrypt' ? storedHash : BCRYPT_TIMING_EQUALIZER_HASH)
