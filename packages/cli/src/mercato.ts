@@ -11,7 +11,7 @@ import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { redactCliArgs, redactCliText } from './lib/cli-output'
 import { formatInitSummary } from './lib/init-summary'
-import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
+import { resolveInitCompletionMessage, resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
 import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
 import {
   resolveAutoSpawnWorkersMode,
@@ -1476,7 +1476,7 @@ export async function run(argv = process.argv) {
         pushUser('Admin', '🧰', adminEmailDerived)
         pushUser('Employee', '👷', employeeEmailDerived)
       }
-      console.log('🎉 App initialization complete!\n')
+      console.log(`🎉 ${resolveInitCompletionMessage()}\n`)
       const summaryColor = parseBooleanToken(process.env.OM_INIT_SUMMARY_COLOR)
       const summaryColumns = Number(process.env.OM_INIT_SUMMARY_COLUMNS ?? process.stdout.columns)
       const summary = formatInitSummary({

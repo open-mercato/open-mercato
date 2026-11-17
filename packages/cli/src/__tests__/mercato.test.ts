@@ -1126,9 +1126,14 @@ describe('init command failure output', () => {
     )
   }
 
-  it.each([false, true])('keeps supplied passwords out of initialization output (failure: %s)', async (fails) => {
+  it.each([
+    { fails: false, locale: 'en_US.UTF-8', completionMessage: 'App initialization complete!' },
+    { fails: true, locale: 'en_US.UTF-8', completionMessage: 'App initialization complete!' },
+    { fails: false, locale: 'pl_PL.UTF-8', completionMessage: 'Inicjalizacja aplikacji zakończona!' },
+  ])('keeps supplied passwords out of initialization output (failure: $fails, locale: $locale)', async ({ fails, locale, completionMessage }) => {
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    process.env.LC_ALL = locale
     process.env.OM_INIT_SUPERADMIN_PASSWORD = 'fixture-owner-password'
     process.env.OM_INIT_ADMIN_PASSWORD = 'fixture-admin-password'
     process.env.OM_INIT_EMPLOYEE_PASSWORD = 'fixture-employee-password'
@@ -1149,7 +1154,7 @@ describe('init command failure output', () => {
     if (fails) {
       expect(output).toContain('Setup failed: **** **** ****')
     } else {
-      expect(output).toContain('App initialization complete!')
+      expect(output).toContain(completionMessage)
       expect(output).toContain('superadmin@acme.com')
       expect(output).toContain('Password:  ****')
     }
@@ -1189,7 +1194,7 @@ describe('init command failure output', () => {
         for (const secret of ['fixture-cli-password', 'fixture-owner-password', 'fixture-admin-password', 'fixture-employee-password']) {
           expect(containerOutput).not.toContain(secret)
         }
-        expect(containerOutput).toContain(fails ? 'Setup failed: **** **** ****' : 'App initialization complete!')
+        expect(containerOutput).toContain(fails ? 'Setup failed: **** **** ****' : completionMessage)
       }
     } finally {
       fileSystem.rmSync(temporaryDirectory, { recursive: true, force: true })
