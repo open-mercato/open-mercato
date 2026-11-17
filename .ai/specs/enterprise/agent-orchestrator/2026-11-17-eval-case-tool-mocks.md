@@ -406,5 +406,5 @@ Approved for implementation, with one justified exception to integration coverag
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Seam and resolver | Done | 2026-11-17 | `lookup` / `observeHit` on `ToolReplayContext`; `lib/eval/toolMocks.ts` |
-| Phase 2 — Schema and manifest | Not Started | — | — |
+| Phase 2 — Schema and manifest | Done | 2026-11-17 | `cases[].mocks` file schema + refinements, normalized manifest `mocks`, export round trip; import stores no mocks |
 | Phase 3 — Replay integration and usage report | Not Started | — | — |

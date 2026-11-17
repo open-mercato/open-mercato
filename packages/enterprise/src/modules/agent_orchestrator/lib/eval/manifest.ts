@@ -52,6 +52,16 @@ export const evalSetManifestAssertionSchema = z.object({
   rubric: judgeRubricSchema.optional(),
 })
 
+export const evalSetManifestToolMockSchema = z.object({
+  id: z.string().min(1),
+  tool: z.string().min(1),
+  match: z.enum(['strict', 'ordered', 'any']),
+  args: jsonSchema.optional(),
+  output: jsonSchema.optional(),
+  error: z.string().min(1).optional(),
+  required: z.boolean(),
+})
+
 export const evalSetManifestCaseSchema = z.object({
   id: z.string().uuid(),
   key: z.string().min(1).max(200),
@@ -62,6 +72,7 @@ export const evalSetManifestCaseSchema = z.object({
   fixtures: z
     .object({ tools: z.string().min(1).optional(), model: z.string().min(1).optional() })
     .optional(),
+  mocks: z.object({ tools: z.array(evalSetManifestToolMockSchema).min(1) }).optional(),
 })
 
 export const evalSetManifestSchema = z.object({
@@ -77,6 +88,7 @@ export const evalSetManifestSchema = z.object({
 export type EvalSetManifest = z.infer<typeof evalSetManifestSchema>
 export type EvalSetManifestAssertion = z.infer<typeof evalSetManifestAssertionSchema>
 export type EvalSetManifestCase = z.infer<typeof evalSetManifestCaseSchema>
+export type EvalSetManifestToolMock = z.infer<typeof evalSetManifestToolMockSchema>
 
 export type EvalSetPointer = {
   version: string

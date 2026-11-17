@@ -314,3 +314,116 @@ describe('fileFromManifest', () => {
     expect(manifestFromFile(parseEvalSetFile(fileFromManifest(first.manifest))).version).toBe(first.version)
   })
 })
+
+describe('case tool mocks', () => {
+  function withMocks(mocks: unknown, caseIndex = 1): Record<string, unknown> {
+    const file = sampleFile()
+    ;(file.cases as Array<Record<string, unknown>>)[caseIndex].mocks = mocks
+    return file
+  }
+
+  function issuesFor(raw: unknown) {
+    const result = validateEvalSetFile(raw)
+    return result.ok ? [] : result.issues.map((issue) => ({ code: issue.code, path: issue.path }))
+  }
+
+  it('accepts strict, ordered and any mocks', () => {
+    const result = validateEvalSetFile(
+      withMocks({
+        match: 'any',
+        tools: [
+          { tool: 'customers.search_companies', match: 'strict', args: { query: 'acme' }, output: [] },
+          { id: 'stock', tool: 'catalog.get_stock', output: { qty: 0 }, required: true },
+          { tool: 'catalog.get_stock', match: 'ordered', error: 'upstream timeout' },
+        ],
+      }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('reports refinement issues with field paths', () => {
+    expect(
+      issuesFor(
+        withMocks({
+          tools: [
+            { tool: 'a', output: 1 },
+            { tool: 'b', match: 'any', args: { q: 1 }, output: 1 },
+            { tool: 'c', match: 'any', output: 1, error: 'both' },
+            { tool: 'd', match: 'any' },
+            { id: 'dup', tool: 'e', match: 'any', output: 1 },
+            { id: 'dup', tool: 'e', match: 'any', output: 2 },
+          ],
+        }),
+      ),
+    ).toEqual([
+      { code: EVAL_SET_FILE_ISSUE.schema, path: 'cases.1.mocks.tools.0.args' },
+      { code: EVAL_SET_FILE_ISSUE.schema, path: 'cases.1.mocks.tools.1.args' },
+      { code: EVAL_SET_FILE_ISSUE.schema, path: 'cases.1.mocks.tools.2.error' },
+      { code: EVAL_SET_FILE_ISSUE.schema, path: 'cases.1.mocks.tools.3.output' },
+      { code: EVAL_SET_FILE_ISSUE.schema, path: 'cases.1.mocks.tools.5.id' },
+    ])
+  })
+
+  it('rejects unknown mock keys, an empty mock list and a bad id', () => {
+    expect(issuesFor(withMocks({ tools: [] }))).toEqual([{ code: EVAL_SET_FILE_ISSUE.schema, path: 'cases.1.mocks.tools' }])
+    expect(issuesFor(withMocks({ tools: [{ tool: 'a', match: 'any', output: 1, delay: 5 }] }))[0]?.path).toBe('cases.1.mocks.tools.0')
+    expect(issuesFor(withMocks({ tools: [{ id: '#bad', tool: 'a', match: 'any', output: 1 }] }))[0]?.path).toBe(
+      'cases.1.mocks.tools.0.id',
+    )
+  })
+
+  it('freezes normalized mocks into the manifest', () => {
+    const { manifest } = manifestFromFile(
+      parseEvalSetFile(withMocks({ match: 'any', tools: [{ tool: 'a', output: 1 }, { tool: 'a', output: 2, required: true }] })),
+    )
+    const entry = manifest.cases.find((item) => item.key === 'clean-01')!
+    expect(entry.mocks).toEqual({
+      tools: [
+        { id: 'a#0', tool: 'a', match: 'any', output: 1, required: false },
+        { id: 'a#1', tool: 'a', match: 'any', output: 2, required: true },
+      ],
+    })
+    expect(manifest.cases.find((item) => item.key === 'banned-phrase-01')!.mocks).toBeUndefined()
+  })
+
+  it('keeps the hash of a case without mocks and ignores how defaults are spelled', () => {
+    const plain = manifestFromFile(parseEvalSetFile(sampleFile()))
+    expect(plain.manifest.cases.every((entry) => !('mocks' in entry))).toBe(true)
+    expect(plain.version).toBe(manifestFromFile(parseEvalSetFile(sampleFile())).version)
+    const implicit = manifestFromFile(parseEvalSetFile(withMocks({ match: 'any', tools: [{ tool: 'a', output: 1 }] }))).version
+    const explicit = manifestFromFile(
+      parseEvalSetFile(withMocks({ tools: [{ id: 'a#0', tool: 'a', match: 'any', output: 1, required: false }] })),
+    ).version
+    expect(explicit).toBe(implicit)
+    expect(implicit).not.toBe(plain.version)
+  })
+
+  it('changes the hash when mocks are reordered', () => {
+    const first = withMocks({ match: 'ordered', tools: [{ id: 'x', tool: 'a', output: 1 }, { id: 'y', tool: 'a', output: 2 }] })
+    const second = withMocks({ match: 'ordered', tools: [{ id: 'y', tool: 'a', output: 2 }, { id: 'x', tool: 'a', output: 1 }] })
+    expect(manifestFromFile(parseEvalSetFile(first)).version).not.toBe(manifestFromFile(parseEvalSetFile(second)).version)
+  })
+
+  it('round trips mocks through export and import', () => {
+    const imported = manifestFromFile(
+      parseEvalSetFile(
+        withMocks({
+          match: 'any',
+          tools: [
+            { tool: 'a', match: 'strict', args: { q: 1 }, output: null },
+            { tool: 'b', error: 'boom', required: true },
+          ],
+        }),
+      ),
+    )
+    const exported = fileFromManifest(imported.manifest)
+    expect(exported.cases.find((entry) => entry.key === 'clean-01')!.mocks).toEqual({
+      tools: [
+        { id: 'a#0', tool: 'a', match: 'strict', args: { q: 1 }, output: null },
+        { id: 'b#0', tool: 'b', match: 'any', error: 'boom', required: true },
+      ],
+    })
+    const reimported = manifestFromFile(parseEvalSetFile(JSON.parse(JSON.stringify(exported)) as unknown))
+    expect(reimported.version).toBe(imported.version)
+  })
+})
