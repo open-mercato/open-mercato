@@ -22,6 +22,7 @@ export type RunToolCallSink = (toolCall: IntegrityToolCall) => void
 
 type RunContext = {
   runId: string
+  agentId?: string
   source?: 'runtime' | 'eval'
   invoker?: AgentInvoker
   toolCallSink?: RunToolCallSink
@@ -42,6 +43,11 @@ const runIdStorage = new AsyncLocalStorage<RunContext>()
  *
  * `toolCallSink` lets a nested in-process run forward its tool calls to the
  * parent run (the `tool_consulted` rule's `includeSubRuns`).
+ *
+ * `agentId` lets the agent's own read-only tools (`load_skill`,
+ * `run_skill_script`, web search) resolve the ACTIVE agent server-side on the
+ * native path, where there is no OpenCode session token to correlate on. It is
+ * set by the runner, never by the model.
  */
 export function withRunContext<T>(
   runId: string,
@@ -49,8 +55,17 @@ export function withRunContext<T>(
   source?: 'runtime' | 'eval',
   invoker?: AgentInvoker,
   toolCallSink?: RunToolCallSink,
+  agentId?: string,
 ): Promise<T> {
-  return runIdStorage.run({ runId, source, invoker, ...(toolCallSink ? { toolCallSink } : {}) }, fn)
+  return runIdStorage.run(
+    { runId, source, invoker, ...(toolCallSink ? { toolCallSink } : {}), ...(agentId ? { agentId } : {}) },
+    fn,
+  )
+}
+
+/** The agent executing the current in-process run, or undefined outside a run context. */
+export function getCurrentRunAgentId(): string | undefined {
+  return runIdStorage.getStore()?.agentId
 }
 
 /** The current in-process agent run id, or undefined outside a run context. */

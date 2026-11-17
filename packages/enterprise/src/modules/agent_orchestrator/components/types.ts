@@ -242,6 +242,8 @@ export type RunDetailView = {
 
 export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
 
+export type AgentDefinitionSource = 'code' | 'file'
+
 export type AgentView = {
   id: string
   label: string
@@ -260,6 +262,11 @@ export type AgentView = {
    */
   allowedActions: string[] | null
   runtime: AgentRuntime
+  /**
+   * Where the agent is authored: `file` for an agents/<id>/ directory, `code` for
+   * `defineAgent`. Independent of `runtime` — file agents run natively by default.
+   */
+  source: AgentDefinitionSource
   /** Tenant-configured presentation icon (lucide name), or null for the fallback glyph. */
   icon: AgentIconName | null
   /** Tenant-configured operator tags, normalized; empty when untagged. */
@@ -742,6 +749,7 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
       ? item.allowedActions.filter((action): action is string => typeof action === 'string')
       : null,
     runtime,
+    source: item.source === 'file' || (item.source === undefined && runtime === 'opencode') ? 'file' : 'code',
     icon: isAgentIconName(item.icon) ? item.icon : null,
     tags: normalizeAgentTags(item.tags),
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],

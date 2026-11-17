@@ -322,6 +322,45 @@ export async function loadAgentRegistry(): Promise<void> {
   }
 }
 
+/**
+ * Register agent definitions that only become known at runtime — for example
+ * agent_orchestrator's file-defined agents, whose manifest is loaded
+ * asynchronously and so cannot appear in `ai-agents.generated.ts`.
+ *
+ * Additive and non-destructive: the generated registry (with its overrides and
+ * extensions) is loaded first, every candidate goes through the same shape check
+ * and normalization as a generated agent, and an id that is already registered is
+ * skipped rather than replaced, so a runtime agent can never shadow or alter a
+ * code-defined one. Returns the ids that were registered.
+ */
+export async function registerRuntimeAiAgents(agents: readonly unknown[]): Promise<string[]> {
+  await loadAgentRegistry()
+  const registered: string[] = []
+  for (const candidate of agents) {
+    if (!isAiAgentDefinition(candidate)) {
+      logger.warn('AI Agents — Skipping malformed runtime agent definition')
+      continue
+    }
+    if (candidate.id === AI_RAW_TOOL_AGENT_ID) {
+      logger.error('AI Agents — Skipping runtime agent using the reserved raw-tool agent id', {
+        agentId: candidate.id,
+        moduleId: candidate.moduleId,
+      })
+      continue
+    }
+    if (agentsById.has(candidate.id)) {
+      logger.warn('AI Agents — Skipping runtime agent whose id is already registered', {
+        agentId: candidate.id,
+        moduleId: candidate.moduleId,
+      })
+      continue
+    }
+    setRegisteredAgent(validateAndNormalizeAgent(candidate))
+    registered.push(candidate.id)
+  }
+  return registered
+}
+
 export function getAgent(id: string): AiAgentDefinition | undefined {
   return agentsById.get(id)
 }

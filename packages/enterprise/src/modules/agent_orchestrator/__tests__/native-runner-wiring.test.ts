@@ -99,6 +99,8 @@ import { resolveRunAgentVersion } from '../lib/trace/definitionHash'
 import { reportKnowledgeVersion } from '@open-mercato/shared/lib/ai/run-observation'
 import { ContextResolverImpl } from '../lib/context/contextResolver'
 import { entityProvenance, registerContextModule } from '../lib/context/registry'
+import { compileOutcome } from '../lib/sdk/outcomeSchema'
+import { attachStrictModelSchema } from '../lib/sdk/fileAgentNative'
 
 function registerNativeAgent(id: string): AgentRegistryEntry {
   const existing = getAgentEntry(id)
@@ -1525,5 +1527,84 @@ describe('untrusted input wiring', () => {
 
     expect(checkInputMock.mock.calls[0][0]).toEqual({ capability: 'native.no_untrusted_input_agent', untrustedSpans: [] })
     expect(syncIntegritySetsMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('native file agents (A-1)', () => {
+  function registerStrictFileAgent(id: string): AgentRegistryEntry {
+    const existing = getAgentEntry(id)
+    if (existing) return existing
+    const outcomeSchema = {
+      type: 'object' as const,
+      properties: { summary: { type: 'string' as const }, note: { type: 'string' as const } },
+      required: ['summary'],
+    }
+    const entry: AgentRegistryEntry = {
+      ...registerNativeAgentShape(id),
+      schema: compileOutcome({ kind: 'research', schema: outcomeSchema }).resultSchema,
+      outcomeSchema,
+      definitionSource: 'file',
+    }
+    attachStrictModelSchema(entry)
+    registerFileAgent(entry)
+    return entry
+  }
+
+  function registerNativeAgentShape(id: string): AgentRegistryEntry {
+    return {
+      id,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'research',
+      schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
+      tools: [],
+      skills: [],
+      subAgents: [],
+      label: 'Native file agent',
+      description: 'File agent for native-runner wiring tests.',
+      instructions: 'inform',
+      runtime: 'native',
+    }
+  }
+
+  it('asks the model for the strict schema and maps its nulls back before validating against the authored one', async () => {
+    const entry = registerStrictFileAgent('native.strict_file_agent')
+    expect(entry.modelSchema).toBeDefined()
+    runAiAgentObjectMock.mockResolvedValue({
+      mode: 'generate',
+      object: { kind: 'research', data: { summary: 'ok', note: null } },
+      usage: { inputTokens: 1, outputTokens: 1 },
+    })
+
+    const result = await makeService().run('native.strict_file_agent', {}, runCtx)
+
+    const output = runAiAgentObjectMock.mock.calls[0][0].output as { schema: unknown }
+    expect(output.schema).toBe(entry.modelSchema)
+    expect(output.schema).not.toBe(entry.schema)
+    expect(result).toMatchObject({ kind: 'research', data: { summary: 'ok' } })
+    expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty('note')
+    expect(failRunMock).not.toHaveBeenCalled()
+  })
+
+  it('drops the OpenCode-only __files envelope before the input is persisted or prompted', async () => {
+    registerNativeAgent('native.files_envelope_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+    const logs = captureLogs()
+    try {
+      await makeService().run(
+        'native.files_envelope_agent',
+        { question: 'q', __files: { attachments: [{ attachmentId: '11111111-1111-4111-8111-111111111111' }] } },
+        runCtx,
+      )
+      expect(logs.at('warn').map((record) => record.message)).toContain(
+        'native run ignores the attachment envelope; the file plane is OpenCode-only',
+      )
+    } finally {
+      logs.restore()
+    }
+
+    expect((createRunMock.mock.calls[0][2] as { input: unknown }).input).toEqual({ question: 'q' })
+    const prompted = JSON.stringify(runAiAgentObjectMock.mock.calls[0][0].input)
+    expect(prompted).toContain('question')
+    expect(prompted).not.toContain('__files')
   })
 })

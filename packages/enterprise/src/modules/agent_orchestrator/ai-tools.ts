@@ -7,6 +7,7 @@ import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
 import { getCurrentRunId, getCurrentRunInvoker, getCurrentRunSource } from './lib/runtime/runContext'
+import { resolveActiveAgentId } from './lib/runtime/activeAgent'
 import {
   AGENT_INVOKE_DENIED_CODE,
   AGENT_PRINCIPAL_MISSING_CODE,
@@ -264,9 +265,10 @@ const loadSkillInput = z.object({
  * skill's full content on demand AND carries TEMPLATE.md/examples that native
  * skills may not bundle.
  *
- * The allowed skill set is the ACTIVE agent's skills — resolved from the per-run
- * correlation store keyed by THIS run's session token (`ctx.sessionId`) — NEVER
- * trusted from the model. Outcomes:
+ * The allowed skill set is the ACTIVE agent's skills — resolved server-side from
+ * the native run context, or on the OpenCode path from the per-run correlation
+ * store keyed by THIS run's session token (`ctx.sessionId`) — NEVER trusted from
+ * the model. Outcomes:
  *
  *  - missing/stale correlation (no run for this session) → `{ ok:false, code:'no_active_run' }`.
  *  - skillId not registered for the active agent → `{ ok:false, code:'skill_not_allowed' }`.
@@ -285,14 +287,9 @@ const loadSkillTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator'],
   async handler(rawInput, ctx) {
     const { skillId } = loadSkillInput.parse(rawInput)
-    const sessionToken = ctx.sessionId
-    if (!sessionToken) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
-    }
-    const store = ctx.container.resolve('agentRunSessionStore') as AgentRunSessionStore
-    const agentId = await store.resolveActiveAgentId(sessionToken)
+    const agentId = await resolveActiveAgentId(ctx.container, ctx.sessionId)
     if (!agentId) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this call' }
     }
     // Populate the file-agent skill registry before resolving — on a fresh
     // process this tool can be the first agent_orchestrator call, so the
@@ -332,8 +329,9 @@ const runSkillScriptInput = z.object({
  * `scripts/<name>.ts` or a local tool file (carried under the synthetic
  * `__agent_tools__` skill id) — and return its value.
  *
- * The active agent + its allowed skill/script set are resolved server-side from
- * the per-run correlation store (`ctx.sessionId`) — NEVER trusted from the model.
+ * The active agent + its allowed skill/script set are resolved server-side (the
+ * native run context, or the OpenCode run's correlation store keyed by
+ * `ctx.sessionId`) — NEVER trusted from the model.
  * The script source runs in the Code Mode `isolated-vm` sandbox: no fs/net/
  * imports, a hard 30s cap, and per-call ACL via `requiredFeatures` + the session
  * token. A script is a pure function of its `args`, so this stays propose-only —
@@ -350,14 +348,9 @@ const runSkillScriptTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator'],
   async handler(rawInput, ctx) {
     const { skillId, scriptName, args } = runSkillScriptInput.parse(rawInput)
-    const sessionToken = ctx.sessionId
-    if (!sessionToken) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
-    }
-    const store = ctx.container.resolve('agentRunSessionStore') as AgentRunSessionStore
-    const agentId = await store.resolveActiveAgentId(sessionToken)
+    const agentId = await resolveActiveAgentId(ctx.container, ctx.sessionId)
     if (!agentId) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this call' }
     }
     // Populate the file-agent skill registry before resolving — on a fresh
     // process this tool can be the first agent_orchestrator call, so the
