@@ -3,9 +3,9 @@
 ## TLDR
 
 **Key Points:**
-- Adds read-only balance and turnover reporting on top of the `ledger` module's schema as specified by #5663 (`JournalEntry`/`JournalEntryLine`/`LedgerAccount`) — plus one additive `LedgerAccount.parentAccountId` link this rollup owns — with no changes to the posting schema or `postJournalEntry`. Ships as Phase 2 of the `ledger` module (#5663), not a new module. **#5663 is an unmerged spec — see Prerequisites.**
+- Adds read-only balance and turnover reporting on top of the `ledger` module specified by #5663, with an account-parent link and explicit hierarchy and fiscal-year prerequisites. Coordinated posting and account-write enforcement is required before release. **#5663 is an unmerged spec — see Prerequisites.**
 - Restores `getAccountBalance` (cut from #5663 Phase 1 as a stakeholder-directed scope reduction) and adds the ZSiO report (Zestawienie Obrotów i Sald / Trial Balance, art. 18 Ustawy o rachunkowości): opening balance, period and year-to-date debit/credit turnover, and closing balance per account, distinguishing syntetyk (an account with children under `parentAccountId`) from analityk (a leaf account), per the Event Storming Section 05 hot spot (the parent column #5663 removed on 2026-10-12 returns here as its first consumer).
-- Balances are computed live from `JournalEntryLine` — no new tables and no changes to the posting write path; the one schema change is the additive nullable `LedgerAccount.parentAccountId` (Data Models).
+- Balances use `JournalEntryLine` as their source. The parent link, a verified historical baseline, fiscal-year authority and coordinated writer guards are prerequisites; their complete migration and compatibility plan remains to be reviewed (Data Models).
 
 **Scope:**
 - Per-account balance as of a date (`GET /api/ledger/accounts/:id/balance`), recursively including descendant accounts for a syntetyk account that also has direct postings of its own.
@@ -126,9 +126,9 @@ every query here joins `journal_entry_line` to `journal_entry` by
 `journalEntryId` to apply the accounting date `operationDate` — the
 period-membership field #5663 locks and filters on: `JournalEntryLine`
 rows filtered by `(organization_id, account_id)`, joined to
-`journal_entry` by primary key, filtered by `operation_date`. No new
-entities and no change to `postJournalEntry`'s transaction; the one
-additive column is the parent rollup link (Data Models).
+`journal_entry` by primary key, filtered by `operation_date`. The
+hierarchy and fiscal-year guards also require coordinated changes to
+account and posting transactions before reporting can be enabled.
 
 ### Design decisions
 
@@ -185,7 +185,10 @@ direct `JournalEntryLine` rows, plus the same recursive rollup applied
 to every descendant, summed together. Implemented as a single `WITH
 RECURSIVE` CTE walking `parentAccountId` from the requested account
 down to its leaves, then aggregating `JournalEntryLine` over that
-whole set. **This is the first use of a recursive CTE anywhere in this
+whole set. Current-parent traversal is valid for historical dates only
+under the verified immutable-hierarchy contract in Data Models; without
+it the report must fail closed. A later backdated posting can change an
+as-of result but cannot change its historical parent. **This is the first use of a recursive CTE anywhere in this
 codebase** (checked: no existing module aggregates a self-referencing
 tree this way) — called out explicitly here rather than left as a
 silent precedent-setting choice, because the alternative (walking the
@@ -251,7 +254,8 @@ joins `LedgerAccount` or walks `parentAccountId`, `zeroSumCheck` is
 also immune to the cycle/depth risk named in Risks & Impact Review
 for the recursive CTE — a malformed account tree can make a
 `TrialBalanceRowDto` row wrong, but it cannot make `zeroSumCheck`
-wrong.
+wrong. This independent aggregate is not a hierarchy-integrity check:
+if scoped hierarchy validation fails, return neither it nor report rows.
 
 **Live query, not a maintained balance table — a deliberate, reversible
 choice, not a default.** `postJournalEntry` already validates and
@@ -347,11 +351,11 @@ filtering to leaves is also wrong. The non-overlapping, complete
 population is the **root rows** — rows whose `parentAccountId` is
 `null` — which cover every posting exactly once for a well-formed,
 acyclic chart where every non-root account resolves to a root. A
-malformed or cyclic `parentAccountId` chain is a separate
-data-integrity condition: the Phase 1 cycle guard bounds the recursive
-walk and logs the detected cycle instead of silently truncating it
-(Risks & Impact Review), so the reconciliation claim is scoped to a
-well-formed tree. A regression test,
+malformed or cyclic `parentAccountId` chain is an integrity failure.
+Validate the entire scoped chart and journal membership in the report's
+consistent read, then fail the whole report without rows or totals if
+invalid; a bounded recursive walk alone cannot establish root coverage.
+A regression test,
 computed independently in the test rather than derived from the
 report's own rows, asserts that the sum of `periodDebit`/
 `periodCredit` over the root rows collected across every page equals a
@@ -623,8 +627,9 @@ defaultRoleFeatures: {
 },
 ```
 
-No change to `seedDefaults` — this document adds no entities and
-therefore nothing to seed.
+The report adds no seed data; the hierarchy baseline and fiscal authority
+may require scoped setup. No `seedDefaults` assumption is final until
+those prerequisites are reviewed.
 
 ### Queries (`queries/`)
 
@@ -743,12 +748,14 @@ wiring):
 
 **Report-side schema: `LedgerAccount.parentAccountId` returns with this feature.** The separate fiscal-year authority may require its own schema and migration, which are not yet designed. #5663 removed the earlier structural `parentAccountId` on 2026-10-12 and delegated its return to this account-balances rollup — the first consumer that aggregates over it (`2026-08-18-general-ledger-core-engine.md`, revised "`LedgerAccount` has no parent column"). This document owns the additive column:
 
-- nullable UUID `parentAccountId` FK to `ledger_accounts.id` (`ON DELETE SET NULL`), `NULL` for a root, always the same `tenant_id`/`organization_id` as the child;
-- one migration adds the column plus `(organization_id, parent_account_id)`; no backfill is needed (every existing row is a root), and no data is rewritten;
-- the entity (`data/entities.ts`), `data/validators.ts`, `commands/ledgerAccounts.ts` and `api/accounts/route.ts` accept and validate it: the parent exists in the same tenant/organization, an account cannot be its own parent or a descendant of itself (write-time cycle prevention, in addition to the read-time CTE guard in Risks), and the parent is a syntetyk-eligible account of the same type/group;
-- every create, reparent, clear-parent, delete (including `ON DELETE SET NULL`), restore and undo path that can change the hierarchy acquires the same transaction-scoped PostgreSQL advisory lock keyed by the trusted tenant and organization **before** reading the parent/ancestor chain. Hold it through validation and commit or rollback; use the same transaction and a fresh post-lock read under `READ COMMITTED`. Per-account row or optimistic locks do not serialize opposing edits to different accounts. Lock-acquisition failure aborts the mutation; no hierarchy write bypasses this protocol;
+- nullable UUID `parentAccountId` FK to `ledger_accounts.id` (`ON DELETE RESTRICT`), `NULL` for a root, always in the child's tenant and organization. Never silently detach children when deleting a parent;
+- the parent column and `(organization_id, parent_account_id)` index do not establish historical ancestry. A scoped, externally evidenced and accounting-owner-attested baseline must establish a complete, acyclic chart and coverage date before reports are enabled. Existing rows defaulting to `NULL` are not evidence that they were historical roots. Unknown or unsupported history fails closed; never rewrite journal lines to invent it;
+- Phase 1 deliberately freezes every parent edge and root assignment from that baseline, including empty accounts. New accounts may select a same-scope eligible parent at creation, with an immutable accounting-effective start no earlier than verified coverage; reject posting before that start. Reject later reparent, clear-parent, parent deletion and any undo/restore path that would alter a frozen edge. Preserve historical accounts and ancestors for all covered reports; do not hard-delete a node or omit a posted archived node from rollups. Freeze account type and normal-balance attributes used for historical figures, or fail closed until their historical values are available. Future reparenting needs effective-dated ancestry and separately specified transfers across report boundaries;
+- a new account's parent must already exist and be effective for its entire covered lifetime. Historical account reads before that account's effective start return 404; trial-balance rows exclude accounts not effective by the requested period end. All covered journal lines must resolve to effective same-scope accounts and ancestors; an orphan, cycle, missing coverage or historical attribute makes the whole report fail closed, never a partial total. Display names and numbers are current report-snapshot metadata, not a claim of historical labels;
+- both reports require verified coverage for every date contributing to the requested figure, including the opening-balance date before a trial period. A date outside coverage returns `422 { error: 'hierarchy_history_unavailable' }`; an unavailable authority or detected corrupt covered chart returns 503 with no figures. Do not assume an opening of zero at the coverage boundary until the separate opening-entry policy proves it;
+- the entity, validators, account commands and API must enforce same-scope parents, acyclicity and eligible type/group before activation. Every chart activation, create, attempted reparent/clear/delete/restore/undo and other hierarchy mutation takes the same exclusive transaction-scoped PostgreSQL advisory lock keyed by trusted tenant and organization before checking frozen state and ancestry. All posting paths, including imports, retries and undo/redo, take a compatible shared lock before validating account coverage and hold it through commit or rollback. Specify one global order with fiscal-period and account locks across every writer; fail closed when the lock or coverage authority is unavailable. This is a coordinated #5663 posting/account compatibility change, not a read-only addition;
 - reads and ordering use the account business key `number` (formerly `slug`); `description` is the display name;
-- additive-only and backward compatible: a nullable column with a `NULL` default plus a new index, no rename/remove/narrow of any #5663 surface (`BACKWARD_COMPATIBILITY.md` additive category).
+- the parent column is additive, but the coverage and immutability guards change write behavior. Review staged migration, compatibility and mixed-version writer enforcement before activation.
 
 Both `getAccountBalance` and `getTrialBalance` read the existing
 `JournalEntry`, `JournalEntryLine`, `LedgerAccount`, and `FiscalPeriod`
@@ -811,11 +818,15 @@ disabled for the affected scope.
 - **Response 400**: `asOf` fails zod validation (not a valid date).
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `LedgerAccount` with that id in the caller's
-  tenant/organization.
+  tenant/organization or the account was not yet effective at `asOf`.
+- **Response 422**: requested history is outside verified hierarchy
+  coverage (`{ error: 'hierarchy_history_unavailable' }`); return no figures.
 - **Response 429**: a per-user or per-organization report rate or
   concurrency budget is exhausted (`Retry-After` in seconds; Risks &
   Impact Review, "Availability controls").
-- **Response 503**: the enforced query deadline expired
+- **Response 503**: hierarchy authority is unavailable or the scoped
+  hierarchy is invalid (`hierarchy_authority_unavailable` or
+  `report_hierarchy_invalid`), or the enforced query deadline expired
   (`{ error: 'report_timeout' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
   query is admitted without a valid shared decision; neither failure is
@@ -845,11 +856,14 @@ disabled for the affected scope.
   tenant/organization.
 - **Response 422**: fiscal-year setup is missing, ambiguous, invalid, or
   does not wholly cover the period (`{ error: 'fiscal_year_unavailable' }`).
+- **Response 422**: requested history is outside verified hierarchy
+  coverage (`{ error: 'hierarchy_history_unavailable' }`); return no rows or totals.
 - **Response 429**: a per-user or per-organization report rate or
   concurrency budget is exhausted (`Retry-After` in seconds; Risks &
   Impact Review, "Availability controls").
-- **Response 503**: fiscal-year authority is unavailable
-  (`{ error: 'fiscal_year_authority_unavailable' }`), the enforced
+- **Response 503**: fiscal-year or hierarchy authority is unavailable,
+  or the scoped hierarchy is invalid (`fiscal_year_authority_unavailable`,
+  `hierarchy_authority_unavailable` or `report_hierarchy_invalid`); the enforced
   query deadline expired
   (`{ error: 'report_timeout' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
@@ -878,6 +892,9 @@ existing flat, dot-namespaced key convention (e.g.
   configuration error for a 422; the page clears prior figures and
   directs the user to an authorized accounting administrator. Authority
   outages use the existing localized unavailable state without stale rows.
+- `ledger.reports.errors.hierarchyHistoryUnavailable` — shared localized
+  explanation for reports outside verified hierarchy coverage; clear prior
+  results and direct the user to an authorized accounting administrator.
 - `ledger.reports.balancePanel.{title,asOfLabel}` — the account-page
   panel.
 
@@ -916,7 +933,9 @@ top of the live query.
    get it.
 2. Add the additive `LedgerAccount.parentAccountId` column, index and
    write-time validation (entity, validator, migration, account
-   commands/API) per Data Models — no backfill.
+   commands/API), plus the attested baseline and posting guards in Data
+   Models. Do not activate reporting until all writer and migration gates
+   are verified.
 3. Implement `getAccountBalance` (`queries/getAccountBalance.ts`) —
    the `WITH RECURSIVE` CTE plus `normalBalance`-signed aggregation,
    scoped by tenant/organization.
@@ -971,8 +990,9 @@ top of the live query.
 | `setup.ts` | Modify | Add `ledger.reports.view` to `employee`'s `defaultRoleFeatures` |
 | `data/entities.ts` | Modify | Add nullable `LedgerAccount.parentAccountId` plus the `(organization_id, parent_account_id)` index |
 | `data/validators.ts` | Modify | Validate the optional `parentAccountId` (same tenant/organization, acyclic) |
-| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Modify/Create | Add the `parent_account_id` column and index (additive only, no backfill) |
-| `commands/ledgerAccounts.ts` | Modify | Persist/clear `parentAccountId` with cycle prevention in `createLedgerAccount`/`updateLedgerAccount` |
+| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Modify/Create | Add parent storage and index; coordinate verified baseline and restrictive deletion |
+| `commands/ledgerAccounts.ts` | Modify | Validate parent at creation and enforce frozen edges in every mutation and undo path |
+| `commands/journalEntries.ts` | Modify | Coordinate posting paths with scoped coverage and hierarchy locks; reconcile exact path with #5663 |
 | `api/accounts/route.ts` | Modify | Accept and return `parentAccountId` in the account CRUD fields |
 | `queries/getAccountBalance.ts` | Create | Recursive, `normalBalance`-signed balance as of an `operationDate` |
 | `queries/getTrialBalance.ts` | Create | Per-account opening/turnover/YTD/closing rows + zero-sum check |
@@ -1091,15 +1111,20 @@ top of the live query.
   or YTD turnover when January begins an explicitly configured fiscal
   year. Match #5663's journal membership
   (Design decisions, "Every fiscal-period boundary here...").
-- Parent-column migration and validation: `parent_account_id` starts
-  `NULL` for every existing account; `createLedgerAccount`/
-  `updateLedgerAccount` accept a same-tenant parent, reject a
-  cross-tenant parent, and reject a self/descendant parent (a cycle);
-  the `(organization_id, parent_account_id)` index serves the CTE.
-  With two independent database connections, start with roots A and B,
-  concurrently attempt A under B and B under A, and assert at most one
-  commits and the persisted hierarchy remains acyclic. Cover relevant
-  undo/restore paths and transaction failure releasing the scoped lock.
+- Hierarchy baseline and immutability: verify attested coverage rather
+  than treating default-NULL parents as evidence. Reject reparenting an
+  empty as well as a posted subtree after activation, including through
+  delete/restore/undo and direct writer paths. With independent database
+  transactions race activation or parent assignment against a posting
+  and opposing parent edits; verify lock order, rollback, acyclicity and
+  no post before an account's verified effective start. Attempt a late
+  post for an earlier unlocked date after a rejected move and assert the
+  original parent receives it; a locked period still rejects it. Cover
+  archived accounts, root deletion, wrong scope, unknown pre-baseline
+  history, frozen normal-balance attributes and migration/rollback without
+  rewriting journal lines. Verify account effective-start boundaries,
+  including a child created after the queried date and a period spanning
+  its creation; no pre-start post may appear.
 - Availability: exceed user and organization concurrency caps and rate
   budgets across both routes and two instances; assert `429` and usable
   `Retry-After`, no query for rejected requests, sustained load and
@@ -1150,23 +1175,16 @@ cyclic `parentAccountId` chain.**
 - Scenario: an account hierarchy is accidentally made cyclic (A →
   parent B → parent A) through a bug or direct database edit, or a
   chain is deep enough to hit a query planner limit.
-- Severity: Low — this document adds the write-time parent/cycle
-  validation (Data Models) that #5663 left open until a real reader
-  existed, so new cycles are rejected at write time; only a direct
-  database edit can still create one, and the read-time guard below
-  bounds it.
-- Affected area: `getAccountBalance`/`getTrialBalance` for the
-  affected subtree only — no write-path impact, no ledger corruption.
-- Mitigation: this document's own `WITH RECURSIVE` query needs a
-  standard cycle guard (track visited ids, stop on a repeat) — flagged
-  here as a required implementation detail, not left implicit in the
-  query sketch above. The guard logs a warning (account id, detected
-  cycle) rather than failing silently, so on-call can find and fix the
-  bad `parentAccountId` edit instead of the report just quietly
-  returning a truncated tree.
-- Residual risk: none once the cycle guard is implemented; genuinely
-  cyclic data would then surface as a bounded, visible query result
-  rather than an infinite loop.
+- Severity: High — a missing or duplicated subtree can misstate financial
+  figures, including roots not reachable by a bounded recursive walk.
+- Affected area: both reports and account/posting write paths.
+- Mitigation: validate the complete scoped chart, coverage and journal
+  membership in the report's consistent read; use a bounded cycle guard
+  and fail the entire response with `report_hierarchy_invalid` rather
+  than returning partial rows or totals. Log scoped diagnostics for repair.
+- Residual risk: the validator, lock ordering, migration and all writer
+  coverage are prerequisites and remain unimplemented; direct or legacy
+  writers must not bypass them during rollout.
 
 ### Cascading failures & side effects
 
@@ -1270,15 +1288,14 @@ to the same trusted tenant and organization; fail closed across scopes.
 
 ### Migration & deployment
 
-One additive migration (Data Models): add the nullable
-`ledger_accounts.parent_account_id` column with `ON DELETE SET NULL` and
-the `(organization_id, parent_account_id)` index. No backfill (existing
-rows are roots) and no data rewrite; the routes and query layer are
-otherwise additive over #5663's already-migrated tables. The parent
-column alone is additive, but fiscal-year containment can reject an
-existing valid period write. The prerequisite must provide the staged
-compatibility and mixed-version writer plan above before enforcement;
-no blanket additive-only claim covers that behavioral change.
+Add the parent column with restrictive deletion and its index, then
+establish and verify the scoped historical baseline and coverage before
+enabling reports. Default `NULL` is not a historical backfill. Coordinate
+hierarchy/posting guards and fiscal-year authority with #5663; frozen
+hierarchy and fiscal-year containment can reject previously valid writes.
+The prerequisites need staged compatibility, mixed-version writer
+enforcement, attestation and rollback plans before activation. No blanket
+additive-only claim covers those behavioral changes.
 
 ## Out of scope (tracked separately)
 
@@ -1352,8 +1369,8 @@ no blanket additive-only claim covers that behavioral change.
 | Rule Source | Rule | Status | Notes |
 | --- | --- | --- | --- |
 | `AGENTS.md` | No direct ORM relationships between modules | Pending | Parent link is a same-module FK; the separate fiscal-year authority design must also preserve module boundaries |
-| `AGENTS.md` | Filter by tenant/organization | Compliant | Both queries filter every table by `tenant_id`/`organization_id` — see Data Models, Risks |
-| `AGENTS.md` | Write operations via Command pattern | Compliant | Report functions are read-only; account create/update/delete/restore and undo changes use the existing commands and hold the scoped hierarchy lock through commit |
+| `AGENTS.md` | Filter by tenant/organization | Pending | Reports and both authority prerequisites require verified same-scope reads and writers |
+| `AGENTS.md` | Write operations via Command pattern | Pending | Account and posting guards need coordinated command and non-command writer coverage |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | Both new routes export `openApi`; `api/openapi.ts` updated (File Manifest) |
 | `packages/core/AGENTS.md` → API Routes | All user input validated with zod before business logic | Compliant | `asOf`/`periodId` both validated, 400 on failure (API Contracts) |
 | `packages/core/AGENTS.md` → Declarative feature guards | `acl.ts` synced to `setup.ts` `defaultRoleFeatures`, plus `sync-role-acls` for already-provisioned tenants | Compliant | `ledger.reports.view` added to both (Architecture → Access Control / Module Setup); `yarn mercato auth sync-role-acls` added as Implementation Plan step 1 so existing tenants receive it too |
@@ -1662,7 +1679,7 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
 
 Addressed the 2026-11-16 CHANGES REQUESTED review on the carried head:
 
-- **Critical — align the hierarchy schema with current #5663** — #5663 removed `LedgerAccount.parentAccountId` on 2026-10-12 and renamed `slug` to `number` (`description` is the display name). Data Models now owns the additive nullable `parentAccountId` column (FK, index, write-time parent/cycle validation, entity/validator/command/API edits, no backfill), the File Manifest and Implementation Plan list those files, and reads/ordering use `number`/`description`. The root-row reconciliation regression stays.
+- **Critical — align the hierarchy schema with current #5663** — #5663 removed `LedgerAccount.parentAccountId` on 2026-10-12 and renamed `slug` to `number` (`description` is the display name). Data Models now owns the nullable `parentAccountId` column and reads/ordering use `number`/`description`. The original no-backfill assumption is superseded by the verified-baseline prerequisite below.
 - **High — use the accounting date for fiscal-period reporting** — every `asOf`/`periodStart`/`periodEnd` predicate (and the independent `zeroSumCheck` aggregate) now filters on `operation_date`, matching #5663's lock/`periodId` semantics; `postedAt` is recording time only. Added a late-entry regression across a month/year boundary.
 - **Medium (inherited security) — bound report work before broad access** — added the Availability controls: per-user/per-organization concurrency caps (`429`), an enforced query deadline (`503 { error: 'report_timeout' }`), documented budget, and load/timeout coverage. A fresh security review is requested after this revision.
 - **Medium — plan integration coverage for both UI paths** — Testing Strategy now requires self-contained Playwright scenarios for the trial-balance page (period change resets page, pagination, figures/badge from the same response, loading/error/empty, feature gating) and the account balance panel; they ship with the eventual implementation, not this design-only PR.
@@ -1685,3 +1702,12 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
 - Historical hierarchy, opening-entry semantics, and cross-page report
   consistency remain unresolved release blockers; this partial correction
   is not an implementation approval or a request for re-review.
+
+### 2026-11-17 — historical hierarchy proposal (local draft)
+
+- Propose a verified baseline and immutable parent edges, including empty
+  accounts, to avoid retroactively moving postings when a hierarchy changes.
+  This narrows Phase 1 behavior and requires coordinated posting guards,
+  migration and compatibility review; it is not implemented or approved.
+- Opening-entry semantics, cross-page consistency and the detailed
+  hierarchy writer/lock rollout remain release blockers.
