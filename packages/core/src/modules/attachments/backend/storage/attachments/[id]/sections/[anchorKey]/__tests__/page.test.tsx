@@ -61,9 +61,10 @@ describe('attachment cited section page', () => {
     expect(screen.getByText('Terms › Past performance')).toBeInTheDocument()
     expect(screen.getByTestId('attachment-cited-section').textContent).toContain('<script>alert(1)</script>')
     expect(container.querySelector('script')).toBeNull()
-    const fileLink = container.querySelector(`a[href="/api/attachments/file/${ATTACHMENT_ID}#page=3"]`)
+    const fileLink = container.querySelector(`a[href="/api/attachments/file/${ATTACHMENT_ID}?download=1"]`)
     expect(fileLink).not.toBeNull()
-    expect(fileLink?.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(fileLink?.hasAttribute('download')).toBe(true)
+    expect(fileLink?.textContent).toContain('Download document')
   })
 
   it('shows not found when the API refuses the attachment (other tenant, organization or no access)', async () => {

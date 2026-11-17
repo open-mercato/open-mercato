@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ExternalLink } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -33,9 +33,8 @@ const ATTACHMENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 const ANCHOR_KEY_PATTERN = /^[0-9a-f]{32}$/
 const SECTION_MAX_CHARS = 16000
 
-function buildFileHref(attachmentId: string, pageStart: number | null): string {
-  const base = `/api/attachments/file/${encodeURIComponent(attachmentId)}`
-  return pageStart !== null ? `${base}#page=${pageStart}` : base
+function buildDownloadHref(attachmentId: string): string {
+  return `/api/attachments/file/${encodeURIComponent(attachmentId)}?download=1`
 }
 
 export default function AttachmentDocumentSectionPage({
@@ -147,11 +146,9 @@ export default function AttachmentDocumentSectionPage({
               <Link href={DOCUMENT_SECTION_PAGE_BASE_PATH}>{backLabel}</Link>
             </Button>
             <Button asChild>
-              <a href={buildFileHref(attachmentId, section.pageStart)} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="size-4" aria-hidden />
-                {section.pageStart !== null
-                  ? t('attachments.structure.citation.openFileAtPage', 'Open document at page {page}', { page: section.pageStart })
-                  : t('attachments.structure.citation.openFile', 'Open document')}
+              <a href={buildDownloadHref(attachmentId)} download>
+                <Download className="size-4" aria-hidden />
+                {t('attachments.structure.citation.download', 'Download document')}
               </a>
             </Button>
           </>
@@ -172,7 +169,7 @@ export default function AttachmentDocumentSectionPage({
           )}
           {section.textTruncated ? (
             <p className="text-xs text-muted-foreground">
-              {t('attachments.structure.citation.truncated', 'The section text is shortened. Open the document to read all of it.')}
+              {t('attachments.structure.citation.truncated', 'The section text is shortened. Download the document to read all of it.')}
             </p>
           ) : null}
         </section>

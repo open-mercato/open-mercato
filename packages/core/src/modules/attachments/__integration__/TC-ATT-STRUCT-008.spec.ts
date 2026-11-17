@@ -94,9 +94,10 @@ test.describe('TC-ATT-STRUCT-008: citation deep link to a document section', () 
       await expect(cited).toBeVisible({ timeout: 20_000 })
       await expect(cited).toContainText(PAST_PERFORMANCE_PHRASE)
       await expect(page.getByRole('heading', { level: 1 })).toContainText('8.12 Past performance')
-      await expect(page.getByRole('link', { name: 'Open document at page 3' })).toHaveAttribute(
+      await expect(page.getByText('p. 3', { exact: true })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Download document' })).toHaveAttribute(
         'href',
-        `/api/attachments/file/${attachmentId}#page=3`,
+        `/api/attachments/file/${attachmentId}?download=1`,
       )
       await test.info().attach('cited-section-admin', {
         body: await page.screenshot({ fullPage: false }),
