@@ -1,5 +1,21 @@
 const UNIQUE_VIOLATION_MESSAGE = /duplicate key value violates unique constraint(?: "([^"]+)")?/i
 
+/**
+ * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
+ * the ORM/driver layer that surfaces it. Shared across modules so duplicate-insert
+ * handling stays consistent platform-wide. Callers answer 409 on a match, so only
+ * DB signals count: the SQLSTATE, MikroORM's exception name, or the exact
+ * Postgres message for drivers that drop both — never an arbitrary error that
+ * merely mentions a "unique constraint".
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return pgErrorCandidates(err).some((candidate) => {
+    if (candidate.code === '23505') return true // Postgres unique_violation
+    if (candidate.name === 'UniqueConstraintViolationException') return true
+    return typeof candidate.message === 'string' && UNIQUE_VIOLATION_MESSAGE.test(candidate.message)
+  })
+}
+
 const FOREIGN_KEY_VIOLATION_MESSAGE = /violates foreign key constraint(?: "([^"]+)")?/i
 
 const MAX_ERROR_CHAIN_DEPTH = 4
@@ -55,20 +71,6 @@ export function getForeignKeyViolationConstraint(err: unknown): string | null {
     if (match?.[1]) return match[1]
   }
   return null
-}
-
-/**
- * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
- * the ORM/driver layer that surfaces it. Looks through MikroORM's driver-error
- * wrapping the same way as {@link isForeignKeyViolation}. Shared across modules
- * so duplicate-insert / relocate handling stays consistent platform-wide.
- */
-export function isUniqueViolation(err: unknown): boolean {
-  return pgErrorCandidates(err).some((candidate) => {
-    if (candidate.code === '23505') return true // Postgres unique_violation
-    if (candidate.name === 'UniqueConstraintViolationException') return true
-    return typeof candidate.message === 'string' && /duplicate key value|unique constraint/i.test(candidate.message)
-  })
 }
 
 /**
