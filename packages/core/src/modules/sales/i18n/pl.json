@@ -853,6 +853,7 @@
   "sales.documents.errors.forbidden": "Brak uprawnień do generowania numerów.",
   "sales.documents.errors.guard_blocked": "Operacja zablokowana przez regułę",
   "sales.documents.errors.invoiceNotFound": "Nie znaleziono faktury.",
+  "sales.documents.errors.invoiceOrderLineNotFound": "Nie znaleziono wskazanej pozycji zamówienia w bieżącym zakresie.",
   "sales.documents.errors.number_edit_forbidden": "Numer dokumentu nie może być edytowany.",
   "sales.documents.errors.number_forbidden": "Operacja na numerze dokumentu jest niedozwolona.",
   "sales.documents.errors.number_generate_failed": "Nie udało się wygenerować numeru dokumentu.",

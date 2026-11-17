@@ -853,6 +853,7 @@
   "sales.documents.errors.forbidden": "Sie haben keinen Zugriff zum Generieren von Nummern.",
   "sales.documents.errors.guard_blocked": "Vorgang durch eine Richtlinie blockiert",
   "sales.documents.errors.invoiceNotFound": "Rechnung nicht gefunden.",
+  "sales.documents.errors.invoiceOrderLineNotFound": "Referenzierte Auftragsposition im aktuellen Bereich nicht gefunden.",
   "sales.documents.errors.number_edit_forbidden": "Dokumentennummer kann nicht bearbeitet werden.",
   "sales.documents.errors.number_forbidden": "Dokumentennummernoperation ist nicht zulässig.",
   "sales.documents.errors.number_generate_failed": "Dokumentnummer konnte nicht generiert werden.",

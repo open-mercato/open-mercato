@@ -16,7 +16,14 @@ import { asValue, createContainer, InjectionMode } from 'awilix'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { E } from '#generated/entities.ids.generated'
-import { SalesCreditMemo, SalesInvoice, SalesInvoiceLine, SalesNote, SalesPaymentAllocation } from '../../data/entities'
+import {
+  SalesCreditMemo,
+  SalesInvoice,
+  SalesInvoiceLine,
+  SalesNote,
+  SalesOrderLine,
+  SalesPaymentAllocation,
+} from '../../data/entities'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -110,6 +117,8 @@ const OTHER_ORG_ID = '55555555-5555-4555-8555-555555555555'
 const TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const INVOICE_ID = '33333333-3333-4333-8333-333333333333'
 const LINE_ID = '44444444-4444-4444-8444-444444444444'
+const ORDER_LINE_ID = '66666666-6666-4666-8666-666666666666'
+const FOREIGN_ORDER_LINE_ID = '77777777-7777-4777-8777-777777777777'
 
 type Row = Record<string, unknown>
 
@@ -118,6 +127,11 @@ type FakeState = {
   lines: Row[]
   dependants: { allocations: number; creditMemos: number; notes: number }
 }
+
+const orderLines: Row[] = [
+  { id: ORDER_LINE_ID, organizationId: ORG_ID, tenantId: TENANT_ID, deletedAt: null },
+  { id: FOREIGN_ORDER_LINE_ID, organizationId: OTHER_ORG_ID, tenantId: TENANT_ID, deletedAt: null },
+]
 
 function makeInvoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
   return Object.assign(new SalesInvoice(), {
@@ -150,6 +164,7 @@ function makeLine(overrides: Row = {}): Row {
   return {
     id: LINE_ID,
     invoice: INVOICE_ID,
+    orderLine: null,
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
     lineNumber: 1,
@@ -240,12 +255,23 @@ function makeFakeEm(state: FakeState) {
       if (entity !== SalesInvoiceLine) return []
       return state.lines.filter((line) => matchesWhere(line, where))
     }),
-    count: jest.fn(async (entity: unknown) => {
+    count: jest.fn(async (entity: unknown, where: Row = {}) => {
+      if (entity === SalesOrderLine) {
+        const ids = (where.id as { $in: string[] }).$in
+        return orderLines.filter(
+          (row) =>
+            ids.includes(row.id as string) &&
+            row.organizationId === where.organizationId &&
+            row.tenantId === where.tenantId &&
+            row.deletedAt === null,
+        ).length
+      }
       if (entity === SalesPaymentAllocation) return state.dependants.allocations
       if (entity === SalesCreditMemo) return state.dependants.creditMemos
       if (entity === SalesNote) return state.dependants.notes
       return 0
     }),
+    getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     create: jest.fn((entity: unknown, data: Row) => {
       if (entity === SalesInvoice) return Object.assign(new SalesInvoice(), data)
       return { __entity: entity, ...data }
@@ -346,6 +372,13 @@ function baseState(overrides: Partial<FakeState> = {}): FakeState {
 }
 
 const updateScope = { id: INVOICE_ID, organizationId: ORG_ID, tenantId: TENANT_ID }
+const zeroTotals = {
+  subtotalNetAmount: 0,
+  subtotalGrossAmount: 0,
+  taxTotalAmount: 0,
+  grandTotalNetAmount: 0,
+  grandTotalGrossAmount: 0,
+}
 
 describe('sales invoice write path (#7336)', () => {
   beforeAll(async () => {
@@ -433,6 +466,55 @@ describe('sales invoice write path (#7336)', () => {
       expect(em.calls.rollbacks).toBe(1)
       expect(state.invoice).toBeNull()
       expect(state.lines).toHaveLength(0)
+    })
+
+    it('links each line to its order line and records the link in the snapshot', async () => {
+      const state = baseState({ invoice: null, lines: [] })
+      const em = makeFakeEm(state)
+      const { ctx } = makeCtx(em)
+      const create = handler('sales.invoices.create')
+      const input = {
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        currencyCode: 'EUR',
+        lines: [
+          { quantity: 1, currencyCode: 'EUR', orderLineId: ORDER_LINE_ID },
+          { quantity: 1, currencyCode: 'EUR' },
+        ],
+      }
+
+      const result = await create.execute(input as never, ctx)
+      const after = (await create.captureAfter?.(input as never, result, ctx)) as { lines: Row[] }
+
+      expect(state.lines.map((line) => line.orderLine)).toEqual([{ id: ORDER_LINE_ID }, null])
+      expect(after.lines.map((line) => line.orderLineId)).toEqual([ORDER_LINE_ID, null])
+    })
+
+    it.each([
+      ['another organization', FOREIGN_ORDER_LINE_ID],
+      ['no stored order line', '88888888-8888-4888-8888-888888888888'],
+    ])('answers 400 and stores nothing for an order line in %s', async (_label, orderLineId) => {
+      const state = baseState({ invoice: null, lines: [] })
+      const em = makeFakeEm(state)
+      const { ctx } = makeCtx(em)
+
+      await expect(
+        handler('sales.invoices.create').execute(
+          {
+            organizationId: ORG_ID,
+            tenantId: TENANT_ID,
+            currencyCode: 'EUR',
+            lines: [
+              { quantity: 1, currencyCode: 'EUR', orderLineId: ORDER_LINE_ID },
+              { quantity: 1, currencyCode: 'EUR', orderLineId },
+            ],
+          } as never,
+          ctx,
+        ),
+      ).rejects.toMatchObject({ status: 400, body: { error: 'sales.documents.errors.invoiceOrderLineNotFound' } })
+      expect(state.invoice).toBeNull()
+      expect(state.lines).toHaveLength(0)
+      expect(em.begin).not.toHaveBeenCalled()
     })
   })
 
@@ -664,6 +746,41 @@ describe('sales invoice write path (#7336)', () => {
       expect(state.lines[0]).toMatchObject({ totalNetAmount: '100', totalGrossAmount: '123' })
     })
 
+    it('answers 400 before the row lock for a replacement line linked outside the scope', async () => {
+      const state = baseState()
+      const em = makeFakeEm(state)
+      const { ctx } = makeCtx(em)
+
+      await expect(
+        handler('sales.invoices.update').execute(
+          {
+            ...updateScope,
+            replaceLines: true,
+            lines: [{ quantity: 1, currencyCode: 'EUR', orderLineId: FOREIGN_ORDER_LINE_ID }],
+            ...zeroTotals,
+          } as never,
+          ctx,
+        ),
+      ).rejects.toMatchObject({ status: 400 })
+      expect(lockMock).not.toHaveBeenCalled()
+      expect(state.lines).toEqual([makeLine()])
+      expect(em.calls.rollbacks).toBe(1)
+    })
+
+    it('does not check order lines when the update keeps the lines', async () => {
+      const state = baseState()
+      const em = makeFakeEm(state)
+      const { ctx } = makeCtx(em)
+
+      await runUpdate(
+        { ...updateScope, lines: [{ quantity: 1, currencyCode: 'EUR', orderLineId: FOREIGN_ORDER_LINE_ID }] },
+        ctx,
+      )
+
+      expect(em.count).not.toHaveBeenCalledWith(SalesOrderLine, expect.anything())
+      expect(state.lines).toEqual([makeLine()])
+    })
+
     it('rejects replaceLines without lines or totals before touching the invoice', async () => {
       const state = baseState()
       const { ctx } = makeCtx(makeFakeEm(state))
@@ -742,6 +859,22 @@ describe('sales invoice write path (#7336)', () => {
       )
     })
 
+    it('restores the order line link of a replaced line', async () => {
+      const state = baseState({ lines: [makeLine({ orderLine: { id: ORDER_LINE_ID } })] })
+      const undo = await updateAndCapture(state, {
+        replaceLines: true,
+        lines: [{ quantity: 3, currencyCode: 'EUR' }],
+        ...zeroTotals,
+      })
+      expect(state.lines[0].orderLine).toBeNull()
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await runUndo('sales.invoices.update', undo, ctx)
+
+      expect(state.lines).toHaveLength(1)
+      expect(state.lines[0]).toMatchObject({ id: LINE_ID, orderLine: { id: ORDER_LINE_ID } })
+    })
+
     it.each([
       ['a header field', (state: FakeState) => Object.assign(state.invoice!, { invoiceNumber: 'INV-LATER' })],
       ['only a custom field', () => customFieldStore.set(INVOICE_ID, { company: 'c-later' })],
@@ -818,7 +951,7 @@ describe('sales invoice write path (#7336)', () => {
         customFieldSetId: null,
         customFields: { cf_company: 'c-1' },
       }
-      const { invoice: _ref, organizationId: _o, tenantId: _t, ...legacyLine } = makeLine()
+      const { invoice: _ref, orderLine: _orderLine, organizationId: _o, tenantId: _t, ...legacyLine } = makeLine()
       const undo = {
         before: { invoice: legacyInvoice, lines: [{ ...legacyLine, orderLineId: null }] },
         after: {

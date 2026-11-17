@@ -853,6 +853,7 @@
   "sales.documents.errors.forbidden": "번호를 생성할 권한이 없습니다.",
   "sales.documents.errors.guard_blocked": "정책에 의해 차단된 작업입니다.",
   "sales.documents.errors.invoiceNotFound": "송장을 찾을 수 없습니다.",
+  "sales.documents.errors.invoiceOrderLineNotFound": "현재 범위에서 참조된 주문 항목을 찾을 수 없습니다.",
   "sales.documents.errors.number_edit_forbidden": "문서 번호는 수정할 수 없습니다.",
   "sales.documents.errors.number_forbidden": "문서 번호 작업이 허용되지 않습니다.",
   "sales.documents.errors.number_generate_failed": "문서 번호를 생성하지 못했습니다.",

@@ -853,6 +853,7 @@
   "sales.documents.errors.forbidden": "No tienes acceso para generar números.",
   "sales.documents.errors.guard_blocked": "Operación bloqueada por una política",
   "sales.documents.errors.invoiceNotFound": "Factura no encontrada.",
+  "sales.documents.errors.invoiceOrderLineNotFound": "No se encontró la línea de pedido referenciada en el ámbito actual.",
   "sales.documents.errors.number_edit_forbidden": "El número de documento no se puede editar.",
   "sales.documents.errors.number_forbidden": "La operación sobre el número de documento no está permitida.",
   "sales.documents.errors.number_generate_failed": "No se pudo generar el número de documento.",

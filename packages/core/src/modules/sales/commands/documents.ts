@@ -2249,7 +2249,10 @@ async function loadInvoiceSnapshot(
     },
     lines: lines.map((line) => ({
       id: line.id,
-      orderLineId: line.orderLineId ?? null,
+      orderLineId:
+        typeof line.orderLine === "string"
+          ? line.orderLine
+          : (line.orderLine?.id ?? null),
       lineNumber: line.lineNumber,
       kind: line.kind ?? "product",
       name: line.name ?? null,
@@ -9768,10 +9771,37 @@ const invoiceCrudEvents: CrudEventsConfig<SalesInvoice> = {
 type InvoiceRecordScope = { organizationId: string; tenantId: string };
 
 /**
+ * Refuses invoice lines whose `orderLineId` is not a live order line in the
+ * invoice's organization and tenant, so a line never links another tenant's order line.
+ */
+async function assertInvoiceOrderLinesInScope(
+  em: EntityManager,
+  lines: InvoiceLineInput[] | null | undefined,
+  scope: InvoiceRecordScope,
+): Promise<void> {
+  const orderLineIds = [...new Set((lines ?? []).flatMap((line) => (line.orderLineId ? [line.orderLineId] : [])))];
+  if (!orderLineIds.length) return;
+  const found = await em.count(SalesOrderLine, {
+    id: { $in: orderLineIds },
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  });
+  if (found !== orderLineIds.length) {
+    const { translate } = await resolveTranslations();
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.documents.errors.invoiceOrderLineNotFound",
+        "Referenced order line not found in current scope.",
+      ),
+    });
+  }
+}
+
+/**
  * Maps one invoice line input to a new line entity. Create and line replacement
- * share it, so a line stores the same net on both paths. `SalesInvoiceLine` maps
- * `order_line_id` as the `orderLine` relation, which this path does not set, so
- * `orderLineId` stays unstored, as it always was.
+ * share it, so a line stores the same net and order line link on both paths.
+ * Callers check `orderLineId` with `assertInvoiceOrderLinesInScope` first.
  */
 function buildInvoiceLineEntity(
   em: EntityManager,
@@ -9783,7 +9813,7 @@ function buildInvoiceLineEntity(
   return em.create(SalesInvoiceLine, {
     id: randomUUID(),
     invoice,
-    orderLineId: line.orderLineId ?? null,
+    orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
     organizationId: invoice.organizationId,
     tenantId: invoice.tenantId,
     lineNumber: line.lineNumber ?? index + 1,
@@ -9820,6 +9850,7 @@ function restoreInvoiceLineEntity(
   return em.create(SalesInvoiceLine, {
     id: line.id,
     invoice,
+    orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
     organizationId: invoice.organizationId,
     tenantId: invoice.tenantId,
     lineNumber: line.lineNumber,
@@ -10112,6 +10143,10 @@ const createInvoiceCommand: CommandHandler<
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
     }
+    await assertInvoiceOrderLinesInScope(em, parsed.lines, {
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+    });
 
     const invoiceId = randomUUID();
     const invoice = em.create(SalesInvoice, {
@@ -10416,6 +10451,7 @@ const updateInvoiceCommand: CommandHandler<
           ensureOrganizationScope(ctx, existing.organizationId);
           ensureTenantScope(ctx, existing.tenantId);
           scope = { organizationId: existing.organizationId, tenantId: existing.tenantId };
+          await assertInvoiceOrderLinesInScope(em, replacementLines, scope);
           if (!(await lockSalesDocumentRow(em, "sales_invoices", id, scope))) {
             throw notFound(missingMessage);
           }
@@ -10725,7 +10761,7 @@ const deleteInvoiceCommand: CommandHandler<
       em.persist(em.create(SalesInvoiceLine, {
         id: line.id,
         invoice: restored,
-        orderLineId: line.orderLineId,
+        orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
         organizationId: before.invoice.organizationId,
         tenantId: before.invoice.tenantId,
         lineNumber: line.lineNumber,

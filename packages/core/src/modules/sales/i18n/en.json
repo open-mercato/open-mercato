@@ -853,6 +853,7 @@
   "sales.documents.errors.forbidden": "You do not have access to generate numbers.",
   "sales.documents.errors.guard_blocked": "Operation blocked by guard",
   "sales.documents.errors.invoiceNotFound": "Invoice not found.",
+  "sales.documents.errors.invoiceOrderLineNotFound": "Referenced order line not found in current scope.",
   "sales.documents.errors.number_edit_forbidden": "Document number cannot be edited.",
   "sales.documents.errors.number_forbidden": "Document number operation is not allowed.",
   "sales.documents.errors.number_generate_failed": "Failed to generate document number.",
