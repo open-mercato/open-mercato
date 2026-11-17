@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Request } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture,
@@ -70,6 +70,63 @@ async function deleteAttachmentViaPage(page: Page, attachmentId: string): Promis
       headers: { 'x-om-forbidden-redirect': '0' },
     }).catch(() => undefined)
   }, attachmentId).catch(() => undefined)
+}
+
+type StaleAttachmentsResponseGate = {
+  // Resolves once the very first attachments request has been captured, its
+  // (pre-mutation) response snapshot has actually been fetched, and the
+  // release callback below is armed — not merely scheduled. Awaiting this
+  // instead of polling a flag set at the top of the route handler prevents
+  // the caller from racing ahead (e.g. uploading the "fresh" attachment, or
+  // navigating away) before the stale snapshot was truly taken.
+  ready: Promise<void>
+  // Releases the held response and resolves only once that exact response —
+  // identified by the original Request object, never by URL, since a second,
+  // unrelated request to the same URL can land first — has been fully
+  // delivered to the page.
+  release: () => Promise<void>
+}
+
+// Shared by both stale-response race tests below: intercepts the first
+// matching `/api/attachments` request, fetches its real response immediately
+// (capturing the "old" snapshot before any caller-driven mutation or
+// navigation can change it), then holds that exact response until `release()`
+// is called. Every subsequent request to the same URL (e.g. the fresh fetch
+// after navigating back) passes straight through.
+async function armStaleAttachmentsResponseGate(page: Page): Promise<StaleAttachmentsResponseGate> {
+  let staleRequest: Request | null = null
+  let readyResolve: (() => void) | null = null
+  const ready = new Promise<void>((resolve) => { readyResolve = resolve })
+  let releaseGateResolve: (() => void) | null = null
+
+  await page.route('**/api/attachments?*', async (route) => {
+    if (!staleRequest) {
+      staleRequest = route.request()
+      const staleResponse = await route.fetch()
+      const released = new Promise<void>((resolve) => { releaseGateResolve = resolve })
+      // Only now — after the snapshot is actually fetched AND the release
+      // callback above is guaranteed assigned — may the caller proceed.
+      readyResolve?.()
+      await released
+      await route.fulfill({ response: staleResponse })
+      return
+    }
+    await route.continue()
+  })
+
+  const release = async () => {
+    if (!staleRequest || !releaseGateResolve) {
+      throw new Error('release() called before the stale request gate was ready')
+    }
+    const delivered = page.waitForResponse((response) => response.request() === staleRequest)
+    releaseGateResolve()
+    const response = await delivered
+    // Confirms the exact held response's body has fully reached the page,
+    // not just that some response to this URL arrived.
+    await response.finished()
+  }
+
+  return { ready, release }
 }
 
 test.describe('TC-WC-8796: claim detail attachment access in the browser', () => {
@@ -535,38 +592,17 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
     await expect(rowFor(currentAttachmentsClaimNumber)).toBeVisible()
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const releaseGate: { resolve: (() => void) | null } = { resolve: null }
-      let captured = false
-      let staleRequestUrl: string | null = null
-      await page.route('**/api/attachments?*', async (route) => {
-        if (!captured) {
-          captured = true
-          staleRequestUrl = route.request().url()
-          // Fetch the real response NOW and delay only its delivery to the
-          // page via a held route.fulfill() — delaying route.continue()
-          // instead would delay when the request is actually sent, letting
-          // it silently pick up whatever context exists once released.
-          const staleResponse = await route.fetch()
-          await new Promise<void>((resolve) => { releaseGate.resolve = resolve })
-          await route.fulfill({ response: staleResponse })
-          return
-        }
-        await route.continue()
-      })
+      const gate = await armStaleAttachmentsResponseGate(page)
 
       await rowFor(staleAttachmentsClaimNumber).click()
       await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toBeVisible()
       const staleAttachmentsTab = page.getByRole('tab', { name: /^Attachments/ })
       await expect(staleAttachmentsTab).toBeVisible()
 
-      // Confirm the first claim's attachments request was actually captured
-      // (in flight, gated) before navigating away — otherwise the rest of
-      // this attempt would race ahead of the very request it must keep
-      // pending.
-      await expect.poll(() => captured, {
-        message: `attempt ${attempt + 1}: the stale claim's attachments request should have been captured before navigating away`,
-      }).toBe(true)
-      const staleResponseDelivered = page.waitForResponse((response) => response.url() === staleRequestUrl)
+      // Wait for the stale claim's attachments request to be captured (in
+      // flight, gated) before navigating away — otherwise the rest of this
+      // attempt would race ahead of the very request it must keep pending.
+      await gate.ready
 
       // Navigate away to the second claim WITHOUT releasing the gate yet, so
       // the first claim's attachments fetch is still in flight when its
@@ -582,18 +618,18 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
         `attempt ${attempt + 1}: the current claim's own attachment count should load`,
       ).toBeVisible()
 
-      releaseGate.resolve?.()
-      // Let the delayed stale response actually reach the page before
-      // asserting the final state — otherwise a still-pending response can
-      // make a broken guard look correct simply because it hasn't arrived yet.
-      await staleResponseDelivered
-      // waitForResponse only confirms the HTTP response headers landed, not
-      // that its JSON body has been parsed and the resulting setState call
-      // has flushed. Since "1" is already rendered before this point (from
-      // the current claim's own load), a toBeVisible() check on "1" would
-      // otherwise succeed instantly without ever observing a stale "2" that
-      // lands a tick later — give that in-flight microtask chain a moment to
-      // settle before asserting the final, stable state.
+      // Releases the held stale response and waits until that exact response
+      // — matched by its original Request object, never by URL — has fully
+      // reached the page, so the assertions below cannot run before the
+      // regression this test targets had any chance to manifest.
+      await gate.release()
+      // response.finished() only confirms the response body is fully on the
+      // wire, not that its JSON has been parsed and the resulting setState
+      // call has flushed. Since "1" is already rendered before this point
+      // (from the current claim's own load), a toBeVisible() check on "1"
+      // would otherwise succeed instantly without ever observing a stale "2"
+      // that lands a tick later — give that in-flight microtask chain a
+      // moment to settle before asserting the final, stable state.
       await page.waitForTimeout(500)
 
       await expect(
@@ -615,39 +651,18 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
   test('rejects a stale attachment response after switching the selected organization mid-flight', async ({ page, request }) => {
     await loginAsScopedUser(page, crossOrgReader.email, crossOrgReader.password, tenantId, organizationId)
 
-    const releaseGate: { resolve: (() => void) | null } = { resolve: null }
-    let captured = false
-    let staleRequestUrl: string | null = null
-    await page.route('**/api/attachments?*', async (route) => {
-      if (!captured) {
-        captured = true
-        staleRequestUrl = route.request().url()
-        // Fetch the real response NOW, while the request still carries the
-        // original organization's cookie/context — delaying route.continue()
-        // instead would send the actual network request only once released,
-        // by which point the org has already switched back, so the "stale"
-        // response would silently become fresh. Capture it immediately and
-        // delay only its delivery to the page.
-        const staleResponse = await route.fetch()
-        await new Promise<void>((resolve) => { releaseGate.resolve = resolve })
-        await route.fulfill({ response: staleResponse })
-        return
-      }
-      await route.continue()
-    })
+    const gate = await armStaleAttachmentsResponseGate(page)
 
     await page.goto(`/backend/warranty_claims/${staleAttachmentsClaimId}`)
     await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toBeVisible()
     const attachmentsTab = page.getByRole('tab', { name: /^Attachments/ })
     await expect(attachmentsTab).toBeVisible()
 
-    // Confirm the original organization's attachments request was actually
-    // captured (in flight, gated) before switching organizations — otherwise
-    // the switch could race ahead of the very request it must keep pending.
-    await expect.poll(() => captured, {
-      message: 'the attachments request for the original organization should have been captured before switching organizations',
-    }).toBe(true)
-    const staleResponseDelivered = page.waitForResponse((response) => response.url() === staleRequestUrl)
+    // Wait for the original organization's attachments request to be
+    // captured (in flight, gated, snapshot actually fetched) before switching
+    // organizations or uploading the extra attachment below — otherwise
+    // either could race ahead of the very snapshot this test depends on.
+    await gate.ready
 
     // Switch the selected organization through the real chrome switcher
     // (writes the om_selected_org cookie and bumps the client-side scope
@@ -690,15 +705,15 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
       'switching back should load the claim\'s fresh, current attachment count',
     ).toBeVisible()
 
-    releaseGate.resolve?.()
-    // Let the delayed stale response actually reach the page before
-    // asserting the final state — otherwise a still-pending response can
-    // make a broken guard look correct simply because it hasn't arrived yet.
-    await staleResponseDelivered
-    // waitForResponse only confirms the HTTP response headers landed, not
-    // that its JSON body has been parsed and the resulting setState call
-    // has flushed. Give that in-flight microtask chain a moment to settle
-    // before asserting the final, stable state.
+    // Releases the held stale response and waits until that exact response —
+    // matched by its original Request object, never by URL — has fully
+    // reached the page, so the assertions below cannot run before the
+    // regression this test targets had any chance to manifest.
+    await gate.release()
+    // response.finished() only confirms the response body is fully on the
+    // wire, not that its JSON has been parsed and the resulting setState
+    // call has flushed. Give that in-flight microtask chain a moment to
+    // settle before asserting the final, stable state.
     await page.waitForTimeout(500)
 
     await expect(
