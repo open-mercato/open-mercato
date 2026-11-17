@@ -202,7 +202,8 @@ describe('checkPushReceipts', () => {
     )
   })
 
-  it('keeps a device that re-registered a fresh push token after the stale delivery was sent', async () => {    const row = makeRow({ id: 'stale-1', userDeviceId: 'dev-rotated', tokenSnapshot: CURRENT_TOKEN.slice(-8) })
+  it('keeps a device that re-registered a fresh push token after the stale delivery was sent', async () => {
+    const row = makeRow({ id: 'stale-1', userDeviceId: 'dev-rotated', tokenSnapshot: CURRENT_TOKEN.slice(-8) })
     const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
       makeDevice({ id: 'dev-rotated', pushToken: ROTATED_TOKEN }),
     ])
