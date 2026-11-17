@@ -34,6 +34,7 @@ for (const features of [
       await setRoleAclFeatures(request, adminToken, { roleId, features, organizations: [organizationId] })
       userId = await createUserFixture(request, adminToken, { email, password, organizationId, roles: [roleName] })
       const session = await loginViaApi(request, email, password)
+      expect(getTokenContext(session.token).organizationId).toBe(organizationId)
       const logoutSession = await loginViaApi(request, email, password)
       const key = await apiRequest(request, 'POST', '/api/api_keys/keys', {
         token: session.token, data: { name: roleName, roles: [roleId], organizationId },
