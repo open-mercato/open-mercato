@@ -3,7 +3,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
-import { buildScopedContainerFromResolve } from '@open-mercato/shared/lib/di/scopedContainer'
+import { buildScopedContainerFromResolve, type ScopedResolveContainer } from '@open-mercato/shared/lib/di/scopedContainer'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -32,7 +32,13 @@ const logger = createLogger('assisted_selling')
 
 export type ReauthorOnMergeSubscriberContext = {
   resolve: <T = unknown>(name: string) => T
-  container?: { resolve: <T = unknown>(name: string) => T }
+  // #8268 review Major 1 (re-review): the event bus now hands subscribers the REAL
+  // container `resolve` is bound from, when the caller that dispatched this event
+  // has one (`SubscriberContext.container`) — never a `{ resolve }`-only shim. This
+  // is what makes `.register({ auth: ... })` below actually reach `promotionsService`
+  // (whose DI factory closes over that SAME container object), instead of only
+  // shadowing resolution for THIS function's own direct `container.resolve(...)` calls.
+  container?: ScopedResolveContainer
   tenantId?: string | null
   organizationId?: string | null
 }
@@ -439,11 +445,17 @@ export async function handleCartMergedForAssistedSellingReauthor(
 
   const targetCustomerId = readString(record, 'customerId')
   const targetCustomerUserId = readString(record, 'customerUserId')
-  // #8268 review Major 1 (re-review): always build a scoped container — never trust
-  // `ctx.container` to already have `.register()` (its declared shape is the same
-  // resolve-only one `ctx.resolve` is), so every delivery gets the reauthoring
-  // chain's required seam, not just the ones that happen to omit `ctx.container`.
-  const container = buildScopedContainerFromResolve(ctx.container?.resolve ?? ctx.resolve)
+  // #8268 review Major 1 (re-review, M1): use the REAL container the event bus handed
+  // this subscriber when it has one — its `.register({ auth: ... })` below is then
+  // visible to `promotionsService` (and anything else DI-registered with a closure
+  // over the per-request/per-job container), not just to this function's own direct
+  // `container.resolve(...)` calls. Only fall back to the local resolver-overlay shim
+  // (`.register()` that shadows resolution for THIS function alone) when no real
+  // container was handed through — e.g. a caller that still only has a bound resolve.
+  const container: RetargetContainer =
+    ctx.container && typeof ctx.container.register === 'function'
+      ? ctx.container
+      : buildScopedContainerFromResolve(ctx.resolve)
   const scope: RetargetScope = { tenantId, organizationId }
 
   try {

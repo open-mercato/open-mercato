@@ -459,6 +459,74 @@ describe('cart.proposal.create', () => {
     )
   })
 
+  it('rejects a variant that actually belongs to a different product than the one supplied, before pricing or persistence', async () => {
+    seededVariants = [{
+      id: 'variant-2',
+      product: { id: 'product-2' },
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      deletedAt: null,
+      isActive: true,
+    }]
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+    const handler = getHandler<CartProposalCreateInput, CartProposalCreateResult>('cart.proposal.create')
+    const em = makeEm()
+    const ctx = makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } })
+
+    const result = await captureError(() =>
+      handler.execute(
+        {
+          targetCartId: TARGET_CART_ID,
+          // Pairs product-1 (allowed) with product-2's own variant — pricing/visibility
+          // for the supplied productId must never leak into a mismatched variant.
+          lines: [{ productId: 'product-1', variantId: 'variant-2', quantity: '1' }],
+        },
+        ctx,
+      ),
+    )
+
+    expectCrudHttpError(result, 422, 'proposal_empty')
+    expect((result as { body?: { rejectedLines?: unknown } }).body?.rejectedLines).toEqual([
+      { productId: 'product-1', variantId: 'variant-2', reason: 'product_unavailable' },
+    ])
+    expect(resolveLinePrice).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(seededCarts).toHaveLength(1)
+    expect(seededCartLines).toHaveLength(0)
+  })
+
+  it('keeps a valid line independent of a mismatched variant/product pairing in the same request', async () => {
+    seededVariants = [{
+      id: 'variant-2',
+      product: { id: 'product-2' },
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      deletedAt: null,
+      isActive: true,
+    }]
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+    const handler = getHandler<CartProposalCreateInput, CartProposalCreateResult>('cart.proposal.create')
+    const em = makeEm()
+    const ctx = makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } })
+
+    const result = await handler.execute(
+      {
+        targetCartId: TARGET_CART_ID,
+        lines: [
+          { productId: 'product-1', quantity: '2' },
+          { productId: 'product-1', variantId: 'variant-2', quantity: '1' },
+        ],
+      },
+      ctx,
+    )
+
+    expect(result.rejectedLines).toEqual([{ productId: 'product-1', variantId: 'variant-2', reason: 'product_unavailable' }])
+    expect(result.lines).toHaveLength(1)
+    expect(result.lines[0]).toMatchObject({ productId: 'product-1', variantId: null })
+    expect(resolveLinePrice).toHaveBeenCalledTimes(1)
+    expect(seededCartLines.find((row) => row.variantId === 'variant-2')).toBeUndefined()
+  })
+
   it('refuses with 422 proposal_empty when every line is visibility-rejected, and creates nothing', async () => {
     const handler = getHandler<CartProposalCreateInput, CartProposalCreateResult>('cart.proposal.create')
     const em = makeEm()

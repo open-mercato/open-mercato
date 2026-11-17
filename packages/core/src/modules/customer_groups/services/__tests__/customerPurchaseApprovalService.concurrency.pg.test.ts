@@ -20,7 +20,7 @@
  *     yarn workspace @open-mercato/core jest customerPurchaseApprovalService.concurrency.pg
  */
 import 'reflect-metadata'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
 import { CustomerPurchaseApproval } from '../../data/entities'
@@ -32,6 +32,10 @@ import {
 } from '../customerPurchaseApprovalService'
 import type { CustomerGroupsService, ResolvedTerms } from '../customerGroupsService'
 import { expirePendingApprovals } from '../../lib/expireApprovals'
+import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
+import * as customFieldValuesModule from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 const PG_URL = process.env.OM_CUSTOMER_GROUPS_PG_URL ?? ''
 const PARALLEL = Number(process.env.OM_CUSTOMER_GROUPS_RACE_PARALLEL ?? '20')
@@ -74,6 +78,21 @@ maybe('customerPurchaseApprovalService under real concurrency (G6)', () => {
     // schema without pulling the whole `customer_accounts` module's entities in.
     await orm.em.getConnection().execute(
       'create table if not exists customer_users (id uuid primary key, tenant_id uuid not null, customer_entity_id uuid, deleted_at timestamptz)',
+    )
+    // C1's own regression (below) needs the REAL policy table `TenantDataEncryptionService`
+    // reads via raw SQL (`loadPolicy`) — same minimal stand-in convention as `customer_users`
+    // above, with exactly the columns that query selects.
+    await orm.em.getConnection().execute(
+      `create table if not exists encryption_maps (
+        id uuid primary key default gen_random_uuid(),
+        entity_id text not null,
+        tenant_id uuid,
+        organization_id uuid,
+        fields_json jsonb,
+        is_active boolean not null default true,
+        created_at timestamptz not null default now(),
+        deleted_at timestamptz
+      )`,
     )
   }, 60_000)
 
@@ -294,5 +313,81 @@ maybe('customerPurchaseApprovalService under real concurrency (G6)', () => {
     const em = orm.em.fork()
     const rows = await em.find(CustomerPurchaseApproval, { tenantId: TENANT_ID, subjectType: 'cart', subjectId, status: 'pending' })
     expect(rows).toHaveLength(1)
+  })
+
+  describe('decideApproval note encryption (C1 — nativeUpdate bypasses the beforeUpdate subscriber)', () => {
+    const previousEncryption = process.env.TENANT_DATA_ENCRYPTION
+
+    beforeAll(async () => {
+      process.env.TENANT_DATA_ENCRYPTION = 'yes'
+      // The subscriber's read-side decrypt resolves `entityId` from ORM metadata through
+      // this registry (`resolveEntityIdFromMetadata`) — never populated in this isolated
+      // PG suite (no app bootstrap registers it), so without this the decrypt silently
+      // no-ops (unresolved entityId) and the regression below would pass for the wrong
+      // reason (nothing ever decrypts, ciphertext just never got attempted either way).
+      registerEntityIds({ customer_groups: { customer_purchase_approval: 'customer_groups:customer_purchase_approval' } })
+      await orm.em.getConnection().execute(
+        'insert into encryption_maps (entity_id, tenant_id, organization_id, fields_json, is_active) values (?, ?, null, ?, true)',
+        [
+          'customer_groups:customer_purchase_approval',
+          TENANT_ID,
+          JSON.stringify([{ field: 'buyer_decision_note' }, { field: 'merchant_decision_note' }]),
+        ],
+      )
+    })
+
+    afterAll(async () => {
+      if (previousEncryption === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+      else process.env.TENANT_DATA_ENCRYPTION = previousEncryption
+      registerEntityIds({})
+      await orm.em.getConnection().execute('delete from encryption_maps where tenant_id = ?', [TENANT_ID])
+    })
+
+    test('stores the decision note as ciphertext at rest and still returns the readable note from the API', async () => {
+      const approvalId = await seedApproval({ approvalPolicy: 'merchant', buyerDecision: 'not_required' })
+      const plaintext = 'approved — matches the quoted volume discount, PO #44821'
+      const em = orm.em.fork()
+      // `decideApproval`'s own pre-transaction encrypt AND its final `loadDecrypted` read
+      // each independently call `resolveTenantEncryptionService(this.em)` with no `provided`
+      // override — passing one there (as this helper otherwise allows) is a cache MISS, not
+      // a seed, so it would only cover the first of the two calls. Replace the helper itself
+      // for the duration of this test so both call sites deterministically share ONE fake
+      // KMS-backed service — this suite's disposable schema has no real Vault, and the point
+      // here is the encrypt/decrypt round-trip through the real service, not which KMS
+      // backend answers it.
+      const key = randomBytes(32).toString('base64')
+      const fakeEncryptionService = new TenantDataEncryptionService(em, {
+        kms: {
+          isHealthy: () => true,
+          getTenantDek: async (tenantId) => ({ tenantId, key, fetchedAt: Date.now() }),
+          createTenantDek: async (tenantId) => ({ tenantId, key, fetchedAt: Date.now() }),
+        },
+      })
+      const resolveSpy = jest
+        .spyOn(customFieldValuesModule, 'resolveTenantEncryptionService')
+        .mockReturnValue(fakeEncryptionService)
+
+      let result: Awaited<ReturnType<CustomerPurchaseApprovalService['decideApproval']>>
+      try {
+        const service = serviceFor(em, 'merchant')
+        const actor: ApprovalActor = { actorType: 'staff_user', actorId: randomUUID() }
+        result = await service.decideApproval({ scope: SCOPE, approvalId, decision: 'approved', actor, note: plaintext })
+      } finally {
+        resolveSpy.mockRestore()
+      }
+
+      // Readable from the API: `loadDecrypted` inside `decideApproval` decrypts it back.
+      expect(result.merchant.note).toBe(plaintext)
+
+      // Ciphertext at rest: the raw column, read without going through the service/ORM
+      // decrypt path, must never equal the plaintext and must look like a sealed envelope.
+      const [raw] = (await orm.em.getConnection().execute(
+        'select merchant_decision_note from customer_purchase_approvals where id = ?',
+        [approvalId],
+      )) as Array<{ merchant_decision_note: string | null }>
+      expect(raw?.merchant_decision_note).toBeTruthy()
+      expect(raw?.merchant_decision_note).not.toBe(plaintext)
+      expect(isEncryptedPayloadShape(raw?.merchant_decision_note)).toBe(true)
+    })
   })
 })

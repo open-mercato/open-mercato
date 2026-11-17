@@ -172,20 +172,19 @@ describe('handleCartMergedForAssistedSellingReauthor — D-R5-14 re-author / sup
     expect(emitAssistedSellingEvent).not.toHaveBeenCalled()
   })
 
-  // #8268 review Major 1 (re-review): the event bus's real subscriber context NEVER
-  // populates `ctx.container` — only `ctx.resolve` (`packages/events/src/bus.ts`'s
-  // `deliver()`/`dispatchQueued()`) — so the production call this test exercises
-  // omits `container` entirely, the exact shape a real delivery has. Before the fix,
-  // the handler's `{ resolve: ctx.resolve }` fallback had no `.register()`, and the
-  // real reauthoring chain (`cart/commands/lines.ts#buildCartPromotionsAndTotalsPhases`)
+  // A delivery with no real container at all (an older bus, or a caller that only
+  // ever has a bound resolve) still needs SOME container with `.register()` — before
+  // the fix, the handler's `{ resolve: ctx.resolve }` fallback had no `.register()`,
+  // and the real reauthoring chain (`cart/commands/lines.ts#buildCartPromotionsAndTotalsPhases`)
   // calls `container.register({ auth: ... })` unconditionally — a TypeError that the
   // caller (`reauthorProposalForMergeRetarget`, mocked here at the module boundary
   // this file already tests against) would see as a thrown rejection. This proves the
-  // container `handleCartMergedForAssistedSellingReauthor` builds and passes down
-  // actually supports `.register()`, with `.resolve()` honoring the override and
-  // falling through to the real DI resolver for everything else — without needing the
-  // full `cart` module's own command/promotions machinery (that module's own tests own
-  // proving `buildCartPromotionsAndTotalsPhases` itself).
+  // fallback shim `handleCartMergedForAssistedSellingReauthor` builds supports
+  // `.register()`, with `.resolve()` honoring the override and falling through to the
+  // real DI resolver for everything else — without needing the full `cart` module's
+  // own command/promotions machinery (that module's own tests own proving
+  // `buildCartPromotionsAndTotalsPhases` itself). The REAL-container case (the event
+  // bus's actual delivery shape since the #8268 M1 fix) is covered by the next test.
   test('builds a scoped container (even with no ctx.container at all) that supports register() with resolve() fallthrough', async () => {
     const proposal = makeProposal()
     const thread = makeThread()
@@ -214,6 +213,39 @@ describe('handleCartMergedForAssistedSellingReauthor — D-R5-14 re-author / sup
     expect(capturedContainer!.resolve('probe')).toBe('registered-value')
     // A key never overridden still falls through to the real DI resolver.
     expect(capturedContainer!.resolve('em')).toBe(em)
+  })
+
+  // #8268 review Major 1 (re-review, M1): when the event bus DOES hand this subscriber
+  // a real container (`ctx.container`, now populated by `packages/events/src/bus.ts`'s
+  // `deliver()`/`dispatchQueued()`), the handler must pass THAT SAME object down — never
+  // wrap it in a fresh local resolver-overlay shim. A fresh shim's `.register()` would
+  // only shadow resolution for ITS OWN direct `container.resolve(...)` calls; it is
+  // invisible to any dependent service (e.g. `promotionsService`, whose DI factory in
+  // `promotions/di.ts` closes over the container `register(container)` was called
+  // with) that already holds its own reference to the real container. Identity, not
+  // just behavior, is what this test checks.
+  test('passes the REAL ctx.container straight through (identity) when the event bus supplies one', async () => {
+    const proposal = makeProposal()
+    const thread = makeThread()
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
+    const commandBus = makeCommandBus()
+    const cartService = makeCartService()
+    const realContainer = makeContainer({ em, commandBus, cartService })
+    ;(realContainer as Row).register = jest.fn()
+
+    let capturedContainer: Row | undefined
+    ;(reauthorProposalForMergeRetarget as jest.Mock).mockImplementationOnce(async (params: Row) => {
+      capturedContainer = params.ctx.container
+      return { proposalId: 'proposal-2', replayed: false }
+    })
+
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), {
+      resolve: realContainer.resolve,
+      container: realContainer as Row,
+    })
+
+    expect(reauthorProposalForMergeRetarget).toHaveBeenCalledTimes(1)
+    expect(capturedContainer).toBe(realContainer)
   })
 
   test('falls back to supersede-only (no re-author) when reauthorProposalForMergeRetarget refuses — e.g. the author lost cart.proposals.author', async () => {

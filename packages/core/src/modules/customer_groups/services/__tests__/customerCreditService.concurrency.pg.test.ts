@@ -537,7 +537,7 @@ maybe('customerCreditService — organization isolation on idempotency-key repla
     const orgAService = serviceForOrg(orm.em.fork())
     const orgBService = serviceForOrg(orm.em.fork())
 
-    const [orgAResult, orgBOutcome] = await Promise.all([
+    const [orgAOutcome, orgBOutcome] = await Promise.allSettled([
       orgAService.reserveCredit({
         scope: SCOPE,
         buyer: { customerId: customerA },
@@ -547,34 +547,39 @@ maybe('customerCreditService — organization isolation on idempotency-key repla
         sourceId: sharedSourceId,
         idempotencyKey: key,
       }),
-      orgBService
-        .reserveCredit({
-          scope: SCOPE_B,
-          buyer: { customerId: customerB },
-          currencyCode: CURRENCY,
-          amount: '50.00',
-          sourceType: 'checkout',
-          sourceId: sharedSourceId,
-          idempotencyKey: key,
-        })
-        .then((value) => ({ ok: true as const, value }))
-        .catch((error) => ({ ok: false as const, error })),
+      orgBService.reserveCredit({
+        scope: SCOPE_B,
+        buyer: { customerId: customerB },
+        currencyCode: CURRENCY,
+        amount: '50.00',
+        sourceType: 'checkout',
+        sourceId: sharedSourceId,
+        idempotencyKey: key,
+      }),
     ])
 
-    expect(orgAResult.reserved).toBe(true)
-    // Whichever of the two writers loses the real (tenant_id, idempotency_key) unique
-    // constraint race — organization A always wins here since it is awaited first in
-    // this `Promise.all`, so the DB serializes organization B's INSERT into the
-    // catch-block replay path — must reject, never silently adopt A's reservation.
-    expect(orgBOutcome.ok).toBe(false)
-    if (!orgBOutcome.ok) {
-      expect(orgBOutcome.error).toBeInstanceOf(CustomerCreditServiceError)
-      expect(orgBOutcome.error).toMatchObject({ code: 'idempotency_key_mismatch' })
-    }
+    // Independent PG connections can commit the real (tenant_id, idempotency_key)
+    // unique-constraint race in either order — accept either winner rather than
+    // assuming array position decides it, then assert on whichever organization
+    // actually won.
+    const outcomes = [
+      { scope: SCOPE, orgId: ORG_ID, outcome: orgAOutcome },
+      { scope: SCOPE_B, orgId: ORG_B_ID, outcome: orgBOutcome },
+    ]
+    const winners = outcomes.filter((entry) => entry.outcome.status === 'fulfilled')
+    const losers = outcomes.filter((entry) => entry.outcome.status === 'rejected')
+    expect(winners).toHaveLength(1)
+    expect(losers).toHaveLength(1)
+    const winner = winners[0]!
+    const loser = losers[0]!
+    expect((winner.outcome as PromiseFulfilledResult<Awaited<ReturnType<typeof orgAService.reserveCredit>>>).value.reserved).toBe(true)
+    const loserReason = (loser.outcome as PromiseRejectedResult).reason
+    expect(loserReason).toBeInstanceOf(CustomerCreditServiceError)
+    expect(loserReason).toMatchObject({ code: 'idempotency_key_mismatch' })
 
     const allEntriesForKey = await orm.em.fork().find(CustomerCreditLedgerEntry, { tenantId: TENANT_ID, idempotencyKey: key })
     expect(allEntriesForKey).toHaveLength(1)
-    expect(allEntriesForKey[0]?.organizationId).toBe(ORG_ID)
+    expect(allEntriesForKey[0]?.organizationId).toBe(winner.orgId)
   })
 
   test('linkCreditReservationToOrder: organization B linking organization A\'s key is a no-op, never attaching B\'s order to A\'s entry', async () => {

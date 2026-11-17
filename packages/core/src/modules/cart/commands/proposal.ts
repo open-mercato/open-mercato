@@ -8,7 +8,7 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { Reference, type EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { E } from '#generated/entities.ids.generated'
 
@@ -382,9 +382,13 @@ const createProposalCommand: CommandHandler<CartProposalCreateInput, CartProposa
 
     const pricingContext = buildCartPricingRowFilterContext(proposalCart)
     const priceRows = await fetchPriceRowsBatch(em, scope, pricingContext, productIds, variantIds)
+    // Derived from the FETCHED variant's actual parent product — never from the request's
+    // `productId` — so a variant belonging to a different product can't borrow that other
+    // product's price rows/visibility. Mirrors `cart.lines.bulkAdd`'s same-named map
+    // (`commands/lines.ts`).
     const variantToProduct = new Map<string, string>()
-    for (const item of mergedByKey.values()) {
-      if (item.entry.variantId) variantToProduct.set(item.entry.variantId, item.entry.productId)
+    for (const variant of variants) {
+      variantToProduct.set(variant.id, Reference.unwrapReference(variant.product).id)
     }
     const rowsByProduct = groupRowsByProduct(priceRows, variantToProduct)
 
@@ -398,7 +402,7 @@ const createProposalCommand: CommandHandler<CartProposalCreateInput, CartProposa
         continue
       }
       const variant = variantId ? variantsById.get(variantId) ?? null : null
-      if (variantId && !variant) {
+      if (variantId && (!variant || variantToProduct.get(variantId) !== entry.productId)) {
         rejectedLines.push({ productId: entry.productId, variantId, reason: 'product_unavailable' })
         continue
       }

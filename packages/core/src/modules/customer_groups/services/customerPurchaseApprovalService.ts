@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerPurchaseApproval,
@@ -198,6 +199,10 @@ async function resolveApprovalExpiryDays(
   })
   return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_APPROVAL_EXPIRY_DAYS
 }
+
+// Must match `encryption.ts`'s own `defaultEncryptionMaps` entry for this entity —
+// that literal string is what `TenantDataEncryptionService` keys its map lookup on.
+const CUSTOMER_PURCHASE_APPROVAL_ENTITY_ID = 'customer_groups:customer_purchase_approval'
 
 type Slot = 'buyer' | 'merchant'
 
@@ -545,6 +550,22 @@ export class DefaultCustomerPurchaseApprovalService implements CustomerPurchaseA
     }
 
     const now = new Date()
+    // C1: `nativeUpdate` bypasses MikroORM's `beforeUpdate` encryption subscriber, so the
+    // note would otherwise land as plaintext in a ciphertext column. Encrypt it through the
+    // same service the subscriber uses, outside the transaction (a pure value transform —
+    // DEK lookup/KMS, no row I/O), and pass the ciphertext into the atomic claim below. The
+    // `[fields.decision]: 'pending'`/`expiresAt` compare-and-set claim itself is untouched.
+    const encryptionService = resolveTenantEncryptionService(this.em)
+    const encryptedNotePayload = encryptionService
+      ? await encryptionService.encryptEntityPayload(
+          CUSTOMER_PURCHASE_APPROVAL_ENTITY_ID,
+          { [fields.note]: note ?? null },
+          scope.tenantId,
+          scope.organizationId,
+          { em: this.em },
+        )
+      : { [fields.note]: note ?? null }
+
     let affected = 0
     await this.em.transactional(async (trx) => {
       affected = await trx.nativeUpdate(
@@ -562,7 +583,7 @@ export class DefaultCustomerPurchaseApprovalService implements CustomerPurchaseA
           [fields.actorType]: actor.actorType,
           [fields.actorId]: actor.actorId,
           [fields.decidedAt]: now,
-          [fields.note]: note ?? null,
+          [fields.note]: encryptedNotePayload[fields.note],
           updatedAt: now,
         },
       )

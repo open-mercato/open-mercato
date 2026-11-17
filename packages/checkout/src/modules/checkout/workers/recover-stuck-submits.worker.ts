@@ -4,7 +4,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/ty
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { buildScopedContainerFromResolve } from '@open-mercato/shared/lib/di/scopedContainer'
+import { buildScopedContainerFromResolve, type ScopedResolveContainer } from '@open-mercato/shared/lib/di/scopedContainer'
 import type { CartService } from '@open-mercato/core/modules/cart/lib/cartService'
 import { CheckoutSession } from '../data/entities'
 import {
@@ -47,7 +47,15 @@ export const metadata: WorkerMeta = {
   concurrency: 1,
 }
 
-type HandlerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
+type HandlerContext = JobContext & {
+  resolve: <T = unknown>(name: string) => T
+  // #8268 review Major 1 (re-review): the per-job REAL container, when
+  // `createPerJobWorkerHandler`'s factory has one — see its own doc for why a
+  // `.register()` call against only a bound-resolve shim never reaches a
+  // dependent service (`promotionsService`) that holds its own reference to
+  // the original container.
+  container?: ScopedResolveContainer
+}
 type RecoveryScope = { tenantId: string; organizationId: string }
 
 async function safeUnlockCart(
@@ -303,15 +311,22 @@ export default async function handle(job: QueuedJob<RecoverStuckSubmitsJob>, ctx
   const scope: RecoveryScope = { tenantId, organizationId }
   const em = (ctx.resolve('em') as EntityManager).fork()
   const cutoff = new Date(Date.now() - STUCK_THRESHOLD_MS)
-  // #8268 review Major 2 (re-review): the queue worker's job context only ever
-  // supplies `resolve`, never a real Awilix container, but the recovery chain
-  // (`continueOrderOutcome` → `commands/submit.ts`) calls `container.register(...)`
-  // whenever `promotionsService` resolves, even with no promotion code applied — a
-  // TypeError against the old `{ resolve: ctx.resolve }` fallback (no `.register()`
-  // at all) on every real run. `buildScopedContainerFromResolve` wraps `ctx.resolve`
-  // into a container that actually supports `.register()`, falling through to
-  // `ctx.resolve` for everything else.
-  const container = buildScopedContainerFromResolve(ctx.resolve) as unknown as CommandRuntimeContext['container']
+  // #8268 review Major 1/2 (re-review): the recovery chain (`continueOrderOutcome`
+  // → `commands/submit.ts`) calls `container.register({ auth: ... })` whenever
+  // `promotionsService` resolves, even with no promotion code applied. A local
+  // resolver-overlay shim's `.register()` only shadows resolution for ITS OWN
+  // direct callers — `promotionsService`'s DI factory (`promotions/di.ts`) closes
+  // over the ORIGINAL container, so an overlay's auth override is invisible to it
+  // and scope resolution still fails. Use the per-job REAL container
+  // `createPerJobWorkerHandler` built for this job when it supplied one — its
+  // `.register()` reaches every dependent service, since it IS the container
+  // module `register(container)` calls closed over — falling back to the shim
+  // only when no real container was handed through.
+  const container = (
+    ctx.container && typeof ctx.container.register === 'function'
+      ? ctx.container
+      : buildScopedContainerFromResolve(ctx.resolve)
+  ) as unknown as CommandRuntimeContext['container']
 
   const stuck = (await findWithDecryption(
     em,
