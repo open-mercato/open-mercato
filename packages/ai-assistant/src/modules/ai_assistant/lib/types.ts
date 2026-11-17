@@ -340,7 +340,11 @@ export interface ToolExecutionResult {
     | 'MUTATION_REQUESTER_UNRESOLVED'
     | 'AGENT_DISPATCHER_UNAVAILABLE'
     | 'AGENT_POLICY_DENIED'
+    | 'RATE_LIMITED'
+    | 'RATE_LIMIT_UNAVAILABLE'
   pendingApproval?: { pendingActionId: string; expiresAt: string }
+  /** Set with `errorCode: 'RATE_LIMITED'`: seconds until the caller's agent-tool bucket refills. */
+  retryAfterSeconds?: number
 }
 
 // =============================================================================

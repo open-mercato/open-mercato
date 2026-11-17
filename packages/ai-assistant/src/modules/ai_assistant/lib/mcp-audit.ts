@@ -97,6 +97,8 @@ const ERROR_CODE_OUTCOMES: Record<string, McpAuditOutcome> = {
   DISPATCHER_UNAVAILABLE: 'dispatcher_unavailable',
   AGENT_DISPATCHER_UNAVAILABLE: 'dispatcher_unavailable',
   AGENT_POLICY_DENIED: 'denied',
+  RATE_LIMITED: 'denied',
+  RATE_LIMIT_UNAVAILABLE: 'error',
 }
 
 export function extractArgKeys(input: unknown): string[] {
