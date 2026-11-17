@@ -158,7 +158,7 @@ describe('bulk replay agrees that partial_failure is not retryable', () => {
     expect(canApplyBulkReplay('retry', 'FAILED', 'failure')).toBe(true)
     expect(canApplyBulkReplay('retry', 'FAILED', null)).toBe(true)
     expect(canApplyBulkReplay('retry', 'FAILED')).toBe(true)
-    expect(canApplyBulkReplay('retry', 'PAUSED', null)).toBe(true)
+    expect(canApplyBulkReplay('retry', 'PAUSED', null, { attention: { reason: 'ERROR_DIRECTIVE', at: 'x' } })).toBe(true)
   })
 
   test('cancel eligibility is unchanged and ignores the verdict', () => {

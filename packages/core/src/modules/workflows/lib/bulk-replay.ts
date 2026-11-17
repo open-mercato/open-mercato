@@ -16,7 +16,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/core'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { WorkflowInstance } from '../data/entities'
+import { WorkflowInstance, type WorkflowInstanceMetadata } from '../data/entities'
 import * as workflowExecutor from './workflow-executor'
 import { isRetryableRunOutcome, type WorkflowRunOutcome } from './run-outcome'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
@@ -79,14 +79,21 @@ const CANCELLABLE_STATUSES = new Set(['RUNNING', 'PAUSED', 'WAITING_FOR_ACTIVITI
  *
  * A null outcome (still running, or a row written before outcomes existed) is
  * never read as a refusal — only the status decides for those.
+ *
+ * A PAUSED run is retryable only while it carries the engine's attention
+ * marker, the same arm the failure queue lists it by. Without the marker it is
+ * waiting on a signal, timer or task, and forcing it to RUNNING would leave it
+ * at that step where no resume path accepts it any more.
  */
 export function canApplyBulkReplay(
   action: BulkReplayAction,
   status: string,
-  outcome?: WorkflowRunOutcome | null
+  outcome?: WorkflowRunOutcome | null,
+  metadata?: Pick<WorkflowInstanceMetadata, 'attention'> | null
 ): boolean {
   if (action === 'cancel') return CANCELLABLE_STATUSES.has(status)
   if (!RETRYABLE_STATUSES.has(status)) return false
+  if (status === 'PAUSED' && metadata?.attention?.reason == null) return false
   if (outcome != null && !isRetryableRunOutcome(outcome)) return false
   return true
 }
@@ -150,7 +157,7 @@ export async function runBulkReplay(params: {
         organizationId: scope.organizationId,
       })
 
-      if (!instance || !canApplyBulkReplay(action, instance.status, instance.outcome ?? null)) {
+      if (!instance || !canApplyBulkReplay(action, instance.status, instance.outcome ?? null, instance.metadata ?? null)) {
         skippedCount += 1
       } else if (action === 'retry') {
         await retryInstance(em, container, instance)
