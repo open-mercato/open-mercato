@@ -11,10 +11,7 @@ and [Accounts Payable](https://github.com/open-mercato/open-mercato/pull/5962)
 (the counterparty exclusion below rests on both), and the pending
 `.ai/specs/SPEC-024-2026-02-11-financial-module.md` on `develop` (its
 GL sketch puts a `dimensions` map on the journal line — see
-Alternatives Considered)
-, [Fixed Assets](https://github.com/open-mercato/open-mercato/pull/6014)
-(second, independent future consumer — Phase 2's `transferAsset` —
-see Design Decisions)
+Alternatives Considered).
 
 **Depends on unmerged PRs.** #5663, #6015, #6014, #5955 and #5962 are
 open, unmerged PRs, not files in `.ai/specs/` yet, so they are linked by
@@ -1369,6 +1366,7 @@ heads (#5663, #6015, #6014) before editing:
   after the pair lock and before the delete, and a test proves the
   ordering and undo restoration.
 - Finished the currency cleanup in Out of scope and in the README summary.
+- Removed a duplicated Fixed Assets link from the Related header.
 
 ### 2026-10-23 — currency is a column of the line
 
