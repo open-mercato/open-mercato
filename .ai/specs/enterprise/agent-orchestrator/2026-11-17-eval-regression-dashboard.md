@@ -11,6 +11,12 @@
 - Two read-only endpoints (`GET /eval-runs/trend`, `GET /eval-runs/compare`), one new page (`/backend/eval-runs/compare`), a new "Regressions" section on the agent's Evaluation tab, and a "Compare with baseline" action on the eval run page.
 - **No schema change, no new ACL feature.** The agent version is read from the case runs' `agent_runs.agent_version` at query time. Gated by the existing `agent_orchestrator.eval.manage`.
 
+## Overview
+
+Teams change an agent's prompt, tools or model and need to know, from the UI, whether quality went up or down and which cases moved. The eval plane already scores every case of every suite run; what is missing is a view across runs keyed by the agent version.
+
+> **Market reference.** Braintrust and Langfuse show experiments over time and diff two experiments per row (score movement, regressions/improvements). We adopt the per-row diff and the "compare against the previous run on the same dataset" rule; we reject arbitrary multi-run matrices for now (two-run compare covers the release question).
+
 ## Problem Statement
 
 Verified on `feat/agent-platform-roadmap-gaps` at `7c14513755`:
@@ -19,6 +25,31 @@ Verified on `feat/agent-platform-roadmap-gaps` at `7c14513755`:
 2. The only regression signal in the UI is the "vs previous run" tile (`EvaluationTab.tsx`): the latest pass score minus the one before, regardless of dataset or version.
 3. Per-assertion baseline pass rate and delta and per-case `baselineStatus` exist only inside the report (`reportSchema.ts`). The eval run page shows judge deltas as raw JSON.
 4. Nothing compares two arbitrary suite runs, and nothing lists which cases flipped.
+
+## Proposed Solution
+
+Two read-only aggregations over existing rows (`agent_eval_suite_runs`, `agent_eval_case_runs`, `agent_eval_results`, `agent_runs.agent_version`) and two views that render them.
+
+## Architecture
+
+```
+lib/eval/report/suiteAggregation.ts   loadSuite, loadAssertions, summarizeBuckets, caseStatusOf, groupCaseRunsByCase
+        ▲                    ▲
+buildEvalReport.ts    lib/eval/regression/compareSuiteRuns.ts  (diffSuiteRuns — pure; compareSuiteRuns — scoped loader)
+                      lib/eval/regression/buildEvalTrend.ts    (computeEvalTrend — pure; buildEvalTrend — scoped loader)
+                      lib/eval/regression/suiteAgentVersions.ts (typed Kysely DISTINCT join case_runs ⋈ agent_runs)
+api/eval-runs/trend/route.ts, api/eval-runs/compare/route.ts
+backend/agents/[id]/components/EvalRegressionSection.tsx, backend/eval-runs/compare/page.tsx
+```
+
+## Data Models
+
+No new entity, column or migration. Read-only use of:
+- `agent_eval_suite_runs` (status, pass_score, eval_set_version, summary `__evalSet` pointer, safety_regressions, created_at)
+- `agent_eval_case_runs` (suite_run_id, eval_case_id, agent_run_id, trial_index, status, score)
+- `agent_eval_results` (eval_case_run_id, assertion_key, assertion_id, passed, severity)
+- `agent_runs.agent_version` (joined, scoped)
+- `agent_eval_cases.name` and frozen manifest case `key`/`name` for labels
 
 ## Design Decisions
 
@@ -165,6 +196,16 @@ Errors: 400 invalid ids or `base === head`; 404 either run not in scope (cross-t
 - **Affected area:** Both routes
 - **Mitigation:** Every read is filtered by `{ tenantId, organizationId }`, including both sides of the Kysely join; out-of-scope ids return 404.
 - **Residual risk:** None known.
+
+## Final Compliance Report
+
+- Tenant/organization scoping on every read, including both tables of the Kysely join — yes.
+- No direct ORM relationship across modules; no new entity — yes.
+- Encrypted columns (`summary`, `evidence`, `error_message`) read through `findWithDecryption`; evidence never returned — yes.
+- Zod validation for both query strings in `data/validators.ts` — yes.
+- No new ACL feature; existing `eval.manage` gate on routes and the new page — yes.
+- i18n: all strings in 5 locales; DS tokens only (`StatusBadge` variants, `text-status-*-text`, `chart-*` via `LineChart`) — yes.
+- Backward compatibility: additive routes/page/section value; `buildEvalReport` output unchanged (its unit tests unchanged and green) — yes.
 
 ## Changelog
 
