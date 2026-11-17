@@ -44,7 +44,24 @@ it('keeps tool-only replay live and makes offline selection explicit', () => {
   for (const flags of [{ offline: 'yes' }, { offline: 'true' }, { offline: 'true', record: directory }, { offline: 'true', replay: directory, onFixtureMiss: 'live' }]) {
     expect(parseEvalCliModelFixtureFlags(flags).ok).toBe(false)
   }
-  expect(parseEvalCliModelFixtureFlags({ evalSetDir: directory, casesFile: { cases: [{ fixtures: { model: 'case.model.json' } }] } })).toEqual({ ok: true, options: { mode: 'replay', directory: undefined, evalSetDir: directory } })
+  expect(parseEvalCliModelFixtureFlags({ evalSetDir: directory, casesFile: { cases: [{ fixtures: { model: 'case.model.json' } }] } })).toEqual({ ok: true, options: { mode: 'replay', directory: undefined, evalSetDir: directory, declaredOnly: true } })
+})
+
+it('replays only declared cases unless offline, and refuses repeated trials against a single model fixture', () => {
+  const casesFile = { cases: [{ fixtures: { model: 'case.model.json' } }, {}] }
+  expect(parseEvalCliModelFixtureFlags({ evalSetDir: directory, casesFile, offline: 'true' })).toEqual({ ok: true, options: { mode: 'replay', directory: undefined, evalSetDir: directory } })
+  expect(parseEvalCliModelFixtureFlags({ evalSetDir: directory, casesFile, repeatCount: 2 })).toMatchObject({ ok: false, message: expect.stringContaining('fixtures.model') })
+  expect(parseEvalCliModelFixtureFlags({ evalSetDir: directory, casesFile, repeatCount: 2, offline: 'true' }).ok).toBe(false)
+  expect(parseEvalCliModelFixtureFlags({ evalSetDir: directory, casesFile, repeatCount: 2, replay: directory }).ok).toBe(true)
+  expect(parseEvalCliModelFixtureFlags({ evalSetDir: directory, casesFile, repeatCount: 2, record: directory }).ok).toBe(true)
+  expect(parseEvalCliModelFixtureFlags({ evalSetDir: directory, casesFile: { cases: [{}] }, repeatCount: 5 })).toEqual({ ok: true })
+})
+
+it('runs an undeclared case live under declared-only replay instead of failing it', async () => {
+  const run = jest.fn(async () => 'live')
+  await expect(withCaseModelFixtures({ mode: 'replay', evalSetDir: directory, declaredOnly: true }, ref, run)).resolves.toBe('live')
+  await expect(withCaseModelFixtures({ mode: 'replay', evalSetDir: directory }, ref, run)).rejects.toThrow('model_fixture_missing')
+  expect(run).toHaveBeenCalledTimes(1)
 })
 
 it('keeps tool recordings for separate offline trials separate', async () => {

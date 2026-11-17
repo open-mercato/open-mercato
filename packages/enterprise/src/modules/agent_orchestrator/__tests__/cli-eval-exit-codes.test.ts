@@ -122,6 +122,39 @@ describe('agent_orchestrator eval CLI exit codes and reports', () => {
     expect(mockRunEvalGate).not.toHaveBeenCalled()
   })
 
+  function writeCasesFile(withModelFixture: boolean): string {
+    const filePath = path.join(reportDir, 'cases.json')
+    fs.writeFileSync(filePath, JSON.stringify({
+      format: EVAL_SET_FORMAT,
+      formatVersion: EVAL_SET_FORMAT_VERSION,
+      agentId: 'invoice_triage',
+      assertions: [],
+      cases: [
+        { key: 'recorded', input: { q: 'a' }, ...(withModelFixture ? { fixtures: { model: 'fixtures/recorded.model.json' } } : {}) },
+        { key: 'live', input: { q: 'b' } },
+      ],
+    }))
+    return filePath
+  }
+
+  it('exits 2 when --repeat above 1 meets a case that declares fixtures.model', async () => {
+    const casesPath = writeCasesFile(true)
+    expect(await runEval([...scopeArgs, '--cases', casesPath, '--repeat', '3'])).toBe(2)
+    expect(await runEval([...scopeArgs, '--cases', casesPath, '--repeat', '2', '--offline', 'true'])).toBe(2)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('fixtures.model'))
+    expect(mockRunEvalGate).not.toHaveBeenCalled()
+  })
+
+  it('keeps --repeat allowed without fixtures.model and replays declared cases only in a mixed file', async () => {
+    mockRunEvalGate.mockResolvedValue(gateResult())
+    expect(await runEval([...scopeArgs, '--cases', writeCasesFile(false), '--repeat', '3'])).toBeUndefined()
+    expect(mockRunEvalGate.mock.calls[0][1]).toMatchObject({ repeatCount: 3 })
+    expect(mockRunEvalGate.mock.calls[0][1]).not.toHaveProperty('modelFixtures')
+    mockRunEvalGate.mockClear()
+    expect(await runEval([...scopeArgs, '--cases', writeCasesFile(true)])).toBeUndefined()
+    expect(mockRunEvalGate.mock.calls[0][1].modelFixtures).toEqual({ mode: 'replay', directory: undefined, evalSetDir: reportDir, declaredOnly: true })
+  })
+
   it('exits 0 on a passing gate and writes json + md by default', async () => {
     mockRunEvalGate.mockResolvedValue(gateResult())
     mockBuildEvalReport.mockResolvedValue(completedReport())

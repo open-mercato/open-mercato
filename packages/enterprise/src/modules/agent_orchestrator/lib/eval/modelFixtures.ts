@@ -21,6 +21,16 @@ export type EvalModelFixtureOptions = {
   mode: 'record' | 'replay'
   directory?: string
   evalSetDir?: string | null
+  /** Replay only cases that declare `fixtures.model`; every other case calls the live model. */
+  declaredOnly?: boolean
+}
+
+export function modelFixturesForCase(
+  options: EvalModelFixtureOptions | undefined,
+  ref: Pick<EvalToolFixtureCaseRef, 'fixturePath'>,
+): EvalModelFixtureOptions | undefined {
+  if (!options?.declaredOnly || ref.fixturePath) return options
+  return undefined
 }
 
 function inside(base: string, target: string): boolean {
@@ -45,6 +55,7 @@ export async function withCaseModelFixtures<T>(
   ref: EvalToolFixtureCaseRef,
   run: () => Promise<T>,
 ): Promise<T> {
+  options = modelFixturesForCase(options, ref)
   if (!options) return run()
   const { base, file } = fixturePath(options, ref)
   let recordings: z.infer<typeof modelRecordingSchema>[] = []
@@ -90,6 +101,7 @@ export function parseEvalCliModelFixtureFlags(flags: {
   replay?: string
   onFixtureMiss?: string
   evalSetDir?: string | null
+  repeatCount?: number
   casesFile?: { cases: ReadonlyArray<{ fixtures?: { model?: string } | null }> } | null
 }): { ok: true; options?: EvalModelFixtureOptions } | { ok: false; message: string } {
   if (flags.offline !== undefined && flags.offline !== 'true' && flags.offline !== 'false') {
@@ -100,9 +112,18 @@ export function parseEvalCliModelFixtureFlags(flags: {
     return { ok: false, message: '--offline true requires --replay <dir> or fixtures.model, and forbids --record and live fixture fallback' }
   }
   if (flags.record) return { ok: true, options: { mode: 'record', directory: flags.record } }
+  if (implicitReplay && !flags.replay && (flags.repeatCount ?? 1) > 1) {
+    return { ok: false, message: '--repeat greater than 1 cannot be combined with cases that declare fixtures.model: a fixtures.model file holds one recorded trial. Use --repeat 1, or record and replay per-trial files with --record <dir> / --replay <dir>' }
+  }
   if (flags.offline === 'true' || implicitReplay) {
     if (flags.onFixtureMiss === 'live') return { ok: false, message: 'Model replay forbids live tool fixture fallback' }
-    return { ok: true, options: { mode: 'replay', directory: flags.replay, evalSetDir: flags.evalSetDir } }
+    return {
+      ok: true,
+      options: {
+        mode: 'replay', directory: flags.replay, evalSetDir: flags.evalSetDir,
+        ...(flags.offline === 'true' ? {} : { declaredOnly: true }),
+      },
+    }
   }
   return { ok: true }
 }

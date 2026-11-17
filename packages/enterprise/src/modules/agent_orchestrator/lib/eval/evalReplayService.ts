@@ -1,4 +1,4 @@
-import { withCaseModelFixtures, type EvalModelFixtureOptions } from './modelFixtures'
+import { modelFixturesForCase, withCaseModelFixtures, type EvalModelFixtureOptions } from './modelFixtures'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -118,7 +118,7 @@ export type ReplayCaseOutcome = {
   passed: boolean | null
   score: number | null
   /** Present only when the suite replay was given tool fixture options. */
-  modelMode?: 'record' | 'replay'
+  modelMode?: 'record' | 'replay' | 'live'
   tools?: EvalCaseToolOutcome
   /** Present only when the case declared tool mocks. */
   mocks?: EvalCaseMockUsage
@@ -304,6 +304,11 @@ async function prepareToolBinding(
   )
 }
 
+function suiteModelMode(modes: ReadonlyArray<string>): 'scripted' | 'mixed' | 'live' {
+  if (modes.every((mode) => mode === 'replay')) return 'scripted'
+  return modes.some((mode) => mode === 'replay') ? 'mixed' : 'live'
+}
+
 function toolOutcomeFor(binding: ToolBinding, unsupportedRuntime: boolean): EvalCaseToolOutcome {
   const misses = binding.kind === 'replay' ? binding.misses.length : 0
   const summaryFidelity = binding.kind === 'replay' && binding.summaryFidelity
@@ -471,17 +476,19 @@ async function runCase(
     ...toolFixtureRefFor(source, caseRun),
     fixturePath: source.kind === 'manifest' ? source.manifestCase.fixtures?.model ?? null : null,
   }
+  const caseModelFixtures = modelFixturesForCase(options.modelFixtures, modelRef)
+  const caseModelMode = caseModelFixtures?.mode ?? (options.modelFixtures ? 'live' : undefined)
   try {
-    const result = await withCaseModelFixtures(options.modelFixtures, modelRef, async () => {
+    const result = await withCaseModelFixtures(caseModelFixtures, modelRef, async () => {
       caseRun.status = 'running'
       await em.flush()
       await emitCaseProgress('started', caseRun, agentDefinitionId, scope)
 
-      const toolRef = { ...toolFixtureRefFor(source, caseRun), ...(options.modelFixtures ? { trialScoped: true } : {}) }
+      const toolRef = { ...toolFixtureRefFor(source, caseRun), ...(caseModelFixtures ? { trialScoped: true } : {}) }
       const caseMocks = source.kind === 'manifest' ? source.manifestCase.mocks ?? null : null
       const mockResolver = caseMocks ? createMockResolver(compileCaseMocks(caseMocks)) : null
       const toolBinding = await prepareToolBinding(options.toolFixtures, toolRef, mockResolver)
-      if (options.modelFixtures?.mode === 'replay' && (toolBinding.kind === 'live' || toolBinding.kind === 'record' || (toolBinding.kind === 'replay' && toolBinding.context.mode === 'replay' && toolBinding.context.onMiss === 'live'))) {
+      if (caseModelFixtures?.mode === 'replay' && (toolBinding.kind === 'live' || toolBinding.kind === 'record' || (toolBinding.kind === 'replay' && toolBinding.context.mode === 'replay' && toolBinding.context.onMiss === 'live'))) {
         throw new Error('[internal] offline_tool_fixtures_required')
       }
       const withTools = (outcome: ReplayCaseOutcome, unsupportedRuntime = false): ReplayCaseOutcome => ({
@@ -575,7 +582,7 @@ async function runCase(
         toolBinding.kind !== 'live' &&
         (await em.findOne(AgentRun, { id: topLevelRunId, ...scope }))?.runtime === 'opencode'
 
-      if (toolBinding.kind === 'record' && !unsupportedRuntime && (caseRun.trialIndex === 0 || options.modelFixtures)) {
+      if (toolBinding.kind === 'record' && !unsupportedRuntime && (caseRun.trialIndex === 0 || caseModelFixtures)) {
         try {
           await options.toolFixtures?.store.save(toolRef, toolBinding.recorded)
         } catch (error) {
@@ -629,12 +636,12 @@ async function runCase(
 
       return outcome
     })
-    return options.modelFixtures ? { ...result, modelMode: options.modelFixtures.mode } : result
+    return caseModelMode ? { ...result, modelMode: caseModelMode } : result
   } catch (error) {
     const result = await finishCaseRun(em, caseRun, {
       status: 'error', errorMessage: error instanceof Error ? error.message : '[internal] model_fixture_failed',
     })
-    return options.modelFixtures ? { ...result, modelMode: options.modelFixtures.mode } : result
+    return caseModelMode ? { ...result, modelMode: caseModelMode } : result
   }
 }
 
@@ -906,7 +913,7 @@ export async function replaySuiteRun(
     const summary: Record<string, unknown> = target.summary && typeof target.summary === 'object' && !Array.isArray(target.summary)
       ? target.summary as Record<string, unknown> : {}
     const current = summary.__evalRun as Record<string, unknown> | undefined
-    target.summary = { ...summary, __evalRun: { ...current, modelMode: modelModes.every((mode) => mode === 'replay') ? 'scripted' : 'live' } }
+    target.summary = { ...summary, __evalRun: { ...current, modelMode: suiteModelMode(modelModes) } }
   }
   await summaryEm.flush()
 }

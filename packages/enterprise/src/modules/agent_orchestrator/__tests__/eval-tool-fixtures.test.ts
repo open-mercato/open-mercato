@@ -98,7 +98,12 @@ function createFakeEm(seed: Array<[unknown, Row[]]> = []) {
   return { em: em as unknown as EntityManager, storeFor }
 }
 
-function evalSetFile(caseKeys: string[], mocks: Record<string, unknown> = {}, withGate = false): Record<string, unknown> {
+function evalSetFile(
+  caseKeys: string[],
+  mocks: Record<string, unknown> = {},
+  withGate = false,
+  modelFixturePaths: Record<string, string> = {},
+): Record<string, unknown> {
   return {
     format: EVAL_SET_FORMAT,
     formatVersion: 1,
@@ -106,7 +111,12 @@ function evalSetFile(caseKeys: string[], mocks: Record<string, unknown> = {}, wi
     assertions: withGate
       ? [{ key: 'present', scorerKey: 'output_present', severity: 'gate', title: 'Output present', config: {} }]
       : [],
-    cases: caseKeys.map((key) => ({ key, input: { question: key }, ...(mocks[key] ? { mocks: mocks[key] } : {}) })),
+    cases: caseKeys.map((key) => ({
+      key,
+      input: { question: key },
+      ...(mocks[key] ? { mocks: mocks[key] } : {}),
+      ...(modelFixturePaths[key] ? { fixtures: { model: modelFixturePaths[key] } } : {}),
+    })),
   }
 }
 
@@ -157,10 +167,11 @@ async function runSuite(input: {
   trialOutputs?: unknown[]
   mocks?: Record<string, unknown>
   withGate?: boolean
+  modelFixturePaths?: Record<string, string>
 }) {
   const { em, storeFor } = createFakeEm()
   await startEvalRunCommand.execute(
-    { ...SCOPE, agentDefinitionId: AGENT, evalSet: evalSetFile(input.caseKeys, input.mocks, input.withGate), ...(input.repeatCount ? { repeatCount: input.repeatCount } : {}) },
+    { ...SCOPE, agentDefinitionId: AGENT, evalSet: evalSetFile(input.caseKeys, input.mocks, input.withGate, input.modelFixturePaths),...(input.repeatCount ? { repeatCount: input.repeatCount } : {}) },
     { container: { resolve: () => em } } as never,
   )
   const [suite] = storeFor(AgentEvalSuiteRun)
@@ -501,6 +512,37 @@ it('A-3 persists model mode from execution and refuses a programmatic live-tool 
     expect(fallback.byKey('case-a').status).toBe('error')
     expect(fallback.runtime.run).not.toHaveBeenCalled()
     expect(fallback.byKey('case-a').errorMessage).toContain('offline_tool_fixtures_required')
+  } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+})
+
+it('A-3 replays only cases that declare fixtures.model, runs the rest live and reports the suite as mixed', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-eval-mixed-model-'))
+  try {
+    await runSuite({ caseKeys: ['case-a'], plan: {}, modelFixtures: { mode: 'record', directory } })
+    const modelFixturePaths = { 'case-a': path.join(fixtureFileSegment(AGENT), 'case-a.0.model.json') }
+    const { store } = memoryStore({ 'case-a': { ok: true, fidelity: 'full', fixtures: [] } })
+    const mixed = await runSuite({
+      caseKeys: ['case-a', 'case-b'],
+      plan: {},
+      modelFixturePaths,
+      modelFixtures: { mode: 'replay', evalSetDir: directory, declaredOnly: true },
+      toolFixtures: { mode: 'replay', onMiss: 'error', store },
+    })
+    expect(mixed.byKey('case-a').status).not.toBe('error')
+    expect(mixed.byKey('case-b').status).not.toBe('error')
+    expect(mixed.runtime.run).toHaveBeenCalledTimes(2)
+    expect(mixed.suite.summary).toMatchObject({ __evalRun: { modelMode: 'mixed' } })
+
+    const strict = await runSuite({
+      caseKeys: ['case-a', 'case-b'],
+      plan: {},
+      modelFixturePaths,
+      modelFixtures: { mode: 'replay', evalSetDir: directory },
+      toolFixtures: { mode: 'replay', onMiss: 'error', store },
+    })
+    expect(strict.byKey('case-a').status).not.toBe('error')
+    expect(strict.byKey('case-b').status).toBe('error')
+    expect(strict.byKey('case-b').errorMessage).toContain('model_fixture_missing')
   } finally { fs.rmSync(directory, { recursive: true, force: true }) }
 })
 

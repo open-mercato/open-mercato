@@ -680,6 +680,12 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  * and exits without running the suite. Native agents only: OpenCode agents run
  * live and report `unsupported_runtime`.
  *
+ * Cases that declare `fixtures.model` replay the model from that file; without
+ * `--offline true` the remaining cases call the live model and the suite reports
+ * `modelMode: 'mixed'`, while `--offline true` requires a fixture for every case.
+ * `fixtures.model` holds one trial, so `--repeat` above 1 exits 2 unless
+ * `--record`/`--replay <dir>` supplies per-trial files.
+ *
  * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, or narrowed
  * by `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
  * 2 usage/environment error, advisory run refused, label pin refused under
@@ -811,7 +817,7 @@ const evalGate: ModuleCli = {
     }
     const modelFixtures = parseEvalCliModelFixtureFlags({
       offline: args.offline, record: args.record, replay: args.replay,
-      onFixtureMiss: args['on-fixture-miss'], evalSetDir, casesFile: casesFile ?? null,
+      onFixtureMiss: args['on-fixture-miss'], evalSetDir, casesFile: casesFile ?? null, repeatCount,
     })
     if (!modelFixtures.ok) {
       console.error(modelFixtures.message)
