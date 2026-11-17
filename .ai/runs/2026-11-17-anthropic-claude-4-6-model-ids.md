@@ -35,4 +35,4 @@ Make Claude Sonnet 4.6 and Claude Opus 4.6 selectable and callable from the AI A
 
 ### Phase 1: Fix catalog IDs
 
-- [ ] 1.1 Replace Claude 4.6 catalog IDs and add regression test
+- [x] 1.1 Replace Claude 4.6 catalog IDs and add regression test — c14fb64628
