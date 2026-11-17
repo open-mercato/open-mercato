@@ -178,6 +178,8 @@ const PROMPT_SECTIONS: PromptSection[] = [
       'prefer that tool when the operator asks about product imagery.',
       'Refer to attachments by their human label when citing them in a',
       'response; never expose raw attachment ids to the operator.',
+      'Files on a product use `entityType: "catalog:catalog_product"` with the',
+      'product id as `recordId`.',
       'When the question is about what a long document (contract, policy,',
       'specification) says, prefer `attachments.get_document_sections`: call it',
       'with `includeText: false` for the outline, then read only the sections',

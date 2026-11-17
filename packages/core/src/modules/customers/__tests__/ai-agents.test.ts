@@ -91,6 +91,8 @@ describe('customers.account_assistant agent definition', () => {
     const attachments = promptTemplate.sections.find((section) => section.name === 'attachments')
     expect(attachments?.content).toContain('attachments.get_document_sections')
     expect(attachments?.content).toContain('includeText: false')
+    expect(attachments?.content).toContain('customers:customer_entity')
+    expect(attachments?.content).toContain('customers:customer_deal')
   })
 
   it('enables the visible task-plan helper by agent configuration', () => {

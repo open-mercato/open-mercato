@@ -186,7 +186,7 @@ describe('attachments.get_document_sections', () => {
     expect(call).toMatchObject({
       attachmentId: ATTACHMENT_ID,
       numberLabel: '8.12',
-      page: 4,
+      page: null,
       parentId: PARENT_ID,
       afterOrdinal: 3,
       limit: 5,
@@ -216,6 +216,16 @@ describe('attachments.get_document_sections', () => {
     expect(result.items[0]).not.toHaveProperty('content')
     expect(result.items[0].textTruncated).toBe(false)
     expectNoWrites(service)
+  })
+
+  it('ignores page when looking a section up by number label (models fill optional fields)', async () => {
+    const service = makeService()
+    service.getStructure.mockResolvedValue(completedStructure())
+    service.listSections.mockResolvedValue({ extractionId: 'extraction-1', items: [makeSection()], nextCursor: null })
+    await run(service, { attachmentId: ATTACHMENT_ID, numberLabel: '8.12', page: 1 })
+    expect(service.listSections.mock.calls[0][0]).toMatchObject({ numberLabel: '8.12', page: null })
+    await run(service, { attachmentId: ATTACHMENT_ID, page: 3 })
+    expect(service.listSections.mock.calls[1][0]).toMatchObject({ numberLabel: null, page: 3 })
   })
 
   it('returns not_extracted with a hint when no extraction exists', async () => {

@@ -166,6 +166,7 @@ describe('catalog.catalog_assistant agent definition', () => {
     const attachments = promptTemplate.sections.find((section) => section.name === 'attachments')
     expect(attachments?.content).toContain(DOCUMENT_SECTIONS_TOOL)
     expect(attachments?.content).toContain('includeText: false')
+    expect(attachments?.content).toContain('catalog:catalog_product')
   })
 
   it('never whitelists a mutation tool from the catalog pack', () => {

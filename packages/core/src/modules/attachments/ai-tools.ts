@@ -37,7 +37,14 @@ export const getDocumentSectionsInputSchema = z.object({
     .describe(
       'Case-insensitive substring matched against the section heading and heading path. Applied after paging, so a page may return fewer items than `limit`; keep following `nextCursor`.',
     ),
-  page: z.number().int().min(1).optional().describe('Only sections that cover this 1-based page.'),
+  page: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      'Only sections that cover this 1-based page. Omit it unless the user asked about a specific page; it is ignored when `numberLabel` is set.',
+    ),
   parentId: z.string().uuid().optional().describe('Only the direct children of this section id.'),
   includeText: z
     .boolean()
@@ -193,7 +200,7 @@ const getDocumentSectionsTool: AiToolDefinition<GetDocumentSectionsInput, GetDoc
       scope,
       parentId: input.parentId ?? null,
       numberLabel: input.numberLabel ?? null,
-      page: input.page ?? null,
+      page: input.numberLabel ? null : input.page ?? null,
       afterOrdinal: input.afterOrdinal ?? null,
       limit: input.limit,
       includeText: input.includeText,
