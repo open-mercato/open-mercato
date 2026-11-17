@@ -94,6 +94,12 @@ export function isAgentPrincipalMissingError(
   return (err as { code?: unknown }).code === AGENT_PRINCIPAL_MISSING_CODE
 }
 
+/** True when at least one per-call model setting is set. */
+export function hasCallSettings(settings: Record<string, unknown> | null | undefined): boolean {
+  if (!settings) return false
+  return Object.values(settings).some((value) => value !== undefined)
+}
+
 /**
  * The in-process wall-clock deadline (`OM_AGENT_RUN_TIMEOUT_MS`, default 5 min —
  * symmetric with the OpenCode runner's `OM_OPENCODE_RUN_TIMEOUT_MS`) expired

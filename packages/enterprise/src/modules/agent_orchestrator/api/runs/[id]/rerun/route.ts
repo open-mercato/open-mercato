@@ -6,9 +6,10 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { AgentRun } from '../../../../data/entities'
-import { guardrailKind, guardrailPhase } from '../../../../data/validators'
+import { agentRerunRequestSchema, guardrailKind, guardrailPhase } from '../../../../data/validators'
 import {
   AgentGuardrailBlockedError,
   AgentNotFoundError,
@@ -17,9 +18,14 @@ import {
   type AgentRunCtx,
   type AgentRuntimeService,
 } from '../../../../lib/runtime/agentRuntime'
-import { isAgentInvokeDeniedError, isAgentPrincipalMissingError } from '../../../../lib/runtime/errors'
+import {
+  isAgentCallSettingsUnsupportedError,
+  isAgentInvokeDeniedError,
+  isAgentPrincipalMissingError,
+} from '../../../../lib/runtime/errors'
 import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from '../../../../lib/runtime/admission'
 import { withRerunOf } from '../../../../lib/runtime/rerunContext'
+import { callSettingsUnsupportedErrorSchema } from '../../../../lib/runtime/agentRunHttp'
 import {
   invokerFromAuth,
   invokeDeniedBody,
@@ -63,6 +69,18 @@ export async function POST(req: Request, ctx: RouteContext) {
   if (!z.string().uuid().safeParse(id).success) {
     return NextResponse.json({ error: 'Run not found' }, { status: 404 })
   }
+
+  const rawBody = await readJsonSafe<unknown>(req, {})
+  const body = agentRerunRequestSchema.safeParse(
+    rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody) ? rawBody : {},
+  )
+  if (!body.success) {
+    return NextResponse.json(
+      { error: 'Validation failed', fieldErrors: body.error.flatten().fieldErrors },
+      { status: 422 },
+    )
+  }
+  const callSettings = body.data.callSettings
 
   const container = await createRequestContainer()
 
@@ -110,6 +128,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     userId: auth.sub,
     invoker: invokerFromAuth(auth),
     entryPoint: 'rerun',
+    ...(callSettings ? { callSettings } : {}),
   }
 
   const startedAt = new Date()
@@ -125,6 +144,12 @@ export async function POST(req: Request, ctx: RouteContext) {
     }
     if (isAgentPrincipalMissingError(err)) {
       return NextResponse.json(principalMissingBody(err, sourceRun.agentId), { status: 409 })
+    }
+    if (isAgentCallSettingsUnsupportedError(err)) {
+      return NextResponse.json(
+        { error: 'This agent does not accept per-call model settings', code: 'agent_call_settings_unsupported' },
+        { status: 422 },
+      )
     }
     // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
     // the typed reason (kind/phase/set version) must reach the client instead
@@ -193,7 +218,12 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Execute the run again with its original input',
       description:
-        'Runs the same agent with the decrypted original input through the standard execution path (admission control, guardrails, disposition) and links the new run via rerun_of_run_id. Returns the new run id. Org-scoped; gated by agent_orchestrator.agents.run.',
+        'Runs the same agent with the decrypted original input through the standard execution path (admission control, guardrails, disposition) and links the new run via rerun_of_run_id. Returns the new run id. Org-scoped; gated by agent_orchestrator.agents.run. The body is optional: `callSettings` (same keys and limits as POST /agents/{id}/run) override the agent\'s model settings for the new run only; without them the new run uses the agent\'s current settings.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: agentRerunRequestSchema,
+        description: 'Optional per-call model settings for the new run.',
+      },
       responses: [{ status: 200, description: 'The new run id', schema: resultSchema }],
       errors: [
         { status: 400, description: 'Tenant context missing, or no single organization is selected', schema: errorSchema },
@@ -214,8 +244,8 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid model output, run wall-clock timeout — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason',
-          schema: z.union([errorSchema, guardrailBlockedErrorSchema]),
+            'Invalid `callSettings`, invalid model output, run wall-clock timeout, `callSettings` the agent\'s runtime cannot apply (`code: "agent_call_settings_unsupported"`) — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason',
+          schema: z.union([errorSchema, guardrailBlockedErrorSchema, callSettingsUnsupportedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
       ],

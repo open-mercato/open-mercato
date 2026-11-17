@@ -1,6 +1,7 @@
 import {
   readLlmSpanMetadata,
   type CaptureFidelity,
+  type IgnorableCallSetting,
   type LlmRequestParameters,
   type LlmUsage,
 } from '../../lib/trace/genAiAttributes'
@@ -23,6 +24,17 @@ const PARAMETER_LABELS: ReadonlyArray<[keyof LlmRequestParameters, string]> = [
   ['frequencyPenalty', 'frequency_penalty'],
 ]
 
+const IGNORED_SETTING_LABELS: Readonly<Record<IgnorableCallSetting, string>> = {
+  temperature: 'temperature',
+  topP: 'top_p',
+  topK: 'top_k',
+  maxOutputTokens: 'max_tokens',
+  seed: 'seed',
+  stopSequences: 'stop_sequences',
+  presencePenalty: 'presence_penalty',
+  frequencyPenalty: 'frequency_penalty',
+}
+
 export type LlmStepParameter = { name: string; value: string }
 
 export type LlmStepRow = {
@@ -33,6 +45,8 @@ export type LlmStepRow = {
   requestModel: string | null
   responseModel: string | null
   parameters: LlmStepParameter[]
+  /** Requested settings the provider dropped (`om.params.ignored`), as display names. */
+  ignoredParameters: string[]
   usage: LlmUsage
   costMicros: number | null
   currency: string
@@ -78,6 +92,7 @@ export function deriveLlmStepRows(spans: readonly SpanView[], runCurrency: strin
       requestModel,
       responseModel,
       parameters: listParameters(metadata.params),
+      ignoredParameters: (metadata.paramsIgnored ?? []).map((setting) => IGNORED_SETTING_LABELS[setting]),
       usage: metadata.usage,
       costMicros: metadata.costMicros ?? null,
       currency: metadata.costCurrency ?? runCurrency ?? DEFAULT_CURRENCY,

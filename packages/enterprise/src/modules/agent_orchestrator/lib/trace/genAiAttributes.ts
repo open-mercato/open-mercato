@@ -76,7 +76,22 @@ export const OM_LLM_ATTRIBUTES = {
   contentRedactions: 'om.content.redactions',
   captureFidelity: 'om.capture.fidelity',
   paramsDefaults: 'om.params.defaults',
+  /** Requested settings the provider reported as unsupported and dropped (e.g. temperature on reasoning models). */
+  paramsIgnored: 'om.params.ignored',
 } as const
+
+/** Call settings a provider can drop with an `unsupported` warning; names match the AI SDK `feature` values. */
+export const IGNORABLE_CALL_SETTINGS = [
+  'temperature',
+  'topP',
+  'topK',
+  'maxOutputTokens',
+  'seed',
+  'stopSequences',
+  'presencePenalty',
+  'frequencyPenalty',
+] as const
+export type IgnorableCallSetting = (typeof IGNORABLE_CALL_SETTINGS)[number]
 
 export const LEGACY_LLM_ATTRIBUTES = {
   inputTokens: 'inputTokens',
@@ -178,6 +193,7 @@ const TYPED_ATTRIBUTE_SCHEMAS: Readonly<Record<string, z.ZodType>> = {
   [OM_LLM_ATTRIBUTES.contentStatus]: z.enum(CONTENT_STATUSES),
   [OM_LLM_ATTRIBUTES.captureFidelity]: z.enum(CAPTURE_FIDELITIES),
   [OM_LLM_ATTRIBUTES.paramsDefaults]: booleanSchema,
+  [OM_LLM_ATTRIBUTES.paramsIgnored]: z.preprocess(toStringList, z.array(z.enum(IGNORABLE_CALL_SETTINGS)).min(1)),
 }
 
 const LEGACY_COUNT_SCHEMA = countSchema
@@ -213,6 +229,7 @@ export type LlmSpanMetadata = {
   outputType?: string
   params: LlmRequestParameters
   paramsDefaults?: boolean
+  paramsIgnored?: IgnorableCallSetting[]
   usage: LlmUsage
   finishReasons?: string[]
   latencyMs?: number
@@ -315,6 +332,7 @@ export function readLlmSpanMetadata(attributes: unknown): LlmSpanMetadata {
         frequencyPenalty: readTypedNumber(attributes, GEN_AI_ATTRIBUTES.requestFrequencyPenalty),
       }),
       paramsDefaults: readTyped<boolean>(attributes, OM_LLM_ATTRIBUTES.paramsDefaults),
+      paramsIgnored: readTyped<IgnorableCallSetting[]>(attributes, OM_LLM_ATTRIBUTES.paramsIgnored),
       usage: compact({
         inputTokens: readTypedNumber(attributes, GEN_AI_ATTRIBUTES.usageInputTokens) ?? legacyInput,
         outputTokens: readTypedNumber(attributes, GEN_AI_ATTRIBUTES.usageOutputTokens) ?? legacyOutput,

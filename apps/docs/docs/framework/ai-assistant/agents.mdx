@@ -365,6 +365,17 @@ When the runtime invokes a tool handler it injects the matching `AiToolDefinitio
 
 Precedence for every setting is **`callSettings` > `modelSettings` > provider default**. HTTP callers pass `callSettings` in the `POST /api/ai_assistant/ai/run-object` body; unknown keys are rejected with `400`.
 
+Agent Orchestrator agents accept the same HTTP contract (strict keys, capped values, no `providerOptions`) on their own run doors:
+
+| Door | Where `callSettings` go | Invalid value |
+|------|-------------------------|---------------|
+| `POST /api/agent_orchestrator/agents/{id}/run` (Playground) | Request body, next to `input`. The Playground exposes temperature, top P, max output tokens and seed under **Model settings**. | `422` |
+| `POST /api/agent_orchestrator/agent-api/agents/{id}/run` | Request body, next to `input`. | `422` |
+| `POST /api/agent_orchestrator/runs/{id}/rerun` | Optional body `{ callSettings }`; without it the new run uses the agent's current settings. | `422` |
+| Workflow `INVOKE_AGENT` | `config.callSettings` on the activity (static values). | The step fails |
+
+File-defined agents run on OpenCode, which cannot apply per-call settings, so these doors refuse non-empty `callSettings` for them with `422` and `code: "agent_call_settings_unsupported"` rather than running on the agent's defaults. The ai-assistant dispatcher path (`run-object`, MCP agent tools) is unchanged for file agents.
+
 ```ts
 const result = await runAiAgentObject({
   agentId: 'catalog.extract',

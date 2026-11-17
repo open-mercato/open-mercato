@@ -12,7 +12,12 @@ import {
   AgentOutputInvalidError,
   AgentRunTimeoutError,
 } from './agentRuntime'
-import { isAgentInvokeDeniedError, isAgentPrincipalMissingError } from './errors'
+import {
+  isAgentCallSettingsUnsupportedError,
+  isAgentInvokeDeniedError,
+  isAgentPrincipalMissingError,
+} from './errors'
+import type { AiAgentHttpCallSettings } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from './admission'
 import { invokeDeniedBody, principalMissingBody } from '../access/invokeDenial'
 import { integritySummarySchema, loadRunIntegritySummary, type IntegritySummary } from '../guardrails/integrity/summary'
@@ -34,6 +39,11 @@ export const guardrailBlockedErrorSchema = agentRunErrorSchema.extend({
   phase: guardrailPhase,
   guardrailSetVersion: z.string().nullable(),
   ruleId: z.string().nullable().optional(),
+})
+
+/** 422 body when per-call model settings target an agent whose runtime cannot apply them. */
+export const callSettingsUnsupportedErrorSchema = agentRunErrorSchema.extend({
+  code: z.literal('agent_call_settings_unsupported'),
 })
 
 /** 500 body for a failure this route could not classify — it names itself. */
@@ -105,12 +115,15 @@ function isProviderRefusal(err: unknown): boolean {
 }
 
 export type ParsedAgentRunRequest =
-  | { ok: true; input: unknown }
+  | { ok: true; input: unknown; callSettings?: AiAgentHttpCallSettings }
   | { ok: false; response: NextResponse }
 
 export function parseAgentRunRequest(body: unknown): ParsedAgentRunRequest {
   const parsed = agentRunRequestSchema.safeParse(body)
-  if (parsed.success) return { ok: true, input: parsed.data.input }
+  if (parsed.success) {
+    const { input, callSettings } = parsed.data
+    return callSettings ? { ok: true, input, callSettings } : { ok: true, input }
+  }
   return {
     ok: false,
     response: NextResponse.json(
@@ -160,6 +173,12 @@ export function agentRunErrorResponse(
   }
   if (isAgentPrincipalMissingError(err)) {
     return NextResponse.json(principalMissingBody(err, agentId), { status: 409 })
+  }
+  if (isAgentCallSettingsUnsupportedError(err)) {
+    return NextResponse.json(
+      { error: 'This agent does not accept per-call model settings', code: 'agent_call_settings_unsupported' },
+      { status: 422 },
+    )
   }
   // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
   // the typed reason (kind/phase/set version) must reach the client instead

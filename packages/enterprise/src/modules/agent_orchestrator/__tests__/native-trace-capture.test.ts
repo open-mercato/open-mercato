@@ -3,6 +3,7 @@ import {
   buildNativeStepRecord,
   buildNativeTracePayload,
   captureNativeRunTrace,
+  extractIgnoredCallSettings,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
 } from '../lib/runtime/nativeTraceCapture'
@@ -327,6 +328,67 @@ describe('buildNativeTracePayload llm span metadata', () => {
       outputTokens: 20,
       finishReason: 'tool-calls',
     })
+  })
+})
+
+describe('provider-dropped call settings (om.params.ignored)', () => {
+  it('reads only unsupported warnings that name a call setting', () => {
+    expect(
+      extractIgnoredCallSettings([
+        { type: 'unsupported', feature: 'temperature', details: 'temperature is not supported for reasoning models' },
+        { type: 'unsupported', feature: 'toolChoice' },
+        { type: 'compatibility', feature: 'topP' },
+        { type: 'unsupported', feature: 'temperature' },
+        'garbage',
+      ]),
+    ).toEqual(['temperature'])
+    expect(extractIgnoredCallSettings(undefined)).toEqual([])
+  })
+
+  it('records the step warnings on the step record', () => {
+    const record = buildNativeStepRecord(
+      { finishReason: 'stop', usage: {}, warnings: [{ type: 'unsupported', feature: 'topP' }] },
+      1,
+    )
+    expect(record.ignoredSettings).toEqual(['topP'])
+    expect(buildNativeStepRecord({ finishReason: 'stop', usage: {} }, 1)).not.toHaveProperty('ignoredSettings')
+  })
+
+  it('drops an ignored setting from gen_ai.request.* and names it in om.params.ignored', () => {
+    const call = buildCall({ callSettings: { temperature: 0.3, seed: 7, maxOutputTokens: 512 } })
+    const steps = stepsWithCall(call)
+    steps[0] = { ...steps[0], ignoredSettings: ['temperature', 'topP'] }
+    const attributes = buildNativeTracePayload({ ...baseInput(), steps }).spans?.[0].attributes as Record<string, unknown>
+    expect(attributes).not.toHaveProperty(GEN_AI_ATTRIBUTES.requestTemperature)
+    expect(attributes[GEN_AI_ATTRIBUTES.requestSeed]).toBe(7)
+    expect(attributes[GEN_AI_ATTRIBUTES.requestMaxTokens]).toBe(512)
+    expect(attributes[OM_LLM_ATTRIBUTES.paramsIgnored]).toEqual(['temperature'])
+    expect(attributes).not.toHaveProperty(OM_LLM_ATTRIBUTES.paramsDefaults)
+    expect(readLlmSpanMetadata(attributes)).toMatchObject({ paramsIgnored: ['temperature'], params: { seed: 7 } })
+  })
+
+  it('marks provider defaults when every requested setting was dropped', () => {
+    const steps = stepsWithCall(buildCall({ callSettings: { temperature: 0.3 } }))
+    steps[0] = { ...steps[0], ignoredSettings: ['temperature'] }
+    const attributes = buildNativeTracePayload({ ...baseInput(), steps }).spans?.[0].attributes as Record<string, unknown>
+    expect(attributes[OM_LLM_ATTRIBUTES.paramsDefaults]).toBe(true)
+    expect(attributes[OM_LLM_ATTRIBUTES.paramsIgnored]).toEqual(['temperature'])
+  })
+
+  it('applies the toolless warnings to the synthetic span', () => {
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: [],
+      fallbackCall: buildCall({ callSettings: { temperature: 0.3, seed: 1 } }),
+      fallbackIgnoredSettings: ['temperature'],
+    })
+    const attributes = payload.spans?.[0].attributes as Record<string, unknown>
+    expect(attributes).not.toHaveProperty(GEN_AI_ATTRIBUTES.requestTemperature)
+    expect(attributes[OM_LLM_ATTRIBUTES.paramsIgnored]).toEqual(['temperature'])
+  })
+
+  it('rejects an unknown setting name when reading the attribute back', () => {
+    expect(readLlmSpanMetadata({ [OM_LLM_ATTRIBUTES.paramsIgnored]: ['providerOptions'] }).paramsIgnored).toBeUndefined()
   })
 })
 

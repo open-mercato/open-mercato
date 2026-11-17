@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import { NextResponse } from 'next/server'
 import { POST, metadata } from '../api/agent-api/agents/[id]/run/route'
-import { AgentInvokeDeniedError, AGENT_INVOKE_DENIED_CODE } from '../lib/runtime/errors'
+import { AgentCallSettingsUnsupportedError, AgentInvokeDeniedError, AGENT_INVOKE_DENIED_CODE } from '../lib/runtime/errors'
 import { AgentNotFoundError } from '../lib/runtime/agentRuntime'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -37,11 +37,14 @@ const AGENT_ID = 'deals.health_check'
 const verifyMock = verifyAgentToken as jest.Mock
 const rateLimitMock = enforcePublicEndpointRateLimit as jest.Mock
 
-function makeRequest(headers: Record<string, string> = { authorization: 'Bearer agent-token' }) {
+function makeRequest(
+  headers: Record<string, string> = { authorization: 'Bearer agent-token' },
+  body: Record<string, unknown> = { input: { deal: { id: 'deal-1' } } },
+) {
   return new Request(`http://localhost/api/agent_orchestrator/agent-api/agents/${AGENT_ID}/run`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
-    body: JSON.stringify({ input: { deal: { id: 'deal-1' } } }),
+    body: JSON.stringify(body),
   })
 }
 
@@ -222,6 +225,40 @@ describe('POST /agent-api/agents/:id/run', () => {
       expect.objectContaining({ runId: RUN_ID, tenantId: TENANT, organizationId: ORG }),
       expect.anything(),
     )
+  })
+
+  it('forwards callSettings to the run, keeping tenant and organization from the token', async () => {
+    const { run } = setupContainer()
+    verifyMock.mockResolvedValue(verified('agent_orchestrator.agents.run'))
+    const res = await POST(
+      makeRequest(undefined, { input: {}, callSettings: { temperature: 0, maxOutputTokens: 128 }, tenantId: 'other' }),
+      { params: params() },
+    )
+    expect(res.status).toBe(200)
+    const ctx = run.mock.calls[0][2] as Record<string, unknown>
+    expect(ctx.callSettings).toEqual({ temperature: 0, maxOutputTokens: 128 })
+    expect(ctx.tenantId).toBe(TENANT)
+    expect(ctx.organizationId).toBe(ORG)
+  })
+
+  it('rejects providerOptions in callSettings with 422 before running', async () => {
+    const { run } = setupContainer()
+    verifyMock.mockResolvedValue(verified('agent_orchestrator.agents.run'))
+    const res = await POST(makeRequest(undefined, { input: {}, callSettings: { providerOptions: { openai: {} } } }), {
+      params: params(),
+    })
+    expect(res.status).toBe(422)
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('maps agent_call_settings_unsupported from the runtime to 422', async () => {
+    setupContainer(async () => {
+      throw new AgentCallSettingsUnsupportedError(AGENT_ID)
+    })
+    verifyMock.mockResolvedValue(verified('agent_orchestrator.agents.run'))
+    const res = await POST(makeRequest(undefined, { input: {}, callSettings: { seed: 1 } }), { params: params() })
+    expect(res.status).toBe(422)
+    expect(await res.json()).toEqual({ error: expect.any(String), code: 'agent_call_settings_unsupported' })
   })
 
   it('accepts a per-agent scope and generates a correlation id when none is sent', async () => {

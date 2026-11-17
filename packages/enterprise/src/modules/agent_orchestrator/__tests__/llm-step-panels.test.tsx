@@ -37,6 +37,7 @@ function row(overrides: Partial<LlmStepRow> = {}): LlmStepRow {
     requestModel: 'model-large',
     responseModel: null,
     parameters: [],
+    ignoredParameters: [],
     usage: {},
     costMicros: 1_500_000,
     currency: 'USD',
