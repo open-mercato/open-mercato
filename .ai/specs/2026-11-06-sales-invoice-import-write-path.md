@@ -204,7 +204,7 @@ Undo entries written before deployment already carry `customFields`, because `lo
 - It requires `subtotalNetAmount`, `subtotalGrossAmount`, `taxTotalAmount`, `grandTotalNetAmount` and `grandTotalGrossAmount`, and answers 400 otherwise. `discountTotalAmount`, `paidTotalAmount` and `outstandingAmount` stay optional and keep their values when omitted.
 - Without the flag, or with `replaceLines: false`, `lines` stays accepted and ignored, as today.
 - The `replaceLines` rule goes on a separate `invoiceUpdateInputSchema = invoiceUpdateSchema.superRefine(…)` used by the route and the command, so the exported schemas stay unrefined and their `.partial()` keeps working. This is the pattern at `commands/documents.ts:629-732`: an unrefined base with refined schemas built from it.
-- Create and replacement share one line mapper, so a line stores the same net on both paths. `orderLineId` stays unstored, as on create. Undo re-inserts stored snapshot values as they are, without the mapper.
+- Create and replacement share one line mapper, so a line stores the same net and order line on both paths. A line's `orderLineId` is stored as the `orderLine` relation and must be a live order line in the invoice's organization and tenant (400 otherwise). Undo re-inserts stored snapshot values, the order line included, as they are, without the mapper.
 - The audit keeps lines in `snapshotBefore` and `snapshotAfter`, as for orders.
 
 **Update undo with lines.** It touches lines only when the update replaced them, which means the ids of `before.lines` and `after.lines` differ. Then it deletes the current lines and re-inserts the before-snapshot lines with their ids. A header-only undo leaves the lines alone.
@@ -335,6 +335,7 @@ Each phase adds its rows to this table and to `UPGRADE_NOTES.md`.
 | `sales.invoices.update` audit log | `changes` include `customFields`; redo replays them and undo resets them (Phase 1) | Additive |
 | POST and PUT `/api/sales/invoices` | Custom-field values that cannot be stored, such as more than 128 keys or a non-numeric value for an integer definition, used to be dropped with a 2xx. They now answer 500 and roll the invoice back; the 500 is not retryable, because the same body fails again (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
 | PUT `/api/sales/invoices` | New optional `replaceLines`; `lines` without it stays ignored (Phase 3) | Additive |
+| POST and PUT `/api/sales/invoices` | A line's `orderLineId` is stored as its order line, dropped until now; one that is not a live order line in the invoice's organization and tenant answers 400 (Phases 1 and 3) | Bug fix, `UPGRADE_NOTES.md` |
 | GET `/api/sales/invoices` | `cf_<key>` values now appear (Phase 1); the three header amounts can be negative (Phase 2) | Additive |
 | `PUT /api/sales/invoices` with the optimistic-lock header | The version is also checked against the row read under the lock: the later of two updates sent with the same version answers 409 instead of overwriting the first (Phase 1) | Bug fix, `UPGRADE_NOTES.md` |
 | `sales.invoices.update` undo | Answers 409 when the invoice no longer matches the update's `after`, including when it was deleted or a custom field was edited through another path. Before, it overwrote the row, rewrote a soft-deleted invoice, or did nothing and reported success (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
@@ -435,7 +436,7 @@ Unit tests live in the new `commands/__tests__/documents.invoice-write-path.test
 - A replacement line with a net of 0 and a positive gross stores the same net as on create.
 - A failed update leaves the old header, lines and custom fields. A failed undo leaves the lines unchanged.
 - Undo after a later `replaceLines` update by a different actor answers 409 and leaves the lines unchanged.
-- Audit `snapshotBefore` and `snapshotAfter` carry the lines, and `orderLineId` stays unstored.
+- Audit `snapshotBefore` and `snapshotAfter` carry the lines with their stored `orderLineId`, and undo restores it.
 - Undo of a header-only update keeps the line rows and, after a reindex that puts them there, their index entries.
 - Two concurrent updates with `replaceLines` end with exactly one line set.
 - Of two concurrent `replaceLines` updates sent with the same expected version, one replaces the lines and the other answers 409 and replaces nothing.
@@ -447,7 +448,7 @@ Unit tests live in the new `commands/__tests__/documents.invoice-write-path.test
 
 ## Out of Scope
 
-Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, an explicit amounts mode on invoices like the orders' `totals_mode` (`.ai/specs/2026-09-07-sales-external-amounts-mode.md` names it as separate work), persisting a line's order line (`SalesInvoiceLine.orderLine`; `orderLineId` in the input stays unstored, as on `main`), clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
+Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, an explicit amounts mode on invoices like the orders' `totals_mode` (`.ai/specs/2026-09-07-sales-external-amounts-mode.md` names it as separate work), checking that a line's order line belongs to the invoice's order (the invoice's order link is #9482), clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
 
 ## Risks & Impact Review
 
@@ -461,7 +462,7 @@ Index removal runs after commit, so the write stays committed if it fails, and a
 
 ### Tenant & Data Isolation Risks
 
-`lockSalesDocumentRow` filters by id, tenant and organization. Custom-field writes carry the invoice's scope. The update lookup keeps its organization filter, and a cross-organization update stays refused and is covered by a test.
+`lockSalesDocumentRow` filters by id, tenant and organization. Custom-field writes carry the invoice's scope. The update lookup keeps its organization filter, and a cross-organization update stays refused and is covered by a test. A line's `orderLineId` is checked against the invoice's organization and tenant before it is stored, so a line cannot link another tenant's order line.
 
 ### Migration & Deployment Risks
 
@@ -619,10 +620,14 @@ Fully compliant for Phase 1. Phases 2 and 3 follow the recommended answer to Q1 
 - [x] P3.1 `replaceLines` and `invoiceUpdateInputSchema`
 - [x] P3.2 Line replacement phase and index removal of the replaced lines
 - [x] P3.3 Line restore in update undo
+- [x] Invoice lines store `orderLineId` as the `orderLine` relation on create, replacement and both undo paths, checked against the invoice's scope
 
 Tests: `commands/__tests__/documents.invoice-write-path.test.ts`, `data/__tests__/validators.invoice-write-path.test.ts`, the adapted `documents.invoice-credit-memo-update.test.ts`, and `__integration__/TC-SALES-7336-*.spec.ts`. The two-transaction cases run against a real database: an allocation insert held open while create undo waits for its `FOR UPDATE` lock, and two concurrent `replaceLines` updates. Unit tests pin the lock calls (mode, table, scope, order before the stale read), so removing a lock fails them. Create undo counts soft-deleted notes too, as well as soft-deleted credit memos.
 
 ## Changelog
+
+### 2026-11-17
+- Invoice lines store their order line
 
 ### 2026-11-08
 - Phases 1–3 implemented; Implementation Status added
