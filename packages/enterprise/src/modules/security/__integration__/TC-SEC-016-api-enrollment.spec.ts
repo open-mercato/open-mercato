@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture, createRoleFixture, createUserFixture,
-  deleteOrganizationIfExists, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures,
+  setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createSuperadminApiToken, generateTotpCode, loginViaApi } from './helpers/securityFixtures'
@@ -94,13 +94,23 @@ for (const features of [
         quoteId = (await readJsonSafe<{ id: string }>(quote))!.id
       })
     } finally {
-      if (policyId) await apiRequest(request, 'DELETE', `/api/security/enforcement/${policyId}`, { token: adminToken })
+      const failures: string[] = []
+      const removeFixture = async (path: string, options: { headers?: Record<string, string>; data?: unknown } = {}) => {
+        try {
+          const response = await apiRequest(request, 'DELETE', path, { token: adminToken, ...options })
+          expect(response.status(), `cleanup ${path}`).toBe(200)
+        } catch {
+          failures.push(path)
+        }
+      }
+      if (policyId) await removeFixture(`/api/security/enforcement/${policyId}`)
       const scopedHeaders: Record<string, string> = organizationId ? { cookie: `om_selected_org=${organizationId}` } : {}
-      if (quoteId) await apiRequest(request, 'DELETE', `/api/sales/quotes?id=${quoteId}`, { token: adminToken, headers: scopedHeaders })
-      if (keyId) await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${keyId}`, { token: adminToken, headers: scopedHeaders })
-      await deleteUserIfExists(request, adminToken, userId)
-      await deleteRoleIfExists(request, adminToken, roleId)
-      await deleteOrganizationIfExists(request, adminToken, organizationId)
+      if (quoteId) await removeFixture(`/api/sales/quotes?id=${quoteId}`, { headers: scopedHeaders })
+      if (keyId) await removeFixture(`/api/api_keys/keys?id=${keyId}`, { headers: scopedHeaders })
+      if (userId) await removeFixture(`/api/auth/users?id=${userId}`)
+      if (roleId) await removeFixture(`/api/auth/roles?id=${roleId}`)
+      if (organizationId) await removeFixture('/api/directory/organizations', { data: { id: organizationId } })
+      expect(failures, 'All API enrollment fixtures must be removed').toEqual([])
     }
   })
 }

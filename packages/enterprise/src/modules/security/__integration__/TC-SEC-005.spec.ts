@@ -3,12 +3,10 @@ import { randomUUID } from 'node:crypto'
 import {
   createOrganizationFixture,
   createUserFixture as createScopedUserFixture,
-  deleteOrganizationIfExists,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   createSuperadminApiToken,
   createUserFixture,
-  deleteUserFixture,
   enrollOtpEmail,
   fetchJson,
   loginViaApi,
@@ -133,18 +131,25 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
   })
 
   test.afterAll(async ({ request }) => {
-    for (const policyId of policyIds.reverse()) {
-      await fetchJson<{ ok?: boolean }>(
-        request,
-        'DELETE',
-        `/api/security/enforcement/${policyId}`,
-        { token: adminToken },
-      ).catch(() => undefined)
+    const failures: string[] = []
+    const removeFixture = async (path: string, data?: unknown) => {
+      try {
+        const response = await fetchJson(request, 'DELETE', path, { token: adminToken, data })
+        expect(response.status, `cleanup ${path}`).toBe(200)
+      } catch {
+        failures.push(path)
+      }
+    }
+    for (const policyId of [...policyIds].reverse()) {
+      await removeFixture(`/api/security/enforcement/${policyId}`)
     }
     for (const userId of userIds) {
-      await deleteUserFixture(request, adminToken ?? null, userId)
+      await removeFixture(`/api/auth/users?id=${userId}`)
     }
-    await deleteOrganizationIfExists(request, adminToken ?? null, organizationId || null)
+    if (organizationId) {
+      await removeFixture('/api/directory/organizations', { id: organizationId })
+    }
+    expect(failures, 'All enforcement fixtures must be removed, including after a failed assertion').toEqual([])
   })
 
   test('resolves org policy precedence, filters allowed methods, redirects unenrolled users, and marks overdue users in compliance', async ({ request, page }) => {
@@ -212,10 +217,17 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
     const overdueLogin = await loginViaApi(request, overdueUser.email, overdueUser.password)
     expect(getTokenContext(overdueLogin.token).organizationId).toBe(organizationId)
     await setAuthCookie(page, overdueLogin.token)
+    const enrollmentNavigation = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return response.request().isNavigationRequest()
+        && url.pathname === '/backend/profile/security/mfa'
+        && url.searchParams.get('reason') === 'mfa_enrollment_required'
+    })
     await page.goto('/backend')
-    await expect(page).toHaveURL(/\/backend\/profile\/security\/mfa\?/)
-    expect(new URL(page.url()).searchParams.get('reason')).toBe('mfa_enrollment_required')
-    expect(new URL(page.url()).searchParams.get('overdue')).toBe('1')
+    const redirectUrl = new URL((await enrollmentNavigation).url())
+    expect(redirectUrl.searchParams.get('overdue')).toBe('1')
+    expect(redirectUrl.searchParams.get('redirect')).toBe('/backend')
+    await expect(page).toHaveURL(/\/backend\/profile\/security\/mfa$/)
     await expect(page.getByText('MFA enrollment required')).toBeVisible()
     await expect(page.getByText('Your MFA enrollment deadline has passed. Set up MFA now to keep account access.')).toBeVisible()
 

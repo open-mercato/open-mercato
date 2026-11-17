@@ -2,10 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import {
+  createOrganizationFixture,
   createRoleFixture,
   createUserFixture,
-  deleteRoleIfExists,
-  deleteUserIfExists,
   getAuthToken,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
@@ -14,15 +13,20 @@ import { getTokenContext } from '@open-mercato/core/helpers/integration/generalF
 test.describe('TC-SEC-009: MFA mutation feature authorization', () => {
   test('permits compelled enrollment while retaining the MFA management gate', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'superadmin')
-    const { organizationId, tenantId } = getTokenContext(adminToken)
+    const { tenantId } = getTokenContext(adminToken)
     const stamp = randomUUID()
     const email = `qa-mfa-guard-${stamp}@acme.com`
     const password = 'Valid1!Pass'
     let policyId: string | null = null
     let roleId: string | null = null
     let userId: string | null = null
+    let organizationId: string | null = null
 
     try {
+      organizationId = await createOrganizationFixture(request, adminToken, {
+        name: `QA MFA Guard ${stamp}`,
+        tenantId,
+      })
       roleId = await createRoleFixture(request, adminToken, {
         name: `QA MFA Guard ${stamp}`,
       })
@@ -37,6 +41,7 @@ test.describe('TC-SEC-009: MFA mutation feature authorization', () => {
         roles: [roleId],
       })
       const userToken = await getAuthToken(request, email, password)
+      expect(getTokenContext(userToken).organizationId).toBe(organizationId)
 
       const startEnrollment = await apiRequest(
         request,
@@ -122,13 +127,22 @@ test.describe('TC-SEC-009: MFA mutation feature authorization', () => {
       )
       expect(stillProtectedRecoveryCodes.status(), 'non-enrollment management should remain feature-gated').toBe(403)
     } finally {
-      if (policyId) {
-        await apiRequest(request, 'DELETE', `/api/security/enforcement/${policyId}`, {
-          token: adminToken,
-        }).catch(() => undefined)
+      const failures: string[] = []
+      const removeFixture = async (path: string, data?: unknown) => {
+        try {
+          const response = await apiRequest(request, 'DELETE', path, { token: adminToken, data })
+          expect(response.status(), `cleanup ${path}`).toBe(200)
+        } catch {
+          failures.push(path)
+        }
       }
-      await deleteUserIfExists(request, adminToken, userId)
-      await deleteRoleIfExists(request, adminToken, roleId)
+      if (policyId) {
+        await removeFixture(`/api/security/enforcement/${policyId}`)
+      }
+      if (userId) await removeFixture(`/api/auth/users?id=${userId}`)
+      if (roleId) await removeFixture(`/api/auth/roles?id=${roleId}`)
+      if (organizationId) await removeFixture('/api/directory/organizations', { id: organizationId })
+      expect(failures, 'All MFA authorization fixtures must be removed').toEqual([])
     }
   })
 })
