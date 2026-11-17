@@ -25,8 +25,12 @@ type ImplProps = Pick<
   | 'showLegend'
   | 'showGridLines'
   | 'categoryLabels'
+  | 'animate'
+  | 'accessibilityLayer'
 > & {
   valueFormatter: (value: number) => string
+  /** Fill the host element instead of the fixed default height (bare mode). */
+  fillHeight?: boolean
 }
 
 export default function BarChartImpl({
@@ -39,17 +43,21 @@ export default function BarChartImpl({
   showLegend = true,
   showGridLines = true,
   categoryLabels,
+  animate = true,
+  accessibilityLayer = true,
+  fillHeight = false,
 }: ImplProps) {
   const isHorizontal = layout === 'horizontal'
   const chartHeight = isHorizontal ? Math.max(200, data.length * 28) : 200
   const getBarColor = (idx: number): string => resolveChartColor(colors?.[idx], idx)
 
   return (
-    <ResponsiveContainer width="100%" height={chartHeight}>
+    <ResponsiveContainer width="100%" height={fillHeight ? '100%' : chartHeight}>
       <RechartsBarChart
         data={data}
         layout={isHorizontal ? 'vertical' : 'horizontal'}
         margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+        accessibilityLayer={accessibilityLayer}
       >
         {showGridLines && (
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -91,6 +99,7 @@ export default function BarChartImpl({
             dataKey={category}
             fill={getBarColor(idx)}
             radius={isHorizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]}
+            isAnimationActive={animate}
           />
         ))}
       </RechartsBarChart>
