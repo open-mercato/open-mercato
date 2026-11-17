@@ -252,6 +252,15 @@ function makeFakeEm(state: FakeState) {
       return matchesWhere(invoice, filter) ? state.invoice : null
     }),
     find: jest.fn(async (entity: unknown, where: Row) => {
+      if (entity === SalesOrderLine) {
+        const ids = (where.id as { $in: string[] }).$in
+        return orderLines.filter(
+          (row) =>
+            ids.includes(row.id as string) &&
+            row.organizationId === where.organizationId &&
+            row.tenantId === where.tenantId,
+        )
+      }
       if (entity !== SalesInvoiceLine) return []
       return state.lines.filter((line) => matchesWhere(line, where))
     }),
@@ -873,6 +882,22 @@ describe('sales invoice write path (#7336)', () => {
 
       expect(state.lines).toHaveLength(1)
       expect(state.lines[0]).toMatchObject({ id: LINE_ID, orderLine: { id: ORDER_LINE_ID } })
+    })
+
+    it('restores a replaced line without its order line once that order line row is gone', async () => {
+      const goneOrderLineId = '99999999-9999-4999-8999-999999999999'
+      const state = baseState({ lines: [makeLine({ orderLine: { id: goneOrderLineId } })] })
+      const undo = await updateAndCapture(state, {
+        replaceLines: true,
+        lines: [{ quantity: 3, currencyCode: 'EUR' }],
+        ...zeroTotals,
+      })
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await runUndo('sales.invoices.update', undo, ctx)
+
+      expect(state.lines).toHaveLength(1)
+      expect(state.lines[0]).toMatchObject({ id: LINE_ID, orderLine: null })
     })
 
     it.each([

@@ -9799,6 +9799,28 @@ async function assertInvoiceOrderLinesInScope(
 }
 
 /**
+ * Returns the snapshot lines' order line ids that still have a row, soft-deleted
+ * ones included. Undo links only those, as the `order_line_id` foreign key
+ * (`on delete set null`) would have left the line had it existed meanwhile.
+ */
+async function loadRestorableOrderLineIds(
+  em: EntityManager,
+  lines: InvoiceLineSnapshot[],
+  scope: InvoiceRecordScope,
+): Promise<Set<string>> {
+  const orderLineIds = [...new Set(lines.flatMap((line) => (line.orderLineId ? [line.orderLineId] : [])))];
+  if (!orderLineIds.length) return new Set();
+  const rows = await findWithDecryption(
+    em,
+    SalesOrderLine,
+    { id: { $in: orderLineIds }, organizationId: scope.organizationId, tenantId: scope.tenantId },
+    { fields: ["id"] },
+    scope,
+  );
+  return new Set(rows.map((row) => row.id));
+}
+
+/**
  * Maps one invoice line input to a new line entity. Create and line replacement
  * share it, so a line stores the same net and order line link on both paths.
  * Callers check `orderLineId` with `assertInvoiceOrderLinesInScope` first.
@@ -9841,16 +9863,23 @@ function buildInvoiceLineEntity(
   });
 }
 
-/** Re-creates a line from an undo snapshot with its original id and stored values. */
+/**
+ * Re-creates a line from an undo snapshot with its original id and stored values.
+ * Its order line is linked only when `restorableOrderLineIds` still has it.
+ */
 function restoreInvoiceLineEntity(
   em: EntityManager,
   invoice: SalesInvoice,
   line: InvoiceLineSnapshot,
+  restorableOrderLineIds: Set<string>,
 ): SalesInvoiceLine {
   return em.create(SalesInvoiceLine, {
     id: line.id,
     invoice,
-    orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
+    orderLine:
+      line.orderLineId && restorableOrderLineIds.has(line.orderLineId)
+        ? em.getReference(SalesOrderLine, line.orderLineId)
+        : null,
     organizationId: invoice.organizationId,
     tenantId: invoice.tenantId,
     lineNumber: line.lineNumber,
@@ -10604,8 +10633,9 @@ const updateInvoiceCommand: CommandHandler<
           const invoice = restored.invoice;
           if (!linesReplaced || !invoice) return;
           await em.nativeDelete(SalesInvoiceLine, { invoice: invoice.id, ...scope });
+          const restorableOrderLineIds = await loadRestorableOrderLineIds(em, before.lines, scope);
           for (const line of before.lines) {
-            em.persist(restoreInvoiceLineEntity(em, invoice, line));
+            em.persist(restoreInvoiceLineEntity(em, invoice, line, restorableOrderLineIds));
           }
         },
         async () => {
@@ -10756,12 +10786,19 @@ const deleteInvoiceCommand: CommandHandler<
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    const restorableOrderLineIds = await loadRestorableOrderLineIds(em, before.lines, {
+      organizationId: before.invoice.organizationId,
+      tenantId: before.invoice.tenantId,
+    });
     em.persist(restored);
     for (const line of before.lines) {
       em.persist(em.create(SalesInvoiceLine, {
         id: line.id,
         invoice: restored,
-        orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
+        orderLine:
+          line.orderLineId && restorableOrderLineIds.has(line.orderLineId)
+            ? em.getReference(SalesOrderLine, line.orderLineId)
+            : null,
         organizationId: before.invoice.organizationId,
         tenantId: before.invoice.tenantId,
         lineNumber: line.lineNumber,

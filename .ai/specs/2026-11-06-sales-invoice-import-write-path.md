@@ -448,7 +448,7 @@ Unit tests live in the new `commands/__tests__/documents.invoice-write-path.test
 
 ## Out of Scope
 
-Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, an explicit amounts mode on invoices like the orders' `totals_mode` (`.ai/specs/2026-09-07-sales-external-amounts-mode.md` names it as separate work), checking that a line's order line belongs to the invoice's order (the invoice's order link is #9482), clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
+Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, an explicit amounts mode on invoices like the orders' `totals_mode` (`.ai/specs/2026-09-07-sales-external-amounts-mode.md` names it as separate work), checking that a line's order line belongs to the invoice's order (the invoice's order link is #9482), clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (the `deleteInvoiceCommand` undo in `commands/documents.ts`; not run, so it needs its own check).
 
 ## Risks & Impact Review
 
@@ -544,6 +544,13 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 - **Mitigation**: Whichever lands second rebases. Both keep the command id and its input additive. That spec also makes credit memo create write the invoice's `outstanding`, and it refuses delete on generated invoices. So whichever lands second must take this row lock in that new writer, add its ledger row to create undo's dependant count and its delete refusal to create undo, and refuse `replaceLines` on generated invoices, or recompute the order's derived totals.
 - **Residual risk**: A merge conflict, and these follow-ups to carry.
 
+#### Stored order line links meet order changes
+- **Scenario**: Invoice lines now keep their order line. An order update with `items` recreates its lines and an order delete removes them, so `order_line_id` (`on delete set null`) clears those links. Order undo answers 409 while an invoice line links one of the order's lines, as it already does for credit memos.
+- **Severity**: Low
+- **Affected area**: invoice lines with an `orderLineId`, order undo, invoice update undo
+- **Mitigation**: Invoice update undo answers 409 when a cleared link no longer matches its `after`. Undo of an invoice update or delete links only order lines whose row still exists, so it never fails on the foreign key.
+- **Residual risk**: A link cleared by an order change stays cleared; the imports this spec serves send no `orderLineId`.
+
 #### Overlap with the invoice order-link fix
 - **Scenario**: PR #9482 persists the invoice's order through the `order` relation, while this work still reads and writes `orderId` in create, the invoice snapshot and `restoreInvoiceHeader`.
 - **Severity**: Medium
@@ -620,7 +627,7 @@ Fully compliant for Phase 1. Phases 2 and 3 follow the recommended answer to Q1 
 - [x] P3.1 `replaceLines` and `invoiceUpdateInputSchema`
 - [x] P3.2 Line replacement phase and index removal of the replaced lines
 - [x] P3.3 Line restore in update undo
-- [x] Invoice lines store `orderLineId` as the `orderLine` relation on create, replacement and both undo paths, checked against the invoice's scope
+- [x] Invoice lines store `orderLineId` as the `orderLine` relation on create, replacement and both undo paths, checked against the invoice's scope; undo skips order lines whose row is gone
 
 Tests: `commands/__tests__/documents.invoice-write-path.test.ts`, `data/__tests__/validators.invoice-write-path.test.ts`, the adapted `documents.invoice-credit-memo-update.test.ts`, and `__integration__/TC-SALES-7336-*.spec.ts`. The two-transaction cases run against a real database: an allocation insert held open while create undo waits for its `FOR UPDATE` lock, and two concurrent `replaceLines` updates. Unit tests pin the lock calls (mode, table, scope, order before the stale read), so removing a lock fails them. Create undo counts soft-deleted notes too, as well as soft-deleted credit memos.
 

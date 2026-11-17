@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { createSalesOrderFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import {
   expectOperation,
   redoByLogId,
@@ -20,7 +21,16 @@ const INVOICES = '/api/sales/invoices'
 const ACTIONS = '/api/audit_logs/audit-logs/actions'
 
 type JsonMap = Record<string, unknown>
-type StoredLine = { id: string; kind: string; total_net_amount: string; total_gross_amount: string; unit_price_net: string }
+type StoredLine = {
+  id: string
+  kind: string
+  total_net_amount: string
+  total_gross_amount: string
+  unit_price_net: string
+  order_line_id: string | null
+}
+
+const UNKNOWN_ORDER_LINE_ID = '00000000-0000-4000-8000-000000000001'
 
 const totals = {
   subtotalNetAmount: 90,
@@ -69,7 +79,7 @@ async function waitForLockWaiters(client: IntegrationDbClient, expected: number,
 async function readLines(invoiceId: string): Promise<StoredLine[]> {
   return withClient(async (client) => {
     const result = await client.query<StoredLine>(
-      `select id, kind, total_net_amount::text, total_gross_amount::text, unit_price_net::text
+      `select id, kind, total_net_amount::text, total_gross_amount::text, unit_price_net::text, order_line_id
          from sales_invoice_lines where invoice_id = $1 order by line_number asc, id asc`,
       [invoiceId],
     )
@@ -163,6 +173,7 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
       ['negative line with net <= 0 and positive gross', { lines: [{ ...discountLine, totalGrossAmount: 5 }] }],
       ['negative grandTotalGrossAmount', { grandTotalGrossAmount: -1 }],
       ['negative subtotalGrossAmount', { subtotalGrossAmount: -1 }],
+      ['an unknown order line', { lines: [{ ...productLine, orderLineId: UNKNOWN_ORDER_LINE_ID }] }],
     ]
     for (const [label, data] of rejected) {
       const response = await apiRequest(request, 'POST', INVOICES, { token, data: { currencyCode: 'EUR', ...data } })
@@ -178,9 +189,16 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
     skipIfUndoTestsDisabled()
     const token = await getAuthToken(request, 'admin')
     let invoiceId: string | null = null
+    let orderId: string | null = null
     try {
+      orderId = await createSalesOrderFixture(request, token, 'EUR')
+      const orderLineId = await withClient(async (client) => {
+        const result = await client.query<{ id: string }>('select id from sales_order_lines where order_id = $1', [orderId])
+        return result.rows[0]?.id ?? null
+      })
+      expect(orderLineId, 'the order fixture should have a line').toBeTruthy()
       invoiceId = await createInvoice(request, token, {
-        lines: [productLine],
+        lines: [{ ...productLine, orderLineId }],
         subtotalNetAmount: 100,
         subtotalGrossAmount: 123,
         taxTotalAmount: 23,
@@ -190,7 +208,7 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
         outstandingAmount: 113,
       })
       const original = await readLines(invoiceId)
-      expect(original).toHaveLength(1)
+      expect(original.map((line) => line.order_line_id), 'create stores the order line').toEqual([orderLineId])
 
       const ignored = await apiRequest(request, 'PUT', INVOICES, {
         token,
@@ -208,33 +226,29 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
       for (const [label, data] of [
         ['replaceLines without totals', { replaceLines: true, lines: [productLine] }],
         ['replaceLines with no lines', { replaceLines: true, lines: [], ...totals }],
+        [
+          'replaceLines with an unknown order line',
+          { replaceLines: true, lines: [{ ...productLine, orderLineId: UNKNOWN_ORDER_LINE_ID }], ...totals },
+        ],
       ] as Array<[string, JsonMap]>) {
         const response = await apiRequest(request, 'PUT', INVOICES, { token, data: { id: invoiceId, ...data } })
         expect(response.status(), `${label} should be rejected`).toBe(400)
       }
+      expect(await readLines(invoiceId), 'rejected replacements leave the lines alone').toEqual(original)
 
       const replace = await apiRequest(request, 'PUT', INVOICES, {
         token,
         data: {
           id: invoiceId,
           replaceLines: true,
-          // `orderLineId` is accepted but never stored on invoice lines, as on create.
-          lines: [{ ...productLine, orderLineId: '00000000-0000-4000-8000-000000000001' }, discountLine],
+          lines: [{ ...productLine, orderLineId }, discountLine],
           ...totals,
         },
       })
       expect(replace.status(), 'replaceLines update should be 200').toBe(200)
-      const storedOrderLineIds = await withClient(async (client) => {
-        const result = await client.query<{ order_line_id: string | null }>(
-          'select order_line_id from sales_invoice_lines where invoice_id = $1',
-          [invoiceId],
-        )
-        return result.rows.map((row) => row.order_line_id)
-      })
-      expect(storedOrderLineIds).toEqual([null, null])
       const operation = expectOperation(replace, 'invoice line replacement')
       const replaced = await readLines(invoiceId)
-      expect(replaced).toHaveLength(2)
+      expect(replaced.map((line) => line.order_line_id), 'replacement stores the order line').toEqual([orderLineId, null])
       expect(replaced.map((line) => line.id)).not.toContain(original[0].id)
       const afterReplace = await readInvoice(request, token, invoiceId)
       expect(amount(afterReplace, 'grandTotalGrossAmount', 'grand_total_gross_amount')).toBe(110.7)
@@ -242,7 +256,7 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
 
       const undo = await undoByToken(request, token, operation.undoToken)
       expect(undo.status(), 'undo of the replacement should succeed').toBe(200)
-      expect(await readLines(invoiceId)).toEqual(original)
+      expect(await readLines(invoiceId), 'undo restores the lines with their order line').toEqual(original)
       const restored = await readInvoice(request, token, invoiceId)
       expect(amount(restored, 'grandTotalGrossAmount', 'grand_total_gross_amount')).toBe(123)
 
@@ -253,6 +267,7 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
       expect(redone.map((line) => line.id)).not.toContain(original[0].id)
     } finally {
       await purgeInvoice(invoiceId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
   })
 
