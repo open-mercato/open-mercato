@@ -32,6 +32,7 @@ const moduleConfigs: SearchModuleConfig[] = [
 function createRecord(): Record<string, unknown> {
   return {
     id: 'profile-1',
+    organization_id: null,
     legal_name: 'Acme Ltd',
     'cf:tax_number': secret,
     'cf:industry_note': 'Wholesale',

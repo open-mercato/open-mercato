@@ -23,16 +23,13 @@ import { normalizeDefinitionKey } from '@open-mercato/shared/lib/crud/custom-fie
  */
 const MAX_PAGES = 10000
 
-<<<<<<< HEAD
-type PlaintextExclusionLookup = (entityId: EntityId, scope: { tenantId: string; organizationId?: string | null }, record: Record<string, unknown>) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
-=======
 /**
  * Custom fields kept out of the build context: the normalized keys of encrypted
  * definitions, every custom field when they could not be resolved, or none.
  */
 type CustomFieldExclusion = Set<string> | 'all' | null
 
-type CustomFieldExclusionLookup = (entityId: EntityId, tenantId: string | null) => Promise<CustomFieldExclusion>
+type CustomFieldExclusionLookup = (entityId: EntityId, scope: { tenantId?: string | null; organizationId?: string | null }, record: Record<string, unknown>) => Promise<CustomFieldExclusion>
 
 function toPlaintextExcludedCustomFields(
   exclusion: CustomFieldExclusion,
@@ -108,7 +105,6 @@ function withoutExcludedCustomFields(
   }
   return filtered
 }
->>>>>>> 68902bd1cc (fix(search): keep encrypted custom fields out of search build contexts (#8410))
 
 /**
  * Parameters for indexing a record.
@@ -267,33 +263,23 @@ export class SearchIndexer {
 
   /**
    * Returns a lookup of the custom fields to keep out of build contexts, memoized per entity and
-   * tenant for one indexing call or reindex run. A missing resolver or a failed resolution excludes
+   * tenant and organization for one indexing call or reindex run. A missing resolver or a failed resolution excludes
    * every custom field. Failed resolutions stay cached for the current operation and are retried by
    * the fresh lookup created for the next top-level indexing call.
    */
   private createCustomFieldExclusionLookup(): CustomFieldExclusionLookup {
     const resolver = this.encryptedCustomFieldKeysResolver
-<<<<<<< HEAD
-    const cache = new Map<string, Promise<IndexableRecord['plaintextExcludedCustomFields']>>()
+    const cache = new Map<string, Promise<CustomFieldExclusion>>()
     return (entityId, scope, record) => {
-      if (!resolver) return Promise.resolve('all')
+      const tenantId = scope.tenantId
+      if (!tenantId) return Promise.resolve('all')
       const organizationId = scope.organizationId ?? ('organization_id' in record ? record.organization_id : record.organizationId)
-      if (organizationId !== null && (typeof organizationId !== 'string' || organizationId.length === 0)) {
-        return Promise.resolve('all')
-      }
+      if (organizationId !== null && (typeof organizationId !== 'string' || organizationId.length === 0)) return Promise.resolve('all')
+      if (!resolver) return Promise.resolve('all')
       const cacheKey = JSON.stringify([entityId, scope.tenantId, organizationId])
       let pending = cache.get(cacheKey)
       if (!pending) {
-        pending = Promise.resolve().then(() => resolver(entityId, { tenantId: scope.tenantId, organizationId })).then((keys) => Array.from(keys)).catch((error): 'all' => {
-          reportSearchError('SearchIndexer', error, 'search.encrypted_custom_fields_unresolved', { entityId })
-=======
-    const cache = new Map<string, Promise<CustomFieldExclusion>>()
-    return (entityId, tenantId) => {
-      if (!resolver) return Promise.resolve('all')
-      const cacheKey = `${entityId}\u0000${tenantId ?? ''}`
-      let pending = cache.get(cacheKey)
-      if (!pending) {
-        pending = Promise.resolve().then(() => resolver(entityId, tenantId)).catch((error): CustomFieldExclusion => {
+        pending = Promise.resolve().then(() => resolver(entityId, { tenantId, organizationId })).catch((error): CustomFieldExclusion => {
           const resolutionError = error instanceof Error
             ? error
             : new Error('[internal] Encrypted custom-field resolver rejected with a non-Error value')
@@ -302,7 +288,6 @@ export class SearchIndexer {
             error: resolutionError.message,
           })
           reportSearchError('SearchIndexer', resolutionError, 'search.encrypted_custom_fields_unresolved', { entityId })
->>>>>>> 68902bd1cc (fix(search): keep encrypted custom fields out of search build contexts (#8410))
           return 'all'
         })
         cache.set(cacheKey, pending)
@@ -316,7 +301,7 @@ export class SearchIndexer {
    * Used to prevent feedback loops when search indexing callbacks (buildSource, formatResult)
    * call queryEngine.query() to hydrate related entities. Encrypted custom fields are removed
    * from the hydrated records, as from the indexed record itself, including those joined in
-   * from `customFieldSources`. A query without a tenant is checked against every tenant's definitions.
+   * from `customFieldSources`. Unknown tenant or row organization excludes every custom field.
    */
   private createBuildQueryEngine(exclusions: CustomFieldExclusionLookup): QueryEngine | undefined {
     if (!this.queryEngine) return undefined
@@ -325,14 +310,16 @@ export class SearchIndexer {
       query: async (entity, opts) => {
         const result = await queryEngine.query(entity, { ...opts, skipAutoReindex: true })
         const sourceEntityIds = [entity, ...(opts?.customFieldSources ?? []).map((source) => source.entityId)]
-        const tenantId = opts?.tenantId ?? null
-        const exclusion = mergeCustomFieldExclusions(
-          await Promise.all(sourceEntityIds.map((sourceEntityId) => exclusions(sourceEntityId as EntityId, tenantId))),
-        )
-        if (!exclusion || !Array.isArray(result?.items)) return result
+        if (!Array.isArray(result?.items)) return result
+        const scope = { tenantId: opts?.tenantId, organizationId: opts?.organizationId }
         return {
           ...result,
-          items: result.items.map((item: Record<string, unknown>) => withoutExcludedRecordCustomFields(item, exclusion)),
+          items: await Promise.all(result.items.map(async (item: Record<string, unknown>) => {
+            const exclusion = mergeCustomFieldExclusions(
+              await Promise.all(sourceEntityIds.map((sourceEntityId) => exclusions(sourceEntityId as EntityId, scope, item))),
+            )
+            return withoutExcludedRecordCustomFields(item, exclusion)
+          })),
         }
       },
     }
@@ -387,7 +374,7 @@ export class SearchIndexer {
       return null
     }
 
-    const exclusion = await exclusions(params.entityId, params.tenantId)
+    const exclusion = await exclusions(params.entityId, params, params.record)
     const buildContext: SearchBuildContext = {
       record: withoutExcludedRecordCustomFields(params.record, exclusion),
       customFields: withoutExcludedCustomFields(params.customFields ?? {}, exclusion),
@@ -471,11 +458,7 @@ export class SearchIndexer {
       tenantId: params.tenantId,
       organizationId: params.organizationId,
       fields: params.record,
-<<<<<<< HEAD
-      plaintextExcludedCustomFields: await exclusions(params.entityId, params, params.record),
-=======
       plaintextExcludedCustomFields: toPlaintextExcludedCustomFields(exclusion),
->>>>>>> 68902bd1cc (fix(search): keep encrypted custom fields out of search build contexts (#8410))
       presenter,
       url,
       links,
@@ -1294,8 +1277,6 @@ export class SearchIndexer {
   ): Promise<{ records: IndexableRecord[]; dropped: number }> {
     const records: IndexableRecord[] = []
     let dropped = 0
-    const exclusion = await exclusions(entityId, tenantId)
-    const plaintextExcludedCustomFields = toPlaintextExcludedCustomFields(exclusion)
     const buildQueryEngine = this.createBuildQueryEngine(exclusions)
 
     if (items.length > 0) {
@@ -1313,6 +1294,8 @@ export class SearchIndexer {
         dropped++
         continue
       }
+
+      const exclusion = await exclusions(entityId, { tenantId, organizationId }, item)
 
       // Extract custom fields from record
       const customFields: Record<string, unknown> = {}
@@ -1394,7 +1377,7 @@ export class SearchIndexer {
         tenantId,
         organizationId,
         fields: item,
-        plaintextExcludedCustomFields: await exclusions(entityId, { tenantId, organizationId }, item),
+        plaintextExcludedCustomFields: toPlaintextExcludedCustomFields(exclusion),
         presenter,
         url,
         links,

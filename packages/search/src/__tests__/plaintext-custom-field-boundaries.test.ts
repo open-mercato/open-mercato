@@ -292,17 +292,12 @@ describe('plaintext custom-field boundaries (#7894)', () => {
     expect(resolver).toHaveBeenCalledTimes(2)
   })
 
-<<<<<<< HEAD
   it('preserves explicit source text but denies custom fields without metadata', async () => {
-=======
-  it('preserves explicit source text while a resolver-less indexer excludes custom fields', async () => {
->>>>>>> 68902bd1cc (fix(search): keep encrypted custom fields out of search build contexts (#8410))
     const harness = createHarness({ resolver: null, buildSource: async () => ({ text: 'Explicit source text' }) })
 
     await harness.indexer.indexRecord({ entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() })
 
     expect(harness.embeddings).toEqual(['Explicit source text'])
-<<<<<<< HEAD
     expect(harness.documents[0].fields).toEqual({ id: 'record-1', organization_id: null, title: 'Public title' })
   })
 
@@ -312,9 +307,6 @@ describe('plaintext custom-field boundaries (#7894)', () => {
     expect(harness.documents[0].fields).toEqual({ id: 'record-1', organization_id: null, title: 'Public title' })
     expect(harness.embeddings).toEqual(['record-1 Public title'])
     expect(jest.mocked(replaceSearchTokensForRecord).mock.calls[0][1].doc['cf:secret']).toBe('PRIVATE-CANONICAL')
-=======
-    expect(harness.documents[0].fields.cf_secret).toBeUndefined()
->>>>>>> 68902bd1cc (fix(search): keep encrypted custom fields out of search build contexts (#8410))
   })
 
   it('keeps exclusion metadata effective after JSON serialization for custom direct clients', async () => {

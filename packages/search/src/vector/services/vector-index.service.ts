@@ -17,6 +17,7 @@ import {
 import type { VectorDriver } from '../types'
 import type { SearchFieldPolicy } from '@open-mercato/shared/modules/search'
 import { normalizeDefinitionKey } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
+import type { EncryptedCustomFieldKeysResolver } from '../../lib/encrypted-custom-field-resolver'
 import { computeChecksum } from './checksum'
 import { EmbeddingService } from './embedding'
 import { logVectorOperation } from '../lib/vector-logs'
@@ -25,7 +26,7 @@ import { extractSearchableFields } from '../../lib/field-policy'
 
 type ContainerResolver = () => unknown
 type CustomFieldExclusion = Set<string> | 'all'
-type CustomFieldExclusionLookup = (entityId: EntityId, tenantId: string | null) => Promise<CustomFieldExclusion>
+type CustomFieldExclusionLookup = (entityId: EntityId, scope: { tenantId?: string | null; organizationId?: string | null }, record: Record<string, unknown>) => Promise<CustomFieldExclusion>
 const VECTOR_ENTRY_ENCRYPTION_ENTITY_ID = 'vector:vector_search'
 
 function isExcludedCustomField(key: string, exclusion: CustomFieldExclusion): boolean {
@@ -167,10 +168,7 @@ export type VectorIndexServiceOptions = {
   moduleConfigs: VectorModuleConfig[]
   defaultDriverId?: VectorDriverId
   containerResolver?: ContainerResolver
-  encryptedCustomFieldKeysResolver?: (
-    entityId: EntityId,
-    tenantId?: string | null,
-  ) => Promise<Set<string>>
+  encryptedCustomFieldKeysResolver?: EncryptedCustomFieldKeysResolver
   eventBus?: {
     emitEvent(event: string, payload: any, options?: any): Promise<void>
   }
@@ -424,12 +422,16 @@ export class VectorIndexService {
   private createCustomFieldExclusionLookup(): CustomFieldExclusionLookup {
     const resolver = this.opts.encryptedCustomFieldKeysResolver
     const cache = new Map<string, Promise<CustomFieldExclusion>>()
-    return (entityId, tenantId) => {
-      const cacheKey = `${entityId}\u0000${tenantId ?? ''}`
+    return (entityId, scope, record) => {
+      const tenantId = scope.tenantId
+      if (!tenantId) return Promise.resolve('all')
+      const organizationId = scope.organizationId ?? ('organization_id' in record ? record.organization_id : record.organizationId)
+      if (organizationId !== null && (typeof organizationId !== 'string' || organizationId.length === 0)) return Promise.resolve('all')
+      const cacheKey = JSON.stringify([entityId, scope.tenantId, organizationId])
       let pending = cache.get(cacheKey)
       if (!pending) {
         pending = resolver
-          ? Promise.resolve().then(() => resolver(entityId, tenantId)).catch((failure): CustomFieldExclusion => {
+          ? Promise.resolve().then(() => resolver(entityId, { tenantId, organizationId })).catch((failure): CustomFieldExclusion => {
             const error = normalizeResolverError(failure)
             searchWarn('VectorIndexService', 'Encrypted custom fields could not be resolved; excluding every custom field', {
               entityId,
@@ -438,7 +440,7 @@ export class VectorIndexService {
             })
             reportSearchError('VectorIndexService', error, 'search.encrypted_custom_fields_unresolved', {
               entityId,
-              tenantId: tenantId ?? undefined,
+              tenantId,
             })
             return 'all'
           })
@@ -455,13 +457,15 @@ export class VectorIndexService {
       query: async (entity, opts) => {
         const result = await queryEngine.query(entity, { ...opts, skipAutoReindex: true })
         const sourceEntityIds = [entity, ...(opts?.customFieldSources ?? []).map((source) => source.entityId)]
-        const tenantId = opts?.tenantId ?? null
-        const exclusion = mergeCustomFieldExclusions(
-          await Promise.all(sourceEntityIds.map((sourceEntityId) => exclusions(sourceEntityId as EntityId, tenantId))),
-        )
+        const scope = { tenantId: opts?.tenantId, organizationId: opts?.organizationId }
         return {
           ...result,
-          items: result.items.map((item) => withoutExcludedRecordCustomFields(item as Record<string, unknown>, exclusion) as typeof item),
+          items: await Promise.all(result.items.map(async (item) => {
+            const exclusion = mergeCustomFieldExclusions(
+              await Promise.all(sourceEntityIds.map((sourceEntityId) => exclusions(sourceEntityId as EntityId, scope, item as Record<string, unknown>))),
+            )
+            return withoutExcludedRecordCustomFields(item as Record<string, unknown>, exclusion) as typeof item
+          })),
         }
       },
     }
@@ -532,7 +536,7 @@ export class VectorIndexService {
     const scopeOrg = args.organizationId ?? null
     const { record, customFields } = this.extractRecordPayload(args.entityId, raw)
     const resolvedOrgId = scopeOrg ?? (record.organization_id ?? record.organizationId ?? null)
-    const exclusion = await exclusions(args.entityId, args.tenantId)
+    const exclusion = await exclusions(args.entityId, args, record)
     const buildRecord = withoutExcludedRecordCustomFields(record, exclusion)
     const buildCustomFields = withoutExcludedCustomFields(customFields, exclusion)
     const buildQueryEngine = this.createBuildQueryEngine(exclusions)

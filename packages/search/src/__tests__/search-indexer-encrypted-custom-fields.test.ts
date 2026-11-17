@@ -1,3 +1,4 @@
+import type { EncryptedCustomFieldKeysResolver } from '../lib/encrypted-custom-field-resolver'
 import { SearchIndexer } from '../indexer/search-indexer'
 import type { SearchBuildContext, SearchModuleConfig } from '../types'
 import type { QueryEngine, QueryResult } from '@open-mercato/shared/lib/query/types'
@@ -14,7 +15,7 @@ describe('SearchIndexer encrypted custom fields', () => {
   const parentEntityId = 'customers:customer_entity'
 
   function setup(options: {
-    resolver?: (entityId: string, tenantId?: string | null) => Promise<Set<string>>
+    resolver?: EncryptedCustomFieldKeysResolver
     parentRecord?: Record<string, unknown>
     loadParent?: boolean
   } = {}) {
@@ -42,6 +43,7 @@ describe('SearchIndexer encrypted custom fields', () => {
     ]
     const record = {
       id: 'profile-1',
+      organization_id: null,
       legal_name: 'Acme Ltd',
       entity_id: null,
       'cf:tax_number': 'GB123456',
@@ -115,7 +117,7 @@ describe('SearchIndexer encrypted custom fields', () => {
     const resolver = jest.fn(encryptedTaxNumber)
     const { indexer, hydrated, record } = setup({
       resolver,
-      parentRecord: { id: 'entity-1', display_name: 'Acme', 'cf:tax_number': 'GB123456', 'cf:segment': 'B2B' },
+      parentRecord: { id: 'entity-1', organization_id: null, display_name: 'Acme', 'cf:tax_number': 'GB123456', 'cf:segment': 'B2B' },
     })
 
     await indexer.indexRecord({
@@ -125,10 +127,10 @@ describe('SearchIndexer encrypted custom fields', () => {
       record: { ...record },
     })
 
-    expect(hydrated[0]).toEqual({ id: 'entity-1', display_name: 'Acme', 'cf:segment': 'B2B' })
+    expect(hydrated[0]).toEqual({ id: 'entity-1', organization_id: null, display_name: 'Acme', 'cf:segment': 'B2B' })
     expect(resolver.mock.calls).toEqual([
-      [companyEntityId, 'tenant-1'],
-      [parentEntityId, 'tenant-1'],
+      [companyEntityId, { tenantId: 'tenant-1', organizationId: null }],
+      [parentEntityId, { tenantId: 'tenant-1', organizationId: null }],
     ])
   })
 
@@ -137,7 +139,7 @@ describe('SearchIndexer encrypted custom fields', () => {
     const hydrated: Array<Record<string, unknown> | undefined> = []
     const queryEngine: QueryEngine = {
       query: jest.fn(async () => ({
-        items: [{ id: 'entity-1', 'cf:tax_number': 'GB123456', 'cf:segment': 'B2B' }],
+        items: [{ id: 'entity-1', organization_id: null, 'cf:tax_number': 'GB123456', 'cf:segment': 'B2B' }],
         total: 1,
         page: 1,
         pageSize: 1,
@@ -170,7 +172,7 @@ describe('SearchIndexer encrypted custom fields', () => {
     await indexer.indexRecord({ entityId: companyEntityId, recordId: 'profile-1', tenantId: 'tenant-1', record: { id: 'profile-1' } })
 
     expect(contexts).toHaveLength(1)
-    expect(hydrated[0]).toEqual({ id: 'entity-1', 'cf:segment': 'B2B' })
+    expect(hydrated[0]).toEqual({ id: 'entity-1', organization_id: null, 'cf:segment': 'B2B' })
   })
 
   it('applies the same exclusion when records are built in a batch', async () => {
@@ -398,7 +400,7 @@ describe('SearchIndexer encrypted custom fields', () => {
     const unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
     try {
       const { indexer, searchService, contexts, hydrated, record } = setup({
-        parentRecord: { id: 'entity-1', display_name: 'Acme', 'cf:vat_id': 'PL555', cf_vat_id: 'PL555' },
+        parentRecord: { id: 'entity-1', organization_id: null, display_name: 'Acme', 'cf:vat_id': 'PL555', cf_vat_id: 'PL555' },
       })
 
       await indexer.indexRecord({
@@ -411,7 +413,7 @@ describe('SearchIndexer encrypted custom fields', () => {
 
       expect(contexts[0].customFields).toEqual({})
       expect(Object.keys(contexts[0].record).filter((key) => key.startsWith('cf'))).toEqual([])
-      expect(hydrated[0]).toEqual({ id: 'entity-1', display_name: 'Acme' })
+      expect(hydrated[0]).toEqual({ id: 'entity-1', organization_id: null, display_name: 'Acme' })
       expect(searchService.index.mock.calls[0][0].text).not.toContain('GB123456')
       expect(searchService.index.mock.calls[0][0].fields['cf:tax_number']).toBe('GB123456')
       expect(reportError).toHaveBeenCalledWith(expect.any(Error), {

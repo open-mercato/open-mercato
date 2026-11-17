@@ -57,7 +57,7 @@ function createDriver(overrides: Partial<VectorDriver> = {}): VectorDriver & { u
 
 function createQueryEngine(record: Record<string, unknown>): QueryEngine {
   return {
-    query: async () => ({ items: [record], total: 1 }),
+    query: async () => ({ items: [{ organization_id: null, ...record }], total: 1 }),
   } as unknown as QueryEngine
 }
 
@@ -187,6 +187,7 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
   it('filters encrypted keys from every callback and hydrated custom-field source with tenant-aware lookups', async () => {
     const rawRecord = {
       id: 'callback-record',
+      organization_id: null,
       name: 'Visible Name',
       cf_secret: 'PRIVATE-RECORD',
       cf_note: 'Visible record note',
@@ -203,6 +204,7 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
         return {
           items: [{
             id: 'related-record',
+            organization_id: null,
             'cf:related_secret': 'PRIVATE-RELATED',
             cf_source_secret: 'PRIVATE-SOURCE',
             'cf:related_note': 'Visible related note',
@@ -264,14 +266,49 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
     }
     expect(hydratedRecords).toEqual([expect.objectContaining({
       id: 'related-record',
+            organization_id: null,
       'cf:related_note': 'Visible related note',
       cf_source_note: 'Visible source note',
     })])
     expect(JSON.stringify(hydratedRecords)).not.toContain('PRIVATE-')
-    expect(resolver).toHaveBeenCalledWith('demo:item', 'outer-tenant')
-    expect(resolver).toHaveBeenCalledWith('demo:related', 'callback-tenant')
-    expect(resolver).toHaveBeenCalledWith('demo:source', 'callback-tenant')
+    expect(resolver).toHaveBeenCalledWith('demo:item', { tenantId: 'outer-tenant', organizationId: null })
+    expect(resolver).toHaveBeenCalledWith('demo:related', { tenantId: 'callback-tenant', organizationId: null })
+    expect(resolver).toHaveBeenCalledWith('demo:source', { tenantId: 'callback-tenant', organizationId: null })
     expect(rawRecord).toEqual(originalRecord)
+  })
+
+  it('keeps per-organization callback policies separate during a vector reindex', async () => {
+    const records = ['org-a', 'org-b'].map((organizationId) => ({
+      id: organizationId, organization_id: organizationId,
+      'cf:secret_a': 'SECRET-A', 'cf:secret_b': 'SECRET-B',
+    }))
+    const contexts: Array<{ record: Record<string, unknown>; customFields: Record<string, unknown> }> = []
+    const resolver = jest.fn<ReturnType<EncryptedCustomFieldKeysResolver>, Parameters<EncryptedCustomFieldKeysResolver>>(
+      async (_entity, scope) => new Set([scope?.organizationId === 'org-a' ? 'secret_a' : 'secret_b']),
+    )
+    const service = createService({
+      driver: createDriver(), embeddingService: createEmbeddingService({ value: null }),
+      queryEngine: { query: async () => ({ items: records, total: records.length }) } as unknown as QueryEngine,
+      encryptedCustomFieldKeysResolver: resolver,
+      moduleConfigs: [{ entities: [{ entityId: 'demo:item', buildSource: async (context) => {
+        contexts.push({ record: context.record, customFields: context.customFields })
+        const result = await context.queryEngine!.query('demo:related', { tenantId: 'trusted-tenant' })
+        expect(result.items).toEqual([
+          { id: 'org-a', organization_id: 'org-a', 'cf:secret_b': 'SECRET-B' },
+          { id: 'org-b', organization_id: 'org-b', 'cf:secret_a': 'SECRET-A' },
+        ])
+        return { input: 'Safe explicit source' }
+      } }] }],
+    })
+    await service.reindexEntity({ entityId: 'demo:item', tenantId: 'trusted-tenant' })
+    expect(contexts).toEqual([
+      { record: { id: 'org-a', organization_id: 'org-a' }, customFields: { secret_b: 'SECRET-B' } },
+      { record: { id: 'org-b', organization_id: 'org-b' }, customFields: { secret_a: 'SECRET-A' } },
+    ])
+    for (const entity of ['demo:item', 'demo:related']) {
+      expect(resolver).toHaveBeenCalledWith(entity, { tenantId: 'trusted-tenant', organizationId: 'org-a' })
+      expect(resolver).toHaveBeenCalledWith(entity, { tenantId: 'trusted-tenant', organizationId: 'org-b' })
+    }
   })
 
   it('removes every custom field from callbacks and callback queries when the resolver is absent', async () => {
@@ -317,15 +354,15 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
   it('memoizes normalized resolver failures for one reindex operation and retries on the next operation', async () => {
     mockReportError.mockClear()
     const records = [
-      { id: 'first', title: 'First', 'cf:secret': 'PRIVATE-FIRST' },
-      { id: 'second', title: 'Second', 'cf:secret': 'PRIVATE-SECOND' },
+      { id: 'first', organization_id: null, title: 'First', 'cf:secret': 'PRIVATE-FIRST' },
+      { id: 'second', organization_id: null, title: 'Second', 'cf:secret': 'PRIVATE-SECOND' },
     ]
     const queryEngine = {
       query: async (entityId: string, options?: { page?: unknown; filters?: unknown }) => {
         if (entityId === 'demo:item') {
           return { items: options?.page ? records : [records[0]], total: options?.page ? 2 : 1 }
         }
-        return { items: [{ id: 'related', 'cf:secret': 'PRIVATE-RELATED' }], total: 1 }
+        return { items: [{ id: 'related', organization_id: null, 'cf:secret': 'PRIVATE-RELATED' }], total: 1 }
       },
     } as unknown as QueryEngine
     const resolver = jest.fn<ReturnType<EncryptedCustomFieldKeysResolver>, Parameters<EncryptedCustomFieldKeysResolver>>(() => {
@@ -339,7 +376,7 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
           join: { fromField: 'id', toField: 'related_id' },
         }],
       })
-      expect(result.items).toEqual([{ id: 'related' }])
+      expect(result.items).toEqual([{ id: 'related', organization_id: null }])
     }
     const service = createService({
       driver: createDriver(),
@@ -359,9 +396,9 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
 
     expect(resolver).toHaveBeenCalledTimes(3)
     expect(resolver.mock.calls).toEqual(expect.arrayContaining([
-      ['demo:item', 'tenant-failure'],
-      ['demo:related', 'tenant-failure'],
-      ['demo:source', 'tenant-failure'],
+      ['demo:item', { tenantId: 'tenant-failure', organizationId: null }],
+      ['demo:related', { tenantId: 'tenant-failure', organizationId: null }],
+      ['demo:source', { tenantId: 'tenant-failure', organizationId: null }],
     ]))
     expect(mockReportError).toHaveBeenCalledTimes(3)
     for (const [error, context] of mockReportError.mock.calls) {
@@ -395,7 +432,7 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
           return [0.1, 0.2, 0.3]
         },
       } as EmbeddingService,
-      queryEngine: { query: async () => ({ items: [record], total: 1 }) } as unknown as QueryEngine,
+      queryEngine: { query: async () => ({ items: [{ organization_id: null, ...record }], total: 1 }) } as unknown as QueryEngine,
       encryptedCustomFieldKeysResolver: async () => new Set(['title', 'summary']),
       moduleConfigs: [{ entities: [{ entityId: 'demo:item' }] }],
     })
