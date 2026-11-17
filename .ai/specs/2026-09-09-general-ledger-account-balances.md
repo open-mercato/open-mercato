@@ -1629,8 +1629,11 @@ top of the live query.
   partial success, and no later report/business statement or retry. Permit
   bounded cancellation and cleanup SQL, including rollback. Pause connection setup,
   timeout-setting, authority reads, serialization and lease renewal across
-  the deadline. A sub-millisecond remainder must start no statement and
-  never set a zero PostgreSQL timeout. Hold cancellation or lose a worker and
+  the deadline. A sub-millisecond report-budget remainder must start no
+  report/business statement and never set a zero PostgreSQL timeout. After
+  expiry, test that rollback can use its separate cleanup budget; when that
+  budget expires, terminate the connection and retain the slot until backend
+  termination is confirmed. Hold cancellation or lose a worker and
   assert the slot stays fenced until confirmed backend termination across
   expiry, crash, recovery and failover. Under healthy continuous admission
   with spare capacity, another scope retains fair capacity; during coordinator
@@ -1892,16 +1895,23 @@ enforces the following for both routes and every admitted direct caller:
   bounded; they cannot consume an unbounded connection or waiter. Track the
   remaining time with a monotonic clock and a cancelable deadline through
   every application and database step, including connection acquisition,
-  validation, repeatable-read setup and serialization. Before each SQL
-  statement, derive a positive PostgreSQL `statement_timeout` no greater
-  than the remaining budget and a margin below the current fenced lease
-  expiry; if less than the minimum enforceable interval remains, start no
-  statement (never set PostgreSQL timeout to zero, which disables it). Also
-  bound setting the timeout and other database round trips with the same
-  client-side deadline. Per-statement limits supplement the single elapsed
-  timer; neither repeated statements nor lease renewal resets it.
-  On expiry, reject new report/business work, cancel the active query, allow
-  bounded cleanup SQL including rollback, terminate the transaction and return `503 { error: 'report_timeout' }` without figures;
+  validation, repeatable-read setup and serialization. Before each report or
+  business SQL statement, derive a positive PostgreSQL `statement_timeout`
+  no greater than the remaining operation budget and a margin below the
+  current fenced lease expiry; if less than the minimum enforceable interval
+  remains, start no report/business statement (never set PostgreSQL timeout
+  to zero, which disables it). Bound setting the timeout and other report
+  round trips with the same client-side deadline. Per-statement limits
+  supplement the single elapsed timer; neither repeated statements nor lease
+  renewal resets it.
+  On expiry, reject new report/business work, cancel the active query and
+  start a separate finite, configured monotonic cleanup budget for cancellation
+  and rollback only; it never extends the operation deadline or authorizes
+  report work. Bound cleanup through the driver/control channel even if the
+  transaction is aborted and cannot accept `SET LOCAL`. If cancellation or
+  rollback does not finish within that cleanup budget, terminate the backend
+  connection through the fenced control path. Return
+  `503 { error: 'report_timeout' }` without figures;
   do not emit a late success, retry the report, or fall back to stale data.
   The response may be returned while cancellation is pending, but retain and
   fence the admission slot until the database confirms all work stopped. A
