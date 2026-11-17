@@ -3,6 +3,7 @@
   "integrations.bundle.integrationToggles": "Integraciones",
   "integrations.bundle.sharedCredentials": "Credenciales compartidas",
   "integrations.bundle.title": "Paquete",
+  "integrations.credentials.errors.destinationChanged": "Vuelve a introducir los secretos guardados después de cambiar el destino de la conexión.",
   "integrations.detail.analytics.errorRate": "Tasa de error (30 d.): {rate}",
   "integrations.detail.analytics.lastActivity": "Última actividad",
   "integrations.detail.analytics.never": "Sin actividad en los últimos 30 días",
