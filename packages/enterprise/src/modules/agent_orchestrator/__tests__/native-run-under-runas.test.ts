@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto'
 import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
 import type { QueryEngine, QueryOptions, QueryResult } from '@open-mercato/shared/lib/query/types'
 import { captureLogs } from './support/captureLogs'
+import { decoratedTableName } from './support/entityTableName'
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import {
   CommandBus as SharedCommandBus,
@@ -160,7 +161,7 @@ function createFakeOrm() {
       const payload = type === 'update' ? changedFields(row) : { ...row }
       return {
         entity: row,
-        meta: { className: entity?.name, class: entity },
+        meta: { className: entity?.name, tableName: decoratedTableName(entity), class: entity },
         changeSet: { type, payload },
       } as unknown as EventArgs<unknown>
     }

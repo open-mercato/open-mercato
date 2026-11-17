@@ -34,9 +34,38 @@ export type AgentActorScope = {
   onBehalfOfUserId?: string | null
 }
 
-const agentActorStorage = new AsyncLocalStorage<AgentActorScope>()
-const auditedCommandStorage = new AsyncLocalStorage<true>()
-const runtimeAuditWriteStorage = new AsyncLocalStorage<true>()
+type AgentWriteScopeStorages = {
+  agentActor: AsyncLocalStorage<AgentActorScope>
+  auditedCommand: AsyncLocalStorage<true>
+  runtimeAuditWrite: AsyncLocalStorage<true>
+}
+
+/**
+ * The scopes live on `globalThis`, not in module state: a production Next.js
+ * build can load this module twice (the server and SSR chunk graphs), and a
+ * scope bound through one copy must be visible to the flush-time guard
+ * registered through the other.
+ */
+const STORAGES_KEY = Symbol.for('@open-mercato/agent_orchestrator/agentWriteScope')
+
+function resolveStorages(): AgentWriteScopeStorages {
+  const registry = globalThis as typeof globalThis & { [STORAGES_KEY]?: AgentWriteScopeStorages }
+  const existing = registry[STORAGES_KEY]
+  if (existing) return existing
+  const created: AgentWriteScopeStorages = {
+    agentActor: new AsyncLocalStorage<AgentActorScope>(),
+    auditedCommand: new AsyncLocalStorage<true>(),
+    runtimeAuditWrite: new AsyncLocalStorage<true>(),
+  }
+  registry[STORAGES_KEY] = created
+  return created
+}
+
+const {
+  agentActor: agentActorStorage,
+  auditedCommand: auditedCommandStorage,
+  runtimeAuditWrite: runtimeAuditWriteStorage,
+} = resolveStorages()
 
 /**
  * Run `fn` with `scope` bound as the current agent-actor context. Established by
