@@ -156,9 +156,59 @@ For an effective account these internal values use the same formula as
 closing balance" table or field: it would be a second source of truth
 that could drift from what the journal actually says, for a table
 where — per #5663's own words — "the database quietly went out of
-balance" is not a recoverable failure mode. One formula, evaluated at
-two dates, is the only version of this that can't disagree with
-itself.
+balance" is not a recoverable failure mode. The formula is valid only
+after the opening/carry-forward policy and coverage gates below pass.
+
+**Opening and carry-forward policy is a release prerequisite, not an
+inference from `JournalEntry.type`.** #5663 permits ordinary balanced
+annual `OPENING` entries that carry permanent balances into a new year.
+Summing all previous journal lines and then adding such a carry-forward
+duplicates those balances even though every entry remains balanced. For
+example, year N posts Dr cash 100 / Cr equity 100; a year N+1 carry-forward
+posts the same balanced pair. Blind lifetime summation reports cash 200,
+not 100, while `zeroSumCheck` still passes.
+
+The proposed supported mode is a **continuous ledger with one verified
+go-live initialization**, subject to accounting-owner and compatibility
+review. A tenant/organization-scoped, historically versioned authority
+must attest a complete ledger from a known go-live date, verify that this
+scoped ledger contains no earlier journal activity, identify the initial
+balanced opening entries there, and establish with evidence that
+all later journal entries, including entries labelled `OPENING`, are
+incremental movements rather than duplicated carry-forwards. Never infer
+that fact from type, amount, date, balanced totals or a missing label.
+Pre-go-live source-system balances may be introduced only through the
+attested initialization entries; existing earlier ledger entries cannot
+be silently dropped. The authority must cover every entry in the report's contributing history,
+including reversals, late entries and corrections, and must be updated or
+invalidated atomically with every relevant post under the scoped writer
+protocol. A claimed classification from an arbitrary caller is not itself
+proof. Preserve the original journal and its audit trail; do not silently
+exclude or rewrite entries to make a report balance.
+
+For an authorized certified scope, balances sum all certified movements
+from go-live through the requested date; period and fiscal-year turnover
+include every certified movement in their respective ranges, irrespective
+of entry type. An opening on go-live is zero only when the authority
+affirmatively establishes no prior ledger activity; go-live initialization
+entries then appear in that period's turnover. Otherwise the opening date
+must itself be covered. Missing, stale, ambiguous, incomplete or duplicated
+carry-forward history fails the entire report with `422 { error:
+'accounting_policy_unavailable' }`; an unavailable authority returns
+`503 { error: 'accounting_policy_authority_unavailable' }`. No figures,
+totals or badge are returned. Authority, journal membership and policy
+version must be read in the same report snapshot; if atomic writer and
+snapshot coverage cannot be proven, reporting stays disabled.
+
+If an organization needs annual close-and-reopen books instead, define
+and independently approve that model, boundary entries, opening/turnover
+semantics, migration and reconciliation with #5663 before enabling it.
+This proposal is not that approval, nor is it an assertion that #5663
+currently implements the authority. The supported policy, attestation,
+all posting paths, late-entry handling, legacy-writer fencing, rollback,
+and compatibility require a coordinated prerequisite and real-database
+tests. Until then, both routes fail closed rather than present a plausible
+but duplicated result.
 
 **Every fiscal-period boundary here (`asOf`, `periodStart`,
 `periodEnd`) filters on the accounting date `operationDate`, not the
@@ -306,7 +356,7 @@ P&L variant (4xx vs 5xx) — is a distinct, larger piece of work
 (statutory formatting rules, not account arithmetic) and is out of
 scope here, tracked as a future document.
 
-**Turnover figures include every `JournalEntry.type` — no filtering by
+**For a fully certified scope, turnover includes every `JournalEntry.type` — no filtering by
 `NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`.** `periodDebit`/`periodCredit`/
 `ytdDebit`/`ytdCredit` are raw `SUM(debit)`/`SUM(credit)` over every
 posted `JournalEntryLine` in range, regardless of the parent
@@ -333,11 +383,13 @@ zapisami dziennika"). Filtering by type would additionally be a second
 code path this document doesn't otherwise need: `getAccountBalance`
 already includes every posted line regardless of type, and
 `getTrialBalance`'s turnover columns use the identical, unfiltered
-predicate for consistency with it. The closing (and, symmetrically,
-opening) *balance* is unaffected either way — a `CLOSING` entry's own
-lines are exactly what bring a revenue or expense account to zero,
-which is what `zeroSumCheck` and the per-row invariant in Testing
-Strategy actually verify.
+predicate for consistency with it. A `CLOSING` entry's own lines can
+bring a revenue or expense account to zero; an incremental opening can
+change a balance. The policy gate below decides whether all contributing
+entries form a supported continuous ledger before calculating either.
+This statement is conditional on the whole-history policy gate above:
+if any entry is unverified or duplicates a carry-forward, neither route
+returns figures. Balanced journal totals alone cannot certify that policy.
 
 **Turnover reconciling against the journal (art. 18) is definitional,
 but it must be summed over a non-overlapping population — the root
@@ -808,7 +860,7 @@ before release; it is not established by `REPEATABLE READ` alone.
 - baseline evidence must establish that every relevant edge, root, effective start and historical signing/currency attribute remained unchanged over the entire claimed covered interval through the atomic activation point, not merely describe the tree at activation. An empty subtree moved during that interval is not exempt. Retain the evidence and a scope-bound, versioned attestation; if any interval, writer or attribute cannot be verified, exclude that history and return the coverage error rather than infer it from the current chart;
 - Phase 1 deliberately freezes every parent edge and root assignment from that baseline, including empty accounts. New accounts may select a same-scope eligible parent at creation, but ordinary creation must not add a root or edge to an already observable accounting day. The post-commit observation protocol below chooses an immutable effective start strictly after an observed post-commit UTC day and no earlier than its parent's effective start. Posting before that start is rejected. There is no ordinary historical import or backdated create; any future evidenced correction/re-attestation protocol requires a separate design and remains disabled. The **proposal day** is the trusted UTC day observed before starting its first reservation transaction; posting on that day is prohibited. A verifier can publish after a later midnight, in which case a posting on the publication/response day is allowed if that day is on or after `effectiveStart`; this is not a promise of a one-day delay after the response. Reject later reparent, clear-parent, parent deletion and any undo/restore path that would alter a frozen edge. Preserve historical accounts and ancestors for all covered reports; do not hard-delete a node or omit an archived ancestor from rollups or root rows, even if that ancestor has no direct postings. Freeze account type and normal-balance attributes used for historical figures, or fail closed until their historical values are available. Future reparenting needs effective-dated ancestry and separately specified transfers across report boundaries;
 - a new account's parent must already exist and be effective for its entire covered lifetime. Historical account reads before that account's effective start return 404; trial-balance rows exclude accounts not effective by the requested period end. All covered journal lines must resolve to effective same-scope accounts and ancestors; an orphan, cycle, missing coverage or historical attribute makes the whole report fail closed, never a partial total. Display names and numbers are current report-snapshot metadata, not a claim of historical labels;
-- both reports require verified coverage for every date contributing to the requested figure, including the opening-balance date before a trial period. A date outside coverage returns `422 { error: 'hierarchy_history_unavailable' }`; an unavailable authority or detected corrupt covered chart returns 503 with no figures. Do not assume an opening of zero at the coverage boundary until the separate opening-entry policy proves it;
+- both reports require verified coverage for every date contributing to the requested figure, including the opening-balance date before a trial period. A date outside coverage returns `422 { error: 'hierarchy_history_unavailable' }`; an unavailable authority or detected corrupt covered chart returns 503 with no figures. For a period beginning exactly at go-live, the internal opening can be zero without a pre-baseline tree only if the hierarchy and opening-policy authorities jointly attest that no earlier scoped journal activity exists; otherwise reject the report. The public as-of route still rejects dates outside coverage;
 - the entity, validators, account commands and API must enforce same-scope parents, acyclicity and exact eligible type identity before activation. Every chart activation, create, attempted reparent/clear/delete/restore/undo and other hierarchy mutation takes the same exclusive transaction-scoped PostgreSQL advisory lock keyed by trusted tenant and organization before checking frozen state and ancestry. All posting paths, including imports, retries and undo/redo, take a compatible shared lock before validating account coverage and hold it through commit or rollback. Specify one global order with fiscal-period and account locks across every writer; fail closed when the lock or coverage authority is unavailable. This is a coordinated #5663 posting/account compatibility change, not a read-only addition;
 - add an accounting-date `effectiveStart` field backed by a scoped persisted date, returned in account create/list/detail and undo snapshots. A new account may omit it; after the first commit the default is the later of the next observed database UTC day and the selected parent's effective start. An explicit value must meet the same lower bound; otherwise reject the pending create without publishing an edge. Omission is a wire bridge, not proof that the changed posting behavior is compatible. Parent eligibility requires an existing, active, non-deleted same-tenant/organization account with the exact same `accountTypeId`, effective no later than the child. Different type IDs are ineligible even when their nullable `accountGroupId` values match or are both null. Reject missing or foreign parents without revealing foreign records; a same-scope inactive/deleted or different-type parent is ineligible. Preserve this predicate under concurrent delete/type change. The effective start is immutable after creation: an update may omit it or repeat the stored value, but a different value or an undo that would change it fails. Stage the nullable storage, attested baseline backfill and validation before any NOT NULL constraint; unknown legacy dates remain unverified and reporting fails closed. A dual-version deployment must fence/drain legacy writers before activation as below, and the compatibility bridge and generated API/OpenAPI contracts must be reviewed with #5663 before enforcement;
 - post-commit observation protocol: after the operation-identity lock and then the exclusive scoped hierarchy lock, the first transaction reserves a durable operation identity and pending proposal in the same database transaction; it does not publish the edge or permit posting. After that commit is known, a recoverable verifier obtains the non-regressing trusted UTC-day observation described in Queries, then in a second transaction rechecks parent eligibility, locks and identity, chooses or validates `effectiveStart` strictly after that observed day, and atomically publishes the edge and records a retained success outcome. Invalid dates or newly ineligible parents atomically record a retained rejection without publishing. Either terminal transition clears only its own pending marker in the same transaction; another operation's marker remains. A response is sent only after the terminal outcome is known. An uncertain commit acknowledgement is not evidence that a marker remains: query the durable primary for that operation's terminal or pending state; if the outcome cannot be established, return 503 and keep recovery/reporting fail-closed until it can. Reports return `503 { error: 'hierarchy_verification_pending' }` for an authorized existing resource while any scoped marker remains. A report snapshot taken before the proposal commits uses a day bound established before that snapshot, which cannot exceed the later verifier observation; it cannot successfully request the new edge's strictly later effective day. A snapshot after proposal commit sees either pending and fails closed, or a terminal result. This proof depends on the clock and snapshot ordering in Queries, and requires real concurrency and recovery tests before release;
@@ -886,6 +938,8 @@ disabled for the affected scope.
   tenant/organization or the account was not yet effective at `asOf`.
 - **Response 422**: requested history is outside verified hierarchy
   coverage (`{ error: 'hierarchy_history_unavailable' }`); return no figures.
+- **Response 422**: accounting-policy coverage is missing, ambiguous or
+  invalid (`{ error: 'accounting_policy_unavailable' }`); return no figures.
 - **Response 422**: `asOf` is after the trusted pre-snapshot day
   (`{ error: 'report_future_date_unsupported' }`).
 - **Response 429**: a per-user or per-organization report rate or
@@ -894,7 +948,8 @@ disabled for the affected scope.
 - **Response 503**: hierarchy authority is unavailable or the scoped
   hierarchy is invalid (`hierarchy_authority_unavailable` or
   `report_hierarchy_invalid`), a pending hierarchy verification blocks
-  reporting (`hierarchy_verification_pending`), or the enforced query deadline expired
+  reporting (`hierarchy_verification_pending`), accounting-policy authority
+  is unavailable (`accounting_policy_authority_unavailable`), or the enforced query deadline expired
   (`{ error: 'report_timeout' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
   query is admitted without a valid shared decision; no failure is
@@ -904,8 +959,9 @@ After authentication, feature authorization, syntax validation, shared
 admission and trusted-clock acquisition, take the snapshot and resolve the
 account in the trusted scope first (404 if absent or foreign). For an
 existing account, check pending verification (503), future date (422),
-hierarchy coverage (422), then effective start (404). Scope integrity or
-authority failures return 503 without figures. A provisional account is
+hierarchy coverage (422), effective start (404), then accounting-policy
+coverage (422 if invalid or 503 if its authority is unavailable). Scope
+integrity or authority failures return 503 without figures. A provisional account is
 not a published account; its operation status is available only through
 the independently authorized scoped status lookup. This order avoids
 leaking foreign existence and resolves overlapping failure conditions.
@@ -936,6 +992,8 @@ leaking foreign existence and resolves overlapping failure conditions.
   does not wholly cover the period (`{ error: 'fiscal_year_unavailable' }`).
 - **Response 422**: requested history is outside verified hierarchy
   coverage (`{ error: 'hierarchy_history_unavailable' }`); return no rows or totals.
+- **Response 422**: accounting-policy coverage is missing, ambiguous or
+  invalid (`{ error: 'accounting_policy_unavailable' }`); return no rows or totals.
 - **Response 422**: the period end is after the trusted pre-snapshot day
   (`{ error: 'report_future_date_unsupported' }`); return no rows or totals.
 - **Response 429**: a per-user or per-organization report rate or
@@ -944,7 +1002,8 @@ leaking foreign existence and resolves overlapping failure conditions.
 - **Response 503**: fiscal-year or hierarchy authority is unavailable,
   or the scoped hierarchy is invalid (`fiscal_year_authority_unavailable`,
   `hierarchy_authority_unavailable` or `report_hierarchy_invalid`), or
-  a hierarchy verification is pending (`hierarchy_verification_pending`); the enforced
+  a hierarchy verification is pending (`hierarchy_verification_pending`),
+  accounting-policy authority is unavailable (`accounting_policy_authority_unavailable`); the enforced
   query deadline expired
   (`{ error: 'report_timeout' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
@@ -955,7 +1014,7 @@ After authentication, feature authorization, syntax validation, shared
 admission and trusted-clock acquisition, take the snapshot and resolve
 the period in the trusted scope (404 if absent or foreign). For an
 existing period, check pending verification (503), future end date (422),
-hierarchy coverage (422), then fiscal-year authority/containment
+hierarchy coverage (422), accounting-policy coverage (422 or 503), then fiscal-year authority/containment
 (422 for invalid setup or 503 for unavailable authority). Finally validate
 the complete scoped hierarchy and journal membership; any corruption or
 authority failure is 503 with no rows, totals or badge. Rate-limit or
@@ -1012,6 +1071,9 @@ existing flat, dot-namespaced key convention (e.g.
   results and direct the user to an authorized accounting administrator.
 - `ledger.reports.errors.{futureDateUnsupported,hierarchyVerificationPending}`
   — localized future-date and temporary verification states, without stale figures.
+- `ledger.reports.errors.accountingPolicyUnavailable` — localized
+  incomplete/unsupported policy state, directing an authorized user to
+  an accounting administrator; authority outages use the unavailable state.
 - `ledger.reports.balancePanel.availableFrom` — localized pre-effective
   state with the verified first available accounting date.
 - `ledger.accounts.errors.{hierarchyFrozen,accountEffectiveStartImmutable,
@@ -1045,8 +1107,10 @@ top of the live query.
 ### Phase 1: Balance and ZSiO queries, read-only routes and page
 
 0. Coordinate the fiscal-year authority and its migration, scope and
-   concurrent-write rules with #5663; keep trial-balance admission
-   disabled until that prerequisite is implemented and verified.
+   concurrent-write rules with #5663; coordinate the opening-policy
+   authority and all posting-writer guarantees as separate prerequisites.
+   Keep both reports disabled until their applicable gates are implemented
+   and verified.
 1. Add `ledger.reports.view` to `acl.ts` and `setup.ts`'s `employee`
    list, then run `yarn mercato auth sync-role-acls` so existing
    tenants receive the new grant (`packages/core/AGENTS.md` → ACL
@@ -1202,6 +1266,18 @@ top of the live query.
   organization, and an unavailable authority. Invalid setup returns 422;
   authority failure returns 503; neither returns any report figures.
   Exercise concurrent period/year-boundary changes with real transactions.
+- Opening-policy coverage: post Dr cash 100 / Cr equity 100 in year N,
+  then another balanced Dr cash 100 / Cr equity 100 labelled `OPENING`
+  as a duplicated year N+1 carry-forward. Even though `zeroSumCheck` would
+  be true, assert both routes return `accounting_policy_unavailable` and
+  no figures. Under an independently certified continuous ledger, a
+  separately evidenced incremental `OPENING` of 20 is included as an
+  ordinary movement and cash closes at 120, not filtered by type. Cover
+  go-live initialization, a genuinely certified zero opening, missing or
+  pre-go-live coverage, reversals, corrections, backdated entries, foreign
+  scope, stale/ambiguous certification and authority outage. Race a post
+  or policy invalidation against the report snapshot and verify the
+  classification and journal write commit together or neither does.
 - Numeric boundary fixture: configure 2025-07-01 through 2026-06-30 as
   one fiscal year and 2025-12-15 through 2026-01-14 as a period. For one
   account, post balanced entries with debits 10 on June 30, 20 on July 1,
@@ -1371,6 +1447,16 @@ top of the live query.
 ## Risks & Impact Review
 
 ### Data integrity failures
+
+**Annual opening entries can duplicate prior balances.** A balanced
+carry-forward can leave the journal's debit/credit aggregate at zero while
+doubling a permanent account's reported balance. Severity is high: the
+report can look internally reconciled and still be financially wrong.
+The proposed mitigation is the whole-scope accounting-policy authority
+and fail-closed behavior above, not a heuristic or exclusion by entry
+type. Residual risk remains until its evidence, writer enforcement,
+migration, concurrent invalidation and accounting-owner approval are
+independently verified against #5663.
 
 **Recursive CTE returns a wrong or incomplete set for a very deep or
 cyclic `parentAccountId` chain.**
@@ -1588,18 +1674,18 @@ existing #5663 clients and operational requirements before rollout.
 | root `AGENTS.md` → UI & HTTP | Keep `pageSize` at or below 100 | Compliant | `trial-balance` `rows` are paginated via `DataTable`'s own `page`/`pageSize` contract, capped at 100 (API Contracts, Architecture → Backend Pages). Cursor/keyset pagination is not a rule anywhere in this codebase — this row previously cited a `packages/core/AGENTS.md` → Pagination section that does not exist |
 | — (no rule source; engineering judgment) | Bulk/multi-row reads should avoid N+1 across the result set | N/A, justified | `packages/core/AGENTS.md` has no Performance section — this row's prior citation was invented. The judgment stands on its own: `getTrialBalance` computes every account's row in one set-based query, not `getAccountBalance` called per account (Design decisions, Queries) |
 | `packages/core/AGENTS.md` → API Routes | Route files export `metadata` with per-method `requireAuth`/`requireFeatures` | Compliant | Both routes' `metadata` export documented (Architecture → API Routes) |
-| `BACKWARD_COMPATIBILITY.md` | Stable contracts and database schema | Pending | Parent column is additive; fiscal-period containment needs a reviewed compatibility and rollout plan before enforcement |
+| `BACKWARD_COMPATIBILITY.md` | Stable contracts and database schema | Pending | Hierarchy, fiscal-year and opening-policy writer guards need reviewed compatibility and rollout before enforcement |
 | `.ai/specs/AGENTS.md` | Never leave stale endpoints, entities, or assumptions in an updated spec | Compliant | Cross-references to `2026-09-06-accounts-payable.md`'s bufor note and #5663's exact route name (`GET /api/ledger/accounts/:id/balance`) checked against those documents' current text at write time |
 
 ### Internal Consistency Check
 
 | Check | Status | Notes |
 | --- | --- | --- |
-| Data models match architecture | Pending | The parent column is specified; the separate fiscal-year authority and its migration remain prerequisites |
+| Data models match architecture | Pending | Parent storage is proposed; fiscal-year and opening-policy authorities and their migrations remain prerequisites |
 | Queries defined for all reads | Pass | Both report queries are specified; hierarchy-changing account commands and undo paths validate under the same scoped transaction lock |
 | User Stories match Implementation Plan | Pass | All three stories map to Phase 1 steps 2–7 |
 | Risks cover the changes this document makes | Pending | Fiscal-year authority is gated; historical hierarchy, opening-entry semantics and multi-page consistency still require resolution |
-| API contracts match data models | Pending | YTD requires the not-yet-implemented scoped fiscal-year authority; reporting must fail closed until it is available |
+| API contracts match data models | Pending | YTD and balances require unimplemented scoped fiscal-year and opening-policy authorities; reporting fails closed until they are available |
 | Scope cohesion | Pass | Applied the same test as the rest of this document family: ZSiO stands alone; Bilans/P&L do not stand without it (see Alternatives considered) |
 | UI/UX and i18n sections agree | Pass | Every string named in Internationalization has a corresponding UI element in Architecture → Backend Pages, and vice versa |
 
@@ -1916,3 +2002,11 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
   migration and compatibility review; it is not implemented or approved.
 - Opening-entry semantics, cross-page consistency and the detailed
   hierarchy writer/lock rollout remain release blockers.
+
+### 2026-11-17 — opening-policy proposal (local draft)
+
+- Propose an explicitly attested continuous-ledger policy and fail both
+  reports closed for unknown or duplicated carry-forward history. This
+  does not approve the policy or design an annual close-and-reopen model.
+- Policy authority, writer enforcement, migration and accounting-owner
+  review remain prerequisites; cross-page consistency remains unresolved.
