@@ -46,4 +46,4 @@ Make the PR mergeable again: bring in current `main` and keep the #8638 exclusio
 
 - [x] 2.1 Merge main and re-integrate isRecordExcluded into the restructured SearchIndexer — 6672475780
 - [x] 2.2 Pass encryptedCustomFieldKeysResolver in the excluded-record tests — 6672475780
-- [ ] 2.3 Run the full validation gate and request re-review
+- [x] 2.3 Run the full validation gate and request re-review — 4edbc4d760
