@@ -7,6 +7,8 @@ const ENTITY = 'test:profile'
 const TENANT = 'tenant-123'
 const ORG = 'org-456'
 
+const noEncryptedCustomFields = async (): Promise<Set<string>> => new Set<string>()
+
 const RECORDS = [
   { id: 'live-1', name: 'Alive', parent_deleted: false },
   { id: 'ghost-1', name: 'Ghost', parent_deleted: true },
@@ -60,7 +62,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
   it('indexRecord removes an excluded record instead of indexing it', async () => {
     const { service, asSearchService } = makeSearchService()
-    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine() })
+    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
     await indexer.indexRecord({ entityId: ENTITY, recordId: 'ghost-1', tenantId: TENANT, organizationId: ORG, record: RECORDS[1] })
     await indexer.indexRecord({ entityId: ENTITY, recordId: 'live-1', tenantId: TENANT, organizationId: ORG, record: RECORDS[0] })
@@ -73,7 +75,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
   it('indexRecordById removes an excluded record', async () => {
     const { service, asSearchService } = makeSearchService()
-    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine() })
+    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
     await indexer.indexRecordById({ entityId: ENTITY, recordId: 'ghost-1', tenantId: TENANT, organizationId: ORG })
 
@@ -83,7 +85,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
   it('indexRecordsById and bulkIndexRecords drop and remove excluded records', async () => {
     const { service, asSearchService } = makeSearchService()
-    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine() })
+    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
     const result = await indexer.indexRecordsById({
       items: [{ entityId: ENTITY, recordId: 'live-1' }, { entityId: ENTITY, recordId: 'ghost-1' }],
@@ -105,7 +107,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
   it('reindexEntity indexes only live records and removes excluded ones', async () => {
     const { service, asSearchService } = makeSearchService()
-    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine() })
+    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
     const result = await indexer.reindexEntity({ entityId: ENTITY, tenantId: TENANT, organizationId: ORG })
 
@@ -116,7 +118,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
   it('reindexEntityToFulltext removes excluded records from the fulltext strategy', async () => {
     const { fulltext, asSearchService } = makeSearchService()
-    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine() })
+    const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
     const result = await indexer.reindexEntityToFulltext({ entityId: ENTITY, tenantId: TENANT, organizationId: ORG, recreateIndex: false })
 
@@ -138,7 +140,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
     it('reindexEntity reports the failure and succeeds once the strategy recovers', async () => {
       const { service, asSearchService } = makeSearchService()
       service.delete.mockImplementationOnce(outage)
-      const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
       const failed = await indexer.reindexEntity({ entityId: ENTITY, tenantId: TENANT, organizationId: ORG })
       const retried = await indexer.reindexEntity({ entityId: ENTITY, tenantId: TENANT, organizationId: ORG })
@@ -153,7 +155,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
     it('reindexEntityToFulltext reports the failure and succeeds once the strategy recovers', async () => {
       const { fulltext, asSearchService } = makeSearchService()
       fulltext.delete.mockImplementationOnce(outage)
-      const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
       const params = { entityId: ENTITY, tenantId: TENANT, organizationId: ORG, recreateIndex: false }
 
       const failed = await indexer.reindexEntityToFulltext(params)
@@ -169,7 +171,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
     it('bulkIndexRecords indexes live records, rejects, and resolves on retry', async () => {
       const { service, asSearchService } = makeSearchService()
       service.delete.mockImplementationOnce(outage)
-      const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(byParent), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
       await expect(indexer.bulkIndexRecords(bulkParams())).rejects.toThrow('ghost-1')
       await expect(indexer.bulkIndexRecords(bulkParams())).resolves.toBeUndefined()
@@ -182,7 +184,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
       const { service, asSearchService } = makeSearchService()
       const excludeAll = makeConfigs(() => true)
       service.delete.mockImplementationOnce(outage)
-      const indexer = new SearchIndexer(asSearchService, excludeAll, { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, excludeAll, { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
       const params = {
         items: RECORDS.map((record) => ({ entityId: ENTITY, recordId: record.id })),
         tenantId: TENANT,
@@ -223,7 +225,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
     it('indexRecord writes nothing, rejects, and removes the record on retry', async () => {
       const { service, asSearchService } = makeSearchService()
-      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
       await expect(indexer.indexRecord(ghostParams)).rejects.toThrow('parent lookup failed')
       expect(service.index).not.toHaveBeenCalled()
@@ -236,7 +238,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
     it('reindexEntity skips the record, reports the failure, and removes it on retry', async () => {
       const { service, asSearchService } = makeSearchService()
-      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
       const failed = await indexer.reindexEntity({ entityId: ENTITY, tenantId: TENANT, organizationId: ORG })
       expect(failed.success).toBe(false)
@@ -252,7 +254,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
     it('reindexEntityToFulltext skips the record, reports the failure, and removes it on retry', async () => {
       const { fulltext, asSearchService } = makeSearchService()
-      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
       const params = { entityId: ENTITY, tenantId: TENANT, organizationId: ORG, recreateIndex: false }
 
       const failed = await indexer.reindexEntityToFulltext(params)
@@ -268,7 +270,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
     it('bulkIndexRecords indexes only confirmed records, rejects, and removes the record on retry', async () => {
       const { service, asSearchService } = makeSearchService()
-      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
       await expect(indexer.bulkIndexRecords(bulkParams())).rejects.toThrow('ghost-1')
       expect(indexedIds(service.bulkIndex.mock.calls)).toEqual(['live-1'])
@@ -281,7 +283,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
 
     it('indexRecordsById writes nothing for the record, rejects, and removes it on retry', async () => {
       const { service, asSearchService } = makeSearchService()
-      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
       const params = { items: [{ entityId: ENTITY, recordId: 'ghost-1' }], tenantId: TENANT, organizationId: ORG }
 
       await expect(indexer.indexRecordsById(params)).rejects.toThrow('ghost-1')
@@ -298,7 +300,7 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
     const configs: SearchModuleConfig[] = [{
       entities: [{ entityId: ENTITY, enabled: true, buildSource: async () => null }],
     }]
-    const indexer = new SearchIndexer(asSearchService, configs, { queryEngine: makeQueryEngine() })
+    const indexer = new SearchIndexer(asSearchService, configs, { queryEngine: makeQueryEngine(), encryptedCustomFieldKeysResolver: noEncryptedCustomFields })
 
     await indexer.reindexEntity({ entityId: ENTITY, tenantId: TENANT, organizationId: ORG })
 
