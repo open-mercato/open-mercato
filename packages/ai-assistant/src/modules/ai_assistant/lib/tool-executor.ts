@@ -2,23 +2,10 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
+import { parseToolInput } from './tool-input'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('ai_assistant')
-
-/**
- * Strip empty strings from object values so LLM-generated `""` for optional
- * fields becomes `undefined` (passes `.optional()` Zod validators).
- */
-function sanitizeEmptyStrings(input: unknown): unknown {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return input
-  const result: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    if (typeof value === 'string' && value.trim() === '') continue
-    result[key] = value
-  }
-  return result
-}
 
 /**
  * Execute a tool with full context and ACL checks.
@@ -58,24 +45,11 @@ export async function executeTool(
     }
   }
 
-  // LLMs often send empty strings for optional fields (e.g., `personId: ""`).
-  // Strip empty strings to `undefined` before Zod parsing so `.uuid().optional()`
-  // fields pass validation when the model meant "omit this field".
-  const sanitizedInput = sanitizeEmptyStrings(input)
-
-  // Input validation
-  const parseResult = tool.inputSchema.safeParse(sanitizedInput)
+  const parseResult = parseToolInput(tool.inputSchema, input)
   if (!parseResult.success) {
-    // Use any cast for Zod v4 compatibility
-    const issues = (parseResult.error as any).issues ?? []
-    const errorMessages = issues
-      .map((issue: { path: PropertyKey[]; message: string }) =>
-        `${issue.path.join('.')}: ${issue.message}`
-      )
-      .join('; ')
     return {
       success: false,
-      error: `Invalid input: ${errorMessages || 'Validation failed'}`,
+      error: parseResult.error,
       errorCode: 'VALIDATION_ERROR',
     }
   }

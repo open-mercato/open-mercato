@@ -46,6 +46,7 @@ const moduleEntities: Record<string, string[]> = {
   ],
   customers: [
     'CustomerEntity',
+    'CustomerAddress',
     'CustomerDeal',
     'CustomerInteraction',
     'CustomerTag',
@@ -56,6 +57,7 @@ const moduleEntities: Record<string, string[]> = {
   sales: ['SalesOrder', 'SalesQuote', 'SalesChannel', 'SalesPaymentMethod', 'SalesShippingMethod'],
   staff: [
     'StaffTeam',
+    'StaffTeamMemberAddress',
     'StaffTeamRole',
     'StaffTimeTaskStatus',
     'StaffTimeTask',
@@ -167,6 +169,7 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   CatalogOptionSchemaTemplate: ['catalog/api/option-schemas/route.ts'],
   CatalogService: ['catalog/api/services/route.ts'],
   CustomerEntity: ['customers/api/people/route.ts', 'customers/api/companies/route.ts'],
+  CustomerAddress: ['customers/api/addresses/route.ts'],
   CustomerDeal: ['customers/api/deals/route.ts'],
   CustomerInteraction: ['customers/api/interactions/route.ts'],
   CustomerTag: ['customers/api/tags/route.ts'],
@@ -177,6 +180,7 @@ const makeCrudRouteByEntity: Record<string, string[]> = {
   SalesPaymentMethod: ['sales/api/payment-methods/route.ts'],
   SalesShippingMethod: ['sales/api/shipping-methods/route.ts'],
   StaffTeam: ['staff/api/teams.ts'],
+  StaffTeamMemberAddress: ['staff/api/addresses.ts'],
   StaffTeamRole: ['staff/api/team-roles.ts'],
   StaffTimeTaskStatus: ['staff/api/timesheets/task-statuses/route.ts'],
   StaffTimeTask: ['staff/api/timesheets/tasks/route.ts'],
