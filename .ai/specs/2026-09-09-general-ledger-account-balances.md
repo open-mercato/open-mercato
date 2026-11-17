@@ -707,6 +707,24 @@ wiring):
     request, unaffected by `page`/`pageSize`, and cheaper than the
     per-account CTE, not just independent of it.
 
+Before either report starts its repeatable-read transaction, acquire a
+conservative trusted UTC-day bound on that connection. The bound must be
+durably established before the transaction's first snapshot, not sampled
+after it: a paused old snapshot must never use tomorrow's later clock
+reading. The clock authority serializes an observed database UTC instant
+against a durable non-decreasing watermark, fails closed on regression or
+unavailability across processes and restarts, commits that observation,
+then starts the read-only transaction and obtains its snapshot. The first
+snapshot statement also checks the authority has not regressed below the
+bound. All report dates must be at or before that pre-snapshot day; a
+conservative rejection around midnight may be retried with a new bound.
+The post-commit verifier and all writers use the same authority and
+durable watermark. If this ordering or monotonicity cannot be proven,
+return 503 without figures. No wall-clock read taken after snapshot
+acquisition can widen the bound. This contract needs a concrete database
+implementation, availability budget and adversarial concurrency tests
+before release; it is not established by `REPEATABLE READ` alone.
+
 ### API Routes (`api/`)
 
 - `api/accounts/[id]/balance/route.ts` — `GET
@@ -768,10 +786,12 @@ wiring):
 - `accounts/[id]/page.tsx` (existing #5663 page) gains a read-only
   "Balance" panel that fetches `GET .../balance` via `apiCallOrThrow`
   — an additive UI change to an existing page, not a new page. A new
-  account's default-today balance can be before `effectiveStart`: after
-  rechecking authorized scoped account detail and verified coverage,
-  show a localized "available from" state with that date and no figures;
-  do not let a generic 404 reveal an absent or foreign account. On a
+  account's default-day or explicitly selected balance date can be before
+  `effectiveStart`: after rechecking authorized scoped account detail and
+  verified coverage for that date, show a localized "available from" state
+  with that date and no figures. Do not infer existence or coverage from a
+  generic 404; if detail, authorization or coverage cannot be confirmed,
+  show the applicable generic missing/forbidden/unavailable state. On a
   concurrent delete or changed authorization, clear the panel and show
   the ordinary missing/forbidden state. Earlier chosen dates and future
   dates follow the API's coverage and future-date errors. Any
@@ -789,13 +809,14 @@ wiring):
 - Phase 1 deliberately freezes every parent edge and root assignment from that baseline, including empty accounts. New accounts may select a same-scope eligible parent at creation, but ordinary creation must not add a root or edge to an already observable accounting day. The post-commit observation protocol below chooses an immutable effective start strictly after an observed post-commit UTC day and no earlier than its parent's effective start. Posting before that start is rejected. There is no ordinary historical import or backdated create; any future evidenced correction/re-attestation protocol requires a separate design and remains disabled. This intentionally means a new account cannot receive a posting on its creation day. Reject later reparent, clear-parent, parent deletion and any undo/restore path that would alter a frozen edge. Preserve historical accounts and ancestors for all covered reports; do not hard-delete a node or omit an archived ancestor from rollups or root rows, even if that ancestor has no direct postings. Freeze account type and normal-balance attributes used for historical figures, or fail closed until their historical values are available. Future reparenting needs effective-dated ancestry and separately specified transfers across report boundaries;
 - a new account's parent must already exist and be effective for its entire covered lifetime. Historical account reads before that account's effective start return 404; trial-balance rows exclude accounts not effective by the requested period end. All covered journal lines must resolve to effective same-scope accounts and ancestors; an orphan, cycle, missing coverage or historical attribute makes the whole report fail closed, never a partial total. Display names and numbers are current report-snapshot metadata, not a claim of historical labels;
 - both reports require verified coverage for every date contributing to the requested figure, including the opening-balance date before a trial period. A date outside coverage returns `422 { error: 'hierarchy_history_unavailable' }`; an unavailable authority or detected corrupt covered chart returns 503 with no figures. Do not assume an opening of zero at the coverage boundary until the separate opening-entry policy proves it;
-- the entity, validators, account commands and API must enforce same-scope parents, acyclicity and eligible type/group before activation. Every chart activation, create, attempted reparent/clear/delete/restore/undo and other hierarchy mutation takes the same exclusive transaction-scoped PostgreSQL advisory lock keyed by trusted tenant and organization before checking frozen state and ancestry. All posting paths, including imports, retries and undo/redo, take a compatible shared lock before validating account coverage and hold it through commit or rollback. Specify one global order with fiscal-period and account locks across every writer; fail closed when the lock or coverage authority is unavailable. This is a coordinated #5663 posting/account compatibility change, not a read-only addition;
+- the entity, validators, account commands and API must enforce same-scope parents, acyclicity and exact eligible type identity before activation. Every chart activation, create, attempted reparent/clear/delete/restore/undo and other hierarchy mutation takes the same exclusive transaction-scoped PostgreSQL advisory lock keyed by trusted tenant and organization before checking frozen state and ancestry. All posting paths, including imports, retries and undo/redo, take a compatible shared lock before validating account coverage and hold it through commit or rollback. Specify one global order with fiscal-period and account locks across every writer; fail closed when the lock or coverage authority is unavailable. This is a coordinated #5663 posting/account compatibility change, not a read-only addition;
 - add an accounting-date `effectiveStart` field backed by a scoped persisted date, returned in account create/list/detail and undo snapshots. A new account may omit it; after the first commit the default is the later of the next observed database UTC day and the selected parent's effective start. An explicit value must meet the same lower bound; otherwise reject the pending create without publishing an edge. Omission is a wire bridge, not proof that the changed posting behavior is compatible. Parent eligibility requires an existing, active, non-deleted same-tenant/organization account with the exact same `accountTypeId`, effective no later than the child. Different type IDs are ineligible even when their nullable `accountGroupId` values match or are both null. Reject missing or foreign parents without revealing foreign records; a same-scope inactive/deleted or different-type parent is ineligible. Preserve this predicate under concurrent delete/type change. The effective start is immutable after creation: an update may omit it or repeat the stored value, but a different value or an undo that would change it fails. Stage the nullable storage, attested baseline backfill and validation before any NOT NULL constraint; unknown legacy dates remain unverified and reporting fails closed. A dual-version deployment must fence/drain legacy writers before activation as below, and the compatibility bridge and generated API/OpenAPI contracts must be reviewed with #5663 before enforcement;
-- post-commit observation protocol: under the exclusive scoped hierarchy lock, the first transaction creates a durable, uniquely keyed pending account proposal and a scoped pending marker in the same database transaction; it does not publish the edge or permit posting. Once that transaction is known committed, a recoverable verifier reads the committed marker and observes a trusted, non-regressing database UTC day. In a second transaction it rechecks parent eligibility, locks and request identity, chooses or validates `effectiveStart` strictly after that observed day, and atomically publishes the immutable account/edge and clears its pending marker. A successful create response is sent only after verification commits; duplicate request identity resumes the same durable outcome. Reject an invalid explicit date without publishing the edge. A crash, timeout, uncertain commit or unavailable clock leaves a recoverable pending marker and no claimed success; retries/status lookup must resolve the same outcome without duplicate accounts. Until every pending marker for the scope is resolved, both report routes return `503 { error: 'hierarchy_verification_pending' }` with no figures, and pending accounts cannot be selected or posted to. Every report snapshot rejects future accounting dates relative to its trusted snapshot day; otherwise an earlier successful future-dated report could precede creation. A report snapshot begun before the first commit sees no marker but cannot ask for a date later than its own snapshot day, which precedes the verifier's strictly later effective date. A snapshot begun after it either sees the marker and fails closed, or sees the verified edge. The trusted UTC-day source must detect clock regression and fail closed; verifier failure must be recoverable without erasing evidence. This protocol and a backward-compatible create/retry bridge require implementation, real concurrency proof and review before activation; they are not supplied by a deferred trigger or a pre-commit clock check;
+- post-commit observation protocol: under the exclusive scoped hierarchy lock, the first transaction reserves a durable operation identity and pending proposal in the same database transaction; it does not publish the edge or permit posting. After that commit is known, a recoverable verifier obtains the non-regressing trusted UTC-day observation described in Queries, then in a second transaction rechecks parent eligibility, locks and identity, chooses or validates `effectiveStart` strictly after that observed day, and atomically publishes the edge and records a retained success outcome. Invalid dates or newly ineligible parents atomically record a retained rejection without publishing. Either terminal transition clears only its own pending marker in the same transaction; another operation's marker remains. A response is sent only after the terminal outcome is known. An uncertain commit acknowledgement is not evidence that a marker remains: query the durable primary for that operation's terminal or pending state; if the outcome cannot be established, return 503 and keep recovery/reporting fail-closed until it can. Reports return `503 { error: 'hierarchy_verification_pending' }` for an authorized existing resource while any scoped marker remains. A report snapshot taken before the proposal commits uses a day bound established before that snapshot, which cannot exceed the later verifier observation; it cannot successfully request the new edge's strictly later effective day. A snapshot after proposal commit sees either pending and fails closed, or a terminal result. This proof depends on the clock and snapshot ordering in Queries, and requires real concurrency and recovery tests before release;
+- reserve a tenant/organization- and actor-scoped operation ID with a canonical digest of all semantically relevant create inputs and immutable parent/effective-date choices. Same ID and digest replay the retained pending, success or rejection outcome; reuse with a different digest returns 409 without side effects. Preserve terminal outcomes at least as long as the existing create/retry guarantee, with an authenticated scoped status lookup; no automatic expiry may weaken an existing lifetime guarantee. Verifier leases require fencing so a recovered worker cannot publish after a terminal decision. A client without a stable retry identity cannot safely resolve a lost response by inventing a new one: the existing #5663 create contract requires a concrete compatible bridge or an explicitly authorized alternative before activation. Until then, disable the new writer protocol and reports for that scope rather than claim old-client replay safety;
 - existing archived baseline ancestors remain traversable and appear as root rows where needed even without direct postings. New children cannot attach to deleted or inactive parents. Deletion of a parent with children is rejected; restoring an existing child while its parent is inactive/deleted is rejected without consuming the undo token until the parent is restored. Re-read the parent under the hierarchy lock to serialize concurrent deletion, restore and creation;
 - baseline validation applies the same exact-type predicate to every retained edge; an attested legacy chart that violates it remains unsupported until an independently reviewed correction. A shared account type's group or normal-balance change must not reinterpret any covered account, including empty descendants;
 - cutover must fence every legacy or unmanaged writer at the database boundary, drain in-flight transactions, acquire the exclusive scope lock, revalidate the full attested interval and current state, and publish the verified baseline, coverage and enforcement generation atomically in the same transaction. A process-level feature flag alone is insufficient. New and legacy readers fail closed until publication; if any writer cannot be fenced or evidence revalidated, abort activation and keep reports disabled. Rollback must retain the fence until a documented compatible state is restored; never reopen legacy writers while reports rely on frozen history;
-- coordinated writers acquire locks in this order: scope hierarchy lock first (shared for postings, exclusive for topology or activation), then the scoped fiscal-period lock required by #5663, then account and account-type row locks in a deterministic ID order. Period-boundary/lock and shared account-type writers must participate in the same order whenever they can affect these invariants. Do not enable until every import, reversal, retry, administrative, delete/restore and undo path, including independently deployed writers, demonstrably follows the protocol; no external call or backoff holds a database transaction open;
+- coordinated writers acquire locks in this order: complete any clock-watermark transaction before taking business locks; then scope hierarchy lock (shared for postings, exclusive for topology or activation), scoped fiscal-period lock required by #5663, account-type rows in deterministic ID order, then account rows in deterministic ID order. Period-boundary/lock and shared account-type writers must participate in the same order whenever they can affect these invariants. Do not enable until every import, reversal, retry, administrative, delete/restore and undo path, including independently deployed writers, demonstrably follows the protocol; no external call or backoff holds a database transaction open;
 - reads and ordering use the account business key `number` (formerly `slug`); `description` is the display name;
 - the parent column is additive, but the coverage and immutability guards change write behavior. Review staged migration, compatibility and mixed-version writer enforcement before activation.
 
@@ -844,7 +865,8 @@ disabled for the affected scope.
 
 ### `GET /api/ledger/accounts/:id/balance`
 
-- **Query params**: `asOf?` (date, defaults to today). Validated with
+- **Query params**: `asOf?` (date, defaults to the trusted pre-snapshot
+  UTC day). Validated with
   a zod schema (`z.object({ asOf: z.string().date().optional() })`)
   before the query runs; an unparseable `asOf` is a 400, not passed
   through to the CTE.
@@ -863,7 +885,7 @@ disabled for the affected scope.
   tenant/organization or the account was not yet effective at `asOf`.
 - **Response 422**: requested history is outside verified hierarchy
   coverage (`{ error: 'hierarchy_history_unavailable' }`); return no figures.
-- **Response 422**: `asOf` is after the trusted snapshot day
+- **Response 422**: `asOf` is after the trusted pre-snapshot day
   (`{ error: 'report_future_date_unsupported' }`).
 - **Response 429**: a per-user or per-organization report rate or
   concurrency budget is exhausted (`Retry-After` in seconds; Risks &
@@ -877,12 +899,15 @@ disabled for the affected scope.
   query is admitted without a valid shared decision; no failure is
   retried server-side.
 
-After authentication, feature authorization and syntactic validation,
-resolve the account in the trusted scope first (404 if absent or foreign),
-then reject a future date, validate coverage (422 if the date is outside it), then apply the
-effective-start check (404 if the date is covered but predates the
-account). This precedence avoids leaking foreign account existence and
-makes a date before both boundaries unambiguous.
+After authentication, feature authorization, syntax validation, shared
+admission and trusted-clock acquisition, take the snapshot and resolve the
+account in the trusted scope first (404 if absent or foreign). For an
+existing account, check pending verification (503), future date (422),
+hierarchy coverage (422), then effective start (404). Scope integrity or
+authority failures return 503 without figures. A provisional account is
+not a published account; its operation status is available only through
+the independently authorized scoped status lookup. This order avoids
+leaking foreign existence and resolves overlapping failure conditions.
 
 ### `GET /api/ledger/reports/trial-balance`
 
@@ -910,7 +935,7 @@ makes a date before both boundaries unambiguous.
   does not wholly cover the period (`{ error: 'fiscal_year_unavailable' }`).
 - **Response 422**: requested history is outside verified hierarchy
   coverage (`{ error: 'hierarchy_history_unavailable' }`); return no rows or totals.
-- **Response 422**: the period end is after the trusted snapshot day
+- **Response 422**: the period end is after the trusted pre-snapshot day
   (`{ error: 'report_future_date_unsupported' }`); return no rows or totals.
 - **Response 429**: a per-user or per-organization report rate or
   concurrency budget is exhausted (`Retry-After` in seconds; Risks &
@@ -924,6 +949,17 @@ makes a date before both boundaries unambiguous.
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
   query is admitted without a valid shared decision; no failure is
   retried server-side.
+
+After authentication, feature authorization, syntax validation, shared
+admission and trusted-clock acquisition, take the snapshot and resolve
+the period in the trusted scope (404 if absent or foreign). For an
+existing period, check pending verification (503), future end date (422),
+hierarchy coverage (422), then fiscal-year authority/containment
+(422 for invalid setup or 503 for unavailable authority). Finally validate
+the complete scoped hierarchy and journal membership; any corruption or
+authority failure is 503 with no rows, totals or badge. Rate-limit or
+clock-service failures may occur before scoped lookup and return their
+documented 429/503 responses.
 
 Account create/update/delete/restore and undo APIs must return a scoped
 `409 { error: 'hierarchy_frozen' }` for an edge-changing operation after
@@ -1226,6 +1262,21 @@ top of the live query.
   Repeat with a verifier paused across another midnight, multiple pending
   creates, clock regression, lost response, worker crash/restart and
   idempotent retry. No pending path may admit posting or partial figures.
+- Snapshot-day race: bind a report's trusted day immediately before a
+  repeatable-read snapshot at 23:59:58, then pause it. In another session,
+  commit and verify a new edge effective the next day; after midnight,
+  resume the old report requesting that next day. It must reject the
+  future date under its original bound, not use the old snapshot with a
+  newer day. Repeat with a snapshot taken while a marker is pending, clock
+  regression/restart, and a verifier crossing midnight.
+- Recovery identity: race identical and differing payloads on one scoped
+  operation ID; assert one outcome and 409 for digest mismatch. Inject
+  lost acknowledgements after both terminal-success and terminal-rejection
+  commits, aborts before commit, verifier lease takeover and multiple
+  simultaneous pending IDs. Query the durable outcome on retry, clear only
+  the operation's own marker, and fail closed when the outcome is unknown.
+  Cover old clients without stable IDs under the reviewed compatibility
+  bridge before enabling the protocol.
 - Parent eligibility: reject a new child under a soft-deleted or inactive
   parent, including a concurrent delete race; reject restoring a child
   under such a parent without consuming undo. For an attested archived
@@ -1248,10 +1299,16 @@ top of the live query.
   the unverifiable interval, including a late January post. Race legacy
   and current writers, activation, rollback, account-type changes and
   period locks across separate transactions; prove drain/fencing and the
-  common lock order. Pause after integrity validation while another
+  clock → hierarchy → period → type → account lock order, including
+  #5663's type-before-account writers. A zero-row chart succeeds with
+  zero totals only when whole-scope membership and the independent
+  journal aggregate are also valid and zero; orphan lines fail closed.
+  Pause after integrity validation while another
   transaction creates an effective account and posts; rows, totals and
   authority checks must remain from one snapshot or the response fails.
-  Test 404/422 precedence, write errors and localized UI states.
+  Test missing/foreign resources alongside pending verification, future
+  dates, missing coverage and fiscal setup to verify both routes' error
+  precedence; also test write errors and localized UI states.
 - Phase 2 currency classification: a EUR parent and an April-effective
   USD child must leave a January as-of result classified as a EUR leaf;
   on and after April the mixed subtree is ineligible for a single
