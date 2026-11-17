@@ -38,7 +38,7 @@ describe('WMS Polish locale consistency', () => {
   it('names the putaway operation consistently as "rozlokowanie"', () => {
     const putawayEntries = Object.entries(dictionary).filter(([key]) => /putaway/i.test(key))
     expect(putawayEntries.length).toBeGreaterThan(0)
-    const inconsistent = putawayEntries.filter(([, value]) => /odłoż|odkład/i.test(value))
+    const inconsistent = putawayEntries.filter(([, value]) => /odł[oó]ż|odkład|put\s?away/i.test(value))
     expect(inconsistent).toEqual([])
     expect(dictionary['wms.backend.dashboard.activity.types.putaway']).toBe('Rozlokowanie')
   })
