@@ -421,3 +421,6 @@ None.
 
 ### 2026-11-13
 - Phase 3 split into the OSS spec [`../../2026-11-13-agent-otel-live-streaming.md`](../../2026-11-13-agent-otel-live-streaming.md) (OTEL-Q5, OTEL-Q7). The Phase 3 section here now keeps only the AO delta: `OM_AGENT_OTEL_EXPORT_MODE`, the replay-to-live link assertion and the constants re-export.
+
+### 2026-11-17
+- Vendor compatibility (roadmap-gap B-11): no payload change. A recorded run against a self-hosted Langfuse 4.81.0 (`http/json` and `http/protobuf`, Basic auth through `OM_AGENT_OTEL_EXPORT_HEADERS`) stored the run as Agent → Generation (model, usage, prompt/completion from the `gen_ai.client.inference.operation.details` event) → Tool (call arguments/result); `om.*` spans become plain spans. Datadog EU accepted the exporter payload (`http/json` and `http/protobuf`, `200`) and a real agent run exported from the app, and rejected an invalid key with `403`; read back through the LLM Observability API, the run is an agent span with an LLM span carrying prompt, completion, model and tokens, and tool spans carry arguments/results; `om.*` attributes (tenant and organization ids included) become tags; conversion needs the `DD-LLMObs-Enabled=true` header, and spans without `gen_ai.*` attributes stay in APM. Recipes in `agent-trace-otel-export.mdx` (Langfuse, Datadog); contract test `otel-vendor-compat.test.ts`.
