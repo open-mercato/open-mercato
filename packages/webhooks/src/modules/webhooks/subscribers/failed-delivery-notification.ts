@@ -1,10 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import type { NotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { WebhookEntity } from '../data/entities'
 import { resolveWebhookIntegrationSettings } from '../lib/integration-settings'
+import { tryResolve } from '../lib/tryResolve'
 import { notificationTypes } from '../notifications'
 
 const logger = createLogger('webhooks').child({ component: 'failed-delivery-notification' })
@@ -29,6 +31,9 @@ type ResolverContext = {
 }
 
 export default async function handle(payload: WebhookDeliveryExhaustedPayload, ctx: ResolverContext) {
+  const notificationService = tryResolve<NotificationService>(ctx, 'notificationService')
+  if (!notificationService) return
+
   try {
     const organizationId = payload.organizationId ?? null
     const settings = await resolveWebhookIntegrationSettings(ctx, {
@@ -37,7 +42,6 @@ export default async function handle(payload: WebhookDeliveryExhaustedPayload, c
     })
     if (!settings.notifyOnFailedDelivery) return
 
-    const notificationService = resolveNotificationService(ctx)
     const typeDef = notificationTypes.find((type) => type.type === 'webhooks.delivery.failed')
     if (!typeDef) return
 
@@ -80,5 +84,6 @@ export default async function handle(payload: WebhookDeliveryExhaustedPayload, c
     })
   } catch (err) {
     logger.error('Failed to create notification', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'webhooks', code: 'webhooks.failed_delivery_notification_failed' })
   }
 }

@@ -5,8 +5,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
-jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
-  resolveNotificationService: jest.fn(),
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({ child: () => ({ error: (...args: unknown[]) => mockLogError(...args) }) }),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(),
 }))
 
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationBuilder', () => ({
@@ -18,9 +22,11 @@ jest.mock('../../lib/integration-settings', () => ({
 }))
 
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { buildFeatureNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveWebhookIntegrationSettings } from '../../lib/integration-settings'
+
+const mockLogError = jest.fn()
 
 describe('webhooks failed delivery notification subscriber', () => {
   afterEach(() => {
@@ -28,6 +34,7 @@ describe('webhooks failed delivery notification subscriber', () => {
   })
 
   it('does not notify when the integration setting is disabled', async () => {
+    const createForFeature = jest.fn()
     ;(resolveWebhookIntegrationSettings as jest.Mock).mockResolvedValue({
       notifyOnFailedDelivery: false,
     })
@@ -43,6 +50,7 @@ describe('webhooks failed delivery notification subscriber', () => {
       },
       {
         resolve: <T,>(name: string): T => {
+          if (name === 'notificationService') return { createForFeature } as T
           if (name === 'em') {
             return {
               fork: jest.fn(),
@@ -54,7 +62,7 @@ describe('webhooks failed delivery notification subscriber', () => {
       },
     )
 
-    expect(resolveNotificationService).not.toHaveBeenCalled()
+    expect(createForFeature).not.toHaveBeenCalled()
     expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 
@@ -71,7 +79,6 @@ describe('webhooks failed delivery notification subscriber', () => {
     ;(resolveWebhookIntegrationSettings as jest.Mock).mockResolvedValue({
       notifyOnFailedDelivery: true,
     })
-    ;(resolveNotificationService as jest.Mock).mockReturnValue(notificationService)
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue({
       id: 'webhook-1',
       name: 'Catalog Cleanup',
@@ -92,6 +99,7 @@ describe('webhooks failed delivery notification subscriber', () => {
       },
       {
         resolve: <T,>(name: string): T => {
+          if (name === 'notificationService') return notificationService as T
           if (name === 'em') return em as T
           throw new Error(`Unexpected dependency: ${name}`)
         },
@@ -133,5 +141,65 @@ describe('webhooks failed delivery notification subscriber', () => {
         organizationId: 'org-1',
       },
     )
+  })
+
+  it('skips quietly before settings or ORM access when notifications are not registered', async () => {
+    const resolve = jest.fn(<T,>(name: string): T => {
+      throw new Error(`Unregistered dependency: ${name}`)
+    })
+
+    await handler(
+      {
+        deliveryId: 'delivery-1',
+        webhookId: 'webhook-1',
+        eventType: 'catalog.product.deleted',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      { resolve },
+    )
+
+    expect(resolve).toHaveBeenCalledTimes(1)
+    expect(resolve).toHaveBeenCalledWith('notificationService')
+    expect(resolveWebhookIntegrationSettings).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(buildFeatureNotificationFromType).not.toHaveBeenCalled()
+    expect(mockLogError).not.toHaveBeenCalled()
+    expect(getTelemetryRuntime).not.toHaveBeenCalled()
+  })
+
+  it('still records genuine creation failures with a null organization', async () => {
+    const error = new Error('Notification storage unavailable')
+    const createForFeature = jest.fn().mockRejectedValue(error)
+    const reportError = jest.fn()
+    jest.mocked(getTelemetryRuntime).mockReturnValue({ reportError } as unknown as NonNullable<ReturnType<typeof getTelemetryRuntime>>)
+    jest.mocked(resolveWebhookIntegrationSettings).mockResolvedValue({ notifyOnFailedDelivery: true })
+    jest.mocked(findOneWithDecryption).mockResolvedValue(null)
+    jest.mocked(buildFeatureNotificationFromType).mockReturnValue({ type: 'webhooks.delivery.failed' } as ReturnType<typeof buildFeatureNotificationFromType>)
+    const em = { fork: jest.fn() }
+    em.fork.mockReturnValue(em)
+
+    await handler(
+      {
+        deliveryId: 'delivery-1',
+        webhookId: 'webhook-1',
+        eventType: 'catalog.product.deleted',
+        tenantId: 'tenant-1',
+      },
+      {
+        resolve: <T,>(name: string): T => {
+          if (name === 'notificationService') return { createForFeature } as T
+          if (name === 'em') return em as T
+          throw new Error(`Unexpected dependency: ${name}`)
+        },
+      },
+    )
+
+    expect(createForFeature).toHaveBeenCalledWith(expect.any(Object), { tenantId: 'tenant-1', organizationId: null })
+    expect(mockLogError).toHaveBeenCalledWith('Failed to create notification', { err: error })
+    expect(reportError).toHaveBeenCalledWith(error, {
+      module: 'webhooks',
+      code: 'webhooks.failed_delivery_notification_failed',
+    })
   })
 })
