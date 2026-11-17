@@ -277,6 +277,42 @@ function renderCases(report: EvalReport): string[] {
   return lines
 }
 
+function renderMockUsage(usage: NonNullable<EvalReportTrial['mocks']>): string[] {
+  const lines = ['| Mock | Tool | Usage | Detail |', '| --- | --- | --- | --- |']
+  for (const entry of usage.used) {
+    lines.push(`| ${[cell(entry.id), cell(entry.tool), 'used', cell(`${entry.match}, ${entry.calls} call(s)`)].join(' | ')} |`)
+  }
+  for (const entry of usage.unused) {
+    lines.push(`| ${[cell(entry.id), cell(entry.tool), 'unused', entry.required ? 'required' : ''].join(' | ')} |`)
+  }
+  for (const entry of usage.unmatched) {
+    lines.push(
+      `| ${['—', cell(entry.tool), 'unmatched', cell(`${entry.resolution}, occurrence ${entry.occurrence}`)].join(' | ')} |`,
+    )
+  }
+  if (usage.unmatchedTruncated) lines.push('', '_Unmatched calls truncated._')
+  return lines
+}
+
+function renderMocks(report: EvalReport): string[] {
+  const multiTrial = report.suiteRun.repeatCount > 1
+  const sections: string[][] = []
+  for (const entry of report.cases) {
+    for (const trial of entry.trials) {
+      if (!trial.mocks) continue
+      const title = multiTrial ? `${caseLabel(entry)} — trial ${trial.trialIndex}` : caseLabel(entry)
+      sections.push([`### ${inlineText(title)}`, '', ...renderMockUsage(trial.mocks)])
+    }
+  }
+  if (!sections.length) return []
+  const lines = ['## Mocks', '']
+  sections.forEach((section, index) => {
+    if (index > 0) lines.push('')
+    lines.push(...section)
+  })
+  return lines
+}
+
 function isFailedResult(result: EvalReportResult): boolean {
   return result.passed === false
 }
@@ -342,7 +378,8 @@ export function renderEvalReportMarkdown(report: EvalReport): string {
     renderBaseline(report),
     renderAssertions(report),
     renderCases(report),
+    renderMocks(report),
     renderFailures(report),
-  ]
+  ].filter((section) => section.length > 0)
   return `${sections.map((section) => section.join('\n')).join('\n\n')}\n`
 }

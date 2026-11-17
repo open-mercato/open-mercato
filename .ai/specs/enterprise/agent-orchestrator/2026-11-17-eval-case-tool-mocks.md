@@ -1,6 +1,6 @@
 # Eval Case Tool Mocks
 
-> **Status:** Draft (approved for implementation) · **Created:** 2026-11-17 · **Module:** `agent_orchestrator` (enterprise), with one additive seam in `ai-assistant`
+> **Status:** Implemented · **Created:** 2026-11-17 · **Module:** `agent_orchestrator` (enterprise), with one additive seam in `ai-assistant`
 > **Extends (does not replace):** [`2026-10-21-eval-reports-and-reproducible-regression.md`](./2026-10-21-eval-reports-and-reproducible-regression.md). Its §(c) owns the file-based eval sets, the frozen manifest and the content hash. Its §(d) owns tool record/replay and the A-3 model replay.
 > **Roadmap item:** A-4 in the agent-platform gap audit (open-mercato/open-mercato#9648), feature 28: "Tool and API mocks per case, strict or name-only matching, mock usage report". See [Scope Decision: API mocks](#scope-decision-api-mocks) for why "API mocks" is delivered as tool mocks.
 > **Stacks on:** `feat/a3-offline-model-replay` (A-3). This spec reuses A-3's per-case `withCaseModelFixtures` binding in `runCase`, the `offline_tool_fixtures_required` check, `trialScoped` fixture refs and the `--offline` flag.
@@ -384,6 +384,7 @@ Approved for implementation, with one justified exception to integration coverag
 ## Changelog
 
 - **2026-11-17:** Skeleton; Q1–Q7 answered; Q8 dropped the `api.request` phase (no eval consumer); full draft.
+- **2026-11-17:** Implemented Phases 1–3 as specified (no design deviation).
 
 ### Review — 2026-11-17
 - **Reviewer**: Agent (author), plus a fresh-context subagent for scope cohesion (verdict: cohesive)
@@ -407,4 +408,4 @@ Approved for implementation, with one justified exception to integration coverag
 |-------|--------|------|-------|
 | Phase 1 — Seam and resolver | Done | 2026-11-17 | `lookup` / `observeHit` on `ToolReplayContext`; `lib/eval/toolMocks.ts` |
 | Phase 2 — Schema and manifest | Done | 2026-11-17 | `cases[].mocks` file schema + refinements, normalized manifest `mocks`, export round trip; import stores no mocks |
-| Phase 3 — Replay integration and usage report | Not Started | — | — |
+| Phase 3 — Replay integration and usage report | Done | 2026-11-17 | Binding (replay, record, mock-only), `required` unused → `failed`, `__evalRun.mocks`, CLI implicit replay + summary line, report/Markdown/JUnit, docs; TC-AGENT-EVAL-MOCK-001/002/003 |

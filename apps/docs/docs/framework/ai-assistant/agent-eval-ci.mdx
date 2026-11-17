@@ -130,6 +130,40 @@ yarn mercato agent_orchestrator eval --agent <id> --tenant <t> --org <o> \
 Fixture files contain real tool inputs and outputs, which are tenant data. Record against a synthetic or scrubbed tenant, review every file before committing, and never commit real customer data.
 :::
 
+## Tool mocks
+
+A case can declare hand-written tool results in `cases[].mocks`. No recording is needed, and the mocks are part of the frozen dataset (they change its content hash).
+
+```yaml
+cases:
+  - key: unknown-company
+    input: { question: "What does Acme Ltd owe us?" }
+    expected: { answer: "no matching company" }
+    mocks:
+      match: strict          # case default: strict | ordered | any
+      tools:
+        - tool: customers.search_companies
+          args: { query: "Acme Ltd" }
+          output: []
+        - id: stock
+          tool: catalog.get_stock
+          match: any
+          error: "upstream timeout"
+          required: true
+```
+
+- Every mock has exactly one of `output` or `error`. An `error` reaches the agent as a failed tool call.
+- `strict` compares the canonical args (key order does not matter) and requires `args`. Several identical `strict` mocks answer successive calls in file order.
+- `ordered` answers the next unused `ordered` mock for that tool; `any` answers every call to the tool. Both ignore args and must not declare them.
+- Per call the most specific answer wins: `strict`, then `ordered`, then `any`, then the recorded `fixtures.tools` file (or `--replay` directory), then `--on-fixture-miss` (`error` by default).
+- A case with mocks never runs tools live by accident: the CLI replays it without `--replay`, and an unmocked, unrecorded call errors the case with `tool_fixture_missing` unless `--on-fixture-miss live` is set. `--offline true` still refuses `live`.
+- Mock ids default to `<tool>#<n>` (the n-th mock of that tool in the case). A `required: true` mock that the agent never called fails the trial with `mock_required_unused`, which lowers the pass score and fails `--min-pass-score` and `--gate`.
+- With `--record`, mocked calls are answered by the mocks and only the calls that ran live are written to the recording.
+- Mocks never stand in for a mutation tool; mutation calls are refused under replay as before.
+- The report adds per-trial `mocks` (`used`, `unused`, `unmatched` with how each unmatched call was resolved) and `environment.mocks`; the Markdown report shows a Mocks table and the CLI prints a `mocks:` summary line. Call args are not copied into the usage; open the trial's trace to see them.
+- Mocks take effect only when the file itself is run (`--cases`) or its frozen snapshot is replayed. `POST /eval-sets/import` accepts files with mocks but does not store mocks on the database cases. An older CLI rejects a file that uses `mocks`.
+- Seed mock outputs from a recording (`--record`, then copy the output) so they match what the real tool returns. Prefer `any` for idempotent reads: a retried call consumes the next `ordered` mock.
+
 ## Call settings
 
 `--temperature <n>` and `--seed <int>` override the agent's `modelSettings` for the eval run only and are stored on the suite run. Invalid values exit `2`. There are no per-case call settings.

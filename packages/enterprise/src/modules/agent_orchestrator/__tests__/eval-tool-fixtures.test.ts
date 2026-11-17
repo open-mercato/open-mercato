@@ -13,7 +13,8 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-adapters/tool-replay-context'
 import { AgentEvalCaseRun, AgentEvalSuiteRun, AgentRun } from '../data/entities'
 import { startEvalRunCommand } from '../commands/evalRuns'
-import { replaySuiteRun, resetEvalSetManifestCache } from '../lib/eval/evalReplayService'
+import { aggregateSuiteRun, replaySuiteRun, resetEvalSetManifestCache } from '../lib/eval/evalReplayService'
+import { readEvalRunMockSummary } from '../lib/eval/toolMocks'
 import { EVAL_SET_FORMAT, mergeSuiteSummary } from '../lib/eval/manifest'
 import {
   EVAL_RUN_SUMMARY_KEY,
@@ -97,13 +98,15 @@ function createFakeEm(seed: Array<[unknown, Row[]]> = []) {
   return { em: em as unknown as EntityManager, storeFor }
 }
 
-function evalSetFile(caseKeys: string[]): Record<string, unknown> {
+function evalSetFile(caseKeys: string[], mocks: Record<string, unknown> = {}, withGate = false): Record<string, unknown> {
   return {
     format: EVAL_SET_FORMAT,
     formatVersion: 1,
     agentId: AGENT,
-    assertions: [],
-    cases: caseKeys.map((key) => ({ key, input: { question: key } })),
+    assertions: withGate
+      ? [{ key: 'present', scorerKey: 'output_present', severity: 'gate', title: 'Output present', config: {} }]
+      : [],
+    cases: caseKeys.map((key) => ({ key, input: { question: key }, ...(mocks[key] ? { mocks: mocks[key] } : {}) })),
   }
 }
 
@@ -152,10 +155,12 @@ async function runSuite(input: {
   modelFixtures?: EvalModelFixtureOptions
   repeatCount?: number
   trialOutputs?: unknown[]
+  mocks?: Record<string, unknown>
+  withGate?: boolean
 }) {
   const { em, storeFor } = createFakeEm()
   await startEvalRunCommand.execute(
-    { ...SCOPE, agentDefinitionId: AGENT, evalSet: evalSetFile(input.caseKeys), ...(input.repeatCount ? { repeatCount: input.repeatCount } : {}) },
+    { ...SCOPE, agentDefinitionId: AGENT, evalSet: evalSetFile(input.caseKeys, input.mocks, input.withGate), ...(input.repeatCount ? { repeatCount: input.repeatCount } : {}) },
     { container: { resolve: () => em } } as never,
   )
   const [suite] = storeFor(AgentEvalSuiteRun)
@@ -172,7 +177,7 @@ async function runSuite(input: {
         ...SCOPE,
         agentId: AGENT,
         status: 'completed',
-        output: {},
+        output: input.withGate ? { answer: 'ok' } : {},
         runtime: input.runtimeKind ?? 'native',
       })
       ctx.onRunPersisted?.(runId)
@@ -191,7 +196,7 @@ async function runSuite(input: {
     const index = input.caseKeys.indexOf(key)
     return caseRuns[index]
   }
-  return { suite, handler, observed, observedTrials, byKey, runtime }
+  return { suite, handler, observed, observedTrials, byKey, runtime, em }
 }
 
 describe('eval tool record/replay', () => {
@@ -512,4 +517,171 @@ it('A-3 scopes the default programmatic file store to each combined recording tr
     expect(replayed.handler).not.toHaveBeenCalled()
     expect(replayed.byKey('case-a').status).not.toBe('error')
   } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+})
+
+describe('A-4 eval case tool mocks', () => {
+  beforeEach(() => resetEvalSetManifestCache())
+
+  const searchMocks = {
+    match: 'strict',
+    tools: [
+      { tool: 'customers.search_companies', args: { q: 'acme' }, output: [] },
+      { tool: 'catalog.get_stock', match: 'any', output: { qty: 0 } },
+    ],
+  }
+
+  it('replays a mock-only case without tool fixture options (POST /eval-runs snapshot path)', async () => {
+    const { suite, handler, observed, byKey } = await runSuite({
+      caseKeys: ['case-a'],
+      plan: {
+        'case-a': [
+          { toolName: 'customers.search_companies', args: { q: 'acme' } },
+          { toolName: 'catalog.get_stock', args: { sku: 1 } },
+          { toolName: 'catalog.get_stock', args: { sku: 2 } },
+        ],
+      },
+      mocks: { 'case-a': searchMocks },
+    })
+    expect(handler).not.toHaveBeenCalled()
+    expect(observed['case-a']).toEqual([[], { qty: 0 }, { qty: 0 }])
+    expect(byKey('case-a').status).not.toBe('error')
+    expect(readEvalRunToolSummary(suite.summary)).toMatchObject({ mode: 'replay', requested: 'replay', onMiss: 'error' })
+    const mocks = readEvalRunMockSummary(suite.summary)
+    expect(mocks?.totals).toEqual({ cases: 1, used: 2, unused: 0, requiredUnused: 0, unmatched: 0 })
+    expect(mocks?.byCaseRun?.[byKey('case-a').id as string]?.used).toEqual([
+      { id: 'customers.search_companies#0', tool: 'customers.search_companies', match: 'strict', calls: 1 },
+      { id: 'catalog.get_stock#0', tool: 'catalog.get_stock', match: 'any', calls: 2 },
+    ])
+  })
+
+  it('errors an unmocked call of a mock-only case instead of running it live', async () => {
+    const { handler, byKey, suite } = await runSuite({
+      caseKeys: ['case-a'],
+      plan: { 'case-a': [{ toolName: 'orders.list', args: {} }] },
+      mocks: { 'case-a': searchMocks },
+    })
+    expect(handler).not.toHaveBeenCalled()
+    expect(byKey('case-a').status).toBe('error')
+    expect(byKey('case-a').errorMessage).toContain('tool_fixture_missing')
+    const usage = readEvalRunMockSummary(suite.summary)?.byCaseRun?.[byKey('case-a').id as string]
+    expect(usage?.unmatched).toEqual([expect.objectContaining({ tool: 'orders.list', resolution: 'error' })])
+  })
+
+  it('replays a mock-only case under CLI implicit replay when no recording is configured', async () => {
+    const store: EvalToolFixtureStore = {
+      load: jest.fn(async () => ({ ok: false, reason: 'not_configured' }) as EvalToolFixtureLoad),
+      save: jest.fn(async () => undefined),
+    }
+    const { handler, byKey, suite } = await runSuite({
+      caseKeys: ['case-a', 'case-b'],
+      plan: {
+        'case-a': [{ toolName: 'catalog.get_stock', args: {} }],
+        'case-b': [{ toolName: 'catalog.get_stock', args: {} }],
+      },
+      mocks: { 'case-a': { match: 'any', tools: [{ tool: 'catalog.get_stock', output: 'mocked' }] } },
+      toolFixtures: { mode: 'replay', store, onMiss: 'error' },
+    })
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(byKey('case-a').status).not.toBe('error')
+    expect(readEvalRunToolSummary(suite.summary)).toMatchObject({ mode: 'mixed', cases: { replay: 1, live: 1 } })
+  })
+
+  it('answers mocked calls inline and lets a recording answer the rest', async () => {
+    const { store } = memoryStore({
+      'case-a': { ok: true, fidelity: 'full', fixtures: [fixture('orders.list', {}, { recorded: true })] },
+    })
+    const { handler, observed, byKey, suite } = await runSuite({
+      caseKeys: ['case-a'],
+      plan: {
+        'case-a': [
+          { toolName: 'customers.search_companies', args: { q: 'acme' } },
+          { toolName: 'orders.list', args: {} },
+        ],
+      },
+      mocks: { 'case-a': searchMocks },
+      toolFixtures: { mode: 'replay', store, onMiss: 'error' },
+    })
+    expect(handler).not.toHaveBeenCalled()
+    expect(observed['case-a']).toEqual([[], { recorded: true }])
+    expect(byKey('case-a').status).not.toBe('error')
+    const usage = readEvalRunMockSummary(suite.summary)?.byCaseRun?.[byKey('case-a').id as string]
+    expect(usage?.unmatched).toEqual([
+      { tool: 'orders.list', argsKey: computeToolArgsKey({}), occurrence: 0, toolCallId: null, resolution: 'fixture' },
+    ])
+    expect(usage?.unused).toEqual([{ id: 'catalog.get_stock#0', tool: 'catalog.get_stock', required: false }])
+  })
+
+  it('records only the calls that ran live while mocks are active', async () => {
+    const { store, saved } = memoryStore()
+    const { handler, observed, suite, byKey } = await runSuite({
+      caseKeys: ['case-a'],
+      plan: {
+        'case-a': [
+          { toolName: 'customers.search_companies', args: { q: 'acme' } },
+          { toolName: 'orders.list', args: {} },
+        ],
+      },
+      mocks: { 'case-a': searchMocks },
+      toolFixtures: { mode: 'record', store },
+    })
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(observed['case-a'][0]).toEqual([])
+    expect((saved.get('case-a') ?? []).map((entry) => entry.toolName)).toEqual(['orders.list'])
+    const usage = readEvalRunMockSummary(suite.summary)?.byCaseRun?.[byKey('case-a').id as string]
+    expect(usage?.unmatched).toEqual([expect.objectContaining({ tool: 'orders.list', resolution: 'live' })])
+  })
+
+  it('fails a trial whose required mock went unused and lowers the pass score', async () => {
+    const required = { match: 'any', tools: [{ id: 'stock', tool: 'catalog.get_stock', output: 1, required: true }] }
+    const consulted = await runSuite({
+      caseKeys: ['case-a'],
+      plan: { 'case-a': [{ toolName: 'catalog.get_stock', args: {} }] },
+      mocks: { 'case-a': required },
+      withGate: true,
+    })
+    expect(consulted.byKey('case-a').status).toBe('passed')
+    const skipped = await runSuite({ caseKeys: ['case-a'], plan: { 'case-a': [] }, mocks: { 'case-a': required }, withGate: true })
+    const trial = skipped.byKey('case-a')
+    expect(trial.status).toBe('failed')
+    expect(trial.passed).toBe(false)
+    expect(trial.errorMessage).toBe('[internal] mock_required_unused: stock')
+    expect(trial.score).toBe(1)
+    expect((await aggregateSuiteRun(consulted.em, consulted.suite.id as string, SCOPE)).passScore).toBe(1)
+    expect((await aggregateSuiteRun(skipped.em, skipped.suite.id as string, SCOPE)).passScore).toBe(0)
+    expect(readEvalRunMockSummary(skipped.suite.summary)?.totals.requiredUnused).toBe(1)
+  })
+
+  it('passes the offline check for mock-only cases and still rejects onMiss live', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-eval-mocks-'))
+    try {
+      const mocks = { 'case-a': { match: 'any', tools: [{ tool: 'catalog.get_stock', output: 1 }] } }
+      const plan = { 'case-a': [{ toolName: 'catalog.get_stock', args: {} }] }
+      const recorded = await runSuite({ caseKeys: ['case-a'], plan: {}, modelFixtures: { mode: 'record', directory } })
+      expect(recorded.byKey('case-a').status).not.toBe('error')
+      const notConfigured: EvalToolFixtureStore = {
+        load: jest.fn(async () => ({ ok: false, reason: 'not_configured' }) as EvalToolFixtureLoad),
+        save: jest.fn(async () => undefined),
+      }
+      const offline = await runSuite({
+        caseKeys: ['case-a'], plan, mocks,
+        modelFixtures: { mode: 'replay', directory },
+        toolFixtures: { mode: 'replay', store: notConfigured, onMiss: 'error' },
+      })
+      expect(offline.byKey('case-a').errorMessage ?? '').not.toContain('offline_tool_fixtures_required')
+      const live = await runSuite({
+        caseKeys: ['case-a'], plan, mocks,
+        modelFixtures: { mode: 'replay', directory },
+        toolFixtures: { mode: 'replay', store: notConfigured, onMiss: 'live' },
+      })
+      expect(live.byKey('case-a').status).toBe('error')
+      expect(live.byKey('case-a').errorMessage).toContain('offline_tool_fixtures_required')
+      expect(live.runtime.run).not.toHaveBeenCalled()
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
+  })
+
+  it('turns on implicit replay for a cases file with mocks', () => {
+    expect(
+      parseEvalCliToolFixtureFlags({ casesFile: { cases: [{ mocks: { tools: [] } }, {}] }, evalSetDir: '/tmp/evals' }),
+    ).toMatchObject({ ok: true, implicitReplay: true, options: { mode: 'replay', onMiss: 'error' } })
+  })
 })

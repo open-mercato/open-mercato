@@ -21,6 +21,7 @@ import { recomputeProcessInstance } from './lib/processes/processProjection'
 import { EVAL_SET_EXPORT_CURRENT, EVAL_SET_SNAPSHOT_LATEST, evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
 import { parseEvalCliCallSettings, readEvalRunToolSummary } from './lib/eval/evalRunSettings'
+import { formatMockSummaryLine, readEvalRunMockSummary } from './lib/eval/toolMocks'
 import {
   EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING,
   buildToolFixtureFile,
@@ -882,6 +883,8 @@ const evalGate: ModuleCli = {
           console.warn(`Warning: ${tools.summaryFidelityCases} case(s) replayed summary-fidelity fixtures (redacted or truncated tool outputs).`)
         }
       }
+      const mocks = casesFile?.cases.some((entry) => entry.mocks) ? readEvalRunMockSummary(suiteRun?.summary) : null
+      if (mocks) console.log(formatMockSummaryLine(mocks.totals))
     }
 
     if (result.safetyRegressions.length) {

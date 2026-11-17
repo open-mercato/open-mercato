@@ -42,8 +42,10 @@ import { buildEvalRunToolSummary, readEvalRunCallSettings, withEvalRunToolSummar
 import type { AiAgentCallSettings } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import {
   withToolReplayContext,
+  type ToolReplayCall,
   type ToolReplayContext,
   type ToolReplayFixture,
+  type ToolReplayHitSource,
   type ToolReplayMiss,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-adapters/tool-replay-context'
 import {
@@ -56,6 +58,16 @@ import {
   type EvalToolFixtureOptions,
   type EvalToolMode,
 } from './toolFixtures'
+import {
+  MOCK_REQUIRED_UNUSED,
+  buildEvalRunMockSummary,
+  compileCaseMocks,
+  createMockResolver,
+  requiredUnusedMockIds,
+  withEvalRunMockSummary,
+  type EvalCaseMockUsage,
+  type EvalMockResolver,
+} from './toolMocks'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'eval-replay' })
 
@@ -108,6 +120,8 @@ export type ReplayCaseOutcome = {
   /** Present only when the suite replay was given tool fixture options. */
   modelMode?: 'record' | 'replay'
   tools?: EvalCaseToolOutcome
+  /** Present only when the case declared tool mocks. */
+  mocks?: EvalCaseMockUsage
 }
 
 export type EvalReplayOptions = {
@@ -212,18 +226,56 @@ type ToolBinding =
   | { kind: 'record'; context: ToolReplayContext; recorded: ToolReplayFixture[] }
   | { kind: 'replay'; context: ToolReplayContext; misses: ToolReplayMiss[]; summaryFidelity: boolean }
 
+function replayBinding(
+  fixtures: ToolReplayFixture[],
+  onMiss: 'error' | 'live',
+  summaryFidelity: boolean,
+  resolver: EvalMockResolver | null,
+): ToolBinding {
+  const misses: ToolReplayMiss[] = []
+  return {
+    kind: 'replay',
+    misses,
+    summaryFidelity,
+    context: {
+      mode: 'replay',
+      fixtures,
+      match: 'strict',
+      onMiss,
+      observeMiss: (miss) => {
+        misses.push(miss)
+        resolver?.observeUnmatched(miss, miss.resolution)
+      },
+      ...(resolver
+        ? {
+            lookup: resolver.lookup,
+            observeHit: (call: ToolReplayCall, source: ToolReplayHitSource) => {
+              if (source === 'fixture') resolver.observeUnmatched(call, 'fixture')
+            },
+          }
+        : {}),
+    },
+  }
+}
+
 /**
  * Prepares the per-case tool record/replay binding. Every case gets its own
  * context (fresh occurrence counters, its own fixtures and miss list), so one
  * case's fixtures can never answer another case's tool calls. Misses are
  * collected through `observeMiss` because inside the AI SDK a thrown replay
  * error becomes a tool-error result for the model and never fails the run.
+ *
+ * A case with tool mocks is never bound `live`: its mocks answer first, a
+ * recorded file (when present) answers what they do not cover, and anything
+ * else is a miss (`onMiss`, `error` by default). In record mode mocked calls
+ * are answered by the mocks and only the live calls are recorded.
  */
 async function prepareToolBinding(
   options: EvalToolFixtureOptions | undefined,
   ref: EvalToolFixtureCaseRef,
+  resolver: EvalMockResolver | null,
 ): Promise<ToolBinding> {
-  if (!options) return { kind: 'live' }
+  if (!options) return resolver ? replayBinding([], 'error', false, resolver) : { kind: 'live' }
   if (options.mode === 'record') {
     const recorded: ToolReplayFixture[] = []
     return {
@@ -233,29 +285,23 @@ async function prepareToolBinding(
         mode: 'record',
         sink: (fixture) => {
           if (recorded.length <= EVAL_TOOL_FIXTURE_MAX_ENTRIES) recorded.push(fixture)
+          resolver?.observeUnmatched({ ...fixture, toolCallId: fixture.toolCallId ?? null }, 'live')
         },
+        ...(resolver ? { lookup: resolver.lookup } : {}),
       },
     }
   }
   const loaded = await options.store.load(ref)
-  if (!loaded.ok && loaded.reason === 'not_configured') return { kind: 'live' }
-  if (!loaded.ok && loaded.reason === 'invalid') return { kind: 'invalid', message: loaded.message }
-  const fixtures = loaded.ok ? loaded.fixtures : []
-  const misses: ToolReplayMiss[] = []
-  return {
-    kind: 'replay',
-    misses,
-    summaryFidelity: loaded.ok && loaded.fidelity === 'summary',
-    context: {
-      mode: 'replay',
-      fixtures,
-      match: 'strict',
-      onMiss: options.onMiss,
-      observeMiss: (miss) => {
-        misses.push(miss)
-      },
-    },
+  if (!loaded.ok && loaded.reason === 'not_configured') {
+    return resolver ? replayBinding([], options.onMiss, false, resolver) : { kind: 'live' }
   }
+  if (!loaded.ok && loaded.reason === 'invalid') return { kind: 'invalid', message: loaded.message }
+  return replayBinding(
+    loaded.ok ? loaded.fixtures : [],
+    options.onMiss,
+    loaded.ok && loaded.fidelity === 'summary',
+    resolver,
+  )
 }
 
 function toolOutcomeFor(binding: ToolBinding, unsupportedRuntime: boolean): EvalCaseToolOutcome {
@@ -432,12 +478,17 @@ async function runCase(
       await emitCaseProgress('started', caseRun, agentDefinitionId, scope)
 
       const toolRef = { ...toolFixtureRefFor(source, caseRun), ...(options.modelFixtures ? { trialScoped: true } : {}) }
-      const toolBinding = await prepareToolBinding(options.toolFixtures, toolRef)
+      const caseMocks = source.kind === 'manifest' ? source.manifestCase.mocks ?? null : null
+      const mockResolver = caseMocks ? createMockResolver(compileCaseMocks(caseMocks)) : null
+      const toolBinding = await prepareToolBinding(options.toolFixtures, toolRef, mockResolver)
       if (options.modelFixtures?.mode === 'replay' && (toolBinding.kind === 'live' || toolBinding.kind === 'record' || (toolBinding.kind === 'replay' && toolBinding.context.mode === 'replay' && toolBinding.context.onMiss === 'live'))) {
         throw new Error('[internal] offline_tool_fixtures_required')
       }
-      const withTools = (outcome: ReplayCaseOutcome, unsupportedRuntime = false): ReplayCaseOutcome =>
-        options.toolFixtures ? { ...outcome, tools: toolOutcomeFor(toolBinding, unsupportedRuntime) } : outcome
+      const withTools = (outcome: ReplayCaseOutcome, unsupportedRuntime = false): ReplayCaseOutcome => ({
+        ...outcome,
+        ...(options.toolFixtures || mockResolver ? { tools: toolOutcomeFor(toolBinding, unsupportedRuntime) } : {}),
+        ...(mockResolver ? { mocks: mockResolver.usage() } : {}),
+      })
       if (toolBinding.kind === 'invalid') {
         return withTools(
           await finishCaseRun(em, caseRun, {
@@ -539,7 +590,16 @@ async function runCase(
         }
       }
 
-      const outcome = withTools(await scoreCaseRun(em, caseRun, source, topLevelRunId, scope), unsupportedRuntime)
+      let scored = await scoreCaseRun(em, caseRun, source, topLevelRunId, scope)
+      const requiredUnused = mockResolver ? requiredUnusedMockIds(mockResolver.usage()) : []
+      if (requiredUnused.length && scored.status !== 'error') {
+        caseRun.status = 'failed'
+        caseRun.passed = false
+        caseRun.errorMessage = `[internal] ${MOCK_REQUIRED_UNUSED}: ${requiredUnused.join(', ')}`
+        await em.flush()
+        scored = { ...scored, status: 'failed', passed: false }
+      }
+      const outcome = withTools(scored, unsupportedRuntime)
 
       // Judge assertions run on their own async path AFTER the deterministic tier,
       // because a verdict needs a model round-trip. The suite's stored policy decides
@@ -816,27 +876,32 @@ export async function replaySuiteRun(
 
   const unresolvedVersions = new Set<string>()
   const toolOutcomes: EvalCaseToolOutcome[] = []
+  const mockUsages: Array<{ caseRunId: string; usage: EvalCaseMockUsage }> = []
   const modelModes: string[] = []
   for (const caseRun of pending) {
     if (suiteRun.status === 'cancelled') break
     const outcome = await executeCaseRun(container, caseRun.id, scope, userId, unresolvedVersions, options)
     if (outcome.tools) toolOutcomes.push(outcome.tools)
+    if (outcome.mocks) mockUsages.push({ caseRunId: outcome.caseRunId, usage: outcome.mocks })
     if (outcome.modelMode) modelModes.push(outcome.modelMode)
     await em.refresh(suiteRun)
   }
 
   const toolFixtures = options.toolFixtures
-  if ((!toolFixtures || !toolOutcomes.length) && !modelModes.length) return
+  if (!toolOutcomes.length && !modelModes.length && !mockUsages.length) return
   const summaryEm = (container.resolve('em') as EntityManager).fork()
   const target = await findOneWithDecryption(summaryEm, AgentEvalSuiteRun, { id: suiteRunId, ...scope }, undefined, scope)
   if (!target) return
-  if (toolFixtures && toolOutcomes.length) target.summary = withEvalRunToolSummary(
+  if (toolOutcomes.length) target.summary = withEvalRunToolSummary(
     target.summary,
     buildEvalRunToolSummary(
-      toolFixtures.mode === 'replay' ? { mode: 'replay', onMiss: toolFixtures.onMiss } : { mode: 'record' },
+      !toolFixtures
+        ? { mode: 'replay', onMiss: 'error' }
+        : toolFixtures.mode === 'replay' ? { mode: 'replay', onMiss: toolFixtures.onMiss } : { mode: 'record' },
       toolOutcomes,
     ),
   )
+  if (mockUsages.length) target.summary = withEvalRunMockSummary(target.summary, buildEvalRunMockSummary(mockUsages))
   if (modelModes.length) {
     const summary: Record<string, unknown> = target.summary && typeof target.summary === 'object' && !Array.isArray(target.summary)
       ? target.summary as Record<string, unknown> : {}
