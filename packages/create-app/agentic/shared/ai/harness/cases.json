@@ -21987,10 +21987,6 @@
       {
         "module": "agent_orchestrator",
         "query": "on-fixture-miss"
-      },
-      {
-        "module": "agent_orchestrator",
-        "query": "withCaseModelFixtures"
       }
     ],
     "requiredDecisions": [

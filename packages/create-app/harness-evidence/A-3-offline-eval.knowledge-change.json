@@ -40,7 +40,7 @@
     },
     {
       "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
-      "sha256": "68db3337c32ae5cb7128e0dec27c22c14ce9e05c4fb9a812b325e87256f365b5"
+      "sha256": "06758e4146fc9191963cb66246abdc0f453e2b24248bc70d2bf65a02215036db"
     },
     {
       "path": "packages/create-app/agentic/shared/ai/harness/cases.schema.json",
