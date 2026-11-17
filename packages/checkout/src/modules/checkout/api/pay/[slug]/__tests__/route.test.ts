@@ -90,7 +90,7 @@ function expectedPublicResponse(link: CheckoutLink) {
     subtitle: null,
     description: null,
     logoUrl: 'https://merchant.example/logo.png',
-    logoPreviewUrl: '/api/attachments/image/22222222-2222-4222-8222-222222222222?width=640&height=240&cropType=contain',
+    logoPreviewUrl: '/api/checkout/pay/donate/logo',
     primaryColor: null,
     secondaryColor: null,
     backgroundColor: null,
@@ -209,7 +209,24 @@ describe('GET /api/checkout/pay/[slug] public response', () => {
 
     expect(requirePreviewContext).toHaveBeenCalled()
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ...expectedPublicResponse(link), available: false, preview: true })
+    expect(await response.json()).toEqual({
+      ...expectedPublicResponse(link),
+      logoPreviewUrl: '/api/checkout/pay/donate/logo?preview=true',
+      available: false,
+      preview: true,
+    })
+  })
+
+  it('falls back to the external logo URL when no logo attachment is set', async () => {
+    link.logoAttachmentId = null
+    link.logoUrl = 'https://merchant.example/logo.png'
+
+    const response = await readPayPage()
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      logoPreviewUrl: 'https://merchant.example/logo.png',
+    })
   })
 
   it('still requires admin authorization for previews', async () => {

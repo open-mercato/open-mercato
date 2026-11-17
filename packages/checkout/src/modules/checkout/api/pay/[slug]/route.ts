@@ -8,6 +8,7 @@ import { resolveCheckoutPublicCustomFields } from '../../../lib/customFields'
 import { checkoutPublicViewRateLimitConfig, enforceCheckoutRateLimit } from '../../../lib/rateLimiter'
 import { handleCheckoutRouteError, readCheckoutAccessCookie, requirePreviewContext } from '../../helpers'
 import {
+  buildCheckoutPublicLogoUrl,
   isCheckoutLinkPublic,
   resolveLoadedCheckoutCustomFields,
   serializePublicPayLink,
@@ -85,6 +86,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     })
     return NextResponse.json({
       ...serializePublicPayLink(link),
+      logoPreviewUrl: link.logoAttachmentId
+        ? buildCheckoutPublicLogoUrl(link.slug, { preview: previewRequested })
+        : link.logoUrl ?? null,
       publicCustomFields,
       available: previewRequested ? false : available,
       remainingUses: link.maxCompletions == null
