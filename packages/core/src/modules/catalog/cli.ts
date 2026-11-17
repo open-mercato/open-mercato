@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runWithCacheTenant } from '@open-mercato/cache'
@@ -17,20 +18,7 @@ import {
 } from './lib/seeds'
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string> = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part) continue
-    if (part.startsWith('--')) {
-      const [rawKey, rawValue] = part.slice(2).split('=')
-      if (rawValue !== undefined) args[rawKey] = rawValue
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) {
-        args[rawKey] = rest[i + 1]!
-        i += 1
-      }
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { flagValue: undefined })
 }
 
 const seedUnitsCommand: ModuleCli = {
