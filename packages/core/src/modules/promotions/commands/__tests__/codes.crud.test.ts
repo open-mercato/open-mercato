@@ -352,7 +352,11 @@ describe('promotions.code.update command', () => {
       ctx,
       snapshots: { before: prepared && 'before' in prepared ? prepared.before : undefined, after },
     })
-    return () => undoUpdate(logEntry!.payload, ctx)
+    const undo = () => undoUpdate(logEntry!.payload, ctx)
+    const redo = () => updateCodeCommand.redo
+      ? updateCodeCommand.redo({ input: updateInput, ctx, logEntry: { commandPayload: logEntry!.payload } })
+      : updateCodeCommand.execute(updateInput, ctx)
+    return Object.assign(undo, { redo })
   }
 
   it('undo does not reactivate a code that was used up after the update it reverts', async () => {
@@ -455,6 +459,103 @@ describe('promotions.code.update command', () => {
     expect(code.active).toBe(false)
     await undoDeactivation()
     expect(code.active).toBe(false)
+  })
+
+  it.each([
+    { usage: 'single', usageAmount: null, used: 1 },
+    { usage: 'multiple', usageAmount: 3, used: 3 },
+  ] as const)('redo keeps an exhausted $usage code inactive after a full-form rename', async (limits) => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { ...limits, used: 0, name: 'Original', active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed', active: true })
+    code.used = limits.used
+    code.active = false
+
+    await undo()
+    await undo.redo()
+
+    expect(code.name).toBe('Changed')
+    expect(code.used).toBe(limits.used)
+    expect(code.active).toBe(false)
+  })
+
+  it('redo keeps a code inactive when it was redeemed after an activation edit', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: false })
+    const undo = await runLoggedUpdate(em, code, { active: true })
+    code.used = 1
+    code.active = false
+
+    await undo()
+    await undo.redo()
+
+    expect(code.active).toBe(false)
+  })
+
+  it('redo applies the replayed usage limit before checking whether uses remain', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'multiple', usageAmount: 5, used: 0 })
+    const undo = await runLoggedUpdate(em, code, { usageAmount: 3, active: true })
+    code.used = 3
+    code.active = false
+
+    await undo()
+    expect(code.active).toBe(true)
+    await undo.redo()
+
+    expect(code.usageAmount).toBe(3)
+    expect(code.active).toBe(false)
+  })
+
+  it('redo reads committed redemption state under a scoped row lock before applying the update', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed', active: true })
+    await undo()
+    const baseFindOne = em.findOne
+    const lockedReads: Array<{ where: Row; options: unknown; inTransaction: boolean }> = []
+    em.findOne = (async (entity: Function, where: Row, options?: { lockMode?: LockMode }) => {
+      if (entity === Code && options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+        lockedReads.push({ where, options, inTransaction: em.isInTransaction() })
+        code.used = 1
+        code.active = false
+      }
+      return baseFindOne(entity, where)
+    }) as FakeEm['findOne']
+
+    await undo.redo()
+
+    expect(code.name).toBe('Changed')
+    expect(code.active).toBe(false)
+    expect(lockedReads).toEqual([{
+      where: { id: code.id, tenantId: TENANT, organizationId: ORG, deletedAt: null },
+      options: { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      inTransaction: true,
+    }])
+  })
+
+  it('redo preserves deliberate activation when no redemption occurred since the edit', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 1, active: false })
+    const undo = await runLoggedUpdate(em, code, { active: true })
+
+    await undo()
+    await undo.redo()
+
+    expect(code.active).toBe(true)
+  })
+
+  it('redo preserves dynamic-code activation independently of generated-code usage', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'dynamic', code: null, usage: 'single', used: 0 })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed', active: true })
+    code.used = 1
+    code.active = false
+
+    await undo()
+    await undo.redo()
+
+    expect(code.active).toBe(true)
   })
 
   it('undo reads the code under a scoped row lock inside its transaction', async () => {
