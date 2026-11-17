@@ -277,33 +277,6 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     // address" (see `ChannelCapabilities.recipientFormat` in `lib/adapter.ts`).
     const metaForMatcher = (m.channelMetadata ?? {}) as Record<string, unknown>
     let threadMatch: ThreadMatch | null = null
-<<<<<<< HEAD
-    try {
-      threadMatch = await matchThread(
-        {
-          channelId: input.channelId,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
-          messageId: extractStringFromMeta(metaForMatcher, 'messageId') ?? m.externalMessageId,
-          inReplyTo:
-            m.replyToExternalId ?? extractStringFromMeta(metaForMatcher, 'inReplyTo'),
-          references: extractStringArrayFromMeta(metaForMatcher, 'references'),
-          subject: m.subject ?? '',
-          fromAddress:
-            extractStringFromMeta(metaForMatcher, 'from') ?? m.senderIdentifier,
-          toAddresses: extractStringArrayFromMeta(metaForMatcher, 'to'),
-          ccAddresses: extractStringArrayFromMeta(metaForMatcher, 'cc'),
-          bodyPlain: m.bodyFormat === 'html' ? null : m.body ?? null,
-          bodyHtml: m.bodyFormat === 'html' ? m.body ?? null : null,
-          receivedAt: m.timestamp ?? new Date(),
-        },
-        { em },
-      )
-    } catch (matcherErr) {
-      // Matcher failure must not block ingest — fall back to the existing
-      // conversation-based thread mapping so the message still lands.
-      logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
-=======
     if (adapter.capabilities.recipientFormat !== 'provider-native') {
       try {
         threadMatch = await matchThread(
@@ -322,6 +295,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
             ccAddresses: extractStringArrayFromMeta(metaForMatcher, 'cc'),
             bodyPlain: m.bodyFormat === 'html' ? null : m.body ?? null,
             bodyHtml: m.bodyFormat === 'html' ? m.body ?? null : null,
+            receivedAt: m.timestamp ?? new Date(),
           },
           { em },
         )
@@ -330,7 +304,6 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         // conversation-based thread mapping so the message still lands.
         logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
       }
->>>>>>> 62a94b74a2 (fix(communication_channels): keep provider-native conversations isolated from email thread tokens (#9773))
     }
 
     // (4) Contact resolution (best-effort, advisory).

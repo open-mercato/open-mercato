@@ -1225,6 +1225,10 @@ describe('ingestInboundMessageCommand — provider-native conversations are isol
     )
 
     expect(mockMatchThread).toHaveBeenCalledTimes(1)
+    expect(mockMatchThread).toHaveBeenCalledWith(
+      expect.objectContaining({ receivedAt: expect.any(Date) }),
+      expect.anything(),
+    )
 
     const composeCall = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'messages.messages.compose')
     expect(composeCall).toBeDefined()
