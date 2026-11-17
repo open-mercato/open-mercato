@@ -17,6 +17,7 @@ let backendChromePayload: { grantedFeatures: string[] } | null = {
   grantedFeatures: [],
 }
 let backendChromeReady = true
+let portalAuth: { resolvedFeatures: string[]; loading: boolean } | null = null
 
 jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
   getInjectionRegistryVersion: () => 0,
@@ -34,6 +35,13 @@ jest.mock('../../BackendChromeProvider', () => ({
     isReady: backendChromeReady,
     refresh: jest.fn(),
   }),
+}))
+
+jest.mock('../../../portal/PortalContext', () => ({
+  usePortalContext: () => {
+    if (!portalAuth) throw new Error('[internal] No portal provider')
+    return { auth: portalAuth }
+  },
 }))
 
 jest.mock('../WidgetSharedState', () => ({
@@ -113,6 +121,7 @@ function dataWidget(id: string, features?: string[]): LoadedInjectionDataWidget 
 describe('Injection widget feature gating', () => {
   beforeEach(() => {
     setGrantedFeatures([])
+    portalAuth = null
     loadInjectionWidgetsForSpotMock.mockReset()
     loadInjectionDataWidgetsForSpotMock.mockReset()
     onLoadVisibleMock.mockReset()
@@ -236,6 +245,68 @@ describe('Injection widget feature gating', () => {
 
     await waitFor(() => expect(onBeforeSaveMock).toHaveBeenCalledTimes(1))
     expect(layoutDispatches).toBe(2)
+  })
+
+  it('uses portal grants instead of a coexisting staff session for mutation participants', async () => {
+    setGrantedFeatures(['*'])
+    portalAuth = { resolvedFeatures: ['portal.*'], loading: false }
+    const staffBeforeSave = jest.fn()
+    const portalBeforeSave = jest.fn()
+    const prefetched = [
+      loadedSpotWidget(lifecycleWidget('staff-lock', ['record_locks.view'], staffBeforeSave)),
+      loadedSpotWidget(lifecycleWidget('portal-guard', ['portal.warranty_claims.manage'], portalBeforeSave)),
+    ]
+    const { result } = renderHook(() => useInjectionSpotEvents(SPOT_ID, prefetched))
+
+    const saved = await result.current.triggerEvent('onBeforeSave', {}, {})
+
+    expect(saved.ok).toBe(false)
+    expect(staffBeforeSave).not.toHaveBeenCalled()
+    expect(portalBeforeSave).toHaveBeenCalledTimes(1)
+  })
+
+  it('filters loaded staff guards without backend chrome and preserves unrestricted guards', async () => {
+    backendChromePayload = null
+    portalAuth = { resolvedFeatures: ['portal.warranty_claims.manage'], loading: false }
+    const staffBeforeSave = jest.fn()
+    const unrestrictedBeforeSave = jest.fn()
+    loadInjectionWidgetsForSpotMock.mockResolvedValueOnce([
+      lifecycleWidget('staff-lock', ['record_locks.view'], staffBeforeSave),
+      lifecycleWidget('unrestricted-guard', undefined, unrestrictedBeforeSave),
+    ])
+    const { result } = renderHook(() => useInjectionSpotEvents(SPOT_ID))
+    await waitFor(() => expect(result.current.widgets).toHaveLength(1))
+
+    const saved = await result.current.triggerEvent('onBeforeSave', {}, {})
+
+    expect(saved.ok).toBe(false)
+    expect(staffBeforeSave).not.toHaveBeenCalled()
+    expect(unrestrictedBeforeSave).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves standalone lifecycle participants outside both auth providers', async () => {
+    backendChromePayload = null
+    const beforeSave = jest.fn()
+    const prefetched = [loadedSpotWidget(lifecycleWidget('standalone', ['widgets.manage'], beforeSave))]
+    const { result } = renderHook(() => useInjectionSpotEvents(SPOT_ID, prefetched))
+
+    const saved = await result.current.triggerEvent('onBeforeSave', {}, {})
+
+    expect(saved.ok).toBe(false)
+    expect(beforeSave).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for portal authorization before loading mutation participants', async () => {
+    backendChromePayload = null
+    portalAuth = { resolvedFeatures: [], loading: true }
+    loadInjectionWidgetsForSpotMock.mockResolvedValueOnce([])
+    const { rerender } = renderHook(() => useInjectionSpotEvents(SPOT_ID))
+    expect(loadInjectionWidgetsForSpotMock).not.toHaveBeenCalled()
+
+    portalAuth = { resolvedFeatures: ['portal.*'], loading: false }
+    rerender()
+
+    await waitFor(() => expect(loadInjectionWidgetsForSpotMock).toHaveBeenCalledTimes(1))
   })
 
   it('filters lifecycle widgets loaded directly by metadata features', async () => {
