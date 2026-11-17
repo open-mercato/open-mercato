@@ -185,6 +185,7 @@
   "forms.errors.invitation_revoked": "Esta invitación ha sido revocada.",
   "forms.errors.invitation_submitted": "Esta invitación ya se ha usado para enviar.",
   "forms.errors.locales_empty": "Un formulario debe admitir al menos un idioma.",
+  "forms.errors.logo_storage_unavailable": "El almacenamiento de logotipos no está disponible. Active el módulo de archivos adjuntos para subir un logotipo.",
   "forms.errors.no_op_publish": "No hay cambios que publicar: el esquema coincide con la versión publicada actual.",
   "forms.errors.not_found": "No encontrado.",
   "forms.errors.organization_required": "Se requiere el contexto de la organización.",
