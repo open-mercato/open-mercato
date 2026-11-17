@@ -5,17 +5,21 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { emitIntegrationsEvent } from '../../../events'
 import { saveCredentialsSchema } from '../../../data/validators'
 import {
   isCredentialsEncryptionUnavailableError,
   isCredentialsSealedWhileDisabledError,
+  isReservedOAuthGrantId,
   type CredentialsService,
 } from '../../../lib/credentials-service'
 import { collectCredentialUrlValidationErrors } from '../../../lib/credentials-field-validation'
 import {
   maskSecretCredentials,
   mergeMaskedSecretCredentials,
+  MaskedSecretDestinationChangedError,
 } from '../../../lib/credentials-masking'
 import {
   resolveUserFeatures,
@@ -58,6 +62,15 @@ export const openApi = {
   summary: 'Get or save integration credentials',
 }
 
+/**
+ * Ids ending in the reserved `__oauth_grant` suffix address OAuth grant rows, which this admin route
+ * never reads or writes, even when an integration with such an id is registered.
+ */
+function resolveCredentialsIntegration(integrationId: string) {
+  if (isReservedOAuthGrantId(integrationId)) return undefined
+  return getIntegration(integrationId)
+}
+
 function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: string } }): Promise<{ id?: string } | undefined> | { id?: string } | undefined {
   if (!ctx.params) return undefined
   if (typeof (ctx.params as Promise<unknown>).then === 'function') {
@@ -82,7 +95,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Invalid integration id' }, { status: 400 })
   }
 
-  const integration = getIntegration(parsedParams.data.id)
+  const integration = resolveCredentialsIntegration(parsedParams.data.id)
   if (!integration) {
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
   }
@@ -136,7 +149,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Invalid integration id' }, { status: 400 })
   }
 
-  const integration = getIntegration(parsedParams.data.id)
+  const integration = resolveCredentialsIntegration(parsedParams.data.id)
   if (!integration) {
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
   }
@@ -228,6 +241,15 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     )
     await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
+    if (error instanceof MaskedSecretDestinationChangedError) {
+      getTelemetryRuntime()?.reportError(error, { module: 'integrations', code: 'integrations.masked_secret_destination_changed' })
+      const { t } = await resolveTranslations()
+      const message = t('integrations.credentials.errors.destinationChanged')
+      return NextResponse.json({
+        error: message,
+        details: { fieldErrors: Object.fromEntries(error.fields.map((field) => [field, message])) },
+      }, { status: 422 })
+    }
     if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
     }

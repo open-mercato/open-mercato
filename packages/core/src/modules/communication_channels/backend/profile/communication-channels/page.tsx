@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
 import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
+import { OAUTH_RESULT_QUERY_PARAM, stripOAuthResultParams } from '@open-mercato/core/modules/communication_channels/lib/oauth-result'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -50,6 +51,10 @@ type ChannelRow = {
   lastPolledAt: string | null
   /** Spec C — push delivery state (null when provider doesn't support push). */
   pushStatus: 'active' | 'inactive' | 'failed' | null
+  /** When the provider-side push subscription lapses (Gmail watch expiry). */
+  pushExpiresAt: string | null
+  /** `true` when `pushStatus` is still 'active' but the subscription has expired. */
+  pushExpired: boolean
   lastPushError: { code: string | null; message: string | null; at: string | null } | null
   /**
    * `true` when the adapter declares real-time push, so the hub's poll worker
@@ -76,7 +81,7 @@ export default function ProfileCommunicationChannelsPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const flashType = searchParams?.get('flash')
+  const flashType = searchParams?.get(OAUTH_RESULT_QUERY_PARAM)
   const flashCode = searchParams?.get('code')
   const flashProvider = searchParams?.get('provider')
 
@@ -96,10 +101,13 @@ export default function ProfileCommunicationChannelsPage() {
 
   React.useEffect(() => {
     if (flashType === 'connected') {
+      const providerLabel = flashProvider
+        ? t(`communication_channels.channel.providers.${flashProvider}`, '')
+        : ''
       flash(
-        flashProvider
+        providerLabel
           ? t('communication_channels.profile.flash.connectedWithProvider', 'Channel connected ({provider}).', {
-              provider: flashProvider,
+              provider: providerLabel,
             })
           : t('communication_channels.profile.flash.connected', 'Channel connected.'),
         'success',
@@ -126,15 +134,14 @@ export default function ProfileCommunicationChannelsPage() {
                     'communication_channels.profile.flash.stateStoreUnavailable',
                     'A server error prevented completing the connection. Please try again in a moment.',
                   )
-                : flashCode
-                  ? t('communication_channels.profile.flash.errorWithCode', 'Failed to connect channel — {code}.', {
-                      code: flashCode,
-                    })
-                  : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
+                : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
+    } else {
+      return
     }
-  }, [flashType, flashCode, flashProvider, t])
+    router.replace(stripOAuthResultParams(window.location.href), { scroll: false })
+  }, [flashType, flashCode, flashProvider, router, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -477,6 +484,13 @@ export default function ProfileCommunicationChannelsPage() {
               </Tag>
             )
           }
+          if (ps === 'active' && row.original.pushExpired) {
+            return (
+              <Tag variant="warning" dot>
+                {t('communication_channels.push.status.expired', 'Push expired — re-register to resume delivery')}
+              </Tag>
+            )
+          }
           if (ps === 'active') {
             return (
               <Tag variant="success" dot>
@@ -534,7 +548,7 @@ export default function ProfileCommunicationChannelsPage() {
     (channel: ChannelRow) => {
       const items: RowActionItem[] = []
 
-      if (!channel.isPrimary) {
+      if (!channel.isPrimary && channel.status !== 'disconnected') {
         items.push({
           id: 'set-primary',
           label: t('communication_channels.profile.actions.setPrimary', 'Set as primary'),
@@ -561,8 +575,9 @@ export default function ProfileCommunicationChannelsPage() {
       }
 
       // Offered only when the adapter can register push AND it is not already
-      // active — re-registering a healthy subscription is a no-op.
-      if (channel.supportsPushRegistration && channel.pushStatus !== 'active') {
+      // active — re-registering a healthy subscription is a no-op. An expired
+      // subscription still stores 'active', so it is offered there too (#8943).
+      if (channel.supportsPushRegistration && (channel.pushStatus !== 'active' || channel.pushExpired)) {
         items.push({
           id: 'register-push',
           label: t('communication_channels.push.button.reregister', 'Re-register push'),

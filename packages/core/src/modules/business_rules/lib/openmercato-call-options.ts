@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   getApiRouteManifests,
   type ApiRouteManifestEntry,
@@ -10,6 +11,8 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { ApiKey } from '../../api_keys/data/entities'
 import { Role } from '../../auth/data/entities'
 import { Organization } from '../../directory/data/entities'
+import { assertActorCanGrantRoles } from '../../auth/lib/grantChecks'
+import type { RbacService } from '../../auth/services/rbacService'
 import {
   OPENMERCATO_CALL_METHODS,
   type OpenMercatoApiKeyOption,
@@ -20,6 +23,33 @@ import {
 export type OpenMercatoCallScope = {
   tenantId: string
   organizationId?: string | null
+}
+
+export type OpenMercatoCallTranslator = (
+  key: string,
+  fallback: string,
+  params?: Record<string, string | number>,
+) => string
+
+export type OpenMercatoCallGrantContext = {
+  rbacService: RbacService
+  actorId: string | null | undefined
+}
+
+export type OpenMercatoCallValidationOptions = {
+  grant?: OpenMercatoCallGrantContext
+  t?: OpenMercatoCallTranslator
+  grantCeilingOnly?: boolean
+}
+
+const RESERVED_API_KEY_NAME_PREFIXES = ['__onetime__', '__business_rule_', '__workflow_', '__session_']
+
+const fallbackTranslator: OpenMercatoCallTranslator = (_key, fallback, params) => {
+  if (!params) return fallback
+  return Object.entries(params).reduce(
+    (text, [name, value]) => text.split(`{{${name}}}`).join(String(value)),
+    fallback,
+  )
 }
 
 const METHOD_ORDER = new Map<string, number>(
@@ -191,9 +221,54 @@ export function findOpenMercatoEndpointOption(
   return options.find((option) => option.path === endpoint && option.method === normalizedMethod) ?? null
 }
 
+export function isSelectableOpenMercatoApiKeyProfile(key: Pick<
+  ApiKey,
+  'name' | 'sessionToken' | 'sessionUserId' | 'sessionSecretEncrypted' | 'opencodeSessionId'
+>): boolean {
+  if (key.sessionToken || key.sessionUserId || key.sessionSecretEncrypted || key.opencodeSessionId) return false
+  const name = typeof key.name === 'string' ? key.name : ''
+  return !RESERVED_API_KEY_NAME_PREFIXES.some((prefix) => name.startsWith(prefix))
+}
+
+function readApiKeyRoleIds(apiKey: Pick<ApiKey, 'rolesJson'>): string[] {
+  if (!Array.isArray(apiKey.rolesJson)) return []
+  return apiKey.rolesJson.filter((roleId): roleId is string => typeof roleId === 'string' && roleId.length > 0)
+}
+
+export async function canActorUseOpenMercatoApiKeyProfile(input: {
+  em: EntityManager
+  rbacService: RbacService
+  actorId: string | null | undefined
+  tenantId: string
+  organizationId?: string | null
+  apiKey: Pick<ApiKey, 'rolesJson'>
+}): Promise<boolean> {
+  if (!input.actorId) return false
+  const roleIds = Array.from(new Set(readApiKeyRoleIds(input.apiKey)))
+  if (roleIds.length === 0) return false
+  const roles = (await input.em.find(Role, { id: { $in: roleIds }, deletedAt: null })) as Role[]
+  if (roles.length !== roleIds.length) return false
+  try {
+    await assertActorCanGrantRoles({
+      em: input.em,
+      rbacService: input.rbacService,
+      actorUserId: input.actorId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId ?? null,
+      roles,
+      requireBoundRbac: true,
+    })
+    return true
+  } catch (error) {
+    if (isCrudHttpError(error) && error.status === 403) return false
+    throw error
+  }
+}
+
 export async function listOpenMercatoApiKeyOptions(
   em: EntityManager,
   scope: OpenMercatoCallScope,
+  grant?: OpenMercatoCallGrantContext,
 ): Promise<OpenMercatoApiKeyOption[]> {
   const filters: Record<string, any> = {
     tenantId: scope.tenantId,
@@ -205,7 +280,38 @@ export async function listOpenMercatoApiKeyOptions(
 
   const keys = (await em.find(ApiKey, filters, { orderBy: { name: 'asc' } })) as ApiKey[]
   const now = Date.now()
-  const activeKeys = keys.filter((key) => !key.expiresAt || key.expiresAt.getTime() > now)
+  const selectableKeys = keys.filter((key) => (
+    (!key.expiresAt || key.expiresAt.getTime() > now) && isSelectableOpenMercatoApiKeyProfile(key)
+  ))
+  const grantableRoleIds = new Map<string, boolean>()
+  const canGrantRole = async (roleId: string): Promise<boolean> => {
+    if (!grant) return true
+    const cached = grantableRoleIds.get(roleId)
+    if (cached !== undefined) return cached
+    const grantable = await canActorUseOpenMercatoApiKeyProfile({
+      em,
+      rbacService: grant.rbacService,
+      actorId: grant.actorId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+      apiKey: { rolesJson: [roleId] },
+    })
+    grantableRoleIds.set(roleId, grantable)
+    return grantable
+  }
+  const activeKeys: ApiKey[] = []
+  for (const key of selectableKeys) {
+    const keyRoleIds = readApiKeyRoleIds(key)
+    if (grant && keyRoleIds.length === 0) continue
+    let grantable = true
+    for (const roleId of keyRoleIds) {
+      if (!await canGrantRole(roleId)) {
+        grantable = false
+        break
+      }
+    }
+    if (grantable) activeKeys.push(key)
+  }
 
   const roleIds = new Set<string>()
   const organizationIds = new Set<string>()
@@ -257,6 +363,7 @@ export async function resolveOpenMercatoApiKeyProfile(
   const key = await em.findOne(ApiKey, filters)
   if (!key) return null
   if (key.expiresAt && key.expiresAt.getTime() <= Date.now()) return null
+  if (!isSelectableOpenMercatoApiKeyProfile(key)) return null
   return key
 }
 
@@ -265,31 +372,78 @@ export async function validateOpenMercatoCallActions(
   actions: unknown,
   scope: OpenMercatoCallScope,
   endpointOptions?: OpenMercatoEndpointOption[],
+  options: OpenMercatoCallValidationOptions = {},
 ): Promise<string[]> {
   if (!Array.isArray(actions) || actions.length === 0) return []
 
+  const translate = options.t ?? fallbackTranslator
   const errors: string[] = []
   let availableEndpointOptions = endpointOptions
   for (const [index, action] of actions.entries()) {
     if (!action || typeof action !== 'object') continue
     const typedAction = action as { type?: string; config?: Record<string, any> }
     if (typedAction.type !== 'CALL_OPEN_MERCATO') continue
-    availableEndpointOptions ??= await getCurrentOpenMercatoEndpointOptions()
 
     const config = typedAction.config ?? {}
     const endpoint = typeof config.endpoint === 'string' ? config.endpoint : ''
     const method = typeof config.method === 'string' ? config.method : ''
     const apiKeyId = typeof config.apiKeyId === 'string' ? config.apiKeyId : ''
+    const params = { index: index + 1 }
 
+    if (options.grantCeilingOnly) {
+      const storedApiKey = await resolveOpenMercatoApiKeyProfile(em, apiKeyId, scope)
+      if (storedApiKey && options.grant && readApiKeyRoleIds(storedApiKey).length > 0 && !await canActorUseOpenMercatoApiKeyProfile({
+        em,
+        rbacService: options.grant.rbacService,
+        actorId: options.grant.actorId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId ?? null,
+        apiKey: storedApiKey,
+      })) {
+        errors.push(translate(
+          'business_rules.errors.openMercatoCall.apiKeyRolesNotGrantable',
+          'Action {{index}}: you cannot use the selected API key profile because it has roles you cannot grant',
+          params,
+        ))
+      }
+      continue
+    }
+
+    availableEndpointOptions ??= await getCurrentOpenMercatoEndpointOptions()
     if (!findOpenMercatoEndpointOption(endpoint, method, availableEndpointOptions)) {
-      errors.push(`Action ${index + 1}: selected OpenMercato endpoint is not available`)
+      errors.push(translate(
+        'business_rules.errors.openMercatoCall.endpointUnavailable',
+        'Action {{index}}: selected OpenMercato endpoint is not available',
+        params,
+      ))
     }
 
     const apiKey = await resolveOpenMercatoApiKeyProfile(em, apiKeyId, scope)
     if (!apiKey) {
-      errors.push(`Action ${index + 1}: selected API key profile is not available`)
-    } else if (!Array.isArray(apiKey.rolesJson) || apiKey.rolesJson.length === 0) {
-      errors.push(`Action ${index + 1}: selected API key profile has no roles`)
+      errors.push(translate(
+        'business_rules.errors.openMercatoCall.apiKeyUnavailable',
+        'Action {{index}}: selected API key profile is not available',
+        params,
+      ))
+    } else if (readApiKeyRoleIds(apiKey).length === 0) {
+      errors.push(translate(
+        'business_rules.errors.openMercatoCall.apiKeyWithoutRoles',
+        'Action {{index}}: selected API key profile has no roles',
+        params,
+      ))
+    } else if (options.grant && !await canActorUseOpenMercatoApiKeyProfile({
+      em,
+      rbacService: options.grant.rbacService,
+      actorId: options.grant.actorId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+      apiKey,
+    })) {
+      errors.push(translate(
+        'business_rules.errors.openMercatoCall.apiKeyRolesNotGrantable',
+        'Action {{index}}: you cannot use the selected API key profile because it has roles you cannot grant',
+        params,
+      ))
     }
   }
 

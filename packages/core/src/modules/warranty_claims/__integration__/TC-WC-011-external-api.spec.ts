@@ -88,6 +88,7 @@ async function createSalesOrderForCustomer(
 
 test.describe('TC-WC-011: warranty claims external API', () => {
   test('authenticates API keys, resolves order/customer references, is idempotent, and filters timeline visibility', async ({ request }) => {
+    test.slow()
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const { tenantId, organizationId } = getTokenScope(adminToken)

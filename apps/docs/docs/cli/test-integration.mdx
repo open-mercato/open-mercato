@@ -37,6 +37,27 @@ yarn mercato test:integration:coverage
 yarn mercato test coverage
 ```
 
+## Configured test actors
+
+Native integration helpers read the following optional variables before tests load:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Superadmin | `OM_INIT_SUPERADMIN_EMAIL` | `OM_INIT_SUPERADMIN_PASSWORD` |
+| Admin | `OM_INIT_ADMIN_EMAIL` | `OM_INIT_ADMIN_PASSWORD` |
+| Employee | `OM_INIT_EMPLOYEE_EMAIL` | `OM_INIT_EMPLOYEE_PASSWORD` |
+
+Pass the credentials of the actors created in your disposable environment to the test process.
+These settings select existing actors; they do not change application passwords.
+Each field resolves independently: process environment first, then the existing
+`apps/mercato/.env` or root `.env` lookup. With no value, helpers retain the seeded
+role email (`<role>@acme.com`) and seeded password. Set the variables before starting
+Playwright because role defaults are captured when the helper module loads.
+
+Both browser `login(page, role)` and API `getAuthToken(request, role)` use these defaults.
+An explicit password argument to `getAuthToken` continues to take precedence.
+Keep secrets out of command history, test output, screenshots and committed files.
+
 ## Coverage command
 
 Use `yarn test:integration:coverage` to measure real Open Mercato runtime code coverage driven by integration tests.

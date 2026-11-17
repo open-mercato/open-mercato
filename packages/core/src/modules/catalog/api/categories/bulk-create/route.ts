@@ -38,7 +38,7 @@ export const openApi = {
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json(responseSchema.parse({
       ok: false,
       progressJobId: null,
@@ -62,7 +62,21 @@ export async function POST(req: Request) {
   const items = parsed.data.items
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope.selectedId ?? auth.orgId
+  if (scope.selectionRejected) {
+    return NextResponse.json(responseSchema.parse({
+      ok: false,
+      progressJobId: null,
+      message: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+    }), { status: 422 })
+  }
+  const organizationId = scope.selectedId
+  if (!organizationId) {
+    return NextResponse.json(responseSchema.parse({
+      ok: false,
+      progressJobId: null,
+      message: 'Organization context is required',
+    }), { status: 400 })
+  }
 
   const guardDecision = await runBulkCreateMutationGuards({
     container,

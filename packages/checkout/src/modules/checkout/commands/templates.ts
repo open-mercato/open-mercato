@@ -16,6 +16,7 @@ import {
   ensureGatewayProviderConfigured,
   type PaymentGatewayDescriptorService,
 } from '../lib/gatewayProviderAvailability'
+import { ensurePayerFieldsCollected } from '../lib/payerFieldRequirements'
 import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
@@ -111,6 +112,7 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
     validateDescriptorCurrencies(parsed.gatewayProviderKey, deriveConfiguredCurrencies(parsed))
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(parsed.gatewayProviderKey, descriptorService, scope)
+    ensurePayerFieldsCollected(parsed)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const template = em.create(CheckoutLinkTemplate, {
@@ -279,6 +281,11 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       resourceId: template.id,
       current: template.updatedAt ?? null,
       request: ctx.request ?? null,
+    })
+    ensurePayerFieldsCollected({
+      gatewayProviderKey: parsed.gatewayProviderKey !== undefined ? parsed.gatewayProviderKey : template.gatewayProviderKey,
+      collectCustomerDetails: parsed.collectCustomerDetails ?? template.collectCustomerDetails,
+      customerFieldsSchema: parsed.customerFieldsSchema ?? template.customerFieldsSchema,
     })
     const beforeCustom = await loadCustomFieldSnapshot(em, {
       entityId: CHECKOUT_ENTITY_IDS.template,

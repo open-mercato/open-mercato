@@ -7,10 +7,13 @@ describe('resolveLineDiscountDisplay', () => {
     expect(resolveLineDiscountDisplay({})).toBeNull()
   })
 
-  it('treats absent and zero alike, and ignores negative values', () => {
+  it('treats absent and zero alike, and preserves negative markup values', () => {
     expect(resolveLineDiscountDisplay({ discountAmount: undefined, discountPercent: undefined })).toBeNull()
     expect(resolveLineDiscountDisplay({ discountAmount: null, discountPercent: null })).toBeNull()
-    expect(resolveLineDiscountDisplay({ discountAmount: -5, discountPercent: -10 })).toBeNull()
+    expect(resolveLineDiscountDisplay({ discountAmount: -5, discountPercent: -10 })).toEqual({
+      amount: -5,
+      percent: null,
+    })
   })
 
   it('reads numeric strings, which is how the numeric columns arrive on some drivers', () => {

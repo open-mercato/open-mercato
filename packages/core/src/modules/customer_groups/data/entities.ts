@@ -1,5 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 
 export type CustomerGroupKind = 'b2c' | 'b2b' | 'internal' | 'partner'
 export type CustomerGroupMembershipSource = 'manual' | 'import' | 'rule' | 'onboarding'
@@ -229,6 +230,9 @@ export class CustomerGroupTerms {
 
   @Property({ name: 'min_order_value', type: 'numeric', precision: 16, scale: 2, nullable: true })
   minOrderValue?: string | null
+
+  @Property({ name: 'assortment_scope', type: 'jsonb', nullable: true })
+  assortmentScope?: AssortmentScope | null
 
   @Property({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
