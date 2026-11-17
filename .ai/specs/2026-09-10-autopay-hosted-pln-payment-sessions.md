@@ -497,6 +497,7 @@ Rollback disables new Autopay sessions; no migration rollback is required.
 | Refund | Mocked `transactionRefund`: full refund, partial refund, `TRANSACTION_TOO_OLD_TO_REFUND`, missing-balance rejection — asserting the adapter acknowledges without claiming a refund (payment `captured`, `refundedAmount` 0, `refundStatus: 'pending'`), and — through the real payment gateway service — that a replay of the same operation returns the recorded acknowledgment without a second provider call. |
 | Tenant scope | Two tenants use independent encrypted credentials. Through the real payment gateway service: a tenant cannot act on another tenant's payment, each tenant's requests are signed with its own Service ID and shared key, and a response signed with another tenant's key is rejected. The return route verifies the signature per candidate and fails closed on zero or several matches. |
 | Launch and return routes | Token validity, expiry, non-pending refusal, gateway-host allowlist, HTML escaping, no-store headers, rate limiting, redirect targets taken only from stored data, and the launch CSP kept identical in the app and template `next.config.ts`. |
+| Scheduled reconciliation (Playwright, `__integration__/TC-AUTOPAY-001..004`) | Against the running app with API-created tenant/organization fixtures, removed in `finally`, no seeded data. TC-AUTOPAY-001: the organization-created hook registers exactly one schedule per organization (`sourceModule: 'gateway_autopay'`, `targetQueue: 'gateway-autopay-status-poller'`, `targetPayload: { limit: 100 }`, interval `5m`, no acting-user stamp) and `mercato seed:defaults --module gateway_autopay` updates that row while keeping an operator-disabled schedule disabled. TC-AUTOPAY-002: one tick of the real local scheduler passes the module-authored dispatch guard and enqueues the trusted `payload.scope.{tenantId, organizationId}`; the worker polls only the `autopay` transaction, with a request signed by the tenant's key, and leaves a non-terminal mock-provider transaction in the same organization untouched. TC-AUTOPAY-003: a signed `SUCCESS` answer drives a pending payment to `captured` with exactly one poller transition log entry, and a terminal payment is not polled again. TC-AUTOPAY-004: HTTP 500 and a foreign-key-signed answer each leave the payment `pending` with a `payment_gateways.status_poll_failed` integration log entry, the next run retries, and a correctly signed answer then captures it. Autopay HTTP is answered by an in-process `fetch` stub with signed XML fixtures (`__tests__/support/autopay-xml.ts`); the Autopay client accepts only the two documented hosts, so TC-002..004 run only where the poller worker is drained in the Playwright process (`AUTO_SPAWN_WORKERS=false`, local queue strategy, no `OM_TEST_APP_ROOT`) and skip with that reason elsewhere. |
 | Integration E2E | Blocked on real sandbox credentials from Autopay partner onboarding (known, pre-existing, non-automatable blocker) — needed for the actual redirect path and a live `transactionStatus` round trip. |
 
 Acceptance for this spec's scope: all hash unit tests pass against the
@@ -672,6 +673,19 @@ would eventually plug into the generic webhook route) is explicitly deferred
 to a follow-up spec and does not block this spec's MVP scope.
 
 ## Changelog
+
+### 2026-11-17
+
+- Added Playwright integration coverage for the scheduled status
+  reconciliation (`__integration__/TC-AUTOPAY-001..004`), the follow-up the
+  review of the reconciliation PR asked for: schedule registration and
+  `seed:defaults` idempotency per organization, dispatch through the real
+  local scheduler with the trusted scope on the module-owned queue, a settled
+  payment reaching `captured` with one transition entry, and provider-error
+  isolation with retry on the next run. Autopay HTTP is stubbed in-process
+  with signed XML, so the dispatch, capture and retry specs run where the
+  poller worker is drained in the Playwright process and skip with a reason
+  elsewhere. Documented in the Testing Strategy table.
 
 ### 2026-11-12
 
