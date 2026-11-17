@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## `delegate_agent` only reaches the calling agent's declared sub-agents (#9648, B-13)
+
+**Behaviour change (enterprise `agent_orchestrator`).** `agent_orchestrator.delegate_agent` used to run any registered `research` agent without `subAgents`, whichever agent called it. It now resolves the calling agent server-side (the native run context, or the OpenCode run session) and runs the target only when that agent lists it in `subAgents`. A call that belongs to no agent run returns `{ ok: false, error: 'no_active_run' }`; a target the calling agent did not declare returns `{ ok: false, error: 'sub_agent_not_allowed' }`. Both are returned as data, like the existing refusals.
+
+**Action:** none for agents that delegate only to their declared `subAgents`. A client that called `delegate_agent` directly, outside an agent run (for example through `/api/ai_assistant/tools/execute` or an MCP client), must run the agent through its run route or an agent tool instead.
+
 ## File-defined agents declare governance in `GOVERNANCE.json` (#9648, B-3)
 
 **New (enterprise `agent_orchestrator`).** A file agent (`agents/<id>/`, also its sub-agents) can ship an optional `GOVERNANCE.json` with the `principal`, `integrity`, `untrustedInputs` and `modelSettings` keys `defineAgent` accepts. They are validated with the same parsers and enforced by the native runtime: principal provisioning and `toolAcl: 'intersect'`, output-integrity rules, untrusted-input screening and agent-level model settings. Agents without the file are unchanged, including their agent version.
