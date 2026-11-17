@@ -13,7 +13,7 @@ import {
   portalLogin,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import { cancelThenDeleteClaimIfPossible, createClaimFixture } from './helpers'
-import plDict from '../i18n/pl.json'
+import plDict from '../i18n/pl.json' with { type: 'json' }
 
 const portalBase = '/api/warranty_claims/portal'
 
