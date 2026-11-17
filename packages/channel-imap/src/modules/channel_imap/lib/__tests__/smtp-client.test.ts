@@ -118,6 +118,13 @@ describe('NodemailerClient.send — recipients refused by the server', () => {
   })
 
   it('reports no rejected recipients when the server accepts everyone', async () => {
+    sendMail.mockImplementationOnce(async () => ({
+      messageId: '<server@example.com>',
+      response: '250 OK',
+      accepted: ['good@example.com'],
+      rejected: [],
+    }))
+
     const result = await getSmtpClient().send(connection, {
       from: 'sender@example.com',
       to: ['good@example.com'],
@@ -125,7 +132,8 @@ describe('NodemailerClient.send — recipients refused by the server', () => {
       text: 'body',
     })
 
-    expect(result.rejected ?? []).toEqual([])
+    expect(result.accepted).toEqual(['good@example.com'])
+    expect(result.rejected).toEqual([])
   })
 
   it('still fails the send when the server rejects every recipient', async () => {
