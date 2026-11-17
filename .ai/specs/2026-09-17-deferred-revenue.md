@@ -441,7 +441,7 @@ independent implementations of the same pattern, not a shared library
     **Gating rule (added, 2026-10-15 review round; extended 2026-11-18).**
     Step 3 runs only when step 2 finished with `catchUpFailed = 0`
     **and** `catchUpSkipped = 0` **and** `blockedByCorrection = 0` (the
-    last term added by the correction-hold correction below). The first
+    last term is added by the correction-hold paragraph below). The first
     version let step 3 run after a skipped row: its "remaining schedule
     balance" then included the skipped row's amount, which moved it into
     the `stopDate` period — exactly the silent absorption step 2 says it
@@ -1195,7 +1195,7 @@ detection discussion.
   committed between those final reads and the outer commit is not seen,
   and that one final entry recognizes a stale amount. Closing it would
   need a `sales` event or a cross-module lock, both outside Phase 1's
-  coupling rules. **Severity: Low→Medium** (one posting, at most, per
+  coupling rules. **Severity: Medium** (one posting, at most, per
   affected deferral, and only under a genuinely concurrent correction).
   **Detection**: the same `correctionDetectedAt` flag and
   `blockedByCorrection` counts on the next `accrue`/`stop`, plus the
