@@ -1,8 +1,8 @@
 import { describe, it, expect } from '@jest/globals'
 import {
   buildExchangeRatePayload,
+  exchangeRateGroups,
   formatRateForDisplay,
-  metadataToFormValue,
   validateExchangeRateForm,
 } from '../exchangeRateFormConfig'
 
@@ -30,20 +30,19 @@ describe('exchange rate form config', () => {
     expect(() => validateExchangeRateForm({ ...baseValues, rate: 'abc' }, t)).toThrow()
   })
 
-  it('parses metadata JSON objects and treats blank as null', () => {
-    const withMetadata = validateExchangeRateForm({ ...baseValues, rate: '1', metadata: '{ "tableNo": "195/C" }' }, t)
-    expect(withMetadata.metadata).toEqual({ tableNo: '195/C' })
-    expect(validateExchangeRateForm({ ...baseValues, rate: '1', metadata: '  ' }, t).metadata).toBeNull()
+  it('does not send metadata from the form, so provider metadata is kept', () => {
+    const values = { ...baseValues, rate: '1', metadata: '{ "tableNo": "195/C" }' }
+    const payload = buildExchangeRatePayload(values, validateExchangeRateForm(values, t))
+    expect(payload).not.toHaveProperty('metadata')
   })
 
-  it('rejects metadata that is not a JSON object', () => {
-    expect(() => validateExchangeRateForm({ ...baseValues, rate: '1', metadata: '[1]' }, t)).toThrow()
-    expect(() => validateExchangeRateForm({ ...baseValues, rate: '1', metadata: '{ broken' }, t)).toThrow()
-  })
-
-  it('renders metadata for the form', () => {
-    expect(metadataToFormValue(null)).toBe('')
-    expect(metadataToFormValue({ a: 1 })).toBe('{\n  "a": 1\n}')
+  it('shows provider metadata read-only only when it exists', () => {
+    const fieldIds = (metadata?: Record<string, unknown> | null) =>
+      exchangeRateGroups(t, async () => [], metadata).flatMap((group) => (group.fields ?? []).map((field) => (typeof field === 'string' ? field : field.id)))
+    expect(fieldIds(null)).not.toContain('metadataDetails')
+    expect(fieldIds({})).not.toContain('metadataDetails')
+    expect(fieldIds({ tableNo: '195/C' })).toContain('metadataDetails')
+    expect(fieldIds({ tableNo: '195/C' })).not.toContain('metadata')
   })
 })
 

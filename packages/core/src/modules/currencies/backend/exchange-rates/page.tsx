@@ -180,7 +180,7 @@ export default function ExchangeRatesPage() {
         accessorKey: 'rate',
         header: t('exchangeRates.list.columns.rate'),
         cell: ({ row }) => (
-          <span className="font-mono">
+          <span className="block text-right font-mono tabular-nums">
             {formatRateForDisplay(row.original.rate)}
           </span>
         ),

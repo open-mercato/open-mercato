@@ -2,7 +2,7 @@ import type { CrudFormGroup, CrudFieldOption } from '@open-mercato/ui/backend/Cr
 import type { ApiCallResult } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { isExchangeRateMetadataWithinLimit } from '../data/validators'
+import { ExchangeRateInput, ExchangeRateMetadataList } from '../components/ExchangeRateFormFields'
 import { MIN_SIGNIFICANT_DIGITS, decimalToNumber, decimalToString, isDecimalInput, parseDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('currencies').child({ component: 'exchange-rate-form' })
@@ -47,7 +47,10 @@ export async function loadCurrencyOptions(
 export function exchangeRateGroups(
   t: (key: string) => string,
   loadOptions: (query?: string) => Promise<CrudFieldOption[]>,
+  metadata?: Record<string, unknown> | null,
 ): CrudFormGroup[] {
+  const rateLabel = t('exchangeRates.form.field.rate')
+  const hasMetadata = Boolean(metadata && Object.keys(metadata).length)
   return [
     {
       id: 'rate-details',
@@ -75,11 +78,10 @@ export function exchangeRateGroups(
         },
         {
           id: 'rate',
-          type: 'decimal',
-          label: t('exchangeRates.form.field.rate'),
-          placeholder: '1.0',
+          type: 'custom',
+          label: rateLabel,
           required: true,
-          description: t('exchangeRates.form.field.rateHelp'),
+          component: (props) => <ExchangeRateInput {...props} label={rateLabel} />,
         },
         {
           id: 'date',
@@ -120,14 +122,16 @@ export function exchangeRateGroups(
           type: 'checkbox',
           label: t('exchangeRates.form.field.isActive'),
         },
-        {
-          id: 'metadata',
-          type: 'textarea',
-          label: t('exchangeRates.form.field.metadata'),
-          placeholder: '{ "key": "value" }',
-          required: false,
-          description: t('exchangeRates.form.field.metadataHelp'),
-        },
+        ...(hasMetadata
+          ? [
+              {
+                id: 'metadataDetails',
+                type: 'custom' as const,
+                label: t('exchangeRates.form.field.providerDetails'),
+                component: () => <ExchangeRateMetadataList metadata={metadata as Record<string, unknown>} />,
+              },
+            ]
+          : []),
       ],
     },
   ]
@@ -141,7 +145,6 @@ export type ValidatedExchangeRateForm = {
   rateExact: string
   date: Date
   source: string
-  metadata: Record<string, unknown> | null
 }
 
 /** Input of {@link buildExchangeRatePayload}; the pre-exact shape (numeric `rate`, no metadata) is still accepted. */
@@ -153,32 +156,6 @@ export type ExchangeRatePayloadInput = {
   date: Date
   source: string
   metadata?: Record<string, unknown> | null
-}
-
-export function metadataToFormValue(metadata: Record<string, unknown> | null | undefined): string {
-  return metadata ? JSON.stringify(metadata, null, 2) : ''
-}
-
-function parseMetadataFormValue(value: unknown, t: (key: string) => string): Record<string, unknown> | null {
-  const text = typeof value === 'string' ? value.trim() : ''
-  if (!text) return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    parsed = undefined
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw createCrudFormError(t('exchangeRates.form.errors.invalidMetadata'), {
-      metadata: t('exchangeRates.form.errors.invalidMetadata'),
-    })
-  }
-  if (!isExchangeRateMetadataWithinLimit(parsed)) {
-    throw createCrudFormError(t('exchangeRates.form.errors.metadataTooLarge'), {
-      metadata: t('exchangeRates.form.errors.metadataTooLarge'),
-    })
-  }
-  return parsed as Record<string, unknown>
 }
 
 export function validateExchangeRateForm(
@@ -238,10 +215,8 @@ export function validateExchangeRateForm(
     })
   }
 
-  const metadata = parseMetadataFormValue(values.metadata, t)
-
   const rateExact = decimalToString(rawRate)
-  return { fromCode, toCode, rate: decimalToNumber(rateExact), rateExact, date, source, metadata }
+  return { fromCode, toCode, rate: decimalToNumber(rateExact), rateExact, date, source }
 }
 
 export function buildExchangeRatePayload(values: Record<string, unknown>, validated: ExchangeRatePayloadInput) {

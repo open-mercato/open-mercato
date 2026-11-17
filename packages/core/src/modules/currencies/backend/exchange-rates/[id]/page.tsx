@@ -15,7 +15,6 @@ import {
   exchangeRateGroups,
   validateExchangeRateForm,
   buildExchangeRatePayload,
-  metadataToFormValue,
 } from '../../../lib/exchangeRateFormConfig'
 
 /**
@@ -84,8 +83,8 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
   }, [params, t])
 
   const groups = React.useMemo(
-    () => exchangeRateGroups(t, loadOptions),
-    [t, loadOptions]
+    () => exchangeRateGroups(t, loadOptions, exchangeRate?.metadata),
+    [t, loadOptions, exchangeRate?.metadata]
   )
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
@@ -154,7 +153,6 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
             date: formatDateTimeLocal(new Date(exchangeRate.date)),
             source: exchangeRate.source || '',
             type: exchangeRate.type || '',
-            metadata: metadataToFormValue(exchangeRate.metadata),
             isActive: exchangeRate.isActive,
           }}
           submitLabel={t('exchangeRates.form.action.save')}

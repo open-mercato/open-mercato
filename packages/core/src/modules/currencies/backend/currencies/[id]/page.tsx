@@ -118,6 +118,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
             id: 'decimalPlaces',
             type: 'number',
             label: t('currencies.form.field.decimalPlaces'),
+            description: t('currencies.form.field.decimalPlacesHelp'),
             min: 0,
             max: MAX_CURRENCY_DECIMAL_PLACES,
           },

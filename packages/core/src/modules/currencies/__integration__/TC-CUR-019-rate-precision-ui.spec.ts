@@ -8,17 +8,18 @@ import {
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 type ExchangeRateListResponse = {
-  items?: Array<{ id: string; rate: string; metadata: Record<string, unknown> | null }>
+  items?: Array<{ id: string; rate: string; source: string | null; metadata: Record<string, unknown> | null }>
 }
 
 const PRECISE_RATE = '0.000000123456789012345678901234567891'
 
 /**
- * TC-CUR-019: the exchange-rate editor keeps every digit of a rate and saves edited metadata.
+ * TC-CUR-019: the exchange-rate editor keeps every digit of a rate, shows the direction as
+ * "1 FROM = rate TO" and shows provider metadata read-only, keeping it on save.
  * Source: .ai/specs/2026-10-08-arbitrary-precision-money-and-fx.md
  */
 test.describe('TC-CUR-019: exchange-rate editor precision round trip', () => {
-  test('shows every rate digit, saves edited metadata and keeps the rate exact', async ({ page, request }) => {
+  test('shows every rate digit, keeps provider metadata on save and keeps the rate exact', async ({ page, request }) => {
     test.setTimeout(120_000)
     const token = await getAuthToken(request, 'admin')
     const { organizationId, tenantId } = getTokenContext(token)
@@ -53,8 +54,13 @@ test.describe('TC-CUR-019: exchange-rate editor precision round trip', () => {
       const rateInput = page.getByLabel('Exchange Rate', { exact: false })
       await expect(rateInput).toHaveValue(PRECISE_RATE, { timeout: 30_000 })
 
-      const metadataInput = page.getByPlaceholder('{ "key": "value" }')
-      await metadataInput.fill(JSON.stringify({ tableNo: '002/A/NBP/2026', note: 'QA edited' }))
+      await expect(page.getByText(`1 ${from.code} =`, { exact: true })).toBeVisible()
+      await expect(page.getByText(to.code, { exact: true }).first()).toBeVisible()
+      await expect(page.getByPlaceholder('{ "key": "value" }')).toHaveCount(0)
+      await expect(page.getByText('001/A/NBP/2026', { exact: true })).toBeVisible()
+
+      const sourceInput = page.getByLabel('Source', { exact: false })
+      await sourceInput.fill('QA-Precision-UI-Edited')
       const saved = page.waitForResponse((response) =>
         response.request().method() === 'PUT' && new URL(response.url()).pathname === '/api/currencies/exchange-rates',
       )
@@ -64,7 +70,8 @@ test.describe('TC-CUR-019: exchange-rate editor precision round trip', () => {
       const readBack = await apiRequest(request, 'GET', `/api/currencies/exchange-rates?id=${rateId}`, { token })
       const item = (await readJsonSafe<ExchangeRateListResponse>(readBack))?.items?.[0]
       expect(item?.rate).toBe(PRECISE_RATE)
-      expect(item?.metadata).toEqual({ tableNo: '002/A/NBP/2026', note: 'QA edited' })
+      expect(item?.source).toBe('QA-Precision-UI-Edited')
+      expect(item?.metadata).toEqual({ tableNo: '001/A/NBP/2026' })
 
       await page.goto(`/backend/exchange-rates/${encodeURIComponent(rateId!)}`, { waitUntil: 'domcontentloaded' })
       await expect(rateInput).toHaveValue(PRECISE_RATE, { timeout: 30_000 })

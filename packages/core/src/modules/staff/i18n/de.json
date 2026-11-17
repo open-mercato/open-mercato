@@ -2395,5 +2395,5 @@
   "staff.timesheets.widgets.timeReporting.stopError": "Timer konnte nicht gestoppt werden",
   "staff.timesheets.widgets.timeReporting.taskNote": "Aufgabe / Notiz",
   "staff.timesheets.widgets.timeReporting.unknownProject": "Unbekanntes Projekt",
-  "staff.validation.nonNegativeAmount": "Erwartet wird ein nicht negativer Betrag."
+  "staff.validation.nonNegativeAmount": "Geben Sie einen gültigen Betrag ein."
 }
