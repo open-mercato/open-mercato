@@ -1,6 +1,8 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from '../lib/security-config'
+import { resolveMfaEnrollmentRedirect } from '../lib/enforcement-redirect'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 type JwtClaims = {
   sub: string
@@ -100,6 +102,32 @@ export const interceptors: ApiInterceptor[] = [
       } catch {
         return {}
       }
+    },
+  },
+  {
+    id: 'security.mfa.enrollment.api',
+    targetRoute: '*',
+    scope: 'request',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    priority: 100,
+    async before(request, context) {
+      const auth = context.auth
+      if (!auth || auth.isApiKey || auth.mfa_pending) return { ok: true }
+      const pathname = new URL(request.url).pathname.replace(/\/+$/, '')
+      if (
+        pathname === '/api/auth/login'
+        || pathname === '/api/auth/logout'
+        || pathname === '/api/auth/profile'
+        || pathname === '/api/security/profile'
+        || pathname === '/api/security/profile/password'
+        || pathname === '/api/security/mfa'
+        || pathname.startsWith('/api/security/mfa/')
+      ) return { ok: true }
+
+      const enrollmentRedirect = await resolveMfaEnrollmentRedirect({ auth, pathname, container: context.container, failClosed: true })
+      if (!enrollmentRedirect) return { ok: true }
+      const { t } = await resolveTranslations()
+      return { ok: false, statusCode: 403, message: t('security.profile.mfa.enforcement.notice.text') }
     },
   },
 ]
