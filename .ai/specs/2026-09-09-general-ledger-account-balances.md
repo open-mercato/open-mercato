@@ -740,6 +740,7 @@ wiring):
 - nullable UUID `parentAccountId` FK to `ledger_accounts.id` (`ON DELETE SET NULL`), `NULL` for a root, always the same `tenant_id`/`organization_id` as the child;
 - one migration adds the column plus `(organization_id, parent_account_id)`; no backfill is needed (every existing row is a root), and no data is rewritten;
 - the entity (`data/entities.ts`), `data/validators.ts`, `commands/ledgerAccounts.ts` and `api/accounts/route.ts` accept and validate it: the parent exists in the same tenant/organization, an account cannot be its own parent or a descendant of itself (write-time cycle prevention, in addition to the read-time CTE guard in Risks), and the parent is a syntetyk-eligible account of the same type/group;
+- every create, reparent, clear-parent, delete (including `ON DELETE SET NULL`), restore and undo path that can change the hierarchy acquires the same transaction-scoped PostgreSQL advisory lock keyed by the trusted tenant and organization **before** reading the parent/ancestor chain. Hold it through validation and commit or rollback; use the same transaction and a fresh post-lock read under `READ COMMITTED`. Per-account row or optimistic locks do not serialize opposing edits to different accounts. Lock-acquisition failure aborts the mutation; no hierarchy write bypasses this protocol;
 - reads and ordering use the account business key `number` (formerly `slug`); `description` is the display name;
 - additive-only and backward compatible: a nullable column with a `NULL` default plus a new index, no rename/remove/narrow of any #5663 surface (`BACKWARD_COMPATIBILITY.md` additive category).
 
@@ -794,12 +795,14 @@ year.
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `LedgerAccount` with that id in the caller's
   tenant/organization.
-- **Response 429**: per-user/per-organization report concurrency cap
-  reached (`Retry-After` set; Risks & Impact Review, "Availability
-  controls").
-- **Response 503**: the enforced report query deadline expired
-  (`{ error: 'report_timeout' }`); the query is aborted, not retried
-  server-side.
+- **Response 429**: a per-user or per-organization report rate or
+  concurrency budget is exhausted (`Retry-After` in seconds; Risks &
+  Impact Review, "Availability controls").
+- **Response 503**: the enforced query deadline expired
+  (`{ error: 'report_timeout' }`), or shared admission control is
+  unavailable (`{ error: 'report_admission_unavailable' }`). No report
+  query is admitted without a valid shared decision; neither failure is
+  retried server-side.
 
 ### `GET /api/ledger/reports/trial-balance`
 
@@ -823,12 +826,14 @@ year.
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `FiscalPeriod` with that id in the caller's
   tenant/organization.
-- **Response 429**: per-user/per-organization report concurrency cap
-  reached (`Retry-After` set; Risks & Impact Review, "Availability
-  controls").
-- **Response 503**: the enforced report query deadline expired
-  (`{ error: 'report_timeout' }`); the query is aborted, not retried
-  server-side.
+- **Response 429**: a per-user or per-organization report rate or
+  concurrency budget is exhausted (`Retry-After` in seconds; Risks &
+  Impact Review, "Availability controls").
+- **Response 503**: the enforced query deadline expired
+  (`{ error: 'report_timeout' }`), or shared admission control is
+  unavailable (`{ error: 'report_admission_unavailable' }`). No report
+  query is admitted without a valid shared decision; neither failure is
+  retried server-side.
 
 ## Internationalization (i18n)
 
@@ -899,7 +904,10 @@ top of the live query.
    `api/reports/trial-balance/route.ts`, both behind
    `ledger.reports.view`, both validating query params with zod
    (`asOf`, `periodId`; see API Contracts) before querying, both
-   exporting `openApi`.
+   exporting `openApi`; enforce both shared rate budgets, leased
+   concurrency admission and the query deadline described under
+   Availability controls. Provide and register a generic shared semaphore
+   through DI, and document the shared Redis prerequisite for these routes.
 6. Add the "Balance" panel to the existing `accounts/[id]/page.tsx`.
 7. Implement `backend/ledger/reports/trial-balance/page.tsx`
    (page-owned `apiCallOrThrow` loading plus `periodId`/`page`/`pageSize`
@@ -943,6 +951,7 @@ top of the live query.
 | `api/accounts/[id]/balance/route.ts` | Create | `GET .../balance`, `metadata` + `openApi` export |
 | `api/reports/trial-balance/route.ts` | Create | `GET .../trial-balance`, `metadata` + `openApi` export, `page`/`pageSize` pagination |
 | `api/openapi.ts` | Modify | Register the two new routes' schemas |
+| `packages/shared/src/lib/concurrency/` and DI registration | Create/Modify | Generic shared leased semaphore, coordinator wiring and tests; no ledger-specific shared helper |
 | `backend/ledger/accounts/[id]/page.tsx` | Modify | Add read-only Balance panel |
 | `backend/ledger/reports/trial-balance/page.tsx` | Create | ZSiO `DataTable` + period picker |
 | `backend/ledger/reports/trial-balance/page.meta.ts` | Create | Nav entry + icon, following existing `ledger` backend pages' convention |
@@ -1026,20 +1035,32 @@ top of the live query.
   Contracts).
 - Assert the balance route's `asOf` default (today) matches an
   explicit `asOf=<today's date>` call.
-- Late-entry regression across a month and a year boundary: post an
-  entry with `operationDate` on January 31 but `postedAt` on February 2,
-  then assert it is included in January's ZSiO (period and YTD) and
-  excluded from February's, matching #5663's journal membership
+- Late-entry month-boundary regression: post an entry with
+  `operationDate` January 31 and `postedAt` February 2. Assert January's
+  period and YTD turnover include it; February's period turnover excludes
+  it while February's opening balance, YTD turnover and closing balance
+  include it. Add a separate entry on a permanent balance-sheet account,
+  operated December 31
+  and posted January 2 (with no offsetting close): it belongs to
+  December turnover and January opening/closing, but not January period
+  or calendar-year YTD turnover. Match #5663's journal membership
   (Design decisions, "Every fiscal-period boundary here...").
 - Parent-column migration and validation: `parent_account_id` starts
   `NULL` for every existing account; `createLedgerAccount`/
   `updateLedgerAccount` accept a same-tenant parent, reject a
   cross-tenant parent, and reject a self/descendant parent (a cycle);
   the `(organization_id, parent_account_id)` index serves the CTE.
-- Availability: issue more concurrent report requests than the
-  per-user cap from one tenant and assert the excess receives `429`
-  while another tenant's request still completes; force a slow query
-  and assert the deadline returns `503` and releases the connection.
+  With two independent database connections, start with roots A and B,
+  concurrently attempt A under B and B under A, and assert at most one
+  commits and the persisted hierarchy remains acyclic. Cover relevant
+  undo/restore paths and transaction failure releasing the scoped lock.
+- Availability: exceed user and organization concurrency caps and rate
+  budgets across both routes and two instances; assert `429` and usable
+  `Retry-After`, no query for rejected requests, sustained load and
+  alternating routes cannot bypass limits, and another tenant progresses.
+  Cover window reset, burst boundaries, coordinator outage/missing shared
+  configuration (`503`), crash/abort slot release and a slow query
+  returning `503` and releasing its connection and admission slot.
 - Post a year-end `CLOSING` entry that zeroes a revenue account (debit
   equal to its full-year credit balance) and assert: the account's
   `getAccountBalance` as of period end is `0`; the ZSiO row's
@@ -1146,10 +1167,32 @@ or the balance panel.**
 capacity (security review, 2026-11-16).** Phase 1 keeps the live query
 (Design decisions, "Live query..."), so both routes enforce:
 
-- **Per-user and per-organization concurrency caps** on the two report
-  routes (default 2 concurrent report queries per user, 8 per
-  organization; a config value), returning `429 Too Many Requests` with
-  `Retry-After` when exceeded.
+- **Shared rate budgets** across both routes: fixed 60-second windows,
+  default 30 requests per authenticated user per organization and 120 per
+  organization, configurable by operators. Maximum burst is the full
+  window allowance; adjacent windows can admit two bursts back-to-back.
+  Keys include trusted tenant and organization IDs; user keys also include
+  the authenticated user ID. Both routes count against both budgets before
+  a report query runs. Exhaustion returns `429` and integer `Retry-After`
+  seconds until the exhausted window resets (at least 1).
+- **Per-user and per-organization concurrency caps** shared by both routes
+  (defaults: 2 per user, 8 per organization; configurable) also return
+  `429` with `Retry-After` when exhausted. Shared atomic admission spans
+  instances. Bounded leases outlive the query deadline, are released in
+  `finally` or expire after a crashed worker, and use owner tokens so an
+  expired lease cannot release a successor's slot. The lease must remain
+  valid throughout database execution: enforce the server-side statement
+  timeout below its expiry with a safety margin, renew while needed, and
+  cancel execution before expiry if renewal cannot be confirmed. Reject
+  before the query.
+- Use DI-provided `RateLimiterService` with `requireShared` and
+  `failClosed`, backed by a shared Redis deployment; per-process memory
+  cannot enforce this contract. Supply a DI-managed shared semaphore for
+  concurrency (the existing rate limiter is not a semaphore), without raw
+  Redis access from ledger. These two report routes require a healthy shared
+  coordinator even on one instance: an unavailable or missing coordinator
+  fails closed with `503 { error: 'report_admission_unavailable' }`. This
+  is not a prerequisite for unrelated ledger operations.
 - **An enforced query deadline** (a server-side statement timeout,
   default 5 s) that aborts the query and returns `503` with
   `{ error: 'report_timeout' }`; above the supported live-query budget
@@ -1158,10 +1201,9 @@ capacity (security review, 2026-11-16).** Phase 1 keeps the live query
 - **Documented budget** in both routes' `openApi` and their API
   Contracts (`429`/`503`), with the UI rendering the error state via
   `ErrorMessage` instead of a spinner.
-- **Load/timeout coverage**: a concurrency test issuing more than the
-  per-user cap from one tenant asserts the excess receives `429` while
-  another tenant's request still completes, and a forced-slow-query
-  test asserts the deadline returns `503` and releases the connection.
+- **Load/timeout coverage**: the two-instance, two-route sustained-rate,
+  concurrency, tenant-isolation, coordinator-failure and deadline tests
+  specified in Testing Strategy are required with the implementation.
 
 A fresh security review is required after this revision; the finding
 was raised by the security scan on the carried head and is inherited
@@ -1586,3 +1628,11 @@ Addressed the 2026-11-16 CHANGES REQUESTED review on the carried head:
 - **Medium — plan integration coverage for both UI paths** — Testing Strategy now requires self-contained Playwright scenarios for the trial-balance page (period change resets page, pagination, figures/badge from the same response, loading/error/empty, feature gating) and the account balance panel; they ship with the eventual implementation, not this design-only PR.
 
 The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and is not part of Phase 1.
+
+
+### 2026-11-17 - PR #9722 re-review response
+
+- Serialize all hierarchy-changing writes and undo paths with a scoped transaction lock before ancestor validation; require an opposing-reparent two-connection regression.
+- Define shared per-user and per-organization report rate windows and bursts, shared concurrency admission, fail-closed behavior and cross-instance sustained-load coverage. A fresh security review remains required.
+- Correct the late-entry assertions for February opening/YTD/closing and add a distinct December/January fixture.
+- The unrelated base lesson-count CI failure remains blocked on the separate correction in #9735; this design-only change does not claim CI has passed.
