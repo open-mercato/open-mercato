@@ -2,7 +2,7 @@
 
 Use this enterprise module to run **propose-only** AI agents: an agent always returns a typed, validated `AgentResult` (`research | proposal | artifact`), persists an `AgentRun` (+ an `AgentProposal` for proposal results), and never writes domain state directly — every write flows through `proposal → disposition → effector (command)`. `agentRuntime.run()` dispatches both runtimes through shared overlays.
 
-Specs: `.ai/specs/2026-06-22-opencode-file-defined-agents.md` and `.ai/specs/enterprise/agent-orchestrator/`. Offline native evals: `--record <dir>`, then `--replay <dir> --offline true`; see `apps/docs/docs/framework/ai-assistant/agent-eval-ci.mdx`.
+Specs: `.ai/specs/2026-06-22-opencode-file-defined-agents.md` and `.ai/specs/enterprise/agent-orchestrator/`. Offline native evals: `--record <dir>`, then `--replay <dir> --offline true`; hand-written per-case tool mocks (`cases[].mocks`, `lib/eval/toolMocks.ts`) answer before recordings and never stand in for a mutation; see `apps/docs/docs/framework/ai-assistant/agent-eval-ci.mdx`.
 
 ## Agent Taxonomy (spec `2026-08-11-agent-taxonomy.md`)
 

@@ -74,7 +74,8 @@ function renderOutcome(trial: EvalReportTrial, indent: string): string[] {
   const failures = failedResults(trial)
   if (trial.status === 'failed') {
     const keys = failures.map((result) => result.assertionKey)
-    const message = keys.length ? `Failed assertions: ${keys.join(', ')}` : 'Case failed'
+    const mockFailure = trial.error?.match(/mock_required_unused: [^\n]*/)?.[0] ?? null
+    const message = mockFailure ?? (keys.length ? `Failed assertions: ${keys.join(', ')}` : 'Case failed')
     const body = [trial.error, ...failures.map(describeResult)].filter((part): part is string => Boolean(part))
     return [
       `${indent}<failure${attributes([['message', message], ['type', 'assertion']])}>${body.length ? wrapCdata(body.join('\n\n')) : ''}</failure>`,

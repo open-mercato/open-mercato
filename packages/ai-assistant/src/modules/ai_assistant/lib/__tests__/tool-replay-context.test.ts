@@ -59,7 +59,9 @@ import {
   computeToolArgsKey,
   getToolReplayContext,
   withToolReplayContext,
+  type ToolReplayCall,
   type ToolReplayFixture,
+  type ToolReplayHitSource,
   type ToolReplayMiss,
 } from '../llm-adapters/tool-replay-context'
 
@@ -422,6 +424,120 @@ describe('tool replay seam', () => {
       )
       await expect(executable(result.tools, 'customers__list_people').execute({})).resolves.toBe('live')
       expect(handler).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('lookup hooks', () => {
+    const mockFixture = (call: ToolReplayCall, output: unknown): ToolReplayFixture => ({
+      toolName: call.toolName,
+      argsKey: call.argsKey,
+      args: call.args,
+      output,
+      error: null,
+      occurrence: call.occurrence,
+    })
+
+    it('answers from lookup before recorded fixtures in replay mode and reports the hit', async () => {
+      const handler = jest.fn(async () => 'live')
+      const hits: Array<{ toolName: string; source: ToolReplayHitSource }> = []
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people', handler })])
+      const output = await withToolReplayContext(
+        {
+          mode: 'replay',
+          fixtures: [fixture({ toolName: 'customers.list_people', args: { query: 'x' }, output: 'recorded' })],
+          match: 'strict',
+          onMiss: 'error',
+          lookup: (call) => mockFixture(call, 'mocked'),
+          observeHit: (call, source) => hits.push({ toolName: call.toolName, source }),
+        },
+        () => executable(result.tools, 'customers__list_people').execute({ query: 'x' }),
+      )
+      expect(output).toBe('mocked')
+      expect(handler).not.toHaveBeenCalled()
+      expect(hits).toEqual([{ toolName: 'customers.list_people', source: 'lookup' }])
+    })
+
+    it('reports a recorded fixture hit when lookup has no answer', async () => {
+      const hits: ToolReplayHitSource[] = []
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      const output = await withToolReplayContext(
+        {
+          mode: 'replay',
+          fixtures: [fixture({ toolName: 'customers.list_people', args: { query: 'x' }, output: 'recorded' })],
+          match: 'strict',
+          onMiss: 'error',
+          lookup: () => null,
+          observeHit: (_call, source) => hits.push(source),
+        },
+        () => executable(result.tools, 'customers__list_people').execute({ query: 'x' }),
+      )
+      expect(output).toBe('recorded')
+      expect(hits).toEqual(['fixture'])
+    })
+
+    it('answers from lookup in record mode without sending the call to the sink', async () => {
+      const handler = jest.fn(async () => 'live')
+      const recorded: ToolReplayFixture[] = []
+      const hits: ToolReplayHitSource[] = []
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people', handler })])
+      const outputs = await withToolReplayContext(
+        {
+          mode: 'record',
+          sink: (entry) => recorded.push(entry),
+          lookup: (call) => ((call.args as { query?: string }).query === 'mocked' ? mockFixture(call, 'from mock') : null),
+          observeHit: (_call, source) => hits.push(source),
+        },
+        async () => [
+          await executable(result.tools, 'customers__list_people').execute({ query: 'mocked' }),
+          await executable(result.tools, 'customers__list_people').execute({ query: 'live' }),
+        ],
+      )
+      expect(outputs[0]).toBe('from mock')
+      expect(outputs[1]).toBe('live')
+      expect(handler).toHaveBeenCalledTimes(1)
+      expect(hits).toEqual(['lookup'])
+      expect(recorded).toEqual([expect.objectContaining({ args: { query: 'live' }, output: 'live' })])
+    })
+
+    it('never consults lookup for a mutation call in either mode', async () => {
+      const lookup = jest.fn((call: ToolReplayCall) => mockFixture(call, 'mocked'))
+      const handler = jest.fn(async () => ({ ok: true }))
+      const result = await resolveWithTools(
+        [makeTool({ name: 'customers.update_person', isMutation: true, handler })],
+        { mutationPolicy: 'confirm-required' },
+      )
+      await withToolReplayContext({ mode: 'replay', fixtures: [], match: 'strict', onMiss: 'live', lookup }, async () => {
+        await expect(executable(result.tools, 'customers__update_person').execute({})).rejects.toMatchObject({
+          code: 'tool_replay_mutation_refused',
+        })
+      })
+      const recorded: ToolReplayFixture[] = []
+      await withToolReplayContext({ mode: 'record', sink: (entry) => recorded.push(entry), lookup }, async () => {
+        await executable(result.tools, 'customers__update_person').execute({})
+      })
+      expect(lookup).not.toHaveBeenCalled()
+      expect(handler).toHaveBeenCalledTimes(1)
+      expect(recorded).toEqual([expect.objectContaining({ toolName: 'customers.update_person' })])
+    })
+
+    it('treats a throwing lookup as no hit and ignores a throwing observeHit', async () => {
+      const result = await resolveWithTools([makeTool({ name: 'customers.list_people' })])
+      const output = await withToolReplayContext(
+        {
+          mode: 'replay',
+          fixtures: [fixture({ toolName: 'customers.list_people', args: {}, output: 'recorded' })],
+          match: 'strict',
+          onMiss: 'error',
+          lookup: () => {
+            throw new Error('broken lookup')
+          },
+          observeHit: () => {
+            throw new Error('broken observer')
+          },
+        },
+        () => executable(result.tools, 'customers__list_people').execute({}),
+      )
+      expect(output).toBe('recorded')
     })
   })
 })

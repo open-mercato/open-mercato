@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Eval cases may declare tool mocks (#9648, A-4)
+
+**Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
+
+**Action:** none. An older CLI rejects an eval-set file that uses `mocks` (the file schema is strict), so upgrade every CLI that runs such files.
+
 ## Trace content retention resumes from a cursor and can be scheduled for existing organizations (#9648, C-4)
 
 **Fixed (enterprise `agent_orchestrator`).** The daily `trace-content-retention` worker used to scan only rows created in the seven days before the retention cutoff, at most 10,000 per run. Content stayed in storage when the worker did not run for a week, when `retentionDays` was lowered, or when an organization produced more rows than one run could read. The worker now keeps a per-organization cursor (tenant-scoped module config rows `agent_orchestrator` / `trace_content_retention_cursor:<organizationId>:<llm_span|context_bundle>`; no migration) and walks every `llm` span and context bundle created before the cutoff, resuming where the previous run stopped. A failed delete, or a key that has not expired yet, holds the cursor so the next run retries it. The first run after the upgrade walks the whole history in batches over the following days and deletes content that the old window missed.

@@ -31,18 +31,32 @@ export type ToolReplayMiss = {
   resolution: 'error' | 'live'
 }
 
+export type ToolReplayHitSource = 'lookup' | 'fixture'
+
+/**
+ * Optional hooks shared by both context variants. `lookup` answers a call
+ * before recorded fixtures (replay) or before the live run (record); it is
+ * never consulted for an `isMutation` call. `observeHit` sees every call a
+ * `lookup` or a recorded fixture answered. Both are best-effort: a throwing
+ * `lookup` counts as no hit and a throwing `observeHit` is ignored.
+ */
+export type ToolReplayLookupHooks = {
+  lookup?: (call: ToolReplayCall) => ToolReplayFixture | null
+  observeHit?: (call: ToolReplayCall, source: ToolReplayHitSource) => void
+}
+
 export type ToolReplayContext =
-  | {
+  | ({
       mode: 'replay'
       fixtures: ToolReplayFixture[]
       match: 'strict' | 'ordered'
       onMiss: 'error' | 'live'
       observeMiss?: (miss: ToolReplayMiss) => void
-    }
-  | {
+    } & ToolReplayLookupHooks)
+  | ({
       mode: 'record'
       sink: (fixture: ToolReplayFixture) => void
-    }
+    } & ToolReplayLookupHooks)
 
 export type ToolReplayErrorCode = 'tool_fixture_missing' | 'tool_replay_mutation_refused'
 
@@ -145,6 +159,24 @@ function findFixture(
   )
 }
 
+function lookupFixture(context: ToolReplayContext, call: ToolReplayCall): ToolReplayFixture | null {
+  if (!context.lookup) return null
+  try {
+    return context.lookup(call) ?? null
+  } catch {
+    return null
+  }
+}
+
+function reportHit(context: ToolReplayContext, call: ToolReplayCall, source: ToolReplayHitSource): void {
+  if (!context.observeHit) return
+  try {
+    context.observeHit(call, source)
+  } catch {
+    return
+  }
+}
+
 function reportMiss(
   context: Extract<ToolReplayContext, { mode: 'replay' }>,
   call: ToolReplayCall,
@@ -185,6 +217,13 @@ export function resolveToolReplayDecision(input: {
   const call = claimCall(scope, input.toolName, input.args, input.toolCallId)
   const { context } = scope
   if (context.mode === 'record') {
+    if (!input.isMutation) {
+      const mocked = lookupFixture(context, call)
+      if (mocked) {
+        reportHit(context, call, 'lookup')
+        return { kind: 'replay', fixture: mocked }
+      }
+    }
     return { kind: 'record', call, sink: context.sink }
   }
   if (input.isMutation) {
@@ -195,8 +234,16 @@ export function resolveToolReplayDecision(input: {
       `[internal] tool_replay_mutation_refused: mutation tool "${input.toolName}" cannot run under tool replay`,
     )
   }
+  const mocked = lookupFixture(context, call)
+  if (mocked) {
+    reportHit(context, call, 'lookup')
+    return { kind: 'replay', fixture: mocked }
+  }
   const fixture = findFixture(context, call)
-  if (fixture) return { kind: 'replay', fixture }
+  if (fixture) {
+    reportHit(context, call, 'fixture')
+    return { kind: 'replay', fixture }
+  }
   if (context.onMiss === 'live') {
     reportMiss(context, call, 'fixture_missing', 'live')
     return { kind: 'miss_live', call }

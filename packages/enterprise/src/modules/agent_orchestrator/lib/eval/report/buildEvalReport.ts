@@ -19,6 +19,7 @@ import {
 import type { Json } from '../types'
 import { detectFlaky } from './flaky'
 import { readEvalRunCallSettings, readEvalRunToolMode, readEvalRunToolSummary } from '../evalRunSettings'
+import { MOCK_USAGE_TRUNCATED, readEvalRunMockSummary } from '../toolMocks'
 import { getAgentEntry } from '../../sdk/defineAgent'
 import {
   buildEnvironmentWarnings,
@@ -231,6 +232,7 @@ export async function buildEvalReport(
     }
   }
 
+  const mockSummary = readEvalRunMockSummary(suiteRun.summary)
   const buildTrial = (caseRun: AgentEvalCaseRun): EvalReportTrial => {
     const agentRunId = caseRun.agentRunId ?? null
     const trial: EvalReportTrial = {
@@ -249,6 +251,8 @@ export async function buildEvalReport(
         .map(buildResult),
     }
     if (includePayloads) trial.output = toJson(agentRunId ? runsById.get(agentRunId)?.output : null) ?? null
+    const mocks = mockSummary?.byCaseRun?.[caseRun.id]
+    if (mocks) trial.mocks = mocks
     return trial
   }
 
@@ -317,6 +321,7 @@ export async function buildEvalReport(
   const providers = providersOf(recordedLlmCalls)
   const toolSummary = readEvalRunToolSummary(suiteRun.summary)
   const environmentWarnings = buildEnvironmentWarnings(toolSummary)
+  if (mockSummary?.truncated) environmentWarnings.push(MOCK_USAGE_TRUNCATED)
   const countStatus = (target: AgentEvalCaseRun['status']) =>
     current.caseRuns.filter((entry) => entry.status === target).length
   const evalSetVersion = suiteRun.evalSetVersion ?? null
@@ -372,6 +377,9 @@ export async function buildEvalReport(
       gitSha: readString(env.GITHUB_SHA) ?? readString(env.OM_EVAL_GIT_SHA),
       cliVersion: options.cliVersion ?? null,
       ...(environmentWarnings.length ? { warnings: environmentWarnings } : {}),
+      ...(mockSummary
+        ? { mocks: { cases: mockSummary.totals.cases, requiredUnused: mockSummary.totals.requiredUnused } }
+        : {}),
     },
     totals: {
       cases: caseIds.length,

@@ -29,6 +29,24 @@ export const evalReportResultSchema = z.object({
   skipReason: z.string().nullable(),
 })
 
+const toolMockMatchSchema = z.enum(['strict', 'ordered', 'any'])
+
+/** Which hand-authored tool mocks a trial used; call args are never included (open the trace). */
+export const evalReportMockUsageSchema = z.object({
+  used: z.array(z.object({ id: z.string(), tool: z.string(), match: toolMockMatchSchema, calls: z.number().int().nonnegative() })),
+  unused: z.array(z.object({ id: z.string(), tool: z.string(), required: z.boolean() })),
+  unmatched: z.array(
+    z.object({
+      tool: z.string(),
+      argsKey: z.string(),
+      occurrence: z.number().int().nonnegative(),
+      toolCallId: z.string().nullable(),
+      resolution: z.enum(['fixture', 'live', 'error']),
+    }),
+  ),
+  unmatchedTruncated: z.boolean(),
+})
+
 export const evalReportTrialSchema = z.object({
   trialIndex: z.number().int().nonnegative(),
   caseRunId: z.string(),
@@ -41,6 +59,8 @@ export const evalReportTrialSchema = z.object({
   error: z.string().nullable(),
   output: jsonSchema.optional(),
   results: z.array(evalReportResultSchema),
+  /** Present only for trials whose case declared tool mocks. */
+  mocks: evalReportMockUsageSchema.optional(),
 })
 
 export const evalReportCaseSchema = z.object({
@@ -131,6 +151,8 @@ export const evalReportSchema = z.object({
     cliVersion: z.string().nullable(),
     /** Reproducibility caveats (e.g. summary-fidelity tool fixtures); absent when there are none. */
     warnings: z.array(z.string()).optional(),
+    /** Present only when cases of the run declared tool mocks. */
+    mocks: z.object({ cases: z.number().int().nonnegative(), requiredUnused: z.number().int().nonnegative() }).optional(),
   }),
   totals: z.object({
     cases: z.number().int().nonnegative(),
@@ -163,3 +185,4 @@ export type EvalReportAssertion = z.infer<typeof evalReportAssertionSchema>
 export type EvalReportCase = z.infer<typeof evalReportCaseSchema>
 export type EvalReportTrial = z.infer<typeof evalReportTrialSchema>
 export type EvalReportResult = z.infer<typeof evalReportResultSchema>
+export type EvalReportMockUsage = z.infer<typeof evalReportMockUsageSchema>

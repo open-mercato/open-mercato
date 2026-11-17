@@ -185,6 +185,21 @@ describe('agent_orchestrator.evalSets.import command', () => {
     expect(cases.find((row) => row.name === null)!.assertions).toBeNull()
   })
 
+  it('imports a file whose cases declare mocks without storing them on the cases', async () => {
+    const { em, storeFor } = createFakeEm()
+    const file = sampleFile()
+    ;(file.cases[1] as Record<string, unknown>).mocks = {
+      match: 'any',
+      tools: [{ tool: 'customers.search_companies', output: [], required: true }],
+    }
+    const result = await runImport(em, file)
+    expect(result.created).toEqual({ cases: 2, assertions: 2 })
+    for (const row of storeFor(AgentEvalCase)) {
+      expect(JSON.stringify(row)).not.toContain('customers.search_companies')
+      expect(row).not.toHaveProperty('mocks')
+    }
+  })
+
   it('is idempotent: re-importing the same file writes nothing', async () => {
     const { em, flush } = createFakeEm()
     await runImport(em, sampleFile())

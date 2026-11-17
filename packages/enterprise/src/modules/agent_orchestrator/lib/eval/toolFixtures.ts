@@ -368,7 +368,7 @@ export type EvalCliToolFixtureFlags = {
   onFixtureMiss?: string
   perTrial?: boolean
   fixturesFromRun?: string
-  casesFile?: { cases: ReadonlyArray<{ fixtures?: { tools?: string } | null }> } | null
+  casesFile?: { cases: ReadonlyArray<{ fixtures?: { tools?: string } | null; mocks?: unknown }> } | null
   evalSetDir?: string | null
 }
 
@@ -379,8 +379,8 @@ export type EvalCliToolFixtureResult =
 /**
  * Parses the eval CLI `--record`, `--replay`, `--on-fixture-miss` and
  * `--fixtures-from-run` flags. A `--cases` file whose cases reference
- * `fixtures.tools` replays those fixtures without `--replay`; cases without a
- * reference then run live and the suite reports `mixed`.
+ * `fixtures.tools` or declare `mocks` replays them without `--replay`; cases
+ * with neither then run live and the suite reports `mixed`.
  */
 export function parseEvalCliToolFixtureFlags(flags: EvalCliToolFixtureFlags): EvalCliToolFixtureResult {
   if (flags.record !== undefined && flags.replay !== undefined) {
@@ -405,10 +405,10 @@ export function parseEvalCliToolFixtureFlags(flags: EvalCliToolFixtureFlags): Ev
   const implicitReplay =
     flags.replay === undefined &&
     Boolean(flags.evalSetDir) &&
-    Boolean(flags.casesFile?.cases.some((entry) => Boolean(entry.fixtures?.tools)))
+    Boolean(flags.casesFile?.cases.some((entry) => Boolean(entry.fixtures?.tools) || Boolean(entry.mocks)))
   if (flags.replay === undefined && !implicitReplay) {
     if (flags.onFixtureMiss !== undefined) {
-      return { ok: false, message: '--on-fixture-miss requires --replay <dir> or a --cases file with fixtures.tools' }
+      return { ok: false, message: '--on-fixture-miss requires --replay <dir> or a --cases file with fixtures.tools or mocks' }
     }
     return { ok: true, options: null, recordDir: null, implicitReplay: false }
   }
