@@ -25,6 +25,8 @@ for (const features of [
     let organizationId: string | null = null
     let roleId: string | null = null
     let keyRoleId: string | null = null
+    let issuerRoleId: string | null = null
+    let issuerUserId: string | null = null
     let userId: string | null = null
     let policyId: string | null = null
     let keyId: string | null = null
@@ -37,12 +39,23 @@ for (const features of [
       await setRoleAclFeatures(request, adminToken, {
         roleId: keyRoleId, features: ['sales.*', 'dashboards.*'], organizations: [organizationId],
       })
+      const issuerRoleName = `${roleName}-issuer`
+      issuerRoleId = await createRoleFixture(request, adminToken, { name: issuerRoleName, tenantId })
+      await setRoleAclFeatures(request, adminToken, {
+        roleId: issuerRoleId, features: ['sales.*', 'dashboards.*', 'api_keys.create'], organizations: [organizationId],
+      })
+      const issuerEmail = `${issuerRoleName}@example.com`
+      issuerUserId = await createUserFixture(request, adminToken, {
+        email: issuerEmail, password, organizationId, roles: [issuerRoleName],
+      })
+      const issuerSession = await loginViaApi(request, issuerEmail, password)
+      expect(getTokenContext(issuerSession.token).organizationId).toBe(organizationId)
       userId = await createUserFixture(request, adminToken, { email, password, organizationId, roles: [roleName] })
       const session = await loginViaApi(request, email, password)
       expect(getTokenContext(session.token).organizationId).toBe(organizationId)
       const logoutSession = await loginViaApi(request, email, password)
       const key = await apiRequest(request, 'POST', '/api/api_keys/keys', {
-        token: session.token, data: { name: roleName, roles: [keyRoleId], organizationId },
+        token: issuerSession.token, data: { name: roleName, roles: [keyRoleId], organizationId },
       })
       expect(key.status()).toBe(201)
       const keyBody = await readJsonSafe<{ id: string; secret: string }>(key)
@@ -58,7 +71,9 @@ for (const features of [
 
       await withCredentialIsolatedRequest(async (isolated) => {
         const cookie = { cookie: `auth_token=${encodeURIComponent(session.token)}` }
+        const issuerCookie = { cookie: `auth_token=${encodeURIComponent(issuerSession.token)}` }
         expect((await isolated.get(READ_PATH, { headers: cookie })).status()).toBe(200)
+        expect((await isolated.get(READ_PATH, { headers: issuerCookie })).status()).toBe(200)
         expect((await isolated.post(CUSTOM_WRITE_PATH, { headers: cookie, data: {} })).status()).toBe(400)
 
         const overdue = await apiRequest(request, 'PUT', `/api/security/enforcement/${policyId}`, {
@@ -80,6 +95,7 @@ for (const features of [
         })).status()).toBe(200)
 
         await withCredentialIsolatedRequest(async (keyRequest) => {
+          expect((await keyRequest.get(READ_PATH, { headers: issuerCookie })).status()).toBe(403)
           expect((await keyRequest.get(READ_PATH, { headers: { 'x-api-key': keyBody!.secret } })).status()).toBe(200)
         })
 
@@ -113,6 +129,8 @@ for (const features of [
       if (quoteId) await removeFixture(`/api/sales/quotes?id=${quoteId}`, { headers: scopedHeaders })
       if (keyId) await removeFixture(`/api/api_keys/keys?id=${keyId}`, { headers: scopedHeaders })
       if (userId) await removeFixture(`/api/auth/users?id=${userId}`)
+      if (issuerUserId) await removeFixture(`/api/auth/users?id=${issuerUserId}`)
+      if (issuerRoleId) await removeFixture(`/api/auth/roles?id=${issuerRoleId}`)
       if (keyRoleId) await removeFixture(`/api/auth/roles?id=${keyRoleId}`)
       if (roleId) await removeFixture(`/api/auth/roles?id=${roleId}`)
       if (organizationId) await removeFixture('/api/directory/organizations', { data: { id: organizationId } })
