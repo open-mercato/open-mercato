@@ -1164,14 +1164,10 @@ describe('ingestInboundMessageCommand — provider-native conversations are isol
 
   type CreatedRow = { entity: unknown; data: Record<string, unknown> }
 
-  function makeCtx(): {
-    ctx: Parameters<typeof ingestInboundMessageCommand.execute>[1]
-    commandBus: { execute: jest.Mock }
-    created: CreatedRow[]
-  } {
+  function makeCtx(adapter: Record<string, unknown>) {
     const created: CreatedRow[] = []
-    const em: any = {
-      create: jest.fn((entity: unknown, data: Record<string, any>) => {
+    const em = {
+      create: jest.fn((entity: unknown, data: Record<string, unknown>) => {
         const row = { id: '550e8400-e29b-41d4-a716-446655440099', ...data }
         created.push({ entity, data: row })
         return row
@@ -1179,8 +1175,9 @@ describe('ingestInboundMessageCommand — provider-native conversations are isol
       persist: jest.fn(),
       flush: jest.fn().mockResolvedValue(undefined),
       getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+      fork: jest.fn(),
     }
-    em.fork = () => em
+    em.fork.mockReturnValue(em)
     // Compose mirrors real `messages.messages.compose`: a given `parentMessageId`
     // keeps the message (and therefore the new mapping) on that existing
     // thread; no parent opens a brand-new thread.
@@ -1198,20 +1195,14 @@ describe('ingestInboundMessageCommand — provider-native conversations are isol
           resolve: (name: string) => {
             if (name === 'em') return em
             if (name === 'commandBus') return commandBus
+            if (name === 'channelAdapterRegistry') return { get: () => adapter }
             return null
           },
         },
-      } as any,
+      } as unknown as Parameters<typeof ingestInboundMessageCommand.execute>[1],
       commandBus,
       created,
     }
-  }
-
-  function withAdapter(ctx: ReturnType<typeof makeCtx>['ctx'], adapter: Record<string, unknown>) {
-    const container = (ctx as any).container
-    const baseResolve = container.resolve
-    container.resolve = (name: string) => (name === 'channelAdapterRegistry' ? { get: () => adapter } : baseResolve(name))
-    return ctx
   }
 
   function primeLookups(): void {
@@ -1264,17 +1255,16 @@ describe('ingestInboundMessageCommand — provider-native conversations are isol
       confidence: 'high',
     })
     primeLookups()
-    const { ctx, commandBus, created } = makeCtx()
-    withAdapter(ctx, { providerKey: 'discord', capabilities: { recipientFormat: 'provider-native' } })
+    const { ctx, commandBus, created } = makeCtx({ providerKey: 'discord', capabilities: { recipientFormat: 'provider-native' } })
 
     await ingestInboundMessageCommand.execute(betaInput() as never, ctx)
 
     expect(mockMatchThread).not.toHaveBeenCalled()
 
-    const composeCall = commandBus.execute.mock.calls.find((call: unknown[]) => call[0] === 'messages.messages.compose')
+    const composeCall = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'messages.messages.compose')
     expect(composeCall).toBeDefined()
-    const composeInput = (composeCall as any[])[1].input as Record<string, unknown>
-    expect(composeInput.parentMessageId).toBeUndefined()
+    const composeInput = composeCall?.[1].input
+    expect(composeInput?.parentMessageId).toBeUndefined()
 
     const mapping = created.find((row) => 'messageThreadId' in row.data)
     expect(mapping?.data.messageThreadId).toBe(FRESH_THREAD_ID)
@@ -1288,8 +1278,7 @@ describe('ingestInboundMessageCommand — provider-native conversations are isol
       confidence: 'high',
     })
     primeLookups()
-    const { ctx, commandBus, created } = makeCtx()
-    withAdapter(ctx, { providerKey: 'gmail', capabilities: {} })
+    const { ctx, commandBus, created } = makeCtx({ providerKey: 'gmail', capabilities: {} })
 
     await ingestInboundMessageCommand.execute(
       { ...betaInput(), providerKey: 'gmail', channelType: 'email' } as never,
@@ -1298,9 +1287,10 @@ describe('ingestInboundMessageCommand — provider-native conversations are isol
 
     expect(mockMatchThread).toHaveBeenCalledTimes(1)
 
-    const composeCall = commandBus.execute.mock.calls.find((call: unknown[]) => call[0] === 'messages.messages.compose')
-    const composeInput = (composeCall as any[])[1].input as Record<string, unknown>
-    expect(composeInput.parentMessageId).toBe(HIJACKED_THREAD_ID)
+    const composeCall = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'messages.messages.compose')
+    expect(composeCall).toBeDefined()
+    const composeInput = composeCall?.[1].input
+    expect(composeInput?.parentMessageId).toBe(HIJACKED_THREAD_ID)
 
     const mapping = created.find((row) => 'messageThreadId' in row.data)
     expect(mapping?.data.messageThreadId).toBe(HIJACKED_THREAD_ID)
