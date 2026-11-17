@@ -10,6 +10,11 @@ ledger, every fact the model judges is pinned to `mergedAt`, impact bonuses and 
 fully specified, and the Phase 3 ledger has a named enumeration call, a payee unit and one
 counted verdict per PR.
 
+Revision 3 (2026-11-17) makes the ledger's cross-run state executable: an append-only monthly
+projection register carries `headRefOid` and late bookings, the fetcher's normative call list
+gains the closing-issue reference source, and the corpus/label agreement split between PR CI and
+the owner-run agreement script is stated explicitly.
+
 ## 📝 TLDR
 
 A certified partner runs one skill against their own **merged** PR and gets a WIC verdict:
@@ -29,7 +34,7 @@ auto-trusted only after measured agreement with a corpus of ratified verdicts.
 | Unit of invocation | One merged PR per skill run, partner-invoked, self-service |
 | Unit of record | One merged PR; monthly totals are a projection, not an input |
 | Judgment surface | Exactly one 4-way base classification; everything else is computed |
-| Payment gate | A Core Team 👍 on the verdict comment, then a ledger run for the merge month |
+| Payment gate | A Core Team 👍 on the verdict comment, then a ledger run in the month the verdict is **ratified** — a late ratification books in its ratification month with `lateOf: "<merge month>"` |
 | Artifacts | `.ai/skills/om-wic-score/` (skill, rubric, fetcher), `scripts/wic/` (ledger, booked list) |
 | Non-goals | Acceptance-signal mining, unmerged-PR credit, org-wide date-windowed scanning, a second partner registry |
 
@@ -42,10 +47,10 @@ auto-trusted only after measured agreement with a corpus of ratified verdicts.
 | Q3 | One spec or two (per-PR verdict skill vs monthly ledger projection)? | **One spec, phased.** Verdict skill is Phase 1–2; ledger projection is Phase 3. | The ledger is the sole consumer of the verdict JSON schema; splitting would put producer and consumer in different specs. |
 | Q4 | Does the skill post the verdict comment itself, or print it for manual paste? | **Skill posts via the partner's own `gh` auth**; on posting failure it prints the comment body and exits non-zero so the partner can paste manually. | One less manual step, same authorship, graceful degradation. |
 | Q5 | What counts as ratification? | A 👍 (`content: "+1"`) reaction on the verdict comment **from a member of the `@open-mercato/core-team` team**, verified through the team-membership API, whose login is neither the PR author nor the verdict-comment author. | GitHub reactions carry only `user`, `content` and `created_at` — no `author_association` — so the team membership is the only queryable authority. Naming Core Team (not `@core-partners`) is what makes self-ratification impossible: partners are in the partners team, not the Core Team. |
-| Q6 | Where does the skill live? | `.ai/skills/om-wic-score/` in `open-mercato/open-mercato`, listed in the `analysis` tier of `.ai/skills/tiers.json` — the same home and tier as `om-gap-analysis` (matgren's in-session direction). | Precedent: repo-local analysis skills live under `.ai/skills/` with the `om-` prefix. |
+| Q6 | Where does the skill live? | `.ai/skills/om-wic-score/` in `open-mercato/open-mercato`, listed in the `analysis` tier of `.ai/skills/tiers.json` — the same home and tier as `om-wcag-guardian` (matgren's in-session direction). | Precedent: repo-local analysis skills live under `.ai/skills/` with the `om-` prefix, and `om-wcag-guardian` is the `analysis` tier's only current member (`om-gap-analysis` moved to the shared external set in #7694). |
 | Q7 | Does issue-reporter credit require the reporter to be a certified partner? | Credit is **emitted** for any reporter, but the monthly ledger only **counts** verdicts and credits for accounts listed in `.github/certified-partners.yml`. | Keeps the per-PR skill mechanical; identity filtering is a ledger concern, one place. |
 | Q8 | Who ratifies, and can they ratify their own verdict? | Ratifiers are `@open-mercato/core-team` members only. A ratifier's login MUST differ from both the PR author and the verdict-comment author. Verified with `GET /orgs/open-mercato/teams/core-team/memberships/{username}` (200 = member, 404 = not). | Direct answer to review finding "the ratification signal cannot be queried as written" and to the self-ratification hole. |
-| Q9 | Payee unit — company or login? | **Company.** The ledger joins logins to the company entry in `.github/certified-partners.yml` and applies the monthly small-items cap per company, not per login. | The registry lists 23 companies and 12 of them hold several logins (up to six); a per-login cap would pay one company several times the intended ceiling. |
+| Q9 | Payee unit — company or login? | **Company.** The ledger joins logins to the company entry in `.github/certified-partners.yml` and applies the monthly small-items cap per company, not per login. | The registry at this base holds 22 companies, 16 of them with several logins (54 logins, up to six per company); a per-login cap would pay one company several times the intended ceiling. The counts are a snapshot — the rule, not the number, is normative |
 | Q10 | Does the impact bonus apply to a base-0 PR? | **No.** Bonuses are granted only when `baseClass.points > 0`. | Prevents a routine dependency bump from collecting 0.5 while the rubric says routine maintenance is worth 0.0. |
 | Q11 | Repository scope for the ledger | An explicit allowlist (`scripts/wic/repos.json`), re-validated at runtime as public and non-archived. | Bounds the monthly scan to the 14 current partner repos instead of an org-wide date-windowed scan. |
 
@@ -114,11 +119,13 @@ Three layers, deliberately separated by what they can compute:
    ledger is the only component that interprets it, and it re-derives everything mechanical
    before paying.
 3. **Ledger projection** (`scripts/wic/wic_month.mjs`, Phase 3) — owner-side monthly sum over an
-   explicit repo allowlist: enumerate merged PRs in the merge-month window, verify each verdict
-   comment and its ratification, drop the judged field's claim when it disagrees with a fresh
-   fetch, filter authors against `certified-partners.yml`, apply the company-scoped small-items
-   cap, the supersede rule and the head-SHA dedupe, and flag merged partner PRs missing
-   verdicts.
+   explicit repo allowlist: enumerate merged PRs in the merge-month window plus verdict comments
+   ratified in the run month, verify each verdict comment and its ratification, drop the judged
+   field's claim when it disagrees with a fresh fetch, filter the **booked** author against
+   `certified-partners.yml` (for a supersede booking that is the superseded PR's author, and a
+   superseded author who is not in the registry books nothing — the declaring author books nothing
+   for that PR either), apply the company-scoped small-items cap, the supersede rule and the
+   head-SHA dedupe, and flag merged partner PRs missing verdicts.
 
 What is reused: `gh` CLI auth, `.github/certified-partners.yml`, the org's `@core-team` team as
 the ratifier set, the partner comment-flow grammar (comment → check → reaction), `.ai/skills/`
@@ -175,6 +182,17 @@ and are not part of the PR author's per-PR score.
 - **Head-SHA dedupe** — a booking is keyed by `(repo, headRefOid)`; when the same head SHA reaches
   two long-lived bases of the same repo (the release-line backport pattern) it books once. Two
   different PRs that reuse a branch name have different head SHAs and both book.
+- **Cross-run projection register** — `scripts/wic/projections/<YYYY-MM>/<YYYYMMDDTHHMMSSZ>.json`,
+  one immutable file per ledger run, written atomically (`temp + mv`) and never rewritten. Each
+  file holds the run's entries `{repo, prNumber, headRefOid, booked, payoutMonth, lateOf}` plus
+  its totals, and the run's stdout diff is computed against the newest earlier file in the same
+  month directory. This register is the ledger's only cross-run state: it supplies the
+  `headRefOid` that makes the head-SHA dedupe work across months and the `lateOf` marker that
+  records a verdict booked outside its merge month.
+- **Dedupe winner** — when two entries collide on the dedupe key (same head SHA, or two PRs
+  closing one issue), the earliest merge wins; a tie on the merge timestamp goes to the lower PR
+  number. The losing entry is listed in `exceptions[]` and pays nothing, so a month's totals never
+  depend on enumeration order.
 
 ### Rubric v2 (summary — full text lives in `references/wic-rubric.md`)
 
@@ -196,10 +214,13 @@ thresholds are literal constants; on hesitation between two classes, take the lo
   still be justified by the paths, line counts and excerpt that are present, and hesitation takes
   the lower class.
 
-Determinism is enforced by a replay test, not by prose exhortation: the mechanical fields (gates,
-impact, credits, supersede, score arithmetic) must be byte-identical across three runs, and
-`baseClass` must match the corpus case's expected label in all three runs — self-consistency alone
-proves nothing about a judged field.
+Determinism is enforced by two different checks, split by who can run them. The **PR CI replay
+test** asserts only the mechanical fields (gates, impact, credits, supersede, score arithmetic),
+byte-identical across three runs, with no model credential involved. The **owner-run agreement
+script** (Implementation Plan step 10) is what compares `baseClass` to the corpus case's expected
+label and reports the agreement rate — self-consistency alone proves nothing about a judged field,
+and a label comparison in CI would either repeat the stored label or need a model CI does not
+have.
 
 ## 📝 Data Models
 
@@ -268,8 +289,12 @@ Uses only: `gh api repos/{o}/{r}` (visibility/archived/default branch),
 `gh api repos/{o}/{r}/pulls/{n}` (PR facts incl. `merged_at`, `base`, `head`, `body`, `title`),
 `gh api repos/{o}/{r}/pulls/{N}` (one read per PR named in a `Supersedes #N` line, for its state
 and author), `gh api repos/{o}/{r}/pulls/{n}/files --paginate` (paths, counts, patches),
-`gh api repos/{o}/{r}/issues/{i}` (one read per closing issue, for its reporter),
-and `gh api graphql` for `pullRequest.lastEditedAt`. It does not use the search API.
+`gh api repos/{o}/{r}/issues/{i}` (one read per closing issue, for its reporter; this read covers
+entries from both `source` values), and one `gh api graphql` query for
+`pullRequest.lastEditedAt` and `pullRequest.closingIssuesReferences` —
+`closingIssuesReferences` is the `closing-refs` half of `closingIssues[]` and is not present on the
+REST pull object, so the GraphQL query (or `gh pr view --json closingIssuesReferences`) is
+normative, not optional. It does not use the search API.
 
 **Verdict comment** — one comment, two parts, posted by the partner's account:
 - Human bullets: score; base class + rubric-row citation and the excerpt evidence it rests on;
@@ -283,12 +308,15 @@ and `gh api graphql` for `pullRequest.lastEditedAt`. It does not use the search 
 **Ratification** (consumed by the ledger only). The ledger run needs a token that can read
 organization teams (`read:org`, or the fine-grained "Members" organization permission), because
 team membership is not visible on a reaction object:
-1. List reactions with `GET /repos/{o}/{r}/issues/comments/{comment_id}/reactions`; keep
-   `content == "+1"`, ordered by `created_at`, earliest first.
+1. List reactions with
+   `GET /repos/{o}/{r}/issues/comments/{comment_id}/reactions?per_page=100` and follow the
+   `Link` pagination; keep `content == "+1"`, ordered by `created_at`, earliest first.
 2. Read the comment with `GET /repos/{o}/{r}/issues/comments/{comment_id}`; its `updated_at` is
    the last edit time.
 3. For each reactor, resolve membership with
-   `GET /orgs/open-mercato/teams/core-team/memberships/{username}` (200 = ratifier, 404 = not).
+   `GET /orgs/open-mercato/teams/core-team/memberships/{username}` — count it only when the
+   response is 200 **and** its `state` is `"active"`; a pending invitation also returns 200, and
+   404 means not a member.
 4. Drop reactors whose login equals the PR author or the verdict comment's author.
 5. Drop the reaction when the comment's `updated_at` is later than the reaction's `created_at`;
    the ledger then recomputes and flags instead of paying.
@@ -300,12 +328,29 @@ team membership is not visible on a reaction object:
 - **Repos** — `scripts/wic/repos.json` (allowlist, see the appendix). Each run re-validates every
   entry as public and non-archived; a repo that fails the check is reported and skipped, never
   silently dropped.
-- **Enumeration** — per repo,
-  `gh api "repos/{o}/{r}/pulls?state=closed&sort=updated&direction=desc&per_page=100"` page by
-  page. Keep PRs with `merged_at` inside the month window and a long-lived `base.ref`. Stop
-  paging a repo once an entire page has `updated_at` earlier than the window start; hard-fail
-  after 50 pages. The repo allowlist plus the stop rule bound the scan; the search API is not
-  used, so the 1000-result ceiling cannot truncate a month.
+- **Enumeration** — three passes, all hard-failing rather than shrinking the month:
+  1. **Merged PRs** — per repo,
+     `gh api "repos/{o}/{r}/pulls?state=closed&sort=updated&direction=desc&per_page=100"` page by
+     page. Keep PRs with `merged_at` inside the month window and a long-lived `base.ref`. Stop
+     paging a repo once an entire page has `updated_at` earlier than the window start; hard-fail
+     after 50 pages.
+  2. **Late ratifications** — the same repo allowlist queried for verdict comments created or
+     reacted to inside the run month
+     (`gh api "repos/{o}/{r}/issues/comments?since=<month start>&per_page=100"` page by page, plus
+     the `issues/comments/{id}/reactions` reads the ratification check already makes). A comment
+     whose ratification time falls in the run month but whose PR merged earlier is a late booking:
+     it is verified like any other verdict and paid this month with `lateOf: "<merge month>"`.
+     This is the discovery path the merge-month window alone cannot provide.
+  3. **Register replay** — every earlier projection file under `scripts/wic/projections/` is read
+     so the entries already booked and their `headRefOid` values are known before anything is
+     paid; the diff printed for the month is against the newest earlier file in that month's
+     directory.
+  The repo allowlist plus the stop rule bound the scan; the search API is not used, so the
+  1000-result ceiling cannot truncate a month.
+- **Cross-month dedupe** — head-SHA and issue dedupe consult the projection register, so the same
+  `(repo, headRefOid)` booked in an earlier month is not booked again in this one. The winner rule
+  is the Definitions tie-break (earliest merge, then lowest PR number); the loser is listed in
+  `exceptions[]`.
 - **Hard-error rules, same as the fetcher** — three retries with backoff on 403/429, then a
   non-zero exit with the error; no partial output (`temp + mv`); a page that cannot be fetched
   fails the whole run rather than producing a smaller month.
@@ -323,11 +368,16 @@ team membership is not visible on a reaction object:
 - **Output** — a table keyed `company, login, repo, pr, base, impact, score, credits, booked,
   lateOf, exceptions[]`, plus totals per company. `--dry-run` prints it without writing.
 - **Provisional vs final** — a run for month M is *provisional* until `--as-of` is later than the
-  end of M + 30 days. A later run may only add entries (a late-ratified verdict books in the
-  month of its ratification with `lateOf: "<merge month>"`), and prints the diff against the
-  previous projection. Nothing is ever rewritten.
+  end of M + 30 days. A later run may only add entries — a late-ratified verdict books in the
+  month of its ratification with `lateOf: "<merge month>"` and is discovered by enumeration pass 2
+  — and prints the diff against the newest earlier projection file in
+  `scripts/wic/projections/<YYYY-MM>/`. Nothing is ever rewritten: each run writes one new
+  immutable projection file, and the register (Definitions → Cross-run projection register) is the
+  only state carried between runs.
 - **Backfill** — `scripts/wic/booked.json` holds `{repo, prNumber, bookedAt, reason}` entries and
-  `BOOKING_START` (default `2026-10-01`). Nothing merged before `BOOKING_START` books, so the
+  `BOOKING_START` (default `2026-10-01`). It records the one-off owner-supplied pre-`BOOKING_START`
+  list; ongoing cross-month state lives in the projection register, not here. Nothing merged
+  before `BOOKING_START` books, so the
   March/April 2026 pilot months cannot double-count without a list of their PRs; the owner may
   supply that list later (see Risks).
 
@@ -400,7 +450,9 @@ team membership is not visible on a reaction object:
 3. Write `SKILL.md`: workflow fetch → classify → render → post; verdict JSON schema (with
    `model`, `rubricVersion`, `promptVersion`); human-bullets template; posting fallback.
    *Test: end-to-end dry run on one merged PR, `--no-post`.*
-4. Add `om-wic-score` to the `analysis` tier in `.ai/skills/tiers.json`. *Test: schema validates.*
+4. Add `om-wic-score` to the `analysis` tier in `.ai/skills/tiers.json` and broaden that tier's
+   description beyond "Draft accessibility review (WCAG 2.2 AA)". *Test: schema validates; the
+   description names both skills.*
 
 **Phase 2**
 5. Freeze the bootstrap corpus under `scripts/test/corpus/`: gate cases M1–M5 and M10–M13,
@@ -409,19 +461,24 @@ team membership is not visible on a reaction object:
    fact JSON paired with an expected verdict labeled by the program owner, plus the ledger-layer cases L1–L7. *Test: corpus files are
    canonical fact JSONs with expected verdicts.*
 6. Add the mechanical replay test at `scripts/__tests__/wic-score-replay.test.mjs` so
-   `yarn test:scripts` picks it up: for each corpus case, three scoring runs — mechanical fields
-   byte-identical, `baseClass` equal to the expected label every run. *Test: the test itself;
-   seed one deliberate mismatch to see it fail.*
+   `yarn test:scripts` picks it up: for each corpus case, three scoring runs must produce
+   byte-identical mechanical fields. The test asserts no `baseClass` label match — that comparison
+   needs a model and belongs to the owner-run agreement script in step 10 — it only checks that
+   `baseClass` is self-consistent across the three runs and well-formed (a rubric row id and a
+   points value from the allowed set). *Test: the test itself; seed one deliberate mechanical
+   drift to see it fail.*
 7. Document the ratification contract in `SKILL.md` (Q5/Q8 rule, the six verification steps) and
    the corpus-growth loop (each ratified verdict may be added as a labeled case). *Test: doc
    review.*
 
 **Phase 3**
-8. Implement `scripts/wic/wic_month.mjs` (allowlist + re-validation, bounded enumeration, hard
-   errors, per-verdict recomputation, company payee unit, cap, head-SHA dedupe, supersede
-   booking, one-verdict rule, late verdicts, sweep, provisional/final). *Test: fixture month with
-   a capped small-items pile, a backport pair, a superseded PR, a flagged tampered verdict and one
-   missing verdict; expected totals asserted.*
+8. Implement `scripts/wic/wic_month.mjs` (allowlist + re-validation, the three enumeration passes,
+   hard errors, per-verdict recomputation, company payee unit, cap, register-backed head-SHA
+   dedupe with the tie-break winner, supersede booking, one-verdict rule, late verdicts via
+   `lateOf`, the immutable projection register, sweep, provisional/final). *Test: fixture month
+   with a capped small-items pile, a backport pair, a superseded PR, a flagged tampered verdict, a
+   late-ratified verdict from an earlier month, a register entry that already booked the same
+   `headRefOid`, and one missing verdict; expected totals asserted.*
 9. Seed `scripts/wic/booked.json` and `BOOKING_START`; backfill only if the owner supplies the
    March/April 2026 PR list. *Test: re-running the month over pre-`BOOKING_START` PRs books
    nothing.*
@@ -446,7 +503,8 @@ team membership is not visible on a reaction object:
 | CI replay test is buildable and CI-runnable | Implementation Plan step 6 (`scripts/__tests__/`), step 10 (owner-run agreement) |
 | Required spec sections and risk structure | This section; Risks table with severity/area/mitigation/residual |
 | Backfill has a source | API Contracts → Backfill, Implementation Plan step 9 |
-| Ledger names its enumeration call, payee unit, one-verdict rule, late verdicts | API Contracts → Ledger CLI |
+| Ledger names its enumeration call, payee unit, one-verdict rule, late verdicts | API Contracts → Ledger CLI (three enumeration passes), Definitions (register, dedupe winner) |
+| Cross-run state is executable (late bookings, cross-month dedupe, projection diff) | Definitions → Cross-run projection register; Ledger CLI → Late ratifications, Cross-month dedupe, Provisional vs final |
 | English-only companion briefs, no local paths | `briefs/2026-09-01-wic-fix-plan-input.md` translated; `~/Documents/OM` and session ids removed |
 | No protected contract surface touched | No code, schema, API, event or generated file changes |
 
@@ -457,6 +515,7 @@ team membership is not visible on a reaction object:
 | 2026-09-01 | Initial spec (`wic-verdict-1` shape): per-PR verdict, gates, rubric v2.0, phased ledger |
 | 2026-10-22 | Review of head `5e3eb6be`: carried-forward work, develop-merge issue credit, body editability, ratification queryability, post-ratification edits, bonus definition, issue-credit dedupe, head dedupe collisions, ledger enumeration/payee/late verdicts, CI replay placement, missing sections, backfill source |
 | 2026-11-14 | Revision 2: Q5 ratification rewritten to the `@core-team` membership check (Q8); ledger verification/recompute and the comment-edit rule; `bodySha`/`bodyEditedAfterMerge`/bounded diff excerpts; package-unit and test-path definitions; base-0 bonus suppression (Q10); issue-credit self-deal and `(repo, issueNumber)` dedupe; `headRepositoryOwner`/`headRefOid` dedupe; supersede booking; ledger enumeration via the repo allowlist (Q11), company payee unit (Q9), one-verdict rule, late verdicts, provisional/final; replay test moved to `scripts/__tests__/`; Overview, Final Compliance Report and this changelog added; Polish companion brief translated |
+| 2026-11-17 | Revision 3: append-only monthly projection register (`scripts/wic/projections/<YYYY-MM>/<stamp>.json`) as the ledger's only cross-run state, with a late-ratification enumeration pass, register-backed cross-month head-SHA dedupe and a stated tie-break winner; fetcher call list gains `closingIssuesReferences` as the normative `closing-refs` source; ratification requires `state: "active"` membership and paginated reactions; PR CI replay asserts mechanical fields only while the owner-run agreement script owns the label comparison; Q6 re-cites `om-wcag-guardian` and step 4 broadens the `analysis` tier description; Q9 registry counts refreshed to this base; supersede bookings filter the booked author against the registry |
 
 ## 📎 Appendix — Repository allowlist (`scripts/wic/repos.json`)
 
