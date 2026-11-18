@@ -5,6 +5,7 @@
   "payment_gateways.errors.sessionAmountMismatch": "Kwota sesji płatności {amount} nie zgadza się z kwotą do zapłaty dla zamówienia {orderId}",
   "payment_gateways.errors.sessionCurrencyMismatch": "Waluta sesji płatności {currencyCode} nie zgadza się z walutą zamówienia {orderId}",
   "payment_gateways.errors.sessionOrderNotFound": "Nie znaleziono zamówienia {orderId} w bieżącym zakresie",
+  "payment_gateways.errors.transactionNotFound": "Nie znaleziono transakcji",
   "payment_gateways.feature.capture": "Przechwytywanie autoryzowanych płatności",
   "payment_gateways.feature.manage": "Zarządzanie sesjami płatności",
   "payment_gateways.feature.refund": "Zwroty przechwyconych płatności",

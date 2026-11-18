@@ -3,6 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { captureSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
@@ -57,10 +58,20 @@ export async function POST(req: Request) {
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
 
   try {
+    const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+    const transaction = await service.findTransaction(parsed.data.transactionId, scope)
+    if (!transaction) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        { error: translate('payment_gateways.errors.transactionNotFound', 'Transaction not found') },
+        { status: 404 },
+      )
+    }
+
     const result = await service.capturePayment(
       parsed.data.transactionId,
       parsed.data.amount,
-      { organizationId: auth.orgId as string, tenantId: auth.tenantId },
+      scope,
       parsed.data.operationId,
     )
     await runPaymentGatewayMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
@@ -92,6 +103,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Payment captured' },
+        { status: 404, description: 'Transaction not found' },
         { status: 409, description: 'Invalid payment status transition, cumulative capture ceiling exceeded, or conflicting capture operation' },
         { status: 422, description: 'Invalid payload' },
         { status: 502, description: 'Gateway provider error' },
