@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createPersonFixture,
   deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { createSalesQuoteFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   clearCapturedSystemEmails,
@@ -73,12 +74,26 @@ test.describe('TC-SALES-EMAIL-001: Sales emails use system channel', () => {
       expect(update.status(), `quote update response: ${JSON.stringify(updateBody)}`).toBe(200)
       expect(updateBody?.contactEmail).toBe(customerEmail)
 
+      const detailUrl = `/api/sales/quotes?id=${quoteId}`
+      const beforeSend = await apiRequest(request, 'GET', detailUrl, { token })
+      expect(beforeSend.status()).toBe(200)
+      const beforeBody = await readJsonSafe<{ items: Array<{ updatedAt: string }> }>(beforeSend)
+      expect(beforeBody?.items[0]?.updatedAt).toBeTruthy()
+
       const send = await apiRequest(request, 'POST', '/api/sales/quotes/send', {
         token,
         data: { quoteId, validForDays: 14 },
       })
       expect(send.status(), `quote send response: ${JSON.stringify(await readJsonSafe(send))}`).toBe(200)
 
+      const afterSend = await apiRequest(request, 'GET', detailUrl, { token })
+      expect(afterSend.status()).toBe(200)
+      expect(afterSend.headers()['x-om-cache']).not.toBe('hit')
+      const afterBody = await readJsonSafe<{ items: Array<{ status: string; updatedAt: string; validUntil: string }> }>(afterSend)
+      const sentQuote = afterBody?.items[0]
+      expect(sentQuote?.status).toBe('sent')
+      expect(sentQuote?.updatedAt).not.toBe(beforeBody?.items[0]?.updatedAt)
+      expect(new Date(sentQuote!.validUntil).getTime()).toBeGreaterThan(Date.now() + 13 * 86400000)
       const quoteEmail = await waitForCapturedSystemEmail(
         request,
         token,
@@ -118,3 +133,90 @@ test.describe('TC-SALES-EMAIL-001: Sales emails use system channel', () => {
     }
   })
 })
+
+
+test('a warmed quote detail can be edited with the version returned after sending', async ({ request }) => {
+  const token = await getAuthToken(request, 'admin')
+  test.skip(!await isChannelSeedingAvailable(request, token), 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
+  await seedSystemEmailChannel(request, token)
+  const quoteId = await createSalesQuoteFixture(request, token)
+  try {
+    const prepare = await apiRequest(request, 'PUT', '/api/sales/quotes', {
+      token, data: { id: quoteId, metadata: { customerEmail: `quote-refresh-${quoteId}@example.test` } },
+    })
+    expect(prepare.status()).toBe(200)
+    const detailUrl = `/api/sales/quotes?id=${quoteId}`
+    const before = await apiRequest(request, 'GET', detailUrl, { token })
+    expect(before.status()).toBe(200)
+    const send = await apiRequest(request, 'POST', '/api/sales/quotes/send', {
+      token, data: { quoteId, validForDays: 30 },
+    })
+    expect(send.status()).toBe(200)
+    const refreshed = await apiRequest(request, 'GET', detailUrl, { token })
+    expect(refreshed.status()).toBe(200)
+    expect(refreshed.headers()['x-om-cache']).not.toBe('hit')
+    const body = await readJsonSafe<{ items: Array<{ status: string; updatedAt: string }> }>(refreshed)
+    expect(body?.items[0]?.status).toBe('sent')
+    expect(body?.items[0]?.updatedAt).toBeTruthy()
+    const edit = await apiRequest(request, 'PUT', '/api/sales/quotes', {
+      token,
+      headers: { 'x-om-ext-optimistic-lock-expected-updated-at': body!.items[0].updatedAt },
+      data: { id: quoteId, externalReference: `sent-${quoteId}` },
+    })
+    expect(edit.status()).toBe(200)
+  } finally {
+    await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+  }
+})
+
+for (const emailFailed of [false, true]) {
+  test(`quote detail refreshes the committed version before resending (simulated delivery failure: ${emailFailed})`, async ({ page, request }, testInfo) => {
+    const token = await getAuthToken(request, 'admin')
+    test.skip(!await isChannelSeedingAvailable(request, token), 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
+    await seedSystemEmailChannel(request, token)
+    const quoteId = await createSalesQuoteFixture(request, token)
+    try {
+      const prepare = await apiRequest(request, 'PUT', '/api/sales/quotes', {
+        token, data: { id: quoteId, metadata: { customerEmail: `quote-ui-${quoteId}@example.test` } },
+      })
+      expect(prepare.status()).toBe(200)
+      if (emailFailed) await page.setViewportSize({ width: 390, height: 844 })
+      await login(page, 'admin')
+      await page.goto(`/backend/sales/quotes/${quoteId}`)
+      let sends = 0
+      await page.route('**/api/sales/quotes/send', async (route) => {
+        const response = await route.fetch()
+        expect(response.status()).toBe(200)
+        sends += 1
+        if (emailFailed && sends === 1) {
+          await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ quoteSent: true, error: 'Simulated postcommit delivery failure' }) })
+        } else {
+          await route.fulfill({ response })
+        }
+      })
+      const openSend = async () => {
+        const actions = page.getByRole('button', { name: 'Actions', exact: true })
+        await actions.focus()
+        await actions.press('Enter')
+        await page.getByRole('menuitem', { name: 'Send to customer' }).click()
+        await expect(page.getByRole('dialog')).toBeVisible()
+      }
+      await openSend()
+      await page.getByRole('button', { name: 'Send quote', exact: true }).click()
+      await expect(page.getByRole('dialog')).toBeHidden()
+      await expect(page.getByText(emailFailed ? 'Quote marked as sent, but the email could not be delivered.' : 'Quote sent.', { exact: true })).toBeVisible()
+      const refreshed = await apiRequest(request, 'GET', `/api/sales/quotes?id=${quoteId}`, { token })
+      const body = await readJsonSafe<{ items: Array<{ updatedAt: string; status: string }> }>(refreshed)
+      expect(body?.items[0].status).toBe('sent')
+      await openSend()
+      const nextSend = page.waitForRequest((sent) => sent.url().endsWith('/api/sales/quotes/send') && sent.method() === 'POST')
+      await page.getByRole('button', { name: 'Send quote', exact: true }).click()
+      expect((await nextSend).headers()['x-om-ext-optimistic-lock-expected-updated-at']).toBe(body?.items[0].updatedAt)
+      await expect(page.getByRole('dialog')).toBeHidden()
+      expect(sends).toBe(2)
+      await page.screenshot({ path: testInfo.outputPath(`quote-send-${emailFailed ? 'delivery-failed' : 'success'}.png`), fullPage: true })
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+    }
+  })
+}

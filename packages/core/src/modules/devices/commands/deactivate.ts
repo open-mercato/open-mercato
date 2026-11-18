@@ -1,10 +1,12 @@
+import { createHash } from 'node:crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { assertFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, assertFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { UserDevice } from '../data/entities'
@@ -19,7 +21,7 @@ import {
   type DeviceUndoPayload,
 } from './shared'
 
-const deactivateDeviceCommand: CommandHandler<DeactivateDeviceCommandInput, { id: string }> = {
+const deactivateDeviceCommand: CommandHandler<DeactivateDeviceCommandInput, { id: string; deactivated?: boolean }> = {
   id: 'devices.user_devices.deactivate',
   async prepare(rawInput, ctx) {
     const parsed = deactivateDeviceCommandSchema.parse(rawInput)
@@ -38,22 +40,28 @@ const deactivateDeviceCommand: CommandHandler<DeactivateDeviceCommandInput, { id
   async execute(rawInput, ctx) {
     const parsed = deactivateDeviceCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    // Scope the load to the caller's tenant (mirroring `prepare`) instead of loading by id alone — a
-    // bare id lookup would let a cross-tenant id resolve a row before the post-load tenant check runs.
-    const device = assertFound(
-      await findOneWithDecryption(em, UserDevice, { id: parsed.id, tenantId: parsed.tenantId, deletedAt: null }),
-      'Device not found',
-    )
-    ensureTenantScope(ctx, device.tenantId)
-    // Enforce the ORGANIZATION scope the caller handed us instead of leaving it unread. Without this the
-    // org context threaded through the push "unregister null-org" path — and any org-scoped admin
-    // dispatch — is silently ignored, so a caller scoped to org A could deactivate an org-B device in
-    // the same tenant. Guard on a non-null org: tenant-scoped devices (org = null) have nothing to
-    // constrain, and the system/worker path passes `selectedOrganizationId = device.organizationId`,
-    // which `ensureOrganizationScope` accepts.
-    if (device.organizationId) ensureOrganizationScope(ctx, device.organizationId)
-
-    await withAtomicFlush(em, [() => { device.deletedAt = new Date() }], { transaction: true })
+    ensureTenantScope(ctx, parsed.tenantId)
+    const device = await em.transactional(async (transaction) => {
+      const current = await findOneWithDecryption(
+        transaction, UserDevice,
+        { id: parsed.id, tenantId: parsed.tenantId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!current && parsed.expectedPushToken) return null
+      const device = assertFound(current, 'Device not found')
+      if (device.organizationId) ensureOrganizationScope(ctx, device.organizationId)
+      if (parsed.expectedPushToken) {
+        if (device.userId !== parsed.userId || device.organizationId !== (parsed.organizationId ?? null)) {
+          throw new CrudHttpError(403, { error: '[internal] Device scope mismatch' })
+        }
+        const tokenHash = createHash('sha256').update(device.pushToken ?? '').digest('hex')
+        if (tokenHash !== parsed.expectedPushToken.hash ||
+            (device.pushTokenUpdatedAt?.getTime() ?? null) !== (parsed.expectedPushToken.updatedAt?.getTime() ?? null)) return null
+      }
+      await withAtomicFlush(transaction, [() => { device.deletedAt = new Date() }])
+      return device
+    })
+    if (!device) return { id: parsed.id, deactivated: false }
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -80,9 +88,10 @@ const deactivateDeviceCommand: CommandHandler<DeactivateDeviceCommandInput, { id
       { persistent: true },
     )
 
-    return { id: device.id }
+    return parsed.expectedPushToken ? { id: device.id, deactivated: true } : { id: device.id }
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ snapshots, result }) => {
+    if (result.deactivated === false) return null
     const before = (snapshots.before as DeviceSnapshot | undefined) ?? null
     if (!before) return null
     return {

@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { UniqueConstraintViolationException, type LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
@@ -96,12 +96,13 @@ export async function loadExistingDevice(
   // organizationId is part of the device identity (a null value matches IS NULL, mirroring the
   // coalesce(...) bucket in the unique index), so a device is looked up per (tenant, org, user, device).
   scope: { tenantId: string; organizationId: string | null; userId: string; deviceId: string },
+  options?: { lockMode: LockMode },
 ): Promise<UserDevice | null> {
   // push_token is encrypted at rest; decrypt on read so snapshots/undo payloads keep the plaintext.
   const dscope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
-  const active = await findOneWithDecryption(em, UserDevice, { ...scope, deletedAt: null }, undefined, dscope)
+  const active = await findOneWithDecryption(em, UserDevice, { ...scope, deletedAt: null }, options, dscope)
   if (active) return active
-  return findOneWithDecryption(em, UserDevice, scope, { orderBy: { createdAt: 'desc' } }, dscope)
+  return findOneWithDecryption(em, UserDevice, scope, { ...options, orderBy: { createdAt: 'desc' } }, dscope)
 }
 
 // Postgres SQLSTATE for unique_violation. MikroORM doesn't re-export pg error codes, so name it here.

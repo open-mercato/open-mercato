@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 189 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 190 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -254,3 +254,4 @@ This catalog indexes 189 focused lessons. Route the task first, then read only r
 
 - [Resolve script entrypoints through symlinks](lessons/resolve-script-entrypoints-through-symlinks.md) — area:debugging,testing; module:starter,create_app; topic:symlinks,script-entrypoints,encryption,setup
 - [Handle timestamp ties when filtering undone price history](lessons/catalog-history-undo-timestamp-ties.md) — area:module-data,testing; module:catalog; topic:undo-redo,data-integrity,timestamp-ordering
+- [Worktree validation requires a complete dependency install](lessons/worktree-validation-requires-complete-dependency-install.md) — area:testing,debugging; module:cli,shared; topic:worktrees,package-runtime,validation

@@ -26,6 +26,14 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
 
+function reportQuoteSendError(error: unknown, code: 'sales.quote_email_failed' | 'sales.quote_send_failed'): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'sales', code })
+  } catch (reportFailure) {
+    logger.warn('sales.quotes.send.reportFailed', { err: reportFailure })
+  }
+}
+
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sales.quotes.manage'] },
 }
@@ -318,9 +326,19 @@ export async function POST(req: Request) {
         tenantId: quote.tenantId,
         organizationId: quote.organizationId,
       })
-    } finally {
+    } catch (err) {
+      logger.error('sales.quotes.send email failed', { err })
+      reportQuoteSendError(err, 'sales.quote_email_failed')
       await listCacheFlush
+      // The send state is committed, so guard bookkeeping must still run even though delivery failed.
+      await guardResult.runAfterSuccess()
+      return NextResponse.json({
+        error: translate('sales.quotes.send.emailFailed', 'Quote marked as sent, but the email could not be delivered.'),
+        quoteSent: true,
+      }, { status: 400 })
     }
+
+    await listCacheFlush
 
     const ccNotice = translate(
       'sales.quotes.email.ccNotice',
@@ -337,6 +355,7 @@ export async function POST(req: Request) {
     }
     const { translate } = await resolveTranslations()
     logger.error('sales.quotes.send failed', { err })
+    reportQuoteSendError(err, 'sales.quote_send_failed')
     return NextResponse.json(
       { error: translate('sales.quotes.send.failed', 'Failed to send quote.') },
       { status: 400 }
@@ -356,7 +375,7 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [
         { status: 200, description: 'Email queued', schema: z.object({ ok: z.literal(true) }) },
-        { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
+        { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string(), quoteSent: z.literal(true).optional() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Not found', schema: z.object({ error: z.string() }) },

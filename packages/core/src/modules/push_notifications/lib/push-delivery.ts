@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { raw, type EntityName } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -229,7 +230,7 @@ async function handleRetryableFailure(
 // system context — no business-logic import, no authenticated actor.
 export async function softDeleteUnregisteredDevice(
   resolve: Resolve,
-  input: { id: string; tenantId: string; userId: string; organizationId: string | null },
+  input: { id: string; tenantId: string; userId: string; organizationId: string | null; expectedPushToken?: { hash: string; updatedAt: Date | null } },
 ): Promise<void> {
   try {
     const commandBus = resolve('commandBus') as CommandBus
@@ -396,6 +397,8 @@ export async function processPushDeliveryJob(
   const payload = (delivery.payload ?? {}) as PushPayload
   const body = payload.body ?? payload.title ?? ''
 
+  const sentToken = device.pushToken
+  const sentTokenUpdatedAt = device.pushTokenUpdatedAt ?? null
   try {
     const converted = await adapter.convertOutbound({ body, bodyFormat: 'text' })
     const result = await sendWithTimeout(
@@ -414,7 +417,7 @@ export async function processPushDeliveryJob(
         credentials,
         scope,
         metadata: {
-          pushToken: device.pushToken,
+          pushToken: sentToken,
           platform: device.platform,
           userDeviceId: device.id,
           provider: delivery.provider,
@@ -424,11 +427,20 @@ export async function processPushDeliveryJob(
     )
 
     if (result.status === 'sent' || result.status === 'queued') {
+      // Persist the generation this send actually used, captured before the provider await. Receipt
+      // cleanup compares the *recorded* generation under the device row lock instead of rebuilding an
+      // expectation from the receipt-time read: a re-registration that lands between capture and the
+      // `sentAt` write cannot then be mistaken for the token that was sent.
+      const sentTokenHash = createHash('sha256').update(sentToken).digest('hex')
       return finalize(em, delivery, lease, 'push_notifications.delivery.sent', {
         status: 'sent',
         sentAt: new Date(),
         lastError: null,
-        providerResponse: result.metadata ?? { externalMessageId: result.externalMessageId },
+        providerResponse: {
+          ...(result.metadata ?? { externalMessageId: result.externalMessageId }),
+          pushTokenHash: sentTokenHash,
+          pushTokenUpdatedAt: sentTokenUpdatedAt ? sentTokenUpdatedAt.toISOString() : null,
+        },
       })
     }
 
@@ -443,6 +455,10 @@ export async function processPushDeliveryJob(
         tenantId: device.tenantId,
         userId: device.userId,
         organizationId: device.organizationId ?? null,
+        expectedPushToken: {
+          hash: createHash('sha256').update(sentToken).digest('hex'),
+          updatedAt: sentTokenUpdatedAt,
+        },
       })
       return outcome
     }

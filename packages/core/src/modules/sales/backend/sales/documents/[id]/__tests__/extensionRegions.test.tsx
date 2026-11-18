@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import {
   registerCoreInjectionTables,
   registerCoreInjectionWidgets,
@@ -24,8 +24,10 @@ const mockDocument = {
   organizationId: 'organization-1',
   tenantId: 'tenant-1',
   updatedAt: '2026-10-22T10:00:00.000Z',
+  contactEmail: 'recipient@example.test',
 }
 const mockReadApiResult = jest.fn()
+const mockRunMutation = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
 
 jest.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
@@ -49,7 +51,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   withScopedApiRequestHeaders: jest.fn(),
 }))
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
-  useGuardedMutation: () => ({ runMutation: jest.fn(), retryLastMutation: mockRetry }),
+  useGuardedMutation: () => ({ runMutation: mockRunMutation, retryLastMutation: mockRetry }),
 }))
 jest.mock('@open-mercato/ui/backend/injection/recordContext', () => ({
   buildRecordInjectionContext: () => null,
@@ -65,7 +67,14 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
   PageBody: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }))
 jest.mock('@open-mercato/ui/backend/forms', () => ({
-  FormHeader: ({ title }: { title: React.ReactNode }) => <header data-testid="document-header">{title}</header>,
+  FormHeader: ({ title, menuActions }: { title: React.ReactNode; menuActions?: Array<{ id: string; label: string; onSelect: () => void }> }) => (
+    <header data-testid="document-header">
+      {title}
+      {menuActions?.filter((action) => action.id === 'send').map((action) => (
+        <button key={action.id} onClick={action.onSelect}>{action.label}</button>
+      ))}
+    </header>
+  ),
 }))
 jest.mock('@open-mercato/ui/backend/version-history', () => ({ VersionHistoryAction: () => null }))
 jest.mock('@open-mercato/ui/backend/messages', () => ({ SendObjectMessageDialog: () => null }))
@@ -111,6 +120,7 @@ jest.mock('@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import SalesDocumentDetailPage from '../page'
 
 beforeEach(() => {
+  jest.clearAllMocks()
   mockReadApiResult.mockImplementation(async (url: string) => (
     /^\/api\/sales\/(orders|quotes)\?/.test(url) ? { items: [mockDocument] } : { items: [] }
   ))
@@ -183,5 +193,41 @@ describe.each(['order', 'quote'] as const)('sales %s detail page extension mount
     await act(async () => {})
     expect(queryByTestId('document-header')).toBeNull()
     expect(queryByTestId('document-details')).toBeNull()
+  })
+})
+
+
+describe('quote send refresh', () => {
+  it.each([false, true])('refreshes the saved quote and uses its new version on resend (emailFailed=%s)', async (emailFailed) => {
+    const { apiCall } = await import('@open-mercato/ui/backend/utils/apiCall')
+    const { flash } = await import('@open-mercato/ui/backend/FlashMessages')
+    const sentDocument = { ...mockDocument, status: 'sent', validUntil: new Date(Date.now() + 30 * 86400000).toISOString(), updatedAt: '2026-10-22T11:00:00.000Z' }
+    ;(apiCall as jest.Mock).mockImplementation(async (url: string) => {
+      if (url === '/api/sales/quotes/send') {
+        mockReadApiResult.mockImplementation(async (readUrl: string) => (
+          /^\/api\/sales\/quotes\?/.test(readUrl) ? { items: [sentDocument] } : { items: [] }
+        ))
+        return { ok: !emailFailed, status: emailFailed ? 400 : 200, result: emailFailed ? { quoteSent: true } : { ok: true } }
+      }
+      return { ok: true, result: { items: [], granted: [] } }
+    })
+    const view = render(<SalesDocumentDetailPage params={{ id: mockDocument.id }} initialKind="quote" />)
+    fireEvent.click(await view.findByRole('button', { name: 'Send to customer' }))
+    fireEvent.click(await view.findByRole('button', { name: 'Send quote', exact: true }))
+    await waitFor(() => expect(view.queryByRole('dialog')).toBeNull())
+    expect(flash).toHaveBeenCalledWith(
+      emailFailed ? 'Quote marked as sent, but the email could not be delivered.' : 'Quote sent.',
+      emailFailed ? 'error' : 'success',
+    )
+    fireEvent.click(view.getByRole('button', { name: 'Send to customer' }))
+    expect((await view.findByRole('spinbutton') as HTMLInputElement).value).toBe('30')
+    fireEvent.click(view.getByRole('button', { name: 'Send quote', exact: true }))
+    await waitFor(() => {
+      const sends = (apiCall as jest.Mock).mock.calls.filter(([url]: [string]) => url === '/api/sales/quotes/send')
+      expect(sends).toHaveLength(2)
+      expect(sends[1][1].headers).toEqual(expect.objectContaining({
+        'x-om-ext-optimistic-lock-expected-updated-at': sentDocument.updatedAt,
+      }))
+    })
   })
 })

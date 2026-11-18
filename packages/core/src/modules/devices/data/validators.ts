@@ -57,6 +57,10 @@ export const updateDeviceCommandSchema = updateDeviceSchema.extend({
 export type UpdateDeviceCommandInput = z.infer<typeof updateDeviceCommandSchema>
 
 export const deactivateDeviceCommandSchema = z.object({
+  expectedPushToken: z.object({
+    hash: z.string().regex(/^[a-f0-9]{64}$/),
+    updatedAt: z.coerce.date().nullable(),
+  }).optional(),
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
   userId: z.string().uuid(),

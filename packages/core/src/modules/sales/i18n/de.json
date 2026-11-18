@@ -1400,6 +1400,7 @@
   "sales.quotes.send.ccPlaceholder": "E-Mail eingeben und Enter drücken",
   "sales.quotes.send.ccRemove": "{email} entfernen",
   "sales.quotes.send.description": "E-Mail wird gesendet an:",
+  "sales.quotes.send.emailFailed": "Das Angebot wurde als gesendet markiert, aber die E-Mail konnte nicht zugestellt werden.",
   "sales.quotes.send.failed": "Angebot konnte nicht gesendet werden.",
   "sales.quotes.send.missingEmail": "Zum Senden eines Angebots ist eine Kunden-E-Mail erforderlich.",
   "sales.quotes.send.noEmail": "Keine E-Mail",
