@@ -58,6 +58,29 @@ function ticketIdOf(delivery: PushNotificationDelivery): string | null {
   return typeof id === 'string' && id.length > 0 ? id : null
 }
 
+/**
+ * The device generation this delivery's send actually used, persisted by the send path before the
+ * provider await. Receipt cleanup must compare against THIS record: rebuilding the expectation from the
+ * receipt-time device read would delete a registration that was refreshed (or rotated onto identical
+ * token text) between the send capture and the `sentAt` write — its newer version would look older than
+ * `sentAt` and its current token would hash back to the same fingerprint.
+ */
+function readSentDeviceGeneration(
+  delivery: PushNotificationDelivery,
+): { hash: string; updatedAt: Date } | null {
+  const response = delivery.providerResponse as
+    | { pushTokenHash?: unknown; pushTokenUpdatedAt?: unknown }
+    | null
+    | undefined
+  const hash = response?.pushTokenHash
+  const recordedUpdatedAt = response?.pushTokenUpdatedAt
+  if (typeof hash !== 'string' || hash.length !== 64) return null
+  if (typeof recordedUpdatedAt !== 'string') return null
+  const updatedAt = new Date(recordedUpdatedAt)
+  if (Number.isNaN(updatedAt.getTime())) return null
+  return { hash, updatedAt }
+}
+
 /** A row whose receipt was already resolved on a prior sweep — skip it (marker is JSON, no migration). */
 function isReceiptChecked(delivery: PushNotificationDelivery): boolean {
   return (delivery.providerResponse as { receiptChecked?: unknown } | null | undefined)?.receiptChecked === true
@@ -201,6 +224,10 @@ export async function checkPushReceipts(
     await em.flush()
     const DeviceRef = resolve('UserDevice') as EntityName<UserDevice>
     for (const delivery of toDeactivate) {
+      const sentGeneration = readSentDeviceGeneration(delivery)
+      // No durable record of the generation this send used (a row written before it was persisted):
+      // skip. An unprovable generation must never authorize deleting a live device.
+      if (!sentGeneration) continue
       const device = await findOneWithDecryption(em, DeviceRef, {
         id: delivery.userDeviceId,
         tenantId: delivery.tenantId,
@@ -209,16 +236,21 @@ export async function checkPushReceipts(
         deletedAt: null,
       }, { refresh: true })
       if (!device?.pushToken || device.pushToken.slice(-8) !== delivery.tokenSnapshot ||
-          (device.pushProvider && device.pushProvider !== delivery.provider) || !delivery.sentAt ||
-          (device.pushTokenUpdatedAt && device.pushTokenUpdatedAt > delivery.sentAt)) continue
+          (device.pushProvider && device.pushProvider !== delivery.provider)) continue
+      if (createHash('sha256').update(device.pushToken).digest('hex') !== sentGeneration.hash) continue
+      // The row lock protects the comparison, but only against rotations after the receipt-time read:
+      // the device must still sit on the exact generation that was SENT. Any later refresh (even one
+      // re-supplying identical token text) is a live registration now and must survive.
+      const currentVersion = device.pushTokenUpdatedAt ?? null
+      if (!currentVersion || currentVersion.getTime() !== sentGeneration.updatedAt.getTime()) continue
       await softDeleteUnregisteredDevice(resolve, {
         id: device.id,
         tenantId: device.tenantId,
         organizationId: device.organizationId ?? null,
         userId: device.userId,
         expectedPushToken: {
-          hash: createHash('sha256').update(device.pushToken).digest('hex'),
-          updatedAt: device.pushTokenUpdatedAt ?? null,
+          hash: sentGeneration.hash,
+          updatedAt: sentGeneration.updatedAt,
         },
       })
     }

@@ -19,6 +19,13 @@ const NOW = new Date('2026-07-01T12:00:00.000Z')
 // Default receipt window is [now-60m, now-15m]. This is old enough to have a receipt, still in window.
 const IN_WINDOW = new Date(NOW.getTime() - 20 * 60 * 1000)
 const TOO_FRESH = new Date(NOW.getTime() - 5 * 60 * 1000)
+const DEVICE_TOKEN = 'receipt-token-12345678'
+// The generation the send path recorded before awaiting the provider (see push-delivery).
+const SENT_VERSION = new Date(IN_WINDOW.getTime() - 1000)
+const SENT_HASH = createHash('sha256').update(DEVICE_TOKEN).digest('hex')
+function sentGeneration(): Record<string, unknown> {
+  return { pushTokenHash: SENT_HASH, pushTokenUpdatedAt: SENT_VERSION.toISOString() }
+}
 
 function makeRow(overrides: Partial<PushNotificationDelivery> = {}): PushNotificationDelivery {
   return {
@@ -33,7 +40,7 @@ function makeRow(overrides: Partial<PushNotificationDelivery> = {}): PushNotific
     attempts: 1,
     lastError: null,
     sentAt: IN_WINDOW,
-    providerResponse: { externalMessageId: 'ticket-1' },
+    providerResponse: { externalMessageId: 'ticket-1', ...sentGeneration() },
     ...overrides,
   } as PushNotificationDelivery
 }
@@ -67,7 +74,7 @@ function makeEm(rows: PushNotificationDelivery[], channel: Record<string, unknow
     }),
     findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => entity === 'UserDevice' ? {
       id: where.id, tenantId: TENANT, organizationId: 'org-1', userId: 'user-1',
-      pushToken: 'receipt-token-12345678', pushProvider: 'expo', pushTokenUpdatedAt: new Date(IN_WINDOW.getTime() - 1000),
+      pushToken: DEVICE_TOKEN, pushProvider: 'expo', pushTokenUpdatedAt: SENT_VERSION,
     } : channel),
     flush: jest.fn(async () => undefined),
   }
@@ -115,7 +122,7 @@ describe('checkPushReceipts', () => {
       const device = await lookup(entity, where)
       return entity === 'UserDevice' ? {
         ...device,
-        pushToken: rotation === 'changed-fingerprint' ? 'new-token-87654321' : 'receipt-token-12345678',
+        pushToken: rotation === 'changed-fingerprint' ? 'new-token-87654321' : DEVICE_TOKEN,
         pushTokenUpdatedAt: new Date(IN_WINDOW.getTime() + 1000),
       } : device
     })
@@ -145,6 +152,37 @@ describe('checkPushReceipts', () => {
     expect((row.providerResponse as Record<string, unknown>).receiptChecked).toBe(true)
     expect((row.providerResponse as Record<string, unknown>).unregistered).toBe(true)
     expect(row.lastError).toBe('device_unregistered')
+  })
+
+  it('keeps a device re-registered during the provider send, before the sentAt write', async () => {
+    // Send path: capture token/version -> await provider -> write sentAt. A registration landing in that
+    // window advances pushTokenUpdatedAt past the captured generation while sentAt stays newer, so a
+    // sentAt-based guard passes and identical token text hashes back to the same fingerprint. Only the
+    // recorded generation proves the device is no longer the one that was sent.
+    const row = makeRow({ id: 'race-1' })
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', credentialsRef: null })
+    const lookup = em.findOne.getMockImplementation()!
+    em.findOne.mockImplementation(async (entity, where) => {
+      const device = await lookup(entity, where)
+      return entity === 'UserDevice' ? {
+        ...device,
+        pushToken: DEVICE_TOKEN,
+        pushTokenUpdatedAt: new Date(SENT_VERSION.getTime() + 500),
+      } : device
+    })
+    const { resolve, commandBus } = makeResolve({ checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }] })
+    await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(row.providerResponse).toMatchObject({ receiptChecked: true, unregistered: true })
+  })
+
+  it('fails closed when the delivery carries no recorded send generation', async () => {
+    const row = makeRow({ id: 'legacy-1', providerResponse: { externalMessageId: 'ticket-1' } })
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', credentialsRef: null })
+    const { resolve, commandBus } = makeResolve({ checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }] })
+    await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(row.providerResponse).toMatchObject({ receiptChecked: true, unregistered: true })
   })
 
   it('still cleans up an unchanged legacy device without an explicit provider', async () => {
@@ -213,7 +251,7 @@ describe('checkPushReceipts', () => {
         providerResponse: { externalMessageId: `old-${i}`, receiptChecked: true },
       }),
     )
-    const fresh = makeRow({ id: 'unchecked-1', sentAt: IN_WINDOW, providerResponse: { externalMessageId: 'ticket-1' } })
+    const fresh = makeRow({ id: 'unchecked-1', sentAt: IN_WINDOW, providerResponse: { externalMessageId: 'ticket-1', ...sentGeneration() } })
     const em = makeEm([...backlog, fresh], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null })
     const checkReceipts = jest.fn(async (ids: string[]) => ids.map((ticketId) => ({ ticketId, unregistered: false })))
     const { resolve } = makeResolve({ checkReceipts })

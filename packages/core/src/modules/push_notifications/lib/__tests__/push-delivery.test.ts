@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { PushNotificationDelivery } from '../../data/entities'
 import { enqueuePushDelivery } from '../queue'
 import { emitPushNotificationsEvent } from '../../events'
@@ -141,6 +142,29 @@ describe('processPushDeliveryJob', () => {
     expect(h.sendMessage).toHaveBeenCalledTimes(1)
     expect(enqueueMock).not.toHaveBeenCalled()
     expect(emitMock).toHaveBeenCalledWith('push_notifications.delivery.sent', expect.any(Object), expect.any(Object))
+  })
+
+  it('records the token generation captured before the provider await for receipt cleanup', async () => {
+    // Receipt cleanup must not rebuild the expected generation from a receipt-time read: the send
+    // captures the token/version before awaiting the provider and writes sentAt after, so a
+    // re-registration in that window would otherwise look older than sentAt. Persist what was sent.
+    const sentVersion = new Date('2026-07-01T11:00:00.000Z')
+    const delivery = makeDelivery()
+    const h = makeHarness({ delivery, device: makeDevice({ pushTokenUpdatedAt: sentVersion }) })
+    let versionAtSend: Date | null | undefined
+    h.sendMessage.mockImplementationOnce(async () => {
+      versionAtSend = sentVersion
+      return { externalMessageId: 'm1', status: 'sent', metadata: { stub: true } }
+    })
+
+    await processPushDeliveryJob(h.em as never, job, h.resolve)
+
+    expect(versionAtSend).toEqual(sentVersion)
+    expect(delivery.providerResponse).toMatchObject({
+      stub: true,
+      pushTokenHash: createHash('sha256').update('tok-123456789').digest('hex'),
+      pushTokenUpdatedAt: sentVersion.toISOString(),
+    })
   })
 
   it('increments and persists attempts in the atomic claim, before the provider send', async () => {

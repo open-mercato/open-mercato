@@ -427,11 +427,20 @@ export async function processPushDeliveryJob(
     )
 
     if (result.status === 'sent' || result.status === 'queued') {
+      // Persist the generation this send actually used, captured before the provider await. Receipt
+      // cleanup compares the *recorded* generation under the device row lock instead of rebuilding an
+      // expectation from the receipt-time read: a re-registration that lands between capture and the
+      // `sentAt` write cannot then be mistaken for the token that was sent.
+      const sentTokenHash = createHash('sha256').update(sentToken).digest('hex')
       return finalize(em, delivery, lease, 'push_notifications.delivery.sent', {
         status: 'sent',
         sentAt: new Date(),
         lastError: null,
-        providerResponse: result.metadata ?? { externalMessageId: result.externalMessageId },
+        providerResponse: {
+          ...(result.metadata ?? { externalMessageId: result.externalMessageId }),
+          pushTokenHash: sentTokenHash,
+          pushTokenUpdatedAt: sentTokenUpdatedAt ? sentTokenUpdatedAt.toISOString() : null,
+        },
       })
     }
 
