@@ -30,7 +30,14 @@ import {
   mapCompanyOverviewToFormValues,
   mapPersonOverviewToFormValues,
   type Translator,
+  createCompanyEditFields,
 } from '../formConfig'
+import { COMPANY_TAX_ID_MAX_LENGTH, COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY, companyCreateSchema } from '../../data/validators'
+import enLocale from '../../i18n/en.json'
+import plLocale from '../../i18n/pl.json'
+import deLocale from '../../i18n/de.json'
+import esLocale from '../../i18n/es.json'
+import koLocale from '../../i18n/ko.json'
 
 const t: Translator = (_key, fallback) => fallback ?? _key
 
@@ -372,5 +379,79 @@ describe('CRM contributed form data', () => {
     expect(company._example).toEqual(namespace)
     expect(buildPersonPayload({ ...person, displayName: 'Ada', '_example.priority': 'critical' })).not.toHaveProperty('_example')
     expect(buildCompanyPayload({ ...company, displayName: 'Acme', '_example.priority': 'critical' })).not.toHaveProperty('_example')
+  })
+})
+
+describe('company VAT / tax ID (required company field)', () => {
+  it('sends the VAT ID with a new company and prefills it on edit', () => {
+    const payload = buildCompanyPayload({ displayName: 'Acme', taxId: ' PL1234567890 ' } as any)
+    expect(payload.taxId).toBe('PL1234567890')
+
+    const values = mapCompanyOverviewToFormValues({
+      company: { id: 'company-1', displayName: 'Acme' },
+      profile: { taxId: 'PL1234567890' },
+      customFields: {},
+    } as any)
+    expect(values.taxId).toBe('PL1234567890')
+  })
+
+  it('transmits the edited VAT ID and an explicit clear', () => {
+    const kept = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', taxId: 'DE123456789' })
+    expect(kept.success).toBe(true)
+    if (!kept.success) return
+    expect(buildCompanyEditPayload(kept.data as any).taxId).toBe('DE123456789')
+
+    const blanked = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', taxId: '' })
+    expect(blanked.success).toBe(true)
+    if (!blanked.success) return
+    expect(buildCompanyEditPayload(blanked.data as any).taxId).toBeNull()
+  })
+
+  it('keeps the VAT ID optional on both the create and the edit form by default', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const createField = createCompanyFormFields(t as any).find((entry) => entry.id === 'taxId')
+    expect(createField).toMatchObject({ required: false, type: 'text' })
+    const editField = createCompanyEditFields(t as any).find((entry) => entry.id === 'taxId')
+    expect(editField).toMatchObject({ required: false, type: 'text' })
+  })
+
+  it('refuses a VAT ID longer than the API accepts in both form schemas, with a translatable message', () => {
+    const atLimit = 'X'.repeat(COMPANY_TAX_ID_MAX_LENGTH)
+    const overLimit = `${atLimit}X`
+    const schemas = [
+      { schema: createCompanyFormSchema(), base: { displayName: 'Acme' } },
+      { schema: createCompanyEditSchema(), base: { id: COMPANY_ID, displayName: 'Acme' } },
+    ]
+    for (const { schema, base } of schemas) {
+      expect(schema.safeParse({ ...base, taxId: atLimit }).success).toBe(true)
+      const refused = schema.safeParse({ ...base, taxId: overLimit })
+      expect(refused.success).toBe(false)
+      if (refused.success) continue
+      const issue = refused.error.issues.find((entry) => entry.path.join('.') === 'taxId')
+      expect(issue?.message).toBe(COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY)
+    }
+    expect(companyCreateSchema.shape.taxId.safeParse(atLimit).success).toBe(true)
+    expect(companyCreateSchema.shape.taxId.safeParse(overLimit).success).toBe(false)
+  })
+
+  it('keeps the too-long message translated in every locale', () => {
+    for (const dictionary of [enLocale, plLocale, deLocale, esLocale, koLocale]) {
+      expect((dictionary as Record<string, string>)[COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY]).toEqual(expect.stringContaining(String(COMPANY_TAX_ID_MAX_LENGTH)))
+    }
+  })
+
+  it('lets a host opt into a required VAT ID on either form', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const createField = createCompanyFormFields(t as any, { requireTaxId: true }).find((entry) => entry.id === 'taxId')
+    expect(createField).toMatchObject({ required: true })
+    const editField = createCompanyEditFields(t as any, { requireTaxId: true }).find((entry) => entry.id === 'taxId')
+    expect(editField).toMatchObject({ required: true })
+  })
+
+  it('accepts a new company without a VAT ID', () => {
+    const parsed = createCompanyFormSchema().safeParse({ displayName: 'Acme', addresses: [] })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(buildCompanyPayload(parsed.data as any)).not.toHaveProperty('taxId')
   })
 })
