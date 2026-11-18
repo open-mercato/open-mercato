@@ -16,7 +16,7 @@
  * conditions — so there is no second expression dialect.
  */
 
-import { EntityManager } from '@mikro-orm/core'
+import { EntityManager, raw } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -355,6 +355,28 @@ async function completeConditionWait(
     await em.flush()
     return
   }
+
+  // Resume from the paused wait BEFORE the transition (#9296), as the signal,
+  // timer and task paths do: the executor treats a PAUSED instance as parked and
+  // would stop the run right after the traversed step. The poll backstop and the
+  // event-driven wake can both reach here for one waiter, so the flip is a claim:
+  // only the delivery whose conditional UPDATE wins drives the run on, and an
+  // instance cancelled meanwhile is never resurrected.
+  const resumedAt = new Date()
+  const claimed = await em.nativeUpdate(
+    WorkflowInstance,
+    {
+      id: instance.id,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+      status: 'PAUSED',
+      currentStepId: stepInstance.stepId,
+    },
+    { status: 'RUNNING', updatedAt: resumedAt, waitVersion: raw('wait_version + 1') },
+  )
+  if (claimed === 0) return
+  instance.status = 'RUNNING'
+  instance.updatedAt = resumedAt
 
   const transitionResult = await transitionHandler.executeTransition(
     em,

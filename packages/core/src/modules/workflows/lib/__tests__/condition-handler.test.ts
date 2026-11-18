@@ -147,6 +147,7 @@ describe('WAIT_FOR_CONDITION', () => {
       }),
       persistAndFlush: jest.fn(),
       flush: jest.fn(),
+      nativeUpdate: jest.fn().mockResolvedValue(1),
     } as any
 
     mockExitStep = jest.fn().mockResolvedValue(undefined)
@@ -725,6 +726,129 @@ describe('WAIT_FOR_CONDITION', () => {
         undefined,
         expect.objectContaining({ tenantId, organizationId })
       )
+    })
+  })
+
+  describe('resume status flip (#9296)', () => {
+    beforeEach(() => {
+      mockFindOneWithDecryption.mockReset()
+      mockFindWithDecryption.mockReset()
+    })
+
+    const futureDeadline = () => new Date(Date.now() + 20 * 60 * 1000).toISOString()
+
+    function primeLookups(instance: WorkflowInstance, definition: WorkflowDefinition) {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(instance as any)
+        .mockResolvedValueOnce(makeStepInstance() as any)
+        .mockResolvedValueOnce(definition as any)
+    }
+
+    function captureStatusAtTransition(instance: WorkflowInstance) {
+      const seen: { transition?: string; workflow?: string } = {}
+      mockExecuteTransition.mockImplementation(async () => {
+        seen.transition = instance.status
+        return { success: true }
+      })
+      mockExecuteWorkflow.mockImplementation(async () => {
+        seen.workflow = instance.status
+        return {}
+      })
+      return seen
+    }
+
+    test('poll met path claims PAUSED -> RUNNING before running the transition', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      primeLookups(instance, makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+      const seen = captureStatusAtTransition(instance)
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 1,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result.outcome).toBe('met')
+      expect(mockEm.nativeUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          id: instanceId,
+          tenantId,
+          organizationId,
+          status: 'PAUSED',
+          currentStepId: 'wait_for_payment',
+        }),
+        expect.objectContaining({ status: 'RUNNING' })
+      )
+      expect(seen.transition).toBe('RUNNING')
+      expect(seen.workflow).toBe('RUNNING')
+      expect((mockEm.nativeUpdate as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+        mockExecuteTransition.mock.invocationCallOrder[0]
+      )
+    })
+
+    test('onTimeout CONTINUE path also flips the instance to RUNNING before the transition', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'pending' } } } as any)
+      primeLookups(
+        instance,
+        makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M', onTimeout: 'CONTINUE' })
+      )
+      const seen = captureStatusAtTransition(instance)
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: new Date(Date.now() - 1000).toISOString(),
+        attempt: 5,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result.outcome).toBe('timed_out')
+      expect(mockEm.nativeUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ status: 'PAUSED' }),
+        expect.objectContaining({ status: 'RUNNING' })
+      )
+      expect(seen.transition).toBe('RUNNING')
+      expect(seen.workflow).toBe('RUNNING')
+    })
+
+    test('event-driven wake flips the instance to RUNNING before the transition', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(instance as any)
+        .mockResolvedValueOnce(makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }) as any)
+      mockFindWithDecryption.mockResolvedValueOnce([makeStepInstance()] as any)
+      const seen = captureStatusAtTransition(instance)
+
+      const result = await wakeConditionWaiters(mockEm, mockContainer, { instanceId, tenantId, organizationId })
+
+      expect(result.woken).toEqual(['wait_for_payment'])
+      expect(seen.transition).toBe('RUNNING')
+      expect(seen.workflow).toBe('RUNNING')
+    })
+
+    test('a concurrent wake that lost the claim neither transitions nor re-enters the executor', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      primeLookups(instance, makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+      ;(mockEm.nativeUpdate as jest.Mock).mockResolvedValueOnce(0 as never)
+
+      await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 1,
+        tenantId,
+        organizationId,
+      })
+
+      expect(mockExecuteTransition).not.toHaveBeenCalled()
+      expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+      expect(instance.status).toBe('PAUSED')
     })
   })
 })
