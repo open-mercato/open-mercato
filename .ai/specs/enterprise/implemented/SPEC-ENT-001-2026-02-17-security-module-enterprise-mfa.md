@@ -2205,3 +2205,7 @@ Page middleware requests persistent notification delivery without awaiting the e
 Removed credential fields and replay support from MFA removal auditing; added
 irreversible historical redaction and regression coverage through the command bus
 and PostgreSQL. Security compatibility waiver awaits named human approval.
+
+### 2026-11-18 — Make recovery-code use and enrollment confirmation atomic (#9673)
+
+Recovery verification claims the matched code with a user- and tenant-scoped conditional update that succeeds only while the code is unused. Concurrent losers return the existing invalid-code result and emit no usage event. Enrollment confirmation serializes by user with a PostgreSQL transaction advisory lock, refreshes pending and invariant reads under the lock, and commits activation before emitting the existing enrollment event. Single-instance provider limits, duplicate-label checks and same-setup rejection retain their existing errors; multi-instance providers still accept distinct labels. Unit and real PostgreSQL lock-barrier regressions cover concurrent recovery use, different and identical setups, duplicate and distinct labels, stale identity-map state, and event emission after commit. No schema, configuration, startup, dependency or public-contract change is required.
