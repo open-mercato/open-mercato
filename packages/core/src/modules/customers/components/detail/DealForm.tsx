@@ -384,7 +384,9 @@ const exactValueAmountSchema = z
     .optional())
   .optional()
 
-const dealEditorSchema = schema.extend({ valueAmount: exactValueAmountSchema })
+/** `dealFormSchema` with `valueAmount` kept as an exact decimal string. */
+export const dealExactFormSchema = schema.extend({ valueAmount: exactValueAmountSchema })
+const dealEditorSchema = dealExactFormSchema
 
 import { toDateInputValue as toDateInputValueOrNull } from '@open-mercato/shared/lib/date/format'
 
