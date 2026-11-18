@@ -205,6 +205,12 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Authentication required', schema: errorSchema },
         { status: 403, description: 'Undo blocked by organization or tenant scope', schema: errorSchema },
         {
+          status: 409,
+          description:
+            'The record changed after the action being undone, so undo would overwrite newer data. The body carries a translated message.',
+          schema: errorSchema,
+        },
+        {
           status: 422,
           description:
             'Undo deliberately blocked by a beforeUndo command interceptor. The interceptor chooses the status (any 4xx/5xx) and may replace the body.',

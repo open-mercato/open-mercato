@@ -980,6 +980,83 @@ export const returnDeleteSchema = scoped.extend({
   orderId: uuid(),
 })
 
+export const INVOICE_NEGATIVE_LINE_TOTALS_REQUIRED_MESSAGE_KEY = 'sales.invoices.errors.negativeLineTotalsRequired'
+export const INVOICE_NEGATIVE_NET_POSITIVE_GROSS_MESSAGE_KEY = 'sales.invoices.errors.negativeNetPositiveGross'
+export const INVOICE_REPLACE_LINES_REQUIRES_LINES_MESSAGE_KEY = 'sales.invoices.errors.replaceLinesRequiresLines'
+export const INVOICE_REPLACE_LINES_REQUIRES_TOTALS_MESSAGE_KEY = 'sales.invoices.errors.replaceLinesRequiresTotals'
+
+/**
+ * Invoice line amounts that may be negative. Invoice commands store amounts as sent:
+ * an accounting integration stores a discount, deposit or correction line as the
+ * source system reports it, on any line `kind`. `quantity` and `discountAmount`
+ * stay non-negative.
+ */
+const INVOICE_LINE_SIGNED_AMOUNT_KEYS = [
+  'unitPriceNet',
+  'unitPriceGross',
+  'taxAmount',
+  'totalNetAmount',
+  'totalGrossAmount',
+] as const
+
+const invoiceLineInputSchema = z
+  .object({
+    orderLineId: uuid().optional(),
+    lineNumber: z.coerce.number().int().min(0).optional(),
+    kind: lineKindSchema.optional(),
+    name: z.string().trim().max(500).optional(),
+    sku: z.string().trim().max(191).optional(),
+    description: z.string().trim().max(4000).optional(),
+    quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
+    quantityUnit: z.string().trim().max(25).optional(),
+    normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
+    normalizedUnit: z.string().trim().max(25).nullable().optional(),
+    uomSnapshot: uomSnapshotSchema,
+    currencyCode,
+    unitPriceNet: decimal().optional(),
+    unitPriceGross: decimal().optional(),
+    discountAmount: decimal({ min: 0 }).optional(),
+    discountPercent: percentage().optional(),
+    taxRate: percentage().optional(),
+    taxAmount: decimal().optional(),
+    totalNetAmount: decimal().optional(),
+    totalGrossAmount: decimal().optional(),
+    metadata,
+  })
+
+/**
+ * The negative-line rule sits on the array, not on the line object, so the line
+ * object stays unrefined and `.partial()` / `.pick()` on it keep working. A line
+ * with a negative amount sends both totals, and its net may not be <= 0 under a
+ * positive gross: `deriveLineNetFromGross` would rewrite that net, so the stored
+ * line would not match what the caller sent. Such lines were rejected before,
+ * so the rule narrows nothing.
+ */
+const invoiceLinesInputSchema = z.array(invoiceLineInputSchema).superRefine((lines, ctx) => {
+  lines.forEach((line, index) => {
+    const hasNegativeAmount = INVOICE_LINE_SIGNED_AMOUNT_KEYS.some((key) => {
+      const value = line[key]
+      return typeof value === 'number' && value < 0
+    })
+    if (!hasNegativeAmount) return
+    if (line.totalNetAmount === undefined || line.totalGrossAmount === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: INVOICE_NEGATIVE_LINE_TOTALS_REQUIRED_MESSAGE_KEY,
+        path: [index, line.totalNetAmount === undefined ? 'totalNetAmount' : 'totalGrossAmount'],
+      })
+      return
+    }
+    if (line.totalNetAmount <= 0 && line.totalGrossAmount > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: INVOICE_NEGATIVE_NET_POSITIVE_GROSS_MESSAGE_KEY,
+        path: [index, 'totalNetAmount'],
+      })
+    }
+  })
+})
+
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
   invoiceNumber: z.string().trim().min(1).max(191).optional(),
@@ -989,48 +1066,64 @@ export const invoiceCreateSchema = scoped.extend({
   currencyCode,
   metadata,
   customFieldSetId: uuid().optional(),
-  lines: z
-    .array(
-      z.object({
-        orderLineId: uuid().optional(),
-        lineNumber: z.coerce.number().int().min(0).optional(),
-        kind: lineKindSchema.optional(),
-        name: z.string().trim().max(500).optional(),
-        sku: z.string().trim().max(191).optional(),
-        description: z.string().trim().max(4000).optional(),
-        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
-        quantityUnit: z.string().trim().max(25).optional(),
-        normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
-        normalizedUnit: z.string().trim().max(25).nullable().optional(),
-        uomSnapshot: uomSnapshotSchema,
-        currencyCode,
-        unitPriceNet: decimal({ min: 0 }).optional(),
-        unitPriceGross: decimal({ min: 0 }).optional(),
-        discountAmount: decimal({ min: 0 }).optional(),
-        discountPercent: percentage().optional(),
-        taxRate: percentage().optional(),
-        taxAmount: decimal({ min: 0 }).optional(),
-        totalNetAmount: decimal({ min: 0 }).optional(),
-        totalGrossAmount: decimal({ min: 0 }).optional(),
-        metadata,
-      })
-    )
-    .optional(),
-  subtotalNetAmount: decimal({ min: 0 }).optional(),
+  customFields: z.unknown().optional(),
+  lines: invoiceLinesInputSchema.optional(),
+  subtotalNetAmount: decimal().optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
   discountTotalAmount: decimal({ min: 0 }).optional(),
-  taxTotalAmount: decimal({ min: 0 }).optional(),
-  grandTotalNetAmount: decimal({ min: 0 }).optional(),
+  taxTotalAmount: decimal().optional(),
+  grandTotalNetAmount: decimal().optional(),
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
   paidTotalAmount: decimal({ min: 0 }).optional(),
   outstandingAmount: decimal().optional(),
 })
 
+/**
+ * Only `replaceLines: true` replaces the lines. Any other value used to be
+ * stripped and accepted, so it keeps passing and leaves the lines alone.
+ */
 export const invoiceUpdateSchema = z
   .object({
     id: uuid(),
   })
   .merge(invoiceCreateSchema.partial())
+  .extend({
+    replaceLines: z.unknown().optional(),
+  })
+
+/** Header totals a line replacement must send, because nothing recomputes them. */
+export const INVOICE_REPLACE_LINES_REQUIRED_TOTAL_KEYS = [
+  'subtotalNetAmount',
+  'subtotalGrossAmount',
+  'taxTotalAmount',
+  'grandTotalNetAmount',
+  'grandTotalGrossAmount',
+] as const
+
+/**
+ * Refined invoice update input used by the route and the command. It is kept
+ * separate from `invoiceUpdateSchema` so the exported schema stays unrefined and
+ * its `.partial()` / `.extend()` keep working for consumers.
+ */
+export const invoiceUpdateInputSchema = invoiceUpdateSchema.superRefine((input, ctx) => {
+  if (input.replaceLines !== true) return
+  if (!input.lines || input.lines.length === 0) {
+    ctx.addIssue({
+      code: 'custom',
+      message: INVOICE_REPLACE_LINES_REQUIRES_LINES_MESSAGE_KEY,
+      path: ['lines'],
+    })
+  }
+  for (const key of INVOICE_REPLACE_LINES_REQUIRED_TOTAL_KEYS) {
+    if (input[key] === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: INVOICE_REPLACE_LINES_REQUIRES_TOTALS_MESSAGE_KEY,
+        path: [key],
+      })
+    }
+  }
+})
 
 export const creditMemoCreateSchema = scoped.extend({
   orderId: uuid().optional(),
@@ -1202,6 +1295,7 @@ export type ReturnUpdateInput = z.infer<typeof returnUpdateSchema>
 export type ReturnDeleteInput = z.infer<typeof returnDeleteSchema>
 export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
+export type InvoiceLineInput = z.infer<typeof invoiceLineInputSchema>
 export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>
 export type CreditMemoUpdateInput = z.infer<typeof creditMemoUpdateSchema>
 export const quoteSendSchema = z.object({

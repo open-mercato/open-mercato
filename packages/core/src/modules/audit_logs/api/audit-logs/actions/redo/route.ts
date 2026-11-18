@@ -274,6 +274,11 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Log not eligible for redo', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
         { status: 403, description: 'Redo blocked by scope checks', schema: errorSchema },
+        {
+          status: 404,
+          description: 'The record the action targets no longer exists. The body carries a translated message.',
+          schema: errorSchema,
+        },
       ],
     },
   },

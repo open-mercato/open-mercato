@@ -29,6 +29,21 @@ jest.mock('@open-mercato/shared/lib/crud/cache', () => {
   }
 })
 
+jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/crud/custom-fields')
+  return { ...actual, loadCustomFieldValues: jest.fn(async () => ({})) }
+})
+
+const lockSalesDocumentRowMock = jest.fn(async (..._args: unknown[]) => true)
+
+jest.mock('../shared', () => {
+  const actual = jest.requireActual('../shared')
+  return {
+    ...actual,
+    lockSalesDocumentRow: (...args: unknown[]) => lockSalesDocumentRowMock(...args),
+  }
+})
+
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111'
 const TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const INVOICE_ID = '33333333-3333-4333-8333-333333333333'
@@ -120,10 +135,18 @@ function makeCreditMemo(): SalesCreditMemo {
 
 function makeHarness(entity: SalesInvoice | SalesCreditMemo) {
   const findOneOrFail = jest.fn(async () => entity)
+  // The invoice update reads under a row lock inside a transaction.
+  const findOne = jest.fn(async () => entity)
   const flush = jest.fn(async () => undefined)
   const entityManager = {
     findOneOrFail,
+    findOne,
+    find: jest.fn(async () => []),
     flush,
+    clear: jest.fn(),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
     fork: jest.fn(),
   }
   entityManager.fork.mockReturnValue(entityManager)
@@ -150,7 +173,9 @@ function makeHarness(entity: SalesInvoice | SalesCreditMemo) {
   return {
     ctx,
     container,
+    entityManager,
     findOneOrFail,
+    findOne,
     flush,
     markOrmEntityChange,
   }
@@ -266,7 +291,7 @@ describe('invoice and credit memo header updates', () => {
     const invoice = makeInvoice()
     const originalDueDate = invoice.dueDate
     const originalDiscount = invoice.discountTotalAmount
-    const { ctx, container, findOneOrFail, flush, markOrmEntityChange } = makeHarness(invoice)
+    const { ctx, container, entityManager, findOne, markOrmEntityChange } = makeHarness(invoice)
     const handler = getInvoiceUpdateHandler()
     const issueDate = new Date('2026-08-10T00:00:00.000Z')
 
@@ -285,12 +310,29 @@ describe('invoice and credit memo header updates', () => {
 
     expect(handler.id).toBe('sales.invoices.update')
     expect(result).toStrictEqual({ invoiceId: INVOICE_ID })
-    expect(findOneOrFail).toHaveBeenCalledWith(SalesInvoice, {
-      id: INVOICE_ID,
-      organizationId: ORGANIZATION_ID,
-      tenantId: TENANT_ID,
-      deletedAt: null,
-    })
+    expect(findOne).toHaveBeenCalledWith(
+      SalesInvoice,
+      {
+        id: INVOICE_ID,
+        organizationId: ORGANIZATION_ID,
+        tenantId: TENANT_ID,
+        deletedAt: null,
+      },
+      {},
+    )
+    expect(lockSalesDocumentRowMock).toHaveBeenCalledWith(
+      entityManager,
+      'sales_invoices',
+      INVOICE_ID,
+      { organizationId: ORGANIZATION_ID, tenantId: TENANT_ID },
+    )
+    expect(entityManager.begin).toHaveBeenCalledTimes(1)
+    expect(entityManager.commit).toHaveBeenCalledTimes(1)
+    // The header is flushed inside the transaction, before it commits.
+    expect(entityManager.flush).toHaveBeenCalled()
+    expect(entityManager.flush.mock.invocationCallOrder[0]).toBeLessThan(
+      entityManager.commit.mock.invocationCallOrder[0],
+    )
     expect(invoice).toMatchObject({
       invoiceNumber: 'INV-UPDATED',
       issueDate,
@@ -306,7 +348,6 @@ describe('invoice and credit memo header updates', () => {
       metadata: { source: 'updated' },
     })
     expectNoDiffObjects(invoice, invoiceHeaderKeys)
-    expect(flush).toHaveBeenCalledTimes(1)
     expect(markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
       action: 'updated',
       entity: invoice,
