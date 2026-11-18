@@ -697,7 +697,7 @@ export function inferDevMemoryMarkerFromLine(line) {
   if (/Warmup failed|Warmup incomplete/.test(plain)) {
     return createMemoryMarker('warmup:failure', 'Warmup failed', { line: plain })
   }
-  const compiling = plain.match(/^(?:○|◌|🛠️)\s*Compiling\s+(.+?)(?:\s+\.\.\.)?$/)
+  const compiling = plain.match(/^(?:○|◌|🔨)\s*Compiling\s+(.+?)(?:\s+\.\.\.)?$/)
   if (compiling) {
     return createMemoryMarker('route-compile:start', `Compiling ${compiling[1].trim()}`, { route: compiling[1].trim() })
   }
