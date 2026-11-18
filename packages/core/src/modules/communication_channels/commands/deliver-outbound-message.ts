@@ -15,12 +15,11 @@ import {
 import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
 import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
 import { adoptProviderConversationRef } from '../lib/outbound-conversation-ref'
+import { resolveOutboundRouting } from '../lib/outbound-routing'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
 import {
-  ChannelThreadMapping,
-  CommunicationChannel,
   ExternalMessage,
   MessageChannelLink,
 } from '../data/entities'
@@ -164,41 +163,14 @@ const deliverOutboundMessageCommand: CommandHandler<
       dscope,
     )
 
-    const mapping = await findOneWithDecryption(
-      em,
-      ChannelThreadMapping,
-      {
-        messageThreadId: message.threadId,
-        ...(link ? { externalConversationId: link.externalConversationId } : {}),
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
-    if (!mapping) {
-      // Internal-only message — no channel delivery needed.
-      return NO_THREAD_MAPPING_RESULT
+    if (link && ['queued', 'sent', 'delivered', 'read'].includes(link.deliveryStatus)) {
+      return { status: 'already_delivered', messageId: message.id, channelLinkId: link.id }
     }
 
-    // (2) Channel + adapter.
-    const channel = await findOneWithDecryption(
-      em,
-      CommunicationChannel,
-      {
-        id: mapping.channelId,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-        deletedAt: null,
-      },
-      undefined,
-      dscope,
-    )
-    if (!channel) {
-      throw new Error(
-        `[internal] Channel ${mapping.channelId} not found for tenant ${input.scope.tenantId} (or has been deleted)`,
-      )
-    }
+    const routing = await resolveOutboundRouting(em, { message, link, scope: dscope })
+    if (!routing) return NO_THREAD_MAPPING_RESULT
+    const { mapping, channel } = routing
+
     if (!channel.isActive) {
       throw new Error(`[internal] Channel ${mapping.channelId} is inactive; refusing to deliver outbound`)
     }
@@ -212,22 +184,6 @@ const deliverOutboundMessageCommand: CommandHandler<
       )
     }
 
-    // (3) Idempotently upsert a 'pending' MessageChannelLink.
-    if (
-      link &&
-      (link.deliveryStatus === 'queued' ||
-        link.deliveryStatus === 'sent' ||
-        link.deliveryStatus === 'delivered' ||
-        link.deliveryStatus === 'read')
-    ) {
-      // Already sent (or accepted by the provider as 'queued') — short-circuit
-      // so a retried job does not re-invoke the adapter and double-send.
-      return {
-        status: 'already_delivered',
-        messageId: message.id,
-        channelLinkId: link.id,
-      }
-    }
     if (!link) {
       link = em.create(MessageChannelLink, {
         messageId: message.id,
@@ -407,7 +363,16 @@ const deliverOutboundMessageCommand: CommandHandler<
           )
         : []
       let mergedReferences = existingRefs
-      if (threadToken && !outboundBody.includes(`[OM:${threadToken}]`)) {
+      // The footer + References-id are the email-threading fallback for a
+      // recipient whose client strips RFC 5322 headers — meaningless for a
+      // provider-native conversation, where the hub already threads on the
+      // provider's own conversation id. Emitting it anyway would hand a
+      // real Discord/Slack/etc. user a visible, copyable thread marker they
+      // could paste into an unrelated conversation to graft it onto this
+      // one (the token/JWZ matcher is likewise gated off inbound for these
+      // providers in `ingest-inbound-message.ts`).
+      const isProviderNativeChannel = adapter.capabilities.recipientFormat === 'provider-native'
+      if (!isProviderNativeChannel && threadToken && !outboundBody.includes(`[OM:${threadToken}]`)) {
         // Append the body footer for the corresponding format. The hidden
         // HTML span is `display:none`; the plain-text trailer is a small
         // bracketed marker on its own line. Both survive most reply clients.
