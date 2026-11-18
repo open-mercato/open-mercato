@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import type { Json, ScorerDefinition, ScorerVerdict } from '../types'
 import { SKIP_REASON, skipped } from '../types'
 import { baseConfigSchema, resolvePath, sourceSchema, toText, verdict } from './shared'
@@ -84,7 +85,7 @@ export const startsWith = textScorer('starts_with', `${I18N}.starts_with.field.v
 )
 
 const regexConfig = baseConfigSchema.extend({
-  pattern: z.string().min(1),
+  pattern: z.string().min(1).max(500),
   path: z.string().optional(),
   caseInsensitive: z.boolean().default(false),
 })
@@ -110,14 +111,14 @@ export const regex: ScorerDefinition<RegexConfig> = {
   needsExpected: () => false,
   score: (run, _expected, config) => {
     const actual = toText(resolvePath(run.output, config.path))
-    let matched: boolean
-    try {
-      matched = new RegExp(config.pattern, config.caseInsensitive ? 'i' : undefined).test(actual)
-    } catch {
-      // A malformed pattern is a config fault, not a run failure — skip so a typo
-      // cannot flip a gate verdict to false.
-      return skipped(SKIP_REASON.invalidConfig, { pattern: config.pattern })
+    const flags = config.caseInsensitive ? '(?i)' : ''
+    const result = testLinearRegex(`${flags}${config.pattern}`, actual, {
+      maxPatternLength: 500 + flags.length,
+    })
+    if (!result.ok) {
+      return skipped(SKIP_REASON.invalidConfig, { pattern: config.pattern, reason: result.reason })
     }
+    const matched = result.matched
     return verdict(matched, matched ? 1 : 0, { pattern: config.pattern })
   },
 }

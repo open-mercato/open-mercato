@@ -670,3 +670,9 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## Eval regex (2026-11-15, #9160)
+
+STABLE config/verdicts: bounded RE2 replaces backtracking. A bridge retains ReDoS;
+steps 1–3 need a named human waiver on #9581 (pending; merge blocked).
+[Client/operator migration and spec](UPGRADE_NOTES.md#agent-evaluation-regex-safety-9160).
