@@ -39,7 +39,7 @@ After the parent spec, the known credential-bearing first-party commands no long
 
 ### What is inspected
 
-The assembled log payload: the replay input as it will be stored, the undo payload, both snapshots, the change set and the context. At every depth, skip the complete subtree of `custom`, `customFields`, `customValues`, `custom_fields`, `custom_values` and `cf`, and any key starting with `cf_` or `cf:`. Apply this before tokenizing keys, including top-level keys in request bodies and inferred change sets. These are tenant-defined data.
+Inspect both the assembled execute log payload and every new undo trace's assembled payload before persistence. Execute includes the replay input, undo payload, both snapshots, changes and context. The undo trace has only the mapped roots it actually persists and can copy legacy snapshots, changes and context from a retained source row. Apply the same bounds and sanitization. Undo does not inherit arbitrary safe paths from persisted legacy log metadata. At every depth, skip the complete subtree of `custom`, `customFields`, `customValues`, `custom_fields`, `custom_values` and `cf`, and any key starting with `cf_` or `cf:`. Apply this before tokenizing keys, including top-level keys in request bodies and inferred change sets. These are tenant-defined data.
 
 ### How a key matches
 
@@ -67,7 +67,7 @@ The assembled log payload: the replay input as it will be stored, the undo paylo
 
 - Call the shared telemetry runtime's `reportError` for every occurrence, with stable code `commands.audit_credential_key` and the registered command id. Never sample, throttle or suppress at the bus or facade; volume control belongs to the collector and backend.
 - Diagnostics use only closed-vocabulary segments: log roots (`commandPayload`, `snapshotBefore`, `snapshotAfter`, `changes`, `context`), envelope segments (`undo`, `redo`, `input`, `before`, `after`, `from`, `to`), and recognized credential words. Replace all other key segments, including map keys, with `*`; arrays also use `*`. Canonicalize credential segments from recognized words, never the original key spelling. Deduplicate, retain at most 50 paths and cap each at 256 characters. No identifier, email, token, tenant field name or value reaches telemetry, exceptions or fallback logs. Use `auditKeyPaths` for this sanitized string and test it through the facade's redactor.
-- Persist the row unchanged. Only `NODE_ENV === 'test'` honours `OM_AUDIT_CREDENTIAL_CHECK=throw`. In that mode, raise the sanitized diagnostic after the row's transaction commits and normal post-commit side effects finish; never throw inside an atomic log transaction. The test failure does not mean the command rolled back.
+- Persist the row unchanged. Only `NODE_ENV === 'test'` honours `OM_AUDIT_CREDENTIAL_CHECK=throw`. In that mode, raise the sanitized diagnostic after the row's transaction commits and normal post-commit side effects finish. On undo, capture the diagnostic before `markUndone`, then raise only after atomic commit (including ambient transaction ownership) or successful legacy finalization and normal post-commit hooks, outside the catch that would release an undo claim; never throw inside an atomic log transaction. The test failure does not mean the command rolled back.
 - Outside test mode, `throw` degrades to reporting, with one configuration warning per process through `createLogger`; it never fails a committed mutation. The warning contains the setting name only. Matches themselves are still reported on every execution.
 
 ### Design decisions
@@ -164,7 +164,7 @@ Additive: `CommandLogMetadata.auditSafePaths` is an optional §2 member; `@open-
 ## 📋 Implementation Plan
 
 1. Add `auditSecrets.test.ts`: every Problem Statement example in camel, snake and kebab case; every word, pair and exempt suffix; `accessKey`, `otpauthUrl`, cookies, signatures, passphrases, `recoveryCodes: string[]`, a `{ from, to }` `passwordHash` and numeric OTP; empty values; safe paths. Traversal bounds: a credential key at depth 31, 32 and 33 (found, found, skipped with `truncated: 'depth'` while a later sibling at depth 1 is still found); a payload of 19999, 20000 and 20001 nodes with a credential as the last node (found, found, not found with `truncated: 'nodes'`); deterministic match order across roots and insertion order; a shared reference reported at both paths; a cycle skipped with `truncated: 'cycle'`; a cycle met before a depth skip reports `truncated: 'depth'`, and a cycle met before the node limit reports `truncated: 'nodes'`. Test raw bodies and change sets with top-level and nested `cf_token` and `cf:token`, and every skipped container, in report and throw modes. Test email-, external-id- and token-keyed maps and a credential-like key containing an email; diagnostics carry only canonical vocabulary and wildcards, within the length and count caps.
-2. Add `command-bus.audit-secrets.test.ts`: unchanged rows, every repeated occurrence reported, test-only failure after commit and post-commit side effects, production and development `throw` returning success with one warning, no secret in messages or attributes, and a stripped replay input causing no report. Test atomic and non-atomic command paths and facade redaction. No throttle or throttle test.
+2. Add `command-bus.audit-secrets.test.ts`: unchanged rows, every repeated occurrence reported, test-only failure after commit and post-commit side effects, production and development `throw` returning success with one warning, no secret in messages or attributes, and a stripped replay input causing no report. Test atomic and non-atomic execute and undo paths, including ambient transaction rollback, retained legacy source rows whose copied trace contains a diagnostic match, committed trace and consumed claim in test throw mode, and facade redaction. No throttle or throttle test.
 3. Set the variable in first-party jest setups that register commands. Fix or declare matches command by command. This affects test configuration only; no deployment default sets `throw`.
 4. Add TC-AUDIT-CHECK-001 below, author documentation and the `UPGRADE_NOTES.md` note, including committed-state semantics of a test failure.
 5. Archive the Delta if the capabilities directory has been adopted by then.
@@ -235,9 +235,13 @@ Two production-mode executions with `OM_AUDIT_CREDENTIAL_CHECK=throw` both retur
 | Additive changes to command types | Compliant | One optional field |
 | Integration coverage | Specified | TC-AUDIT-CHECK-001 owns fixtures, sinks and cleanup; no new UI path |
 
-**Verdict:** approved for implementation.
+**Verdict:** design ready. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
 
 ## Changelog
+
+### 2026-11-18 — Review corrections
+
+- Scan undo traces copied from retained history, with test failure deferred until undo and its post-commit effects finish.
 
 ### 2026-11-16
 - Written autonomously, split out of the audit-snapshot-redaction spec after its review. The matcher rules answer the specific misses and false positives that review listed.

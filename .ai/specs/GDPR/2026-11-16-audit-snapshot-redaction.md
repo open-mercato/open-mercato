@@ -139,6 +139,10 @@ The system SHALL NOT store a link or template password or its hash in the audit 
 - WHEN a password is added to an unprotected link and that edit is undone
 - THEN the hash is cleared and the link is unprotected again, as before the edit
 
+##### Scenario: Redo a password addition
+- WHEN undo of a link or template update restored its unprotected state and the update originally added a password
+- THEN redo reads the recorded target protection and fails with 409 `checkout.protected_replay_unavailable` before any write when the live hash is absent. The row, propagation targets and audit replay state stay unchanged. A missing legacy protection flag is treated as unknown and applies the same refusal. An explicitly recorded password removal still clears the hash.
+
 ##### Scenario: Template restore
 - WHEN an unrelated edit, a soft delete or a password change of a protected template is undone
 - THEN the template is restored with its current hash unchanged, and a newly created link from it still requires that password
@@ -254,7 +258,7 @@ Phase 2 ships as one PR per package (`shared`, `core`, `checkout`); the enterpri
 
 ### Phase 2 — Stop it
 1. Bus: write the replay envelope only for an undoable handler. Update the bus characterization test. Unit test that an undoable command is unaffected.
-2. Pay links and templates: replay input without a non-empty password, keeping an explicit clear as `password: null`; undo payload without the hash, with `passwordProtected`. Both restore helpers never assign a hash from history: a protected or unknown target keeps the live hash, an unprotected target clears it, and a protected or unknown target over a live row with no hash refuses with 409 `checkout.protected_replay_unavailable` before writes. Both creation helpers refuse a missing protected or unknown-protection row before writes. Add `links.audit.test.ts` and `templates.audit.test.ts`: unrelated edit undo, soft-delete undo, password-change undo, password-removal undo (refused, row unchanged), password-addition undo (hash cleared), password-removal redo, create/undo/redo with a surviving row, and physical removal before redo; delete-undo recreation also refuses. Test template-propagated links keep their current passwords.
+2. Pay links and templates: replay input without a non-empty password, keeping an explicit clear as `password: null`; undo payload without the hash, with `passwordProtected`. Both restore helpers never assign a hash from history: a protected or unknown target keeps the live hash, an unprotected target clears it, and a protected or unknown target over a live row with no hash refuses with 409 `checkout.protected_replay_unavailable` before writes. Both creation helpers refuse a missing protected or unknown-protection row before writes. Add explicit redo handlers to both update commands. After normal replay authorization and inside the scoped mutation boundary, load the target protection from the recorded sanitized `after` state and lock or condition the row update on the hash state checked. Before any link/template write, publication, propagation or side effect, require a live hash for protected or unknown targets. Keep the live hash on those targets, still honor an explicit clear for an unprotected target, and never accept a password from replay input. Use the same update validation, optimistic-lock and side-effect path for successful replays. Add `links.audit.test.ts` and `templates.audit.test.ts`: unrelated edit undo, soft-delete undo, password-change undo, password-removal undo (refused, row unchanged), password-addition undo (hash cleared), password-removal redo, create/undo/redo with a surviving row, and physical removal before redo; delete-undo recreation also refuses. Test template-propagated links keep their current passwords. In TC-AUDIT-SECRETS-002, execute the real update/undo/redo flow for both resources with a newly added password and with an explicit removal. Also remove the live hash before replay of an unrelated update whose recorded target is protected. Assert the typed refusal, unchanged row and replay state, and no linked-row propagation when refused.
 3. Devices: replay input without the token, for register and update.
 4. Cart merge: replay input without the source token and route context; add explicit `redo` that throws `CrudHttpError(409, { code: 'cart.merge_redo_unavailable', error: translatedMessage })` before any write. Unit-test merge, undo and typed refusal; do not set `replayable: false`, which would remove undo too.
 5. Staff-user delete: undo payload without the hash; undo restores without it.
@@ -288,7 +292,7 @@ The replay payload is never returned by the API and is encrypted when tenant enc
 | Test | Path | Covers |
 |---|---|---|
 | TC-AUDIT-SECRETS-001 | `DELETE /api/auth/users`, the audit undo route, `POST /api/auth/login` | Delete a staff user, undo; the account exists again; the old password does not sign in; after `mercato auth set-password` the new one does |
-| TC-AUDIT-SECRETS-002 | Checkout link/template CRUD routes, audit undo route, public pay route | For a link and a template: undo an unrelated edit, a soft delete and a password change; verify the live row retains its current password. A link created from the restored template still demands that password. Remove a link's password by an edit, then undo it: the undo route returns 409 `checkout.protected_replay_unavailable` and the public pay route still serves the page unprotected, exactly as the edit left it, with no success reported. Test UI fixture cleanup owns every generated link |
+| TC-AUDIT-SECRETS-002 | Checkout link/template CRUD routes, audit undo and redo routes, public pay route | For a link and a template: undo an unrelated edit, a soft delete and a password change; verify the live row retains its current password. A link created from the restored template still demands that password. Remove a link's password by an edit, then undo it: the undo route returns 409 `checkout.protected_replay_unavailable` and the public pay route still serves the page unprotected, exactly as the edit left it, with no success reported. Test UI fixture cleanup owns every generated link |
 | TC-AUDIT-SECRETS-003 | Audit list API, audit redo route and audit list/details UI | Insert done and undone legacy entries in the fixture tenant, call `stripCredentialHistory` with that tenant and explicit cutoff, and read them through the list API: `strippedAt`, existing field names, no content and null token. Redo of the undone entry returns 410; the UI shows the stripped line and no redo. Unaffected kinds and another fixture tenant remain unchanged. Never rerun the migration |
 | TC-AUDIT-SECRETS-004 | Cart merge route, audit undo and redo routes | Create two fixture carts and merge with a fixture token, undo successfully, then redo returns typed 409 `cart.merge_redo_unavailable`; both carts remain in their post-undo state |
 
@@ -384,9 +388,13 @@ Password change is covered by the bus unit tests, since the rule lives there. De
 None. The affected Phase 2 replay changes and the Phase 3 cleanup take the Emergency Security Exception; the named maintainer approval on each of those PRs is a pull-request process gate, not an open design item.
 
 ### Verdict
-**Ready for implementation.** Every design decision is settled under Resolved assumptions. Phase 1 may start now. The affected Phase 2 replay changes and Phase 3 ship under the Emergency Security Exception, each PR carrying the named maintainer approval; Phase 3 also waits for erasure Phase 2.
+**Design ready.** Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. The affected Phase 2 replay changes and Phase 3 ship under the Emergency Security Exception, each PR carrying the named maintainer approval; Phase 3 also waits for erasure Phase 2.
 
 ## Changelog
+
+### 2026-11-18 — Review corrections
+
+- Require a pre-write protected-target check for both checkout update redo handlers and test it through the audit redo route.
 
 ### 2026-11-16
 - Written autonomously with resolved assumptions.

@@ -191,7 +191,7 @@ Add the configured whole calendar years to that anchor, clamping 29 February to 
 
 Consume DEC-C — “Retention sets and holds”, owned by the record-retention spec. The set refuses while the tenant age is unset or the caller window is shorter than the `365 * configuredYears` days. Calendar eligibility is rechecked independently of that floor. A registered guard failure refuses; an unsupported exclusion kind skips with `hold_not_honourable`. OSS operators must supply `--exclude-subject` themselves; enterprise registers the legal-hold guard. Held rows stay marked. R3-5 — “Holds, honestly” — in the program owns the OSS/enterprise limit: no OSS legal-hold engine is implied. Internal blankers create no before/after snapshots carrying cleared values.
 
-Use R3-1 — “The audit-history rule for every erasure”, and DEC-B — “The audit-history strip routine” — in the erasure spec's “Contract additions” and `applyRetention` sections. Every edited/deleted record in the matrix is returned as `historyRecords`, including shared reports/projects/comments and parents carrying their snapshots. The orchestrator owns its two strip passes and locked undo/redo checks. The later retention handler collects the same full footprint and strips its current history before and after blanking through `actionLogService.applyRetention` with `includeRecords` in the batch transaction; exhaust bounded pages, and roll back if stripping fails. This catches entries created after initial erasure. Resource kinds come from existing command logs (`staff.teamMember`, `staff.timesheets.time_entry`, and other command-owned constants), not table-name guesses.
+Use R3-1 — “The audit-history rule for every erasure”, and DEC-B — “The audit-history strip routine” — in the erasure spec's “Contract additions” and `applyRetention` sections. Every edited/deleted record in the matrix is returned as `historyRecords`, including shared reports/projects/comments and parents carrying their snapshots. The orchestrator owns its two strip passes and locked undo/redo checks. The later retention handler collects the same full footprint and strips its current history before and after blanking through `actionLogService.applyRetention(input, { em })` with `includeRecords` and the exact owner batch transaction; exhaust bounded pages, and roll back if stripping fails. This catches entries created after initial erasure. Resource kinds come from existing command logs (`staff.teamMember`, `staff.timesheets.time_entry`, and other command-owned constants), not table-name guesses.
 
 ### Settings and database doctor check
 
@@ -216,7 +216,7 @@ For all classes, organization absent means the tenant's organizations; present m
 | Class | Concrete history footprint / exemption |
 |---|---|
 | `onboarding.requests` | Deleted `onboarding_requests` rows carrying the user's id, any status; password/token hashes omitted from export |
-| `notifications.inbox` | Deleted `notifications` and `notification_preferences`; `notification_types` and `notification_type_overrides` are shared configuration |
+| `notifications.inbox` | Deleted `notifications` and `notification_preferences`; `notification_types` and `notification_type_overrides` are shared configuration. When E3 Phase 3 is present, preference mutations use its auth-owner retirement fence before per-key locks. C4’s auth lock makes the account ineligible before this class removes preferences; any mutation committed earlier is removed, and later mutations cannot recreate it. Test both orderings with an outstanding unsubscribe link. |
 | `perspectives.views` | Deleted `perspectives`; `role_perspectives` is shared role configuration |
 | `dashboards.layouts` | Deleted `dashboard_layouts` and `dashboard_user_widgets`; `dashboard_role_widgets` is shared role configuration |
 | `push_notifications.deliveries` | Deleted `push_notification_deliveries`, before device deletion |
@@ -554,11 +554,13 @@ For account fixtures, auth and customer_accounts test helpers own captured sessi
 | Phase order | Designed | A9 delivers the integrations credential methods before communication Phase 1 and this spec's Phase 2; no cycle |
 | Integration coverage | Designed, not executed | Network-free push/mailbox fixtures and all changed API/read paths listed; Phases 2 and 3 register their modules' tenant-export readers with both-mode contract tests |
 
-**Verdict:** Approved for implementation in phase order. R4-14's staff preference behavior, the employment anchor and the DSR credential call placement are decided; each phase waits only on its listed dependencies being delivered. No runtime validation is claimed.
+**Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. R4-14’s staff preference, the employment anchor and the DSR credential call placement are specified. Each phase also depends on its listed delivery prerequisites. No runtime validation is claimed.
 
 ## Changelog
 
 ### 2026-11-18
+
+- Aligned employment retention with caller-bound audit stripping and notification preference cleanup with the E3 auth retirement fence.
 
 - Removed subject-owned employment custom values at initial erasure while preserving exact shared-report evidence and added explicit portal ownership checks for staff support rows.
 

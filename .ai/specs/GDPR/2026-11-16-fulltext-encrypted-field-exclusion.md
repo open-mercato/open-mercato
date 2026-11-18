@@ -246,9 +246,13 @@ No database table or user-editable entity. Meilisearch documents gain the intern
 | Tenant/organization scope | Compliant design | Tenant index recreation only for an unrestricted organization scope; restricted callers upsert only their own organizations' records, one call per organization in `filterIds` |
 | Historical plaintext removal | Specified | Required named API/worker rebuild and persistent document provenance scan; doctor is configuration-only |
 
-**Verdict:** approved: the fix in Phase 1, and the default flip in the following minor in Phase 2 (assumption 1) with the required per-tenant rebuild and zero-unsafe status evidence.
+**Verdict:** design ready. Phase 1 covers the fix. Phase 2 adds the default flip in the following minor with the per-tenant rebuild and zero-unsafe status evidence (assumption 1). Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
 
 ## Changelog
+
+### 2026-11-18 — Review corrections
+
+- Record the upstream OSS carrier approval gate separately from design readiness.
 
 ### 2026-11-18 — Spec review
 

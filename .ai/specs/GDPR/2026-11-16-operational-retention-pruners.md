@@ -3,7 +3,7 @@
 > **Program:** packages D1 and D2 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for core tables. Forms retention and the enterprise tables were split out after review and are listed in the program.
 > **Code baseline checked for this revision:** read-only snapshot `9e09023483`; specifications only, no runtime tests run.
 > **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
-> **Status:** design settled; no implementation. The edition is OSS under program DEC-2 (assumption 8). Each phase follows the delivery dependencies below and goes upstream as its own PR through ordinary maintainer review.
+> **Status:** Design settled with proposed OSS placement. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Each phase follows the dependencies below and receives ordinary maintainer review in its own PR.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
@@ -553,7 +553,7 @@ No new API routes. Every handler ships a real-database integration test in the s
 The opt-in release requires contract Phase 1 and doctor Phase 3. The default flip also requires R3-4, `pruners.unscheduled` and the deployment connection-budget check. Bound collection and C5/G6 survivor coverage require C5's `operational_pruner` bound-definition variant and the owner handlers. Each phase PR goes through ordinary maintainer review. This spec describes planned tests, not completed validation.
 
 ### Verdict
-**Design settled.** The edition is OSS under program DEC-2 (assumption 8), and the R4-13 registry publication is decided under “Registry publication”. Implementation follows the delivery dependencies and implementation gates above, one PR per phase.
+**Design settled.** The proposed OSS placement is subject to the DEC-2 gate above. The R4-13 registry publication is decided under “Registry publication”. After the edition and delivery gates are met, each phase ships in its own PR.
 
 ## Changelog
 

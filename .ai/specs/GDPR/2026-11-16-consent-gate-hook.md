@@ -355,7 +355,7 @@ The test-only category is per request and browser context. TC-CONSENT-002 is man
 | Frontend architecture contract | Compliant | Included |
 | Integration coverage | Required delivery gate | TC-CONSENT-001 covers notice and locale headers; TC-CONSENT-002 covers the gate, equal choice, public settings and withdrawal/cleanup in its own context |
 
-**Verdict:** approved for implementation. Every assumption is settled, and E5 is OSS under program DEC-2. Phase 1 ships alone. Phase 2 ships with mandatory TC-CONSENT-002 and the named G5 docs section; it does not wait for a first production use, and the shipped application still declares only essential categories. No root-rule exception is needed. Each PR goes through ordinary maintainer review.
+**Verdict:** Design ready with proposed OSS placement. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Phase 1 ships independently after that approval. Phase 2 ships with TC-CONSENT-002 and the named G5 docs section, without waiting for a first production use. The shipped application still declares only essential categories. Each PR receives ordinary maintainer review.
 
 ## Changelog
 

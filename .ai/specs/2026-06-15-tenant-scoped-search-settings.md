@@ -145,6 +145,8 @@ Use an operation child container with its own `vectorEmbeddingService` initializ
 
 Eliminate **all first-party process-wide** `vectorEmbeddingService.updateConfig` mutations, including workers, both query routes, `api/embeddings/route.ts:341-345`, `api/embeddings/reindex/route.ts:106-109` and `subscribers/vector_purge.ts:41-44`. The save writes/invalidates only its tenant's setting and returns the existing response. Keep the public `EmbeddingService.updateConfig` method and DI key available for compatibility with independently owned service instances; a scoped runtime change does not remove a stable API. `SEARCH_DISABLE_SINGLETON_CACHE=1` is not the fix: correctness must hold with normal singleton driver/client reuse enabled.
 
+**Model changeover within a tenant.** Bind each embedding snapshot to an immutable generation identifying its effective provider, model, dimensions and endpoint. Bind the current tenant generation and nullable generation on stored vectors in additive search-owned storage. Update the tenant's generation atomically with a selection change, including a switched inherited configuration. Queries must resolve and filter by the current generation, and final upserts must compare the snapshot generation against the current tenant generation atomically with the write. A losing writer does no upsert and schedules or leaves eligible work for the current generation. A reindex locks/pins its tenant generation, completes only for that generation, and cannot republish stale output or mark a later generation done. Runtime changes of inherited settings require reconciliation before affected tenants resume vector work. Rows without provenance remain in storage and are ineligible until reindexed unless migration can independently prove their exact generation. Existing fulltext and token paths retain their normal fallback while vector results rebuild. A driver unable to honor these guarantees can retain its old API but provides no transition-time vector results until an explicitly paused, drained and verified tenant reindex; any later model change repeats that gate. No maintenance step purges another tenant's rows.
+
 The shared vector store's existing dimension/model compatibility check remains. Unsupported configurations refuse or request the existing reindex path for that tenant; tenant scoping does not introduce per-tenant vector tables or authorize a cross-tenant purge. Interleaving a save with another tenant's query or worker must not change its configuration snapshot or indexed results.
 
 ### 3. Verified, cached provider availability (Q3)
@@ -262,6 +264,10 @@ The four phases preserve existing storage first, then close runtime isolation, c
 - Each concurrency test owns all config/map/index/provider fixtures, barriers and process overrides; release blocked operations, stop owned workers, restore DI/environment and remove records, tenant settings, vectors, organizations and tenants in `finally`. Assert actual calls/results after the barriers, never a vacuous empty index.
 - Integration tests are self-contained (API-created fixtures, cleaned up in teardown), per `.ai/qa/AGENTS.md` and the per-module colocation rule.
 
+- Within one tenant, pause an old-generation worker after embedding, change to a different same-dimension provider/model and finish the reindex. Release the older worker and assert it cannot overwrite the new vector, affect the new generation's completion, or reappear in queries. Cover historical null generation, inherited changes, cross-tenant isolation, and a driver without generation support.
+
+For work proposed under #8593, the GDPR hand-off remains subject to the program DEC-2 written upstream carrier approval. The independent search-settings work retains its own approval route.
+
 ## Final Compliance Report
 
 | Rule | Status |
@@ -278,6 +284,8 @@ The four phases preserve existing storage first, then close runtime isolation, c
 | Integration coverage for affected API + UI paths | ✅ Test Plan above |
 
 ## Changelog
+
+- 2026-11-18 — Fence same-tenant model generation changes through final writes, query eligibility and reindex completion.
 
 - 2026-06-15 — Initial draft. Locked Q1 (scope `ModuleConfig` generally), Q2 (env-derived defaults), Q3 (active cached provider probe). Grounded in `packages/core/src/modules/configs/*` and `packages/search/src/{modules/search,vector,strategies}/*`.
 

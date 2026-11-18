@@ -547,7 +547,7 @@ Every test creates its own tenants, users, records and files with fixtures/APIs,
 | Staff address/provider-only account gaps | Stated limits | Explicit in each relevant run report, with the unlinked provider-only conversation count |
 | Retained correspondence | Named unbounded limit | Every run report names it with the Art. 17(3) ground the controller must assert; a `messages` correspondence retention set is a stated follow-up |
 
-**Verdict:** approved for implementation. Every assumption is settled, including the R4-1 DSR call placement. Phase 1 is not started before the erasure spec's Phase 4 and program package A9 have landed.
+**Verdict:** Design ready, including the R4-1 DSR call placement. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Phase 1 is not started before the erasure spec's Phase 4 and program package A9 have landed.
 
 ## Changelog
 

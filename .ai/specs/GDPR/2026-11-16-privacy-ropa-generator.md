@@ -420,7 +420,7 @@ Both run the command with JSON output in an isolated test environment. Each owns
 | Edition | Compliant | OSS under DEC-2 (assumption 7); the enterprise policy adapter and recipient declarations are optional, soft-resolved and `not_applicable` when absent |
 | Integration coverage | Required by design | Two self-contained command suites cover owner API fixtures, cleanup, foreign tenant and second organization; enterprise profile covers record/subject-set policies |
 
-**Verdict:** design ready; delivery follows the listed owner-service/accessor dependencies; no implementation validation is claimed.
+**Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. Delivery then follows the listed owner-service and accessor dependencies.
 
 ## Changelog
 

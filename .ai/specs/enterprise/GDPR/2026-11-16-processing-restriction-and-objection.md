@@ -1,7 +1,7 @@
 # Restriction of processing and objection: what the product can and cannot do
 
 > **Program:** package C10 of [`../../GDPR/2026-11-15-gdpr-ready-deployments-program.md`](../../GDPR/2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). Proposed by the program; it is not in the issue.
-> **Status: decision record, option A (program DEC-8).** A documented procedure, with no record freeze and no technical restriction. A first design blocked edits but left other processing paths open. This document records why that is insufficient, what a technical restriction would require, and which manual controls are available or still proposed.
+> **Status:** Decision record for the proposed operator procedure in DEC-8. DEC-14 keeps technical restriction and non-marketing objection open until written upstream disposition or delivery of a separately tracked control. A first design blocked edits but left other processing paths open. This document records why that is insufficient, what a technical restriction would require, and which manual controls are available or still proposed.
 > **Code baseline:** supplied repository snapshot at the spec commit. Current-code claims were rechecked there; no runtime behavior was tested.
 > **Written autonomously.** No question was put to a person.
 
@@ -172,9 +172,13 @@ Option A is documentation only. It changes no API, schema, feature id, event, DI
 | Enterprise scope in the enterprise specs directory | Compliant | The operator procedure is specified in the OSS deployment-docs spec; this record holds the decision. Option B would touch OSS for the guard and the enricher, and says so |
 | Required spec sections | Compliant | Overview, Problem Statement, Proposed Solution, Architecture, Data Models and API Contracts present; the last three are "None — documentation only" |
 
-**Verdict:** Approved as a decision record. Option A (program DEC-8) is implemented as G5's `restriction-and-objection` page, published in Stage 1; B/C are not implementation authority.
+**Verdict:** G5 owns the proposed operator procedure and publishes the `restriction-and-objection` page in Stage 1. No technical implementation is authorized from this record. DEC-14 requires written acceptance of the substitution or shipped technical acceptance evidence before #8593 closes.
 
 ## Changelog
+
+### 2026-11-18
+
+- Kept the original technical scope open under DEC-14 while retaining the operator procedure as a separate G5 deliverable.
 
 ### 2026-11-16
 - Written autonomously as a design for a restriction mark enforced by a command interceptor.

@@ -311,7 +311,7 @@ Both tests create their own tenants, organizations and rows, use an isolated tes
 | Request-path cost | Compliant design | Bounded inner candidate page, forward cursor and id-limited deletes; indeterminate is explicit, not reported as no eligible rows |
 | R4-13 / C5 retention bound | Compliant design | `audit_logs.access_logs` `operational_pruner` entry and owner handler, fail-closed projection and fixture evaluation |
 
-**Verdict:** approved for implementation after #8472 is resolved and the pruner spec's first phase has landed or is folded in.
+**Verdict:** Design ready after #8472 is resolved and the pruner spec’s first phase has landed or is folded in. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. An independently approved fix can proceed under its own carrier.
 
 ## Changelog
 

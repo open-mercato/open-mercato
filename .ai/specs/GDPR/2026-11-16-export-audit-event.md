@@ -70,9 +70,9 @@ One helper in the shared package, `exportResponse`, builds the file response and
 The helper:
 
 1. generates the export's id, a UUID;
-2. writes an action-log entry under the command id `audit_logs.export.record`, with resource kind `audit_logs.export`, the export's id as its resource id, the exported kind as its parent resource kind, `parent_resource_id = null` for a list or subject export (and the exported record id for a record export), and the format, scope, count and organization scope in its context — and waits for it for at most five seconds (`EXPORT_AUDIT_ENTRY_TIMEOUT_MS = 5000`, a module constant); a write still pending then is reported as a sink failure with code `export_audit_entry_timeout`, and the helper continues without cancelling it;
-3. emits `audit_logs.export.completed` with `{ persistent: true, tenantId, organizationId, skipPersistentSubscribersInline: true }`, carrying the same facts and the export's id, so that a consumer can recognise a redelivery;
-4. returns the response.
+2. writes an action-log entry under the command id `audit_logs.export.record`, with resource kind `audit_logs.export`, the export's id as its resource id, the exported kind as its parent resource kind, `parent_resource_id = null` for a list or subject export (and the exported record id for a record export), and the format, scope, count and organization scope in its context — and starts the action-log sink independently of event publication;
+3. independently emits `audit_logs.export.completed` with `{ persistent: true, tenantId, organizationId, skipPersistentSubscribersInline: true }`, carrying the same facts and the export's id, so that a consumer can recognise a redelivery;
+4. waits for the two independently started sink attempts to settle, up to a single five-second recording deadline (`EXPORT_AUDIT_TIMEOUT_MS = 5000`) measured from before either starts, then returns the response. That bound includes taps, inline listeners and queue enqueue in the event path. Report each timed-out sink once using `export_audit_entry_timeout` or `export_audit_event_timeout`. Observe late settlement without a second attempt, unhandled rejection or duplicate failure report. Late completion keeps the original export id in either sink; it never delays the response.
 
 The helper first checks that `audit_logs` is enabled in the module registry. If disabled, it attempts neither sink, emits no event, and returns the same response. With the module enabled each sink is attempted independently, including enqueue after an entry failure. A failure of either sink is logged and sent to `reportError` without content or filter values, and does not fail the export. The export's id is generated before both, so the event carries it even when the entry could not be written.
 
@@ -148,9 +148,9 @@ With `audit_logs` enabled, the system SHALL attempt one durable audit entry and 
 - WHEN either sink fails
 - THEN the export still succeeds, that failure is logged and reported, and the other sink is independently attempted
 
-##### Scenario: The entry write stalls
-- WHEN the action-log write has not finished after five seconds
-- THEN the helper reports `export_audit_entry_timeout`, still attempts the event and returns the export
+##### Scenario: A recording sink stalls
+- WHEN the entry write or event publication has not finished by the shared five-second deadline
+- THEN the helper reports each pending sink timeout, the other attempt has already started independently, and the export returns
 
 ##### Scenario: An export across several organizations
 - WHEN a user allowed organizations A and B, but not every organization, exports with all organizations selected
@@ -219,7 +219,7 @@ The body is fully built before the call; zod rejects a `ReadableStream` or any o
 |---|---|
 | The export fails part-way | Nothing is recorded if the body cannot be built; recording happens once the response body is fully built, and a transport abort after that is not detected |
 | A route passes a streaming body | zod refuses it before anything is recorded; exports hand the helper a built body |
-| The action-log write stalls | After five seconds it is reported as `export_audit_entry_timeout`; the event is still attempted and the export returned. A write that completes later stays as the entry |
+| The action-log write or event path stalls | The other sink is already in progress. After the common deadline, the response returns and the pending sink is reported. Late completion retains the original occurrence id |
 | An export whose filter covers several organizations but not all | Null organization on the entry and event; the encrypted context records `organizationScope: 'several'` and the ids. The alert consumer treats it as tenant-wide |
 | An export by an API key | `actorKind` is `api_key` and the actor is the key |
 | A client that pages by hand through JSON, or a table exported in the browser | Not an export to the server; stated as a limit |
@@ -242,7 +242,7 @@ Additive: an event, a helper, a resource kind, a new `events.ts`. With the audit
 ## 📋 Implementation Plan
 
 1. **Characterize** that a query-engine multi-page export leaves access-log rows for the first page only and nothing else. Commit alone.
-2. Add `exportResponse` and `resolveExportRequestContext` with named suite `export-response.test.ts`: both sinks; either failing, with the event still carrying the export's id; the entry awaited before the response; a stalled entry write reported as `export_audit_entry_timeout` after five seconds (fake timers) with the event still attempted and the response returned; a `ReadableStream` body refused before either sink; one, several and all organizations mapped to the organization id and `organizationScope`, and a custom-route context that never falls back to the home `auth.orgId`; the skip-inline emit options with single delivery off; trigger exclusion; no content; trusted auth/scope and parent id mapping; disabled audit module; each scope; no attachment header without a file name.
+2. Add `exportResponse` and `resolveExportRequestContext` with named suite `export-response.test.ts`: both sinks; either failing, with the event still carrying the export's id; both sinks independently started before waiting; stalled database write, event tap and queue enqueue each bounded by the same deadline, including when both stall; assert timeout codes, response returned, and late success or rejection uses the original occurrence id without a retry or duplicate report; a `ReadableStream` body refused before either sink; one, several and all organizations mapped to the organization id and `organizationScope`, and a custom-route context that never falls back to the home `auth.orgId`; the skip-inline emit options with single delivery off; trigger exclusion; no content; trusted auth/scope and parent id mapping; disabled audit module; each scope; no attachment header without a file name.
 3. Use it in the factory's two branches. `factory-export-audit.test.ts`, with a small configured batch, for `view` scope with filters and `full` scope, each across several pages, and for a non-export response; assert all full-export aliases use `exportFullRequested`. Add a user allowed two of three organizations who selects all (null organization, `organizationScope: 'several'` with both ids), one selected organization, and an unrestricted user (`'all'`).
 4. Add `audit_logs/events.ts`; run the generators.
 5. Move each of the ten routes to the helper, one step per module: `entities`; `audit_logs`; `staff`; `forms`, its two exports and the staff PDF; `packages/documents`; `eudr`, the annual report and the statement packet; `agent_orchestrator` in `packages/enterprise`. One unit test per route, asserting its scope and unchanged response, plus the matching table-driven integration case TC-AUD-EXPORT-002 below. Each case observes the actual event in the test queue and the audit entry, rather than only mocking the helper.
@@ -332,9 +332,13 @@ Counting across several pages is unit-tested: the batch size cannot be set by a 
 | Integration coverage | Compliant | Three suites: factory entry/event and audit-filter UI; table-driven entry/event cases for all ten custom routes plus the DSR subject export once it ships; dedicated expiry command and holds; unit tests for sink failures and multi-page counting; classification guard |
 | Enterprise scope in the OSS specs directory | Compliant | One enterprise route adopts the OSS helper; nothing enterprise-only is specified |
 
-**Verdict:** design ready, with the settings/retention/erasure prerequisites and operator expiry scheduling explicit; no implementation validation is claimed.
+**Verdict:** design ready, subject to the settings, retention, erasure and scheduling prerequisites. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
 
 ## Changelog
+
+### 2026-11-18 — Review corrections
+
+- Bound the independent action-log and event attempts by one deadline and preserve occurrence identity on late settlement.
 
 ### 2026-11-16
 - Split from the security-alerting spec on its reviewer's advice. That review showed the first design could not work: the access log cannot hold a summary row, its rows expire in eight hours, an open PR lets it drop writes under load, the factory has two export branches, and at least one export route bypasses the factory. The record now goes to the action log and the event is emitted independently of it.

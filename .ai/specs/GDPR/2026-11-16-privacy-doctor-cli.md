@@ -527,7 +527,7 @@ Pass-one fresh-context review found missing database-service access, provider-ti
 No implementation was assessed. C1 now extends G4's sole scaffold and specifies bootstrap-free get-only settings reads and the independent settings counter/binding; forms names all five suppression/unsubscribe checks, including the two fallback-secret checks, and fail-closed specifies its shared accessor. The pruner owner now specifies its side-effect-free enabled-handler schedule definitions, exact key/UUID expansion and scheduler factory/binding; their implementation and isolated-selection tests remain default-flip prerequisites.
 
 ### Verdict
-**Design settled.** Assumption 4 and the module id (DEC-10) are decided; the shell, command and built-in checks are OSS (DEC-2). C1 Phase 1/R3-2 precedes Phase 3; C1 Phase 7 supplies domain get-only settings reads and the independent shared check/counter. Owner token/forms checks use lazy tenant counters; scheduler's exact check/service pair alone counts system rows with null tenant, including zero-tenant installations.
+**Design settled.** Assumption 4 and the module id (DEC-10) are decided; the shell, command and built-in checks are proposed for OSS. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. C1 Phase 1/R3-2 precedes Phase 3; C1 Phase 7 supplies domain get-only settings reads and the independent shared check/counter. Owner token/forms checks use lazy tenant counters; scheduler's exact check/service pair alone counts system rows with null tenant, including zero-tenant installations.
 
 ## Changelog
 

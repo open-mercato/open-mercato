@@ -1,13 +1,13 @@
 # What a model is given: withholding fields from model input
 
 > **Program:** second part of F1, [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md), issue open-mercato/open-mercato#8593.
-> **Status:** decision record. Option B is decided (program DEC-11): no field-level model-input control, and G5's disclosure ships before #8593 closes. Alternative A below is the rejected design, kept as a record; it is not built from this spec. Current-code claims were checked in the read-only repository.
+> **Status:** Decision record for the proposed disclosure in program DEC-11. DEC-14 keeps the issue’s technical masking or exclusion requirement open until written upstream disposition or delivery of a separately tracked control.
 
 Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
 ## 📝 TLDR
 
-Tools and page-context builders can send decrypted record data to a model. A field filter would cover only declared record shapes on selected paths. The decision is to ship no field-level control and document exactly what is sent. The narrower control that was considered stays below as a rejected alternative, with its gaps, including OpenCode over MCP.
+Tools and page-context builders can send decrypted record data to a model. A field filter would cover only declared record shapes on selected paths. This carrier proposes documenting exactly what is sent. If upstream retains the technical requirement under DEC-14, it needs a separate delivery spec. The narrower control that was considered stays below as a rejected alternative, with its gaps, including OpenCode over MCP.
 
 ## 📝 Resolved assumptions (autonomous defaults)
 
@@ -16,7 +16,7 @@ Tools and page-context builders can send decrypted record data to a model. A fie
 | Q1 | Build a narrow field-withholding control, or record no field-level control? | B (program DEC-11): no field-level control. Provider policy stays the enforceable control; every route in the Problem Statement table, from tool results and page contexts to embeddings, text extraction and web research, is documented as model input. A filter would cover declared typed-tool output only, while the other routes still reach the model, and it would be read as masking | A: the narrow withholding design below; rejected and not built. A later field-level control needs its own spec and must never be described as comprehensive masking |
 | Q2 | Does option A preserve unmasked chat transcripts? | Moot under B: no formatter is added, so the typed chat transcript, its UI parts and stored tool output keep the current tool result. For the record, A would have put the masked/truncated result in all three | A separate model/UI output split; not designed |
 
-The program's **Decisions — DEC-11**, **Phase 0 — Decisions and hygiene** and **Known limits** record Q1=B and the disclosure gate. The carrier is `apps/docs/docs/deployment/gdpr/impact-assessment-notes.mdx#what-the-assistant-sends-to-a-model`, section **What the assistant sends to a model**, specified by [`2026-11-16-gdpr-deployment-docs.md`](2026-11-16-gdpr-deployment-docs.md), **Proposed Solution** and **Implementation Plan — Stage 1**, step 1. That design requires the section to name every model-input route in the **Problem Statement** table and state that the data on each route may leave the installation, including through legacy OpenCode over MCP; provider permission is not field minimisation. The program's **Known limits** links that delivery artifact and states **No field-level model-input control**. These are established design requirements, not evidence that the page has shipped. B is complete when the statement ships, before #8593 closes.
+The program's **Decisions — DEC-11**, **Phase 0 — Decisions and hygiene** and **Known limits** record Q1=B and the disclosure gate. The carrier is `apps/docs/docs/deployment/gdpr/impact-assessment-notes.mdx#what-the-assistant-sends-to-a-model`, section **What the assistant sends to a model**, specified by [`2026-11-16-gdpr-deployment-docs.md`](2026-11-16-gdpr-deployment-docs.md), **Proposed Solution** and **Implementation Plan — Stage 1**, step 1. That design requires the section to name every model-input route in the **Problem Statement** table and state that the data on each route may leave the installation, including through legacy OpenCode over MCP; provider permission is not field minimisation. The program’s **Known limits** points to the documentation carrier and states **No field-level model-input control**. Shipping the statement completes the disclosure. DEC-14 separately governs closure of the original issue requirement.
 
 ## 📝 Overview
 
@@ -155,9 +155,13 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 | Integration coverage | Not applicable to B | No API/UI path; G5 content checks assert the section; A's tests are not delivered because A is not built |
 | Honest limits | Compliant design | The disclosure names OpenCode/MCP, embeddings, text extraction, web research, moderation, agent context and every other route; an inventory test keeps the list complete for AI SDK callers; provider permission is not field minimisation |
 
-**Verdict:** B is decided (DEC-11) and complete when G5's section ships and the program's Known limits links it, before #8593 closes. Alternative A is rejected and not built.
+**Verdict:** G5 owns the proposed disclosure in DEC-11. DEC-14 requires written upstream acceptance of that substitution or shipped acceptance evidence for the technical requirement before #8593 closes.
 
 ## Changelog
+
+### 2026-11-18
+
+- Distinguished G5 disclosure delivery from acceptance of the original tool-output minimisation requirement under DEC-14.
 
 ### 2026-11-16
 - Split from the AI data-protection spec after independent review. The first design filtered in the tool executor by key name. The review showed that the executor also serves people and stored rows, that code mode returns a string a key walk cannot see, that page-context hydration bypasses it, that search results carry titles not field names, and that field names such as `name` and `description` would blank unrelated data. This version filters only where a result is formatted for a model, only for tools that declare what they return, and puts the question of building it at all to a person.

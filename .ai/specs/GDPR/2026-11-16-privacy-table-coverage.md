@@ -564,7 +564,7 @@ Reviewed root/spec rules, compatibility §1/§2/§4, shared/CLI rules and create
 | R4-13 — Operational retention bounds | Compliant by design | Exact table/subset, existing `PrivacyRetentionBoundProjection` and pruner-owned `evaluateFixtureRow`; pruners publish `operational_pruner` `retentionBounds` entries (assumption 7), with no duplicate bound shape |
 | Edition | Compliant | OSS with C1 Phase 1 under DEC-2 (assumption 6) |
 
-**Verdict:** ready. C5 is OSS and ships with C1 Phase 1; retention references resolve as record retention and the pruners land. R4-5, R4-9 and R4-13 close the pending-deletion, suppression-export and operational-bound design gaps; pruner metadata uses the `retentionBounds` kind of assumption 7. Runtime coverage and final closure remain dependent on the named carriers.
+**Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. C5 ships with C1 Phase 1; retention references resolve as record retention and the pruners land. R4-5, R4-9 and R4-13 close the pending-deletion, suppression-export and operational-bound design gaps; pruner metadata uses the `retentionBounds` kind of assumption 7. Runtime coverage and final closure remain dependent on the named carriers.
 
 ## Changelog
 
