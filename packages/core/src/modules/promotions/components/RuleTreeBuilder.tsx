@@ -105,7 +105,7 @@ export type RuleTreeBuilderProps = {
   refreshSignal?: number
   // Called after THIS component's own tree save succeeds, so the host page can refresh
   // the metadata form's `updatedAt` in turn — keeping both save surfaces on one version.
-  onSaved?: () => void
+  onSaved?: () => void | Promise<void>
 }
 
 export function RuleTreeBuilder({ promotionId, refreshSignal, onSaved }: RuleTreeBuilderProps) {
@@ -224,9 +224,9 @@ export function RuleTreeBuilder({ promotionId, refreshSignal, onSaved }: RuleTre
           ...((call.result as Record<string, unknown> | null) ?? {}),
         })
       }
+      await onSaved?.()
       flash(t('promotions.tree.saved', 'Rule tree saved'), 'success')
       setReloadToken((value) => value + 1)
-      onSaved?.()
     } catch (error) {
       if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((value) => value + 1) })) return
       const issues = extractTreeValidationIssues(error)

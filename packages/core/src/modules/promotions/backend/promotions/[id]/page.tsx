@@ -17,6 +17,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import {
   createPromotionFormFields,
   createPromotionFormGroups,
@@ -58,14 +59,7 @@ export default function PromotionDetailPage({ params }: { params?: { id?: string
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [notFound, setNotFound] = React.useState(false)
-  // Bumped after a successful CrudForm save so `record.updatedAt` (and therefore
-  // `initialValues.updatedAt`) reflects the server's post-save version, same pattern as
-  // `codes/[id]/page.tsx`'s own `reloadToken`. Fixes the stale-version 409 a second save
-  // used to get, since `record` previously never refreshed after the first save.
   const [reloadToken, setReloadToken] = React.useState(0)
-  // Bumped after `RuleTreeBuilder`'s own tree save, so the metadata `CrudForm` above also
-  // picks up the new `updatedAt` the tree save just set on the promotion.
-  const [treeVersionToken, setTreeVersionToken] = React.useState(0)
 
   const schema = React.useMemo(() => createPromotionFormSchema(t), [t])
   const fields = React.useMemo(() => createPromotionFormFields(t), [t])
@@ -98,13 +92,19 @@ export default function PromotionDetailPage({ params }: { params?: { id?: string
     return () => {
       cancelled = true
     }
-  }, [promotionId, reloadToken, treeVersionToken, t])
+  }, [promotionId, t])
+
+  const refreshRecord = React.useCallback(async () => {
+    if (!promotionId) return
+    const call = await apiCall<PromotionDetailResponse>(`/api/promotions/${encodeURIComponent(promotionId)}`)
+    if (!call.ok || !call.result) {
+      throw createCrudFormError(t('promotions.detail.loadError', 'Failed to load the promotion'))
+    }
+    const refreshedRecord = call.result
+    setRecord((current) => current?.id === promotionId ? refreshedRecord : current)
+  }, [promotionId, t])
 
   if (!promotionId) return null
-  // Only block on the FIRST load. A reload triggered by `reloadToken`/`treeVersionToken`
-  // after a save must not unmount the form — `record` is already populated, so it stays
-  // rendered (with its pre-refresh values) while the refreshed version loads in the
-  // background, same as `codes/[id]/page.tsx`'s own `isLoading && !record` guard.
   if (isLoading && !record) return <LoadingMessage label={t('promotions.detail.loading', 'Loading promotion...')} />
   if (notFound) {
     return (
@@ -166,6 +166,7 @@ export default function PromotionDetailPage({ params }: { params?: { id?: string
               budgetCurrency: values.budgetCurrency ?? null,
             }
             await updateCrud('promotions', payload)
+            await refreshRecord()
             flash(t('promotions.form.success.update', 'Promotion saved'), 'success')
             setReloadToken((value) => value + 1)
           }}
@@ -179,7 +180,7 @@ export default function PromotionDetailPage({ params }: { params?: { id?: string
           <RuleTreeBuilder
             promotionId={record.id}
             refreshSignal={reloadToken}
-            onSaved={() => setTreeVersionToken((value) => value + 1)}
+            onSaved={refreshRecord}
           />
         </section>
       </PageBody>

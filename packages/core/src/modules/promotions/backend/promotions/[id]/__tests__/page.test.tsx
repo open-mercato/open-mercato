@@ -1,18 +1,11 @@
 /**
  * @jest-environment jsdom
  */
-// The promotion detail page's metadata `CrudForm` and its independently-fetched
-// `RuleTreeBuilder` section both carry the promotion's `updatedAt` for the optimistic-lock
-// header. Pins that each save surface refreshes the OTHER's version after its own save
-// succeeds — `onSubmit` bumps `reloadToken` (refetches `record`, and via `refreshSignal`
-// tells `RuleTreeBuilder` to refresh its own version), and `RuleTreeBuilder`'s `onSaved`
-// bumps `treeVersionToken` (refetches `record` in turn) — so neither surface can send a
-// stale version and get a spurious 409 on a second save.
-
 import * as React from 'react'
 import { act, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import PromotionDetailPage from '../page'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 type CrudFormCapturedProps = {
   initialValues?: { updatedAt?: string; startsAt?: string | null; endsAt?: string | null }
@@ -20,7 +13,7 @@ type CrudFormCapturedProps = {
 }
 type RuleTreeBuilderCapturedProps = {
   refreshSignal?: number
-  onSaved?: () => void
+  onSaved?: () => void | Promise<void>
 }
 
 const crudFormPropsCapture: { current: CrudFormCapturedProps | null } = { current: null }
@@ -97,6 +90,7 @@ describe('PromotionDetailPage', () => {
     ruleTreeBuilderPropsCapture.current = null
     apiCallMock.mockReset()
     updateCrudMock.mockReset()
+    jest.mocked(flash).mockClear()
   })
 
   it('refreshes record.updatedAt after a CrudForm save, and signals RuleTreeBuilder to refresh its own version', async () => {
@@ -145,6 +139,65 @@ describe('PromotionDetailPage', () => {
       expect(crudFormPropsCapture.current?.initialValues?.updatedAt).toBe('v2')
     })
     expect(apiCallMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps metadata submission pending until the refreshed version arrives', async () => {
+    let resolveRefresh!: (value: unknown) => void
+    const refresh = new Promise((resolve) => { resolveRefresh = resolve })
+    apiCallMock
+      .mockResolvedValueOnce({ ok: true, status: 200, result: makeRecord('v1') })
+      .mockImplementationOnce(() => refresh)
+      .mockResolvedValue({ ok: true, status: 200, result: makeRecord('v2') })
+    updateCrudMock.mockResolvedValue({ ok: true, status: 200, result: {} })
+    renderWithProviders(<PromotionDetailPage params={{ id: 'promotion-1' }} />)
+    await waitFor(() => expect(crudFormPropsCapture.current?.initialValues?.updatedAt).toBe('v1'))
+    let completed = false
+    let submission!: Promise<void>
+    await act(async () => {
+      submission = crudFormPropsCapture.current!.onSubmit!({ name: 'Spring sale' })
+      void submission.then(() => { completed = true })
+      await Promise.resolve()
+    })
+    expect(completed).toBe(false)
+    expect(flash).not.toHaveBeenCalled()
+    await act(async () => {
+      resolveRefresh({ ok: true, status: 200, result: makeRecord('v2') })
+      await submission
+    })
+    expect(crudFormPropsCapture.current?.initialValues?.updatedAt).toBe('v2')
+    expect(completed).toBe(true)
+  })
+
+  it('returns a tree-save completion that waits for the metadata version refresh', async () => {
+    let resolveRefresh!: (value: unknown) => void
+    const refresh = new Promise((resolve) => { resolveRefresh = resolve })
+    apiCallMock
+      .mockResolvedValueOnce({ ok: true, status: 200, result: makeRecord('v1') })
+      .mockImplementationOnce(() => refresh)
+    renderWithProviders(<PromotionDetailPage params={{ id: 'promotion-1' }} />)
+    await waitFor(() => expect(crudFormPropsCapture.current?.initialValues?.updatedAt).toBe('v1'))
+    let completion: void | Promise<void> = undefined
+    act(() => { completion = ruleTreeBuilderPropsCapture.current!.onSaved!() })
+    expect(completion!).toBeInstanceOf(Promise)
+    await act(async () => {
+      resolveRefresh({ ok: true, status: 200, result: makeRecord('v2') })
+      await completion
+    })
+    expect(crudFormPropsCapture.current?.initialValues?.updatedAt).toBe('v2')
+  })
+
+  it('does not report a successful metadata save when its version refresh fails', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: true, status: 200, result: makeRecord('v1') })
+      .mockResolvedValueOnce({ ok: false, status: 503, result: null })
+    updateCrudMock.mockResolvedValue({ ok: true, status: 200, result: {} })
+    renderWithProviders(<PromotionDetailPage params={{ id: 'promotion-1' }} />)
+    await waitFor(() => expect(crudFormPropsCapture.current?.initialValues?.updatedAt).toBe('v1'))
+    await act(async () => {
+      await expect(crudFormPropsCapture.current!.onSubmit!({ name: 'Spring sale' })).rejects.toThrow()
+    })
+    expect(flash).not.toHaveBeenCalled()
+    expect(crudFormPropsCapture.current?.initialValues?.updatedAt).toBe('v1')
   })
 
   it('renders the promotion form once loaded', async () => {
