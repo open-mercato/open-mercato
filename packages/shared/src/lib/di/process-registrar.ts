@@ -34,8 +34,9 @@ type ProcessEventSetup = (bus: EventBus) => void | Promise<void>
 const PROCESS_EVENT_SETUPS_KEY = Symbol.for('@open-mercato/shared/di/process-event-setups')
 const PROCESS_ACTIVATIONS_KEY = Symbol.for('@open-mercato/shared/di/process-activations')
 const CALLER_SETUPS_KEY = Symbol.for('@open-mercato/shared/di/caller-setups')
+type ProcessActivation = (() => void) & { validate?: () => void }
 type SetupGlobals = typeof globalThis & {
-  [PROCESS_ACTIVATIONS_KEY]?: WeakMap<AppContainer, Array<() => void>>
+  [PROCESS_ACTIVATIONS_KEY]?: WeakMap<AppContainer, ProcessActivation[]>
   [PROCESS_EVENT_SETUPS_KEY]?: WeakMap<AppContainer, ProcessEventSetup[]>
   [CALLER_SETUPS_KEY]?: WeakMap<AppContainer, CallerSetup[]>
 }
@@ -65,14 +66,20 @@ export async function runCallerSetups(root: AppContainer, caller: AppContainer):
   for (const setup of callerSetups.get(root) ?? []) await setup(caller)
 }
 
-const processActivations = setupGlobals[PROCESS_ACTIVATIONS_KEY] ??= new WeakMap<AppContainer, Array<() => void>>()
+const processActivations = setupGlobals[PROCESS_ACTIVATIONS_KEY] ??= new WeakMap<AppContainer, ProcessActivation[]>()
 
-export function registerProcessActivation(root: AppContainer, activate: () => void): void {
+export function registerProcessActivation(
+  root: AppContainer,
+  activate: () => void,
+  validate?: () => void,
+): void {
   const activations = processActivations.get(root) ?? []
-  activations.push(activate)
+  activations.push(Object.assign(() => activate(), { validate }))
   processActivations.set(root, activations)
 }
 
 export function runProcessActivations(root: AppContainer): void {
-  for (const activate of processActivations.get(root) ?? []) activate()
+  const activations = processActivations.get(root) ?? []
+  for (const activate of activations) activate.validate?.()
+  for (const activate of activations) activate()
 }

@@ -1,4 +1,7 @@
 import { asClass } from 'awilix'
+import { asScopedService, defineProcessDiRegistrar, registerCallerSetup } from '@open-mercato/shared/lib/di/process-registrar'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { EntityManager } from '@mikro-orm/core'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { createQueue } from '@open-mercato/queue'
 import { SchedulerService } from './services/schedulerService.js'
@@ -21,7 +24,7 @@ let schedulerSynced = false
  * 
  * Set QUEUE_STRATEGY=async for production use.
  */
-export function register(container: AppContainer) {
+function registerLegacy(container: AppContainer) {
   const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
   if (queueStrategy === 'async') {
@@ -88,3 +91,46 @@ export function register(container: AppContainer) {
       })),
   })
 }
+
+
+export const register = defineProcessDiRegistrar((container: AppContainer) => {
+  const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+  if (queueStrategy === 'async') {
+    container.register({
+      bullmqSchedulerService: asScopedService((scope) =>
+        new BullMQSchedulerService(() => scope.resolve<EntityManager>('em')),
+      ).disposer((service) => service.destroy()),
+    })
+    registerCallerSetup(container, async (scope) => {
+      const em = scope.resolve<EntityManager>('em')
+      const subscriber = new ScheduledJobSubscriber()
+      subscriber.setContainer(scope)
+      em.getEventManager().registerSubscriber(subscriber)
+      if (!schedulerSynced) {
+        schedulerSynced = true
+        try {
+          await scope.resolve<BullMQSchedulerService>('bullmqSchedulerService').syncAll()
+          logger.info('BullMQ cold start sync complete')
+        } catch (error) {
+          logger.error('BullMQ cold start sync failed', { err: error })
+          getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.cold_start_failed' })
+        }
+      }
+    })
+  } else {
+    container.register({
+      localSchedulerService: asScopedService((scope) => new LocalSchedulerService(
+        () => scope.resolve<EntityManager>('em'),
+        (name: string) => createQueue(name, 'local'),
+        scope.resolve('rbacService'),
+        { pollIntervalMs: parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10) },
+      )).disposer((service) => service.stop()),
+    })
+  }
+  container.register({
+    schedulerService: asScopedService((scope) => new SchedulerService(
+      () => scope.resolve<EntityManager>('em'),
+      queueStrategy === 'async' ? scope.resolve<BullMQSchedulerService>('bullmqSchedulerService') : undefined,
+    )),
+  })
+}, { legacy: registerLegacy })

@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue, asFunction } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -68,7 +69,7 @@ registerWorkInboxSources([
   { moduleId: AGENT_ORCHESTRATOR_MODULE_ID, sources: [agentDispositionWorkInboxSource] },
 ])
 
-export function register(container: AppContainer) {
+function registerLegacy(container: AppContainer) {
   container.register({
     AgentRun: asValue(AgentRun),
     AgentProposal: asValue(AgentProposal),
@@ -92,25 +93,25 @@ export function register(container: AppContainer) {
     // `User` (kind='agent') + a scoped `Role` so every internal-agent write is
     // attributed to a concrete actor id. Idempotent + org-scoped. The bound
     // functions resolve `em` from the container at call time.
-    agentPrincipalService: asFunction(() => ({
+    agentPrincipalService: asScopedService((container) => (asFunction(() => ({
       provision: provisionAgentPrincipal.bind(null, container),
       resolve: resolveAgentPrincipal.bind(null, container),
-    })).scoped(),
+    })).scoped()).resolve(container)),
     // Identity overlay (Wave 4, Phase 3): external-agent OAuth client-credentials
     // token server + delegation grants. The `/token` server mints a scoped,
     // short-lived, revocable JWT (signAudienceJwt('agent', …)) bound to the
     // principal + an active AgentDelegationGrant; verification re-checks the grant
     // per request so revocation is immediate. Built on api_keys (bcrypt secret) +
     // jwt.ts — no hand-rolled crypto. The bound functions resolve `em` at call time.
-    agentTokenService: asFunction(() => ({
+    agentTokenService: asScopedService((container) => (asFunction(() => ({
       issue: issueAgentToken.bind(null, container),
       verify: verifyAgentToken.bind(null, container),
       provisionClientSecret: provisionAgentClientSecret.bind(null, container),
-    })).scoped(),
-    agentDelegationGrantService: asFunction(() => ({
+    })).scoped()).resolve(container)),
+    agentDelegationGrantService: asScopedService((container) => (asFunction(() => ({
       create: createAgentDelegationGrant.bind(null, container),
       resolve: resolveAgentDelegationGrant.bind(null, container),
-    })).scoped(),
+    })).scoped()).resolve(container)),
     // Identity overlay (Wave 4, Phase 4): auth.md / ID-JAG self-registration. An
     // external agent presents an issuer-signed identity assertion (RFC 7523
     // JWT-bearer); the service validates issuer + audience + signature against the
@@ -120,29 +121,29 @@ export function register(container: AppContainer) {
     // /token server uses — an additional credential PATH, not a parallel token
     // system. `discovery` is the secret-free /well-known metadata. The bound
     // functions resolve `em` at call time.
-    agentAuthMdService: asFunction(() => ({
+    agentAuthMdService: asScopedService((container) => (asFunction(() => ({
       discovery: getAgentAuthDiscovery,
       verifyAssertion: verifyIdJagAssertion,
       register: registerAgentViaIdJag.bind(null, container),
-    })).scoped(),
+    })).scoped()).resolve(container)),
     // CLASSIC injection mode resolves deps by parameter name — destructure the
     // real dependency names (not a `cradle` param) and use .proxy() so the
     // cradle is passed and deps resolve lazily (matches sales/di.ts).
-    agentRuntime: asFunction(({ commandBus }: { commandBus: CommandBus }) =>
+    agentRuntime: asScopedService((container) => (asFunction(({ commandBus }: { commandBus: CommandBus }) =>
       new AgentRuntimeService({
         container,
         commandBus,
       }),
-    ).proxy().scoped(),
-    dispositionService: asFunction(() => new DispositionServiceImpl(container)).scoped(),
+    ).proxy().scoped()).resolve(container)),
+    dispositionService: asScopedService((container) => (asFunction(() => new DispositionServiceImpl(container)).scoped()).resolve(container)),
     // Phase 1 runtime guardrails: deterministic output schema + tool-scope
     // backstop checks. Pure/stateless aside from the container it persists through.
-    guardrailService: asFunction(() => new GuardrailService(container)).scoped(),
+    guardrailService: asScopedService((container) => (asFunction(() => new GuardrailService(container)).scoped()).resolve(container)),
     // Cross-process correlation store for OpenCode file-agent runs. Built from
     // each process's own container (app + the separate mcp:serve-http process),
     // both backed by the same DB — the in-process Map seam does not work because
     // the runner and the submit_outcome MCP tool run in different processes.
-    agentRunSessionStore: asFunction(() => new DbAgentRunSessionStore(container)).scoped(),
+    agentRunSessionStore: asScopedService((container) => (asFunction(() => new DbAgentRunSessionStore(container)).scoped()).resolve(container)),
     // File plane (#12): per-run sandbox lifecycle + serialized container lease.
     // SINGLETON so the concurrency semaphore (OM_OPENCODE_POOL_SIZE, default 1) is
     // process-wide — every tool-enabled OpenCode run shares the one shared container.
@@ -152,14 +153,14 @@ export function register(container: AppContainer) {
     // via the queryEngine (org-scoped query_index), packs under a token budget, and
     // persists one append-only AgentContextBundle per run. Resolves `queryEngine`
     // lazily from the container at call time.
-    agentContextResolver: asFunction(() => new ContextResolverImpl(container)).scoped(),
+    agentContextResolver: asScopedService((container) => (asFunction(() => new ContextResolverImpl(container)).scoped()).resolve(container)),
     // Context overlay (Phase 3): document ingest / OCR extraction. The OCR/layout
     // engine is swappable behind `agentDocumentOcrProvider` (default = the elevated
     // OpenAI vision-OCR path, wrapping the attachments OcrService). The ingest
     // service runs OCR → classify → field-extract and emits typed facts each
     // carrying provenance (source attachment id + page/region locator) + confidence,
     // which the ContextResolver folds into the bundle as citable `document` sources.
-    agentDocumentOcrProvider: asFunction(() => resolveDefaultOcrProvider(container)).scoped(),
+    agentDocumentOcrProvider: asScopedService((container) => (asFunction(() => resolveDefaultOcrProvider(container)).scoped()).resolve(container)),
     // Web egress overlay. Adapters come from the generated registry the app
     // provides as `webResearchAdapterEntries`; policy (which are enabled, their
     // order, deadlines, thresholds) is per tenant and therefore resolved inside
@@ -167,16 +168,31 @@ export function register(container: AppContainer) {
     // (allowed net), never the sandbox. A deployment can re-register
     // `webSearchEngineFactory` to wrap or replace the chain.
     webSearchEngineFactory: asFunction(() => buildWebSearchEngine).scoped(),
-    agentDocumentIngestService: asFunction(
+    agentDocumentIngestService: asScopedService((container) => (asFunction(
       () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),
-    ).scoped(),
-    agentWorkflowBridge: asFunction(
+    ).scoped()).resolve(container)),
+    agentWorkflowBridge: asScopedService((container) => (asFunction(
       ({ agentRuntime, dispositionService }: { agentRuntime: AgentRuntimeService; dispositionService: DispositionService }) =>
         new AgentWorkflowBridgeService({
           container,
           agentRuntime,
           dispositionService,
         }),
-    ).proxy().scoped(),
+    ).proxy().scoped()).resolve(container)),
   })
 }
+
+const WORKSPACE_MANAGER_KEY = Symbol.for('@open-mercato/agent-orchestrator/workspace-manager')
+type WorkspaceManagerGlobals = typeof globalThis & {
+  [WORKSPACE_MANAGER_KEY]?: AgentWorkspaceManager
+}
+
+export const register = defineProcessDiRegistrar((container: AppContainer) => {
+  registerLegacy(container)
+  container.register({
+    agentWorkspaceManager: asFunction(() => {
+      const globals = globalThis as WorkspaceManagerGlobals
+      return globals[WORKSPACE_MANAGER_KEY] ??= new AgentWorkspaceManager()
+    }).singleton(),
+  })
+}, { legacy: registerLegacy })

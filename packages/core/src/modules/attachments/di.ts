@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { createAttachmentAccessContext } from './lib/access-runner'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -10,7 +11,6 @@ import { AttachmentTargetAccessService } from './lib/target-access-service'
 import { ScopedAttachmentUploadService } from './lib/scoped-upload-service'
 
 export function register(container: AppContainer) {
-  const accessContext = () => createAttachmentAccessContext(container)
   container.register({
     attachmentQuotaRecoveryScheduler: asValue(scheduleAttachmentQuotaRecovery),
     attachmentQuotaService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
@@ -18,11 +18,11 @@ export function register(container: AppContainer) {
     )
       .scoped()
       .proxy(),
-    attachmentTargetAccessService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
-      new AttachmentTargetAccessService(em, accessContext),
+    attachmentTargetAccessService: asScopedService((container) => (asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
+      new AttachmentTargetAccessService(em, () => createAttachmentAccessContext(container)),
     )
       .scoped()
-      .proxy(),
+      .proxy()).resolve(container)),
     attachmentScopedUploadService: asFunction(({
       em,
       dataEngine,
@@ -47,13 +47,13 @@ export function register(container: AppContainer) {
     storageDriverFactory: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
       new StorageDriverFactory(em),
     )
-      .singleton()
+      .scoped()
       .proxy(),
     // The scoped upload service is handed over as a lazy resolver so module
     // uploads share the public attachment route's single fenced reservation
     // ledger, without dragging that service's own dependencies into every
     // container that merely constructs an `attachmentService`.
-    attachmentService: asFunction((cradle: {
+    attachmentService: asScopedService((container) => (asFunction((cradle: {
       em: ConstructorParameters<typeof DefaultAttachmentService>[0]
       storageDriverFactory: ConstructorParameters<typeof DefaultAttachmentService>[1]
       attachmentScopedUploadService: ScopedAttachmentUploadService
@@ -61,9 +61,11 @@ export function register(container: AppContainer) {
       cradle.em,
       cradle.storageDriverFactory,
       () => cradle.attachmentScopedUploadService ?? null,
-      accessContext,
+      () => createAttachmentAccessContext(container),
     ))
       .scoped()
-      .proxy(),
+      .proxy()).resolve(container)),
   })
 }
+
+defineProcessDiRegistrar(register)

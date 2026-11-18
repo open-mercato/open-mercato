@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Optional process DI root (#8989)
+
+`OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
+
+Custom module/app registrars continue through the legacy builder unless explicitly audited and marked with `defineProcessDiRegistrar`. Use `asScopedService` for factories that need the resolving caller; never capture a process root as the request container. Module DI overrides also select the legacy builder to preserve ordering. See the request lifecycle documentation for setup hooks, counters and explicit event-context boundaries.
+
 ## Invoice delete checks the expected version under the row lock
 
 `DELETE /api/sales/invoices` now locks the invoice row and compares the

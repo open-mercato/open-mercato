@@ -1,5 +1,6 @@
 import { resolveEntityIndexStrategies } from './lib/entity-strategy-policy'
-import { asValue } from 'awilix'
+import { asValue, type AwilixContainer } from 'awilix'
+import { asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import type { Kysely } from 'kysely'
 import type { FullTextSearchDriver } from './fulltext/types'
 import { SearchService } from './service'
@@ -116,6 +117,32 @@ export function registerSearchModule(
   container: SearchContainer,
   options?: SearchModuleOptions,
 ): void {
+  const services = createSearchServices(container, options)
+  container.register({
+    searchService: asValue(services.searchService),
+    searchStrategies: asValue(services.searchStrategies),
+    searchIndexer: asValue(services.searchIndexer),
+  })
+}
+
+export function registerScopedSearchModule(root: AwilixContainer, options?: SearchModuleOptions): void {
+  const instances = new WeakMap<AwilixContainer, ReturnType<typeof createSearchServices>>()
+  const resolveServices = (caller: AwilixContainer) => {
+    let services = instances.get(caller)
+    if (!services) {
+      services = createSearchServices(caller, options, false)
+      instances.set(caller, services)
+    }
+    return services
+  }
+  root.register({
+    searchService: asScopedService((caller) => resolveServices(caller).searchService),
+    searchStrategies: asScopedService((caller) => resolveServices(caller).searchStrategies),
+    searchIndexer: asScopedService((caller) => resolveServices(caller).searchIndexer),
+  })
+}
+
+function createSearchServices(container: SearchContainer, options?: SearchModuleOptions, cacheFulltextDriver = true) {
   const moduleConfigs = (options?.moduleConfigs ?? []).map((moduleConfig) => ({
     ...moduleConfig,
     entities: moduleConfig.entities.map((entityConfig) => {
@@ -168,7 +195,8 @@ export function registerSearchModule(
   // Fulltext strategy (requires driver configuration, e.g., MEILISEARCH_HOST)
   if (!options?.skipFulltext) {
     const excludeEncrypted = shouldExcludeEncryptedFields()
-    const singletonCacheEnabled = process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
+    const singletonCacheEnabled = cacheFulltextDriver
+      && process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
     const g = getSearchModuleGlobals()
 
     // The fulltext driver is safe to memoize only when SEARCH_EXCLUDE_ENCRYPTED_FIELDS is
@@ -291,12 +319,7 @@ export function registerSearchModule(
     encryptedCustomFieldKeysResolver,
   })
 
-  // Register in container
-  container.register({
-    searchService: asValue(searchService),
-    searchStrategies: asValue(strategies),
-    searchIndexer: asValue(searchIndexer),
-  })
+  return { searchService, searchStrategies: strategies, searchIndexer }
 }
 
 /**

@@ -2,6 +2,7 @@ import type { CalendarEventTypeRegistry } from '@open-mercato/core/modules/custo
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import calendarVisitWidget from './widgets/injection/calendar-visit/widget'
 import { asFunction, asValue } from 'awilix'
+import { defineProcessDiRegistrar, registerCallerSetup } from '@open-mercato/shared/lib/di/process-registrar'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   registerGatewayAdapter,
@@ -31,7 +32,7 @@ export const EXAMPLE_TODO_SUMMARY_SERVICE = 'exampleTodoSummaryService' as const
 export const EXAMPLE_CURRENCY_RATE_PROVIDER = 'exampleCurrencyRateProvider' as const
 
 // Example DI registrar; modules can register their own services/components
-export function register(container: AppContainer) {
+function registerCalendar(container: AppContainer): void {
   let calendarRegistry: CalendarEventTypeRegistry | null
   try {
     calendarRegistry = container.resolve<CalendarEventTypeRegistry>('calendarEventTypeRegistry')
@@ -44,13 +45,10 @@ export function register(container: AppContainer) {
     for (const patch of calendarVisitWidget.eventTypePatches ?? []) calendarRegistry.patch('example', patch)
   }
 
-  if (container.hasRegistration('commandBus')) {
-    const commandBus = container.resolve<CommandBus>('commandBus')
-    container.register({
-      commandBus: asValue(createVisitBookingSerializingCommandBus({ commandBus })),
-    })
-  }
 
+}
+
+function registerDefinitions(container: AppContainer) {
   // The module's own service registration, as opposed to the adapter-registry calls
   // below (which register into module-external registries, not into this container).
   //
@@ -176,5 +174,31 @@ export function register(container: AppContainer) {
   // Register mock inbound webhook adapter for webhooks module integration tests
   registerWebhookEndpointAdapter(mockWebhookEndpointAdapter)
 
+}
+
+
+function decorateCommandBus(container: AppContainer): void {
+  if (container.hasRegistration('commandBus')) {
+    const commandBus = container.resolve<CommandBus>('commandBus')
+    container.register({
+      commandBus: asValue(createVisitBookingSerializingCommandBus({ commandBus })),
+    })
+  }
+
+}
+
+function registerLegacy(container: AppContainer): void {
+  registerCalendar(container)
+  decorateCommandBus(container)
+  registerDefinitions(container)
   syncQaCapacityProbeRegistration()
 }
+
+export const register = defineProcessDiRegistrar((container: AppContainer) => {
+  registerCalendar(container)
+  registerDefinitions(container)
+  registerCallerSetup(container, (scope) => {
+    decorateCommandBus(scope)
+    syncQaCapacityProbeRegistration()
+  })
+}, { legacy: registerLegacy })

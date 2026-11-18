@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -37,7 +38,7 @@ function resolveOrderTotalResolver(container: AppContainer, cradle: Cradle): Pay
 
 export function register(container: AppContainer) {
   container.register({
-    paymentGatewayService: asFunction((cradle: Cradle) =>
+    paymentGatewayService: asScopedService((container) => (asFunction((cradle: Cradle) =>
       createPaymentGatewayService({
         em: cradle.em,
         integrationCredentialsService: cradle.integrationCredentialsService,
@@ -45,7 +46,7 @@ export function register(container: AppContainer) {
         integrationStateService: cradle.integrationStateService,
         paymentOrderTotalResolver: resolveOrderTotalResolver(container, cradle),
       }),
-    ).scoped().proxy(),
+    ).scoped().proxy()).resolve(container)),
     paymentGatewayDescriptorService: asFunction(({ integrationCredentialsService, integrationStateService }: Cradle) =>
       createPaymentGatewayDescriptorService({ integrationCredentialsService, integrationStateService }),
     ).scoped().proxy(),
@@ -54,3 +55,5 @@ export function register(container: AppContainer) {
     WebhookProcessedEvent: asValue(WebhookProcessedEvent),
   })
 }
+
+defineProcessDiRegistrar(register)

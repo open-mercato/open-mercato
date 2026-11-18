@@ -323,6 +323,16 @@ function registerBroadcastCoalescerShutdownHook(): void {
   ;(globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY] = true
 }
 
+type EventBusGenerationState = {
+  listeners: Map<string, Set<RegisteredSubscriber>>
+  persistentSubscribers: Set<RegisteredSubscriber>
+  queue: Queue<EventJobData> | null
+}
+
+function createEventBusGenerationState(): EventBusGenerationState {
+  return { listeners: new Map(), persistentSubscribers: new Set(), queue: null }
+}
+
 /**
  * Creates an event bus instance.
  *
@@ -354,20 +364,27 @@ function registerBroadcastCoalescerShutdownHook(): void {
  * ```
  */
 export function createEventBus(opts: CreateBusOptions): EventBus {
+  return createEventBusWithState(opts, createEventBusGenerationState())
+}
+
+export function createScopedEventBusFactory(options: Omit<CreateBusOptions, 'resolve'> = {}) {
+  const state = createEventBusGenerationState()
+  return (resolve: CreateBusOptions['resolve']): EventBus =>
+    createEventBusWithState({ ...options, resolve }, state)
+}
+
+function createEventBusWithState(opts: CreateBusOptions, state: EventBusGenerationState): EventBus {
   registerBroadcastCoalescerShutdownHook()
 
   // In-memory listeners for immediate event delivery
-  const listeners = new Map<string, Set<RegisteredSubscriber>>()
+  const listeners = state.listeners
   // Subscribers registered as persistent (worker-dispatched). Used by the
   // single-delivery path to skip them inline on a persistent emit.
-  const persistentSubscribers = new Set<RegisteredSubscriber>()
+  const persistentSubscribers = state.persistentSubscribers
 
   // Determine queue strategy from options or environment
   const queueStrategy = opts.queueStrategy ??
     (process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local')
-
-  // Lazy-initialized queue for persistent events
-  let queue: Queue<EventJobData> | null = null
 
   /**
    * Gets or creates the queue instance for persistent events.
@@ -379,14 +396,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function getQueue(): Queue<EventJobData> {
     if (queueStrategy !== 'async' || !isSharedProducerEnabled()) {
-      if (!queue) {
-        queue = queueStrategy === 'async'
+      if (!state.queue) {
+        state.queue = queueStrategy === 'async'
           ? createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
               connection: { url: getRedisUrlOrThrow('QUEUE') },
             })
           : createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
       }
-      return queue
+      return state.queue
     }
 
     const redisUrl = getRedisUrlOrThrow('QUEUE')

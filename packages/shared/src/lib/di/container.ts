@@ -264,7 +264,7 @@ function processContainerCompatibilityReason(registrars: DiRegistrar[], appRegis
   if (parseBooleanWithDefault(process.env.SEARCH_DISABLE_SINGLETON_CACHE, false)) return 'process search infrastructure is disabled'
   if (registrars.some((registrar) => !isProcessDiRegistrar(registrar))) return 'an enabled module registrar is not process-safe'
   if (appRegistrar && !isProcessDiRegistrar(appRegistrar)) return 'the app registrar is not process-safe'
-  if (!appRegistrar && !(APP_DI_REGISTRAR_KEY in globalThis) && !isAppDiModuleUnresolvable()) {
+  if (!appRegistrar && !isAppDiModuleUnresolvable()) {
     return 'the app registrar has not been explicitly registered'
   }
   const state = getProcessRootState()
@@ -301,6 +301,12 @@ function guardProcessRootRegistrations(root: AppContainer): void {
 
 function isolateCallerRegistrations(caller: AppContainer): void {
   const register = caller.register.bind(caller)
+  const createScope = caller.createScope.bind(caller)
+  caller.createScope = (() => {
+    const nested = createScope()
+    isolateCallerRegistrations(nested)
+    return nested
+  }) as AppContainer['createScope']
   const local = (resolver: Resolver<unknown>): Resolver<unknown> => resolver.lifetime === Lifetime.SINGLETON
     ? { ...resolver, lifetime: Lifetime.SCOPED }
     : resolver

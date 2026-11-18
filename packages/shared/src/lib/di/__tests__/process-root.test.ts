@@ -63,7 +63,7 @@ beforeEach(() => {
   for (const key of Object.keys(mockOverrides)) delete mockOverrides[key]
   resetBootstrapCache()
   registerDiRegistrars([])
-  registerAppDiRegistrar(null)
+  registerAppDiRegistrar(defineProcessDiRegistrar(() => {}))
   forkCount = 0
   jest.clearAllMocks()
 })
@@ -74,7 +74,7 @@ afterAll(() => {
     else process.env[key] = value
   }
   registerDiRegistrars([])
-  registerAppDiRegistrar(null)
+  registerAppDiRegistrar(defineProcessDiRegistrar(() => {}))
   resetBootstrapCache()
 })
 
@@ -99,7 +99,7 @@ it('initializes one root for concurrent callers while preserving isolated servic
   }
   expect(getProcessContainerStats()).toMatchObject({
     rootInitializations: baseline.rootInitializations + 1,
-    registrarExecutions: baseline.registrarExecutions + 1,
+    registrarExecutions: baseline.registrarExecutions + 2,
     callerScopes: baseline.callerScopes + 20,
   })
 })
@@ -121,6 +121,14 @@ it('preserves caller-local singleton registration overrides', async () => {
   expect(first.resolve('local')).toEqual({ marker: 'first' })
   expect(second.resolve('local')).toEqual({ marker: 'second' })
   expect(first.resolve('local')).not.toBe(second.resolve('local'))
+  const firstNested = first.createScope().createScope()
+  const secondNested = second.createScope()
+  firstNested.register({ nestedLocal: asFunction(() => ({ marker: 'first' })).singleton() })
+  secondNested.register({ nestedLocal: asFunction(() => ({ marker: 'second' })).singleton() })
+  expect(firstNested.resolve('nestedLocal')).toEqual({ marker: 'first' })
+  expect(secondNested.resolve('nestedLocal')).toEqual({ marker: 'second' })
+  expect(firstNested.resolve('em')).toBe(first.resolve('em'))
+  expect(secondNested.resolve('em')).toBe(second.resolve('em'))
 })
 
 it('uses the entire legacy builder for an unaudited module and preserves ordering', async () => {
@@ -175,7 +183,7 @@ it('does not publish an obsolete initialization and retains existing callers acr
   registerAppDiRegistrar(defineProcessDiRegistrar(async () => blocked))
   const pending = initializeProcessContainer()
   await new Promise((resolve) => setImmediate(resolve))
-  registerAppDiRegistrar(null)
+  registerAppDiRegistrar(defineProcessDiRegistrar(() => {}))
   const current = await initializeProcessContainer()
   release()
   expect(await pending).toBe(current)

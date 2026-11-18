@@ -25,15 +25,17 @@ Captured mutable services, shared identity maps, subscriber duplication, incompl
 - [x] 1.2 Integrate process root and isolated caller builder with compatibility regression tests.
 
 ### Phase 2: Bootstrap and registrations
-- [ ] 2.1 Split process infrastructure from scoped encryption, search and event dispatch.
-- [ ] 2.2 Move query-index bridge subscription setup to generation ownership.
-- [ ] 2.3 Audit and migrate first-party module and app/template registrars.
+- [x] 2.1 Split process infrastructure from scoped encryption, search and event dispatch.
+- [x] 2.2 Move query-index bridge subscription setup to generation ownership.
+- [x] 2.3 Audit and migrate first-party module and app/template registrars.
 
 ### Phase 3: Entry points and qualification
-- [ ] 3.1 Wire startup, independent execution contexts and standalone parity.
+- [x] 3.1 Wire startup, independent execution contexts and standalone parity.
 - [ ] 3.2 Add and run self-contained request, caller, tenant and worker integration coverage.
 - [ ] 3.3 Complete validation, independent review, workload evidence and documented rollout decision.
 
 ### Validation evidence
 - Phase 1: 30 shared lifecycle tests and 9 worker handler tests passed (local runner).
 - First package build: all 42 package tasks passed using worktree-local workspace links.
+- Phase 2: scoped event suites 179 tests, search focused suites 14, registrar isolation 2, module activation/preflight 8, channel validation 1, workspace capacity 2; all passed locally. Full unit suite remains in progress.
+- Build/generate/build, template parity, translation checks and full typecheck (42 tasks) passed.

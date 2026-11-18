@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -46,3 +47,5 @@ export function register(container: AppContainer) {
     SyncSchedule: asValue(SyncSchedule),
   })
 }
+
+defineProcessDiRegistrar(register)

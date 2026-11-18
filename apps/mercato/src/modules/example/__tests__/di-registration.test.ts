@@ -7,6 +7,7 @@
  * it one request's tenant — for the life of the process.
  */
 import { createCalendarEventTypeRegistry, resetCalendarEventTypeRegistryForTests, resolveCalendarEventType } from '@open-mercato/core/modules/customers/calendar-event-types'
+import { getProcessDiRegistrar, runCallerSetups } from '@open-mercato/shared/lib/di/process-registrar'
 import { InjectionMode, asValue, createContainer } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache'
@@ -117,4 +118,24 @@ describe('example calendar API registration', () => {
   it('continues registration when Customers is absent', () => {
     expect(() => register(createContainer({ injectionMode: InjectionMode.CLASSIC }))).not.toThrow()
   })
+})
+
+
+it('decorates each process-root caller command bus without resolving it during registration', async () => {
+  const root = createContainer({ injectionMode: InjectionMode.CLASSIC })
+  const rootResolve = jest.spyOn(root, 'resolve')
+  await getProcessDiRegistrar(register)!(root as AppContainer)
+  expect(rootResolve).not.toHaveBeenCalledWith('commandBus')
+  const first = root.createScope()
+  const second = root.createScope()
+  const executeFirst = jest.fn(async () => ({ result: {}, logEntry: null }))
+  const executeSecond = jest.fn(async () => ({ result: {}, logEntry: null }))
+  first.register({ commandBus: asValue({ execute: executeFirst }) })
+  second.register({ commandBus: asValue({ execute: executeSecond }) })
+  await runCallerSetups(root as AppContainer, first as AppContainer)
+  await runCallerSetups(root as AppContainer, second as AppContainer)
+  await first.resolve<{ execute: (name: string, input: unknown) => Promise<unknown> }>('commandBus').execute('example.todos.update', { input: {}, ctx: {} })
+  expect(executeFirst).toHaveBeenCalledTimes(1)
+  expect(executeSecond).not.toHaveBeenCalled()
+  expect(first.resolve('commandBus')).not.toBe(second.resolve('commandBus'))
 })
