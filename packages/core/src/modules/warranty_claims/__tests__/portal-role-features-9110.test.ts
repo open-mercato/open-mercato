@@ -80,10 +80,10 @@ describe('issue 9110: warranty portal customer-role features', () => {
     mockHasFeatures.mockResolvedValue(false)
   })
 
-  it.each(endpoints)('$name denies a role without $feature before data access', async ({ invoke, feature }) => {
+  it.each(endpoints)('$name denies a role without $feature before data access', async ({ name, invoke, feature }) => {
     const response = await invoke()
     expect(response.status).toBe(403)
-    expect(mockHasFeatures).toHaveBeenCalledWith(auth.sub, [feature], { tenantId: auth.tenantId, organizationId: auth.orgId })
+    expect(mockHasFeatures).toHaveBeenCalledWith(auth.sub, name === 'POST claims' ? [viewFeature, manageFeature] : [feature], { tenantId: auth.tenantId, organizationId: auth.orgId })
     expect(mockResolve).toHaveBeenCalledTimes(1)
     expect(mockFindOne).not.toHaveBeenCalled()
   })
@@ -122,6 +122,20 @@ describe('issue 9110: warranty portal customer-role features', () => {
     expect(await resolveAuthorizedLinkedCustomerAuth(request, viewFeature, container)).toEqual(auth)
   })
 
+  it('denies create before data access when manage is granted without view', async () => {
+    mockHasFeatures.mockImplementation(async (_user: string, required: string[]) => authorizeFeatures(required, { grantedFeatures: [manageFeature] }))
+    expect((await claims.POST(request)).status).toBe(403)
+    expect(mockHasFeatures).toHaveBeenCalledWith(auth.sub, [viewFeature, manageFeature], { tenantId: auth.tenantId, organizationId: auth.orgId })
+    expect(mockResolve).toHaveBeenCalledTimes(1)
+    expect(mockFindOne).not.toHaveBeenCalled()
+  })
+
+  it.each(['*', 'portal.*', 'portal.warranty_claims.*', 'buyer'])('allows the combined create requirement for %s', async (grant) => {
+    const grants = grant === 'buyer' ? setup.defaultCustomerRoleFeatures?.buyer ?? [] : [grant]
+    mockHasFeatures.mockImplementation(async (_user: string, required: string[]) => authorizeFeatures(required, { grantedFeatures: grants }))
+    expect(await resolveAuthorizedLinkedCustomerAuth(request, [viewFeature, manageFeature], container)).toEqual(auth)
+  })
+
   it('fails closed when the RBAC service is unavailable', async () => {
     mockResolve.mockImplementation(() => { throw new Error('[internal] RBAC unavailable') })
     expect((await resolveAuthorizedLinkedCustomerAuth(request, viewFeature, container) as Response).status).toBe(403)
@@ -153,6 +167,6 @@ describe('issue 9110: warranty portal customer-role features', () => {
     expect(features.map(({ id }) => id)).toEqual(expect.arrayContaining([viewFeature, manageFeature]))
     expect(listMetadata.requireCustomerFeatures).toEqual([viewFeature])
     expect(detailMetadata.requireCustomerFeatures).toEqual([viewFeature])
-    expect(createMetadata.requireCustomerFeatures).toEqual([manageFeature])
+    expect(createMetadata.requireCustomerFeatures).toEqual([viewFeature, manageFeature])
   })
 })

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { ChevronRight, Plus, ShieldCheck } from 'lucide-react'
 import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -60,6 +61,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
   const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
+  const canManage = hasFeature(auth.resolvedFeatures, 'portal.warranty_claims.manage')
   const [rows, setRows] = React.useState<PortalClaimRow[]>([])
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(20)
@@ -219,13 +221,13 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 pt-2">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('warranty_claims.portal.listTitle')}</h1>
-        <div className="shrink-0">
+        {canManage ? <div className="shrink-0">
           <Button asChild>
             <Link href={`/${params.orgSlug}/portal/claims/new`}>
               {t('warranty_claims.portal.newClaim')}
             </Link>
           </Button>
-        </div>
+        </div> : null}
       </div>
 
       {error ? (
@@ -293,14 +295,14 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
             icon={<ShieldCheck className="size-5" />}
             title={t('warranty_claims.portal.empty.title')}
             description={t('warranty_claims.portal.empty.description')}
-            action={
+            action={canManage ? (
               <Button asChild>
                 <Link href={`/${params.orgSlug}/portal/claims/new`}>
                   <Plus className="size-4" aria-hidden="true" />
                   {t('warranty_claims.portal.newClaim')}
                 </Link>
               </Button>
-            }
+            ) : undefined}
           />
         )}
       />

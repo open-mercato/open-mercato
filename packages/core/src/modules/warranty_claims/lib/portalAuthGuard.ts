@@ -33,13 +33,13 @@ export async function resolveLinkedCustomerAuth(req: Request): Promise<LinkedCus
 
 export async function resolveAuthorizedLinkedCustomerAuth(
   req: Request,
-  requiredFeature: string,
+  requiredFeature: string | string[],
   container: Awaited<ReturnType<typeof createRequestContainer>>,
 ): Promise<LinkedCustomerAuthContext | Response> {
   const auth = await resolveLinkedCustomerAuth(req)
   if (auth instanceof Response) return auth
   try {
-    await requireCustomerFeature(auth, [requiredFeature], container.resolve('customerRbacService'))
+    await requireCustomerFeature(auth, typeof requiredFeature === 'string' ? [requiredFeature] : requiredFeature, container.resolve('customerRbacService'))
   } catch (error) {
     if (error instanceof Response) return error
     getTelemetryRuntime()?.reportError(error, { module: 'warranty_claims', code: 'warranty_claims.portal_authorization_failed' })

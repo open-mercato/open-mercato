@@ -154,7 +154,7 @@ function serializePortalClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) 
   }
 }
 
-async function resolvePortalContext(req: Request, requiredFeature: string): Promise<PortalContext | Response> {
+async function resolvePortalContext(req: Request, requiredFeature: string | string[]): Promise<PortalContext | Response> {
   const container = await createRequestContainer()
   const authOrResponse = await resolveAuthorizedLinkedCustomerAuth(req, requiredFeature, container)
   if (authOrResponse instanceof Response) return authOrResponse
@@ -411,7 +411,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const contextOrResponse = await resolvePortalContext(req, 'portal.warranty_claims.manage')
+  const contextOrResponse = await resolvePortalContext(req, ['portal.warranty_claims.view', 'portal.warranty_claims.manage'])
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const { translate } = await resolveTranslations()

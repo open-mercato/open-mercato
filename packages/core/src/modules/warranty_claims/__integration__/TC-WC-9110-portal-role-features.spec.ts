@@ -127,6 +127,9 @@ for (const role of ['viewer', 'buyer'] as const) {
       const page = await context.newPage()
       await page.setViewportSize({ width: 390, height: 844 })
       const detailPath = `/api/warranty_claims/portal/claims/${claimId}`
+      await page.goto(`/${orgSlug}/portal/claims`, { waitUntil: 'domcontentloaded' })
+      await expect(page.getByRole('heading', { name: 'My claims', exact: true })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'New claim', exact: true })).toHaveCount(role === 'buyer' ? 1 : 0)
       await page.goto(`/${orgSlug}/portal/claims/${claimId}`, { waitUntil: 'domcontentloaded' })
       await expect(page.getByText(claim.claimNumber!, { exact: true })).toBeVisible()
       if (role === 'viewer') {
@@ -203,3 +206,30 @@ for (const role of ['viewer', 'buyer'] as const) {
     }
   })
 }
+
+test('TC-WC-9110: manage without view cannot create an unreadable claim', async ({ request }) => {
+  const token = await getAuthToken(request, 'admin')
+  const { tenantId } = getTokenContext(token)
+  const companyId = await createCustomerCompanyFixture(request, token)
+  let roleId: string | null = null
+  let userId: string | null = null
+  let createdClaimId: string | null = null
+  try {
+    roleId = (await createCustomerRoleFixture(request, token, { features: ['portal.account.manage', 'portal.warranty_claims.manage'] })).id
+    const user = await createCustomerUserFixture(request, token, { customerEntityId: companyId, roleIds: [roleId] })
+    userId = user.id
+    const headers = portalCookieHeaders(await portalLogin(request, { ...user, tenantId }))
+    expect((await request.get(`${portalBase}/options`, { headers })).status()).toBe(403)
+    const response = await request.post(`${portalBase}/claims`, {
+      headers,
+      data: { reasonCode: 'defective', lines: [{ faultDescription: 'Manage-only authorization fixture', qtyClaimed: 1 }] },
+    })
+    if (response.ok()) createdClaimId = (await readJsonSafe<{ claimId: string }>(response))?.claimId ?? null
+    expect(response.status()).toBe(403)
+  } finally {
+    await cancelThenDeleteClaimIfPossible(request, token, createdClaimId)
+    if (userId) await deleteCustomerUserFixture(request, token, userId)
+    if (roleId) await deleteCustomerRoleFixture(request, token, roleId)
+    await deleteCustomerCompanyFixture(request, token, companyId)
+  }
+})
