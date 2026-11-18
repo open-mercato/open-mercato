@@ -330,6 +330,8 @@ export async function POST(req: Request) {
       logger.error('sales.quotes.send email failed', { err })
       reportQuoteSendError(err, 'sales.quote_email_failed')
       await listCacheFlush
+      // The send state is committed, so guard bookkeeping must still run even though delivery failed.
+      await guardResult.runAfterSuccess()
       return NextResponse.json({
         error: translate('sales.quotes.send.emailFailed', 'Quote marked as sent, but the email could not be delivered.'),
         quoteSent: true,
