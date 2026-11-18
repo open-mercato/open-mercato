@@ -65,6 +65,7 @@ function compare(actual: unknown, operator: string, expected: unknown): boolean 
 function matches(row: Row, where: Where): boolean {
   return Object.entries(where).every(([key, expected]) => {
     if (key === '$or') return (expected as Where[]).some((branch) => matches(row, branch))
+    if (key === '$and') return (expected as Where[]).every((branch) => matches(row, branch))
     const actual = row[key] ?? null
     if (expected && typeof expected === 'object' && !(expected instanceof Date)) {
       return Object.entries(expected as Where).every(([operator, value]) => compare(actual, operator, value))
@@ -353,6 +354,34 @@ describe('AI agent runs API', () => {
 
     it('cannot widen scope through the userId filter', async () => {
       expect(await listIds(`?userId=${USER_B}`)).toEqual(expect.not.arrayContaining([otherPrivateRun.id]))
+    })
+
+    it('cannot widen scope through the userId filter when the caller has no readable conversations', async () => {
+      conversations = []
+      participants = []
+      expect(await listIds(`?userId=${USER_B}`)).toEqual([])
+      expect(await listIds(`?userId=${USER_A}`)).toEqual([ownRun.id])
+      expect(await listIds()).toEqual([ownRun.id])
+    })
+
+    it('keeps the caller scope next to filters instead of letting filter keys overwrite it', async () => {
+      conversations = []
+      participants = []
+      await listIds(`?userId=${USER_B}`)
+      const where = findAndCountMock.mock.calls.at(-1)?.[2] as Where
+      expect(where).toEqual({
+        $and: [
+          { tenantId: TENANT, organizationId: ORG, deletedAt: null, userId: USER_A },
+          { userId: USER_B },
+        ],
+      })
+    })
+
+    it('cannot widen scope through the conversationId filter', async () => {
+      expect(await listIds('?conversationId=conv-b-private')).toEqual([])
+      conversations = []
+      participants = []
+      expect(await listIds('?conversationId=conv-b-private')).toEqual([])
     })
 
     it('rejects pageSize above 100 and invalid filters', async () => {

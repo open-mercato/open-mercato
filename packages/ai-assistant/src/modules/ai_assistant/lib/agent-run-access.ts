@@ -222,22 +222,26 @@ export async function listAgentRunPage(
 ): Promise<AiAgentRunPage> {
   const scope = await buildAgentRunScopeFilter(em, ctx)
   const filters = options.filters ?? {}
-  const where: Record<string, unknown> = { ...(scope as Record<string, unknown>) }
-  if (filters.agentId) where.agentId = filters.agentId
-  if (filters.channel) where.channel = filters.channel
-  if (filters.status) where.status = filters.status
-  if (filters.userId) where.userId = filters.userId
-  if (filters.conversationId) where.conversationId = filters.conversationId
+  const filterWhere: Record<string, unknown> = {}
+  if (filters.agentId) filterWhere.agentId = filters.agentId
+  if (filters.channel) filterWhere.channel = filters.channel
+  if (filters.status) filterWhere.status = filters.status
+  if (filters.userId) filterWhere.userId = filters.userId
+  if (filters.conversationId) filterWhere.conversationId = filters.conversationId
   if (filters.from || filters.to) {
-    where.startedAt = {
+    filterWhere.startedAt = {
       ...(filters.from ? { $gte: new Date(filters.from) } : {}),
       ...(filters.to ? { $lte: new Date(filters.to) } : {}),
     }
   }
+  const where: FilterQuery<AiAgentRun> =
+    Object.keys(filterWhere).length > 0
+      ? ({ $and: [scope, filterWhere] } as FilterQuery<AiAgentRun>)
+      : scope
   const [rows, total] = await findAndCountWithDecryption<AiAgentRun>(
     em,
     AiAgentRun,
-    where as FilterQuery<AiAgentRun>,
+    where,
     {
       orderBy: [{ startedAt: options.order }, { id: options.order }],
       limit: options.pageSize,
