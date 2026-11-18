@@ -394,10 +394,12 @@ describe('attachmentDocumentStructureService owner access', () => {
     expect(await service.listSections({ attachmentId: ATTACHMENT_ID, scope: ownerScope(OWNER) })).toBeNull()
   })
 
-  it('keeps the principal-less service path (CLI) on the partition check only', async () => {
+  it('fails closed for a protected attachment on the principal-less service path (CLI)', async () => {
     const { service } = protectedSetup()
-    const structure = await service.getStructure({ attachmentId: ATTACHMENT_ID, scope: { tenantId: TENANT_A, organizationId: ORG_A } })
-    expect(structure?.extraction?.id).toBe(EXTRACTION_ID)
+    const scope: DocumentStructureAccessScope = { tenantId: TENANT_A, organizationId: ORG_A }
+    expect(await service.getStructure({ attachmentId: ATTACHMENT_ID, scope })).toBeNull()
+    expect(await service.listSections({ attachmentId: ATTACHMENT_ID, scope, includeText: true })).toBeNull()
+    expect(await service.getNormalizedText({ attachmentId: ATTACHMENT_ID, scope, charStart: 0, charEnd: 5 })).toBeNull()
     expect(resolve).not.toHaveBeenCalled()
   })
 
