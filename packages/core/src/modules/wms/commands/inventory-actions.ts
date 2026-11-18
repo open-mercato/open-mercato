@@ -51,7 +51,7 @@ import {
   inventoryMoveSchema,
   inventoryReceiveSchema,
   inventoryReservationAllocateSchema,
-  inventoryReservationCreateSchema,
+  inventoryReservationCommandInputSchema,
   inventoryReservationReleaseSchema,
   type InventoryAdjustInput,
   type InventoryCycleCountInput,
@@ -112,6 +112,8 @@ type ReservationMetadata = {
 type ReservationCommandResult = {
   reservationId: string
   allocatedBuckets: Array<{ locationId: string; lotId: string | null; quantity: string }>
+  appliedQuantity: number
+  idempotentReplay: boolean
 }
 
 type MutationLogInput = {
@@ -961,7 +963,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
   isUndoable: false,
   async execute(rawInput, ctx) {
-    const input = inventoryReservationCreateSchema.parse(rawInput ?? {})
+    const input = inventoryReservationCommandInputSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = resolveEm(ctx)
@@ -974,6 +976,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
         catalogVariantId: input.catalogVariantId,
         warehouseId: input.warehouseId,
         quantity: input.quantity,
+        reservedBefore: input.reservedBefore,
       })
       const existingReservation = await findExistingActiveReservationByIdempotencyKey(
         trx,
@@ -1132,6 +1135,8 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
     return {
       reservationId: result.reservationId,
       allocatedBuckets: result.allocatedBuckets,
+      appliedQuantity: result.idempotentReplay ? 0 : result.quantity,
+      idempotentReplay: result.idempotentReplay,
     }
   },
   buildLog: async ({ input, result, ctx }) =>

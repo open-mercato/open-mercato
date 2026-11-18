@@ -42,13 +42,16 @@ export function buildReservationIdempotencyKey(input: {
   catalogVariantId: string
   warehouseId: string
   quantity: number
+  /** Quantity already reserved for this source before this attempt. Omitted stays quantity-only. */
+  reservedBefore?: number
 }): string {
+  const cumulativeQuantity = input.quantity + (input.reservedBefore ?? 0)
   return [
     'reservation',
     normalizeSegment(input.sourceType),
     normalizeSegment(input.sourceId),
     normalizeSegment(input.catalogVariantId),
     normalizeSegment(input.warehouseId),
-    normalizeQuantity(input.quantity),
+    normalizeQuantity(cumulativeQuantity),
   ].join('|')
 }

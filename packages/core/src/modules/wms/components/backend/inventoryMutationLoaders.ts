@@ -1,5 +1,6 @@
 import type { CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { CATALOG_VARIANT_LABELS_ENDPOINT } from '../../lib/catalogVariantLabels'
 import {
   buildQuery,
   loadCatalogVariantOptions,
@@ -43,8 +44,10 @@ export async function resolveCatalogVariantLabel(catalogVariantId: string): Prom
   const id = catalogVariantId.trim()
   if (!id) return null
   const params = buildQuery({ page: 1, pageSize: 1, id })
+  // Best-effort label: a 403 must not raise the global access-denied banner.
   const call = await apiCall<PagedResponse<{ id?: string | null; name?: string | null; sku?: string | null }>>(
-    `/api/catalog/variants?${params}`,
+    `${CATALOG_VARIANT_LABELS_ENDPOINT}?${params}`,
+    { headers: { 'x-om-forbidden-redirect': '0' } },
   )
   if (!call.ok) return null
   const item = call.result?.items?.[0]
@@ -113,7 +116,8 @@ export async function resolveCatalogVariantSku(catalogVariantId: string): Promis
   if (!id) return null
   const params = buildQuery({ page: 1, pageSize: 1, id })
   const call = await apiCall<PagedResponse<{ id?: string | null; sku?: string | null }>>(
-    `/api/catalog/variants?${params}`,
+    `${CATALOG_VARIANT_LABELS_ENDPOINT}?${params}`,
+    { headers: { 'x-om-forbidden-redirect': '0' } },
   )
   if (!call.ok) return null
   const sku = call.result?.items?.[0]?.sku?.trim()

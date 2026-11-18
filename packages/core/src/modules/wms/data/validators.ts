@@ -245,6 +245,11 @@ export const inventoryReservationCreateSchema = scopedSchema.extend({
   metadata: metadataSchema,
 })
 
+/** Command-only. `reservedBefore` is the caller's cumulative hint and must not be accepted on the public route. */
+export const inventoryReservationCommandInputSchema = inventoryReservationCreateSchema.extend({
+  reservedBefore: nonNegativeQuantity.optional(),
+})
+
 export const inventoryReservationReleaseSchema = scopedSchema.extend({
   reservationId: uuid(),
   reason: z.string().trim().min(1).max(120),
@@ -517,7 +522,7 @@ export type ProductInventoryProfileUpdateInput = z.infer<typeof productInventory
 export type InventoryLotCreateInput = z.infer<typeof inventoryLotCreateSchema>
 export type InventoryLotUpdateInput = z.infer<typeof inventoryLotUpdateSchema>
 export type InventoryReceiveInput = z.infer<typeof inventoryReceiveSchema>
-export type InventoryReservationCreateInput = z.infer<typeof inventoryReservationCreateSchema>
+export type InventoryReservationCreateInput = z.infer<typeof inventoryReservationCommandInputSchema>
 export type InventoryReservationReleaseInput = z.infer<typeof inventoryReservationReleaseSchema>
 export type InventoryReservationAllocateInput = z.infer<typeof inventoryReservationAllocateSchema>
 export type InventoryAdjustInput = z.infer<typeof inventoryAdjustSchema>

@@ -23,6 +23,7 @@ const successSchema = z.object({
   movementIds: z.array(z.string().uuid()),
   putawayTaskIds: z.array(z.string().uuid()),
   receivedQty: z.number().optional(),
+  appliedQty: z.number().nonnegative().optional(),
   asnUpdatedAt: z.string().datetime().optional(),
 })
 const errorSchema = z.object({ error: z.string() })
@@ -75,12 +76,14 @@ export async function POST(request: Request) {
         movementIds: string[]
         putawayTaskIds: string[]
         receivedQty?: number
+        appliedQty?: number
         asnUpdatedAt?: string
       }) => ({
         ok: true,
         movementIds: result.movementIds,
         putawayTaskIds: result.putawayTaskIds,
         receivedQty: result.receivedQty,
+        appliedQty: result.appliedQty,
         asnUpdatedAt: result.asnUpdatedAt,
       }),
     })

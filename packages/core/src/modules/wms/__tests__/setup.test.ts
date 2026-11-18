@@ -132,6 +132,16 @@ describe('wms setup role mappings', () => {
     }
   })
 
+  it('keeps catalog pricing off operator and supervisor roles', () => {
+    const supervisorFeatures = setup.defaultRoleFeatures?.[WMS_SUPERVISOR_ROLE] ?? []
+    const operatorFeatures = setup.defaultRoleFeatures?.[WMS_OPERATOR_ROLE] ?? []
+
+    expect(supervisorFeatures).not.toContain('catalog.products.view')
+    expect(supervisorFeatures).not.toContain('catalog.pricing.manage')
+    expect(operatorFeatures).not.toContain('catalog.products.view')
+    expect(operatorFeatures).not.toContain('catalog.pricing.manage')
+  })
+
   it('keeps built-in admin and employee grants', () => {
     expect(setup.defaultRoleFeatures?.admin).toEqual(['wms.*'])
     expect(setup.defaultRoleFeatures?.employee).toEqual(['wms.view'])

@@ -50,4 +50,21 @@ describe('inventoryIdempotency', () => {
     expect(key).toContain('reservation|order|')
     expect(key).toContain('|5')
   })
+
+  it('keeps a repeated reservation attempt stable and distinguishes a later increase', () => {
+    const base = {
+      sourceType: 'order' as const,
+      sourceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      catalogVariantId: '77777777-7777-4777-8777-777777777777',
+      warehouseId: '55555555-5555-4555-8555-555555555555',
+      quantity: 2,
+    }
+    const first = buildReservationIdempotencyKey({ ...base, reservedBefore: 0 })
+    const replay = buildReservationIdempotencyKey({ ...base, reservedBefore: 0 })
+    const increase = buildReservationIdempotencyKey({ ...base, reservedBefore: 2 })
+    expect(first).toBe(replay)
+    expect(first).not.toBe(increase)
+    expect(increase.endsWith('|4')).toBe(true)
+    expect(buildReservationIdempotencyKey(base)).toBe(first)
+  })
 })
