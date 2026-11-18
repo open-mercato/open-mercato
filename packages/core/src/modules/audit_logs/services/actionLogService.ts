@@ -356,7 +356,7 @@ export class ActionLogService {
       changesJson: isRecord(data.changes) ? data.changes : null,
       changedFields: projection.changedFields,
       primaryChangedField: projection.primaryChangedField,
-      correlationKeys: projection.correlationKeys.length > 0 ? projection.correlationKeys : null,
+      correlationKeys: projection.correlationKeys,
       contextJson: isRecord(data.context) ? data.context : null,
       sourceKey: projection.sourceKey,
       createdAt: new Date(),

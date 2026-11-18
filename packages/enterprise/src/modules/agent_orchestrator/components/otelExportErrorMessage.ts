@@ -1,5 +1,5 @@
 import type { useT } from '@open-mercato/shared/lib/i18n/context'
-import { OTLP_ERROR_CODES } from '../lib/trace/otel/otlpHttpClient'
+import { OTLP_ERROR_CODES } from '../lib/trace/otel/otlpErrorCodes'
 import {
   isOtelExportDestinationErrorCode,
   type OtelExportDestinationErrorCode,

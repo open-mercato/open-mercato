@@ -15,6 +15,9 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const searchToolsLogger = createLogger('search.ai-tools')
 
 /**
  * AI Tools definitions for the Search module.
@@ -213,7 +216,11 @@ async function filterRecordsByVisibility<TRecord extends Record<string, unknown>
       }),
     )
     return candidates.filter((candidate) => visible.has(candidate.result)).map((candidate) => candidate.record)
-  } catch {
+  } catch (error) {
+    searchToolsLogger.warn('Result visibility filter failed; returning no records', {
+      entityType,
+      error: error instanceof Error ? error.message : String(error),
+    })
     return []
   }
 }

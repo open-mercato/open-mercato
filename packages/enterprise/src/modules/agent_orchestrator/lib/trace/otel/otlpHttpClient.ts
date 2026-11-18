@@ -13,12 +13,9 @@ export const OTLP_JSON_CONTENT_TYPE = 'application/json'
 export const OTLP_PROTOBUF_CONTENT_TYPE = 'application/x-protobuf'
 export const OTLP_RETRYABLE_STATUSES: readonly number[] = [429, 502, 503, 504]
 
-export const OTLP_ERROR_CODES = {
-  timeout: 'timeout',
-  network: 'network_error',
-  invalidEndpoint: 'invalid_endpoint',
-  encoding: 'encoding_failed',
-} as const
+import { OTLP_ERROR_CODES } from './otlpErrorCodes'
+
+export { OTLP_ERROR_CODES }
 
 export type OtlpExportOutcome = 'ok' | 'retry' | 'drop'
 

@@ -491,7 +491,7 @@ describe('ActionLogService normalizeInput', () => {
     expect(created.primaryChangedField).toBe('entity.displayName')
     expect(created.relatedResourceKind).toBe('customers.deal')
     expect(created.relatedResourceId).toBe('deal-1')
-    expect(created.correlationKeys).toBeNull()
+    expect(created.correlationKeys).toEqual([])
   })
 
   it('populates correlation keys from context.correlation when creating a log entity', () => {
