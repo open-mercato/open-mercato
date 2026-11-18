@@ -329,7 +329,7 @@ function buildI18nEntries(options: ScaffoldOptions, vars: TemplateVars): Record<
 
 function renderI18nJson(entries: Record<string, string>): string {
   const sorted: Record<string, string> = {}
-  for (const key of Object.keys(entries).sort((a, b) => a.localeCompare(b))) sorted[key] = entries[key]
+  for (const key of Object.keys(entries).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) sorted[key] = entries[key]
   return `${JSON.stringify(sorted, null, 2)}\n`
 }
 
