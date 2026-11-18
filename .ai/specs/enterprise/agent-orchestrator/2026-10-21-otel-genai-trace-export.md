@@ -117,8 +117,8 @@ Convention pin: **OpenTelemetry GenAI semantic conventions as published with `@o
 | Ids (run, span, tenant, org, proposal, workflow, tool call) | exported | exported |
 | User ids (invoker, principal, on-behalf-of) | omitted unless tenant `exportUserIds: true` | same |
 | Emails, names, subject titles, run input/output, proposal payload, disposition reason, eval evidence, tool request/response summaries | **never** | never (summaries are not content; content comes only from the dedicated artifacts) |
-| System prompt, messages, tool definitions, completions, tool args/results | **never** | only with all three locks (Q2); passed through the observability spec's redaction (already applied at capture) and a second `redactPii` pass on string values; per-attribute cap 64 KiB, truncated with `om.truncated=true` |
-| Any string attribute | secret-key masking + email/Bearer scrubbing (patterns mirrored from `packages/telemetry/src/facade/redact.ts`) | same |
+| System prompt, messages, tool definitions, completions, tool args/results | **never** | only with all three locks (Q2); passed through the observability spec's redaction (already applied at capture) and a second pass on string values that mirrors it: secrets always, PII (email, IBAN, card, phone) only when the run was captured with `om.capture.redactPii: true` (a missing or non-boolean value redacts); per-attribute cap 64 KiB, truncated with `om.truncated=true` |
+| Any string attribute | secret-key masking + email/Bearer scrubbing (patterns mirrored from `packages/telemetry/src/facade/redact.ts`) | same, except the content attributes above, which follow the run's `redactPii` (secrets always) |
 
 ### Configuration
 
@@ -424,3 +424,6 @@ None.
 
 ### 2026-11-17
 - Vendor compatibility (roadmap-gap B-11): no payload change. A recorded run against a self-hosted Langfuse 4.81.0 (`http/json` and `http/protobuf`, Basic auth through `OM_AGENT_OTEL_EXPORT_HEADERS`) stored the run as Agent → Generation (model, usage, prompt/completion from the `gen_ai.client.inference.operation.details` event) → Tool (call arguments/result); `om.*` spans become plain spans. Datadog EU accepted the exporter payload (`http/json` and `http/protobuf`, `200`) and a real agent run exported from the app, and rejected an invalid key with `403`; read back through the LLM Observability API, the run is an agent span with an LLM span carrying prompt, completion, model and tokens, and tool spans carry arguments/results; `om.*` attributes (tenant and organization ids included) become tags; conversion needs the `DD-LLMObs-Enabled=true` header, and spans without `gen_ai.*` attributes stay in APM. Recipes in `agent-trace-otel-export.mdx` (Langfuse, Datadog); contract test `otel-vendor-compat.test.ts`.
+
+### 2026-11-18
+- The exported-content second pass follows the run's captured `om.capture.redactPii` (spec review of #8251/#9648). It used to strip emails, IBANs, cards and phone numbers whatever the tenant chose, and the mapper's attribute backstop stripped emails from content attributes again. That overrode the tenant's choice with no recorded reason. Both now match capture: secrets are always scrubbed; PII is scrubbed unless the run's manifest records `redactPii: false` (a missing value fails closed). Non-content attributes keep the full backstop. Tests: `otel-genai-content.test.ts`, `otel-map-agent-run.test.ts`, `otel-load-run-export-content.test.ts`.

@@ -171,6 +171,32 @@ describe('loadRunExportContent', () => {
     expect(mockRecordAccess).toHaveBeenCalledTimes(2)
   })
 
+  it('scrubs PII from tool calls unless the run was captured with redactPii off', async () => {
+    const requestKey = freshKey('req')
+    const spans = [llmSpan('s1', contentKeys(requestKey))]
+    const request = {
+      ...REQUEST_ARTIFACT,
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'mail', input: { to: 'ann@example.com' } }],
+        },
+      ],
+    }
+    storedRows(spans)
+    mockReadArtifact.mockResolvedValue({ status: 'ok', value: request })
+    const captured = (redactPii: boolean) => ({
+      ...bundleOf(spans),
+      manifest: { 'om.capture': { level: 'full', redactPii } },
+    })
+    const kept = await loadRunExportContent(container, captured(false), { mode: 'full', retentionDays: 30 })
+    expect(kept.toolCalls.get('call-1')?.arguments?.value).toBe('{"to":"ann@example.com"}')
+    const scrubbed = await loadRunExportContent(container, captured(true), { mode: 'full', retentionDays: 30 })
+    expect(scrubbed.toolCalls.get('call-1')?.arguments?.value).toBe('{"to":"[redacted-email]"}')
+    const noManifest = await loadRunExportContent(container, bundleOf(spans), { mode: 'full', retentionDays: 30 })
+    expect(noManifest.toolCalls.get('call-1')?.arguments?.value).toBe('{"to":"[redacted-email]"}')
+  })
+
   it('marks expired keys without reading them and missing objects as expired', async () => {
     const expiredKey = freshKey('old', 45)
     const goneKey = freshKey('gone')

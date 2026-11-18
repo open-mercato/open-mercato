@@ -8,7 +8,7 @@ import { readTraceCapturePolicy } from '../capturePolicy'
 import { isTraceContentKeyExpired, recordTraceContentAccess } from '../contentArtifactAccess'
 import { OM_LLM_ATTRIBUTES } from '../genAiAttributes'
 import type { OtelContentExportMode } from './exportSettings'
-import { indexToolCallContent, type ToolCallContent } from './genAiContent'
+import { exportRedactsPii, indexToolCallContent, type ToolCallContent } from './genAiContent'
 import type { RunExportBundle, RunExportSpan } from './loadRunExportBundle'
 import type { OtelContentExportStatus } from './otelAttributes'
 
@@ -180,7 +180,7 @@ function summarizeStatus(outcomes: ReadonlyArray<ReadOutcome>): OtelContentExpor
  */
 export async function loadRunExportContent(
   container: RunExportContentContainer,
-  bundle: Pick<RunExportBundle, 'run' | 'spans'>,
+  bundle: Pick<RunExportBundle, 'run' | 'spans'> & Partial<Pick<RunExportBundle, 'manifest'>>,
   options: LoadRunExportContentOptions,
 ): Promise<RunExportContent> {
   if (options.mode !== 'full') return emptyContent()
@@ -242,7 +242,9 @@ export async function loadRunExportContent(
       entry.status = summarizeStatus(outcomesBySpan.get(span.id) ?? [])
       content.bySpanId.set(span.id, entry)
     }
-    content.toolCalls = indexToolCallContent(requests, responses)
+    content.toolCalls = indexToolCallContent(requests, responses, {
+      redactPii: exportRedactsPii(bundle.manifest?.['om.capture']),
+    })
     return content
   } catch (error) {
     logger.warn('otel export content load failed; exporting without content', { runId: run.id, err: error })

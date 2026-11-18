@@ -4,6 +4,7 @@ import { GEN_AI_ATTRIBUTES } from '../lib/trace/genAiAttributes'
 import {
   OTEL_CONTENT_ATTRIBUTE_MAX_BYTES,
   capContentAttribute,
+  exportRedactsPii,
   indexToolCallContent,
   toInferenceDetailsAttributes,
   toInputMessages,
@@ -248,6 +249,43 @@ describe('genAiContent redaction', () => {
     const entry = index.get('call-2')
     expect(entry?.arguments?.value).toBe('{"email":"[redacted-email]"}')
     expect(entry?.result?.value).toBe('"mail [redacted-email]"')
+  })
+
+  test('keeps PII but still scrubs secrets when the run was captured with redactPii off', () => {
+    const request = requestArtifact({
+      system: 'Contact ops@example.com',
+      messages: [
+        { role: 'user', content: 'Card 4111 1111 1111 1111, phone +48 601 234 567, IBAN DE89 3704 0044 0532 0130 00' },
+        { role: 'user', content: 'Authorization: Bearer abc.def.ghi' },
+      ],
+    })
+    const options = { redactPii: false }
+    const serialized = [toSystemInstructions(request, options), toInputMessages(request, options)]
+      .map((entry) => entry?.value)
+      .join('\n')
+    expect(serialized).toContain('ops@example.com')
+    expect(serialized).toContain('4111 1111 1111 1111')
+    expect(serialized).toContain('+48 601 234 567')
+    expect(serialized).toContain('DE89 3704 0044 0532 0130 00')
+    expect(serialized).not.toContain('abc.def.ghi')
+    expect(serialized).not.toContain('[redacted-email]')
+  })
+
+  test('keeps PII in the call index when redactPii is off', () => {
+    const index = indexToolCallContent(
+      [],
+      [responseArtifact({ content: [{ type: 'tool-call', toolCallId: 'call-2', input: { email: 'bob@example.com' } }] })],
+      { redactPii: false },
+    )
+    expect(index.get('call-2')?.arguments?.value).toBe('{"email":"bob@example.com"}')
+  })
+
+  test('exportRedactsPii follows the captured setting and fails closed', () => {
+    expect(exportRedactsPii({ level: 'full', redactPii: false })).toBe(false)
+    expect(exportRedactsPii({ level: 'full', redactPii: true })).toBe(true)
+    expect(exportRedactsPii({ level: 'full' })).toBe(true)
+    expect(exportRedactsPii({ level: 'full', redactPii: 'false' })).toBe(true)
+    expect(exportRedactsPii(undefined)).toBe(true)
   })
 })
 
