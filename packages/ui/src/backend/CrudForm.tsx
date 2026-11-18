@@ -1157,7 +1157,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     navigationConfirmPendingRef.current = true
     try {
       const confirmed = await confirm({
-        title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+        title: t('ui.forms.unsavedChangesTitle', 'Discard unsaved changes?'),
+        description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
+        confirmText: t('ui.forms.unsavedChangesDiscard', 'Discard changes'),
+        cancelText: t('ui.forms.unsavedChangesKeep', 'Keep editing'),
+        variant: 'destructive',
       })
       if (confirmed) allowNextNavigation()
       return confirmed
@@ -4088,13 +4092,13 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
                   <SortableContext items={col1Sortable.map(({ id }) => id)} strategy={verticalListSortingStrategy}>
-                    <div className={densityStackMd}>{col1Content}</div>
+                    <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className={densityStackMd}>{col1Content}</div>
+                <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className={`min-w-0 ${densityStackMd}`} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (

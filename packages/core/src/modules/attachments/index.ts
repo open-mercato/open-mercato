@@ -15,6 +15,9 @@ export {
   type AttachmentService,
   type CreatedScopedAttachment,
   type CreateScopedAttachmentInput,
+  type DescribedScopedAttachment,
+  type DescribeManyScopedAttachmentsInput,
+  type DescribeScopedAttachmentInput,
   type ReadScopedAttachmentInput,
   type ReadScopedAttachmentResult,
   type ReleaseScopedAttachmentInput,
@@ -57,3 +60,4 @@ export type {
   EvaluateAttachmentRowAccessInput,
   EvaluateAttachmentRowAccessResult,
 } from './lib/access-rows'
+export { getAttachmentExtension, hasDangerousExecutableExtension } from './lib/security'
