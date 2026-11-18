@@ -15,6 +15,9 @@ export {
   type AttachmentService,
   type CreatedScopedAttachment,
   type CreateScopedAttachmentInput,
+  type DescribedScopedAttachment,
+  type DescribeManyScopedAttachmentsInput,
+  type DescribeScopedAttachmentInput,
   type ReadScopedAttachmentInput,
   type ReadScopedAttachmentResult,
   type ReleaseScopedAttachmentInput,
@@ -81,3 +84,4 @@ export { registerAttachmentAccessResolvers } from './lib/access-registry'
 export { syncAttachmentAccessProtection } from './lib/access-protection'
 export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
 export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'
+export { getAttachmentExtension, hasDangerousExecutableExtension } from './lib/security'
