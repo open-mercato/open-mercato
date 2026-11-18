@@ -76,6 +76,8 @@ export type ReportExportInput = {
   issuedByLabel: string | null
   issuedAtLabel: string | null
   currencyCode: string | null
+  /** Omission preserves legacy visibility; the export route always supplies its permission decision. */
+  canSeeMoney?: boolean
   showRates: boolean
   groups: readonly ReportGroup[]
   rows: readonly ReportRow[]
@@ -107,6 +109,7 @@ function pdfLinesForLine(
   depth: number,
   isNonBillable: boolean,
   showRates: boolean,
+  canSeeMoney: boolean,
   currencyCode: string | null,
   labels: ReportExportLabels,
 ): PdfLine[] {
@@ -122,16 +125,18 @@ function pdfLinesForLine(
       align: 'right' as const,
     })
   }
-  cells.push({
-    text: isNonBillable ? '—' : formatAmount(line.amount, null),
-    x: COLUMN_AMOUNT_X,
-    align: 'right' as const,
-  })
+  if (canSeeMoney) {
+    cells.push({
+      text: isNonBillable ? '—' : formatAmount(line.amount, null),
+      x: COLUMN_AMOUNT_X,
+      align: 'right' as const,
+    })
+  }
 
   return [
     { kind: 'cells', cells },
     ...line.children.flatMap((child) =>
-      pdfLinesForLine(child, depth + 1, isNonBillable, showRates, currencyCode, labels),
+      pdfLinesForLine(child, depth + 1, isNonBillable, showRates, canSeeMoney, currencyCode, labels),
     ),
   ]
 }
@@ -139,6 +144,8 @@ function pdfLinesForLine(
 /** The PDF mirrors the on-screen sheet, group for group and line for line. */
 export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
   const { labels } = input
+  const canSeeMoney = input.canSeeMoney !== false
+  const showRates = input.showRates && canSeeMoney
   const lines: PdfLine[] = [
     {
       kind: 'cells',
@@ -180,15 +187,15 @@ export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
       cells: [
         { text: group.label, x: COLUMN_LABEL_X, bold: true },
         { text: formatReportMinutes(group.minutes), x: COLUMN_TIME_X, align: 'right', bold: true },
-        {
+        ...(canSeeMoney ? [{
           text: formatAmount(isNonBillable ? 0 : group.amount, input.currencyCode),
           x: COLUMN_AMOUNT_X,
-          align: 'right',
+          align: 'right' as const,
           bold: true,
-        },
+        }] : []),
       ],
     })
-    if (input.showRates && !isNonBillable && group.rate !== null) {
+    if (showRates && !isNonBillable && group.rate !== null) {
       lines.push({
         kind: 'cells',
         cells: [{ text: `${formatAmount(group.rate, input.currencyCode)}/h`, x: COLUMN_LABEL_X, muted: true, size: 8 }],
@@ -199,22 +206,24 @@ export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
       { text: labels.line, x: COLUMN_LABEL_X, size: 8, muted: true },
       { text: labels.time, x: COLUMN_TIME_X, align: 'right' as const, size: 8, muted: true },
     ]
-    if (input.showRates) {
+    if (showRates) {
       header.push({ text: labels.rate, x: COLUMN_RATE_X, align: 'right' as const, size: 8, muted: true })
     }
-    header.push({ text: labels.amount, x: COLUMN_AMOUNT_X, align: 'right' as const, size: 8, muted: true })
+    if (canSeeMoney) {
+      header.push({ text: labels.amount, x: COLUMN_AMOUNT_X, align: 'right' as const, size: 8, muted: true })
+    }
     lines.push({ kind: 'cells', cells: header })
 
     for (const line of group.lines) {
       lines.push(
-        ...pdfLinesForLine(line, 0, isNonBillable, input.showRates, input.currencyCode, labels),
+        ...pdfLinesForLine(line, 0, isNonBillable, showRates, canSeeMoney, input.currencyCode, labels),
       )
     }
     lines.push({ kind: 'space', height: 8 }, { kind: 'rule' })
   }
 
-  lines.push(
-    {
+  if (canSeeMoney) {
+    lines.push({
       kind: 'cells',
       cells: [
         { text: labels.total, x: COLUMN_LABEL_X, bold: true, size: 11 },
@@ -226,7 +235,9 @@ export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
           size: 11,
         },
       ],
-    },
+    })
+  }
+  lines.push(
     {
       kind: 'cells',
       cells: [
@@ -253,6 +264,8 @@ export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
  */
 export function buildReportTable(input: ReportExportInput): PreparedExport {
   const { labels } = input
+  const canSeeMoney = input.canSeeMoney !== false
+  const showRates = input.showRates && canSeeMoney
   const columns = [
     { field: 'date', header: labels.date },
     { field: 'project', header: labels.project },
@@ -263,8 +276,8 @@ export function buildReportTable(input: ReportExportInput): PreparedExport {
     { field: 'roundedMinutes', header: labels.roundedMinutes },
     { field: 'hours', header: labels.time },
     { field: 'billable', header: labels.billable },
-    ...(input.showRates ? [{ field: 'rate', header: labels.rate }] : []),
-    { field: 'amount', header: labels.amount },
+    ...(showRates ? [{ field: 'rate', header: labels.rate }] : []),
+    ...(canSeeMoney ? [{ field: 'amount', header: labels.amount }] : []),
   ]
 
   const rows = input.rows.map((row) => {
@@ -278,9 +291,9 @@ export function buildReportTable(input: ReportExportInput): PreparedExport {
       roundedMinutes: row.minutes,
       hours: row.hours,
       billable: row.isBillable ? labels.yes : labels.no,
-      amount: row.amount === null ? '' : row.amount.toFixed(2),
     }
-    if (input.showRates) record.rate = row.rate === null ? '' : row.rate.toFixed(2)
+    if (canSeeMoney) record.amount = row.amount === null ? '' : row.amount.toFixed(2)
+    if (showRates) record.rate = row.rate === null ? '' : row.rate.toFixed(2)
     return record
   })
 

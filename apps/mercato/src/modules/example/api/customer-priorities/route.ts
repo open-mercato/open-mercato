@@ -10,6 +10,7 @@ const priority = 'priority'
 const organization_id = 'organization_id'
 const tenant_id = 'tenant_id'
 const created_at = 'created_at'
+const updated_at = 'updated_at'
 import {
   customerPriorityCreateSchema,
   customerPriorityListSchema,
@@ -27,12 +28,14 @@ const customerPriorityListItemSchema = z.object({
   id: z.string().uuid(),
   customer_id: z.string().uuid(),
   priority: z.enum(['low', 'normal', 'high', 'critical']),
+  updatedAt: z.string().datetime().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
 })
 
 const customerPriorityCreateResponseSchema = z.object({
   id: z.string().uuid(),
+  updatedAt: z.string().datetime(),
 })
 
 export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
@@ -53,7 +56,8 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   list: {
     schema: customerPriorityListSchema,
     entityId: ENTITY_ID,
-    fields: [id, customer_id, priority, organization_id, tenant_id, created_at],
+    fields: [id, customer_id, priority, organization_id, tenant_id, created_at, updated_at],
+    transformItem: (item: Record<string, unknown>) => ({ ...item, updatedAt: item.updated_at }),
     sortFieldMap: {
       id,
       customer_id,
@@ -73,7 +77,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       customerId: input.customerId,
       priority: input.priority,
     }),
-    response: (entity) => ({ id: String(entity.id) }),
+    response: (entity) => ({ id: String(entity.id), updatedAt: entity.updatedAt.toISOString() }),
   },
   update: {
     schema: customerPriorityUpdateSchema,
@@ -82,7 +86,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
       if (input.customerId) entity.customerId = input.customerId
       if (input.priority) entity.priority = input.priority
     },
-    response: () => ({ ok: true }),
+    response: (entity) => ({ ok: true, id: String(entity.id), updatedAt: entity.updatedAt.toISOString() }),
   },
   del: {
     idFrom: 'body',
@@ -149,7 +153,7 @@ export const openApi = createExampleCrudOpenApi({
   },
   update: {
     schema: customerPriorityUpdateSchema,
-    responseSchema: exampleOkSchema,
+    responseSchema: exampleOkSchema.extend({ id: z.string().uuid(), updatedAt: z.string().datetime() }),
     description: 'Updates customer priority values.',
   },
   del: {

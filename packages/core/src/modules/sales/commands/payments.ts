@@ -35,6 +35,7 @@ import {
   SALES_RESOURCE_KIND_ORDER,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { assertOrderCanBeCancelled, isCancelledOrderStatus } from '../lib/orderCancellationGuard'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -475,6 +476,10 @@ const createPaymentCommand: CommandHandler<
         'sales.payments.order_not_found'
       )
       ensureSameScope(order, input.organizationId, input.tenantId)
+      const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
+      if (input.statusEntryId && !status) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
       const lockedOrders = await lockOrdersForPaymentProjection(
         tx,
         collectAffectedOrderIds(order.id, allocationInputs.map((allocation) => allocation.orderId)),
@@ -487,6 +492,19 @@ const createPaymentCommand: CommandHandler<
       // Guard the parent order's aggregate version (Gap A): a payment mutation
       // recalculates the order totals, so a stale parent must 409 before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
+        const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
+        if (isCancelledOrderStatus(requestedOrderStatus)) {
+          await assertOrderCanBeCancelled(tx, order, {
+            payment: {
+              status,
+              amount: input.amount,
+              capturedAmount: input.capturedAmount,
+              refundedAmount: input.refundedAmount,
+            },
+          })
+        }
+      }
       if (
         order.currencyCode &&
         input.currencyCode &&
@@ -498,10 +516,10 @@ const createPaymentCommand: CommandHandler<
       }
       let paymentMethod = null
       if (input.paymentMethodId) {
-        const method = assertFound(
-          await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId }, {}, { tenantId: input.tenantId, organizationId: input.organizationId }),
-          'sales.payments.method_not_found'
-        )
+        const method = await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId, ...scope, deletedAt: null }, {}, scope)
+        if (!method) {
+          throw new CrudHttpError(400, { error: translate('sales.documents.detail.paymentMethodInvalid', 'Selected payment method could not be found.') })
+        }
         ensureSameScope(method, input.organizationId, input.tenantId)
         paymentMethod = method
       }
@@ -540,7 +558,6 @@ const createPaymentCommand: CommandHandler<
         })
         orderLines.forEach((line) => tx.persist(line))
       }
-      const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId })
       const payment = tx.create(SalesPayment, {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
@@ -827,11 +844,37 @@ const updatePaymentCommand: CommandHandler<
     // Guard the parent order's aggregate version (Gap A): updating a payment
     // recalculates the order totals, so a stale parent must 409 before mutating.
     await enforceSalesDocumentOptimisticLock(ctx, previousOrder, SALES_RESOURCE_KIND_ORDER)
+    if (input.documentStatusEntryId) {
+      const targetOrder =
+        input.orderId && input.orderId !== previousOrder?.id
+          ? await findOneWithDecryption(em, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId })
+          : previousOrder
+      const requestedOrderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId, { tenantId: resolvedTenantId })
+      if (targetOrder && !isCancelledOrderStatus(targetOrder.status) && isCancelledOrderStatus(requestedOrderStatus)) {
+        await assertOrderCanBeCancelled(em, targetOrder, {
+          payment: {
+            id: payment.id,
+            status: input.statusEntryId !== undefined
+              ? await resolveDictionaryEntryValue(em, input.statusEntryId ?? null, { tenantId: resolvedTenantId })
+              : payment.status ?? null,
+            amount: input.amount !== undefined ? input.amount : payment.amount,
+            capturedAmount: input.capturedAmount !== undefined ? input.capturedAmount : payment.capturedAmount,
+            refundedAmount: input.refundedAmount !== undefined ? input.refundedAmount : payment.refundedAmount,
+          },
+        })
+      }
+    }
     // Apply payment scalar fields, order/line status changes and the
     // allocations rebuild in one transaction so a mid-write failure cannot
     // leave the payment and its allocations partially committed (#2336).
     const scope: PaymentScope = { tenantId: payment.tenantId, organizationId: payment.organizationId }
     const { lockedOrders, orderTotals } = await em.transactional(async (tx) => {
+      const status = input.statusEntryId !== undefined
+        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
+        : undefined
+      if (input.statusEntryId && !status) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
       const lockedOrders = await lockPaymentOrders(
         tx,
         payment,
@@ -867,10 +910,10 @@ const updatePaymentCommand: CommandHandler<
         if (!input.paymentMethodId) {
           payment.paymentMethod = null
         } else {
-          const method = assertFound(
-            await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
-            'sales.payments.method_not_found'
-          )
+          const method = await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId, ...scope, deletedAt: null }, {}, scope)
+          if (!method) {
+            throw new CrudHttpError(400, { error: translate('sales.documents.detail.paymentMethodInvalid', 'Selected payment method could not be found.') })
+          }
           ensureSameScope(method, resolvedOrganizationId, resolvedTenantId)
           payment.paymentMethod = method
         }
@@ -909,7 +952,7 @@ const updatePaymentCommand: CommandHandler<
       if (input.paymentReference !== undefined) payment.paymentReference = input.paymentReference ?? null
       if (input.statusEntryId !== undefined) {
         payment.statusEntryId = input.statusEntryId ?? null
-        payment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: resolvedTenantId })
+        payment.status = status ?? null
       }
       if (input.amount !== undefined) payment.amount = toNumericString(input.amount) ?? '0'
       if (input.currencyCode !== undefined) payment.currencyCode = input.currencyCode

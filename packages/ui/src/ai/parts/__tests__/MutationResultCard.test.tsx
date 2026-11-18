@@ -21,6 +21,7 @@ const dict = {
   'ai_assistant.chat.mutation_cards.result.viewRecord': 'View record',
   'ai_assistant.chat.mutation_cards.result.partialTitle': 'Action applied with failures',
   'ai_assistant.chat.mutation_cards.result.partialBody': 'Some records could not be updated.',
+  'ai_assistant.chat.mutation_cards.result.ignoredEntriesBody': 'The change was saved. Some repeated entries were ignored:',
   'ai_assistant.chat.mutation_cards.result.failureTitle': 'Action failed',
   'ai_assistant.chat.mutation_cards.result.failureBody': 'The mutation could not be applied.',
   'ai_assistant.chat.mutation_cards.result.cancelledTitle': 'Proposal cancelled',
@@ -145,6 +146,43 @@ describe('MutationResultCard', () => {
     ).not.toBeNull()
     const code = document.querySelector('[data-ai-mutation-result-code]')
     expect(code?.textContent).toBe('tool_execution_failed')
+  })
+
+  it('reads "Action applied" when the only reported rows are dropped duplicates', () => {
+    installPollingMock(
+      baseAction({
+        failedRecords: [
+          { recordId: 'r-1', error: { code: 'record_duplicate_dropped', message: 'listed more than once' } },
+        ],
+      }),
+    )
+    renderWithProviders(
+      <MutationResultCard componentId="mutation-result-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+    expect(document.querySelector('[data-ai-mutation-result="success-with-notes"]')).not.toBeNull()
+    expect(document.querySelector('[data-ai-mutation-result="partial"]')).toBeNull()
+    expect(screen.getByText('Action applied')).toBeInTheDocument()
+    expect(screen.getByText('The change was saved. Some repeated entries were ignored:')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-ai-mutation-failed-record]').length).toBe(1)
+  })
+
+  it('keeps "applied with failures" when a dropped duplicate comes with a real failure', () => {
+    installPollingMock(
+      baseAction({
+        failedRecords: [
+          { recordId: 'r-1', error: { code: 'record_duplicate_dropped', message: 'listed more than once' } },
+          { recordId: 'r-2', error: { code: 'stale_version', message: 'changed' } },
+        ],
+      }),
+    )
+    renderWithProviders(
+      <MutationResultCard componentId="mutation-result-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+    expect(document.querySelector('[data-ai-mutation-result="partial"]')).not.toBeNull()
+    expect(screen.getByText('Action applied with failures')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-ai-mutation-failed-record]').length).toBe(2)
   })
 
   it('renders a neutral cancelled variant without an error code or Fix with AI button', () => {

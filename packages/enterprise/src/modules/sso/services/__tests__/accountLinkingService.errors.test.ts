@@ -2,10 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { AccountLinkingService } from '../accountLinkingService'
 import { isEmailNotVerifiedError, resolveSsoCallbackErrorCode } from '../../lib/errors'
-import { ScimToken, SsoIdentity, SsoRoleGrant } from '../../data/entities'
+import { ScimToken, SsoIdentity, SsoRoleGrant, SsoUserDeactivation } from '../../data/entities'
 import type { SsoConfig } from '../../data/entities'
 import type { SsoIdentityPayload } from '../../lib/types'
 import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn().mockResolvedValue(null),
@@ -155,6 +156,31 @@ describe('SSO app role mappings', () => {
     email: 'user@example.com',
     emailVerified: true,
     groups,
+  })
+
+  it('rechecks deactivation under the authorization lock before synchronizing roles', async () => {
+    const em = buildRoleSyncEntityManager([{ id: 'role-employee', name: 'employee' }])
+    const previousLock = jest.mocked(lockUserRoleWriterAuthorizationState).getMockImplementation()
+    let revoked = false
+    jest.mocked(lockUserRoleWriterAuthorizationState).mockImplementation(async (...args) => {
+      await previousLock?.(...args)
+      revoked = true
+    })
+    jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity) => {
+      if (entity === SsoIdentity) return { id: 'identity-1', userId: 'user-1' } as SsoIdentity
+      if (entity === User) return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' } as User
+      if (entity === SsoUserDeactivation && revoked) return { id: 'marker-1' } as SsoUserDeactivation
+      return null
+    })
+
+    try {
+      await expect(new AccountLinkingService(em as unknown as EntityManager).resolveUser(
+        roleConfig, payload(['engineering']), 'tenant-1',
+      )).rejects.toThrow('deactivated')
+      expect(em.persisted).toEqual([])
+    } finally {
+      jest.mocked(findOneWithDecryption).mockReset().mockResolvedValue(null)
+    }
   })
 
   it('does not grant tenant roles from unmapped IdP groups that match role names', async () => {

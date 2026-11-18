@@ -17,7 +17,7 @@ jest.mock('@open-mercato/shared/lib/encryption/kms', () => ({
 }))
 
 import { generateDek, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
-import { createSessionApiKey, findSessionApiKeyWithSecret } from '../services/apiKeyService'
+import { createApiKey, createSessionApiKey, findSessionApiKeyWithSecret } from '../services/apiKeyService'
 
 const TENANT = 'tenant-1'
 const previousToggle = process.env.TENANT_DATA_ENCRYPTION
@@ -78,6 +78,15 @@ afterEach(() => {
 })
 
 describe('session secret storage', () => {
+  it.each(['user-alice', null])('persists an explicit delegated owner without binding ordinary machine keys (%s)', async (ownerId) => {
+    const { em, created } = buildEm()
+    await createApiKey(em as never, {
+      name: 'MCP key', tenantId: TENANT, roles: ['role-a'],
+      createdBy: 'user-alice', ...(ownerId ? { sessionUserId: ownerId } : {}),
+    })
+    expect(created[0].sessionUserId).toBe(ownerId)
+  })
+
   it('seals the secret when encryption is active', async () => {
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     mockKms(generateDek())

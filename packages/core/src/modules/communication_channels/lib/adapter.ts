@@ -174,7 +174,10 @@ export interface NormalizedInboundMessage {
   body: string
   bodyFormat: 'text' | 'markdown' | 'html'
   attachments?: NormalizedAttachment[]
-  timestamp: Date
+  /** Best meaningful occurrence time selected by the adapter; null when unknown. */
+  timestamp: Date | null
+  /** Provider-native transport or storage time when separately available. */
+  providerTimestamp?: Date | null
   replyToExternalId?: string
   channelPayload: Record<string, unknown>
   channelContentType: string
@@ -378,6 +381,13 @@ export interface ApplyPushNotificationInput {
 export interface ImportHistoryInput {
   credentials: Record<string, unknown>
   scope: TenantScope
+  /**
+   * Provider conversation identifier, typically `channel.externalIdentifier`
+   * (for email channels this is the mailbox address). Optional for back-compat:
+   * adapters whose history import needs a channel identity must fail closed
+   * when it is absent rather than guessing from the credential scope.
+   */
+  conversationId?: string
   /**
    * Look back at most this many days. The hub accepts 1..`OM_IMPORT_HISTORY_MAX_SINCE_DAYS`
    * (default ceiling 3650, i.e. ten years) and defaults to 30 when omitted.

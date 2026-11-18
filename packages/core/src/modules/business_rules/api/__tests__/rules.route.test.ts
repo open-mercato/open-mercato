@@ -35,6 +35,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+const mockAssertActorCanGrantRoles = jest.fn(async (_input: unknown) => undefined)
+
+jest.mock('../../../auth/lib/grantChecks', () => ({
+  assertActorCanGrantRoles: jest.fn((input: unknown) => mockAssertActorCanGrantRoles(input)),
+  isUserEffectivelySuperAdmin: jest.fn(async () => false),
+}))
+
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
 }))
@@ -103,6 +110,13 @@ describe('Business Rules API - /api/business_rules/rules', () => {
     jest.clearAllMocks()
     registerBusinessRuleRouteOptions()
     mockUserHasAllFeatures.mockResolvedValue(true)
+    mockAssertActorCanGrantRoles.mockResolvedValue(undefined)
+    mockEm.find.mockImplementation(async (Entity: any, query: any) => {
+      if (Entity?.name === 'Role' && Array.isArray(query?.id?.$in)) {
+        return query.id.$in.map((id: string) => ({ id, tenantId: validTenantId }))
+      }
+      return []
+    })
     mockContainer.resolve.mockImplementation((token: string) => {
       if (token === 'em') return mockEm
       if (token === 'cache') return mockCache
@@ -1329,6 +1343,204 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       const body = await response.json()
       expect(body.requiredFeatures).toEqual(['api_keys.create'])
       expect(mockEm.flush).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('CALL_OPEN_MERCATO API key profile grant ceiling', () => {
+    const privilegedKeyId = '123e4567-e89b-42d3-a456-426614174077'
+    const ruleId = '123e4567-e89b-42d3-a456-426614174000'
+    const privilegedAction = {
+      type: 'CALL_OPEN_MERCATO',
+      config: {
+        endpoint: '/api/business_rules/rules',
+        method: 'GET',
+        apiKeyId: privilegedKeyId,
+      },
+    }
+    const privilegedKey = {
+      id: privilegedKeyId,
+      name: 'Privileged integration key',
+      tenantId: validTenantId,
+      organizationId: validOrgId,
+      rolesJson: ['role-superadmin'],
+      expiresAt: null,
+      deletedAt: null,
+    }
+
+    function denyGrant() {
+      mockAssertActorCanGrantRoles.mockImplementation(async () => {
+        const { forbidden } = jest.requireActual('@open-mercato/shared/lib/crud/errors') as typeof import('@open-mercato/shared/lib/crud/errors')
+        throw forbidden('Not allowed to grant')
+      })
+    }
+
+    function storedRule(overrides: Record<string, unknown> = {}) {
+      return {
+        id: ruleId,
+        ruleId: 'RULE-OM-PRIVILEGED',
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        deletedAt: null,
+        createdBy: 'superadmin-user',
+        updatedBy: null,
+        successActions: [privilegedAction],
+        failureActions: null,
+        ...overrides,
+      }
+    }
+
+    test('POST rejects a profile whose roles the author cannot grant', async () => {
+      denyGrant()
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : null))
+
+      const response = await POST(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify({
+          ruleId: 'RULE-OM-BORROW',
+          ruleName: 'Borrow privileged roles',
+          ruleType: 'ACTION',
+          entityType: 'WorkOrder',
+          conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+          successActions: [privilegedAction],
+        }),
+      }))
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('roles you cannot grant')
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(mockAssertActorCanGrantRoles).toHaveBeenCalledWith(expect.objectContaining({
+        actorUserId: 'user-1',
+        tenantId: validTenantId,
+        requireBoundRbac: true,
+        roles: [expect.objectContaining({ id: 'role-superadmin' })],
+      }))
+    })
+
+    test('POST rejects AI session and one-time keys as profiles', async () => {
+      for (const reservedKey of [
+        { ...privilegedKey, name: '__session_abc__', sessionToken: 'sess_abc' },
+        { ...privilegedKey, name: '__onetime__' },
+        { ...privilegedKey, name: '__business_rule_RULE-1__' },
+      ]) {
+        mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? reservedKey : null))
+        const response = await POST(new Request('http://localhost:3000/api/business_rules/rules', {
+          method: 'POST',
+          body: JSON.stringify({
+            ruleId: 'RULE-OM-RESERVED',
+            ruleName: 'Reserved key',
+            ruleType: 'ACTION',
+            entityType: 'WorkOrder',
+            successActions: [privilegedAction],
+          }),
+        }))
+        expect(response.status).toBe(400)
+        const body = await response.json()
+        expect(body.error).toContain('selected API key profile is not available')
+      }
+    })
+
+    test('PUT rejects a condition-only edit of a stored privileged action by an author who cannot grant its roles', async () => {
+      denyGrant()
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : storedRule()))
+
+      const response = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({
+          id: ruleId,
+          conditionExpression: { field: 'status', operator: '=', value: 'ANY' },
+        }),
+      }))
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('roles you cannot grant')
+      expect(mockEm.flush).not.toHaveBeenCalled()
+    })
+
+    test('PUT still lets an author who cannot grant the roles disable the rule', async () => {
+      denyGrant()
+      const rule = storedRule()
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const response = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ id: ruleId, enabled: false }),
+      }))
+
+      expect(response.status).toBe(200)
+      expect(mockAssertActorCanGrantRoles).not.toHaveBeenCalled()
+    })
+
+    test('PUT treats a full edit-form payload that only switches the rule off as a disable', async () => {
+      denyGrant()
+      const effectiveFrom = new Date('2026-01-01T00:00:00.000Z')
+      const rule = storedRule({
+        ruleName: 'Privileged lookup',
+        enabled: true,
+        priority: 100,
+        conditionExpression: { operator: 'AND', rules: [{ value: 'ACTIVE', operator: '=', field: 'status' }] },
+        effectiveFrom,
+      })
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+      const formPayload = {
+        id: ruleId,
+        ruleId: 'RULE-OM-PRIVILEGED',
+        ruleName: 'Privileged lookup',
+        conditionExpression: { operator: 'AND', rules: [{ field: 'status', operator: '=', value: 'ACTIVE' }] },
+        successActions: [{ config: { apiKeyId: privilegedKeyId, method: 'GET', endpoint: '/api/business_rules/rules' }, type: 'CALL_OPEN_MERCATO' }],
+        failureActions: null,
+        priority: 100,
+        effectiveFrom: effectiveFrom.toISOString(),
+        enabled: false,
+      }
+
+      const disableResponse = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify(formPayload),
+      }))
+      expect(disableResponse.status).toBe(200)
+      expect(mockAssertActorCanGrantRoles).not.toHaveBeenCalled()
+
+      const renameResponse = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ ...formPayload, ruleName: 'Renamed while disabling' }),
+      }))
+      expect(renameResponse.status).toBe(400)
+      expect((await renameResponse.json()).error).toContain('roles you cannot grant')
+    })
+
+    test('PUT only re-checks the grant ceiling of stored actions, so an unrelated edit is not blocked by a stale endpoint', async () => {
+      const rule = storedRule({
+        successActions: [{ ...privilegedAction, config: { ...privilegedAction.config, endpoint: '/api/removed/endpoint' } }],
+      })
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const response = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ id: ruleId, ruleName: 'Renamed rule' }),
+      }))
+
+      expect(response.status).toBe(200)
+      expect(mockAssertActorCanGrantRoles).toHaveBeenCalledTimes(1)
+    })
+
+    test('PUT records the saving user as the rule author', async () => {
+      const rule = storedRule({ updatedBy: 'previous-editor' })
+      mockEm.findOne.mockImplementation(async (Entity: any) => (Entity?.name === 'ApiKey' ? privilegedKey : rule))
+      mockEm.flush.mockResolvedValue(undefined)
+
+      const response = await PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ id: ruleId, priority: 5 }),
+      }))
+
+      expect(response.status).toBe(200)
+      expect(rule.updatedBy).toBe('user-1')
+      expect(mockAssertActorCanGrantRoles).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 'user-1' }))
     })
   })
 })

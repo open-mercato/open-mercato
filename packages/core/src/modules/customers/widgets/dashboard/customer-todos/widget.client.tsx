@@ -181,9 +181,6 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
                   <p className="text-sm font-medium text-foreground">
                     {item.todoTitle ?? t('customers.widgets.todos.untitled')}
                   </p>
-                  {item.todoSource ? (
-                    <p className="text-xs text-muted-foreground">{item.todoSource}</p>
-                  ) : null}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-3 text-xs">
                   {href ? (

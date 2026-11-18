@@ -85,7 +85,12 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AddRowDropdown } from '../../../../lib/timesheets-ui/AddRowDropdown'
 import { ProjectColorDot } from '../../../../lib/timesheets-ui/ProjectColorDot'
 import { DurationInput, formatTrimmedDecimalDuration } from '../../../../lib/time-tracking-ui/DurationInput'
-import { readErrorCode, isEntryLockedError } from '../../../../lib/time-tracking-ui/timeEntryListData'
+import {
+  readErrorCode,
+  readErrorMessage,
+  readRejectedRowIndexes,
+  isEntryLockedError,
+} from '../../../../lib/time-tracking-ui/timeEntryListData'
 import type { TimesheetEntry } from '../../../../lib/time-tracking-ui/timesheetData'
 import { isWeekendIso, parseIsoDay } from '../../../../lib/time-tracking-ui/timesheetPeriod'
 import {
@@ -278,6 +283,7 @@ function DefaultGridView({
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [dirty, setDirty] = React.useState<Record<string, DirtyCell>>({})
   const [invalidCells, setInvalidCells] = React.useState<Record<string, true>>({})
+  const [rejectedCells, setRejectedCells] = React.useState<Record<string, string>>({})
   const [extraLockedEntryIds, setExtraLockedEntryIds] = React.useState<Record<string, true>>({})
   const [extraTaskKeys, setExtraTaskKeys] = React.useState<Set<string>>(() => new Set())
   const [isSaving, setIsSaving] = React.useState(false)
@@ -321,6 +327,7 @@ function DefaultGridView({
     resetTokenRef.current = resetToken
     setDirty({})
     setInvalidCells({})
+    setRejectedCells({})
   }, [resetToken])
 
   const isCellLocked = React.useCallback(
@@ -345,6 +352,12 @@ function DefaultGridView({
   const handleCellChange = React.useCallback(
     (row: GridRow, date: string, minutes: number | null, invalid: boolean) => {
       const key = cellKey(row.key, date)
+      setRejectedCells((current) => {
+        if (!current[key]) return current
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
       setInvalidCells((current) => {
         if (invalid === Boolean(current[key])) return current
         const next = { ...current }
@@ -409,7 +422,7 @@ function DefaultGridView({
   }, [])
 
   const reportSaveFailure = React.useCallback(
-    (error: unknown) => {
+    (error: unknown, rejectedKeys: readonly string[]) => {
       if (surfaceRecordConflict(error, t)) return
       if (isEntryLockedError(error)) {
         markLockedFromError(error)
@@ -423,7 +436,15 @@ function DefaultGridView({
         return
       }
       logger.error('staff.time_tracking.timesheet.grid save failed', { err: error, code: readErrorCode(error) })
-      flash(t('staff.timesheets.my.errors.save', 'Failed to save timesheets.'), 'error')
+      const message = readErrorMessage(error, t('staff.timesheets.my.errors.save', 'Failed to save timesheets.'))
+      if (rejectedKeys.length > 0) {
+        setRejectedCells((current) => {
+          const next = { ...current }
+          for (const key of rejectedKeys) next[key] = message
+          return next
+        })
+      }
+      flash(message, 'error')
     },
     [markLockedFromError, t],
   )
@@ -433,10 +454,12 @@ function DefaultGridView({
    * header for why they cannot ride the batch yet. A locked cell never reaches
    * here (its input is read-only), so a 409 from this path means the entry was
    * frozen after the page loaded, which is exactly when the user needs to be
-   * told which cell it was.
+   * told which cell it was. Each cell is reported through `onCellSaved` as soon
+   * as it lands, so a refusal further down the list leaves the caller knowing
+   * exactly which cells are already stored.
    */
   const saveTaskCells = React.useCallback(
-    async (changes: Array<{ row: GridRow; cell: DirtyCell }>) => {
+    async (changes: Array<{ row: GridRow; cell: DirtyCell }>, onCellSaved: (key: string) => void) => {
       for (const { row, cell } of changes) {
         const key = cellKey(row.key, cell.date)
         const storedCell = cells.get(key)
@@ -452,9 +475,13 @@ function DefaultGridView({
             context: mutationContext(existingId),
             mutationPayload: { id: existingId },
           })
+          onCellSaved(key)
           continue
         }
-        if (cell.minutes <= 0) continue
+        if (cell.minutes <= 0) {
+          onCellSaved(key)
+          continue
+        }
         if (existingId) {
           const payload = { id: existingId, durationMinutes: cell.minutes }
           await runMutation({
@@ -465,6 +492,7 @@ function DefaultGridView({
             context: mutationContext(existingId),
             mutationPayload: payload,
           })
+          onCellSaved(key)
           continue
         }
         const payload = {
@@ -480,6 +508,7 @@ function DefaultGridView({
           context: mutationContext(),
           mutationPayload: payload,
         })
+        onCellSaved(key)
       }
     },
     [cells, mutationContext, runMutation, staffMemberId, t],
@@ -494,6 +523,7 @@ function DefaultGridView({
     if (!confirmed) return
 
     const bulkEntries: Array<{ id?: string; date: string; timeProjectId: string; durationMinutes: number }> = []
+    const bulkKeys: string[] = []
     const taskChanges: Array<{ row: GridRow; cell: DirtyCell }> = []
     for (const cell of Object.values(dirty)) {
       const row = rowsByKey.get(cell.rowKey)
@@ -503,6 +533,7 @@ function DefaultGridView({
         continue
       }
       const key = cellKey(row.key, cell.date)
+      bulkKeys.push(key)
       bulkEntries.push({
         id: cells.get(key)?.entryIds[0],
         date: cell.date,
@@ -512,27 +543,62 @@ function DefaultGridView({
     }
     if (bulkEntries.length === 0 && taskChanges.length === 0) return
 
+    // The project rows and the task rows commit separately (see the file
+    // header), so a refusal can arrive after some cells are already stored. Those
+    // cells leave the pending set and the period is reloaded, so the stored rows
+    // pick up their ids — otherwise the next Save would create them a second time.
+    // The bulk request opts out of the shared 403 handling, which keeps only the
+    // message: the access refusal's `errors[].index` is what marks the cell.
+    const savedKeys = new Set<string>()
+    let bulkCommitted = bulkEntries.length === 0
     setIsSaving(true)
     try {
       if (bulkEntries.length > 0) {
         const payload = { entries: bulkEntries }
         await runMutation({
           operation: () =>
-            apiCallOrThrow(BULK_ENDPOINT, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            }),
+            apiCallOrThrow(
+              BULK_ENDPOINT,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-om-forbidden-redirect': '0' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('staff.timesheets.my.errors.save', 'Failed to save timesheets.') },
+            ),
           context: mutationContext(staffMemberId ?? undefined),
           mutationPayload: payload as unknown as Record<string, unknown>,
         })
+        bulkCommitted = true
+        for (const key of bulkKeys) savedKeys.add(key)
       }
-      if (taskChanges.length > 0) await saveTaskCells(taskChanges)
+      if (taskChanges.length > 0) await saveTaskCells(taskChanges, (key) => savedKeys.add(key))
       setDirty({})
+      setRejectedCells({})
       flash(t('staff.timesheets.my.saved', 'Timesheet saved.'), 'success')
       await onSaved()
     } catch (error) {
-      reportSaveFailure(error)
+      const rejectedKeys = bulkCommitted
+        ? taskChanges
+            .map(({ row, cell }) => cellKey(row.key, cell.date))
+            .filter((key) => !savedKeys.has(key))
+            .slice(0, 1)
+        : readRejectedRowIndexes(error)
+            .map((index) => bulkKeys[index])
+            .filter((key): key is string => typeof key === 'string')
+      reportSaveFailure(error, rejectedKeys)
+      if (savedKeys.size > 0) {
+        setDirty((current) => {
+          const next = { ...current }
+          for (const key of savedKeys) delete next[key]
+          return next
+        })
+        try {
+          await onSaved()
+        } catch (reloadError) {
+          logger.error('staff.time_tracking.timesheet.grid reload after partial save failed', { err: reloadError })
+        }
+      }
     } finally {
       setIsSaving(false)
     }
@@ -645,7 +711,7 @@ function DefaultGridView({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="isolate overflow-x-auto rounded-lg border">
         <table className="w-full text-sm table-fixed" aria-busy={isLoading || undefined}>
           <caption className="sr-only">
             {t(
@@ -770,6 +836,13 @@ function DefaultGridView({
                             ) as Record<string, true>
                             return Object.keys(next).length === Object.keys(current).length ? current : next
                           })
+                          setRejectedCells((current) => {
+                            const prefix = cellKey(row.key, '')
+                            const next = Object.fromEntries(
+                              Object.entries(current).filter(([key]) => !key.startsWith(prefix)),
+                            ) as Record<string, string>
+                            return Object.keys(next).length === Object.keys(current).length ? current : next
+                          })
                           setDirty((current) => {
                             const prefix = cellKey(row.key, '')
                             const next = Object.fromEntries(
@@ -794,7 +867,8 @@ function DefaultGridView({
                   const minutes = cellMinutes(key)
                   const locked = isCellLocked(key)
                   const isDirty = dirty[key] !== undefined
-                  const isInvalid = Boolean(invalidCells[key])
+                  const rejection = rejectedCells[key]
+                  const isInvalid = Boolean(invalidCells[key]) || Boolean(rejection)
                   return (
                     <td
                       key={date}
@@ -835,6 +909,7 @@ function DefaultGridView({
                           inputSize="sm"
                           value={minutes > 0 ? minutes : null}
                           formatValue={formatTrimmedDecimalDuration}
+                          error={rejection}
                           onChange={(nextMinutes, state) =>
                             handleCellChange(row, date, nextMinutes, state.status === 'invalid')
                           }

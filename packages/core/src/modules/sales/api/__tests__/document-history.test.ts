@@ -186,10 +186,18 @@ describe('normalizeActionLogToHistoryEntry', () => {
     expect(entry.actor.id).toBe('user-uuid-1')
   })
 
-  it('falls back to userId string when not in displayUsers map', () => {
+  it('never surfaces the raw actor id when it is not in displayUsers map — falls back to system', () => {
     const log = makeLog({ actorUserId: 'user-uuid-2' })
     const entry = normalizeActionLogToHistoryEntry(log, 'order', {})
-    expect(entry.actor.label).toBe('user-uuid-2')
+    expect(entry.actor.label).toBe('system')
+    expect(entry.actor.id).toBeNull()
+  })
+
+  it('resolves an API-key actor via the shared display map (already formatted by loadAuditLogDisplayMaps)', () => {
+    const log = makeLog({ actorUserId: 'api-key-uuid-1' })
+    const entry = normalizeActionLogToHistoryEntry(log, 'order', { 'api-key-uuid-1': 'API key: import' })
+    expect(entry.actor.label).toBe('API key: import')
+    expect(entry.actor.id).toBe('api-key-uuid-1')
   })
 
   it('uses "system" for null actorUserId', () => {
