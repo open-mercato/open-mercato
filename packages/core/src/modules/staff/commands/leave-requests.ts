@@ -314,12 +314,7 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(
-      em,
-      parsed.memberId,
-      scope,
-      'Team member not found',
-    )
+    const member = await requireTeamMember(em, parsed.memberId, scope)
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -479,7 +474,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     await ensurePendingStatus(request)
 
     if (parsed.memberId !== undefined) {
-      const member = await requireTeamMember(em, parsed.memberId, scope, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.memberId, scope)
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       request.member = member

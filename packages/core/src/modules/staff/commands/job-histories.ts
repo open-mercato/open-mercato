@@ -89,12 +89,7 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
     const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(
-      em,
-      parsed.entityId,
-      scope,
-      'Team member not found',
-    )
+    const member = await requireTeamMember(em, parsed.entityId, scope)
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -178,7 +173,6 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
       em,
       after.memberId,
       explicitStaffCommandScope(after.tenantId, after.organizationId),
-      'Team member not found',
     )
     let record = await em.findOne(StaffTeamMemberJobHistory, scopedStaffSnapshotWhere(after.id, snapshotScope))
     if (!record) {
@@ -260,7 +254,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     })
 
     if (parsed.entityId !== undefined) {
-      const member = await requireTeamMember(em, parsed.entityId, scope, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.entityId, scope)
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       record.member = member
@@ -336,7 +330,6 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
       em,
       before.memberId,
       explicitStaffCommandScope(before.tenantId, before.organizationId),
-      'Team member not found',
     )
 
     if (!record) {
@@ -464,7 +457,6 @@ const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string;
         em,
         before.memberId,
         explicitStaffCommandScope(before.tenantId, before.organizationId),
-        'Team member not found',
       )
       let record = await em.findOne(StaffTeamMemberJobHistory, scopedStaffSnapshotWhere(before.id, snapshotScope))
       if (!record) {
