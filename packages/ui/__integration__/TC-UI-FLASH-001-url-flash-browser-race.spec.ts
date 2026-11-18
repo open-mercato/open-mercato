@@ -122,7 +122,12 @@ test.describe('TC-UI-FLASH-002: FlashMessages real production save redirect', ()
     try {
       const created = await apiRequest(request, 'POST', '/api/example/todos', {
         token,
-        data: { title },
+        // `cf_priority`/`cf_severity` are required custom fields on the Todo
+        // entity (apps/mercato/src/modules/example/ce.ts) — the API does not
+        // backfill their `defaultValue` on create, so omitting them here
+        // leaves the edit form's required-field validation blocking every
+        // save silently (no navigation, no error toast).
+        data: { title, cf_priority: 3, cf_severity: 'medium' },
       })
       expect(created.ok(), `Failed to create todo fixture: ${created.status()}`).toBeTruthy()
       const createdBody = (await created.json()) as { id?: string }
