@@ -39,7 +39,11 @@ Configured build/generate/rebuild/i18n/typecheck and full unit gates passed in P
 
 The PR was promoted to ready and labeled automerge after that all-green result. The driving run retains its claim while this final execution-record commit receives its own CI run. That documentation-head recheck 44360538294 passed 14 shards and every configured gate but failed shard 9 on TC-EUDR-009. Verification was reopened and automerge removed; earlier success is historical, not a waiver for this failure. GitHub native approval remains independently enforced; this task performs no merge.
 
-TC-EUDR-009 retry trace shows the 20-second deadline firing during navigation to the risk-assessment list, before the final statements-list assertion. Its screenshot shows loading UI; the later column error occurs after timeout/context teardown. The combined test is now three self-contained cases, each creating and cleaning its own fixtures and retaining all original UI assertions. No timeout/retry override or production change was added. The same final reviewer must re-review this addition and the new full suite must pass before automerge is restored.
+TC-EUDR-009 retry trace shows the 20-second deadline firing during navigation to the risk-assessment list, before the final statements-list assertion. Its screenshot shows loading UI; the later column error occurs after timeout/context teardown. The combined test is now three self-contained cases, each creating and cleaning its own fixtures and retaining all original UI assertions. No timeout/retry override or production change was added. The same final reviewer approved all three repairs at 0ccea1cf48 with no findings (PR comment 6987836718).
+
+At 0ccea1cf48, full CI 44370027690 passed all 15 integration shards, merged coverage and every configured/build/unit/type/i18n/script/timezone/Docker/Documents gate. All four exact-head workflows succeeded; all 33 check runs (30 success, 3 intentional skips) and CLA were settled. The new EUDR cases passed first attempt in 4.6s, 6.7s and 3.5s; shard 9 reported 239 passed, zero failed/flaky, 17 skipped. Automerge and merge-queue were restored only after this all-green result.
+
+This completion-record commit leaves all three test files unchanged. Its exact-head CI and independent re-review are recorded on PR #9825; the driving run retains ownership until final verification finishes. No further commits are planned and no merge is performed by this task.
 
 ## Risks
 
@@ -60,6 +64,6 @@ PR: #9825
 
 ### Phase 2: Verify and review
 
-- [ ] 2.1 Run configured validation and full PR CI; resolve remaining genuine failures.
-- [ ] 2.2 Dispatch the required final independent review, validate its report, and resolve findings.
-- [ ] 2.3 Publish evidence, mark ready, and apply automerge only after current-head checks and workflows settle green.
+- [x] 2.1 Run configured validation and full PR CI; resolve remaining genuine failures. — 0ccea1cf48 (PR verification/review evidence)
+- [x] 2.2 Dispatch the required final independent review, validate its report, and resolve findings. — 0ccea1cf48 (PR verification/review evidence)
+- [x] 2.3 Publish evidence, mark ready, and apply automerge only after current-head checks and workflows settle green. — 0ccea1cf48 (PR verification/review evidence)
