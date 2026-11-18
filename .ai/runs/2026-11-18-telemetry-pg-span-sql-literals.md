@@ -41,6 +41,6 @@ MikroORM inlines bound parameters (`AbstractSqlConnection.execute` → `platform
 
 ### Phase 1: Sanitizer and wiring
 
-- [ ] 1.1 Add sanitizeSqlStatement with unit tests
-- [ ] 1.2 Wire requestHook and extend pg probe test
-- [ ] 1.3 Update README privacy statement
+- [x] 1.1 Add sanitizeSqlStatement with unit tests — 440ec7eb23
+- [x] 1.2 Wire requestHook and extend pg probe test — 440ec7eb23
+- [x] 1.3 Update README privacy statement — 440ec7eb23
