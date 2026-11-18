@@ -686,8 +686,9 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  * `fixtures.model` holds one trial, so `--repeat` above 1 exits 2 unless
  * `--record`/`--replay <dir>` supplies per-trial files.
  *
- * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, or narrowed
- * by `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
+ * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, an errored
+ * case run under fixture replay that errors on a miss, narrowed by
+ * `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
  * 2 usage/environment error, advisory run refused, label pin refused under
  * `--require-snapshot true`, invalid eval-set file, or report not writable.
  * Report files are written BEFORE the exit code is set; when the run throws, a
@@ -937,6 +938,21 @@ const evalGate: ModuleCli = {
       return
     }
     if (result.outcome === 'failed') {
+      process.exitCode = 1
+      return
+    }
+    // The stored outcome drops errored case runs from `passScore`, which suits live
+    // runs where an error is provider noise. Under fixture replay that errors on a
+    // miss, an error is a deterministic hole in the fixtures or mocks: the case was
+    // never measured, so a fail-closed gate must not read it as a pass.
+    const replayFailsOnMiss =
+      (toolFixtures.options?.mode === 'replay' && toolFixtures.options.onMiss === 'error') ||
+      modelFixtures.options?.mode === 'replay'
+    if (replayFailsOnMiss && result.errorCount > 0) {
+      console.error('')
+      console.error(
+        `${result.errorCount} case run(s) errored under fixture replay: a model or tool fixture, or a mock, is missing or does not match. Re-record or complete the fixtures.`,
+      )
       process.exitCode = 1
       return
     }

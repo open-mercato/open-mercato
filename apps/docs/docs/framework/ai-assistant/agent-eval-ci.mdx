@@ -98,8 +98,10 @@ Without `--gate true` the command is report-only and exits `0`. Without a pin th
 | Code | Meaning |
 |------|---------|
 | `0` | Passed, or report-only (no `--gate`). |
-| `1` | Gate failed: failed outcome, run threw under `--gate true`, or narrowed by `--fail-on-flaky true` / `--min-pass-score <0..1>`. |
+| `1` | Gate failed: failed outcome, a case run errored under fixture replay that errors on a miss, run threw under `--gate true`, or narrowed by `--fail-on-flaky true` / `--min-pass-score <0..1>`. |
 | `2` | Usage or environment error, advisory run refused, label pin refused under `--require-snapshot true`, invalid eval-set file, or the report could not be written. |
+
+The outcome itself fails only on a safety regression against the baseline or when no case could be measured. It applies no absolute pass threshold, so an ordinary failed case lowers the pass score without failing `--gate`; add `--min-pass-score` to block on it. Errored case runs are left out of the pass score. In a live run that keeps provider timeouts from failing a release, so they stay advisory there. Under fixture replay (`--replay`, `--offline true`, or a `--cases` file with `fixtures.tools`, `fixtures.model` or `mocks`) with `--on-fixture-miss error` (the default), an errored case means a fixture or mock is missing or does not match, and `--gate true` exits `1`.
 
 The narrowing flags apply only under `--gate true` and never turn a failure into a pass. Use `--repeat <n>` to run each case several times and `--baseline <suiteRunId>` to compare against an earlier run.
 
@@ -112,9 +114,10 @@ Fixtures remove live tool side effects and variance from a run. They are CLI-onl
 yarn mercato agent_orchestrator eval --agent <id> --cases evals/marketing.eval.yaml \
   --record evals/fixtures
 
-# replay in CI: tool calls are answered from the files, handlers do not run
+# replay in CI: tool calls are answered from the files, handlers do not run;
+# a missing fixture fails the gate, --min-pass-score 1 also fails on any failed case
 yarn mercato agent_orchestrator eval --agent <id> --cases evals/marketing.eval.yaml \
-  --replay evals/fixtures --offline true --gate true
+  --replay evals/fixtures --offline true --gate true --min-pass-score 1
 
 # seed a fixture from a stored run
 yarn mercato agent_orchestrator eval --agent <id> --tenant <t> --org <o> \
@@ -159,7 +162,7 @@ cases:
 - `ordered` answers the next unused `ordered` mock for that tool; `any` answers every call to the tool. Both ignore args and must not declare them.
 - Per call the most specific answer wins: `strict`, then `ordered`, then `any`, then the recorded `fixtures.tools` file (or `--replay` directory), then `--on-fixture-miss` (`error` by default).
 - A case with mocks never runs tools live by accident: the CLI replays it without `--replay`, and an unmocked, unrecorded call errors the case with `tool_fixture_missing` unless `--on-fixture-miss live` is set. `--offline true` still refuses `live`.
-- Mock ids default to `<tool>#<n>` (the n-th mock of that tool in the case). A `required: true` mock that the agent never called fails the trial with `mock_required_unused`, which lowers the pass score and fails `--min-pass-score` and `--gate`.
+- Mock ids default to `<tool>#<n>` (the n-th mock of that tool in the case). A `required: true` mock that the agent never called fails the trial with `mock_required_unused`, which lowers the pass score. Like any failed trial it fails the gate only through `--min-pass-score`, so pass `--min-pass-score 1` when every mocked dependency must be consulted.
 - With `--record`, mocked calls are answered by the mocks and only the calls that ran live are written to the recording.
 - Mocks never stand in for a mutation tool; mutation calls are refused under replay as before.
 - The report adds per-trial `mocks` (`used`, `unused`, `unmatched` with how each unmatched call was resolved) and `environment.mocks`; the Markdown report shows a Mocks table and the CLI prints a `mocks:` summary line. Call args are not copied into the usage; open the trial's trace to see them.

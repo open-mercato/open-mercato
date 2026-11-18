@@ -246,7 +246,8 @@ All changes are additive.
 The report route's existing `openApi` export is updated to describe the new optional fields. Auth metadata (`requireAuth` / `requireFeatures`) is unchanged on every touched route.
 
 ### CLI `mercato agent_orchestrator eval` (existing)
-- No new flags. Mocks turn on implicit replay. Exit codes are unchanged: a `required` unused trial lowers `passScore` and fails `--min-pass-score` / `--gate`, the same as any failed trial.
+- No new flags. Mocks turn on implicit replay. A `required` unused trial lowers `passScore` and, like any failed trial, fails the gate only through `--min-pass-score`: the stored outcome has no absolute threshold (`2026-07-19-agent-eval-workbench-and-gate.md`).
+- Under fixture replay that errors on a miss (tool replay with `onMiss: 'error'`, or model replay), `--gate true` exits `1` when `errorCount > 0`. `aggregateSuiteRun` drops errored trials from `passScore`, so without this a missing fixture or unmatched mock call would leave the gate green whenever another case passed. The stored `outcome` is unchanged: in live runs an error is provider noise and stays advisory.
 
 ## Internationalization (i18n)
 
@@ -385,6 +386,7 @@ Approved for implementation, with one justified exception to integration coverag
 
 - **2026-11-17:** Skeleton; Q1–Q7 answered; Q8 dropped the `api.request` phase (no eval consumer); full draft.
 - **2026-11-17:** Implemented Phases 1–3 as specified (no design deviation).
+- **2026-11-18:** Corrected the CLI contract: a `required` unused trial fails `--min-pass-score`, not `--gate`. Errored trials under fixture replay that errors on a miss now fail `--gate true` with exit `1`.
 
 ### Review — 2026-11-17
 - **Reviewer**: Agent (author), plus a fresh-context subagent for scope cohesion (verdict: cohesive)
