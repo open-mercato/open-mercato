@@ -14,11 +14,13 @@ const PLAIN_EXTENSIONS = new Set(['txt', 'text'])
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown'])
 const LIST_INDENT_WIDTH = 2
 
-const ATX_HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/
+const MAX_ATX_HEADING_LINE_LENGTH = 1000
+
+const ATX_HEADING_OPEN = /^ {0,3}(#{1,6})(?:[ \t]+|$)/
 const SETEXT_LEVEL_ONE = /^ {0,3}=+[ \t]*$/
 const SETEXT_LEVEL_TWO = /^ {0,3}-+[ \t]*$/
 const FENCE = /^ {0,3}(```+|~~~+)/
-const LIST_ITEM = /^([ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+(.*)$/
+const LIST_ITEM = /^([ \t]*)(?:[-*+]|\d{1,9}[.)])[ \t]+(.*)$/s
 const THEMATIC_BREAK = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/
 
 export class DocumentStructureAbortedError extends Error {
@@ -80,6 +82,28 @@ function textBlock(text: string, extra: Partial<DocumentBlock> = {}): DocumentBl
 
 function measureIndent(whitespace: string): number {
   return whitespace.replace(/\t/g, ' '.repeat(LIST_INDENT_WIDTH * 2)).length
+}
+
+function isSpaceOrTab(character: string | undefined): boolean {
+  return character === ' ' || character === '\t'
+}
+
+function stripAtxClosingSequence(content: string): string {
+  let closingStart = content.length
+  while (closingStart > 0 && content[closingStart - 1] === '#') closingStart -= 1
+  if (closingStart === content.length) return content
+  if (closingStart === 0) return ''
+  if (!isSpaceOrTab(content[closingStart - 1])) return content
+  return content.slice(0, closingStart)
+}
+
+function parseAtxHeading(line: string): { level: number; text: string } | null {
+  const trimmed = line.trimEnd()
+  if (trimmed.length > MAX_ATX_HEADING_LINE_LENGTH) return null
+  const opening = ATX_HEADING_OPEN.exec(trimmed)
+  if (!opening) return null
+  const content = trimmed.slice(opening[0].length)
+  return { level: opening[1].length, text: stripAtxClosingSequence(content).trim() }
 }
 
 export function parsePlainTextBlocks(text: string): DocumentBlock[] {
@@ -144,11 +168,10 @@ export function parseMarkdownBlocks(text: string): DocumentBlock[] {
       continue
     }
 
-    const atxMatch = ATX_HEADING.exec(line)
-    if (atxMatch) {
+    const atxHeading = parseAtxHeading(line)
+    if (atxHeading) {
       flushAll()
-      const headingText = (atxMatch[2] ?? '').trim()
-      if (headingText.length > 0) blocks.push(textBlock(headingText, { headingLevel: atxMatch[1].length }))
+      if (atxHeading.text.length > 0) blocks.push(textBlock(atxHeading.text, { headingLevel: atxHeading.level }))
       continue
     }
 

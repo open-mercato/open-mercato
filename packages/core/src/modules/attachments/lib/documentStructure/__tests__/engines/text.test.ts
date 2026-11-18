@@ -5,9 +5,11 @@ import {
   DocumentStructureFileTooLargeError,
   createTextStructureEngine,
   normalizeTextDocument,
+  parseMarkdownBlocks,
   resolveMaxDocumentStructureBytes,
   textStructureEngine,
 } from '../../engines/text'
+import { ocrTextToBlocks } from '../../engines/ocr'
 import {
   createDocumentStructureEngineRegistry,
   defaultDocumentStructureEngines,
@@ -165,6 +167,47 @@ describe('textStructureEngine.extract', () => {
       if (previous === undefined) delete process.env.OM_ATTACHMENT_STRUCTURE_MAX_BYTES
       else process.env.OM_ATTACHMENT_STRUCTURE_MAX_BYTES = previous
     }
+  })
+})
+
+describe('parseMarkdownBlocks ATX headings', () => {
+  const headingsOf = (line: string) =>
+    parseMarkdownBlocks(line).map((block) => [block.text, block.headingLevel ?? null])
+
+  it('follows CommonMark opening and closing sequence rules', () => {
+    expect(headingsOf('# Title')).toEqual([['Title', 1]])
+    expect(headingsOf('   ### Indented')).toEqual([['Indented', 3]])
+    expect(headingsOf('###### Six')).toEqual([['Six', 6]])
+    expect(headingsOf('## Chapter 8 ##')).toEqual([['Chapter 8', 2]])
+    expect(headingsOf('#\tTabbed\t#\t')).toEqual([['Tabbed', 1]])
+    expect(headingsOf('# foo ##   ')).toEqual([['foo', 1]])
+    expect(headingsOf('# foo#')).toEqual([['foo#', 1]])
+    expect(headingsOf('# foo # bar')).toEqual([['foo # bar', 1]])
+    expect(headingsOf('#')).toEqual([])
+    expect(headingsOf('### ###')).toEqual([])
+    expect(headingsOf('####### seven')).toEqual([['####### seven', null]])
+    expect(headingsOf('#foo')).toEqual([['#foo', null]])
+    expect(headingsOf('    # code-indented')).toEqual([['# code-indented', null]])
+  })
+
+  it('parses long whitespace runs in heading lines in linear time', () => {
+    const hostileLine = `# a${' '.repeat(200_000)}b`
+    const hostileList = `- ${' '.repeat(200_000)} x`
+    const startedAt = Date.now()
+    const headingBlocks = parseMarkdownBlocks(hostileLine)
+    const listBlocks = parseMarkdownBlocks(hostileList)
+    const ocrBlocks = ocrTextToBlocks(`${hostileLine}\n\n${hostileList}`, 1)
+    expect(Date.now() - startedAt).toBeLessThan(500)
+    expect(headingBlocks).toHaveLength(1)
+    expect(headingBlocks[0].headingLevel).toBeUndefined()
+    expect(listBlocks).toHaveLength(1)
+    expect(ocrBlocks).toHaveLength(2)
+  })
+
+  it('treats ATX lines longer than 1000 characters as paragraph text', () => {
+    const longHeading = `# ${'x'.repeat(1_200)}`
+    expect(headingsOf(longHeading)).toEqual([[longHeading, null]])
+    expect(headingsOf(`# ${'x'.repeat(900)}`)).toEqual([['x'.repeat(900), 1]])
   })
 })
 
