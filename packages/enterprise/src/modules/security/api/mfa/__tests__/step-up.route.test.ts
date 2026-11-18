@@ -97,6 +97,8 @@ describe('MFA HTTP mutations with real sudo middleware and enrollment service', 
     expect(validateToken).toHaveBeenCalledWith('valid', 'security.mfa.self.manage', {
       expectedUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1',
     })
+    expect(getAuthFromRequest).not.toHaveBeenCalled()
+    expect(createRequestContainer).not.toHaveBeenCalled()
   })
 
   test('compelled first enrollment works without sudo; existing methods remove that exemption', async () => {

@@ -29,7 +29,7 @@ export async function DELETE(req: Request, context: { params: Promise<{ id: stri
   }
 
   try {
-    await requireSudo(req, 'security.mfa.self.manage')
+    await requireSudo(req, 'security.mfa.self.manage', requestContext.commandContext)
     const commandBus = requestContext.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.mfa.method.remove', {
       input: { id: methodId },

@@ -17,13 +17,13 @@ export async function requireMfaEnrollmentSudo(
     const compliance = await enforcement.checkUserCompliance(userId)
     if (compliance.enforced && !compliance.compliant) return
   }
-  await requireSudo(request, 'security.mfa.self.manage')
+  await requireSudo(request, 'security.mfa.self.manage', context)
 }
 
-export async function requireMfaCommandSudo(context: Pick<CommandRuntimeContext, 'request'>): Promise<void> {
+export async function requireMfaCommandSudo(context: Pick<CommandRuntimeContext, 'request' | 'auth' | 'container'>): Promise<void> {
   if (!context.request) return
   try {
-    await requireSudo(context.request, 'security.mfa.self.manage')
+    await requireSudo(context.request, 'security.mfa.self.manage', context)
   } catch (error) {
     if (isSudoRequiredError(error)) throw new CrudHttpError(error.statusCode, error.body)
     throw error

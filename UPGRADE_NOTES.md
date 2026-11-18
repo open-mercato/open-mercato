@@ -1,5 +1,28 @@
 # Upgrade Notes
 
+## MFA self-management step-up and verified Email OTP enrollment (#9145)
+
+MFA confirmation, method removal, recovery-code regeneration and request-backed
+command replay now require sudo for `security.mfa.self.manage`. Confirmed compelled
+first enrollment with no active methods remains exempt. Custom clients must handle
+`sudo_required`, obtain a challenge token for that target, and retry with
+`X-Sudo-Token`. Email OTP clients must collect the code emailed during setup and
+send `payload.code` when confirming. Empty confirmations no longer work, and a
+confirmation-time `email` cannot replace the pending destination. Preserving those
+behaviors would preserve the vulnerability, so no insecure bridge is provided.
+
+Operators must verify existing email delivery before rollout and restart pending
+enrollments after deployment. A replacement setup invalidates its predecessor;
+setup requests use the existing rate limiter and return 429 when limited, or fail
+closed when it is unavailable. Active factors remain valid and are not
+automatically reverified. Audit suspicious past enrollments and reset/re-enroll
+untrusted factors through the existing administration and recovery tools. No
+database migration, new environment variable or startup change is required.
+
+The emergency compatibility waiver requires named human maintainer approval;
+this entry does not grant it. See
+[the MFA security spec](.ai/specs/enterprise/2026-11-18-mfa-self-management-step-up.md#migration--backward-compatibility).
+
 ## Invoice delete checks the expected version under the row lock
 
 `DELETE /api/sales/invoices` now locks the invoice row and compares the

@@ -62,37 +62,52 @@ export class MfaService {
     if (!user?.tenantId) {
       throw new MfaServiceError('User not found', 404)
     }
+    const tenantId = user.tenantId
 
-    await this.ensureProviderCanBeConfigured(userId, providerType, provider.allowMultiple)
+    const setup = async (em: EntityManager): Promise<SetupResult> => {
+      await this.ensureProviderCanBeConfigured(userId, providerType, provider.allowMultiple, em)
+      const resolvedPayload = provider.resolveSetupPayload
+        ? await provider.resolveSetupPayload({
+          id: user.id,
+          email: user.email ?? null,
+          tenantId,
+          organizationId: user.organizationId ?? null,
+        }, payload)
+        : payload
 
-    const resolvedPayload = provider.resolveSetupPayload
-      ? await provider.resolveSetupPayload({
-        id: user.id,
-        email: user.email ?? null,
-        tenantId: user.tenantId,
+      const result = context
+        ? await provider.setup(userId, resolvedPayload, context)
+        : await provider.setup(userId, resolvedPayload)
+      const now = new Date()
+      const pending = providerType === 'otp_email'
+        ? await findOneWithDecryption(em, UserMfaMethod, {
+          userId, tenantId, organizationId: user.organizationId ?? null,
+          type: providerType, isActive: false, deletedAt: null,
+        }, { refresh: true }, { tenantId, organizationId: user.organizationId ?? null })
+        : null
+      const method = pending ?? em.create(UserMfaMethod, {
+        userId,
+        tenantId,
         organizationId: user.organizationId ?? null,
-      }, payload)
-      : payload
+        type: providerType,
+        isActive: false,
+        secret: result.setupId,
+        providerMetadata: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      method.secret = result.setupId
+      method.updatedAt = now
+      em.persist(method)
+      await em.flush()
 
-    const result = context
-      ? await provider.setup(userId, resolvedPayload, context)
-      : await provider.setup(userId, resolvedPayload)
-    const now = new Date()
-    const method = this.em.create(UserMfaMethod, {
-      userId,
-      tenantId: user.tenantId,
-      organizationId: user.organizationId ?? null,
-      type: providerType,
-      isActive: false,
-      secret: result.setupId,
-      providerMetadata: null,
-      createdAt: now,
-      updatedAt: now,
+      return result
+    }
+    if (providerType !== 'otp_email') return setup(this.em)
+    return this.em.transactional(async (em) => {
+      await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`security:mfa:enrollment:${userId}`])
+      return setup(em)
     })
-    this.em.persist(method)
-    await this.em.flush()
-
-    return result
   }
 
   async confirmMethod(

@@ -16,6 +16,8 @@ The client uses existing guarded mutation and sudo challenge mechanisms. It firs
 
 Email OTP setup sends a generated six-digit code using the existing email/OTP helpers. Pending setup stores a hash, creation time, owner and immutable destination. Confirmation requires the code, ignores supplied email, limits wrong attempts to five, rejects expired or consumed setup, and prevents concurrent verification/replay. Only explicit existing test mode exposes a setup code in clientData.
 
+Email setup uses the existing DI rate limiter before hashing or sending mail: five requests per ten minutes per tenant/user and normalized destination, plus twenty per tenant/trusted IP. Without a trusted IP, the request bucket is user-scoped rather than shared among unrelated users. A degraded or unavailable limiter fails closed. Existing limiter enablement/store settings remain authoritative. Setup replaces that user's prior in-memory challenge and reuses an existing pending Email OTP row under the enrollment advisory lock, preventing repeated requests from appending inactive rows. Sudo checks reuse the resolved authenticated context.
+
 ## Data models and API contracts
 
 No schema migration, dependency, startup or environment change. Route URLs, methods, request envelopes, response envelopes, service signatures, event IDs and ACL features remain. Provider runtime context adds an optional commandContext carrying the already-resolved actor/container; existing provider implementations remain compatible. New sudo target is additive. Existing provider setup clientData adds a test-only code using the established OTP testing seam.
@@ -26,7 +28,7 @@ This is intentional security narrowing: code-free Email OTP confirmation stops s
 
 Operators must ensure email delivery works before enabling Email OTP enrollment. Existing active factors are not silently invalidated; operators should audit suspicious enrollments and reset untrusted factors through existing administration/recovery procedures. Pending in-memory setup sessions are restarted after rollout as with existing provider restarts.
 
-Repository emergency-security exception obligations remain merge blockers: root UPGRADE_NOTES.md migration disclosure, dated BACKWARD_COMPATIBILITY.md exception entry and named human maintainer approval. Root documents are outside this child task's scope; this spec records the required content for the parent. Automated review cannot supply the human waiver.
+UPGRADE_NOTES.md and BACKWARD_COMPATIBILITY.md contain the client/operator disclosure and dated exception request. Named human maintainer approval remains a merge blocker. Automated review cannot supply the human waiver.
 
 ## Risks & impact review
 
@@ -46,4 +48,5 @@ Scope is the enterprise security module and this issue-specific spec. No cross-m
 
 ## Changelog
 
+- 2026-11-18: Parent review adds root migration/exception disclosures, reuses authenticated sudo context, and addresses the inherited setup-abuse finding with tenant/user/destination/IP rate limits, pending challenge replacement and locked pending-row reuse. Human waiver and application QA remain pending.
 - 2026-11-18: Document requested issue #9145 hardening, compatibility impact, migration obligations and security regression matrix.

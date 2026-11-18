@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   if (context instanceof NextResponse) return context
 
   try {
-    await requireSudo(req, 'security.mfa.self.manage')
+    await requireSudo(req, 'security.mfa.self.manage', context.commandContext)
     const commandBus = context.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.mfa.recovery_codes.regenerate', {
       input: {},

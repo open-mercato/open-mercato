@@ -39,7 +39,7 @@ describe('MFA enrollment sudo exemption', () => {
   test('allows a valid sudo token through the existing middleware', async () => {
     jest.mocked(requireSudo).mockResolvedValue(undefined)
     await expect(requireMfaEnrollmentSudo(request, 'user-1', true, context)).resolves.toBeUndefined()
-    expect(requireSudo).toHaveBeenCalledWith(request, 'security.mfa.self.manage')
+    expect(requireSudo).toHaveBeenCalledWith(request, 'security.mfa.self.manage', context)
   })
 
   test('does not exempt another user or an unavailable policy', async () => {

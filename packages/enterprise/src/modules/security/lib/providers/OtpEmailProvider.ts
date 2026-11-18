@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { limitOtpEmailSetup } from '../otp-email-setup-limit'
 import { z } from 'zod'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -86,6 +87,7 @@ export class OtpEmailProvider implements MfaProviderInterface {
   async setup(userId: string, payload: unknown, context?: MfaProviderRuntimeContext): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
     const parsed = setupPayloadSchema.parse(payload ?? {})
     if (!parsed.email) throw new Error('[internal] Email OTP destination is required')
+    await limitOtpEmailSetup(userId, parsed.email, context)
     const code = generateOtpCode()
     const codeHash = await hashOtpCode(code)
     const auth = context?.commandContext?.auth
@@ -102,6 +104,9 @@ export class OtpEmailProvider implements MfaProviderInterface {
     const setupId = randomBytes(16).toString('hex')
     const now = Date.now()
     this.cleanupExpiredSetups(now)
+    for (const [pendingId, pending] of this.pendingSetups) {
+      if (pending.userId === userId) this.pendingSetups.delete(pendingId)
+    }
     this.pendingSetups.set(setupId, {
       userId,
       email: parsed.email,
