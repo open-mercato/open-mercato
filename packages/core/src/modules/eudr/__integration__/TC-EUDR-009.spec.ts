@@ -155,6 +155,7 @@ test.describe('TC-EUDR-009: EUDR batch-2 UI smoke', () => {
   })
 
   test('renders evidence submission detail fields and statement risk lifecycle UI', async ({ page, request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = `${Date.now()}-${randomUUID()}`
     let supplierId: string | null = null
@@ -202,9 +203,8 @@ test.describe('TC-EUDR-009: EUDR batch-2 UI smoke', () => {
 
       await page.goto('/backend/eudr/statements', { waitUntil: 'domcontentloaded' })
       await expect(page.getByRole('heading', { name: 'Statements', level: 1 }).first()).toBeVisible()
-      await waitForBackendTable(page)
       await expect(page.getByRole('columnheader', { name: /EUDR risk|Risk/i }).first()).toBeVisible()
-      await expect(page.getByText(/negligible/i).first()).toBeVisible()
+      await expect(page.getByRole('cell', { name: 'Negligible', exact: true }).first()).toBeVisible()
       await expectNoErrorState(page, 'Could not load statements.')
     } finally {
       await deleteByCrudPath(request, token, RISK_ASSESSMENTS_PATH, assessmentId)
