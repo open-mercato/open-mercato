@@ -1,5 +1,7 @@
+import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
+import { SearchIndexer } from '../indexer/search-indexer'
 import { SearchService } from '../service'
-import { SearchStrategy, SearchResult, IndexableRecord } from '../types'
+import { SearchStrategy, SearchResult, IndexableRecord, SearchModuleConfig } from '../types'
 
 /**
  * Create a mock search strategy for testing
@@ -829,3 +831,149 @@ jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
     tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
   })),
 }))
+
+describe('entity strategy pins on writes', () => {
+  afterEach(() => registerSearchModuleConfigs([]))
+
+  it('does not send a pinned record to the embedding strategy', async () => {
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'test:entity', strategies: ['fulltext'] }] }])
+    const fulltext = createMockStrategy({ id: 'fulltext' })
+    const vector = createMockStrategy({ id: 'vector' })
+    const service = new SearchService({ strategies: [fulltext, vector] })
+    const record = createMockRecord({ text: 'Private content not authorized for embedding' })
+
+    await service.index(record)
+
+    expect(fulltext.index).toHaveBeenCalledWith(record)
+    expect(vector.index).not.toHaveBeenCalled()
+  })
+
+  it('enforces a pin through the config-aware indexer entry point', async () => {
+    const configs: SearchModuleConfig[] = [{ entities: [{ entityId: 'test:entity', strategies: ['fulltext'],
+      buildSource: () => ({ text: 'Text intended only for the selected writer', checksumSource: 'revision-1' }),
+    }] }]
+    registerSearchModuleConfigs(configs)
+    const fulltext = createMockStrategy({ id: 'fulltext' })
+    const vector = createMockStrategy({ id: 'vector' })
+    const service = new SearchService({ strategies: [fulltext, vector] })
+    const indexer = new SearchIndexer(service, configs)
+
+    await indexer.indexRecord({ entityId: 'test:entity', recordId: 'rec-123', tenantId: 'tenant-123', record: { name: 'Title' } })
+
+    expect(fulltext.index).toHaveBeenCalledTimes(1)
+    expect(vector.index).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back when the only permitted writer is unavailable', async () => {
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'test:entity', strategies: ['fulltext'] }] }])
+    const fulltext = createMockStrategy({ id: 'fulltext', isAvailable: jest.fn().mockResolvedValue(false) })
+    const vector = createMockStrategy({ id: 'vector' })
+    const service = new SearchService({ strategies: [fulltext, vector], fallbackStrategy: 'vector' })
+    await service.index(createMockRecord())
+    await service.bulkIndex([createMockRecord()])
+    expect(fulltext.index).not.toHaveBeenCalled()
+    expect(vector.index).not.toHaveBeenCalled()
+    expect(vector.bulkIndex).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('filters mixed bulk records with native bulk support %s', async (nativeBulk) => {
+    registerSearchModuleConfigs([{ entities: [
+      { entityId: 'test:entity', strategies: ['fulltext'] },
+      { entityId: 'test:disabled', strategies: [] },
+    ] }])
+    const fulltext = createMockStrategy({ id: 'fulltext' })
+    const vector = createMockStrategy({ id: 'vector', ...(nativeBulk ? {} : { bulkIndex: undefined }) })
+    const service = new SearchService({ strategies: [fulltext, vector] })
+    const pinned = createMockRecord()
+    const unpinned = createMockRecord({ entityId: 'test:unpinned', recordId: 'public' })
+    const disabled = createMockRecord({ entityId: 'test:disabled', recordId: 'disabled' })
+
+    await service.bulkIndex([pinned, unpinned, disabled])
+
+    expect(fulltext.bulkIndex).toHaveBeenCalledWith([pinned, unpinned])
+    if (nativeBulk) {
+      expect(vector.bulkIndex).toHaveBeenCalledWith([unpinned])
+    } else {
+      expect(vector.index).toHaveBeenCalledTimes(1)
+      expect(vector.index).toHaveBeenCalledWith(unpinned)
+    }
+  })
+
+  it('keeps cleanup unrestricted and unpinned direct writes unchanged', async () => {
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'test:entity', strategies: [] }] }])
+    const vector = createMockStrategy({ id: 'vector' })
+    const service = new SearchService({ strategies: [vector] })
+    await service.index(createMockRecord())
+    await service.bulkIndex([createMockRecord()])
+    expect(vector.index).not.toHaveBeenCalled()
+    expect(vector.bulkIndex).not.toHaveBeenCalled()
+    await service.index(createMockRecord({ entityId: 'test:unpinned' }))
+    expect(vector.index).toHaveBeenCalledTimes(1)
+    await service.delete('test:entity', 'rec-123', 'tenant-123')
+    expect(vector.delete).toHaveBeenCalledWith('test:entity', 'rec-123', 'tenant-123')
+  })
+})
+
+describe('result visibility filter', () => {
+  const viewer = { auth: { sub: 'user-1', tenantId: 'tenant-123', orgId: 'org-456' }, container: {} }
+  const gated = createMockResult({ entityId: 'test:gated', recordId: 'gated-1', organizationId: 'org-456' })
+  const gatedHidden = createMockResult({ entityId: 'test:gated', recordId: 'gated-2', organizationId: 'org-456' })
+  const open = createMockResult({ entityId: 'test:open', recordId: 'open-1', organizationId: 'org-456' })
+
+  function createService(filterResults: jest.Mock) {
+    const strategy = createMockStrategy({ search: jest.fn().mockResolvedValue([gated, gatedHidden, open]) })
+    return new SearchService({
+      strategies: [strategy],
+      defaultStrategies: ['mock'],
+      resolveResultFilter: (entityId) => (entityId === 'test:gated' ? filterResults : undefined),
+    })
+  }
+
+  function recordIds(results: SearchResult[]): string[] {
+    return results.map((result) => result.recordId).sort()
+  }
+
+  it('keeps only the results the hook returns and passes the caller', async () => {
+    const filterResults = jest.fn(async ({ results }: { results: SearchResult[] }) =>
+      results.filter((result) => result.recordId === 'gated-1'),
+    )
+    const results = await createService(filterResults).search('q', { tenantId: 'tenant-123', organizationIds: ['org-456'], viewer })
+    expect(recordIds(results)).toEqual(['gated-1', 'open-1'])
+    expect(filterResults).toHaveBeenCalledTimes(1)
+    expect(filterResults.mock.calls[0][0]).toMatchObject({
+      entityId: 'test:gated',
+      tenantId: 'tenant-123',
+      organizationIds: ['org-456'],
+      viewer,
+    })
+    expect(recordIds(filterResults.mock.calls[0][0].results)).toEqual(['gated-1', 'gated-2'])
+  })
+
+  it('ignores results the hook did not receive', async () => {
+    const filterResults = jest.fn(async () => [createMockResult({ entityId: 'test:gated', recordId: 'gated-1' })])
+    const results = await createService(filterResults).search('q', { tenantId: 'tenant-123', viewer })
+    expect(recordIds(results)).toEqual(['open-1'])
+  })
+
+  it('drops every result of a gated entity when the hook throws', async () => {
+    const filterResults = jest.fn(async () => {
+      throw new Error('lookup failed')
+    })
+    const results = await createService(filterResults).search('q', { tenantId: 'tenant-123', viewer })
+    expect(recordIds(results)).toEqual(['open-1'])
+  })
+
+  it('drops every result of a gated entity when the search has no viewer', async () => {
+    const filterResults = jest.fn()
+    const results = await createService(filterResults).search('q', { tenantId: 'tenant-123' })
+    expect(recordIds(results)).toEqual(['open-1'])
+    expect(filterResults).not.toHaveBeenCalled()
+  })
+
+  it('leaves results unchanged for entities without the hook', async () => {
+    const strategy = createMockStrategy({ search: jest.fn().mockResolvedValue([gated, gatedHidden, open]) })
+    const results = await new SearchService({ strategies: [strategy], defaultStrategies: ['mock'] })
+      .search('q', { tenantId: 'tenant-123' })
+    expect(recordIds(results)).toEqual(['gated-1', 'gated-2', 'open-1'])
+  })
+})

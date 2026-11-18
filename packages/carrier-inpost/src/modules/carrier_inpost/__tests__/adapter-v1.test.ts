@@ -88,6 +88,15 @@ describe('inpostAdapterV1', () => {
         .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeServiceResult('courier_c2c', resolved['courier_c2c'] ?? null)) })
     }
 
+    function parcelsByService(calls: [string, RequestInit][]): Record<string, Record<string, unknown>> {
+      const entries = calls.map(([, init]) => {
+        const body = JSON.parse(init.body as string) as { shipments: Array<{ id: string; parcels: Array<Record<string, unknown>> }> }
+        const shipment = body.shipments[0]!
+        return [shipment.id, shipment.parcels[0]!] as const
+      })
+      return Object.fromEntries(entries)
+    }
+
     it('POSTs to the calculate endpoint and returns rates with amounts in minor units', async () => {
       const input = makeShipmentInput()
       const orgId = input.credentials.organizationId as string
@@ -171,17 +180,14 @@ describe('inpostAdapterV1', () => {
       expect(rates.map((r) => r.serviceCode)).not.toContain('locker_express')
     })
 
-    it('sends parcel dimensions derived from the first package', async () => {
+    it('sends parcel dimensions derived from the first package for courier_standard', async () => {
       const pkg = makePackage()
       global.fetch = makeAllServicesOkFetch()
 
       await inpostAdapterV1.calculateRates(makeShipmentInput({ packages: [pkg] }))
 
-      const calls = (global.fetch as jest.Mock).mock.calls as [string, RequestInit][]
-      // Check the first call (locker_standard) — all calls share the same parcel
-      const body = JSON.parse(calls[0]![1]!.body as string) as { shipments: Array<{ parcels: Array<Record<string, unknown>> }> }
-      const parcel = body.shipments[0]!.parcels[0]!
-      expect(parcel).toEqual({
+      const parcels = parcelsByService((global.fetch as jest.Mock).mock.calls as [string, RequestInit][])
+      expect(parcels['courier_standard']).toEqual({
         dimensions: {
           length: String(Math.round(pkg.lengthCm * 10)),
           width: String(Math.round(pkg.widthCm * 10)),
@@ -190,6 +196,26 @@ describe('inpostAdapterV1', () => {
         },
         weight: { amount: String(pkg.weightKg), unit: 'kg' },
       })
+    })
+
+    it('sends size templates derived from package height for locker_standard and courier_c2c', async () => {
+      global.fetch = makeAllServicesOkFetch()
+
+      await inpostAdapterV1.calculateRates(makeShipmentInput({ packages: [{ ...makePackage(), heightCm: 45 }] }))
+
+      const parcels = parcelsByService((global.fetch as jest.Mock).mock.calls as [string, RequestInit][])
+      expect(parcels['locker_standard']).toEqual({ template: 'large' })
+      expect(parcels['courier_c2c']).toEqual({ template: 'xlarge' })
+    })
+
+    it('sends the small template for locker_standard and courier_c2c when the package is at most 8 cm high', async () => {
+      global.fetch = makeAllServicesOkFetch()
+
+      await inpostAdapterV1.calculateRates(makeShipmentInput({ packages: [{ ...makePackage(), heightCm: 8 }] }))
+
+      const parcels = parcelsByService((global.fetch as jest.Mock).mock.calls as [string, RequestInit][])
+      expect(parcels['locker_standard']).toEqual({ template: 'small' })
+      expect(parcels['courier_c2c']).toEqual({ template: 'small' })
     })
 
     it('uses small template when packages array is empty', async () => {

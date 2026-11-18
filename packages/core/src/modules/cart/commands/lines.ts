@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { Reference } from '@mikro-orm/postgresql'
 import { asValue } from 'awilix'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -963,6 +964,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           }
 
           existing.quantity = String(sumCheck.quantity)
+          if (assortmentScope !== undefined && existing.flagState === 'product_unavailable') existing.flagState = null
           applyPriceSnapshot(existing, resolved, now)
           existing.lineTotals = await computeLineTotals(ctx.container, cart, {
             productId: existing.productId,
@@ -1248,6 +1250,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     await withAtomicFlush(em, [
       async () => {
         line.quantity = String(finalQuantity)
+        if (assortmentScope !== undefined && line.flagState === 'product_unavailable') line.flagState = null
       },
       ...buildCartPromotionsAndTotalsPhases({
         em,
@@ -1468,12 +1471,9 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
 
     const pricingContext = buildCartPricingRowFilterContext(cart)
     const priceRows = await fetchPriceRowsBatch(em, scope, pricingContext, productIds, variantIds)
-    // `CatalogProductVariant.product` resolves to an unpopulated Reference proxy here (no
-    // `populate` was requested), so the product id a variant belongs to is read off the
-    // REQUEST entries instead of that lazy relation.
     const variantToProduct = new Map<string, string>()
-    for (const entry of input.lines) {
-      if (entry.variantId) variantToProduct.set(entry.variantId, entry.productId)
+    for (const variant of variants as CatalogProductVariant[]) {
+      variantToProduct.set(variant.id, Reference.unwrapReference(variant.product).id)
     }
     const rowsByProduct = groupRowsByProduct(priceRows, variantToProduct)
 
@@ -1519,7 +1519,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         return
       }
       const variant = variantId ? variantsById.get(variantId) ?? null : null
-      if (variantId && !variant) {
+      if (variantId && (!variant || variantToProduct.get(variantId) !== entry.productId)) {
         outcomes[index] = { index, status: 'rejected', reason: 'product_unavailable' }
         return
       }
@@ -1561,6 +1561,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
           return
         }
         existingLine.quantity = String(sumCheck.quantity)
+        if (assortmentScope !== undefined && existingLine.flagState === 'product_unavailable') existingLine.flagState = null
         applyPriceSnapshot(existingLine, resolved, now)
         existingLine.lineTotals = await computeLineTotals(ctx.container, cart, {
           productId: existingLine.productId,

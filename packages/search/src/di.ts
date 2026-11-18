@@ -1,3 +1,4 @@
+import { resolveEntityIndexStrategies } from './lib/entity-strategy-policy'
 import { asValue } from 'awilix'
 import type { Kysely } from 'kysely'
 import type { FullTextSearchDriver } from './fulltext/types'
@@ -26,10 +27,18 @@ import type { EncryptionMapEntry } from './lib/field-policy'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createPresenterEnricher } from './lib/presenter-enricher'
 import { createEncryptionMapResolver } from './lib/encryption-map-resolver'
-import { createEncryptedCustomFieldKeysResolver, type CustomFieldDefinitionsDatabase, type EncryptedCustomFieldKeysResolver } from './lib/encrypted-custom-field-resolver'
+import {
+  createEncryptedCustomFieldKeysResolver,
+  type CustomFieldDefinitionsDatabase,
+  type EncryptedCustomFieldKeysResolver,
+} from './lib/encrypted-custom-field-resolver'
 import { reportSearchError } from './lib/debug'
 
 export { createEncryptionMapResolver } from './lib/encryption-map-resolver'
+export {
+  createEncryptedCustomFieldKeysResolver,
+  type EncryptedCustomFieldKeysResolver,
+} from './lib/encrypted-custom-field-resolver'
 
 type KyselyEntityManager = {
   getKysely<Database>(): Kysely<Database>
@@ -53,6 +62,12 @@ function getSearchModuleGlobals(): SearchModuleGlobals {
 function shouldExcludeEncryptedFields(): boolean {
   const raw = (process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS ?? '').toLowerCase()
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+function createUnavailableEncryptedCustomFieldKeysResolver(): EncryptedCustomFieldKeysResolver {
+  return async () => {
+    throw new Error('[internal] Custom-field definitions are unavailable; refusing to index potentially encrypted custom fields')
+  }
 }
 
 function createUnavailableEncryptionMapResolver(): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
@@ -228,6 +243,8 @@ export function registerSearchModule(
   // Create search service
   const searchService = new SearchService({
     strategies,
+    resolveEntityStrategies: (entityId) => resolveEntityIndexStrategies(entityId, moduleConfigs),
+    resolveResultFilter: (entityId) => entityConfigMap.get(entityId as EntityId)?.filterResults,
     defaultStrategies,
     fallbackStrategy: 'tokens',
     mergeConfig: options?.mergeConfig ?? {
@@ -260,12 +277,12 @@ export function registerSearchModule(
   let encryptedCustomFieldKeysResolver: EncryptedCustomFieldKeysResolver
   try {
     const em = container.resolve<KyselyEntityManager>('em')
-    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(em.getKysely<CustomFieldDefinitionsDatabase>())
+    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(
+      em.getKysely<CustomFieldDefinitionsDatabase>(),
+    )
   } catch (error) {
     reportSearchError('SearchModule', error, 'search.custom_field_definitions_unavailable')
-    encryptedCustomFieldKeysResolver = async () => {
-      throw new Error('[internal] Custom-field definitions are unavailable')
-    }
+    encryptedCustomFieldKeysResolver = createUnavailableEncryptedCustomFieldKeysResolver()
   }
 
   const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
