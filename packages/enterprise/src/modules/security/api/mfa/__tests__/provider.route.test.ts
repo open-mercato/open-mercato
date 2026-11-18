@@ -28,6 +28,7 @@ function buildContext() {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     },
+    commandContext: {},
     mfaService: {
       setupMethod: jest.fn(async (_userId, providerType, payload) => ({
         setupId: `${providerType}-setup-1`,
@@ -62,7 +63,7 @@ describe('security MFA provider route', () => {
       'user-1',
       'totp',
       { label: 'Phone' },
-      { request: expect.any(Request) },
+      { request: expect.any(Request), commandContext: context.commandContext },
     )
   })
 
@@ -104,7 +105,7 @@ describe('security MFA provider route', () => {
       'setup-1',
       { code: '123456' },
       'totp',
-      { request: expect.any(Request) },
+      { request: expect.any(Request), commandContext: context.commandContext },
     )
   })
 
@@ -127,7 +128,7 @@ describe('security MFA provider route', () => {
       'setup-1',
       { code: '123456', label: 'Phone' },
       'totp',
-      { request: expect.any(Request) },
+      { request: expect.any(Request), commandContext: context.commandContext },
     )
   })
 

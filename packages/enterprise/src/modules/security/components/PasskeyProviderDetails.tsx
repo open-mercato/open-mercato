@@ -1,12 +1,12 @@
 'use client'
 
 import * as React from 'react'
+import { useMfaMutation } from './hooks/useMfaMutation'
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser'
 import { formatDistanceToNow } from 'date-fns'
 import { Eye, EyeOff, Loader2, Shield, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -62,6 +62,7 @@ export default function PasskeyProviderDetails({
   onMethodAdded,
 }: PasskeyProviderDetailsProps) {
   const t = useT()
+  const mutateMfa = useMfaMutation()
   const [label, setLabel] = React.useState('')
   const [loading, setLoading] = React.useState(false)
 
@@ -76,7 +77,7 @@ export default function PasskeyProviderDetails({
 
     setLoading(true)
     try {
-      const optionsResult = await readApiResultOrThrow<RegisterOptionsResponse>(
+      const optionsResult = await mutateMfa<RegisterOptionsResponse>(
         '/api/security/mfa/provider/passkey',
         {
           method: 'POST',
@@ -91,7 +92,7 @@ export default function PasskeyProviderDetails({
         optionsJSON: (optionsResult.clientData ?? {}) as never,
       })
 
-      await readApiResultOrThrow<RegisterResponse>(
+      await mutateMfa<RegisterResponse>(
         '/api/security/mfa/provider/passkey',
         {
           method: 'PUT',
@@ -116,7 +117,7 @@ export default function PasskeyProviderDetails({
     } finally {
       setLoading(false)
     }
-  }, [label, onMethodAdded, t])
+  }, [label, mutateMfa, onMethodAdded, t])
 
   const configuredCount = methods.length
   const keysLabel = configuredCount === 1

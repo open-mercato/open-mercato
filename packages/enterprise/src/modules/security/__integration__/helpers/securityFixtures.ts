@@ -50,6 +50,9 @@ type PasskeyEnrollmentResult = {
   challenge: string
 }
 
+const fixturePasswords = new Map<string, string>()
+const fixtureSudoTokens = new Map<string, string>()
+
 export function decodeJwtPayload(token: string): JwtPayload {
   const [, payload] = token.split('.')
   if (!payload) {
@@ -87,6 +90,7 @@ export async function createUserFixture(
   expect(response.status(), `failed to create user fixture for ${email}`).toBe(201)
   const body = (await response.json()) as { id?: string }
   expect(typeof body.id).toBe('string')
+  fixturePasswords.set(body.id as string, password)
   return {
     id: body.id as string,
     email,
@@ -100,6 +104,8 @@ export async function deleteUserFixture(
   userId: string | null,
 ): Promise<void> {
   if (!adminToken || !userId) return
+  fixturePasswords.delete(userId)
+  fixtureSudoTokens.delete(userId)
   await apiRequest(request, 'DELETE', `/api/auth/users?id=${encodeURIComponent(userId)}`, {
     token: adminToken,
   }).catch(() => undefined)
@@ -144,20 +150,43 @@ export async function fetchJson<T>(
   path: string,
   options: { token: string; data?: unknown; headers?: Record<string, string>; baseUrl?: string },
 ): Promise<{ status: number; body: T }> {
-  const response = await request.fetch(`${options.baseUrl ?? BASE_URL}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${options.token}`,
-      ...(method === 'GET' ? {} : { 'content-type': 'application/json' }),
-      ...(options.headers ?? {}),
-    },
-    ...(options.data === undefined ? {} : { data: options.data }),
-  })
-  const body = await response.json() as T
-  return {
-    status: response.status(),
-    body,
+  const userId = decodeJwtPayload(options.token).sub
+  const selfManagement = (method === 'PUT' && path.startsWith('/api/security/mfa/provider/'))
+    || (method === 'DELETE' && path.startsWith('/api/security/mfa/methods/'))
+    || (method === 'POST' && path === '/api/security/mfa/recovery-codes/regenerate')
+  const cachedSudo = typeof userId === 'string' && selfManagement ? fixtureSudoTokens.get(userId) : undefined
+  const headers = {
+    authorization: `Bearer ${options.token}`,
+    ...(method === 'GET' ? {} : { 'content-type': 'application/json' }),
+    ...(cachedSudo ? { 'x-sudo-token': cachedSudo } : {}),
+    ...(options.headers ?? {}),
   }
+  const send = () => request.fetch(`${options.baseUrl ?? BASE_URL}${path}`, {
+    method, headers, ...(options.data === undefined ? {} : { data: options.data }),
+  })
+  let response = await send()
+  let body = await response.json() as T
+  if (selfManagement && response.status() === 403 && typeof body === 'object' && body !== null
+    && 'error' in body && body.error === 'sudo_required' && typeof userId === 'string') {
+    const password = fixturePasswords.get(userId)
+    if (password) {
+      const challenge = await fetchJson<{ sessionId: string; method: string }>(request, 'POST', '/api/security/sudo', {
+        token: options.token, data: { targetIdentifier: 'security.mfa.self.manage' },
+      })
+      expect(challenge.status).toBe(200)
+      expect(challenge.body.method, 'obtain fixture sudo before enrolling the first factor').toBe('password')
+      const verified = await fetchJson<{ sudoToken: string }>(request, 'POST', '/api/security/sudo/verify', {
+        token: options.token,
+        data: { sessionId: challenge.body.sessionId, targetIdentifier: 'security.mfa.self.manage', methodType: 'password', payload: { password } },
+      })
+      expect(verified.status).toBe(200)
+      fixtureSudoTokens.set(userId, verified.body.sudoToken)
+      Object.assign(headers, { 'x-sudo-token': verified.body.sudoToken })
+      response = await send()
+      body = await response.json() as T
+    }
+  }
+  return { status: response.status(), body }
 }
 
 export async function enrollTotp(
@@ -196,7 +225,7 @@ export async function enrollOtpEmail(
   request: APIRequestContext,
   token: string,
 ): Promise<OtpEmailEnrollmentResult> {
-  const setup = await fetchJson<{ setupId: string }>(
+  const setup = await fetchJson<{ setupId: string; clientData: { code?: string } }>(
     request,
     'POST',
     '/api/security/mfa/provider/otp_email',
@@ -211,7 +240,7 @@ export async function enrollOtpEmail(
       token,
       data: {
         setupId: setup.body.setupId,
-        payload: {},
+        payload: { code: setup.body.clientData.code },
       },
     },
   )

@@ -670,3 +670,19 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## MFA enrollment and self-management (2026-11-18, #9145)
+
+STABLE API/provider acceptance: code-free Email OTP confirmation and destination
+substitution permit unverified factor enrollment; session-only factor mutation
+permits persistent compromise after session theft. Keeping these behaviors in a
+bridge preserves the exploit. The narrow replacement requires the emailed code
+for the original destination and the existing scoped sudo challenge for factor
+confirmation, removal, recovery-code regeneration and request-backed command
+replay, with the confirmed compelled-first-enrollment exception. URLs, methods,
+envelopes, schema and existing active factors remain. Optional provider context
+and sudo request-context parameters are additive. See
+[client/operator migration](UPGRADE_NOTES.md#mfa-self-management-step-up-and-verified-email-otp-enrollment-9145)
+and [the spec](.ai/specs/enterprise/2026-11-18-mfa-self-management-step-up.md#migration--backward-compatibility).
+**Named human maintainer approval of the steps 1–3 waiver is pending; automated
+review cannot grant it, and the PR must not merge until it is recorded.**

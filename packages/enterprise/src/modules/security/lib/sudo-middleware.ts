@@ -1,6 +1,7 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { SudoChallengeService } from '../services/SudoChallengeService'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
 type SudoRequiredBody = {
   error: 'sudo_required'
@@ -30,13 +31,14 @@ export function isSudoRequiredError(error: unknown): error is SudoRequiredError 
 export async function requireSudo(
   req: Request,
   targetIdentifier: string,
+  context?: Pick<CommandRuntimeContext, 'auth' | 'container'>,
 ): Promise<void> {
-  const auth = await getAuthFromRequest(req)
+  const auth = context ? context.auth : await getAuthFromRequest(req)
   if (!auth?.sub) {
     throw new SudoRequiredError(targetIdentifier)
   }
 
-  const container = await createRequestContainer()
+  const container = context?.container ?? await createRequestContainer()
   const sudoChallengeService = container.resolve<SudoChallengeService>('sudoChallengeService')
   const protection = await sudoChallengeService.isProtected(targetIdentifier, auth.tenantId, auth.orgId)
   if (!protection.protected) return

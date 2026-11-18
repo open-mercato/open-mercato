@@ -53,7 +53,7 @@ export async function POST(req: Request, context: { params: Promise<{ providerna
       requestContext.auth.sub,
       providerType,
       body,
-      { request: req },
+      { request: req, commandContext: requestContext.commandContext },
     )
 
     return NextResponse.json({
@@ -94,7 +94,7 @@ export async function PUT(req: Request, context: { params: Promise<{ providernam
       setupId,
       payload,
       providerType,
-      { request: req },
+      { request: req, commandContext: requestContext.commandContext },
     )
     return NextResponse.json({ ok: true })
   } catch (error) {
@@ -117,6 +117,8 @@ export const openApi = buildSecurityOpenApi({
         { status: 400, description: 'Invalid provider type or payload', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
         { status: 403, description: 'MFA enrollment is not permitted', schema: securityErrorSchema },
+        { status: 429, description: 'Email setup rate limit exceeded', schema: securityErrorSchema },
+        { status: 503, description: 'Email setup rate limiter unavailable', schema: securityErrorSchema },
       ],
     },
     PUT: {

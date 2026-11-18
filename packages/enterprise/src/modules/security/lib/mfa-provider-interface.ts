@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type React from 'react'
 
 export type MfaMethodRecord = {
@@ -22,6 +23,7 @@ export type MfaVerifyContext = {
 
 export type MfaProviderRuntimeContext = {
   request?: Request
+  commandContext?: Pick<CommandRuntimeContext, 'auth' | 'container'>
 }
 
 export type MfaProviderUser = {

@@ -1,3 +1,4 @@
+import { requireMfaCommandSudo } from '../lib/mfa-sudo'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -27,6 +28,8 @@ registerCommand({
     if (!parsed.success) {
       throw new CrudHttpError(400, { error: 'Invalid payload', issues: parsed.error.issues })
     }
+
+    await requireMfaCommandSudo(ctx)
 
     const mfaService = ctx.container.resolve<MfaService>('mfaService')
     try {

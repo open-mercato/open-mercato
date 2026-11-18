@@ -28,7 +28,7 @@ describe('OtpEmailProvider', () => {
     const provider = new OtpEmailProvider()
     const setup = await provider.setup('user-1', { email: 'user@example.com', label: 'Work email' })
 
-    const confirmation = await provider.confirmSetup('user-1', setup.setupId, {})
+    const confirmation = await provider.confirmSetup('user-1', setup.setupId, { code: setup.clientData.code })
     expect(confirmation.metadata.email).toBe('user@example.com')
     expect(confirmation.metadata.label).toBe('Work email')
   })
@@ -125,5 +125,59 @@ describe('OtpEmailProvider', () => {
     expect(mockedSendEmail).toHaveBeenCalledWith(expect.objectContaining({
       subject: 'Acme verification code',
     }))
+  })
+})
+
+describe('Email OTP enrollment possession proof', () => {
+  beforeEach(() => { process.env.OM_TEST_MODE = 'true'; mockedSendEmail.mockClear() })
+  afterEach(() => { delete process.env.OM_TEST_MODE; jest.restoreAllMocks() })
+
+  test('sends a setup code and rejects missing or incorrect code', async () => {
+    const provider = new OtpEmailProvider()
+    const setup = await provider.setup('owner', { email: 'owner@example.com' })
+    expect(mockedSendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'owner@example.com' }))
+    await expect(provider.confirmSetup('owner', setup.setupId, {})).rejects.toThrow()
+    const wrongCode = setup.clientData.code === '000000' ? '111111' : '000000'
+    await expect(provider.confirmSetup('owner', setup.setupId, { code: wrongCode })).rejects.toMatchObject({ issues: expect.any(Array) })
+    await expect(provider.confirmSetup('owner', setup.setupId, { code: setup.clientData.code })).resolves.toMatchObject({ metadata: { email: 'owner@example.com' } })
+  })
+
+  test('ignores confirmation email replacement and rejects replay or different user', async () => {
+    const provider = new OtpEmailProvider()
+    const setup = await provider.setup('owner', { email: 'owner@example.com' })
+    const payload = { code: setup.clientData.code, email: 'attacker@example.com' }
+    await expect(provider.confirmSetup('attacker', setup.setupId, payload)).rejects.toThrow()
+    await expect(provider.confirmSetup('owner', setup.setupId, payload)).resolves.toMatchObject({ metadata: { email: 'owner@example.com' } })
+    await expect(provider.confirmSetup('owner', setup.setupId, payload)).rejects.toThrow()
+  })
+
+  test('expires setup and caps incorrect attempts', async () => {
+    const provider = new OtpEmailProvider()
+    const setup = await provider.setup('owner', { email: 'owner@example.com' })
+    const wrongCode = setup.clientData.code === '000000' ? '111111' : '000000'
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await expect(provider.confirmSetup('owner', setup.setupId, { code: wrongCode })).rejects.toMatchObject({ issues: expect.any(Array) })
+    }
+    await expect(provider.confirmSetup('owner', setup.setupId, { code: setup.clientData.code })).rejects.toThrow()
+    const next = await provider.setup('owner', { email: 'owner@example.com' })
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + defaultSecurityModuleConfig.otpEmail.setupTtlMs + 1)
+    await expect(provider.confirmSetup('owner', next.setupId, { code: next.clientData.code })).rejects.toThrow('expired')
+  })
+
+  test('concurrent confirmation produces at most one successful result', async () => {
+    const provider = new OtpEmailProvider()
+    const setup = await provider.setup('owner', { email: 'owner@example.com' })
+    const results = await Promise.allSettled([
+      provider.confirmSetup('owner', setup.setupId, { code: setup.clientData.code }),
+      provider.confirmSetup('owner', setup.setupId, { code: setup.clientData.code }),
+    ])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+  })
+
+  test('never returns the code outside explicit test mode', async () => {
+    delete process.env.OM_TEST_MODE
+    const provider = new OtpEmailProvider()
+    const setup = await provider.setup('owner', { email: 'owner@example.com' })
+    expect(setup.clientData).not.toHaveProperty('code')
   })
 })

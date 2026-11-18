@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireSudo } from '../../../../lib/sudo-middleware'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
@@ -18,6 +19,7 @@ export async function POST(req: Request) {
   if (context instanceof NextResponse) return context
 
   try {
+    await requireSudo(req, 'security.mfa.self.manage', context.commandContext)
     const commandBus = context.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.mfa.recovery_codes.regenerate', {
       input: {},

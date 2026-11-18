@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { useMfaMutation } from './useMfaMutation'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { MfaMethod, MfaProvider } from '../../types'
 
 type MfaMethodsResponse = {
@@ -29,6 +30,7 @@ type UseMfaStatusResult = {
 }
 
 export function useMfaStatus(): UseMfaStatusResult {
+  const mutateMfa = useMfaMutation()
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [methods, setMethods] = React.useState<MfaMethod[]>([])
@@ -52,12 +54,12 @@ export function useMfaStatus(): UseMfaStatusResult {
 
   React.useEffect(() => {
     void reload()
-  }, [reload])
+  }, [mutateMfa, reload])
 
   const removeMethod = React.useCallback(async (methodId: string) => {
     setSaving(true)
     try {
-      await readApiResultOrThrow<{ ok: true }>(
+      await mutateMfa<{ ok: true }>(
         `/api/security/mfa/methods/${encodeURIComponent(methodId)}`,
         { method: 'DELETE' },
       )
@@ -65,12 +67,12 @@ export function useMfaStatus(): UseMfaStatusResult {
     } finally {
       setSaving(false)
     }
-  }, [reload])
+  }, [mutateMfa, reload])
 
   const regenerateRecoveryCodes = React.useCallback(async () => {
     setSaving(true)
     try {
-      const result = await readApiResultOrThrow<RecoveryResponse>(
+      const result = await mutateMfa<RecoveryResponse>(
         '/api/security/mfa/recovery-codes/regenerate',
         {
           method: 'POST',
@@ -83,7 +85,7 @@ export function useMfaStatus(): UseMfaStatusResult {
     } finally {
       setSaving(false)
     }
-  }, [])
+  }, [mutateMfa])
 
   return {
     loading,

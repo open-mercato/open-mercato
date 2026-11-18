@@ -1,3 +1,4 @@
+jest.mock('../../lib/mfa-sudo', () => ({ requireMfaEnrollmentSudo: jest.fn().mockResolvedValue(undefined) }))
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { UserMfaMethod } from '../../data/entities'
@@ -193,6 +194,20 @@ describe('MfaService', () => {
         deletedAt: null,
       } as never
     })
+  })
+
+  test('reuses one pending Email OTP row under the enrollment lock', async () => {
+    const { service, registry, methods, em } = createServiceContext()
+    let sequence = 0
+    registry.register(createProvider({ type: 'otp_email', allowMultiple: false,
+      setup: jest.fn(async () => ({ setupId: `email-setup-${++sequence}`, clientData: {} })),
+    }))
+    await service.setupMethod('user-1', 'otp_email', {})
+    await service.setupMethod('user-1', 'otp_email', {})
+    expect(methods).toHaveLength(1)
+    expect(methods[0].secret).toBe('email-setup-2')
+    expect(em.execute).toHaveBeenCalledTimes(2)
+    expect(em.execute).toHaveBeenCalledWith(expect.stringContaining('pg_advisory_xact_lock'), ['security:mfa:enrollment:user-1'])
   })
 
   test('setupMethod delegates to provider and persists pending method', async () => {
