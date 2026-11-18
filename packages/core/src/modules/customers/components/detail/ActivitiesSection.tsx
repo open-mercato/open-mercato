@@ -417,7 +417,7 @@ export function ActivitiesSection({
     await Promise.resolve(onDataRefresh?.())
   }, [loadActivities, onDataRefresh])
 
-  const { deleteActivity, ConfirmDialogElement } = useActivityDelete({
+  const { deleteActivity, canDeleteActivity, ConfirmDialogElement } = useActivityDelete({
     runMutation: runGuardedMutation,
     onAfterDelete: refreshAfterActivityChange,
     logContext: 'ActivitiesSection',
@@ -555,6 +555,7 @@ export function ActivitiesSection({
             onEdit={onEditActivity}
             onMarkDone={readOnly ? undefined : handleMarkDone}
             onDelete={readOnly ? undefined : deleteActivity}
+            canDelete={canDeleteActivity}
           />
           {totalCount > 0 || hasMore ? (
             <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">

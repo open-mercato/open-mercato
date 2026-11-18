@@ -134,6 +134,20 @@ describe('ActivityTimeline delete affordance', () => {
     expect(onEdit).toHaveBeenCalledWith(activity)
   })
 
+  it('leaves Delete out of the menu for a row the user may not delete, and keeps Edit', async () => {
+    const onDelete = jest.fn()
+    const onEdit = jest.fn()
+    const activity = createActivity({ status: 'done' })
+    renderWithProviders(
+      <ActivityTimeline activities={[activity]} onEdit={onEdit} onDelete={onDelete} canDelete={() => false} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
   it('does not render the overflow menu when the row has no actions', () => {
     renderWithProviders(<ActivityTimeline activities={[createActivity()]} />)
     expect(screen.queryByRole('button', { name: 'Open actions' })).toBeNull()

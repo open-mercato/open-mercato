@@ -19,6 +19,12 @@ const scopedHeadersMock = jest.fn()
 const confirmMock = jest.fn<Promise<boolean>, unknown[]>(async () => true)
 const flashMock = jest.fn()
 
+let mockCanDeleteActivity = true
+
+jest.mock('../hooks/useActivityDeleteAccess', () => ({
+  useActivityDeleteAccess: () => () => mockCanDeleteActivity,
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
@@ -79,6 +85,7 @@ function readCardProps(): ActivityCardProbeProps {
 
 describe('ActivityHistorySection delete flow', () => {
   beforeEach(() => {
+    mockCanDeleteActivity = true
     activityCardMock.mockClear()
     readApiResultOrThrowMock.mockReset()
     apiCallOrThrowMock.mockReset()
@@ -124,6 +131,17 @@ describe('ActivityHistorySection delete flow', () => {
         readApiResultOrThrowMock.mock.calls.some(([url]) => String(url).includes('/api/customers/interactions?')),
       ).toBe(true),
     )
+  })
+
+  it('offers no Delete to a user who cannot manage activities', async () => {
+    mockCanDeleteActivity = false
+    readApiResultOrThrowMock.mockResolvedValue({ items: [sampleActivity()] })
+
+    renderWithProviders(<ActivityHistorySection entityId="company-123" useCanonicalInteractions />)
+
+    await waitFor(() => expect(activityCardMock).toHaveBeenCalled())
+    expect(readCardProps().onDelete).toBeUndefined()
+    expect(confirmMock).not.toHaveBeenCalled()
   })
 
   it('notifies the host after a delete so the week strip and counters it owns refresh (#9487)', async () => {

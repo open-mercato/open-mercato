@@ -362,7 +362,7 @@ export function ActivityHistorySection({
     setLoadedPages((current) => current + 1)
   }, [])
 
-  const { deleteActivity, ConfirmDialogElement } = useActivityDelete({
+  const { deleteActivity, canDeleteActivity, ConfirmDialogElement } = useActivityDelete({
     runMutation,
     onAfterDelete: handleActivityChanged,
     logContext: 'ActivityHistorySection',
@@ -495,7 +495,7 @@ export function ActivityHistorySection({
                     activity={activity}
                     onOpen={onEditActivity}
                     onChanged={handleActivityChanged}
-                    onDelete={deleteActivity}
+                    onDelete={canDeleteActivity(activity) ? deleteActivity : undefined}
                     runMutation={runMutation}
                   />
                 </React.Fragment>

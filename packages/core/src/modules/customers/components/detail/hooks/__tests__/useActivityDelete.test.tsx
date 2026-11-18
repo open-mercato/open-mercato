@@ -12,6 +12,12 @@ const flashMock = jest.fn()
 const surfaceRecordConflictMock = jest.fn<boolean, unknown[]>(() => false)
 const reportErrorMock = jest.fn()
 
+let mockCanDeleteActivity = true
+
+jest.mock('../useActivityDeleteAccess', () => ({
+  useActivityDeleteAccess: () => () => mockCanDeleteActivity,
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback?: string) => fallback ?? _key,
 }))
@@ -59,6 +65,7 @@ const legacyOnlyActivity = {
 
 describe('useActivityDelete', () => {
   beforeEach(() => {
+    mockCanDeleteActivity = true
     apiCallOrThrowMock.mockReset()
     apiCallOrThrowMock.mockResolvedValue({ ok: true })
     scopedHeadersMock.mockClear()
@@ -183,6 +190,21 @@ describe('useActivityDelete', () => {
     })
 
     expect(flashMock).toHaveBeenCalledWith('Could not delete activity', 'error')
+  })
+
+  it('does not ask for confirmation or call the API when the user may not delete the row', async () => {
+    mockCanDeleteActivity = false
+    const onAfterDelete = jest.fn()
+    const { result } = renderHook(() => useActivityDelete({ onAfterDelete }))
+
+    expect(result.current.canDeleteActivity(activity)).toBe(false)
+    await act(async () => {
+      await result.current.deleteActivity(activity)
+    })
+
+    expect(confirmMock).not.toHaveBeenCalled()
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    expect(onAfterDelete).not.toHaveBeenCalled()
   })
 
   it('keeps the deleted state when the refresh callback throws', async () => {

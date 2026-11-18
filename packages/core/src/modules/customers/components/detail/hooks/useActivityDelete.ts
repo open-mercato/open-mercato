@@ -11,6 +11,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { InteractionSummary } from '../types'
 import type { GuardedMutationRunner } from './useInteractionMutations'
+import { useActivityDeleteAccess } from './useActivityDeleteAccess'
 
 const logger = createLogger('customers')
 
@@ -49,6 +50,8 @@ export type UseActivityDeleteOptions = {
 
 export type UseActivityDeleteResult = {
   deleteActivity: (activity: InteractionSummary) => Promise<void>
+  /** Whether the current user holds the feature this row's delete endpoint enforces. */
+  canDeleteActivity: (activity: InteractionSummary) => boolean
   /** Mount once per timeline so every row shares a single confirmation dialog. */
   ConfirmDialogElement: React.ReactNode
 }
@@ -66,6 +69,7 @@ export function useActivityDelete({
 }: UseActivityDeleteOptions): UseActivityDeleteResult {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const canDeleteActivity = useActivityDeleteAccess()
 
   const triggerRefresh = React.useCallback(async () => {
     if (!onAfterDelete) return
@@ -79,6 +83,7 @@ export function useActivityDelete({
 
   const deleteActivity = React.useCallback(
     async (activity: InteractionSummary) => {
+      if (!canDeleteActivity(activity)) return
       const confirmed = await confirm({
         title: t('customers.activities.actions.deleteConfirmTitle', 'Delete activity?'),
         description: t(
@@ -120,8 +125,8 @@ export function useActivityDelete({
         flash(t('customers.activities.actions.deleteError', 'Could not delete activity'), 'error')
       }
     },
-    [confirm, logContext, runMutation, t, triggerRefresh],
+    [canDeleteActivity, confirm, logContext, runMutation, t, triggerRefresh],
   )
 
-  return { deleteActivity, ConfirmDialogElement }
+  return { deleteActivity, canDeleteActivity, ConfirmDialogElement }
 }
