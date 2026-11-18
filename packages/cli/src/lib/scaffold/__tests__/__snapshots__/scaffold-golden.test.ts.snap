@@ -366,6 +366,7 @@ type StockItemListResponse = {
   items: StockItemRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 // DS guardrail: keep pageSize at or below 100.
@@ -381,6 +382,7 @@ export default function StockItemListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -411,6 +413,7 @@ export default function StockItemListPage() {
         setRows(result.items)
         setTotal(result.total)
         setTotalPages(result.totalPages)
+        setTotalIsCapped(result.totalIsCapped === true)
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -565,7 +568,7 @@ export default function StockItemListPage() {
               )}
             />
           )}
-          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
       {ConfirmDialogElement}
@@ -1289,6 +1292,7 @@ type NoteListResponse = {
   items: NoteRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 // DS guardrail: keep pageSize at or below 100.
@@ -1304,6 +1308,7 @@ export default function NoteListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [reloadToken, setReloadToken] = React.useState(0)
 
@@ -1331,6 +1336,7 @@ export default function NoteListPage() {
         setRows(result.items)
         setTotal(result.total)
         setTotalPages(result.totalPages)
+        setTotalIsCapped(result.totalIsCapped === true)
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -1426,7 +1432,7 @@ export default function NoteListPage() {
               )}
             />
           )}
-          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
       {ConfirmDialogElement}

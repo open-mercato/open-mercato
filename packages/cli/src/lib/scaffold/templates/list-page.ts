@@ -31,6 +31,7 @@ type {{entityPascal}}ListResponse = {
   items: {{entityPascal}}Row[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 // DS guardrail: keep pageSize at or below 100.
@@ -46,6 +47,7 @@ export default function {{entityPascal}}ListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
 {{filterStateLine}}  const [reloadToken, setReloadToken] = React.useState(0)
 
@@ -73,6 +75,7 @@ export default function {{entityPascal}}ListPage() {
         setRows(result.items)
         setTotal(result.total)
         setTotalPages(result.totalPages)
+        setTotalIsCapped(result.totalIsCapped === true)
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -168,7 +171,7 @@ export default function {{entityPascal}}ListPage() {
               )}
             />
           )}
-          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
       {ConfirmDialogElement}
