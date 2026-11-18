@@ -246,12 +246,13 @@ export async function DELETE(req: Request) {
       input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'delete', mutationPayload: { attachmentId } },
     })
     if (!guarded.ok) return guarded.response
-    await scope.em.remove(attachment).flush()
+    const removal = await api.removeAttachmentRecord(scope.em, attachment)
+    if (!removal.removed) return notFound()
     await api.clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((err) => {
       logger.error('staff portal support attachment thumbnail cleanup failed', { err, attachmentId })
       getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_thumbnail_cleanup_failed' })
     })
-    if (attachment.storagePath) {
+    if (attachment.storagePath && removal.releaseStorage) {
       try {
         const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
           tenantId: attachment.tenantId ?? scope.tenantId,
