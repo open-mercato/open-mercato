@@ -53,6 +53,11 @@ describe('formatRateForDisplay', () => {
     expect(formatRateForDisplay('4.25')).toBe('4.25')
   })
 
+  it('uses the locale decimal separator', () => {
+    expect(formatRateForDisplay('4.2537125', 'pl')).toBe('4,2537125')
+    expect(formatRateForDisplay('4.2537125', 'en')).toBe('4.2537125')
+  })
+
   it('returns a malformed rate unchanged instead of throwing', () => {
     expect(formatRateForDisplay('NaN')).toBe('NaN')
   })

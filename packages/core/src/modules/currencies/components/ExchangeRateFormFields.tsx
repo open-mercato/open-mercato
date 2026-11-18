@@ -7,8 +7,8 @@ import { useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatLocaleDecimalInput, parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 import { isDecimalInput } from '@open-mercato/shared/lib/decimal'
 
-function currencyCode(value: unknown): string {
-  return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : '—'
+function currencyCode(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : null
 }
 
 function rateText(value: unknown, locale: string): string {
@@ -20,24 +20,35 @@ function rateText(value: unknown, locale: string): string {
 export function ExchangeRateInput({ id, value, values, setValue, label }: CrudCustomFieldRenderProps & { label: string }) {
   const locale = useLocale()
   const [text, setText] = React.useState(() => rateText(value, locale))
+  const fromCode = currencyCode(values?.fromCurrencyCode)
+  const toCode = currencyCode(values?.toCurrencyCode)
+  const showDirection = Boolean(fromCode && toCode)
+  const prefixId = `${id}-from`
+  const suffixId = `${id}-to`
+
+  const input = (
+    <Input
+      id={id}
+      aria-label={label}
+      aria-describedby={showDirection ? `${prefixId} ${suffixId}` : undefined}
+      type="text"
+      inputMode="decimal"
+      value={text}
+      onChange={(event) => {
+        const next = event.target.value
+        setText(next)
+        setValue(parseLocaleDecimal(next, locale) ?? next)
+      }}
+    />
+  )
+
+  if (!showDirection) return input
 
   return (
     <div className="flex items-center gap-2">
-      <span className="whitespace-nowrap text-sm text-muted-foreground">1 {currencyCode(values?.fromCurrencyCode)} =</span>
-      <Input
-        id={id}
-        aria-label={label}
-        type="text"
-        inputMode="decimal"
-        placeholder="1.0"
-        value={text}
-        onChange={(event) => {
-          const next = event.target.value
-          setText(next)
-          setValue(parseLocaleDecimal(next, locale) ?? next)
-        }}
-      />
-      <span className="whitespace-nowrap text-sm text-muted-foreground">{currencyCode(values?.toCurrencyCode)}</span>
+      <span id={prefixId} className="whitespace-nowrap text-sm text-muted-foreground">1 {fromCode} =</span>
+      {input}
+      <span id={suffixId} className="whitespace-nowrap text-sm text-muted-foreground">{toCode}</span>
     </div>
   )
 }
@@ -55,7 +66,7 @@ export function ExchangeRateMetadataList({ metadata }: { metadata: Record<string
       {Object.entries(metadata).map(([key, value]) => (
         <React.Fragment key={key}>
           <dt className="text-muted-foreground">{key}</dt>
-          <dd className="break-all text-foreground">{metadataValueText(value)}</dd>
+          <dd className="break-words text-foreground">{metadataValueText(value)}</dd>
         </React.Fragment>
       ))}
     </dl>

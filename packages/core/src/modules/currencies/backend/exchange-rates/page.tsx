@@ -12,7 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -48,6 +48,7 @@ type ResponsePayload = {
 
 export default function ExchangeRatesPage() {
   const t = useT()
+  const locale = useLocale()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<ExchangeRateRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -181,7 +182,7 @@ export default function ExchangeRatesPage() {
         header: t('exchangeRates.list.columns.rate'),
         cell: ({ row }) => (
           <span className="block text-right font-mono tabular-nums">
-            {formatRateForDisplay(row.original.rate)}
+            {formatRateForDisplay(row.original.rate, locale)}
           </span>
         ),
       },
@@ -237,7 +238,7 @@ export default function ExchangeRatesPage() {
         },
       },
     ],
-    [t]
+    [locale, t]
   )
 
   const filterDefs = React.useMemo<FilterDef[]>(
