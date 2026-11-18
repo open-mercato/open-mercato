@@ -23,8 +23,8 @@ Non-goals: speculative changes, weaker tests, package publication, production ch
 
 ### Phase 2: Verify the stabilization PR
 
-2.1 Run the configured validation gate where applicable and verify all 15 PR integration shards and every applicable check at the final code revision.
-2.2 Dispatch one final independent review using `cez task create --kind review --review-of stabilize/main-2026-11-18`, verify its findings, and resolve actionable issues.
+2.1 Run the configured validation gate where applicable and verify all 15 PR integration shards and every applicable check at the final code revision. — 0c098ee5bd
+2.2 Dispatch one final independent review using `cez task create --kind review --review-of stabilize/main-2026-11-18`, verify its findings, and resolve actionable issues. — 0c098ee5bd
 2.3 Publish verification evidence, complete the plan, promote the draft, and apply `automerge` only after the exact final head has green checks.
 
 ## Delegation
@@ -62,6 +62,14 @@ Main advanced and conflicted with the sales synchronization change. Merge `8c0ac
 
 - PR CI [44202285231](https://github.com/open-mercato/open-mercato/actions/runs/44202285231) passed 14 integration shards, package/type/unit checks and Docker builds. Shard 12 failed twice in `TC-SALES-8459` when changing to a customer without email. The trace shows the new customer was clicked at monotonic 651884ms but the original customer ID and email were submitted at 652057ms, before the picker committed its selected summary. Commit `44052d8dba` waits for the search control to be replaced by the chosen customer summary before Save. Existing assertions that sending is disabled immediately after save and after reload remain unchanged.
 
+
+## Completion evidence — 2026-11-18
+
+- [Full merged-head CI 44298446317](https://github.com/open-mercato/open-mercato/actions/runs/44298446317) completed successfully at reviewed implementation revision `0c098ee5bd2e200639fcbc02787b472c71429274`: all 15 integration shards, coverage aggregation, and all 24 applicable jobs passed; the dependency audit was skipped by its unchanged scope rule. The configured build/generate/rebuild/translation/type/unit/app gates all have successful GitHub step evidence, along with template parity and repository guards. Individual retry annotations do not change the successful job conclusions.
+- Mandatory final independent review task `b7822d9e-275d-4210-992b-6273867f963b` returned **APPROVE**, no findings, at `0c098ee5bd`. [Authoritative review and gate table](https://github.com/open-mercato/open-mercato/pull/9789#issuecomment-6978258361). The parent reran the 2-test regression and real MikroORM 7.1.14/7.2.9 matrix, reproducing the original two errors only in the pre-fix modern case, zero after, and byte-identical emitted JavaScript. No child branch was merged.
+- GitHub rejected the authenticated author App’s native APPROVE request. The published independent analysis is not a native GitHub approval; any separate reviewer/merge requirement stays intact. No package publication or full standalone scaffold build was performed.
+- This final record changes documentation only after the independently reviewed implementation. Readiness and `automerge` publication are gated on successful checks and completed workflow runs at the resulting exact final metadata revision; the PR stays in progress until that final verification. The release actions are performed without any later code or plan edit, avoiding further CI invalidation.
+
 ## Progress
 
 PR: #9789
@@ -75,6 +83,6 @@ PR: #9789
 
 ### Phase 2: Verify the stabilization PR
 
-- [ ] 2.1 Run the configured validation gate where applicable and verify all 15 PR integration shards and every applicable check at the final code revision.
-- [ ] 2.2 Dispatch one final independent review using `cez task create --kind review --review-of stabilize/main-2026-11-18`, verify its findings, and resolve actionable issues.
-- [ ] 2.3 Publish verification evidence, complete the plan, promote the draft, and apply `automerge` only after the exact final head has green checks.
+- [x] 2.1 Run the configured validation gate where applicable and verify all 15 PR integration shards and every applicable check at the final code revision. — 0c098ee5bd
+- [x] 2.2 Dispatch one final independent review using `cez task create --kind review --review-of stabilize/main-2026-11-18`, verify its findings, and resolve actionable issues. — 0c098ee5bd
+- [x] 2.3 Publish verification evidence, complete the plan, promote the draft, and apply `automerge` only after the exact final head has green checks.
