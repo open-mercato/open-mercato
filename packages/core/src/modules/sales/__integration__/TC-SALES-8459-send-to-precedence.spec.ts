@@ -261,6 +261,8 @@ test.describe('TC-SALES-8459: Send to precedence', () => {
         await expect(option).toBeVisible({ timeout: 3_000 })
       }).toPass({ timeout: 30_000 })
       await option.click()
+      await expect(search, 'the customer pick has committed before saving').toBeHidden()
+      await expect(page.getByText(noEmailName, { exact: true })).toBeVisible()
       await saveCustomerCard(page)
 
       await expectNoRecipient(page)
