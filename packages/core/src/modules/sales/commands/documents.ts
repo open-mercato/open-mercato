@@ -116,6 +116,7 @@ import {
   deriveLineNetFromGross,
   enforceSalesDocumentOptimisticLock,
   lockSalesDocumentRow,
+  SALES_RESOURCE_KIND_INVOICE,
   SALES_RESOURCE_KIND_ORDER,
   SALES_RESOURCE_KIND_QUOTE,
 } from "./shared";
@@ -10317,15 +10318,31 @@ const deleteInvoiceCommand: CommandHandler<
     ensureOrganizationScope(ctx, rawInput.organizationId);
     ensureTenantScope(ctx, rawInput.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const invoice = await em.findOneOrFail(SalesInvoice, {
-      id,
-      organizationId: rawInput.organizationId,
-      tenantId: rawInput.tenantId,
-      deletedAt: null,
-    });
-    invoice.deletedAt = new Date();
-    invoice.updatedAt = new Date();
-    await em.flush();
+    const scope = { organizationId: rawInput.organizationId, tenantId: rawInput.tenantId };
+    let invoice!: SalesInvoice;
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          const locked = await findOneWithDecryption(
+            em,
+            SalesInvoice,
+            { id, ...scope, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            scope,
+          );
+          if (!locked) {
+            const { translate } = await resolveTranslations();
+            throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
+          }
+          await enforceSalesDocumentOptimisticLock(ctx, locked, SALES_RESOURCE_KIND_INVOICE);
+          locked.deletedAt = new Date();
+          locked.updatedAt = new Date();
+          invoice = locked;
+        },
+      ],
+      { transaction: true },
+    );
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
