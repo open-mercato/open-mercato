@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import { compare } from 'bcryptjs'
 import cli from '../cli'
 import { setupInitialTenant } from '../lib/setup-app'
 
@@ -26,8 +27,11 @@ describe('auth CLI option values', () => {
 
     expect(setupInitialTenant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       orgName: value,
-      primaryUser: { email: 'cli@example.com', password: 'example==', confirm: true },
+      primaryUser: { email: 'cli@example.com', hashedPassword: expect.any(String), confirm: true },
     }))
+    const primaryUser = jest.mocked(setupInitialTenant).mock.calls[0][1].primaryUser
+    expect(primaryUser).not.toHaveProperty('password')
+    expect(await compare('example==', primaryUser.hashedPassword ?? '')).toBe(true)
   })
 
   it('keeps an empty value empty rather than treating it as a flag', async () => {
@@ -51,7 +55,10 @@ describe('auth CLI option values', () => {
 
     expect(setupInitialTenant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       orgName: 'left=right', includeDerivedUsers: true,
-      primaryUser: { email: 'cli@example.com', password: 'example==', confirm: true },
+      primaryUser: { email: 'cli@example.com', hashedPassword: expect.any(String), confirm: true },
     }))
+    const primaryUser = jest.mocked(setupInitialTenant).mock.calls[0][1].primaryUser
+    expect(primaryUser).not.toHaveProperty('password')
+    expect(await compare('example==', primaryUser.hashedPassword ?? '')).toBe(true)
   })
 })
