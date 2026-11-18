@@ -37,6 +37,8 @@ MikroORM inlines bound parameters (`AbstractSqlConnection.execute` → `platform
 
 ## Progress
 
+PR: #9803
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Sanitizer and wiring
@@ -44,3 +46,7 @@ MikroORM inlines bound parameters (`AbstractSqlConnection.execute` → `platform
 - [x] 1.1 Add sanitizeSqlStatement with unit tests — 440ec7eb23
 - [x] 1.2 Wire requestHook and extend pg probe test — 440ec7eb23
 - [x] 1.3 Update README privacy statement — 440ec7eb23
+
+## Review
+
+Independent review pass: no blockers; three minor literal leaks (nested comments, PG16 hex/underscore numbers, non-ASCII dollar tags) fixed in ce8b500271.
