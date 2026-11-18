@@ -82,8 +82,14 @@ function primeFinds(link: Record<string, unknown>, channelUserId: string | null 
     .mockResolvedValueOnce({
       messageThreadId: 'thread-1',
       channelId: 'ch-1',
+      providerKey: 'gmail',
       externalConversationId: 'conv-1',
       externalThreadRef: 'outbound:thread-1',
+    } as never)
+    .mockResolvedValueOnce({
+      id: 'conv-1',
+      channelId: 'ch-1',
+      externalConversationId: 'outbound:thread-1',
     } as never)
     .mockResolvedValueOnce({
       id: 'ch-1',
@@ -99,6 +105,9 @@ function primeFinds(link: Record<string, unknown>, channelUserId: string | null 
 function pendingLink(): Record<string, unknown> {
   return {
     id: 'link-1',
+    direction: 'outbound',
+    providerKey: 'gmail',
+    channelType: 'email',
     externalConversationId: 'conv-1',
     deliveryStatus: 'pending',
     channelPayload: { text: 'hello' },
@@ -229,7 +238,7 @@ describe('deliverOutboundMessageCommand — outbound attachments', () => {
   })
 
   it('passes no attachments when the link carries none', async () => {
-    const link = { id: 'link-1', deliveryStatus: 'pending', channelPayload: { text: 'hello' }, channelMetadata: { to: ['a@example.org'] } }
+    const link = { ...pendingLink(), channelMetadata: { to: ['a@example.org'] } }
     const { ctx, adapter, readScoped } = makeCtx({})
     primeFinds(link)
 
