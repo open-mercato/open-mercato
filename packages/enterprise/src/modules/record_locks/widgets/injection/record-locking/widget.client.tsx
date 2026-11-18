@@ -338,9 +338,8 @@ function isRecordDeletedError(error: unknown): boolean {
  *  - `record-deleted`  — the record was deleted by another user.
  *  - `apply-conflict`  — a genuine enterprise `record_lock_conflict` payload;
  *                        open the field-level merge dialog with it.
- *  - `fallback-dialog` — an unrecognized 409 (neither record-lock nor OSS
- *                        optimistic-lock) for the mounted record; open the
- *                        degraded fallback dialog (legacy behavior).
+ *  - `fallback-dialog` — retained for compatibility; unrecognized HTTP errors
+ *                        do not establish a concurrent edit.
  */
 export type RecordLockSaveErrorDecision =
   | { action: 'ignore' }
@@ -387,7 +386,6 @@ export function resolveRecordLockSaveErrorDecision(args: {
     // the conflict bar's ownership decision (single source of truth).
     if (isOptimisticLockFloorConflict(error)) return { action: 'ignore' }
     if (isConstraintViolationError(error)) return { action: 'ignore' }
-    if (extractErrorStatus(error) === 409) return { action: 'fallback-dialog' }
     return { action: 'ignore' }
   }
   return { action: 'apply-conflict', payload }
