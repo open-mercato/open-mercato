@@ -72,7 +72,7 @@ describe('ResendChannelAdapter', () => {
   it.each([undefined, 'billing@tenant.example'])('retains tenant-owned credential sender selection for override %s', async (from) => {
     process.env.NOTIFICATIONS_EMAIL_FROM = 'operator@example.com'
     process.env.RESEND_API_KEY = 'different-operator-key'
-    
+
     const result = await getResendChannelAdapter().sendMessage({
       credentials: { apiKey: 'operator-key', fromAddress: 'forged@example.com' },
       scope: { tenantId: 'tenant', organizationId: 'org' },

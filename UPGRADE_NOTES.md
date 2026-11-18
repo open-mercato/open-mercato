@@ -5573,9 +5573,17 @@ SES sends and Resend/SMTP sends using the instance API key/password now use the
 operator sender from `NOTIFICATIONS_EMAIL_FROM`, `EMAIL_FROM`, or `ADMIN_EMAIL`
 (in that order). A tenant-editable `fromAddress` or message `metadata.from` cannot
 replace it. Sending with these credentials fails when that operator sender is
-missing or is not a single email address. No new startup steps or settings are
-required. Tenant-owned Resend API keys and SMTP passwords retain configurable
+missing or is not a single email address. No new startup commands or setting names are introduced. Operators must verify
+the existing sender fallback is a valid single email address before rollout;
+manually configured SES channels may need that existing setting populated. Tenant-owned Resend API keys and SMTP passwords retain configurable
 senders. SES already uses the ambient server AWS identity; it has no independent
 tenant credential mode. When rotating operator credentials, revoke the previous
 provider key/password as usual; stored copies of a retired secret cannot be
 identified from the new environment value.
+
+Clients requiring a different From must use their own Resend or SMTP credentials;
+SES tenant sender overrides are refused because this adapter always uses the
+operator AWS identity. Rolling back restores sender impersonation. This is a
+STABLE behavior narrowing: a named human maintainer must acknowledge the Emergency
+Security Exception before merge. No approval is assumed. See the Migration &
+Backward Compatibility section of `.ai/specs/2026-06-03-pluggable-email-providers.md`.

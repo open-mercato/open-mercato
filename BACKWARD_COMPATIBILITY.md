@@ -670,3 +670,16 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+
+## Operator-backed email senders (2026-11-18, #9111)
+
+STABLE adapter send behavior: SES and Resend/SMTP using current operator secrets
+pin final From to the existing operator sender. Accepting a tenant-selected From
+with the operator principal is the impersonation vulnerability; a bridge keeps
+it reachable. Independent tenant Resend/SMTP credentials remain configurable.
+Clients must use the operator sender or their own supported credentials; operators
+must verify the existing sender setting and revoke retired secrets. See
+[upgrade notes](UPGRADE_NOTES.md#operator-backed-email-senders-9111) and the
+[spec](.ai/specs/2026-06-03-pluggable-email-providers.md#migration--backward-compatibility).
+**Named human maintainer waiver of steps 1–3 is pending; do not merge.**
