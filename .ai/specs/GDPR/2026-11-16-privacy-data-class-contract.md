@@ -975,12 +975,16 @@ Unit-tested instead, because the real app cannot provoke them: handler failure i
 | Every step is testable | Pass | Each step names its tests |
 
 ### Non-Compliant Items
-One stated naming deviation: module id `privacy`, decided by DEC-10. The edition is OSS under DEC-2, and EVIDENCE-AGE and SETTINGS-EVIDENCE-AGE are decided at 365 days, floor 30. Dependencies on other evidence owners remain explicit, so this is not a completed program claim.
+One stated naming deviation: module id `privacy`, decided by DEC-10. The proposed owner-local contracts are OSS under DEC-2; the subject-export invoker requires recorded upstream carrier approval under DEC-2b, and EVIDENCE-AGE and SETTINGS-EVIDENCE-AGE are decided at 365 days, floor 30. Dependencies on other evidence owners remain explicit, so this is not a completed program claim.
 
 ### Verdict
-**Ready.** The edition (OSS, DEC-2), EVIDENCE-AGE and SETTINGS-EVIDENCE-AGE are decided. R4-6 closes the export-evidence skipped-replay/lock mapping; handler delivery still requires C4's audit routine and the shared retention runner. Settings API/UI remain DSR-owned; consumer handoffs remain explicit. This reviews a design, not executed feature validation.
+**Ready for dependency and edition disposition.** EVIDENCE-AGE and SETTINGS-EVIDENCE-AGE are decided. The proposed OSS subject-export invoker requires the explicit upstream maintainer disposition in program DEC-2/DEC-2b before implementation or submission. R4-6 closes the export-evidence skipped-replay/lock mapping; handler delivery still requires C4's audit routine and the shared retention runner. Settings API/UI remain DSR-owned; consumer handoffs remain explicit. This reviews a design, not executed feature validation.
 
 ## Changelog
+
+### 2026-11-18
+
+- Recorded the program’s per-carrier upstream approval gate for the proposed OSS subject-export invoker.
 
 ### 2026-11-16
 - Skeleton with open questions.

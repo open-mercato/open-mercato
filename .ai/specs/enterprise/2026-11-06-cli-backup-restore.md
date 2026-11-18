@@ -8,7 +8,7 @@
 2. **Resumable both ways.** Backup and restore work in per-entity chunks recorded in a checkpoint journal. An interrupted run (crash, `SIGINT`, lost connection, full disk fixed by the operator) continues from the last durable chunk instead of starting over.
 3. **Per-entity progress, out and in.** Backup shows one progress bar per entity being read out of the source; restore shows one per entity being written into the target, plus an overall bar, rate and ETA. Machine-readable progress is available for automation.
 
-The scheduled pipeline, object storage, archive retention and status UI stay in [enterprise automated backups](2026-07-08-automated-database-backups.md); that pipeline reuses this engine. [Erasure restore replay](GDPR/2026-11-16-erasure-restore-replay.md) (C9) independently owns erasure manifests, detection and manual replay for product and infrastructure restores. The backup engine and backup commands are Enterprise-only; no HTTP restore route. The separate Core rotation safety guard below adds an explicit acknowledgment without moving rotation out of Core.
+The scheduled pipeline, object storage, archive retention and status UI stay in [enterprise automated backups](2026-07-08-automated-database-backups.md); that pipeline reuses this engine. [Erasure restore replay](GDPR/2026-11-16-erasure-restore-replay.md) (C9) independently owns erasure manifests, detection and manual replay for product and infrastructure restores. The backup engine and backup commands are Enterprise-only; no HTTP restore route. The separate Core rotation safety guard below adds an explicit acknowledgment without moving rotation out of Core. For protected cutover follow C9’s runbook before reopening traffic. Use the authenticated archive `startedAt` as the conservative recovered-snapshot lower bound, pin a fresh external generation, and require C9’s fresh unfiltered `restore-status --refresh --require-clear` after reviewed replay. The archive command separately reports archive restoration.
 
 Status: design ready for review; security gates (Q2, Q3) block implementation approval. This PR changes specifications only.
 
@@ -358,6 +358,10 @@ This PR changes specifications only. Later implementation adds enterprise CLI co
 Verdict: **design review only; not approved for implementation** until Q2/Q3 security decisions and harness placement are confirmed.
 
 ## Changelog
+
+### 2026-11-18
+
+- Linked archive restoration provenance to C9’s independent strict cutover gate.
 
 - 2026-11-12 (rev 2.3): Specify fail-closed red ERROR and per-invocation `--acknowledge-unprotected-key-rotation` for Core rotation without Enterprise protection; distinguish entitlement from module switches, prohibit silent downgrade, require a quiesced encrypted recovery artifact and companion Enterprise correctness verification, and disclose the CLI compatibility gate.
 

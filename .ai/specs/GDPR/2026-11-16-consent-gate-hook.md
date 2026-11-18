@@ -57,7 +57,7 @@ The bar shows one sentence, the link to `/privacy`, and one "OK" button. It writ
 
 **Per-context integration category.** Under all of `OM_INTEGRATION_TEST=true`, `OM_TEST_MODE=1`, `OM_TEST_NOTICE_BARS_MODE=opt-in`, `OM_TEST_CONSENT_MODE=opt-in`, and request cookies `om_test_notice_bars=on` and `om_test_consent_category=on`, the server appends a test-only non-essential category and passes `consentTestProbeEnabled` to `AppProviders`. Only that request/context mounts a harmless gated probe marker that creates declared first-party test storage after grant. Both integration environment blocks in `packages/cli/src/lib/testing/integration.ts` set the new mode. No category/probe is added in production or to another context, and the test cookie alone does nothing.
 
-**The bar's second state.** When the list has a non-essential category that the stored answer does not cover at its current revision, the bar shows the same sentence with "Accept" and "Reject" side by side in the same style, and "Choose", which opens the categories with a switch for each non-essential category; essential rows have no switch. The acknowledgement cookie alone does not hide this state.
+**The bar's second state.** When the list has a non-essential category that the stored answer does not cover at its current revision, the bar shows the same sentence with "Accept" and "Reject" side by side in the same style, and "Choose", which opens the categories with a switch for each non-essential category; essential rows have no switch. The acknowledgement cookie alone does not hide this state. Accept and Reject answer only the declared non-essential categories that are unset at their current revision, including new categories and those with obsolete answers. Re-read the stored choices at the action and persist the merged answers in one save. Current-revision answers for other categories keep their values. Choose and Cookie settings let visitors explicitly change an existing answer.
 
 **The primitives**, exported from `packages/ui`:
 
@@ -155,11 +155,11 @@ The system SHALL NOT render or invoke the loader of a non-essential gated integr
 
 ##### Scenario: A new category
 - WHEN the declared list gains a category
-- THEN a visitor who answered the old list is asked about it, and their earlier answers stand
+- THEN a visitor who answered the old list is asked about it. Accept and Reject set only the new category, and all existing current-revision grants and refusals survive the action and reload.
 
 ##### Scenario: A changed purpose
 - WHEN a category's revision is raised
-- THEN a visitor who accepted the earlier revision is asked again, and it is treated as unset until they answer
+- THEN that category becomes unset and the visitor is asked again. Accept and Reject affect only unanswered current revisions. Other current-revision grants and refusals survive, and a previously denied category still invokes no loader.
 
 ## 📝 Architecture
 
@@ -255,7 +255,7 @@ No database entity. Four cookie names:
 5. Integration test TC-CONSENT-001; `UPGRADE_NOTES.md`; update the cookie inventory on G5's `apps/docs/docs/deployment/gdpr/index.mdx` for the one-button notice and language-cookie attributes, and add its browser-telemetry entry and the Art. 5(3) limit under Known limits.
 
 ### Phase 2
-1. The consent primitives in `packages/ui` with their `index.ts` and the explicit `./frontend/consent` entry in `packages/ui/package.json`, with named suites `ConsentProvider.test.tsx`, `ConsentGate.test.tsx`, `consent-cookie.test.ts` and `consent-cleanup.test.ts`: no cookie; accept; reject; per-category; malformed cookie; a new category; a raised revision; a removed category; outside a provider (an essential id denied too); the `@open-mercato/ui/frontend/consent` import resolving from source and `dist`; render before mount; essential-only/mixed lists always granted with no essential switches; cookie codec version/attributes/size; declared cleanup and inaccessible-storage errors; dynamic loader never called before grant or after Reject.
+1. The consent primitives in `packages/ui` with their `index.ts` and the explicit `./frontend/consent` entry in `packages/ui/package.json`, with named suites `ConsentProvider.test.tsx`, `ConsentGate.test.tsx`, `consent-cookie.test.ts` and `consent-cleanup.test.ts`: no cookie; accept; reject; per-category; malformed cookie; a new category and a raised revision with mixed stored grants and refusals, testing both Accept and Reject, persistence through reload and loader suppression for unchanged denials; a removed category; outside a provider (an essential id denied too); the `@open-mercato/ui/frontend/consent` import resolving from source and `dist`; render before mount; essential-only/mixed lists always granted with no essential switches; cookie codec version/attributes/size; declared cleanup and inaccessible-storage errors; dynamic loader never called before grant or after Reject.
 2. Resolve the inline list and guarded test-only category inside the existing root layout; pass it and the gated test probe flag through AppProviders. Mirror layout, providers and tests into the template. Unit/layout tests reject every missing opt-in predicate and ignore test cookies in production.
 3. The bar's second state, Choose and floating Cookie settings; notice visibility no longer unmounts withdrawal access when non-essential categories exist. Cleanup before reload on save. Component tests including server-hidden notices and active grant.
 4. `ConsentSettingsLink.test.tsx` and `AppProviders.consent.test.tsx` cover the link in the sign-in footer and the backend and portal shells, with its registration in the provider. Component tests for both list states. Component tests on `AppProviders` with a declared non-essential category and a mocked `usePathname`: accept on `/`, then render `/privacy`, where the floating button is shown, open it, switch the category off and save, and the stored answer is a refusal and the reload is requested; the floating button is shown on `/terms` and on a forms page; it remains shown when notice content is hidden and a non-essential category exists; it is not shown where a `ConsentSettingsLink` is mounted; with only `essential` declared, neither renders on any path.
@@ -358,6 +358,10 @@ The test-only category is per request and browser context. TC-CONSENT-002 is man
 **Verdict:** approved for implementation. Every assumption is settled, and E5 is OSS under program DEC-2. Phase 1 ships alone. Phase 2 ships with mandatory TC-CONSENT-002 and the named G5 docs section; it does not wait for a first production use, and the shipped application still declares only essential categories. No root-rule exception is needed. Each PR goes through ordinary maintainer review.
 
 ## Changelog
+
+### 2026-11-18
+
+- Limited banner Accept and Reject to unanswered current revisions, preserving existing grants and refusals until explicitly edited.
 
 ### 2026-11-16
 - Written autonomously with resolved assumptions.
