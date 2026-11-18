@@ -1268,4 +1268,86 @@ describe('directory organization command tenant ownership', () => {
     expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
   })
 
+  it('restores a deleted in-scope organization on undo even though the tombstone left the live scope', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { parentId: PARENT_ID, childIds: [CHILD_ID] })
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: TARGET_ID })
+    const harness = makeHarness([parent, target, child])
+    const bus = new CommandBus()
+    const ctx = makeContext(harness, { allowedIds: [PARENT_ID, TARGET_ID, CHILD_ID] })
+    const { logEntry } = await bus.execute('directory.organizations.delete', {
+      input: { body: { id: TARGET_ID }, query: {} },
+      ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    expect(target.deletedAt).not.toBeNull()
+    expect(child.parentId).toBe(PARENT_ID)
+
+    await bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [PARENT_ID, CHILD_ID] }))
+
+    expect(target.deletedAt).toBeNull()
+    expect(target.parentId).toBe(PARENT_ID)
+    expect(child.parentId).toBe(TARGET_ID)
+    expect(harness.actionLogService.markUndone).toHaveBeenCalled()
+  })
+
+  it('replays a create after undo while the restored parent stays in the live scope', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([parent])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Replayed', parentId: PARENT_ID },
+      ctx: makeContext(harness, { allowedIds: [PARENT_ID] }),
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    const created = harness.records.find((record) => record.id === NEW_ORG_ID)
+    if (!created) throw new Error('[internal] Expected created organization')
+    await bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [PARENT_ID, NEW_ORG_ID] }))
+    expect(created.deletedAt).not.toBeNull()
+
+    await createHandler.redo?.({ input: {}, logEntry, ctx: makeContext(harness, { allowedIds: [PARENT_ID] }) })
+
+    expect(created.deletedAt).toBeNull()
+    expect(created.parentId).toBe(PARENT_ID)
+  })
+
+  it('denies and re-allows create replay when the parent grant is revoked and later restored', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([parent])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Replayed', parentId: PARENT_ID },
+      ctx: makeContext(harness, { allowedIds: [PARENT_ID] }),
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    const created = harness.records.find((record) => record.id === NEW_ORG_ID)
+    if (!created) throw new Error('[internal] Expected created organization')
+    await bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [PARENT_ID, NEW_ORG_ID] }))
+
+    await expect(createHandler.redo?.({ input: {}, logEntry, ctx: makeContext(harness, { allowedIds: [] }) }))
+      .rejects.toMatchObject({ status: 404 })
+    expect(created.deletedAt).not.toBeNull()
+
+    await createHandler.redo?.({ input: {}, logEntry, ctx: makeContext(harness, { allowedIds: [PARENT_ID] }) })
+    expect(created.deletedAt).toBeNull()
+  })
+
+  it('restores a deleted granted root organization whose grant is no longer live-expanded', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.delete', {
+      input: { body: { id: TARGET_ID }, query: {} },
+      ctx: makeContext(harness, { aclOrganizations: [TARGET_ID] }),
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    expect(target.deletedAt).not.toBeNull()
+
+    await bus.undo(String(logEntry.undoToken), makeContext(harness, { aclOrganizations: [TARGET_ID] }))
+
+    expect(target.deletedAt).toBeNull()
+    expect(target.parentId).toBeNull()
+    expect(harness.actionLogService.markUndone).toHaveBeenCalled()
+  })
+
 })

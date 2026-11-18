@@ -73,6 +73,12 @@ test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
       if (!allowedChildBody?.id) throw new Error('[internal] Scoped child creation did not return an id')
       organizationIds.push(allowedChildBody.id)
 
+      const createOperation = expectOperation(allowedChildCreate, 'scoped child create')
+      expect((await undoByToken(request, actorToken, createOperation.undoToken)).status()).toBe(200)
+      expect(await loadOrg(allowedChildBody.id)).toBeNull()
+      expect((await redoByLogId(request, actorToken, createOperation.logId)).status()).toBe(200)
+      expect((await loadOrg(allowedChildBody.id))?.parentId).toBe(allowedId)
+
       expect((await update(actorToken, allowedId, { name: `QA #8677 allowed ${stamp}` })).status()).toBe(200)
       expect((await update(actorToken, childId, { name: `QA #8677 expanded descendant ${stamp}` })).status()).toBe(200)
 
@@ -88,7 +94,17 @@ test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
 
       expect((await update(actorToken, childId, { parentId: null })).status()).toBe(200)
       expect((await update(adminToken, childId, { parentId: allowedId })).status()).toBe(200)
-      expect((await remove(actorToken, childId)).status()).toBe(200)
+      const deleteChildResponse = await remove(actorToken, childId)
+      expect(deleteChildResponse.status()).toBe(200)
+      expect(await loadOrg(childId)).toBeNull()
+      const deleteOperation = expectOperation(deleteChildResponse, 'scoped child delete')
+      expect((await undoByToken(request, actorToken, deleteOperation.undoToken)).status()).toBe(200)
+      expect((await loadOrg(childId))?.parentId).toBe(allowedId)
+      await setScope([siblingId])
+      expectDenied((await redoByLogId(request, actorToken, deleteOperation.logId)).status())
+      expect((await loadOrg(childId))?.parentId).toBe(allowedId)
+      await setScope([allowedId])
+      expect((await redoByLogId(request, actorToken, deleteOperation.logId)).status()).toBe(200)
       expect(await loadOrg(childId)).toBeNull()
 
       expect((await update(adminToken, allowedId, { parentId: siblingId })).status()).toBe(200)

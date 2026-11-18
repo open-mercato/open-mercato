@@ -37,6 +37,7 @@ import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 
@@ -174,12 +175,27 @@ async function resolveOrganizationActorScope(ctx: CommandRuntimeContext): Promis
   return { isUnrestricted: false, tenantId, allowedOrganizationIds: organizationScope.allowedIds }
 }
 
-function assertOrganizationIdsInScope(scope: OrganizationActorScope, ids: Iterable<string | null>): void {
+function assertOrganizationIdsInScope(
+  scope: OrganizationActorScope,
+  ids: Iterable<string | null>,
+  additionallyAllowedIds?: ReadonlySet<string>,
+): void {
   if (scope.isUnrestricted || scope.allowedOrganizationIds === null) return
   const allowedIds = new Set(scope.allowedOrganizationIds)
   for (const id of ids) {
-    if (id && !allowedIds.has(id)) throw notFound()
+    if (id && !allowedIds.has(id) && !additionallyAllowedIds?.has(id)) throw notFound()
   }
+}
+
+function normalizeGrantedOrganizationIds(ids: readonly string[]): string[] {
+  const normalized = new Set<string>()
+  for (const value of ids) {
+    if (typeof value !== 'string') continue
+    const id = value.trim()
+    if (!id || isAllOrganizationsSelection(id)) continue
+    normalized.add(id)
+  }
+  return Array.from(normalized)
 }
 
 function assertOrganizationCreateRootAccess(scope: OrganizationActorScope, parentId: string | null): void {
@@ -192,14 +208,51 @@ async function assertHierarchyAssignmentsInScope(
   scope: OrganizationActorScope,
   tenantId: string,
   childParents: ChildParentSnapshot[],
+  additionallyAllowedIds?: ReadonlySet<string>,
 ): Promise<void> {
   if (scope.isUnrestricted || scope.allowedOrganizationIds === null) return
-  assertOrganizationIdsInScope(scope, childParents.flatMap((entry) => [entry.childId, entry.parentId]))
+  assertOrganizationIdsInScope(scope, childParents.flatMap((entry) => [entry.childId, entry.parentId]), additionallyAllowedIds)
   const current = await loadChildParentSnapshots(em, tenantId, childParents.map((entry) => entry.childId))
   const desired = new Map(childParents.map((entry) => [entry.childId, entry.parentId]))
   assertOrganizationIdsInScope(scope, current
     .filter((entry) => entry.parentId !== desired.get(entry.childId))
-    .map((entry) => entry.parentId))
+    .map((entry) => entry.parentId), additionallyAllowedIds)
+}
+
+async function loadReplayGrantedOrganizationIds(
+  ctx: CommandRuntimeContext,
+  tenantId: string,
+): Promise<readonly string[] | null> {
+  const sub = ctx.auth?.sub
+  if (!sub) return []
+  const rbac = ctx.container.resolve<RbacService>('rbacService')
+  const acl = await rbac.loadAcl(sub, { tenantId, organizationId: ctx.auth?.orgId ?? null })
+  if (!acl || !Array.isArray(acl.organizations)) {
+    return ctx.organizationScope ? [] : acl?.organizations === null ? null : []
+  }
+  return normalizeGrantedOrganizationIds(acl.organizations)
+}
+
+async function assertOrganizationReplayTargetInScope(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  scope: OrganizationActorScope,
+  tenantId: string,
+  targetId: string,
+  recordedParentId: string | null,
+): Promise<void> {
+  if (scope.isUnrestricted || scope.allowedOrganizationIds === null) return
+  if (scope.allowedOrganizationIds.includes(targetId)) return
+  const target = await findOneWithDecryption(em, Organization, {
+    id: targetId,
+    tenant: tenantId,
+  } as FilterQuery<Organization>, undefined, { tenantId, organizationId: targetId })
+  if (!target || !target.deletedAt) throw notFound()
+  if (recordedParentId && scope.allowedOrganizationIds.includes(recordedParentId)) return
+  const grantedOrganizationIds = await loadReplayGrantedOrganizationIds(ctx, tenantId)
+  if (grantedOrganizationIds === null) return
+  if (grantedOrganizationIds.includes(targetId)) return
+  throw notFound()
 }
 
 async function assertOrganizationReplayAccess(
@@ -212,14 +265,15 @@ async function assertOrganizationReplayAccess(
   removingTarget = false,
 ): Promise<void> {
   const scope = await resolveOrganizationActorScope(ctx)
-  assertOrganizationIdsInScope(scope, [snapshot.id])
   if (scope.isUnrestricted || scope.allowedOrganizationIds === null) return
+  await assertOrganizationReplayTargetInScope(em, ctx, scope, tenantId, snapshot.id, parentId)
+  const replayTargetIds = new Set<string>([snapshot.id])
   const current = await findOneWithDecryption(em, Organization,
     buildOrganizationUndoTargetFilter(snapshot.id, tenantId), undefined, { tenantId, organizationId: snapshot.id })
   if (!current || current.parentId !== parentId) {
     assertOrganizationIdsInScope(scope, [current?.parentId ?? null, parentId])
   }
-  await assertHierarchyAssignmentsInScope(em, scope, tenantId, childParents)
+  await assertHierarchyAssignmentsInScope(em, scope, tenantId, childParents, replayTargetIds)
   if (removingTarget) {
     const children = await findWithDecryption(em, Organization,
       { tenant: tenantId, parentId: snapshot.id, deletedAt: null }, undefined, { tenantId, organizationId: snapshot.id })
@@ -271,10 +325,8 @@ function buildOrganizationMutationFilter(
 async function assertOrganizationUndoTenantAccess(
   ctx: CommandRuntimeContext,
   targetTenantId: string,
-  targetId: string,
 ): Promise<void> {
   const scope = await resolveOrganizationActorScope(ctx)
-  assertOrganizationIdsInScope(scope, [targetId])
   if (!scope.isUnrestricted && scope.tenantId !== targetTenantId) {
     throw new CrudHttpError(404, { error: 'Not found' })
   }
@@ -596,7 +648,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!after) return
     const tenantId = after.tenantId
     if (!tenantId) return
-    await assertOrganizationUndoTenantAccess(ctx, tenantId, after.id)
+    await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization: Organization | null = null
@@ -652,7 +704,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for organization create' })
     const tenantId = after.tenantId
     if (!tenantId) throw new CrudHttpError(400, { error: '[internal] redo snapshot missing tenant for organization create' })
-    await assertOrganizationUndoTenantAccess(ctx, tenantId, after.id)
+    await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization!: Organization
@@ -938,7 +990,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
-    await assertOrganizationUndoTenantAccess(ctx, tenantId, before.id)
+    await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let updated: Organization | null = null
@@ -1106,7 +1158,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     if (!before) return
     const tenantId = before.tenantId
     if (!tenantId) return
-    await assertOrganizationUndoTenantAccess(ctx, tenantId, before.id)
+    await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let organization: Organization | null = null
