@@ -1278,6 +1278,31 @@ communication_channels subscriber: channel-outbound-delivery
 Channel delivers to external platform
 ```
 
+**Outbound routing safety (#9739):** Both the bridge and delivery command resolve
+one scoped conversation before selecting a destination. An existing outbound
+`MessageChannelLink` is the explicit mailbox choice and takes precedence over
+inherited source/parent fields. Without it, an external-conversation source and
+the parent's scoped channel link (or source) must agree. A send-as-user source
+identifies a channel, so its parent's link establishes the conversation. Native
+replies inheriting that source enter the bridge only when the existing `replyTo`
+event field matches the persisted parent; the original send-as-user compose
+continues through its dedicated queueing path.
+
+With no conversation provenance, exactly one tenant/organization/thread mapping
+is required. A claimed but missing, mismatched or conflicting conversation never
+falls back to another row. The mapped conversation and channel must agree,
+including provider and link channel type. Ambiguity produces `no_channel_link`
+and a structured routing-refusal diagnostic, without a provider call or new
+link. Terminal delivery links remain idempotent even after mappings disappear.
+The command repeats resolution from current records after queueing. Inputs,
+results, events, adapter contracts and database structure remain unchanged.
+
+Synthetic local regression coverage runs bridge → worker → command and Discord
+conversion, permutes mapping order before/after queueing, checks inbound and
+send-as-user parent provenance with/without a reply link, explicit selection,
+invalid scope/channel/provider records, ambiguity, single-mapping native sends,
+missing explicit mappings, and terminal delivery states.
+
 **Failure handling**: If `sendMessage` fails:
 - `MessageChannelLink.deliveryStatus = 'failed'`
 - Error logged to `integrationLog`
@@ -2342,6 +2367,8 @@ None.
 ---
 
 ## Changelog
+
+- 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
 
 | Date | Change |
 |------|--------|
