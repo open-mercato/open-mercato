@@ -292,6 +292,8 @@ export type InjectionRowActionDefinition = {
   icon?: string
   onSelect: (row: unknown, context: unknown) => void
   placement?: InjectionPlacement
+  /** Hides the action for rows it does not apply to; omitted means the action shows on every row. */
+  isVisible?: (row: unknown) => boolean
 }
 
 export type InjectionBulkActionDefinition = {
