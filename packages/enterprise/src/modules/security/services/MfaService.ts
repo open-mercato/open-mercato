@@ -100,6 +100,7 @@ export class MfaService {
     providerType?: string,
     context?: MfaProviderRuntimeContext,
   ): Promise<{ recoveryCodes?: string[] }> {
+<<<<<<< HEAD
     const method = await this.em.findOne(UserMfaMethod, {
       userId,
       isActive: false,
@@ -125,23 +126,63 @@ export class MfaService {
 
     if (resolvedLabel && provider.allowMultiple) {
       const duplicate = await this.em.findOne(UserMfaMethod, {
+=======
+    const method = await this.em.transactional(async (em) => {
+      await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`security:mfa:enrollment:${userId}`])
+      const method = await findOneWithDecryption(em, UserMfaMethod, {
+>>>>>>> 8441ab3a98 (fix(security): make MFA recovery and enrollment atomic (#9673) (#9817))
         userId,
-        type: method.type,
-        label: resolvedLabel,
-        isActive: true,
+        isActive: false,
         deletedAt: null,
-      })
-      if (duplicate) {
-        throw new MfaServiceError(`An MFA method with this name already exists`, 409)
+        secret: setupId,
+      }, { refresh: true }, {})
+      if (!method) {
+        throw new MfaServiceError('MFA setup session not found', 404)
       }
-    }
+      if (providerType && method.type !== providerType) {
+        throw new MfaServiceError('MFA setup session does not match the requested provider', 400)
+      }
 
-    method.providerMetadata = confirmation.metadata
-    method.secret = confirmation.secret ?? null
-    method.label = resolvedLabel
-    method.isActive = true
-    method.updatedAt = new Date()
-    await this.em.flush()
+      const provider = this.mfaProviderRegistry.get(method.type)
+      if (!provider) {
+        throw new MfaServiceError(`MFA provider '${method.type}' is not registered`, 400)
+      }
+
+      await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple, em)
+
+      let confirmation: MfaProviderConfirmResult
+      try {
+        confirmation = await provider.confirmSetup(userId, setupId, payload, context)
+      } catch (error) {
+        if (error instanceof ZodError) {
+          throw new MfaServiceError('Invalid payload', 400)
+        }
+        throw error
+      }
+      const resolvedLabel = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
+
+      if (resolvedLabel && provider.allowMultiple) {
+        const duplicate = await findOneWithDecryption(em, UserMfaMethod, {
+          userId,
+          type: method.type,
+          label: resolvedLabel,
+          isActive: true,
+          deletedAt: null,
+        }, { refresh: true }, { tenantId: method.tenantId, organizationId: method.organizationId })
+        if (duplicate) {
+          throw new MfaServiceError(`An MFA method with this name already exists`, 409)
+        }
+      }
+
+      method.providerMetadata = confirmation.metadata
+      method.secret = confirmation.secret ?? null
+      method.label = resolvedLabel
+      method.isActive = true
+      method.updatedAt = new Date()
+      await em.flush()
+
+      return method
+    })
 
     await emitSecurityEvent('security.mfa.enrolled', {
       userId,
@@ -269,9 +310,11 @@ export class MfaService {
         }
       }
       if (!valid) continue
-      recoveryCode.isUsed = true
-      recoveryCode.usedAt = new Date()
-      await this.em.flush()
+      const claimed = await this.em.execute<Array<{ id: string }>>(
+        'UPDATE mfa_recovery_codes SET is_used = true, used_at = ? WHERE id = ? AND user_id = ? AND tenant_id = ? AND is_used = false RETURNING id',
+        [new Date(), recoveryCode.id, userId, recoveryCode.tenantId],
+      )
+      if (claimed.length === 0) return false
       const remaining = await this.em.count(MfaRecoveryCode, { userId, isUsed: false })
       await emitSecurityEvent('security.recovery.used', { userId, remaining })
       return true
@@ -302,15 +345,16 @@ export class MfaService {
     userId: string,
     providerType: string,
     allowMultiple: boolean,
+    em: EntityManager = this.em,
   ): Promise<void> {
     if (allowMultiple) return
 
-    const existingMethod = await this.em.findOne(UserMfaMethod, {
+    const existingMethod = await findOneWithDecryption(em, UserMfaMethod, {
       userId,
       type: providerType,
       isActive: true,
       deletedAt: null,
-    })
+    }, { refresh: true }, {})
     if (existingMethod) {
       throw new MfaServiceError(`MFA provider '${providerType}' is already configured`, 409)
     }
