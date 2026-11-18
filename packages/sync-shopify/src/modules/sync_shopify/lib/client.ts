@@ -14,6 +14,9 @@ import {
 
 const SHOP_DOMAIN_PATTERN = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/
 const MAX_BATCH_SIZE = 25
+const DEFAULT_SHOPIFY_REQUEST_TIMEOUT_MS = 30_000
+const DEFAULT_SHOPIFY_MAX_RATE_LIMIT_RETRIES = 5
+const DEFAULT_SHOPIFY_RETRY_AFTER_CAP_MS = 60_000
 export const SHOPIFY_NESTED_PAGE_SIZE = 50
 
 export class ShopifyClientError extends Error {
@@ -33,6 +36,7 @@ export type ShopifyClient = {
 export type ShopifyClientDeps = {
   fetchImpl?: typeof fetch
   nestedPageSize?: number
+  sleep?: (ms: number) => Promise<void>
 }
 
 let defaultFetchImpl: typeof fetch | null = null
@@ -43,7 +47,55 @@ export function setShopifyDefaultFetch(fetchImpl: typeof fetch | null): void {
 
 type GraphqlResponse<T> = {
   data?: T
-  errors?: Array<{ message?: string }>
+  errors?: Array<{ message?: string; extensions?: { code?: string } }>
+  extensions?: {
+    cost?: {
+      requestedQueryCost?: number
+      throttleStatus?: { currentlyAvailable?: number; restoreRate?: number }
+    }
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function resolvePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function requestTimeoutMs(): number {
+  return resolvePositiveInt(process.env.OM_INTEGRATION_SHOPIFY_REQUEST_TIMEOUT_MS, DEFAULT_SHOPIFY_REQUEST_TIMEOUT_MS)
+}
+
+function maxRateLimitRetries(): number {
+  return resolvePositiveInt(process.env.OM_INTEGRATION_SHOPIFY_MAX_RATE_LIMIT_RETRIES, DEFAULT_SHOPIFY_MAX_RATE_LIMIT_RETRIES)
+}
+
+function boundedWaitMs(requestedMs: number): number {
+  const cap = resolvePositiveInt(process.env.OM_INTEGRATION_SHOPIFY_RETRY_AFTER_CAP_MS, DEFAULT_SHOPIFY_RETRY_AFTER_CAP_MS)
+  return Math.min(Math.max(requestedMs, 0), cap)
+}
+
+function retryAfterMs(retryAfterHeader: string | null): number {
+  const retryAfter = Number(retryAfterHeader ?? '1')
+  const requestedMs = Number.isFinite(retryAfter) ? retryAfter * 1000 : 1000
+  return boundedWaitMs(requestedMs)
+}
+
+function isThrottled(payload: GraphqlResponse<unknown>): boolean {
+  return payload.errors?.some((error) => error.extensions?.code === 'THROTTLED') === true
+}
+
+function throttleBackoffMs(payload: GraphqlResponse<unknown>, attempt: number): number {
+  const requested = payload.extensions?.cost?.requestedQueryCost
+  const available = payload.extensions?.cost?.throttleStatus?.currentlyAvailable ?? 0
+  const restoreRate = payload.extensions?.cost?.throttleStatus?.restoreRate ?? 0
+  if (typeof requested === 'number' && restoreRate > 0) {
+    return boundedWaitMs(Math.ceil(Math.max(requested - available, 0) / restoreRate) * 1000)
+  }
+  return boundedWaitMs(1000 * (attempt + 1))
 }
 
 export function normalizeShopDomain(value: unknown): string {
@@ -311,15 +363,11 @@ function mapShippingLine(value: unknown): ShopifyShippingLineNode | null {
 function mapOrderShell(value: unknown): {
   order: Omit<ShopifyOrderNode, 'lines' | 'shippingLines'>
   lineItemsConnection: unknown
-  shippingLines: ShopifyShippingLineNode[]
+  shippingLinesConnection: unknown
 } | null {
   const record = asRecord(value)
   const id = asString(record?.id)
   if (!record || !id) return null
-  const shippingLines = connectionNodes(record.shippingLines).flatMap((node) => {
-    const line = mapShippingLine(node)
-    return line ? [line] : []
-  })
   return {
     order: {
       id,
@@ -343,7 +391,7 @@ function mapOrderShell(value: unknown): {
       totalTax: asMoney(record.totalTaxSet),
     },
     lineItemsConnection: record.lineItems,
-    shippingLines,
+    shippingLinesConnection: record.shippingLines,
   }
 }
 
@@ -419,8 +467,20 @@ const CUSTOMERS_QUERY = `
   }
 `
 
+const SHIPPING_LINE_FIELDS = `
+  id
+  title
+  originalPriceSet { shopMoney { amount currencyCode } }
+  discountedPriceSet { shopMoney { amount currencyCode } }
+  taxLines {
+    rate
+    ratePercentage
+    priceSet { shopMoney { amount currencyCode } }
+  }
+`
+
 const ORDERS_QUERY = `
-  query ShopifyOrders($first: Int!, $after: String, $lineFirst: Int!) {
+  query ShopifyOrders($first: Int!, $after: String, $lineFirst: Int!, $shippingFirst: Int!) {
     orders(first: $first, after: $after, sortKey: UPDATED_AT) {
       pageInfo { hasNextPage endCursor }
       nodes {
@@ -443,23 +503,25 @@ const ORDERS_QUERY = `
         totalDiscountsSet { shopMoney { amount currencyCode } }
         totalShippingPriceSet { shopMoney { amount currencyCode } }
         totalTaxSet { shopMoney { amount currencyCode } }
-        shippingLines(first: 20) {
-          nodes {
-            id
-            title
-            originalPriceSet { shopMoney { amount currencyCode } }
-            discountedPriceSet { shopMoney { amount currencyCode } }
-            taxLines {
-              rate
-              ratePercentage
-              priceSet { shopMoney { amount currencyCode } }
-            }
-          }
+        shippingLines(first: $shippingFirst) {
+          pageInfo { hasNextPage endCursor }
+          nodes { ${SHIPPING_LINE_FIELDS} }
         }
         lineItems(first: $lineFirst) {
           pageInfo { hasNextPage endCursor }
           nodes { ${LINE_ITEM_FIELDS} }
         }
+      }
+    }
+  }
+`
+
+const ORDER_SHIPPING_LINES_QUERY = `
+  query ShopifyOrderShippingLines($id: ID!, $first: Int!, $after: String) {
+    order(id: $id) {
+      shippingLines(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { ${SHIPPING_LINE_FIELDS} }
       }
     }
   }
@@ -490,6 +552,7 @@ export function createShopifyClient(
   const apiVersion = resolveApiVersion(credentials.apiVersion)
   const fetchImpl = deps.fetchImpl ?? defaultFetchImpl ?? fetch
   const nestedPageSize = clampNestedPageSize(deps.nestedPageSize ?? SHOPIFY_NESTED_PAGE_SIZE)
+  const pause = deps.sleep ?? sleep
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`
   const clientCredentials = readClientCredentials(credentials)
   const staticAccessToken = readTrimmed(credentials, 'accessToken')
@@ -502,7 +565,7 @@ export function createShopifyClient(
       const pending = accessTokenRequests.get(cacheKey)
       if (pending) return pending
       const request = requestAccessToken(
-        fetchImpl,
+        fetchWithRetry,
         shopDomain,
         clientCredentials.clientId,
         clientCredentials.clientSecret,
@@ -523,23 +586,46 @@ export function createShopifyClient(
     throw new ShopifyClientError('Client ID and client secret are required.')
   }
 
-  async function graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-    const response = await fetchImpl(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': await accessToken(),
-      },
-      body: JSON.stringify({ query, variables }),
-    })
-    if (!response.ok) {
-      throw new ShopifyClientError(`Shopify Admin API returned HTTP ${response.status}.`)
+  const fetchWithRetry: typeof fetch = async (input, init) => {
+    const limit = maxRateLimitRetries()
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await fetchImpl(input, {
+        ...init,
+        signal: AbortSignal.timeout(requestTimeoutMs()),
+      })
+      if (response.status !== 429 || attempt >= limit) return response
+      await response.body?.cancel().catch(() => undefined)
+      await pause(retryAfterMs(response.headers.get('retry-after')))
     }
-    const payload = await response.json() as GraphqlResponse<T>
-    const message = payload.errors?.find((error) => typeof error.message === 'string' && error.message.length > 0)?.message
-    if (message) throw new ShopifyClientError(message)
-    if (!payload.data) throw new ShopifyClientError('Shopify Admin API returned an empty payload.')
-    return payload.data
+  }
+
+  async function graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+    const limit = maxRateLimitRetries()
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await fetchWithRetry(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': await accessToken(),
+        },
+        body: JSON.stringify({ query, variables }),
+      })
+      if (!response.ok) {
+        throw new ShopifyClientError(`Shopify Admin API returned HTTP ${response.status}.`)
+      }
+      const payload = await response.json() as GraphqlResponse<T>
+      if (isThrottled(payload)) {
+        if (attempt >= limit) {
+          throw new ShopifyClientError('Shopify Admin API throttled the request.')
+        }
+        await pause(throttleBackoffMs(payload, attempt))
+        continue
+      }
+      const message = payload.errors?.find((error) => typeof error.message === 'string' && error.message.length > 0)?.message
+      if (message) throw new ShopifyClientError(message)
+      if (!payload.data) throw new ShopifyClientError('Shopify Admin API returned an empty payload.')
+      return payload.data
+    }
   }
 
   function pageOf<T>(connection: unknown, mapNode: (value: unknown) => T | null): ShopifyPage<T> {
@@ -597,6 +683,26 @@ export function createShopifyClient(
     return lines
   }
 
+  async function drainShippingLines(orderId: string, firstPage: unknown): Promise<ShopifyShippingLineNode[]> {
+    const first = pageOf(firstPage, mapShippingLine)
+    const lines = [...first.nodes]
+    let cursor = first.endCursor
+    let hasNextPage = first.hasNextPage
+    while (hasNextPage) {
+      if (!cursor) throw new ShopifyClientError('Shopify returned another shipping-lines page without a cursor.')
+      const data = await graphql<{ order?: { shippingLines?: unknown } }>(ORDER_SHIPPING_LINES_QUERY, {
+        id: orderId,
+        first: nestedPageSize,
+        after: cursor,
+      })
+      const page = pageOf(data.order?.shippingLines, mapShippingLine)
+      lines.push(...page.nodes)
+      cursor = page.endCursor
+      hasNextPage = page.hasNextPage
+    }
+    return lines
+  }
+
   return {
     async shop() {
       const data = await graphql<{ shop?: { name?: string; currencyCode?: string } }>(SHOP_QUERY)
@@ -640,6 +746,7 @@ export function createShopifyClient(
         first: clampBatchSize(batchSize),
         after: cursor,
         lineFirst: nestedPageSize,
+        shippingFirst: nestedPageSize,
       })
       const page = readPageInfo(data.orders)
       if (page.hasNextPage && !page.endCursor) {
@@ -650,7 +757,8 @@ export function createShopifyClient(
         const shell = mapOrderShell(raw)
         if (!shell) continue
         const lines = await drainLineItems(shell.order.id, shell.lineItemsConnection)
-        nodes.push({ ...shell.order, shippingLines: shell.shippingLines, lines })
+        const shippingLines = await drainShippingLines(shell.order.id, shell.shippingLinesConnection)
+        nodes.push({ ...shell.order, shippingLines, lines })
       }
       return {
         nodes,

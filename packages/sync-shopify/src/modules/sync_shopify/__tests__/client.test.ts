@@ -1,7 +1,10 @@
 import { clearShopifyAccessTokenCache, createShopifyClient, normalizeShopDomain, ShopifyClientError } from '../lib/client'
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...headers },
+  })
 }
 
 describe('normalizeShopDomain', () => {
@@ -28,6 +31,7 @@ describe('createShopifyClient', () => {
   it('sends the admin token and reads a product page', async () => {
     const fetchImpl = jest.fn(async (_url: string, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({ 'X-Shopify-Access-Token': 'shpat_test' })
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
       const body = JSON.parse(String(init?.body))
       expect(body.variables).toEqual({ first: 25, after: null, variantFirst: 50 })
       return jsonResponse({
@@ -255,6 +259,83 @@ describe('createShopifyClient', () => {
     const tokenCalls = fetchImpl.mock.calls.filter((call) => String(call[0]).endsWith('/admin/oauth/access_token'))
     expect(tokenCalls).toHaveLength(1)
     expect(fetchImpl).toHaveBeenCalledTimes(3)
+  })
+
+  it('retries HTTP 429 and a GraphQL throttle, then stops at the retry bound', async () => {
+    const waits: number[] = []
+    const sleep = async (ms: number) => { waits.push(ms) }
+    let calls = 0
+    const fetchImpl = jest.fn(async () => {
+      calls += 1
+      if (calls === 1) return jsonResponse({ errors: [{ message: 'Throttled' }] }, 429, { 'retry-after': '2' })
+      if (calls === 2) {
+        return jsonResponse({
+          errors: [{ message: 'Throttled', extensions: { code: 'THROTTLED' } }],
+          extensions: { cost: { requestedQueryCost: 40, throttleStatus: { currentlyAvailable: 10, restoreRate: 10 } } },
+        })
+      }
+      return jsonResponse({ data: { shop: { name: 'Demo', currencyCode: 'USD' } } })
+    })
+    const shop = await createShopifyClient(credentials, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep,
+    }).shop()
+    expect(shop.name).toBe('Demo')
+    expect(waits).toEqual([2000, 3000])
+
+    waits.length = 0
+    const limited = jest.fn(async () => jsonResponse({
+      errors: [{ message: 'Throttled', extensions: { code: 'THROTTLED' } }],
+    }))
+    await expect(createShopifyClient(credentials, {
+      fetchImpl: limited as unknown as typeof fetch,
+      sleep,
+    }).shop()).rejects.toThrow('Shopify Admin API throttled the request.')
+    expect(limited).toHaveBeenCalledTimes(6)
+    expect(waits).toEqual([1000, 2000, 3000, 4000, 5000])
+  })
+
+  it('drains shipping lines past the first page', async () => {
+    const shipping = (index: number) => ({
+      id: `gid://shopify/ShippingLine/${index}`,
+      title: `Ship ${index}`,
+      originalPriceSet: { shopMoney: { amount: '5.00', currencyCode: 'EUR' } },
+      discountedPriceSet: { shopMoney: { amount: '4.00', currencyCode: 'EUR' } },
+      taxLines: [],
+    })
+    const fetchImpl = jest.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { query: string; variables: Record<string, unknown> }
+      if (body.query.includes('ShopifyOrderShippingLines')) {
+        expect(body.variables).toMatchObject({ id: 'gid://shopify/Order/9', after: 's1', first: 2 })
+        return jsonResponse({
+          data: { order: { shippingLines: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [shipping(3)] } } },
+        })
+      }
+      return jsonResponse({
+        data: { orders: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [{
+            id: 'gid://shopify/Order/9',
+            name: '#9',
+            currencyCode: 'EUR',
+            shippingLines: {
+              pageInfo: { hasNextPage: true, endCursor: 's1' },
+              nodes: [shipping(1), shipping(2)],
+            },
+            lineItems: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+          }],
+        } },
+      })
+    })
+    const page = await createShopifyClient(credentials, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      nestedPageSize: 2,
+    }).listOrders(null, 10)
+    expect(page.nodes[0]?.shippingLines.map((line) => line.id)).toEqual([
+      'gid://shopify/ShippingLine/1',
+      'gid://shopify/ShippingLine/2',
+      'gid://shopify/ShippingLine/3',
+    ])
   })
 
   it('omits the client secret from a refused token exchange', async () => {
