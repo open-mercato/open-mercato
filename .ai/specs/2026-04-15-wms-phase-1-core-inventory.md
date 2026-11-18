@@ -677,6 +677,9 @@ None.
 
 ## Changelog
 
+### 2026-11-15
+- The CSV inventory import read a `quantity` that isn't a number (for example `1,000` with a comma thousands separator, a decimal comma like `1,5`, or other text) as 0, so the row was skipped in additive mode or set the bucket to 0 in reconcile mode. Validation now rejects it with the existing `quantity_invalid` row error, whose message now asks for a plain number with a dot for decimals. Coverage: `inventoryImportService.test.ts`, `TC-WMS-035`.
+
 ### 2026-11-11
 - Documented an additive optional `buckets` filter on `POST /api/wms/inventory/allocate`, and reservation metadata `allocationState = partial`. Phase 3 wave release is the caller. Omitting `buckets` preserves full-reservation allocate.
 
