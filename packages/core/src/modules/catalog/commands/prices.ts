@@ -38,6 +38,7 @@ import {
   hasPriceHistoryRelevantChange,
   priceHistoryInputFromRecord,
 } from '../lib/omnibus'
+import { calculatePriceUnitAmounts } from '../lib/priceUnitAmounts'
 import { resolveOmnibusCache } from '../lib/omnibusCache'
 
 const priceCrudEvents: CrudEventsConfig = {
@@ -376,14 +377,13 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     }
     const productEntity = product
     const channelId = parsed.channelId ?? (offer ? offer.channelId : null)
-    const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
     const amountInput = resolveAmountInputFromParsed(parsed)
     let unitPriceNetValue = toNumericString(parsed.unitPriceNet)
     let unitPriceGrossValue = toNumericString(parsed.unitPriceGross)
     let taxRateValue = toNumericString(parsed.taxRate)
     let taxAmountValue: string | null = null
     if (amountInput) {
-      const calculation = await taxCalculationService.calculateUnitAmounts({
+      const calculation = await calculatePriceUnitAmounts(ctx.container, {
         amount: amountInput.amount,
         mode: amountInput.mode,
         organizationId: scopeSource.organizationId,
@@ -661,7 +661,6 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     }
     ensureSameTenant(targetPriceKind, targetProduct.tenantId)
 
-    const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
     const amountInput = resolveAmountInputForUpdate(parsed, record)
     const hasNetInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')
     const hasGrossInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceGross')
@@ -679,7 +678,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
         : taxRateIdForCalculation === null
           ? null
           : record.taxRate ?? null
-      taxCalculationResult = await taxCalculationService.calculateUnitAmounts({
+      taxCalculationResult = await calculatePriceUnitAmounts(ctx.container, {
         amount: calculationBase.amount,
         mode: calculationBase.mode,
         organizationId: targetProduct.organizationId,
