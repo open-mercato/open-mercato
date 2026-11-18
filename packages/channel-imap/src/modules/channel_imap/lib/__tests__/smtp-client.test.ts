@@ -50,6 +50,21 @@ describe('NodemailerClient.send — RFC2822 capture for the Sent-folder append',
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it('sends attachments as bytes with file and URL access disabled', async () => {
+    const result = await getSmtpClient().send(connection, {
+      from: 'sender@example.com',
+      to: ['recipient@example.com'],
+      subject: 'With attachment',
+      text: 'body',
+      attachments: [{ filename: 'order.pdf', content: Buffer.from('%PDF-1.7'), contentType: 'application/pdf' }],
+    })
+
+    const options = sendMail.mock.calls[0][0] as Record<string, unknown>
+    expect(options.disableFileAccess).toBe(true)
+    expect(options.disableUrlAccess).toBe(true)
+    expect(result.raw.toString('utf8')).toContain('filename=order.pdf')
+  })
+
   it('prefers the composed Message-ID when the caller supplies one', async () => {
     const result = await getSmtpClient().send(connection, {
       from: 'sender@example.com',

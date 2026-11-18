@@ -26,6 +26,7 @@ import deliverOutboundMessageCommand, {
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../../events'
 import { ExternalMessage } from '../../data/entities'
+import { buildBodyFooter } from '../../lib/thread-token'
 import {
   registerTelemetryRuntime,
   resetTelemetryRuntime,
@@ -34,6 +35,7 @@ import {
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockEmit = emitCommunicationChannelsEvent as jest.MockedFunction<typeof emitCommunicationChannelsEvent>
+const mockBuildBodyFooter = buildBodyFooter as jest.MockedFunction<typeof buildBodyFooter>
 
 describe('deliverOutboundMessageCommand metadata', () => {
   it('exports the canonical command id', () => {
@@ -168,6 +170,7 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     }
     const adapter = {
       providerKey: 'gmail',
+      capabilities: {},
       convertOutbound: jest.fn(async () => ({ content: { raw: 'x' }, metadata: {} })),
       sendMessage: jest.fn(async () => opts.sendResult ?? { status: 'sent', externalMessageId: 'ext-1' }),
     }
@@ -360,7 +363,11 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
     em.fork = () => em
     const adapter = {
       providerKey: 'discord',
-      capabilities,
+      // Real Discord declares `recipientFormat: 'provider-native'` — merge it
+      // in so these threading tests stay realistic (and keep exercising the
+      // outbound footer gate in `deliver-outbound-message.ts`) even when a
+      // test only cares about overriding `threading`.
+      capabilities: { recipientFormat: 'provider-native', ...(capabilities ?? {}) },
       convertOutbound: jest.fn(async () => ({ content: { text: 'hi' }, metadata: {} })),
       sendMessage: jest.fn(async () => ({ status: 'sent', externalMessageId: 'discord-new-1' })),
     }
@@ -470,6 +477,37 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
 
     const converted = adapter.convertOutbound.mock.calls[0][0] as { channelMetadata: Record<string, unknown> }
     expect(converted.channelMetadata.replyToExternalId).toBeUndefined()
+  })
+
+  // Security (#9738): the email-threading footer/token is a visible, copyable
+  // body marker — a real Discord user could paste it into an unrelated
+  // conversation to graft that conversation onto this thread (see the inbound
+  // gate in `ingest-inbound-message.test.ts`). A provider-native channel must
+  // never have it appended to the outbound body in the first place.
+  it('never builds the email thread-token footer for a provider-native (Discord) send', async () => {
+    mockBuildBodyFooter.mockClear()
+    primeFinds(null)
+    const { ctx } = makeCtx({ threading: true })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect(mockBuildBodyFooter).not.toHaveBeenCalled()
+  })
+
+  it('still builds the footer for an email-shaped adapter (control)', async () => {
+    mockBuildBodyFooter.mockClear()
+    primeFinds(null)
+    const { ctx } = makeCtx({ threading: true, recipientFormat: 'email' })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect(mockBuildBodyFooter).toHaveBeenCalledWith('tok-1')
   })
 
   it('delivers unthreaded rather than failing when the parent lookup throws', async () => {
@@ -635,6 +673,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     em.transactional = (callback) => callback(em)
     const adapter = {
       providerKey: 'gmail',
+      capabilities: {},
       convertOutbound: jest.fn(async () => ({ content: { text: 'hi' }, metadata: convertedMetadata })),
       sendMessage: jest.fn(async () => sendResult),
     }
@@ -839,6 +878,7 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     parentEm.fork = jest.fn().mockReturnValueOnce(parentEm).mockReturnValueOnce(adoptionFork)
     const adapter = {
       providerKey: 'gmail',
+      capabilities: {},
       convertOutbound: jest.fn(async () => ({ content: { text: 'hi' }, metadata: {} })),
       sendMessage: jest.fn(async () => ({
         status: 'sent',
