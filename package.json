@@ -256,6 +256,7 @@
     "protobufjs": "7.6.4",
     "yaml": "2.9.0",
     "webpack": "5.104.1",
+    "webpack-dev-middleware": "7.4.6",
     "fast-xml-builder": "1.2.0",
     "shell-quote": "1.11.0",
     "dompurify": "3.4.17",
