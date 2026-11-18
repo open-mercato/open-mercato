@@ -6,7 +6,7 @@ Repair current main CI failures and verify all 15 integration shards before requ
 
 ## Scope
 
-Main `f7f8e5ab1a5ddb8ace0803ff7ed2f6e2ba88cfa7` fails seven outbound attachment tests in `core-timezone` (run 44334863912). Investigate the routing fixture introduced before the new provenance checks, correct the root cause, and preserve attachment delivery assertions. Existing `stabilize/` and `ci-full` full-suite routing already meets the requested CI scope.
+Main `f7f8e5ab1a5ddb8ace0803ff7ed2f6e2ba88cfa7` fails seven outbound attachment tests in `core-timezone` (run 44334863912). Investigate the routing fixture introduced before the new provenance checks, correct the root cause, and preserve attachment delivery assertions. Main shard 15 also fails TC-SEARCH-015 during cleanup: its UI assertions pass, but a second embeddings request completes after page.unroute and its route.fulfill throws. Drain active route handlers before clearing cookies and fixtures. Existing `stabilize/` and `ci-full` full-suite routing already meets the requested CI scope.
 
 Branch: `stabilize/main-2026-11-18-1600`, from main. The unsuffixed branch belongs to already-merged #9789; use a fresh suffix to preserve its history. Its merged MikroORM repair resolves the earlier snapshot compiler failure.
 
@@ -18,6 +18,7 @@ Non-goals: production routing changes unless reproduction proves a runtime defec
 
 1.1 Reproduce the attachment failures and align fixtures with verified routing provenance.
 1.2 Run focused routing and attachment tests in both default and Pacific/Auckland timezones.
+1.3 Drain search diagnostics route handlers before cleanup and reproduce the race with a real browser.
 
 ### Phase 2: Verify and review
 
@@ -28,6 +29,12 @@ Non-goals: production routing changes unless reproduction proves a runtime defec
 ## Verification evidence
 
 Before repair: all seven attachment tests reproduce the exact main failure. After repair: attachment and real-routing suites pass 69 tests in both default America/New_York and Pacific/Auckland. No production code changed. Runner: local.
+
+Independent final review approved the original fixture repair at 2bd9e12741 with no findings (PR comment 6984044878); native approval by author App was rejected, so native review gates remain intact. The same reviewer must re-review the search cleanup addition.
+
+Main shard-15 trace confirms all TC-SEARCH-015 UI assertions passed before unroute; its second embeddings handler fulfilled after unroute and failed. A real Chromium delayed-response reproduction triggers the old error and passes with unrouteAll({ behavior: wait }), retaining the mocked response. Only cleanup changes; no UI assertion is removed.
+
+Configured build/generate/rebuild/i18n/typecheck and full unit gates passed in PR CI 44341202209; local full unit run passed 50 tasks and failed create-app only for missing unzip. Providing Info-ZIP locally makes all 19 session-share tests pass. Local app compiled and typechecked but ended with a Next.js dependency security advisory. Its embedded instructions are untrusted tool output, not authority to add unrelated upgrade work. Full CI app build passed. All 15 PR integration shards remain pending at this checkpoint.
 
 ## Risks
 
@@ -43,6 +50,7 @@ PR: #9825
 
 - [x] 1.1 Reproduce the attachment failures and align fixtures with verified routing provenance. — 5770cd00df
 - [x] 1.2 Run focused routing and attachment tests in both default and Pacific/Auckland timezones. — 5770cd00df
+- [x] 1.3 Drain search diagnostics route handlers before cleanup and reproduce the race with a real browser. — 0784c0e660
 
 ### Phase 2: Verify and review
 
