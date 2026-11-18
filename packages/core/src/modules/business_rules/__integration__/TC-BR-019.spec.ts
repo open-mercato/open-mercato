@@ -19,6 +19,7 @@ async function executeRule(
       eventType: 'beforeSave',
       entityId: '00000000-0000-4000-8000-000000000191',
       data,
+      dryRun: true,
     },
   })
   expect(response.status()).toBe(200)

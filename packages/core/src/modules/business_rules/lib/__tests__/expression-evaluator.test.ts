@@ -542,6 +542,8 @@ describe('RuleExpressionEvaluator', () => {
       expect(evaluateExpression(inZero, { discountPercent: '' }, {})).toBe(false)
       expect(evaluateExpression(equalsZero, { discountPercent: 0 }, {})).toBe(true)
       expect(evaluateExpression(equalsZero, { discountPercent: '0' }, {})).toBe(true)
+      expect(evaluateExpression({ field: 'discountPercent', operator: '=', value: '' }, { discountPercent: 0 }, {})).toBe(false)
+      expect(evaluateExpression({ field: 'discountPercent', operator: '!=', value: '' }, { discountPercent: 0 }, {})).toBe(true)
     })
 
     test('should not order a blank field as numeric 0', () => {
