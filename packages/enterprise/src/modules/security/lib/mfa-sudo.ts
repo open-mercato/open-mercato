@@ -1,22 +1,31 @@
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { MfaEnforcementService } from '../services/MfaEnforcementService'
-import { requireSudo, SudoRequiredError } from './sudo-middleware'
+import { requireSudo, SudoRequiredError, isSudoRequiredError } from './sudo-middleware'
 
 export async function requireMfaEnrollmentSudo(
   request: Request,
   userId: string,
   hasActiveMethods: boolean,
+  context?: Pick<CommandRuntimeContext, 'auth' | 'container'>,
 ): Promise<void> {
-  const auth = await getAuthFromRequest(request)
-  if (!auth?.sub || auth.sub !== userId) {
+  if (context?.auth?.sub && context.auth.sub !== userId) {
     throw new SudoRequiredError('security.mfa.self.manage')
   }
-  if (!hasActiveMethods && auth.tenantId) {
-    const container = await createRequestContainer()
-    const enforcement = container.resolve<MfaEnforcementService>('mfaEnforcementService')
+  if (!hasActiveMethods && context?.auth?.tenantId) {
+    const enforcement = context.container.resolve<MfaEnforcementService>('mfaEnforcementService')
     const compliance = await enforcement.checkUserCompliance(userId)
     if (compliance.enforced && !compliance.compliant) return
   }
   await requireSudo(request, 'security.mfa.self.manage')
+}
+
+export async function requireMfaCommandSudo(context: Pick<CommandRuntimeContext, 'request'>): Promise<void> {
+  if (!context.request) return
+  try {
+    await requireSudo(context.request, 'security.mfa.self.manage')
+  } catch (error) {
+    if (isSudoRequiredError(error)) throw new CrudHttpError(error.statusCode, error.body)
+    throw error
+  }
 }

@@ -1,3 +1,5 @@
+import { requireSudo, SudoRequiredError } from '../../lib/sudo-middleware'
+jest.mock('../../lib/sudo-middleware', () => ({ ...jest.requireActual('../../lib/sudo-middleware'), requireSudo: jest.fn() }))
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
@@ -172,5 +174,32 @@ describe('security MFA commands', () => {
       ok: true,
       recoveryCodes: ['AAAAA11111', 'BBBBB22222'],
     })
+  })
+})
+
+describe('MFA command replay step-up', () => {
+  beforeEach(() => { jest.clearAllMocks() })
+
+  test.each(['security.mfa.method.remove', 'security.mfa.recovery_codes.regenerate'])(
+    '%s cannot bypass step-up through command execution or redo', async (commandId) => {
+      jest.mocked(requireSudo).mockRejectedValueOnce(new SudoRequiredError('security.mfa.self.manage'))
+      const resolve = jest.fn()
+      const handler = commandRegistry.get(commandId)
+      await expect(handler!.execute({ id: '5f9be724-3382-4e44-9039-54fb5b3a0d00' }, {
+        auth: { sub: 'user-1' }, request: new Request('https://example.test/api/audit-logs/actions/redo'),
+        container: { resolve },
+      } as never)).rejects.toMatchObject({ status: 403, body: { error: 'sudo_required' } })
+      expect(resolve).not.toHaveBeenCalled()
+    },
+  )
+
+  test('restoring a removed factor through undo requires step-up before database access', async () => {
+    jest.mocked(requireSudo).mockRejectedValueOnce(new SudoRequiredError('security.mfa.self.manage'))
+    const handler = commandRegistry.get('security.mfa.method.remove')
+    const resolve = jest.fn()
+    await expect(handler!.undo!({ logEntry: {}, ctx: {
+      request: new Request('https://example.test/api/audit-logs/actions/undo'), container: { resolve },
+    } } as never)).rejects.toMatchObject({ status: 403, body: { error: 'sudo_required' } })
+    expect(resolve).not.toHaveBeenCalled()
   })
 })

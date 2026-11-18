@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import type {
@@ -89,7 +88,7 @@ export class OtpEmailProvider implements MfaProviderInterface {
     if (!parsed.email) throw new Error('[internal] Email OTP destination is required')
     const code = generateOtpCode()
     const codeHash = await hashOtpCode(code)
-    const auth = context?.request ? await getAuthFromRequest(context.request) : null
+    const auth = context?.commandContext?.auth
     await sendEmail({
       to: parsed.email,
       tenantId: auth?.tenantId ?? undefined,

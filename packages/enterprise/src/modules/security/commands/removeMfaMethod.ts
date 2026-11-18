@@ -1,3 +1,4 @@
+import { requireMfaCommandSudo } from '../lib/mfa-sudo'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -96,6 +97,8 @@ registerCommand({
       throw new CrudHttpError(400, { error: 'Invalid payload', issues: parsed.error.issues })
     }
 
+    await requireMfaCommandSudo(ctx)
+
     const mfaService = ctx.container.resolve<MfaService>('mfaService')
     try {
       await mfaService.removeMethod(ctx.auth.sub, parsed.data.id)
@@ -134,6 +137,7 @@ registerCommand({
     }
   },
   undo: async ({ logEntry, ctx }) => {
+    await requireMfaCommandSudo(ctx)
     const before = readUndoPayload(logEntry)?.before
     if (!before) return
 

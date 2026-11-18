@@ -10,7 +10,7 @@ An authenticated session can currently add a factor, replace the Email OTP desti
 
 ## Proposed solution and architecture
 
-Register `security.mfa.self.manage` with the existing `auto` sudo challenge. Confirmations check sudo inside the existing enrollment advisory-lock transaction, before invoking the provider or activating its pending row. Only a user with zero active methods, an authenticated tenant context, and confirmed enforced/noncompliant policy may skip sudo. Policy lookup failure does not grant an exemption. Removal and recovery-code routes validate sudo before command dispatch. Existing scoped sudo token verification remains responsible for user, target, tenant, organization, expiry and effective policy bindings.
+Register `security.mfa.self.manage` with the existing `auto` sudo challenge. Confirmations check sudo inside the existing enrollment advisory-lock transaction, before invoking the provider or activating its pending row. Only a user with zero active methods, an authenticated tenant context, and confirmed enforced/noncompliant policy may skip sudo. Policy lookup failure does not grant an exemption. Removal and recovery-code routes validate sudo before command dispatch. Request-backed command execution/redo and method-restoration undo also check step-up so replay cannot bypass the route guards. Trusted server callers without an HTTP request retain the established service/command signatures. Existing scoped sudo token verification remains responsible for user, target, tenant, organization, expiry and effective policy bindings.
 
 The client uses existing guarded mutation and sudo challenge mechanisms. It first tries the mutation, handles only the standard `sudo_required` response, asks for existing step-up, and retries with its token. Compelled first enrollment consequently never needs an unnecessary sudo challenge.
 
@@ -18,7 +18,7 @@ Email OTP setup sends a generated six-digit code using the existing email/OTP he
 
 ## Data models and API contracts
 
-No schema migration, dependency, startup or environment change. Route URLs, methods, request envelopes, response envelopes, service signatures, event IDs and ACL features remain. New sudo target is additive. Existing provider setup clientData adds a test-only code using the established OTP testing seam.
+No schema migration, dependency, startup or environment change. Route URLs, methods, request envelopes, response envelopes, service signatures, event IDs and ACL features remain. Provider runtime context adds an optional commandContext carrying the already-resolved actor/container; existing provider implementations remain compatible. New sudo target is additive. Existing provider setup clientData adds a test-only code using the established OTP testing seam.
 
 ## Migration & Backward Compatibility
 

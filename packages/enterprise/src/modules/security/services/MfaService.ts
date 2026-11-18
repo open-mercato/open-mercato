@@ -126,7 +126,7 @@ export class MfaService {
 
       if (context?.request) {
         const activeMethodCount = await em.count(UserMfaMethod, { userId, isActive: true, deletedAt: null })
-        await requireMfaEnrollmentSudo(context.request, userId, activeMethodCount > 0)
+        await requireMfaEnrollmentSudo(context.request, userId, activeMethodCount > 0, context.commandContext)
       }
 
       let confirmation: MfaProviderConfirmResult

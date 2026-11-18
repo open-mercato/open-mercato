@@ -59,7 +59,7 @@ function enrollmentContext(activeCount: number) {
     flush: jest.fn(),
   }
   jest.mocked(resolveMfaRequestContext).mockResolvedValue({
-    auth, container, mfaService: new MfaService(em as unknown as EntityManager, registry), commandContext: { auth },
+    auth, container, mfaService: new MfaService(em as unknown as EntityManager, registry), commandContext: { auth, container },
   } as never)
   return { method, confirmSetup, em }
 }
