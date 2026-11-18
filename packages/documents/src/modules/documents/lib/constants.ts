@@ -10,6 +10,10 @@ export const DOCUMENTS_ENTITY_IDS = {
   documentAttachment: 'documents:document_attachment',
   documentTemplate: 'documents:document_template',
   documentEntityLink: 'documents:document_entity_link',
+  documentFinding: 'documents:document_finding',
+  documentReviewPlaybook: 'documents:document_review_playbook',
+  documentReviewRule: 'documents:document_review_rule',
+  documentReviewPlaybookReference: 'documents:document_review_playbook_reference',
 } as const
 
 /** Maximum number of folder nodes from a root through its deepest descendant. */

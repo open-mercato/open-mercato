@@ -24,6 +24,14 @@ describe('documents command registration', () => {
     'documents.template.delete',
     'documents.version.create',
     'documents.version.restore',
+    'documents.review_playbook.create',
+    'documents.review_playbook.update',
+    'documents.review_playbook.delete',
+    'documents.review_rule.create',
+    'documents.review_rule.update',
+    'documents.review_rule.delete',
+    'documents.review_playbook_reference.create',
+    'documents.review_playbook_reference.delete',
   ])('registers %s', (commandId) => {
     expect(commandRegistry.has(commandId)).toBe(true)
   })

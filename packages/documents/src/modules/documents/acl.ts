@@ -5,6 +5,7 @@ export const features = [
   { id: 'documents.delete', title: 'Delete documents', module: 'documents', dependsOn: ['documents.view'] },
   { id: 'documents.share', title: 'Share documents', module: 'documents', dependsOn: ['documents.view'] },
   { id: 'documents.templates.manage', title: 'Manage document templates', module: 'documents', dependsOn: ['documents.view'] },
+  { id: 'documents.review_playbooks.manage', title: 'Manage document review playbooks', module: 'documents', dependsOn: ['documents.view'] },
   { id: 'documents.manage', title: 'Manage all documents', module: 'documents', dependsOn: ['documents.view'] },
 ]
 

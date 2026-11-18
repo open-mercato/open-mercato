@@ -35,6 +35,10 @@ function readBinding(editor: Editor): ProsemirrorBinding | null {
   return pluginState?.binding ?? null
 }
 
+export function hasCollaborationBinding(editor: Editor): boolean {
+  return readBinding(editor) !== null
+}
+
 function validRange(editor: Editor, from: number, to: number): boolean {
   const docSize = editor.state.doc.content.size
   return from >= 0 && to >= 0 && from < to && from <= docSize && to <= docSize

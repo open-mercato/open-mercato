@@ -36,6 +36,7 @@ const allowedIdenticalValues: Record<string, string[]> = {
     'documents.entityFields.status',
     'documents.export.docx',
     'documents.export.pdf',
+    'documents.reviewAssistant.tabShort',
   ],
 }
 

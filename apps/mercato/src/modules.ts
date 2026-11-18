@@ -267,4 +267,8 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
   // It imports the orchestrator SDK, so it is only enabled alongside it.
   enabledModules.push({ id: 'agent_examples', from: '@app' })
+  // Example consumer of the Documents review findings: a reviewer agent, an
+  // NDA review workflow and a matter header on the document page (see
+  // apps/mercato/src/modules/legal_review/README.md). Same gating as above.
+  enabledModules.push({ id: 'legal_review', from: '@app' })
 }
