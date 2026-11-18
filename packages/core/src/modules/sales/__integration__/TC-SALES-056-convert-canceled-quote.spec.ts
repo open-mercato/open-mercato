@@ -75,9 +75,9 @@ test.describe('TC-SALES-056: converting a canceled quote', () => {
 
       const convert = await apiRequest(request, 'POST', '/api/sales/quotes/convert', { token, data: { quoteId } })
       const body = await readJsonSafe<{ orderId?: string }>(convert)
-      orderId = body?.orderId ?? null
+      orderId = body?.orderId ?? quoteId
       expect(convert.status(), JSON.stringify(body)).toBe(200)
-      expect(orderId).toBe(quoteId)
+      expect(body?.orderId).toBe(quoteId)
     } finally {
       await deleteGeneralEntityIfExists(request, token, '/api/sales/orders', orderId)
       await deleteGeneralEntityIfExists(request, token, '/api/sales/quotes', quoteId)
