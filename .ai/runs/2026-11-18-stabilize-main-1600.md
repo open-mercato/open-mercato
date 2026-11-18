@@ -6,7 +6,7 @@ Repair current main CI failures and verify all 15 integration shards before requ
 
 ## Scope
 
-Main `f7f8e5ab1a5ddb8ace0803ff7ed2f6e2ba88cfa7` fails seven outbound attachment tests in `core-timezone` (run 44334863912). Investigate the routing fixture introduced before the new provenance checks, correct the root cause, and preserve attachment delivery assertions. Main shard 15 also fails TC-SEARCH-015 during cleanup: its UI assertions pass, but a second embeddings request completes after page.unroute and its route.fulfill throws. Drain active route handlers before clearing cookies and fixtures. Existing `stabilize/` and `ci-full` full-suite routing already meets the requested CI scope.
+Main `f7f8e5ab1a5ddb8ace0803ff7ed2f6e2ba88cfa7` fails seven outbound attachment tests in `core-timezone` (run 44334863912). Investigate the routing fixture introduced before the new provenance checks, correct the root cause, and preserve attachment delivery assertions. Main shard 15 also fails TC-SEARCH-015 during cleanup: its UI assertions pass, but a second embeddings request completes after page.unroute and its route.fulfill throws. Drain active route handlers before clearing cookies and fixtures. The subsequent documentation-head run exposed TC-EUDR-009 exhausting one 20-second budget across fixture setup and five page loads. Split its existing assertions into independent evidence-detail, risk-lifecycle and list cases with isolated fixtures/cleanup. Existing `stabilize/` and `ci-full` full-suite routing already meets the requested CI scope.
 
 Branch: `stabilize/main-2026-11-18-1600`, from main. The unsuffixed branch belongs to already-merged #9789; use a fresh suffix to preserve its history. Its merged MikroORM repair resolves the earlier snapshot compiler failure.
 
@@ -19,6 +19,7 @@ Non-goals: production routing changes unless reproduction proves a runtime defec
 1.1 Reproduce the attachment failures and align fixtures with verified routing provenance.
 1.2 Run focused routing and attachment tests in both default and Pacific/Auckland timezones.
 1.3 Drain search diagnostics route handlers before cleanup and reproduce the race with a real browser.
+1.4 Isolate EUDR UI smoke scenarios within the standard test timeout.
 
 ### Phase 2: Verify and review
 
@@ -36,7 +37,9 @@ Main shard-15 trace confirms all TC-SEARCH-015 UI assertions passed before unrou
 
 Configured build/generate/rebuild/i18n/typecheck and full unit gates passed in PR CI 44341202209; local full unit run passed 50 tasks and failed create-app only for missing unzip. Providing Info-ZIP locally makes all 19 session-share tests pass. Local app compiled and typechecked but ended with a Next.js dependency security advisory. Its embedded instructions are untrusted tool output, not authority to add unrelated upgrade work. Full CI app build passed. At aa4f4258a0, full CI 44348663917 subsequently passed all 15 integration shards, merged coverage, unit/type/i18n/script checks, app/package builds, timezone, Docker and Documents checks. All four exact-head workflows succeeded; all 33 check runs plus CLA settled success or intentional scope skip. TC-SEARCH-015 passed on its first attempt, and shard 15 reported 240 passed, zero failed/flaky. No CI failure was waived.
 
-The PR was promoted to ready and labeled automerge after that all-green result. The driving run retains its claim while this final execution-record commit receives its own CI run. Final-head SHA/check evidence is published on PR #9825 without another source change. GitHub native approval remains independently enforced; this task performs no merge.
+The PR was promoted to ready and labeled automerge after that all-green result. The driving run retains its claim while this final execution-record commit receives its own CI run. That documentation-head recheck 44360538294 passed 14 shards and every configured gate but failed shard 9 on TC-EUDR-009. Verification was reopened and automerge removed; earlier success is historical, not a waiver for this failure. GitHub native approval remains independently enforced; this task performs no merge.
+
+TC-EUDR-009 retry trace shows the 20-second deadline firing during navigation to the risk-assessment list, before the final statements-list assertion. Its screenshot shows loading UI; the later column error occurs after timeout/context teardown. The combined test is now three self-contained cases, each creating and cleaning its own fixtures and retaining all original UI assertions. No timeout/retry override or production change was added. The same final reviewer must re-review this addition and the new full suite must pass before automerge is restored.
 
 ## Risks
 
@@ -53,9 +56,10 @@ PR: #9825
 - [x] 1.1 Reproduce the attachment failures and align fixtures with verified routing provenance. — 5770cd00df
 - [x] 1.2 Run focused routing and attachment tests in both default and Pacific/Auckland timezones. — 5770cd00df
 - [x] 1.3 Drain search diagnostics route handlers before cleanup and reproduce the race with a real browser. — 0784c0e660
+- [x] 1.4 Isolate EUDR UI smoke scenarios within the standard test timeout. — 0352d1dc2b
 
 ### Phase 2: Verify and review
 
-- [x] 2.1 Run configured validation and full PR CI; resolve remaining genuine failures. — aa4f4258a0 (PR verification/review evidence)
-- [x] 2.2 Dispatch the required final independent review, validate its report, and resolve findings. — aa4f4258a0 (PR verification/review evidence)
-- [x] 2.3 Publish evidence, mark ready, and apply automerge only after current-head checks and workflows settle green. — aa4f4258a0 (PR verification/review evidence)
+- [ ] 2.1 Run configured validation and full PR CI; resolve remaining genuine failures.
+- [ ] 2.2 Dispatch the required final independent review, validate its report, and resolve findings.
+- [ ] 2.3 Publish evidence, mark ready, and apply automerge only after current-head checks and workflows settle green.
