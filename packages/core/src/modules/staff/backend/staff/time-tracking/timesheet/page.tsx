@@ -68,6 +68,7 @@ import {
   pickDefaultExpandedDay,
   resolveLoadScaleMinutes,
   summarizeTimesheet,
+  type TimesheetCapacity,
   toTimesheetEntry,
   type TimesheetEntry,
 } from '../../../../lib/time-tracking-ui/timesheetData'
@@ -101,6 +102,7 @@ const TIMESHEET_READ_ERROR_CODES = {
   assignmentsReadFailed: 'staff.timesheet_assignments_read_failed',
   entriesReadFailed: 'staff.timesheet_entries_read_failed',
   projectsReadFailed: 'staff.timesheet_projects_read_failed',
+  capacityReadFailed: 'staff.timesheet_capacity_load_failed',
 } as const
 
 type TimesheetReadErrorCode = (typeof TIMESHEET_READ_ERROR_CODES)[keyof typeof TIMESHEET_READ_ERROR_CODES]
@@ -130,6 +132,8 @@ type LoadedData = {
   entries: TimesheetEntry[]
   people: MemberPreview[]
   dailyHours: number | null
+  capacity: TimesheetCapacity | null
+  viewedStaffMemberId: string | null
   truncated: boolean
 }
 
@@ -143,7 +147,34 @@ const EMPTY_DATA: LoadedData = {
   entries: [],
   people: [],
   dailyHours: null,
+  capacity: null,
+  viewedStaffMemberId: null,
   truncated: false,
+}
+
+/**
+ * The capacity endpoint's answer, kept only when a contributed provider produced
+ * it. The built-in answer is dropped on purpose so every target keeps the flat
+ * `dailyHours` arithmetic — and its "days × hours" caption — exactly as before.
+ */
+function readContributedCapacity(payload: Record<string, unknown> | null | undefined): TimesheetCapacity | null {
+  if (!payload || payload.isBuiltIn !== false || typeof payload.providerId !== 'string' || !payload.providerId) {
+    return null
+  }
+  const byDate = payload.targetMinutesByDate
+  if (!byDate || typeof byDate !== 'object') return null
+  const targetMinutesByDate: Record<string, number> = {}
+  for (const [date, minutes] of Object.entries(byDate as Record<string, unknown>)) {
+    if (typeof minutes === 'number' && Number.isFinite(minutes)) targetMinutesByDate[date] = minutes
+  }
+  const total = payload.totalTargetMinutes
+  return {
+    providerId: payload.providerId,
+    targetMinutesByDate,
+    totalTargetMinutes: typeof total === 'number' && Number.isFinite(total) ? total : null,
+    label: typeof payload.label === 'string' && payload.label.length > 0 ? payload.label : null,
+    labelKey: typeof payload.labelKey === 'string' && payload.labelKey.length > 0 ? payload.labelKey : null,
+  }
 }
 
 function readMemberPreviews(row: Record<string, unknown>): MemberPreview[] {
@@ -390,7 +421,8 @@ export default function TimesheetPage() {
         new Set(entries.map((entry) => entry.taskId ?? '').filter((id) => id.length > 0)),
       ).slice(0, PAGE_SIZE)
 
-      const [projectsPayload, tasksPayload, entryTasksPayload, settingsPayload] = await Promise.all([
+      const capacityParams = new URLSearchParams({ from: range.from, to: range.to, staffMemberId: targetStaffMemberId })
+      const [projectsPayload, tasksPayload, entryTasksPayload, settingsPayload, capacityPayload] = await Promise.all([
         // `allowNullResult` only tolerates an empty body — a non-2xx still throws,
         // and an unhandled throw here would unwind past `setData` and leave the
         // PREVIOUS period's entries on screen labelled as this one. Degraded to a
@@ -424,6 +456,15 @@ export default function TimesheetPage() {
           undefined,
           { fallback: { targets: { dailyHours: null } } },
         ).catch(() => ({ targets: { dailyHours: null } })),
+        readApiResultOrThrow<Record<string, unknown>>(
+          `/api/staff/timesheets/capacity?${capacityParams.toString()}`,
+          undefined,
+          { allowNullResult: true },
+        ).catch((error: unknown) => {
+          logger.warn('staff.time_tracking.timesheet capacity load failed; using the flat target', { err: error })
+          reportTimesheetReadError(error, TIMESHEET_READ_ERROR_CODES.capacityReadFailed)
+          return null
+        }),
       ])
 
       const projectRows = readRowItems(projectsPayload)
@@ -472,6 +513,8 @@ export default function TimesheetPage() {
         entries: decoratedEntries,
         people: Array.from(peopleById.values()).sort((left, right) => left.name.localeCompare(right.name)),
         dailyHours,
+        capacity: readContributedCapacity(capacityPayload),
+        viewedStaffMemberId: targetStaffMemberId,
         truncated,
       })
       setLoadFailures(failures)
@@ -530,7 +573,10 @@ export default function TimesheetPage() {
 
   const days = React.useMemo(() => buildTimesheetDays(range, data.entries), [data.entries, range])
   const dayIndex = React.useMemo(() => indexDaysByDate(days), [days])
-  const summary = React.useMemo(() => summarizeTimesheet(days, range, data.dailyHours), [days, data.dailyHours, range])
+  const summary = React.useMemo(
+    () => summarizeTimesheet(days, range, data.dailyHours, data.capacity),
+    [data.capacity, data.dailyHours, days, range],
+  )
   const timesheetInjectionContext = React.useMemo(
     () => ({
       staffMemberId: data.staffMemberId,
@@ -544,15 +590,15 @@ export default function TimesheetPage() {
     [data.staffMemberId, periodKind, range.from, range.to, readOnly, retryLastMutation, view],
   )
   const scaleMinutes = React.useMemo(
-    () => resolveLoadScaleMinutes(days, data.dailyHours),
-    [days, data.dailyHours],
+    () => resolveLoadScaleMinutes(days, data.dailyHours, data.capacity),
+    [data.capacity, data.dailyHours, days],
   )
   const dailyTargetMinutes = data.dailyHours !== null ? Math.round(data.dailyHours * 60) : null
 
   // The expanded day follows the period until the user picks one themselves.
   const autoExpanded = React.useMemo(
-    () => pickDefaultExpandedDay(days, data.dailyHours, todayIso()),
-    [days, data.dailyHours],
+    () => pickDefaultExpandedDay(days, data.dailyHours, todayIso(), data.capacity),
+    [data.capacity, data.dailyHours, days],
   )
   React.useEffect(() => {
     setExpandedTouched(false)
@@ -865,6 +911,7 @@ export default function TimesheetPage() {
                   monthAnchors={monthAnchors}
                   days={dayIndex}
                   scaleMinutes={scaleMinutes}
+                  targetMinutesByDate={data.capacity?.targetMinutesByDate ?? null}
                   todayDate={todayIso()}
                   showMonthHeadings={monthAnchors.length > 1}
                   onAddEntry={(date) => {
@@ -880,6 +927,7 @@ export default function TimesheetPage() {
                   days={days}
                   scaleMinutes={scaleMinutes}
                   dailyTargetMinutes={dailyTargetMinutes}
+                  targetMinutesByDate={data.capacity?.targetMinutesByDate ?? null}
                   expandedDate={expandedDate}
                   onExpandedDateChange={(date) => {
                     setExpandedTouched(true)
@@ -920,7 +968,16 @@ export default function TimesheetPage() {
             ) : null}
           </div>
 
-          {periodLoaded ? <TimesheetPeriodFooter summary={summary} dailyHours={data.dailyHours} /> : null}
+          {periodLoaded ? (
+            <TimesheetPeriodFooter
+              summary={summary}
+              dailyHours={data.dailyHours}
+              capacity={data.capacity}
+              periodFrom={range.from}
+              periodTo={range.to}
+              staffMemberId={data.viewedStaffMemberId}
+            />
+          ) : null}
         </div>
       </PageBody>
 

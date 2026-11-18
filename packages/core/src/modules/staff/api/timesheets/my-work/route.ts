@@ -32,6 +32,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -52,7 +53,8 @@ import {
   toDateOnlyString,
 } from '../../../lib/timesheets-projects/dateBuckets'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
-import { buildMyWorkKpis, pickRecentTaskIds, toMinutes } from './myWorkAggregate'
+import { buildMyWorkKpis, pickRecentTaskIds, toMinutes, type MyWorkCapacity } from './myWorkAggregate'
+import { resolveCapacityForRange } from '../../../lib/time-tracking/capacityService'
 import {
   readSearchParamsRecord,
   runTimesheetInterceptors,
@@ -253,6 +255,23 @@ export async function GET(req: Request) {
       ],
     )) as TotalsRow[]
 
+    const weekRange = { from: toDateOnlyString(weekStart), to: toDateOnlyString(weekEnd) }
+    const monthRange = { from: toDateOnlyString(monthStart), to: toDateOnlyString(monthEnd) }
+    let capacity: MyWorkCapacity | null = null
+    try {
+      const capacityInput = { container, staffMemberId: staffMember.id, tenantId, organizationId, dailyHours }
+      const [week, month] = await Promise.all([
+        resolveCapacityForRange({ ...capacityInput, range: weekRange }),
+        resolveCapacityForRange({ ...capacityInput, range: monthRange }),
+      ])
+      capacity = { today: todayDate, week, month }
+    } catch (err) {
+      // A capacity provider must not empty the dashboard; the KPIs fall back to
+      // the flat `targets.dailyHours` arithmetic.
+      logger.error('staff.timesheets.my-work capacity resolution failed', { err })
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.my_work_capacity_failed' })
+    }
+
     const totals = totalsRows[0]
     const kpis = buildMyWorkKpis(
       {
@@ -261,11 +280,9 @@ export async function GET(req: Request) {
         monthMinutes: toMinutes(totals?.month_minutes),
         monthNonBillableMinutes: toMinutes(totals?.month_nonbillable_minutes),
       },
-      {
-        week: { from: toDateOnlyString(weekStart), to: toDateOnlyString(weekEnd) },
-        month: { from: toDateOnlyString(monthStart), to: toDateOnlyString(monthEnd) },
-      },
+      { week: weekRange, month: monthRange },
       dailyHours,
+      capacity,
     )
 
     const memberships = await em.fork().find(StaffTimeProjectMember, {
