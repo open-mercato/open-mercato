@@ -74,6 +74,17 @@ An agent that falls back to OpenCode is not registered at all if it declares gov
 With `TENANT_DATA_ENCRYPTION=false` nothing changes: artifacts are stored unencrypted, like every other encrypted column in that mode.
 
 **Action:** none for deployments with a healthy KMS. With encryption on, a KMS outage now pauses content and file-artifact capture instead of writing plaintext. Blobs stored as plaintext by earlier versions stay readable; to remove them, delete them from the `agent-trace-content`, `agent-trace-artifacts` and `agent-run-artifacts` namespaces. Content retention expires only the `agent-trace-content` blobs (LLM request/response and context payload).
+
+## Invoice delete checks the expected version under the row lock
+
+`DELETE /api/sales/invoices` now locks the invoice row and compares the
+`x-om-ext-optimistic-lock-expected-updated-at` header with the `updated_at` of the
+locked row, as order delete already does. A delete whose invoice another request
+edited after the route's version check now answers 409 `optimistic_lock_conflict`
+instead of deleting the edited invoice. Deleting a missing or already deleted
+invoice answers 404 instead of 500.
+No migration or configuration change.
+
 ## Catalog price-kind seed keeps existing price kinds (#8104)
 
 `seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
