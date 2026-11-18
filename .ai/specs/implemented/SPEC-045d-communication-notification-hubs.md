@@ -2368,13 +2368,8 @@ None.
 
 ## Changelog
 
-<<<<<<< HEAD
-=======
 - 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
 
-- 2026-10-29: Block channel-email remote image loads until per-message consent (#7819); preserve safe embedded raster images and add sanitizer, enricher, widget, and browser network-request regression coverage.
-
->>>>>>> f7f8e5ab1a (fix(communication_channels): route native replies by conversation provenance (#9739) (#9752))
 | Date | Change |
 |------|--------|
 | 2026-02-24 | v1 spec draft — ChannelAdapter contract, WhatsApp provider sketch, NotificationTransportAdapter. **Never implemented.** |
