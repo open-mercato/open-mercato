@@ -149,69 +149,139 @@ describe('MetadataEditor', () => {
     expect(onChange).toHaveBeenCalledWith({ data: { nested: 'obj' } })
   })
 
-  it('preserves a blank draft row when an unrelated rerender reorders nested metadata keys', () => {
-    const onChange = jest.fn()
-    const { rerender } = render(
-      <MetadataEditor value={{ nested: { longKey: 1, a: 2 } }} onChange={onChange} defaultCollapsed={false} />,
-    )
+  /**
+   * `addEntry`'s own `emitChange` arms `skipSyncRef` so the resync effect
+   * ignores the very next `value`-prop change (it assumes that change is its
+   * own edit echoing back through a controlled parent). In these tests the
+   * parent is a plain mock, so no such echo ever arrives — the ref would
+   * stay armed into the rerender meant to exercise the resync comparison,
+   * which would then skip `entriesMatchValue` entirely and pass for the
+   * wrong reason. Rerendering once with a new-but-equal `value` reference
+   * consumes that stale flag so the following rerender is a genuine test.
+   */
+  function addBlankDraftRowAndConsumeSkip(
+    rerender: (element: React.ReactElement) => void,
+    onChange: jest.Mock,
+    baseValue: Record<string, unknown>,
+  ) {
     fireEvent.click(screen.getByText('Add entry'))
-    const lastKeyInput = () => screen.getAllByPlaceholderText('Key').at(-1)
-    const lastValueInput = () => screen.getAllByPlaceholderText('Value').at(-1)
-    expect(lastKeyInput()).toHaveValue('')
-    expect(lastValueInput()).toHaveValue('')
+    rerender(<MetadataEditor value={{ ...baseValue }} onChange={onChange} defaultCollapsed={false} />)
+  }
+
+  const lastPlaceholderInput = (placeholder: string) => screen.getAllByPlaceholderText(placeholder).at(-1)
+
+  it('preserves a blank draft row when an unrelated rerender reorders nested metadata keys, and still resyncs on a real change', () => {
+    const onChange = jest.fn()
+    const baseValue = { nested: { longKey: 1, a: 2 } }
+    const { rerender } = render(
+      <MetadataEditor value={baseValue} onChange={onChange} defaultCollapsed={false} />,
+    )
+    addBlankDraftRowAndConsumeSkip(rerender, onChange, baseValue)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
 
     // Same nested value, keys in a different order — e.g. a JSONB round-trip.
     rerender(
       <MetadataEditor value={{ nested: { a: 2, longKey: 1 } }} onChange={onChange} defaultCollapsed={false} />,
     )
-
     expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
-    expect(lastKeyInput()).toHaveValue('')
-    expect(lastValueInput()).toHaveValue('')
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+
+    // A genuinely different value must still resync and drop the draft —
+    // proving the check above isn't vacuously true.
+    rerender(<MetadataEditor value={{ nested: { a: 3 } }} onChange={onChange} defaultCollapsed={false} />)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(1)
   })
 
-  it('preserves a blank draft row across an unrelated rerender of an unchanged null-valued entry', () => {
+  it('preserves a blank draft row across an unrelated rerender of an unchanged null-valued entry, and still resyncs on a real change', () => {
     const onChange = jest.fn()
+    const baseValue = { note: null }
     const { rerender } = render(
-      <MetadataEditor value={{ note: null }} onChange={onChange} defaultCollapsed={false} />,
+      <MetadataEditor value={baseValue} onChange={onChange} defaultCollapsed={false} />,
     )
-    fireEvent.click(screen.getByText('Add entry'))
-    const lastKeyInput = () => screen.getAllByPlaceholderText('Key').at(-1)
-    const lastValueInput = () => screen.getAllByPlaceholderText('Value').at(-1)
-    expect(lastKeyInput()).toHaveValue('')
-    expect(lastValueInput()).toHaveValue('')
+    addBlankDraftRowAndConsumeSkip(rerender, onChange, baseValue)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
 
     // `note` is unchanged — still null — but re-parsing its blank text-input
     // representation ('') back to a value yields '' (an empty string), not
     // null, so a naive re-parsed comparison would wrongly treat this as a
     // real change and wipe the draft below.
     rerender(<MetadataEditor value={{ note: null }} onChange={onChange} defaultCollapsed={false} />)
-
     expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
-    expect(lastKeyInput()).toHaveValue('')
-    expect(lastValueInput()).toHaveValue('')
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+
+    // A genuinely different value must still resync and drop the draft.
+    rerender(<MetadataEditor value={{ note: 'now set' }} onChange={onChange} defaultCollapsed={false} />)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(1)
   })
 
-  it('preserves a blank draft row across an unrelated rerender of an unchanged numeric-looking string value', () => {
+  it('preserves a blank draft row across an unrelated rerender of an unchanged numeric-looking string value, and still resyncs on a real change', () => {
     const onChange = jest.fn()
+    const baseValue = { code: '42' }
     const { rerender } = render(
-      <MetadataEditor value={{ code: '42' }} onChange={onChange} defaultCollapsed={false} />,
+      <MetadataEditor value={baseValue} onChange={onChange} defaultCollapsed={false} />,
     )
-    fireEvent.click(screen.getByText('Add entry'))
-    const lastKeyInput = () => screen.getAllByPlaceholderText('Key').at(-1)
-    const lastValueInput = () => screen.getAllByPlaceholderText('Value').at(-1)
-    expect(lastKeyInput()).toHaveValue('')
-    expect(lastValueInput()).toHaveValue('')
+    addBlankDraftRowAndConsumeSkip(rerender, onChange, baseValue)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
 
     // `code` is unchanged — still the string "42" — but re-parsing its text
     // input ("42") back to a value yields the number 42, not the string
     // "42", so a naive re-parsed comparison would wrongly treat this as a
     // real change and wipe the draft below.
     rerender(<MetadataEditor value={{ code: '42' }} onChange={onChange} defaultCollapsed={false} />)
-
     expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
-    expect(lastKeyInput()).toHaveValue('')
-    expect(lastValueInput()).toHaveValue('')
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+
+    // A genuinely different value must still resync and drop the draft.
+    rerender(<MetadataEditor value={{ code: '43' }} onChange={onChange} defaultCollapsed={false} />)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(1)
+  })
+
+  it('preserves a blank draft row across an unrelated rerender of an unchanged JSON-looking string value', () => {
+    const onChange = jest.fn()
+    // A literal string that happens to look like JSON — not an object.
+    const baseValue = { config: '{"enabled":true}' }
+    const { rerender } = render(
+      <MetadataEditor value={baseValue} onChange={onChange} defaultCollapsed={false} />,
+    )
+    addBlankDraftRowAndConsumeSkip(rerender, onChange, baseValue)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+
+    // `config` is unchanged — still the literal string '{"enabled":true}' —
+    // but re-parsing that text input yields an object, which must not be
+    // compared against the (still-string) incoming value structurally.
+    rerender(<MetadataEditor value={{ config: '{"enabled":true}' }} onChange={onChange} defaultCollapsed={false} />)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+
+    // A genuinely different value must still resync and drop the draft.
+    rerender(<MetadataEditor value={{ config: '{"enabled":false}' }} onChange={onChange} defaultCollapsed={false} />)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(1)
+  })
+
+  it('preserves a blank draft row across an unrelated rerender when a stored key has surrounding whitespace', () => {
+    const onChange = jest.fn()
+    const baseValue = { ' spacedKey ': 'value' }
+    const { rerender } = render(
+      <MetadataEditor value={baseValue} onChange={onChange} defaultCollapsed={false} />,
+    )
+    addBlankDraftRowAndConsumeSkip(rerender, onChange, baseValue)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+
+    // The stored key itself has surrounding whitespace and is unchanged —
+    // the lookup must match it verbatim, not a trimmed version of it.
+    rerender(<MetadataEditor value={{ ' spacedKey ': 'value' }} onChange={onChange} defaultCollapsed={false} />)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
   })
 
   it('renders without border in embedded mode', () => {

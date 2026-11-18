@@ -82,10 +82,14 @@ const jsonValuesEqual = (a: unknown, b: unknown): boolean => {
 const isPlainObjectOrArray = (value: unknown): boolean => value !== null && typeof value === 'object'
 
 const entriesMatchValue = (entries: MetadataEntry[], value?: Record<string, unknown> | null): boolean => {
+  // Only a blank (whitespace-only) key is excluded as a draft-in-progress —
+  // the key used for lookup stays untrimmed, so a stored key that itself
+  // has surrounding whitespace still matches the incoming value's verbatim
+  // key instead of silently failing to look it up.
   const committedRaw = new Map<string, string>()
   for (const entry of entries) {
-    const key = entry.key.trim()
-    if (key) committedRaw.set(key, entry.value)
+    if (entry.key.trim().length === 0) continue
+    committedRaw.set(entry.key, entry.value)
   }
   const incoming = value && typeof value === 'object' ? value : {}
   const incomingKeys = Object.keys(incoming)
@@ -94,9 +98,13 @@ const entriesMatchValue = (entries: MetadataEntry[], value?: Record<string, unkn
     if (!committedRaw.has(key)) return false
     const rawValue = committedRaw.get(key) as string
     const incomingValue = (incoming as Record<string, unknown>)[key]
-    const parsedCommitted = parseMetadataValue(rawValue)
-    if (isPlainObjectOrArray(parsedCommitted) || isPlainObjectOrArray(incomingValue)) {
-      return jsonValuesEqual(parsedCommitted, incomingValue)
+    // Branch on the incoming value's own type — the authoritative source —
+    // never on re-parsing the local text input: a string that merely LOOKS
+    // like JSON (e.g. the literal string '{"enabled":true}') re-parses to
+    // an object, which would wrongly select the structural branch below
+    // against an incoming value that is actually still that same string.
+    if (isPlainObjectOrArray(incomingValue)) {
+      return jsonValuesEqual(parseMetadataValue(rawValue), incomingValue)
     }
     // Scalars (null, string, number, boolean) compare the literal string
     // form rather than the re-parsed value: parsing is lossy and ambiguous
