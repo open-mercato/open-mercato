@@ -3,10 +3,36 @@ import {
   defineAiAgent,
   type AiAgentDefinition,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
+import { computeAgentDefinitionHash } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-definition-hash'
+import {
+  aiAgentCallSettingsSchema,
+  type AiAgentCallSettings,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { AgentType } from '../../data/validators'
+import {
+  normalizeAgentPrincipalDeclaration,
+  normalizeAgentRequiredFeatures,
+  type AgentPrincipalDeclaration,
+  type AgentPrincipalDeclarationInput,
+  type AgentType,
+  type IntegrityRuleInput,
+  type IntegrityRule,
+  type UntrustedInputDecl,
+  type UntrustedInputDeclInput,
+} from '../../data/validators'
+import { parseAgentIntegrityRules, parseAgentUntrustedInputs } from '../guardrails/integrity/declaration'
+import { buildUntrustedInputInstruction } from '../guardrails/integrity/untrustedInput'
 import { getSkillEntry } from './defineSkill'
+import { listAgentSkillIds } from '../runtime/fileAgentSkills'
+import type { JudgeRubric } from '../eval/judgeRubric'
+import { parseAgentEvalRubrics, registerAgentRubrics, type JudgeRubricInput } from '../eval/rubrics'
+export {
+  registerIntegrityChecker,
+  type IntegrityCheckerFn,
+  type IntegrityCheckerInput,
+  type IntegrityCheckerResult,
+} from './integrityCheckers'
 import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
 
@@ -23,15 +49,15 @@ const logger = createLogger('agent_orchestrator').child({ component: 'define-age
 export type AgentResultKind = 'proposal' | 'research' | 'artifact'
 
 /**
- * Where an agent runs. `'native'` agents are authored with `defineAgent` and
- * execute via the Vercel AI SDK object mode inside this process on the
- * `NativeAgentRunner` (lightweight-agent-runtime spec Phase 1). `'in-process'`
- * is the accepted legacy alias for the same runner — the union stays
- * ADDITIVE-ONLY per BACKWARD_COMPATIBILITY.md, so entries registered with
- * `'in-process'` dispatch identically. `'opencode'` agents are authored as
- * `agents/<id>/` file conventions (AGENT.md + OUTCOME.md), registered via
- * `registerFileAgent`, and run on the OpenCode runtime (deprecation planned —
- * see the spec's Phase 3/6).
+ * Where an agent runs. `'native'` agents execute via the Vercel AI SDK object mode
+ * inside this process on the `NativeAgentRunner` (lightweight-agent-runtime spec
+ * Phase 1) — every `defineAgent` agent and, since Phase 3, file-defined
+ * `agents/<id>/` agents by default. `'in-process'` is the accepted legacy alias
+ * for the same runner — the union stays ADDITIVE-ONLY per
+ * BACKWARD_COMPATIBILITY.md, so entries registered with `'in-process'` dispatch
+ * identically. `'opencode'` runs on the OpenCode container: file agents that need
+ * its sandbox (file plane, artifact outcomes) or the `OM_AGENT_FILE_AGENT_RUNTIME`
+ * bridge (deprecated — see the spec's Phase 3/6).
  */
 export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
 
@@ -51,6 +77,10 @@ export const NATIVE_RUNTIME_VALUES = ['native', 'in-process'] as const
  * them out in parallel. Sub-agents stay propose-only: they only inform.
  */
 export const DELEGATE_TOOL_ID = 'agent_orchestrator.delegate_agent'
+
+/** Tool ids a file agent reaches its skills and local tools through. */
+export const FILE_AGENT_LOAD_SKILL_TOOL_ID = 'agent_orchestrator.load_skill'
+export const FILE_AGENT_RUN_SKILL_SCRIPT_TOOL_ID = 'agent_orchestrator.run_skill_script'
 
 export interface DefineAgentInput {
   /** 'module.agent' — STABLE contract id (see BACKWARD_COMPATIBILITY.md). */
@@ -85,6 +115,12 @@ export interface DefineAgentInput {
   subAgents?: string[]
   defaultProvider?: string
   defaultModel?: string
+  /**
+   * Agent-level model-call defaults (temperature, seed, ...), forwarded to
+   * `defineAiAgent({ modelSettings })`. Per-call `callSettings` (run ctx, eval
+   * run override) win key by key; provider defaults apply to unset keys.
+   */
+  modelSettings?: AiAgentCallSettings
   /** Object-safe loop subset only. */
   loop?: { maxSteps?: number }
   /**
@@ -126,6 +162,47 @@ export interface DefineAgentInput {
    * it fall back to the panel's generic derivation.
    */
   facts?: AgentFact[]
+  /**
+   * ACL features the INVOKER must hold to run this agent. Normalised (trimmed,
+   * deduped, empties dropped) onto `AgentRegistryEntry.requiredFeatures` and
+   * forwarded to `defineAiAgent({ requiredFeatures })` so the ai-assistant policy
+   * check applies the same gate. Additive/BC-safe: omitted means no extra gate.
+   */
+  requiredFeatures?: string[]
+  /**
+   * The agent's own identity: a login-less `kind='agent'` user plus a per-org role
+   * holding exactly `roleFeatures`, provisioned and kept authoritative by
+   * `syncAgentPrincipals` (unknown feature ids dropped with a warning, never
+   * super-admin). Validated at registration and stored parsed on
+   * `AgentRegistryEntry.principal`. Additive/BC-safe: omitted means no declared principal.
+   */
+  principal?: AgentPrincipalDeclarationInput
+  /**
+   * Output-integrity rules (spec `2026-10-21-output-integrity-guardrails`): quotes
+   * that must appear in the source, references that must resolve, citations that
+   * must come from a consulted tool, custom checkers. Validated at registration —
+   * every output path must be able to exist in `result.schema` and rule ids must be
+   * unique — and stored parsed (defaults applied) on `AgentRegistryEntry.integrity`.
+   * Additive/BC-safe: omitted means no integrity checks.
+   */
+  integrity?: IntegrityRuleInput[]
+  /**
+   * Run-input fields that carry untrusted content (spec
+   * `2026-10-21-output-integrity-guardrails` → Untrusted inputs): each declared
+   * string field is screened for prompt injection before the model call and the
+   * flag mapped through its `injection` action (`warn` default, `block`, `off`).
+   * Labels and paths must be unique; stored parsed on
+   * `AgentRegistryEntry.untrustedInputs`. Additive/BC-safe: omitted means no screen.
+   */
+  untrustedInputs?: UntrustedInputDeclInput[]
+  /**
+   * Named judge rubrics this agent's `llm_judge` assertions can reference with
+   * `{ "rubricRef": "<key>" }` (spec `2026-10-21-eval-reports-and-reproducible-regression`
+   * → Rubric library). An agent rubric shadows a built-in of the same key.
+   * Validated at registration; stored parsed on `AgentRegistryEntry.evalRubrics`.
+   * Additive/BC-safe: omitted means only the built-in rubrics resolve.
+   */
+  evalRubrics?: Record<string, JudgeRubricInput>
 }
 
 /**
@@ -165,6 +242,14 @@ export interface AgentRegistryEntry {
    */
   allowedActions?: string[]
   schema: ZodTypeAny
+  /**
+   * Schema the MODEL is asked to produce when it differs from `schema` — a file
+   * agent's strict-mode variant (`toStrictOutcomeSchema`). `schema` stays the
+   * contract every result is validated against; `normalizeModelOutput` maps the
+   * model's answer back onto it first. Both undefined for code agents.
+   */
+  modelSchema?: ZodTypeAny
+  normalizeModelOutput?: (raw: unknown) => unknown
   tools: string[]
   skills: string[]
   subAgents: string[]
@@ -174,6 +259,8 @@ export interface AgentRegistryEntry {
   instructions: string
   defaultProvider?: string
   defaultModel?: string
+  /** Validated agent-level model-call defaults (see DefineAgentInput). */
+  modelSettings?: AiAgentCallSettings
   /** Object-safe loop subset (see DefineAgentInput). */
   loop?: { maxSteps?: number }
   /** Runtime the agent executes on. Always set (`'native'` for `defineAgent` agents; `'in-process'` accepted as a legacy alias). */
@@ -191,21 +278,56 @@ export interface AgentRegistryEntry {
   outcomeSchema?: JsonSchemaNode
   /** Optional Caseload fact declarations (see DefineAgentInput). */
   facts?: AgentFact[]
+  /** Normalised invoker features (see DefineAgentInput); undefined when the agent declares none. */
+  requiredFeatures?: string[]
+  /** Parsed principal declaration (see DefineAgentInput); undefined when the agent declares none. */
+  principal?: AgentPrincipalDeclaration
+  /** Parsed integrity rules (see DefineAgentInput); undefined when the agent declares none. */
+  integrity?: IntegrityRule[]
+  /** Parsed untrusted input declarations (see DefineAgentInput); undefined when the agent declares none. */
+  untrustedInputs?: UntrustedInputDecl[]
+  /** Parsed judge rubrics (see DefineAgentInput); undefined when the agent declares none. */
+  evalRubrics?: Record<string, JudgeRubric>
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
   /**
+   * Where the agent is authored: `'file'` for an `agents/<id>/` directory, `'code'`
+   * (or undefined) for `defineAgent`. Independent of `runtime` — a file agent runs
+   * natively by default — so UI and APIs that show file-only surfaces (Files, Token
+   * calculator) key on this, never on `runtime`.
+   */
+  definitionSource?: 'code' | 'file'
+  /**
    * Baked token-usage estimate of the agent's construction files. File-defined
-   * (`runtime: 'opencode'`) agents only; undefined for native agents.
+   * (`definitionSource: 'file'`) agents only; undefined for code agents.
    */
   tokenUsage?: AgentTokenUsage
   /**
    * Baked raw content of the agent's construction files, for the read-only Files
-   * tab. File-defined (`runtime: 'opencode'`) agents only; undefined for native.
+   * tab. File-defined (`definitionSource: 'file'`) agents only; undefined for code agents.
    */
   sourceFiles?: FileAgentFile[]
+  /**
+   * ai-assistant definition hash of the underlying `defineAiAgent` definition.
+   * Native (`defineAgent`) agents only; one input of their AO definition hash.
+   */
+  aiDefinitionHash?: string
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
+
+export function parseAgentModelSettings(
+  agentId: string,
+  modelSettings: unknown,
+): AiAgentCallSettings | undefined {
+  if (modelSettings === undefined) return undefined
+  const parsed = aiAgentCallSettingsSchema.safeParse(modelSettings)
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    throw new Error(`[internal] agent "${agentId}" declares invalid modelSettings: ${issues.join('; ')}`)
+  }
+  return Object.keys(parsed.data).length ? parsed.data : undefined
+}
 
 export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   if (registry.has(input.id)) {
@@ -231,6 +353,12 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const subAgents = input.subAgents ?? []
   const delegationTools = subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
   const effectiveTools = Array.from(new Set([...ownTools, ...skillTools, ...delegationTools]))
+  const requiredFeatures = normalizeAgentRequiredFeatures(input.id, input.requiredFeatures)
+  const principal = normalizeAgentPrincipalDeclaration(input.id, input.principal)
+  const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity, { effectiveTools })
+  const untrustedInputs = parseAgentUntrustedInputs(input.id, input.untrustedInputs)
+  const modelSettings = parseAgentModelSettings(input.id, input.modelSettings)
+  const evalRubrics = parseAgentEvalRubrics(input.id, input.evalRubrics)
 
   registry.set(input.id, {
     id: input.id,
@@ -250,20 +378,32 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     instructions: input.instructions,
     defaultProvider: input.defaultProvider,
     defaultModel: input.defaultModel,
+    ...(modelSettings ? { modelSettings } : {}),
     loop: input.loop,
     runtime: 'native',
     sampleInput: input.sampleInput,
     facts: input.facts,
+    requiredFeatures,
+    principal,
+    integrity,
+    untrustedInputs,
+    ...(evalRubrics ? { evalRubrics } : {}),
   })
+  registerAgentRubrics(input.id, evalRubrics)
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
   )
   const subAgentSection = subAgents.length
     ? `## Sub-agents\nYou may delegate independent sub-tasks to these agents by calling the \`${DELEGATE_TOOL_ID}\` tool with { agentId, input }. When several sub-tasks are independent, issue multiple delegate calls in the SAME step so they run in parallel, then combine their results. Available sub-agents: ${subAgents.join(', ')}.`
     : null
-  const systemPrompt = [input.instructions, ...skillSections, ...(subAgentSection ? [subAgentSection] : [])]
-    .join('\n\n')
-  return defineAiAgent({
+  const untrustedInputSection = buildUntrustedInputInstruction(untrustedInputs)
+  const systemPrompt = [
+    input.instructions,
+    ...skillSections,
+    ...(subAgentSection ? [subAgentSection] : []),
+    ...(untrustedInputSection ? [untrustedInputSection] : []),
+  ].join('\n\n')
+  const aiDefinition = defineAiAgent({
     id: input.id,
     moduleId: input.moduleId,
     label: input.label,
@@ -280,17 +420,22 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     mutationPolicy: 'read-only',
     defaultProvider: input.defaultProvider,
     defaultModel: input.defaultModel,
+    ...(modelSettings ? { modelSettings } : {}),
     loop: input.loop,
     output: { schemaName: input.id.replace(/\W+/g, '_'), schema: input.result.schema },
+    ...(requiredFeatures ? { requiredFeatures } : {}),
   })
+  const registered = registry.get(input.id)
+  if (registered) registered.aiDefinitionHash = computeAgentDefinitionHash(aiDefinition)
+  return aiDefinition
 }
 
 /**
- * Register a file-defined (OpenCode) agent directly into the SAME registry that
+ * Register a file-defined agent directly into the SAME registry that
  * `defineAgent` writes to, so file agents are discoverable via `getAgentEntry`,
- * `listAgentEntries`, and the Agents list/detail without going through
- * `defineAiAgent` (file agents don't run in-process, so they need no
- * `AiAgentDefinition`). Same dup-id guard as `defineAgent`.
+ * `listAgentEntries`, and the Agents list/detail. The loader registers a native
+ * file agent's ai-assistant definition separately (`buildFileAgentAiDefinition`).
+ * Same dup-id guard as `defineAgent`.
  */
 export function registerFileAgent(entry: AgentRegistryEntry): void {
   if (registry.has(entry.id)) {
@@ -301,6 +446,27 @@ export function registerFileAgent(entry: AgentRegistryEntry): void {
 
 export function getAgentEntry(id: string): AgentRegistryEntry | undefined {
   return registry.get(id)
+}
+
+/**
+ * The effective read-only tool allowlist an agent runs with: the agent's own
+ * tools, every tool its code skills contribute, the delegation tool when it
+ * declares sub-agents, and — for a file agent with skills or local tools — the
+ * `load_skill` / `run_skill_script` tools it reaches them through. It mirrors the
+ * allowlist `defineAgent` and `buildFileAgentAiDefinition` hand to the model, so
+ * the `tool_scope` guardrail judges a run against what the agent could call.
+ */
+export function resolveAgentEffectiveTools(
+  entry: Pick<AgentRegistryEntry, 'tools' | 'skills' | 'subAgents'> &
+    Partial<Pick<AgentRegistryEntry, 'id' | 'definitionSource'>>,
+): string[] {
+  const skillTools = entry.skills.flatMap((skillId) => getSkillEntry(skillId)?.tools ?? [])
+  const fileSkillTools =
+    entry.definitionSource === 'file' && entry.id && listAgentSkillIds(entry.id).length > 0
+      ? [FILE_AGENT_LOAD_SKILL_TOOL_ID, FILE_AGENT_RUN_SKILL_SCRIPT_TOOL_ID]
+      : []
+  const delegationTools = entry.subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
+  return Array.from(new Set([...entry.tools, ...skillTools, ...fileSkillTools, ...delegationTools]))
 }
 
 export function listAgentEntries(): AgentRegistryEntry[] {
@@ -365,10 +531,12 @@ async function narrowRegisteredActionVocabularies(): Promise<void> {
 }
 
 /**
- * Load file-defined (OpenCode) agents from the committed, generator-owned
- * manifest (`generated/file-agents.generated.ts`). The manifest stores PLAIN
- * data (raw JSON-Schema, not a Zod instance); for each descriptor we recompile
- * the result schema via `compileOutcome` and register it with `runtime:'opencode'`.
+ * Load file-defined agents from the committed, generator-owned manifest
+ * (`generated/file-agents.generated.ts`). The manifest stores PLAIN data (raw
+ * JSON-Schema, not a Zod instance); for each descriptor we recompile the result
+ * schema via `compileOutcome` and register it. File agents run on the native
+ * runtime by default (see `resolveFileAgentRuntime` for the OpenCode exceptions);
+ * a native one also gets a read-only ai-assistant definition.
  * The import is guarded: the manifest may be absent or empty before the first
  * `yarn generate`, and a descriptor whose schema fails to compile is skipped
  * (warned) so one bad agent never blocks the rest.
@@ -378,12 +546,15 @@ async function narrowRegisteredActionVocabularies(): Promise<void> {
  * tool id, used by the load-time propose-only check below.
  *
  * This load-time check is an EARLY, advisory rejection — NOT the load-bearing
- * propose-only boundary. The actual runtime gates (which always hold) are: (1) the
- * generated OpenCode agent file's `tools` deny-by-default allowlist + its
+ * propose-only boundary. The actual runtime gates (which always hold) are, for a
+ * NATIVE file agent, its read-only ai-assistant definition (`readOnly: true` +
+ * `mutationPolicy: 'read-only'`, which strips every `isMutation` tool before the
+ * model sees it — `buildFileAgentAiDefinition`); and for an OPENCODE file agent,
+ * (1) the generated agent file's `tools` deny-by-default allowlist + its
  * `permission: { write/edit/bash: deny }` block, and (2) the per-run session-token
  * ACL the MCP server re-checks on every tool call. The MCP server does NOT strip
- * `isMutation` tools, so those two gates — not this predicate — are what enforce
- * propose-only.
+ * `isMutation` tools, so on OpenCode those two gates — not this predicate — are
+ * what enforce propose-only.
  *
  * When the registry IS loadable we await `loadAllModuleTools()` first, so a tool
  * id absent afterward is genuinely unknown (a config error): we fail CLOSED and
@@ -470,6 +641,14 @@ async function loadFileAgents(): Promise<void> {
       | undefined) ?? []
   const { compileOutcome } = await import('./outcomeSchema')
   const { registerAgentSkills } = await import('../runtime/fileAgentSkills')
+  const nativeSupport = await import('./fileAgentNative').catch((err: unknown) => {
+    logger.warn('native file-agent support unavailable; file agents stay on OpenCode', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return null
+  })
+  const { applyFileAgentGovernance } = await import('./fileAgentGovernance')
+  const listOpenCodeUnsupportedGovernance = await loadOpenCodeGovernanceCheck()
   const isMutationTool = await loadMutationToolPredicate()
   // Flatten each descriptor's nested sub-agents (Phase 4) so they register as
   // individual file agents too: they are researcher, individually runnable, and
@@ -477,16 +656,22 @@ async function loadFileAgents(): Promise<void> {
   // propose-only mutation-tool gate below; the registry dup-id guard prevents a
   // duplicate id (a sub-agent that collides with another agent's id is skipped).
   const allDescriptors = descriptors.flatMap((descriptor) => [
-    descriptor,
-    ...(descriptor.subAgentDescriptors ?? []),
+    { descriptor, moduleId: descriptor.moduleId },
+    ...(descriptor.subAgentDescriptors ?? []).map((sub) => ({
+      descriptor: sub,
+      moduleId: sub.moduleId || descriptor.moduleId,
+    })),
   ])
-  for (const descriptor of allDescriptors) {
+  const nativeDefinitions: Array<{ entry: AgentRegistryEntry; definition: AiAgentDefinition }> = []
+  for (const { descriptor, moduleId: aiModuleId } of allDescriptors) {
     if (registry.has(descriptor.id)) continue
     // Propose-only early check (contract C8): a file agent may NEVER declare a
     // tool registered with `isMutation: true`. This is defense-in-depth on top of
-    // the load-bearing runtime gates (the agent-file read-only allowlist +
-    // write/edit/bash deny, and the per-call session-token ACL — see
-    // `loadMutationToolPredicate`). When the tool registry is resolvable we fail
+    // the load-bearing runtime gates: on native, the read-only ai-assistant
+    // definition (`readOnly` + `mutationPolicy: 'read-only'` strips every mutation
+    // tool); on OpenCode, the agent-file read-only allowlist + write/edit/bash deny
+    // and the per-call session-token ACL (see `loadMutationToolPredicate`). When
+    // the tool registry is resolvable we fail
     // CLOSED: a declared tool that is `mutating` OR `unknown` (absent after
     // `loadAllModuleTools`, i.e. a config error) rejects the agent here so it never
     // reaches registration. `skip` means the registry could not be loaded at all
@@ -507,7 +692,7 @@ async function loadFileAgents(): Promise<void> {
         kind: descriptor.resultKind,
         schema: descriptor.outcomeSchema,
       })
-      registerFileAgent({
+      const entry: AgentRegistryEntry = {
         id: descriptor.id,
         moduleId: descriptor.moduleId,
         resultKind: descriptor.resultKind,
@@ -522,12 +707,34 @@ async function loadFileAgents(): Promise<void> {
         defaultModel: descriptor.model,
         loop: descriptor.maxSteps != null ? { maxSteps: descriptor.maxSteps } : undefined,
         runtime: 'opencode',
+        definitionSource: 'file',
         outcomeSchema: descriptor.outcomeSchema,
         sampleInput: descriptor.sampleInput,
         facts: descriptor.facts,
+        requiredFeatures: normalizeAgentRequiredFeatures(descriptor.id, descriptor.requiredFeatures),
         tokenUsage: descriptor.tokenUsage,
         sourceFiles: descriptor.sourceFiles,
+      }
+      applyFileAgentGovernance(entry, descriptor.governance, {
+        hasSkills: (descriptor.skillsContent?.length ?? 0) > 0,
       })
+      entry.runtime = nativeSupport ? nativeSupport.resolveFileAgentRuntime(entry) : 'opencode'
+      let definition: AiAgentDefinition | null = null
+      if (nativeSupport && entry.runtime === 'native') {
+        try {
+          nativeSupport.attachStrictModelSchema(entry)
+          definition = nativeSupport.buildFileAgentAiDefinition(entry, descriptor.skillsContent ?? [], aiModuleId)
+        } catch (err) {
+          logger.warn('could not build the native definition of a file agent; keeping it on OpenCode', {
+            agentId: entry.id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+          entry.runtime = 'opencode'
+        }
+      }
+      if (entry.runtime === 'opencode' && !canRunOnOpenCode(entry, listOpenCodeUnsupportedGovernance)) continue
+      registerFileAgent(entry)
+      if (definition) nativeDefinitions.push({ entry, definition })
       // Phase 3: register the agent's resolved skill content into the runtime
       // lookup so `load_skill` can return it without fs access. Optional + BC: a
       // descriptor without `skillsContent` registers no skills (cleared).
@@ -539,6 +746,72 @@ async function loadFileAgents(): Promise<void> {
       })
     }
   }
+  await registerNativeFileAgentDefinitions(nativeDefinitions)
+}
+
+/**
+ * Hand native file agents' read-only definitions to the ai-assistant registry,
+ * which `runAiAgentObject` resolves the agent from. An agent whose definition
+ * could not be registered — the registry is unavailable, or another module
+ * already owns the id — is moved back to OpenCode: running it natively would
+ * either fail or, worse, execute that other agent's definition.
+ */
+async function registerNativeFileAgentDefinitions(
+  nativeDefinitions: Array<{ entry: AgentRegistryEntry; definition: AiAgentDefinition }>,
+): Promise<void> {
+  if (nativeDefinitions.length === 0) return
+  let registeredIds = new Set<string>()
+  try {
+    const { registerRuntimeAiAgents } = await import(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-registry'
+    )
+    registeredIds = new Set(await registerRuntimeAiAgents(nativeDefinitions.map(({ definition }) => definition)))
+  } catch (err) {
+    logger.warn('could not register native file agents with the AI agent registry', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+  const listOpenCodeUnsupportedGovernance = await loadOpenCodeGovernanceCheck()
+  for (const { entry } of nativeDefinitions) {
+    if (registeredIds.has(entry.id)) continue
+    if (!canRunOnOpenCode(entry, listOpenCodeUnsupportedGovernance)) {
+      registry.delete(entry.id)
+      const { registerAgentSkills } = await import('../runtime/fileAgentSkills')
+      registerAgentSkills(entry.id, [])
+      continue
+    }
+    logger.warn('file agent could not run natively; keeping it on OpenCode', { agentId: entry.id })
+    entry.runtime = 'opencode'
+  }
+}
+
+/**
+ * The OpenCode governance check, resolving a principal's tool ACL mode the way
+ * the runtime does (declared `toolAcl`, else `OM_AGENT_TOOL_ACL_MODE`), so a
+ * deployment-wide `intersect` default is not silently widened on OpenCode.
+ */
+async function loadOpenCodeGovernanceCheck(): Promise<(entry: AgentRegistryEntry) => string[]> {
+  const { listOpenCodeUnsupportedGovernance } = await import('./fileAgentGovernance')
+  const { resolveToolAclMode } = await import('../identity/resolveEffectiveToolAcl')
+  return (entry) => listOpenCodeUnsupportedGovernance(entry, resolveToolAclMode)
+}
+
+/**
+ * Fail closed when a file agent that must stay on, or falls back to, OpenCode
+ * declares governance OpenCode cannot honour: the agent is not registered (or is
+ * removed again), because running it there would silently drop the declaration.
+ */
+function canRunOnOpenCode(
+  entry: AgentRegistryEntry,
+  listUnsupported: (entry: AgentRegistryEntry) => string[],
+): boolean {
+  const unsupported = listUnsupported(entry)
+  if (unsupported.length === 0) return true
+  logger.warn('file agent declares governance the OpenCode runtime cannot enforce; skipping registration', {
+    agentId: entry.id,
+    unsupported,
+  })
+  return false
 }
 
 /**
