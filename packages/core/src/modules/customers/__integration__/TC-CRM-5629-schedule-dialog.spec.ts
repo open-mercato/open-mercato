@@ -35,6 +35,9 @@ async function openNewMeetingDialog(page: Page, companyId: string): Promise<Loca
  *   2. The "After occurrences" field can be cleared while the number is being
  *      replaced. An empty field blocks the save instead of turning into 1, and
  *      the saved series keeps the typed count after the dialog is reopened.
+ *   3. An invalid series draft left on a meeting must not block a task: the task
+ *      form has no recurrence controls, so nothing there could be corrected.
+ *      Switching back to Meeting brings the check back.
  */
 test.describe('TC-CRM-5629: schedule activity dialog time list and occurrences count (#5629)', () => {
   test('start time list scrolls inside the dialog, applies a time, and Escape closes only the list', async ({ page, request }) => {
@@ -167,6 +170,64 @@ test.describe('TC-CRM-5629: schedule activity dialog time list and occurrences c
       const editDialog = page.getByRole('dialog').filter({ has: page.getByRole('spinbutton', { name: 'After occurrences' }) })
       await expect(editDialog).toBeVisible({ timeout: 15_000 })
       await expect(editDialog.getByRole('spinbutton', { name: 'After occurrences' })).toHaveValue('4')
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('an invalid series draft does not block saving a task, and blocks the meeting again', async ({ page, request }) => {
+    test.slow()
+
+    let token: string | null = null
+    let companyId: string | null = null
+    let interactionId: string | null = null
+    const stamp = Date.now()
+    const title = `QA TC-CRM-5629 task ${stamp}`
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-5629 Task Co ${stamp}`)
+
+      await login(page, 'admin')
+      await openNewMeetingDialog(page, companyId)
+      const dialog = page.getByRole('dialog').filter({ has: page.locator('input[aria-required="true"]') })
+
+      const titleInput = dialog.locator('input[aria-required="true"]').first()
+      await titleInput.fill(title)
+      await expect(titleInput).toHaveValue(title)
+
+      await dialog.getByRole('button', { name: 'Does not repeat' }).click()
+      await dialog.getByRole('button', { name: 'After occurrences' }).click()
+      const countInput = dialog.getByRole('spinbutton', { name: 'After occurrences' })
+      await countInput.fill('')
+      await expect(countInput).toHaveValue('')
+      await expect(dialog.getByRole('button', { name: /^Save activity$/ })).toBeDisabled()
+
+      await dialog.getByRole('button', { name: 'Task', exact: true }).click()
+      await expect(countInput, 'the task form has no recurrence controls').toHaveCount(0)
+      const saveTask = dialog.getByRole('button', { name: /^Save task$/ })
+      await expect(saveTask, 'a hidden series draft must not block the task').toBeEnabled()
+
+      await dialog.getByRole('button', { name: 'Meeting', exact: true }).click()
+      await expect(countInput).toHaveValue('')
+      await expect(dialog.getByRole('button', { name: /^Save activity$/ })).toBeDisabled()
+
+      await dialog.getByRole('button', { name: 'Task', exact: true }).click()
+      await expect(saveTask).toBeEnabled()
+      const created = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/customers/interactions') && response.request().method() === 'POST',
+        { timeout: 30_000 },
+      )
+      await saveTask.click()
+      const createResponse = await created
+      expect(createResponse.ok(), `POST /api/customers/interactions returned ${createResponse.status()}`).toBeTruthy()
+      const sentBody = createResponse.request().postDataJSON() as { recurrenceRule?: string | null }
+      expect(sentBody.recurrenceRule ?? null, 'a task is saved without a series').toBeNull()
+      const createdBody = (await createResponse.json().catch(() => null)) as { id?: string } | null
+      interactionId = createdBody?.id ?? null
+      await expect(dialog).toBeHidden({ timeout: 15_000 })
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
