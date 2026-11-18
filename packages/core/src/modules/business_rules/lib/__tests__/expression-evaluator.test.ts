@@ -555,6 +555,7 @@ describe('RuleExpressionEvaluator', () => {
           evaluateExpression({ field: 'quantity', operator, value: null, valueField: 'limit' }, { quantity: '', limit: 0 }, {}),
         ).toBe(false)
         expect(evaluateExpression({ field: 'quantity', operator, value: '0' }, { quantity: '' }, {})).toBe(false)
+        expect(evaluateExpression({ field: 'quantity', operator, value: '' }, { quantity: 0 }, {})).toBe(false)
       }
       expect(evaluateExpression({ field: 'quantity', operator: '>=', value: 0 }, { quantity: '3' }, {})).toBe(true)
       expect(evaluateExpression({ field: 'quantity', operator: 'IS_EMPTY', value: null }, { quantity: '' }, {})).toBe(true)
