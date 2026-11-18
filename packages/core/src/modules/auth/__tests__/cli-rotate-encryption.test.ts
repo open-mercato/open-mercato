@@ -66,7 +66,7 @@ describe('auth rotate-encryption-key CLI', () => {
 
     expect(decryptWithAesGcm).toHaveBeenCalled()
     expect(execute).toHaveBeenLastCalledWith(
-      expect.stringContaining('email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id'),
+      expect.stringContaining('SET email = ?, email_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id'),
       ['enc:user@example.com', 'hash', 'user-1', 'tenant-1', 'org-1', encryptedValue, originalHash],
     )
     expect(persist).not.toHaveBeenCalled()

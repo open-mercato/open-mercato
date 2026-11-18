@@ -325,7 +325,7 @@ const rotateEncryptionKey: ModuleCli = {
         if (nextEmail && nextEmail !== rawEmail) {
           const nextEmailHash = encrypted.emailHash ?? computeEmailHash(plainEmail)
           const result = await conn.execute(
-            `UPDATE ${qualifiedTable} SET email = ?, email_hash = ? WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id`,
+            `UPDATE ${qualifiedTable} SET email = ?, email_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id`,
             [nextEmail, nextEmailHash, row.id, scopeTenantId, scopeOrganizationId, row.email, row.email_hash],
           )
           if (!Array.isArray(result) || result.length !== 1) {

@@ -42,8 +42,8 @@ describePostgres('auth email maintenance compare-and-swap in PostgreSQL', () => 
     schema = `auth_rotation_${randomUUID().replaceAll('-', '')}`
     pool = new Pool({ connectionString: databaseUrl })
     await pool.query(`CREATE SCHEMA "${schema}"`)
-    await pool.query(`CREATE TABLE "${schema}".users (id text PRIMARY KEY, tenant_id text, organization_id text, email text, email_hash text, display_name text)`)
-    await pool.query(`INSERT INTO "${schema}".users VALUES ('user-1', 'tenant-1', 'org-1', $1, NULL, 'Original name')`, [originalEmail])
+    await pool.query(`CREATE TABLE "${schema}".users (id text PRIMARY KEY, tenant_id text, organization_id text, email text, email_hash text, display_name text, updated_at timestamptz NOT NULL DEFAULT '2020-01-01T00:00:00Z')`)
+    await pool.query(`INSERT INTO "${schema}".users VALUES ('user-1', 'tenant-1', 'org-1', $1, NULL, 'Original name', DEFAULT)`, [originalEmail])
     afterRead = undefined
     mockManager = {
       getConnection: () => ({
@@ -74,7 +74,10 @@ describePostgres('auth email maintenance compare-and-swap in PostgreSQL', () => 
 
   it.each([null, 'original-hash'])('rotates unchanged ciphertext with original hash %s', async (originalHash) => {
     await pool.query(`UPDATE "${schema}".users SET email_hash = $1`, [originalHash])
+    const previousVersion = (await pool.query(`SELECT updated_at FROM "${schema}".users`)).rows[0].updated_at as Date
     await run()
+    const updatedVersion = (await pool.query(`SELECT updated_at FROM "${schema}".users`)).rows[0].updated_at as Date
+    expect(updatedVersion.getTime()).toBeGreaterThan(previousVersion.getTime())
     expect((await pool.query(`SELECT email, email_hash, display_name FROM "${schema}".users`)).rows).toEqual([
       { email: 'encrypted:original@example.test', email_hash: 'replacement-hash', display_name: 'Original name' },
     ])
@@ -86,12 +89,13 @@ describePostgres('auth email maintenance compare-and-swap in PostgreSQL', () => 
     ['tenant_id', 'tenant-2'],
     ['organization_id', 'org-2'],
   ])('preserves a concurrent %s change and rejects the stale write', async (column, replacement) => {
+    const concurrentVersion = new Date('2021-01-01T00:00:00Z')
     afterRead = async () => {
-      await pool.query(`UPDATE "${schema}".users SET ${column} = $1 WHERE id = 'user-1'`, [replacement])
+      await pool.query(`UPDATE "${schema}".users SET ${column} = $1, updated_at = $2 WHERE id = 'user-1'`, [replacement, concurrentVersion])
     }
     await expect(run()).rejects.toThrow('A row changed concurrently during auth encryption maintenance')
-    const expected = { email: originalEmail, email_hash: null, tenant_id: 'tenant-1', organization_id: 'org-1', [column]: replacement }
-    expect((await pool.query(`SELECT email, email_hash, tenant_id, organization_id FROM "${schema}".users`)).rows).toEqual([expected])
+    const expected = { email: originalEmail, email_hash: null, tenant_id: 'tenant-1', organization_id: 'org-1', updated_at: concurrentVersion, [column]: replacement }
+    expect((await pool.query(`SELECT email, email_hash, tenant_id, organization_id, updated_at FROM "${schema}".users`)).rows).toEqual([expected])
   })
 
   it('does not overwrite a concurrent plaintext email change during initial encryption', async () => {
