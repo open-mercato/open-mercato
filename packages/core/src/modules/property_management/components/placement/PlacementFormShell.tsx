@@ -10,6 +10,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ArchivedBuildingNotice } from '../manageAccess'
 
 export type PlacementFormShellProps<TValues extends Record<string, unknown>> = {
   title: string
@@ -28,13 +29,15 @@ export type PlacementFormShellProps<TValues extends Record<string, unknown>> = {
   deleteDisabledReason?: string | null
   contentHeader?: React.ReactNode
   children?: React.ReactNode
+  archived?: boolean
+  entityId?: string
 }
 
 export function PlacementFormShell<TValues extends Record<string, unknown>>(props: PlacementFormShellProps<TValues>) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
-  const { blocked, blockedMessage, onSubmit, onDelete } = props
+  const { blocked, blockedMessage, onSubmit, onDelete, archived = false } = props
 
   const handleSubmit = React.useCallback(async (values: TValues) => {
     if (blocked) throw createCrudFormError(blockedMessage)
@@ -59,7 +62,7 @@ export function PlacementFormShell<TValues extends Record<string, unknown>>(prop
   const deleteDisabled = Boolean(props.deleteDisabledReason) || deleting
   const buttons = (
     <div className="flex flex-wrap items-center gap-2">
-      {onDelete ? (
+      {onDelete && !archived ? (
         <Button type="button" variant="destructive-outline" onClick={() => { void handleDelete() }} disabled={deleteDisabled}>
           {deleting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Trash2 className="mr-2 size-4" />}
           {props.deleteLabel ?? t('property_management.common.delete', 'Delete')}
@@ -68,10 +71,12 @@ export function PlacementFormShell<TValues extends Record<string, unknown>>(prop
       <Button asChild variant="outline">
         <Link href={props.backHref}>{t('property_management.common.cancel', 'Cancel')}</Link>
       </Button>
-      <Button type="submit" form={props.formId} disabled={blocked || pending} data-testid="placement-submit">
-        {pending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
-        {props.submitLabel}
-      </Button>
+      {archived ? null : (
+        <Button type="submit" form={props.formId} disabled={blocked || pending} data-testid="placement-submit">
+          {pending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
+          {props.submitLabel}
+        </Button>
+      )}
     </div>
   )
 
@@ -89,12 +94,15 @@ export function PlacementFormShell<TValues extends Record<string, unknown>>(prop
             fields={props.fields}
             groups={props.groups}
             initialValues={props.initialValues}
+            entityId={props.entityId}
             submitLabel={props.submitLabel}
+            readOnly={archived}
+            readOnlyOverlay={<ArchivedBuildingNotice />}
             onSubmit={handleSubmit}
           />
           {props.children}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-4">
-            <p className="text-sm text-muted-foreground">{props.deleteDisabledReason ?? (blocked ? blockedMessage : '')}</p>
+            <p className="text-sm text-muted-foreground">{archived ? '' : props.deleteDisabledReason ?? (blocked ? blockedMessage : '')}</p>
             {buttons}
           </div>
         </div>
@@ -108,9 +116,10 @@ export type PlacementPageStateProps = {
   notFound: boolean
   error: boolean
   backHref: string
+  onRetry?: () => void
 }
 
-export function PlacementPageState({ loading, notFound, error, backHref }: PlacementPageStateProps) {
+export function PlacementPageState({ loading, notFound, error, backHref, onRetry }: PlacementPageStateProps) {
   const t = useT()
   return (
     <Page>
@@ -123,7 +132,12 @@ export function PlacementPageState({ loading, notFound, error, backHref }: Place
             backLabel={t('property_management.common.back', 'Back')}
           />
         ) : null}
-        {!loading && !notFound && error ? <ErrorMessage label={t('property_management.common.loadError', 'Could not load the data.')} /> : null}
+        {!loading && !notFound && error ? (
+          <ErrorMessage
+            label={t('property_management.common.loadError', 'Could not load the data.')}
+            action={onRetry ? <Button type="button" variant="outline" onClick={onRetry}>{t('property_management.common.retry', 'Try again')}</Button> : undefined}
+          />
+        ) : null}
       </PageBody>
     </Page>
   )

@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 
 interface AclRow {
   user_id: string
@@ -56,12 +57,18 @@ export async function getScopedNotificationRecipientUserIds(
   return users.map((user) => user.user_id)
 }
 
+function isCustomerAccountsModuleEnabled(): boolean {
+  const modules = tryGetModules()
+  return modules === null || modules.some((entry) => entry.id === 'customer_accounts')
+}
+
 export async function getScopedCustomerUserRecipientIds(
   db: Kysely<any>,
   tenantId: string,
   organizationId: string,
   recipientCustomerUserIds: string[],
 ): Promise<string[]> {
+  if (!recipientCustomerUserIds.length || !isCustomerAccountsModuleEnabled()) return []
   const builder: any = db
   const customerUsers = await builder
     .selectFrom('customer_users')

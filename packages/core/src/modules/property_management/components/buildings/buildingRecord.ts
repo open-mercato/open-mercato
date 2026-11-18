@@ -1,3 +1,6 @@
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
+import type { UsageBlockerRow } from '../usageBlockers'
+
 export type ManagerRecord = { userId: string; name: string | null; email: string | null }
 
 export type FloorRow = {
@@ -9,6 +12,8 @@ export type FloorRow = {
   spaceCount: number
   unitCount: number
 }
+
+export type OpeningHoursRecord = { weekday: number; opensAt: string; closesAt: string }
 
 export type BuildingRecord = {
   id: string
@@ -23,6 +28,9 @@ export type BuildingRecord = {
   unitCount: number
   managers: ManagerRecord[]
   floors: FloorRow[]
+  openingHoursEnabled: boolean
+  openingHours: OpeningHoursRecord[]
+  customFieldValues: Record<string, unknown>
 }
 
 export type BuildingListPayload = {
@@ -42,7 +50,8 @@ export type BuildingUsage = {
   everUsed: boolean
   canDelete: boolean
   canArchive: boolean
-  blockers: Array<{ kind: 'lease' | 'booking'; id: string; label: string; unitId: string; until: string | null }>
+  blockers: UsageBlockerRow[]
+  blockerCount?: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,6 +88,14 @@ function normalizeFloor(value: unknown): FloorRow | null {
   }
 }
 
+function normalizeOpeningHours(value: unknown): OpeningHoursRecord | null {
+  if (!isRecord(value)) return null
+  const opensAt = readString(value.opensAt)
+  const closesAt = readString(value.closesAt)
+  if (!opensAt || !closesAt) return null
+  return { weekday: readNumber(value.weekday), opensAt: opensAt.slice(0, 5), closesAt: closesAt.slice(0, 5) }
+}
+
 export function normalizeBuilding(value: unknown): BuildingRecord | null {
   if (!isRecord(value)) return null
   const id = readString(value.id)
@@ -98,6 +115,11 @@ export function normalizeBuilding(value: unknown): BuildingRecord | null {
     unitCount: readNumber(value.unitCount),
     managers,
     floors: floors.sort((left, right) => left.number - right.number),
+    openingHoursEnabled: value.openingHoursEnabled === true,
+    openingHours: Array.isArray(value.openingHours)
+      ? value.openingHours.map(normalizeOpeningHours).filter((item): item is OpeningHoursRecord => item !== null)
+      : [],
+    customFieldValues: extractCustomFieldEntries(value),
   }
 }
 

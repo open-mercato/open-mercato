@@ -1,6 +1,9 @@
 import {
+  PLACEMENT_SNAP,
   checkPlacement,
+  clampInto,
   containingRect,
+  firstConflicts,
   fitsInside,
   floorRect,
   overlaps,
@@ -8,6 +11,7 @@ import {
   type PlacementContext,
   type PlacementIssue,
   type PlacementKind,
+  type Rect,
   type UnitRect,
 } from '../../lib/geometry'
 import type { FloorLayoutData, LayoutRect } from '../floor/types'
@@ -72,4 +76,31 @@ export function evaluatePlacement(
 
 export function issuesKey(issues: readonly PlacementIssue[]): string {
   return JSON.stringify(issues)
+}
+
+export function blockedOnlyBy(issues: readonly PlacementIssue[], kind: PlacementKind, name: string): boolean {
+  const overlaps = issues.filter((issue) => issue.code === 'overlaps' && issue.kind === kind)
+  return overlaps.length > 0 && overlaps.every((issue) => issue.code === 'overlaps' && issue.names.length === 1 && issue.names[0] === name)
+}
+
+function stepsWithin(start: number, span: number, size: number): number[] {
+  const values: number[] = []
+  const last = start + Math.max(0, span - size)
+  for (let value = start; value <= last + 1e-9; value += PLACEMENT_SNAP) values.push(Math.round(value * 100) / 100)
+  if (!values.length || values[values.length - 1] < last - 1e-9) values.push(Math.round(last * 100) / 100)
+  return values
+}
+
+export function placeInsideSpace(rect: Rect, space: Rect, obstacles: readonly Rect[]): Rect {
+  for (const y of stepsWithin(space.y, space.depth, rect.depth)) {
+    for (const x of stepsWithin(space.x, space.width, rect.width)) {
+      const candidate = { ...rect, x, y }
+      if (!firstConflicts(candidate, obstacles).length) return clampInto(candidate, space)
+    }
+  }
+  return clampInto({ ...rect, x: space.x, y: space.y }, space)
+}
+
+export function unitObstacles(layout: FloorLayoutData, selfId: string | null): Rect[] {
+  return [...layout.units.filter((unit) => unit.id !== selfId), ...layout.commonAreas]
 }

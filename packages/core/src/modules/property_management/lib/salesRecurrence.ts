@@ -1,13 +1,23 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { InvalidFieldNameException, TableNotFoundException } from '@mikro-orm/core'
 import { commandRegistry, type CommandBus } from '@open-mercato/shared/lib/commands'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { buildTrustedSalesContext } from './salesCommandContext'
 import { SalesContractUnavailableError } from './salesErrors'
-import { readOrderRecurrenceRow, readRecurringPeriodRows, type RecurringPeriodRow } from './salesLookups'
+import {
+  readOrderRecurrenceRow,
+  readOrderRecurrenceRows,
+  readRecurringPeriodRows,
+  readRecurringPeriodRowsByOrder,
+  type OrderRecurrenceRow,
+  type RecurringPeriodRow,
+} from './salesLookups'
 import { compareIsoDates } from './leaseTerm'
 import type { Scope } from './productUse'
 
 export const SALES_RECURRENCE_CANCEL_COMMAND = 'sales.orders.recurrence.cancel'
+export const SALES_RECURRENCE_CANCEL_ALLOW_CREDIT_CAPABILITY = 'allowCredit'
 export const CANCEL_SETTLEMENTS = ['prorate', 'credit_full', 'keep'] as const
 export type CancelSettlement = (typeof CANCEL_SETTLEMENTS)[number]
 export const FALLBACK_CANCEL_SETTLEMENT: CancelSettlement = 'keep'
@@ -65,12 +75,28 @@ function readResult(value: unknown): CancelRecurrenceResult {
   }
 }
 
-export async function isRecurrenceCancelAvailable(): Promise<boolean> {
+export type RecurrenceCancelSupport = { registered: boolean; allowCredit: boolean }
+
+function declaresCapability(handler: unknown, capability: string): boolean {
+  if (!handler || typeof handler !== 'object') return false
+  const capabilities = (handler as { capabilities?: unknown }).capabilities
+  return Array.isArray(capabilities) && capabilities.includes(capability)
+}
+
+export async function recurrenceCancelSupport(): Promise<RecurrenceCancelSupport> {
   try {
-    return (await commandRegistry.load(SALES_RECURRENCE_CANCEL_COMMAND)) !== null
-  } catch {
-    return false
+    const handler = await commandRegistry.load(SALES_RECURRENCE_CANCEL_COMMAND)
+    if (!handler) return { registered: false, allowCredit: false }
+    return { registered: true, allowCredit: declaresCapability(handler, SALES_RECURRENCE_CANCEL_ALLOW_CREDIT_CAPABILITY) }
+  } catch (err) {
+    getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.recurrence_cancel_lookup_failed' })
+    return { registered: false, allowCredit: false }
   }
+}
+
+export async function isRecurrenceCancelAvailable(): Promise<boolean> {
+  const support = await recurrenceCancelSupport()
+  return support.registered && support.allowCredit
 }
 
 export async function cancelRecurrence(
@@ -78,7 +104,8 @@ export async function cancelRecurrence(
   scope: Scope,
   input: CancelRecurrenceInput,
 ): Promise<CancelRecurrenceResult> {
-  if (!(await isRecurrenceCancelAvailable())) {
+  const support = await recurrenceCancelSupport()
+  if (!support.registered || (!input.allowCredit && !support.allowCredit)) {
     throw new SalesContractUnavailableError(SALES_RECURRENCE_CANCEL_COMMAND)
   }
   const commandBus = container.resolve('commandBus') as CommandBus
@@ -89,7 +116,7 @@ export async function cancelRecurrence(
       settlement: input.settlement,
       idempotencyKey: input.idempotencyKey,
       scheduleVersion: input.scheduleVersion ?? undefined,
-      allowCredit: input.allowCredit,
+      ...(support.allowCredit ? { allowCredit: input.allowCredit } : {}),
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     },
@@ -98,16 +125,7 @@ export async function cancelRecurrence(
   return readResult(result)
 }
 
-export async function readRecurrence(em: EntityManager, scope: Scope, orderId: string): Promise<RecurrenceRead | null> {
-  const row = await readOrderRecurrenceRow(em, scope, orderId)
-  if (!row) return null
-  let periods: RecurrencePeriod[] = []
-  let invoicesAvailable = true
-  try {
-    periods = await readRecurringPeriodRows(em, scope, orderId)
-  } catch {
-    invoicesAvailable = false
-  }
+function recurrenceReadOf(row: OrderRecurrenceRow, periods: RecurrencePeriod[], invoicesAvailable: boolean): RecurrenceRead {
   return {
     orderId: row.orderId,
     status: row.status,
@@ -122,6 +140,64 @@ export async function readRecurrence(em: EntityManager, scope: Scope, orderId: s
     periods,
     invoicesAvailable,
   }
+}
+
+const UNDEFINED_TABLE = '42P01'
+
+export function isMissingRelation(err: unknown): boolean {
+  if (err instanceof TableNotFoundException) return true
+  if (!err || typeof err !== 'object') return false
+  const record = err as { code?: unknown; cause?: unknown }
+  if (record.code === UNDEFINED_TABLE) return true
+  return Boolean(record.cause && typeof record.cause === 'object' && (record.cause as { code?: unknown }).code === UNDEFINED_TABLE)
+}
+
+const UNDEFINED_COLUMN = '42703'
+
+export function isMissingColumn(err: unknown): boolean {
+  if (err instanceof InvalidFieldNameException) return true
+  if (!err || typeof err !== 'object') return false
+  const record = err as { code?: unknown; cause?: unknown }
+  if (record.code === UNDEFINED_COLUMN) return true
+  return Boolean(record.cause && typeof record.cause === 'object' && (record.cause as { code?: unknown }).code === UNDEFINED_COLUMN)
+}
+
+const PERIODS_SAVEPOINT = 'property_management_recurring_periods'
+
+type OptionalPeriods<T> = { value: T; available: true } | { value: null; available: false }
+
+async function readOptionalPeriods<T>(em: EntityManager, read: () => Promise<T>): Promise<OptionalPeriods<T>> {
+  const transaction = em.getTransactionContext()
+  const connection = em.getConnection()
+  if (transaction) await connection.execute(`savepoint ${PERIODS_SAVEPOINT}`, [], 'run', transaction)
+  let value: T
+  try {
+    value = await read()
+  } catch (err) {
+    if (transaction) await connection.execute(`rollback to savepoint ${PERIODS_SAVEPOINT}`, [], 'run', transaction)
+    if (!isMissingRelation(err)) throw err
+    return { value: null, available: false }
+  }
+  if (transaction) await connection.execute(`release savepoint ${PERIODS_SAVEPOINT}`, [], 'run', transaction)
+  return { value, available: true }
+}
+
+export async function readRecurrence(em: EntityManager, scope: Scope, orderId: string): Promise<RecurrenceRead | null> {
+  const row = await readOrderRecurrenceRow(em, scope, orderId)
+  if (!row) return null
+  const periods = await readOptionalPeriods(em, () => readRecurringPeriodRows(em, scope, orderId))
+  return recurrenceReadOf(row, periods.value ?? [], periods.available)
+}
+
+export async function readRecurrences(em: EntityManager, scope: Scope, orderIds: readonly string[]): Promise<Map<string, RecurrenceRead>> {
+  const rows = await readOrderRecurrenceRows(em, scope, orderIds)
+  if (!rows.size) return new Map()
+  const periods = await readOptionalPeriods(em, () => readRecurringPeriodRowsByOrder(em, scope, Array.from(rows.keys())))
+  const periodsByOrder = periods.value ?? new Map<string, RecurrencePeriod[]>()
+  const invoicesAvailable = periods.available
+  const reads = new Map<string, RecurrenceRead>()
+  for (const [orderId, row] of rows) reads.set(orderId, recurrenceReadOf(row, periodsByOrder.get(orderId) ?? [], invoicesAvailable))
+  return reads
 }
 
 export function hasIssuedInvoice(recurrence: RecurrenceRead | null): boolean {
@@ -156,38 +232,18 @@ export function previewCancelCredit(
   }
 }
 
-let settlementColumnPresent: boolean | null = null
-
-async function settlementColumnExists(em: EntityManager): Promise<boolean> {
-  if (settlementColumnPresent !== null) return settlementColumnPresent
-  try {
-    const rows = await em.fork().getConnection().execute<Array<{ column_name: string }>>(
-      `select column_name from information_schema.columns
-        where table_name = 'sales_settings' and column_name = 'recurring_cancel_settlement' limit 1`,
-      [],
-    )
-    settlementColumnPresent = rows.length > 0
-  } catch {
-    return false
-  }
-  return settlementColumnPresent
-}
-
 export async function defaultCancelSettlement(em: EntityManager, scope: Scope): Promise<CancelSettlement> {
-  if (!(await settlementColumnExists(em))) return FALLBACK_CANCEL_SETTLEMENT
+  let rows: Array<{ recurring_cancel_settlement: unknown }>
   try {
-    const rows = await em.fork().getConnection().execute<Array<{ recurring_cancel_settlement: unknown }>>(
+    rows = await em.fork().getConnection().execute<Array<{ recurring_cancel_settlement: unknown }>>(
       `select recurring_cancel_settlement from sales_settings
         where organization_id = ? and tenant_id = ? and deleted_at is null limit 1`,
       [scope.organizationId, scope.tenantId],
     )
-    const value = rows[0]?.recurring_cancel_settlement
-    return isCancelSettlement(value) ? value : FALLBACK_CANCEL_SETTLEMENT
-  } catch {
-    return FALLBACK_CANCEL_SETTLEMENT
+  } catch (err) {
+    if (isMissingColumn(err)) return FALLBACK_CANCEL_SETTLEMENT
+    throw err
   }
-}
-
-export function resetSalesRecurrenceAdapterCache(): void {
-  settlementColumnPresent = null
+  const value = rows[0]?.recurring_cancel_settlement
+  return isCancelSettlement(value) ? value : FALLBACK_CANCEL_SETTLEMENT
 }

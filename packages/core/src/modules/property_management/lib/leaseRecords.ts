@@ -1,5 +1,7 @@
+import type { AwilixContainer } from 'awilix'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CatalogProduct } from '@open-mercato/core/modules/catalog/data/entities'
 import {
@@ -9,11 +11,11 @@ import {
 } from '@open-mercato/core/modules/customers/data/entities'
 import { Lease, LeaseProposal, LeaseVersion, Unit, UnitProductPeriod, type SalesOperation } from '../data/entities'
 import { isBuildingPermitted, type PermittedBuildings } from './buildingAccess'
-import { notFoundError, unprocessableError } from './errors'
+import { conflictError, notFoundError, unprocessableError } from './errors'
 import { OPEN_PROPOSAL_STATUSES } from './leaseOccupancy'
 import { formatAmount } from './money'
 import { recordOperation } from './salesOperations'
-import type { Scope } from './productUse'
+import { periodPriceOf, type PriceContext, type PriceSnapshot, type Scope } from './productUse'
 
 export type LeaseProduct = {
   catalogProductId: string
@@ -49,14 +51,15 @@ export async function loadPermittedUnit(em: EntityManager, scope: Scope, permitt
   return unit
 }
 
-export async function lockUnitRow(em: EntityManager, scope: Scope, unitId: string): Promise<Unit> {
-  const unit = await findOneWithDecryption(
-    em,
-    Unit,
-    { id: unitId, ...scope, deletedAt: null },
-    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-    scope,
-  )
+export async function lockUnitRow(
+  em: EntityManager,
+  scope: Scope,
+  unitId: string,
+  options: { includeDeleted?: boolean } = {},
+): Promise<Unit> {
+  const where: Record<string, unknown> = { id: unitId, ...scope }
+  if (!options.includeDeleted) where.deletedAt = null
+  const unit = await findOneWithDecryption(em, Unit, where, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, scope)
   if (!unit) throw await unprocessableError('property_management.errors.unitNotFound', 'Unit not found.')
   return unit
 }
@@ -64,19 +67,19 @@ export async function lockUnitRow(em: EntityManager, scope: Scope, unitId: strin
 export async function lockLeaseRow(em: EntityManager, scope: Scope, leaseId: string): Promise<Lease> {
   const lease = await findOneWithDecryption(em, Lease, { id: leaseId, ...scope }, { refresh: true }, scope)
   if (!lease) throw await notFoundError('property_management.errors.leaseNotFound', 'Lease not found.')
-  await lockUnitRow(em, scope, lease.unitId)
+  await lockUnitRow(em, scope, lease.unitId, { includeDeleted: true })
   const locked = await findOneWithDecryption(em, Lease, { id: leaseId, ...scope }, { refresh: true }, scope)
   if (!locked || locked.deletedAt) throw await notFoundError('property_management.errors.leaseNotFound', 'Lease not found.')
   return locked
 }
 
 async function personBelongsToCompany(em: EntityManager, scope: Scope, personId: string, companyId: string): Promise<boolean> {
-  const profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: personId, company: companyId }, undefined, scope)
+  const profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: personId, company: companyId, ...scope }, undefined, scope)
   if (profile) return true
   const link = await findOneWithDecryption(
     em,
     CustomerPersonCompanyLink,
-    { person: personId, company: companyId, deletedAt: null },
+    { person: personId, company: companyId, ...scope, deletedAt: null },
     undefined,
     scope,
   )
@@ -117,7 +120,15 @@ export async function resolveLeaseParty(
   return { companyId: company.id, companyName: company.displayName, contactPersonId: person.id }
 }
 
-export async function resolveLeaseProduct(em: EntityManager, scope: Scope, unit: Unit): Promise<LeaseProduct> {
+export type ResolvedLeaseProduct = { product: LeaseProduct; periodPrice: PriceSnapshot; periodId: string }
+
+export async function resolveLeaseProduct(
+  em: EntityManager,
+  container: AwilixContainer,
+  scope: Scope,
+  unit: Unit,
+  priceContext: PriceContext = {},
+): Promise<ResolvedLeaseProduct> {
   const period = await findOneWithDecryption(em, UnitProductPeriod, { ...scope, unitId: unit.id, validTo: null }, undefined, scope)
   if (!period || period.use !== 'leasable') {
     throw await unprocessableError('property_management.errors.unitNotLeasable', 'This unit is not leasable.', {
@@ -137,12 +148,26 @@ export async function resolveLeaseProduct(em: EntityManager, scope: Scope, unit:
       code: 'unit_product_missing',
     })
   }
-  if (!period.currencyCode) {
+  const price = await periodPriceOf(em, container, scope, period, priceContext)
+  if (!price.currencyCode) {
     throw await unprocessableError('property_management.errors.leaseCurrencyMissing', 'The unit product has no price, so the lease currency is unknown.', {
       code: 'lease_currency_missing',
     })
   }
-  return { catalogProductId: period.catalogProductId, productName: period.productName, currencyCode: period.currencyCode }
+  return {
+    product: { catalogProductId: period.catalogProductId, productName: period.productName, currencyCode: price.currencyCode },
+    periodPrice: price,
+    periodId: period.id,
+  }
+}
+
+export async function assertLeaseProductUnchanged(em: EntityManager, scope: Scope, unitId: string, periodId: string): Promise<void> {
+  const period = await findOneWithDecryption(em, UnitProductPeriod, { ...scope, unitId, validTo: null }, { refresh: true }, scope)
+  if (!period || period.id !== periodId || period.use !== 'leasable') {
+    throw await conflictError('property_management.errors.leaseProductChanged', 'The unit product changed meanwhile. Reload and try again.', {
+      code: 'lease_product_changed',
+    })
+  }
 }
 
 export function leaseProductOf(version: LeaseVersion): LeaseProduct {
@@ -235,24 +260,36 @@ export async function closeProposal(
   proposal: LeaseProposal,
   status: 'withdrawn' | 'expired',
 ): Promise<SalesOperation | null> {
-  proposal.status = status
-  proposal.holdToken = null
-  proposal.updatedAt = new Date()
-  if (proposal.versionId) {
-    const version = await findOneWithDecryption(em, LeaseVersion, { id: proposal.versionId, ...scope }, undefined, scope)
-    if (version && version.state === 'pending') version.state = 'reverted'
-  }
-  if (proposal.kind === 'new' && lease.status === 'proposed') {
-    lease.status = status
-    lease.updatedAt = new Date()
-  }
-  if (!proposal.salesQuoteId) return null
-  return recordOperation(em, scope, {
-    kind: 'quote_status',
-    subjectKey: `quote_status:${proposal.id}:canceled`,
-    payload: { quoteId: proposal.salesQuoteId, status: 'canceled' },
-    targetType: 'lease_proposal',
-    targetId: proposal.id,
-    leaseId: lease.id,
-  })
+  const recorded: { operation: SalesOperation | null } = { operation: null }
+  await withAtomicFlush(
+    em,
+    [
+      async () => {
+        const version = proposal.versionId
+          ? await findOneWithDecryption(em, LeaseVersion, { id: proposal.versionId, ...scope }, undefined, scope)
+          : null
+        proposal.status = status
+        proposal.holdToken = null
+        proposal.updatedAt = new Date()
+        if (version && version.state === 'pending') version.state = 'reverted'
+        if (proposal.kind === 'new' && lease.status === 'proposed') {
+          lease.status = status
+          lease.updatedAt = new Date()
+        }
+      },
+      async () => {
+        if (!proposal.salesQuoteId) return
+        recorded.operation = await recordOperation(em, scope, {
+          kind: 'quote_status',
+          subjectKey: `quote_status:${proposal.id}:canceled`,
+          payload: { quoteId: proposal.salesQuoteId, status: 'canceled' },
+          targetType: 'lease_proposal',
+          targetId: proposal.id,
+          leaseId: lease.id,
+        })
+      },
+    ],
+    { label: 'property_management.lease_proposal.close' },
+  )
+  return recorded.operation
 }

@@ -9,7 +9,7 @@ import { Floor } from '../../../../../data/entities'
 import { floorLayoutSchema, floorLayoutReplaceSchema, type FloorLayoutReplaceInput } from '../../../../../data/validators'
 import { assertBuildingPermitted } from '../../../../../lib/buildingAccess'
 import { BUILDING_RESOURCE_KIND } from '../../../../../commands/building'
-import { handleRouteError, readRouteParam, resolveStaffContext, runStaffGuard } from '../../../../routeContext'
+import { guardedCommandInput, handleRouteError, readRouteParam, resolveStaffContext, runStaffGuard } from '../../../../routeContext'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['property_management.manage'] },
@@ -49,7 +49,7 @@ export async function POST(req: Request, routeCtx: RouteContext) {
       payload: { ...input },
     })
     if (!guarded.ok) return guarded.response
-    const commandInput = guarded.modifiedPayload ? floorLayoutReplaceSchema.parse(guarded.modifiedPayload) : input
+    const commandInput = guardedCommandInput(floorLayoutReplaceSchema, guarded, input, { buildingId, tenantId: context.tenantId, organizationId: context.organizationId })
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus
     await commandBus.execute('property_management.floor.layout_replace', { input: commandInput, ctx: context.ctx })
     await guarded.runAfterSuccess()

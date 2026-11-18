@@ -1,8 +1,12 @@
 "use client"
 
 import * as React from 'react'
-import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
+import type { UsageBlockerRow } from '../usageBlockers'
 
 export type UnitProductPeriodRow = {
   id: string
@@ -16,7 +20,7 @@ export type UnitProductPeriodRow = {
   validTo: string | null
 }
 
-export type UsageBlockerRow = { kind: 'lease' | 'booking'; id: string; label: string; unitId: string; until: string | null }
+export type { UsageBlockerRow }
 
 export type UnitProductInfo = {
   periods: UnitProductPeriodRow[]
@@ -25,28 +29,47 @@ export type UnitProductInfo = {
   upcomingBookings: UsageBlockerRow[]
 }
 
-export function useUnitProductInfo(unitId: string | null): { info: UnitProductInfo | null; loading: boolean } {
+export type UnitProductInfoState = { info: UnitProductInfo | null; loading: boolean; failed: boolean; retry: () => void }
+
+export function useUnitProductInfo(unitId: string | null): UnitProductInfoState {
   const [info, setInfo] = React.useState<UnitProductInfo | null>(null)
   const [loading, setLoading] = React.useState(Boolean(unitId))
+  const [failed, setFailed] = React.useState(false)
+  const [attempt, setAttempt] = React.useState(0)
   React.useEffect(() => {
     if (!unitId) {
       setLoading(false)
       return
     }
     let cancelled = false
+    setLoading(true)
+    setFailed(false)
     apiCall<UnitProductInfo>(`/api/property_management/units/${encodeURIComponent(unitId)}/product`)
       .then((call) => {
-        if (!cancelled && call.ok && call.result) setInfo(call.result)
+        if (cancelled) return
+        if (call.ok && call.result) setInfo(call.result)
+        else setFailed(true)
       })
-      .catch(() => undefined)
+      .catch((err) => {
+        getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.unit_product_info_load_failed' })
+        if (!cancelled) setFailed(true)
+      })
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [unitId])
-  return { info, loading }
+  }, [attempt, unitId])
+  const retry = React.useCallback(() => setAttempt((value) => value + 1), [])
+  return { info, loading, failed, retry }
+}
+
+export function unitProductLockedReason(t: TranslateFn, unitId: string | null, state: Pick<UnitProductInfoState, 'info' | 'loading' | 'failed'>): string | null {
+  if (state.info?.productLocked) return t('property_management.units.form.productLocked', 'Locked while the unit is leased — the lease was signed for this product.')
+  if (!unitId || state.info) return null
+  if (state.failed) return t('property_management.units.form.productLockUnknown', 'Locked until we can check whether the unit is leased. Retry loading the product history below.')
+  return t('property_management.units.form.productLockChecking', 'Checking whether the unit is leased…')
 }
 
 function formatDate(value: string | null, locale: string): string | null {
@@ -67,7 +90,9 @@ function formatPrice(row: UnitProductPeriodRow, locale: string): string | null {
   }
 }
 
-export function UnitProductHistory({ periods }: { periods: UnitProductPeriodRow[] }) {
+export type UnitProductHistoryProps = { periods: UnitProductPeriodRow[]; failed?: boolean; onRetry?: () => void }
+
+export function UnitProductHistory({ periods, failed = false, onRetry }: UnitProductHistoryProps) {
   const t = useT()
   const locale = useLocale()
   return (
@@ -80,7 +105,16 @@ export function UnitProductHistory({ periods }: { periods: UnitProductPeriodRow[
           {t('property_management.units.history.description', 'Every product this unit has had. Leases and bookings keep the product and price they were made at.')}
         </p>
       </div>
-      {periods.length ? (
+      {failed ? (
+        <Alert status="error" data-testid="unit-product-history-error">
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+            <span>{t('property_management.units.history.loadError', 'Could not load the product history.')}</span>
+            {onRetry ? (
+              <Button type="button" variant="outline" size="sm" onClick={onRetry}>{t('property_management.common.retry', 'Try again')}</Button>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : periods.length ? (
         <ul className="divide-y" data-testid="unit-product-history">
           {periods.map((row) => {
             const from = formatDate(row.validFrom, locale)

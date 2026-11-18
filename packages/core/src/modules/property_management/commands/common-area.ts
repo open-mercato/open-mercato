@@ -20,6 +20,7 @@ import {
   commonAreaCrudIndexer,
   conflict,
   emitSideEffects,
+  enforceRecordVersion,
   ensureScope,
   loadFloor,
   loadFloorGeometry,
@@ -67,12 +68,17 @@ function snapshotArea(area: CommonArea): CommonAreaSnapshot {
   }
 }
 
-async function loadAreaSnapshot(ctx: CommandRuntimeContext, id: string): Promise<CommonAreaSnapshot | null> {
+async function loadAreaSnapshot(
+  ctx: CommandRuntimeContext,
+  id: string,
+  input?: { tenantId?: string | null; organizationId?: string | null } | null,
+): Promise<CommonAreaSnapshot | null> {
   const em = resolveEm(ctx)
-  const area = await findOneWithDecryption(em, CommonArea, { id }, undefined, {
-    tenantId: ctx.auth?.tenantId ?? null,
-    organizationId: ctx.selectedOrganizationId ?? null,
-  })
+  const lookupScope = {
+    tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+    organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? null,
+  }
+  const area = await findOneWithDecryption(em, CommonArea, { id, ...lookupScope }, undefined, lookupScope)
   return area ? snapshotArea(area) : null
 }
 
@@ -123,7 +129,7 @@ const createCommonAreaCommand: CommandHandler<CommonAreaCreateInput, { commonAre
     await emitSideEffects(ctx, 'created', area, { indexer: commonAreaCrudIndexer, events: commonAreaCrudEvents })
     return { commonAreaId: area.id }
   },
-  captureAfter: async (_input, result, ctx) => loadAreaSnapshot(ctx, result.commonAreaId),
+  captureAfter: async (input, result, ctx) => loadAreaSnapshot(ctx, result.commonAreaId, input),
   buildLog: async ({ input, result, ctx, snapshots }) => {
     const base = await buildCrudLog(ctx, input, result?.commonAreaId ?? null, 'property_management.audit.commonArea.create', 'Create common area', COMMON_AREA_RESOURCE_KIND)
     const after = snapshots?.after as CommonAreaSnapshot | undefined
@@ -134,11 +140,16 @@ const createCommonAreaCommand: CommandHandler<CommonAreaCreateInput, { commonAre
     if (!after) return
     const scope = scopeOf(after)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, after.buildingId)
     const em = resolveEm(ctx)
-    const area = await findOneWithDecryption(em, CommonArea, { id: after.id, ...scope }, undefined, scope)
+    const area = await em.fork().transactional(async (trx) => {
+      await assertBuildingWritable(trx, scope, after.buildingId)
+      await lockFloor(trx, scope, after.floorId)
+      const record = await findOneWithDecryption(trx, CommonArea, { id: after.id, ...scope, deletedAt: null }, undefined, scope)
+      if (record) record.deletedAt = new Date()
+      return record
+    })
     if (!area) return
-    area.deletedAt = new Date()
-    await em.flush()
     await emitSideEffects(ctx, 'deleted', area, { indexer: commonAreaCrudIndexer, events: commonAreaCrudEvents }, 'undo')
   },
 }
@@ -146,7 +157,7 @@ const createCommonAreaCommand: CommandHandler<CommonAreaCreateInput, { commonAre
 const updateCommonAreaCommand: CommandHandler<CommonAreaUpdateInput, { commonAreaId: string }> = {
   id: 'property_management.common_area.update',
   prepare: async (input, ctx) => {
-    const before = await loadAreaSnapshot(ctx, requireId(input?.id))
+    const before = await loadAreaSnapshot(ctx, requireId(input?.id), input)
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
@@ -161,6 +172,7 @@ const updateCommonAreaCommand: CommandHandler<CommonAreaUpdateInput, { commonAre
       const geometry = await loadFloorGeometry(trx, scope, floor)
       const record = geometry.commonAreaRecords.find((item) => item.id === current.id)
       if (!record) return notFound('property_management.errors.commonAreaNotFound', 'Common area not found.')
+      await enforceRecordVersion(ctx, COMMON_AREA_RESOURCE_KIND, record)
       const existing = toRect(record)
       const rect = {
         x: parsed.x ?? existing.x,
@@ -182,7 +194,7 @@ const updateCommonAreaCommand: CommandHandler<CommonAreaUpdateInput, { commonAre
     await emitSideEffects(ctx, 'updated', area, { indexer: commonAreaCrudIndexer, events: commonAreaCrudEvents })
     return { commonAreaId: area.id }
   },
-  captureAfter: async (_input, result, ctx) => loadAreaSnapshot(ctx, result.commonAreaId),
+  captureAfter: async (input, result, ctx) => loadAreaSnapshot(ctx, result.commonAreaId, input),
   buildLog: async ({ input, result, ctx, snapshots }) => {
     const base = await buildCrudLog(ctx, input, result?.commonAreaId ?? null, 'property_management.audit.commonArea.update', 'Update common area', COMMON_AREA_RESOURCE_KIND)
     const before = snapshots?.before as CommonAreaSnapshot | undefined
@@ -194,8 +206,10 @@ const updateCommonAreaCommand: CommandHandler<CommonAreaUpdateInput, { commonAre
     if (!before) return
     const scope = scopeOf(before)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, before.buildingId)
     const em = resolveEm(ctx)
     const area = await em.fork().transactional(async (trx) => {
+      await assertBuildingWritable(trx, scope, before.buildingId)
       const floor = await lockFloor(trx, scope, before.floorId)
       const geometry = await loadFloorGeometry(trx, scope, floor)
       const issues = checkPlacement({ kind: 'common_area', rect: toRect(before), selfId: before.id }, geometry)
@@ -217,7 +231,7 @@ const updateCommonAreaCommand: CommandHandler<CommonAreaUpdateInput, { commonAre
 const deleteCommonAreaCommand: CommandHandler<{ id?: string; tenantId?: string; organizationId?: string }, { commonAreaId: string }> = {
   id: 'property_management.common_area.delete',
   prepare: async (input, ctx) => {
-    const before = await loadAreaSnapshot(ctx, requireId(input?.id))
+    const before = await loadAreaSnapshot(ctx, requireId(input?.id), input)
     return before ? { before } : {}
   },
   async execute(input, ctx) {
@@ -234,6 +248,7 @@ const deleteCommonAreaCommand: CommandHandler<{ id?: string; tenantId?: string; 
       await lockFloor(trx, scope, current.floorId)
       const record = await findOneWithDecryption(trx, CommonArea, { id: current.id, ...scope, deletedAt: null }, undefined, scope)
       if (!record) return notFound('property_management.errors.commonAreaNotFound', 'Common area not found.')
+      await enforceRecordVersion(ctx, COMMON_AREA_RESOURCE_KIND, record)
       record.deletedAt = new Date()
       return record
     })
@@ -250,8 +265,10 @@ const deleteCommonAreaCommand: CommandHandler<{ id?: string; tenantId?: string; 
     if (!before) return
     const scope = scopeOf(before)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, before.buildingId)
     const em = resolveEm(ctx)
     const area = await em.fork().transactional(async (trx) => {
+      await assertBuildingWritable(trx, scope, before.buildingId)
       const floor = await lockFloor(trx, scope, before.floorId)
       const geometry = await loadFloorGeometry(trx, scope, floor)
       const issues = checkPlacement({ kind: 'common_area', rect: toRect(before), selfId: before.id }, geometry)

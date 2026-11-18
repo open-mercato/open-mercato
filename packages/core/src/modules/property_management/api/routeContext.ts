@@ -13,6 +13,7 @@ import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mer
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { permittedBuildingIds, type PermittedBuildings } from '../lib/buildingAccess'
+import { translateZodFieldErrors } from '../lib/zodFieldErrors'
 
 const logger = createLogger('property_management')
 
@@ -48,7 +49,7 @@ export async function resolveStaffContext(req: Request): Promise<StaffRouteConte
     organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request: req,
   }
-  const permitted = await permittedBuildingIds({ container, auth, tenantId: auth.tenantId, organizationId })
+  const permitted = await permittedBuildingIds({ container, auth, tenantId: auth.tenantId, organizationId, request: req })
   return {
     ctx,
     em: (container.resolve('em') as EntityManager).fork(),
@@ -78,6 +79,16 @@ export async function runStaffGuard(
   })
 }
 
+export function guardedCommandInput<T>(
+  schema: z.ZodType<T>,
+  guarded: RouteMutationGuardResult,
+  input: T,
+  pinned: Record<string, unknown>,
+): T {
+  if (!guarded.ok || !guarded.modifiedPayload) return input
+  return schema.parse({ ...guarded.modifiedPayload, ...pinned })
+}
+
 export async function readRouteParam(params: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined> | undefined, key: string): Promise<string | null> {
   if (!params) return null
   const resolved = await params
@@ -95,7 +106,7 @@ export async function handleRouteError(err: unknown, code: string): Promise<Resp
   if (interceptorRejection) return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   if (err instanceof z.ZodError) {
     return NextResponse.json(
-      { error: translate('property_management.errors.invalidInput', 'Invalid input'), issues: err.issues },
+      { error: translate('property_management.errors.invalidInput', 'Invalid input'), fieldErrors: translateZodFieldErrors(err, translate) },
       { status: 400 },
     )
   }

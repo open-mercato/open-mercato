@@ -12,8 +12,10 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { formatDate, formatMoney, isSubmitShortcut, readErrorMessage, type CancelSettlement, type LeaseSummary } from './leaseModel'
 import { useLeaseMutation } from './useLeaseMutation'
+import { browserToday } from './useLeaseSettings'
 
 type EndPreview = {
   defaultSettlement: CancelSettlement
@@ -25,61 +27,87 @@ type EndPreview = {
 
 type EndLeaseDialogProps = {
   lease: LeaseSummary | null
+  today?: string | null
   onClose: () => void
   onEnded: () => void
 }
 
 const SETTLEMENTS: CancelSettlement[] = ['prorate', 'credit_full', 'keep']
 
-function today(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
 
-export function EndLeaseDialog({ lease, onClose, onEnded }: EndLeaseDialogProps) {
+type LoadedPreview = EndPreview & { endsOn: string }
+
+export function EndLeaseDialog({ lease, today, onClose, onEnded }: EndLeaseDialogProps) {
   const t = useT()
   const locale = useLocale()
   const { send } = useLeaseMutation('property-management-lease-end')
-  const [endsOn, setEndsOn] = React.useState(today())
+  const [endsOn, setEndsOn] = React.useState(() => today ?? browserToday())
+  const [dateTouched, setDateTouched] = React.useState(false)
   const [settlement, setSettlement] = React.useState<CancelSettlement | null>(null)
-  const [preview, setPreview] = React.useState<EndPreview | null>(null)
+  const [loadedPreview, setPreview] = React.useState<LoadedPreview | null>(null)
+  const [previewError, setPreviewError] = React.useState<string | null>(null)
+  const [previewAttempt, setPreviewAttempt] = React.useState(0)
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  React.useEffect(() => {
-    if (!lease) return
-    const initial = today() > lease.endsOn ? lease.endsOn : today()
-    setEndsOn(initial)
-    setSettlement(null)
-    setError(null)
-  }, [lease])
+  const leaseId = lease?.id ?? null
+  const leaseEndsOn = lease?.endsOn ?? null
 
   React.useEffect(() => {
-    if (!lease || !/^\d{4}-\d{2}-\d{2}$/.test(endsOn)) return
+    if (!leaseId) return
+    setDateTouched(false)
+    setSettlement(null)
+    setError(null)
+  }, [leaseId])
+
+  React.useEffect(() => {
+    if (!leaseId || !leaseEndsOn || dateTouched) return
+    const current = today ?? browserToday()
+    setEndsOn(current > leaseEndsOn ? leaseEndsOn : current)
+  }, [dateTouched, leaseId, leaseEndsOn, today])
+
+  React.useEffect(() => {
+    setPreview(null)
+    if (!leaseId || !ISO_DAY.test(endsOn)) return
     let cancelled = false
-    void apiCall<EndPreview>(`/api/property_management/leases/${encodeURIComponent(lease.id)}/end?endsOn=${endsOn}`).then((call) => {
+    const failed = (message?: string | null) => {
       if (cancelled) return
-      if (!call.ok || !call.result) {
-        setPreview(null)
-        return
-      }
-      const loaded = call.result
-      setPreview(loaded)
-      setSettlement((current) => {
-        const allowed = (value: CancelSettlement | null) => Boolean(value && loaded.options.find((option) => option.settlement === value)?.allowed)
-        if (allowed(current)) return current
-        if (allowed(loaded.defaultSettlement)) return loaded.defaultSettlement
-        return loaded.options.find((option) => option.allowed)?.settlement ?? null
+      setPreview(null)
+      setPreviewError(message ?? t('property_management.leases.end.previewError', 'Could not check how the lease can be ended.'))
+    }
+    setPreviewError(null)
+    apiCall<EndPreview & { error?: string }>(`/api/property_management/leases/${encodeURIComponent(leaseId)}/end?endsOn=${endsOn}`)
+      .then((call) => {
+        if (cancelled) return
+        if (!call.ok || !call.result) {
+          failed(call.result?.error)
+          return
+        }
+        const loaded = call.result
+        setPreview({ ...loaded, endsOn })
+        setSettlement((current) => {
+          const allowed = (value: CancelSettlement | null) => Boolean(value && loaded.options.find((option) => option.settlement === value)?.allowed)
+          if (allowed(current)) return current
+          if (allowed(loaded.defaultSettlement)) return loaded.defaultSettlement
+          return loaded.options.find((option) => option.allowed)?.settlement ?? null
+        })
       })
-    })
+      .catch((err) => {
+        getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.lease_end_preview_failed' })
+        failed()
+      })
     return () => {
       cancelled = true
     }
-  }, [endsOn, lease])
+  }, [endsOn, leaseId, previewAttempt, t])
 
+  const preview = loadedPreview && loadedPreview.endsOn === endsOn ? loadedPreview : null
   const tooLate = Boolean(lease && endsOn > lease.endsOn)
   const tooEarly = Boolean(lease && endsOn < lease.startsOn)
-  const canConfirm = Boolean(lease && settlement && !tooLate && !tooEarly && !pending)
+  const cancelBlocked = Boolean(preview && !preview.cancelAvailable && preview.ordersToCancel > 0)
+  const settlementAllowed = Boolean(preview?.options.find((entry) => entry.settlement === settlement)?.allowed)
+  const canConfirm = Boolean(lease && settlement && preview && settlementAllowed && !tooLate && !tooEarly && !pending && !cancelBlocked)
 
   const confirm = async () => {
     if (!lease || !settlement || !canConfirm) return
@@ -116,14 +144,14 @@ export function EndLeaseDialog({ lease, onClose, onEnded }: EndLeaseDialogProps)
           <DialogTitle>{t('property_management.leases.end.title', 'End lease {reference}', { reference: lease?.reference ?? '' })}</DialogTitle>
           <DialogDescription>
             {lease
-              ? `${lease.unitName ?? ''} · ${lease.companyName ?? ''} · ${formatDate(lease.startsOn, locale)} — ${formatDate(lease.endsOn, locale)} · ${formatMoney(lease.monthlyRate, lease.currencyCode, locale)}`
+              ? [lease.unitName, lease.companyName, `${formatDate(lease.startsOn, locale)} — ${formatDate(lease.endsOn, locale)}`, formatMoney(lease.monthlyRate, lease.currencyCode, locale)].filter(Boolean).join(' · ')
               : ''}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1">
             <Label htmlFor="pm-lease-end-date">{t('property_management.leases.end.lastDay', 'Last day of the lease')}</Label>
-            <Input id="pm-lease-end-date" type="date" value={endsOn} max={lease?.endsOn} onChange={(event) => setEndsOn(event.target.value)} />
+            <Input id="pm-lease-end-date" type="date" value={endsOn} max={lease?.endsOn} onChange={(event) => { setDateTouched(true); setEndsOn(event.target.value) }} />
             <p className="text-sm text-muted-foreground">
               {tooLate
                 ? t('property_management.leases.end.tooLate', 'The lease already ends on {date}. Extend it to make it longer.', { date: formatDate(lease?.endsOn, locale) })
@@ -153,10 +181,20 @@ export function EndLeaseDialog({ lease, onClose, onEnded }: EndLeaseDialogProps)
               })}
             </RadioGroup>
           </fieldset>
-          {preview && !preview.cancelAvailable ? (
-            <Alert status="information">
+          {cancelBlocked ? (
+            <Alert status="warning" data-testid="pm-lease-end-cancel-unavailable">
               <AlertDescription>
-                {t('property_management.leases.end.cancelQueued', 'This installation’s sales module cannot cancel recurring orders yet. The end is recorded and the billing change stays pending until it can.')}
+                {t('property_management.leases.end.cancelUnavailable', 'This lease cannot be ended early yet: this installation’s sales module cannot cancel recurring orders. It still ends automatically at term.')}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {previewError ? (
+            <Alert status="error" data-testid="pm-lease-end-preview-error">
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                <span>{previewError}</span>
+                <Button type="button" variant="outline" size="sm" onClick={() => setPreviewAttempt((value) => value + 1)}>
+                  {t('property_management.common.retry', 'Try again')}
+                </Button>
               </AlertDescription>
             </Alert>
           ) : null}

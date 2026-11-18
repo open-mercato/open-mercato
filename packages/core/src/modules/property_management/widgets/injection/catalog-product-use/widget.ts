@@ -1,4 +1,6 @@
 import type { InjectionFieldWidget } from '@open-mercato/shared/modules/widgets/injection'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { encodeProductUseIntent, PRODUCT_USE_INTENT_HEADER } from '../../../lib/productUseIntent'
 
 type RecordLike = Record<string, unknown>
@@ -20,11 +22,39 @@ function readBillingUnit(value: unknown): 'month' | 'hour' | 'day' | null {
   return value === 'month' || value === 'hour' || value === 'day' ? value : null
 }
 
+type Translate = (key: string, fallback?: string) => string
+type UseIntent = { use: 'leasable' | 'bookable' | null; billingUnit: 'month' | 'hour' | 'day' | null }
+
+function changedIntent(data: unknown): UseIntent | null {
+  const source = asRecord(data)
+  if (!source || !(USE_FIELD in source)) return null
+  const use = readUse(source[USE_FIELD])
+  const loaded = asRecord(source._property_management)
+  const billingUnit = use === 'leasable' ? 'month' : use === 'bookable' ? readBillingUnit(source[BILLING_FIELD]) ?? 'hour' : null
+  if (use === readUse(loaded?.use) && (use === null || billingUnit === readBillingUnit(loaded?.billingUnit))) return null
+  return { use, billingUnit }
+}
+
+function savedProductId(context: unknown): string | null {
+  const source = asRecord(context)
+  const id = source?.resourceId ?? source?.recordId
+  return typeof id === 'string' && id ? id : null
+}
+
+async function storedUseMatches(productId: string, intent: UseIntent): Promise<boolean | null> {
+  const query = new URLSearchParams({ productIds: productId, pageSize: '1' })
+  const call = await apiCall<{ items?: unknown[] }>(`/api/property_management/product-uses?${query.toString()}`, undefined, { fallback: {} })
+  if (!call.ok) return null
+  const stored = asRecord(Array.isArray(call.result?.items) ? call.result.items[0] : null)
+  const use = readUse(stored?.use)
+  return use === intent.use && (use === null || readBillingUnit(stored?.billingUnit) === intent.billingUnit)
+}
+
 const widget: InjectionFieldWidget = {
   metadata: {
     id: 'property_management.injection.catalog-product-use',
     priority: 110,
-    features: ['property_management.manage'],
+    features: ['property_management.manage', 'property_management.buildings.manage_all'],
   },
   fields: [
     {
@@ -65,20 +95,29 @@ const widget: InjectionFieldWidget = {
       } as typeof data
     },
     async onBeforeSave(data, context) {
-      const source = asRecord(data)
-      if (!source || !(USE_FIELD in source)) return { ok: true }
-      const use = readUse(source[USE_FIELD])
-      const loaded = readUse(asRecord(source._property_management)?.use)
-      const billingUnit = use === 'leasable' ? 'month' : use === 'bookable' ? readBillingUnit(source[BILLING_FIELD]) ?? 'hour' : null
-      const loadedBilling = readBillingUnit(asRecord(source._property_management)?.billingUnit)
-      if (use === loaded && (use === null || billingUnit === loadedBilling)) return { ok: true }
+      const intent = changedIntent(data)
+      if (!intent) return { ok: true }
       const sourceEntityId = typeof context?.entityId === 'string' ? context.entityId : ''
       return {
         ok: true,
         requestHeaders: {
-          [PRODUCT_USE_INTENT_HEADER]: encodeProductUseIntent({ sourceEntityId, use, billingUnit }),
+          [PRODUCT_USE_INTENT_HEADER]: encodeProductUseIntent({ sourceEntityId, ...intent }),
         },
       }
+    },
+    async onAfterSave(data, context) {
+      const intent = changedIntent(data)
+      const productId = savedProductId(context)
+      if (!intent || !productId) return
+      if ((await storedUseMatches(productId, intent)) !== false) return
+      const translate: Translate = typeof context?.t === 'function' ? (context.t as Translate) : (_key, fallback) => fallback ?? ''
+      flash(
+        translate(
+          'property_management.errors.productUseSyncFailed',
+          'The product was saved, but its property use could not be updated. Open the product and set it again.',
+        ),
+        'warning',
+      )
     },
   },
 }

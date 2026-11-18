@@ -64,6 +64,17 @@ export function defaultRecurrenceReader(em: EntityManager, scope: Scope): Recurr
   return (orderId) => readRecurrence(em.fork(), scope, orderId)
 }
 
+export function memoizeRecurrenceReader(reader: RecurrenceReader): RecurrenceReader {
+  const reads = new Map<string, Promise<RecurrenceRead | null>>()
+  return (orderId) => {
+    const cached = reads.get(orderId)
+    if (cached) return cached
+    const read = reader(orderId)
+    reads.set(orderId, read)
+    return read
+  }
+}
+
 export function leaseHasEnded(lease: Lease, today: string): boolean {
   return lease.status === 'ended' || compareIsoDates(lease.endsOn, today) < 0
 }

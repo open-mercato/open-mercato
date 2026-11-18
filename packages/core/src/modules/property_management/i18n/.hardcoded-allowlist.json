@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "lib/unavailabilityReasons.ts",
+      "reason": "Seed data, not UI text. The name and description of the `property_management.unavailability-reasons` dictionary and its five default reason labels are written once into the tenant's own dictionaries rows by setup. After that the tenant owns them and edits them in the Dictionaries settings. Translating them through the runtime i18n catalogue would not change the stored rows, and re-seeding when the locale changes is not supported. See `.ai/specs/2026-10-15-property-management.md` → Unavailability reasons."
+    }
+  ]
+}

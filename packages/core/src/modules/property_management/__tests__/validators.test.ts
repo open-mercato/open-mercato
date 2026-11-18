@@ -1,4 +1,4 @@
-import { buildingCreateSchema, floorLayoutSchema, productUseSetSchema } from '../data/validators'
+import { buildingCreateSchema, floorLayoutSchema, floorUpdateSchema, hasCentimetrePrecision, productUseSetSchema, unitUpdateSchema } from '../data/validators'
 
 const scope = { tenantId: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222' }
 
@@ -44,5 +44,29 @@ describe('productUseSetSchema', () => {
 
   it('accepts a null use to clear the product', () => {
     expect(productUseSetSchema.safeParse({ ...scope, catalogProductId: productId, use: null }).success).toBe(true)
+  })
+})
+
+describe('metre fields', () => {
+  const id = '44444444-4444-4444-8444-444444444444'
+
+  it('accepts centimetre values, including ones that are inexact in binary', () => {
+    for (const value of [0.01, 0.1, 0.29, 12.34, 1.005 + 0.005, 99999.99]) expect(hasCentimetrePrecision(value)).toBe(true)
+    const parsed = unitUpdateSchema.parse({ ...scope, id, x: '0.07', y: 3.1, width: 0.01, depth: 99999.99 })
+    expect(parsed).toMatchObject({ x: 0.07, y: 3.1, width: 0.01, depth: 99999.99 })
+  })
+
+  it('refuses more than two decimal places with a translatable message instead of storing a rounded value', () => {
+    const result = unitUpdateSchema.safeParse({ ...scope, id, x: 1.005, width: 2.5 })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues).toEqual([expect.objectContaining({ path: ['x'], message: 'property_management.errors.metresPrecision' })])
+    expect(floorUpdateSchema.safeParse({ ...scope, id, sizeX: 10.123 }).success).toBe(false)
+  })
+
+  it('requires a length of at least one centimetre', () => {
+    expect(unitUpdateSchema.safeParse({ ...scope, id, width: 0.004 }).success).toBe(false)
+    expect(unitUpdateSchema.safeParse({ ...scope, id, width: 0 }).success).toBe(false)
+    expect(unitUpdateSchema.safeParse({ ...scope, id, width: 0.01 }).success).toBe(true)
+    expect(floorLayoutSchema.safeParse({ below: 0, above: 1, floors: [{ number: 0, name: 'G', sizeX: 0.004, sizeY: 5 }] }).success).toBe(false)
   })
 })

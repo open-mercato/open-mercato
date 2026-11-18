@@ -12,7 +12,10 @@ import {
   readField,
   readLease,
   readSalesDocument,
-  waitForLease,
+  SALES_CANCEL_SKIP_REASON,
+  expectBillingCancelRefused,
+  salesCancelUnavailable,
+  settleLease,
   type LeaseDetail,
   type LeaseSetup,
 } from './leaseFixtures'
@@ -41,9 +44,7 @@ test.describe('TC-PM-015: lease extensions', () => {
         startsOn: isoDayFromToday(5),
         termMonths: 3,
       })
-      const active = await waitForLease(request, token, lease.id, isActivated)
-      test.skip(!active, 'the property_management.sales_operation worker did not run in this environment')
-      if (!active) return
+      const active = await settleLease(request, token, lease.id, isActivated, 'the lease activation')
       const termEnd = active.lease.endsOn
 
       const extension = await postExtension(request, token, lease.id, { months: 6, monthlyRate: 1400, asProposal: false })
@@ -51,18 +52,18 @@ test.describe('TC-PM-015: lease extensions', () => {
       expect(extension.status(), JSON.stringify(body)).toBe(202)
       expect(body?.status).toBe('pending')
 
-      const extended = await waitForLease(
+      const extended = await settleLease(
         request,
         token,
         lease.id,
         (detail: LeaseDetail) => detail.versions.some((version) => version.id === body?.versionId && version.state === 'in_force'),
+        'the extension version coming into force',
       )
-      expect(extended, 'the extension version comes into force').not.toBeNull()
-      const version = extended?.versions.find((entry) => entry.id === body?.versionId)
+      const version = extended.versions.find((entry) => entry.id === body?.versionId)
       expect(version?.event).toBe('extended')
       expect(version?.startsOn).toBe(addIsoDays(termEnd, 1))
-      expect(extended?.lease.endsOn).toBe(version?.endsOn)
-      expect(extended?.lease.termMonths).toBe(9)
+      expect(extended.lease.endsOn).toBe(version?.endsOn)
+      expect(extended.lease.termMonths).toBe(9)
       const order = await readSalesDocument(request, token, 'orders', version?.salesOrderId as string)
       expect(readField(order, 'recurrence')).toMatchObject({ frequency: 'monthly', startsOn: addIsoDays(termEnd, 1), periodCount: 6 })
       expect(version?.salesOrderId, 'the extension has its own order').not.toBe(active.lease.salesOrderId)
@@ -83,9 +84,7 @@ test.describe('TC-PM-015: lease extensions', () => {
         startsOn: isoDayFromToday(1),
         termMonths: 2,
       })
-      const active = await waitForLease(request, token, lease.id, isActivated)
-      test.skip(!active, 'the property_management.sales_operation worker did not run in this environment')
-      if (!active) return
+      const active = await settleLease(request, token, lease.id, isActivated, 'the lease activation')
 
       const proposal = await postExtension(request, token, lease.id, { months: 12, monthlyRate: 1300, asProposal: true, expiresInDays: 7 })
       const proposalBody = await readJsonSafe<{ proposalId?: string; status?: string }>(proposal)
@@ -102,6 +101,13 @@ test.describe('TC-PM-015: lease extensions', () => {
         token,
         data: { endsOn: addIsoDays(active.lease.endsOn, -10), settlement: 'keep' },
       })
+      if (salesCancelUnavailable(active)) {
+        await expectBillingCancelRefused(end)
+        const kept = await readLease(request, token, lease.id)
+        expect(kept?.proposals.find((entry) => entry.id === proposalBody?.proposalId)?.status, 'a refused end keeps the proposal open').not.toBe('withdrawn')
+        test.skip(true, SALES_CANCEL_SKIP_REASON)
+        return
+      }
       expect([200, 202]).toContain(end.status())
       const after = await readLease(request, token, lease.id)
       expect(after?.proposals.find((entry) => entry.id === proposalBody?.proposalId)?.status, 'ending withdraws the open extension proposal').toBe('withdrawn')

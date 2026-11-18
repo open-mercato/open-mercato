@@ -17,6 +17,7 @@ describe('buildTrustedSalesContext', () => {
     const ctx = buildTrustedSalesContext(container, scope)
     expect(ctx.request).toBeUndefined()
     expect(ctx.auth).toBeNull()
+    expect(ctx.systemActor).toBe(true)
     expect(ctx.selectedOrganizationId).toBe(scope.organizationId)
     expect(ctx.organizationScope).toEqual({
       tenantId: scope.tenantId,

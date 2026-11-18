@@ -39,4 +39,15 @@ export class Migration20261027150215_property_management extends Migration {
     this.addSql(`create index "property_management_unit_product_periods_unit_idx" on "property_management_unit_product_periods" ("organization_id", "unit_id", "valid_from");`);
   }
 
+  override down(): void | Promise<void> {
+    this.addSql(`drop table if exists "property_management_unit_product_periods" cascade;`);
+    this.addSql(`drop table if exists "property_management_units" cascade;`);
+    this.addSql(`drop table if exists "property_management_spaces" cascade;`);
+    this.addSql(`drop table if exists "property_management_product_uses" cascade;`);
+    this.addSql(`drop table if exists "property_management_floors" cascade;`);
+    this.addSql(`drop table if exists "property_management_common_areas" cascade;`);
+    this.addSql(`drop table if exists "property_management_building_managers" cascade;`);
+    this.addSql(`drop table if exists "property_management_buildings" cascade;`);
+  }
+
 }

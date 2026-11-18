@@ -3,16 +3,17 @@
 import * as React from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Alert, AlertTitle } from '@open-mercato/ui/primitives/alert'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { isSubmitShortcut, useBuildingUsage } from './useBuildingUsage'
 import type { BuildingDeleteTarget } from './BuildingDeleteDialog'
+import { formatUsageBlocker } from '../usageBlockers'
 
 export type BuildingArchiveDialogProps = {
   target: BuildingDeleteTarget | null
@@ -26,9 +27,11 @@ export function BuildingArchiveDialog({ target, onClose, onArchived }: BuildingA
   const t = useT()
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const { usage, loading } = useBuildingUsage(target?.id ?? null, target !== null)
+  const locale = useLocale()
+  const { usage, loading, failed, retry } = useBuildingUsage(target?.id ?? null, target !== null)
   const { runMutation, retryLastMutation } = useGuardedMutation<{ formId: string; resourceKind: string; resourceId: string; retryLastMutation: () => Promise<boolean> }>({
     contextId: CONTEXT_ID,
+    blockedMessage: t('property_management.common.blocked', 'The change was blocked.'),
   })
 
   React.useEffect(() => setError(null), [target?.id])
@@ -63,6 +66,7 @@ export function BuildingArchiveDialog({ target, onClose, onArchived }: BuildingA
   }
 
   const blockers = usage?.blockers ?? []
+  const moreBlockers = Math.max(0, (usage?.blockerCount ?? blockers.length) - blockers.length)
 
   return (
     <Dialog open={target !== null} onOpenChange={(open) => { if (!open) onClose() }}>
@@ -79,13 +83,24 @@ export function BuildingArchiveDialog({ target, onClose, onArchived }: BuildingA
             )}
           </p>
           {loading ? <LoadingMessage label={t('property_management.common.loading', 'Loading…')} /> : null}
+          {failed ? (
+            <Alert status="error" data-testid="pm-building-archive-usage-error">
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                <span>{t('property_management.buildings.archive.usageError', 'Could not check whether the building still has active leases or upcoming bookings.')}</span>
+                <Button type="button" variant="outline" size="sm" onClick={retry}>{t('property_management.common.retry', 'Try again')}</Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
           {blockers.length ? (
             <Alert status="warning">
               <AlertTitle>{t('property_management.buildings.archive.blocked', 'It still has active leases or upcoming bookings')}</AlertTitle>
               <ul className="list-disc pl-4 text-sm">
                 {blockers.map((blocker) => (
-                  <li key={`${blocker.kind}-${blocker.id}`}>{blocker.until ? `${blocker.label} · ${blocker.until}` : blocker.label}</li>
+                  <li key={`${blocker.kind}-${blocker.id}`}>{formatUsageBlocker(blocker, locale)}</li>
                 ))}
+                {moreBlockers > 0 ? (
+                  <li data-testid="pm-building-archive-more-blockers">{t('property_management.buildings.archive.moreBlockers', 'and {count} more', { count: moreBlockers })}</li>
+                ) : null}
               </ul>
             </Alert>
           ) : null}

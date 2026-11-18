@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
@@ -6,6 +6,7 @@ import {
   deleteCatalogCategoryIfExists,
   deleteCatalogProductIfExists,
 } from '@open-mercato/core/helpers/integration/catalogFixtures'
+import { purgeBuildingsInDb } from './dbCleanup'
 
 export type FloorRow = { id: string; number: number; name: string; sizeX: number; sizeY: number; updatedAt: string }
 export type SpaceRow = { id: string; name: string; isDefault: boolean; x: number; y: number; width: number; depth: number; updatedAt: string }
@@ -23,6 +24,7 @@ export async function createBuilding(
   token: string,
   input: { name: string; below?: number; above?: number; size?: { x: number; y: number }; managerUserIds?: string[] },
 ): Promise<string> {
+  await purgeBuildingsOfEarlierTests()
   const response = await apiRequest(request, 'POST', '/api/property_management/buildings', {
     token,
     data: {
@@ -34,12 +36,46 @@ export async function createBuilding(
   })
   const body = await readJsonSafe<{ id?: string }>(response)
   expect(response.status(), `POST buildings should return 201, got ${JSON.stringify(body)}`).toBe(201)
-  return expectId(body?.id, 'Building id')
+  const id = expectId(body?.id, 'Building id')
+  createdBuildings.set(id, test.info().testId)
+  return id
 }
 
-export async function deleteBuildingIfExists(request: APIRequestContext, token: string | null, id: string | null): Promise<void> {
-  if (!token || !id) return
-  await apiRequest(request, 'DELETE', `/api/property_management/buildings?id=${encodeURIComponent(id)}`, { token }).catch(() => undefined)
+export async function deleteBuildingIfExists(
+  request: APIRequestContext,
+  token: string | null,
+  id: string | null,
+  options: { productIds?: ReadonlyArray<string | null | undefined> } = {},
+): Promise<void> {
+  if (!id) return
+  if (token) {
+    await apiRequest(request, 'DELETE', `/api/property_management/buildings?id=${encodeURIComponent(id)}`, { token }).catch(() => undefined)
+  }
+  try {
+    await purgeBuildingsInDb([id], options)
+    createdBuildings.delete(id)
+  } catch (error) {
+    console.warn(`[property_management] could not purge building ${id} from the database`, error)
+  }
+}
+
+const createdBuildings = new Map<string, string>()
+
+async function purgeBuildingsOfEarlierTests(): Promise<void> {
+  const currentTestId = test.info().testId
+  const abandoned = Array.from(createdBuildings.entries())
+    .filter(([, testId]) => testId !== currentTestId)
+    .map(([id]) => id)
+  if (!abandoned.length) return
+  try {
+    await purgeBuildingsInDb(abandoned)
+    for (const id of abandoned) createdBuildings.delete(id)
+  } catch (error) {
+    test.info().annotations.push({
+      type: 'warning',
+      description: `[property_management] could not purge buildings ${abandoned.join(', ')} left by earlier tests: ${error instanceof Error ? error.message : String(error)}`,
+    })
+  }
 }
 
 export async function listFloors(request: APIRequestContext, token: string, buildingId: string): Promise<FloorRow[]> {
@@ -73,7 +109,7 @@ export async function createUnit(request: APIRequestContext, token: string, data
 
 export type UnitProductFixture = { categoryId: string; productId: string; secondProductId: string }
 
-async function createProductInCategory(
+export async function createProductInCategory(
   request: APIRequestContext,
   token: string,
   input: { title: string; sku: string; categoryId: string },
@@ -107,13 +143,25 @@ export async function setProductUse(
 
 export async function createUnitProducts(request: APIRequestContext, token: string, stamp: string): Promise<UnitProductFixture> {
   const categoryId = await createCategoryFixture(request, token, { name: `QA PM offices ${stamp}` })
-  const productId = await createProductInCategory(request, token, { title: `QA PM office ${stamp}`, sku: `QA-PM-OFF-${stamp}`, categoryId })
-  const secondProductId = await createProductInCategory(request, token, { title: `QA PM big office ${stamp}`, sku: `QA-PM-BIG-${stamp}`, categoryId })
-  for (const id of [productId, secondProductId]) {
-    const response = await setProductUse(request, token, id, 'leasable', 'month')
-    expect(response.status(), 'POST product-uses should return 201').toBe(201)
+  const created: string[] = []
+  try {
+    const productId = await createProductInCategory(request, token, { title: `QA PM office ${stamp}`, sku: `QA-PM-OFF-${stamp}`, categoryId })
+    created.push(productId)
+    const secondProductId = await createProductInCategory(request, token, { title: `QA PM big office ${stamp}`, sku: `QA-PM-BIG-${stamp}`, categoryId })
+    created.push(secondProductId)
+    for (const id of created) {
+      const response = await setProductUse(request, token, id, 'leasable', 'month')
+      expect(response.status(), 'POST product-uses should return 201').toBe(201)
+    }
+    return { categoryId, productId, secondProductId }
+  } catch (error) {
+    for (const id of created) {
+      await setProductUse(request, token, id, null, null).catch(() => undefined)
+      await deleteCatalogProductIfExists(request, token, id)
+    }
+    await deleteCatalogCategoryIfExists(request, token, categoryId)
+    throw error
   }
-  return { categoryId, productId, secondProductId }
 }
 
 export async function deleteUnitProducts(request: APIRequestContext, token: string | null, fixture: UnitProductFixture | null): Promise<void> {

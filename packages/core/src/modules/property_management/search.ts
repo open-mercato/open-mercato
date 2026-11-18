@@ -1,4 +1,6 @@
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type {
   SearchBuildContext,
   SearchIndexSource,
@@ -9,6 +11,8 @@ import type {
 import { E } from '#generated/entities.ids.generated'
 import { MANAGE_ALL_BUILDINGS_FEATURE } from './lib/buildingAccess'
 
+const logger = createLogger('property_management')
+
 function readString(record: Record<string, unknown>, ...keys: string[]): string | null {
   for (const key of keys) {
     const value = record[key]
@@ -17,27 +21,41 @@ function readString(record: Record<string, unknown>, ...keys: string[]): string 
   return null
 }
 
-async function loadName(
+async function loadField(
   ctx: SearchBuildContext,
   entityId: string,
-  id: string | null,
+  filters: Record<string, unknown>,
   field: string,
 ): Promise<string | null> {
   const queryEngine = ctx.queryEngine as QueryEngine | undefined
-  if (!queryEngine || !id || typeof ctx.tenantId !== 'string') return null
+  if (!queryEngine || typeof ctx.tenantId !== 'string') return null
   try {
     const result = await queryEngine.query<Record<string, unknown>>(entityId, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId ?? undefined,
-      filters: { id: { $eq: id } },
+      filters,
       fields: ['id', field],
       page: { page: 1, pageSize: 1 },
     })
     const row = result.items[0]
     return row ? readString(row, field) : null
-  } catch {
+  } catch (err) {
+    logger.warn('Search source lookup failed', { entityId, field, err })
+    getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.search_source_lookup_failed' })
     return null
   }
+}
+
+async function loadName(ctx: SearchBuildContext, entityId: string, id: string | null, field: string): Promise<string | null> {
+  return id ? loadField(ctx, entityId, { id: { $eq: id } }, field) : null
+}
+
+async function loadUnitProductName(ctx: SearchBuildContext, record: Record<string, unknown>): Promise<string | null> {
+  const unitId = readString(record, 'id')
+  const periodName = unitId
+    ? await loadField(ctx, E.property_management.unit_product_period, { unit_id: { $eq: unitId }, valid_to: { $exists: false } }, 'product_name')
+    : null
+  return periodName ?? loadName(ctx, E.catalog.catalog_product, readString(record, 'catalog_product_id', 'catalogProductId'), 'title')
 }
 
 function buildingUrl(record: Record<string, unknown>): string | null {
@@ -104,7 +122,7 @@ export const searchConfig: SearchModuleConfig = {
         const [buildingName, floorName, productName] = await Promise.all([
           loadName(ctx, E.property_management.building, readString(record, 'building_id', 'buildingId'), 'name'),
           loadName(ctx, E.property_management.floor, readString(record, 'floor_id', 'floorId'), 'name'),
-          loadName(ctx, E.catalog.catalog_product, readString(record, 'catalog_product_id', 'catalogProductId'), 'title'),
+          loadUnitProductName(ctx, record),
         ])
         const lines = [name, buildingName, floorName, productName].filter((line): line is string => Boolean(line))
         const presenter: SearchResultPresenter = {
@@ -140,14 +158,11 @@ export const searchConfig: SearchModuleConfig = {
         const record = ctx.record
         const reference = readString(record, 'reference')
         if (!reference) return null
-        const [companyName, unitName] = await Promise.all([
-          loadName(ctx, E.customers.customer_entity, readString(record, 'customer_company_id', 'customerCompanyId'), 'display_name'),
-          loadName(ctx, E.property_management.unit, readString(record, 'unit_id', 'unitId'), 'name'),
-        ])
-        const lines = [reference, companyName, unitName].filter((line): line is string => Boolean(line))
+        const unitName = await loadName(ctx, E.property_management.unit, readString(record, 'unit_id', 'unitId'), 'name')
+        const lines = [reference, unitName].filter((line): line is string => Boolean(line))
         const presenter: SearchResultPresenter = {
           title: reference,
-          subtitle: [companyName, unitName].filter(Boolean).join(' · ') || undefined,
+          subtitle: unitName ?? undefined,
           icon: 'file-signature',
           badge: readString(record, 'status') ?? undefined,
         }
@@ -155,7 +170,7 @@ export const searchConfig: SearchModuleConfig = {
           text: lines,
           presenter,
           links: linksFor(leaseUrl(record), reference),
-          checksumSource: { record, companyName, unitName },
+          checksumSource: { record, unitName },
         }
       },
       formatResult: (ctx: SearchBuildContext) => ({

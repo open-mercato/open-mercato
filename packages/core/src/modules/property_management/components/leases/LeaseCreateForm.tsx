@@ -6,21 +6,27 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { LEASES_HREF, SETTINGS_HREF, readErrorCode, readErrorMessage } from './leaseModel'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { E } from '#generated/entities.ids.generated'
+import { LEASES_HREF, SETTINGS_HREF, formatDate, readErrorCode, readErrorMessage } from './leaseModel'
 import {
   CompanyPickerField,
   ContactPickerField,
+  MonthlyRateField,
   ProposalExpiryField,
   TermSummaryField,
   UnitPickerField,
   readPositiveInt,
 } from './leaseCreateFields'
+import { leaseToday, useLeaseSettings } from './useLeaseSettings'
+import { useCanOpenLink } from '../featureLinks'
+import { useLeaseBuildingOptions } from './useLeaseBuildingOptions'
 
 type LeaseFormValues = {
   buildingId: string | null
@@ -35,41 +41,20 @@ type LeaseFormValues = {
   message: string
 } & Record<string, unknown>
 
-type SettingsPayload = { billingChannelId?: string | null; proposalExpiryDays?: number }
 type OverlapConflict = { reference?: string; startsOn?: string; endsOn?: string }
-
-function todayIso(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
 
 export function LeaseCreateForm() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
-  const [settings, setSettings] = React.useState<SettingsPayload | null>(null)
-  const [buildings, setBuildings] = React.useState<Array<{ value: string; label: string }>>([])
-  const [channelMissing, setChannelMissing] = React.useState(false)
-
-  React.useEffect(() => {
-    let cancelled = false
-    void Promise.all([
-      apiCall<SettingsPayload>('/api/property_management/settings', undefined, { fallback: {} }),
-      apiCall<{ items?: Array<{ id: string; name: string }> }>('/api/property_management/buildings?pageSize=100&sortField=name&sortDir=asc', undefined, { fallback: {} }),
-    ]).then(([settingsCall, buildingsCall]) => {
-      if (cancelled) return
-      const loaded = settingsCall.ok && settingsCall.result ? settingsCall.result : {}
-      setSettings(loaded)
-      setChannelMissing(settingsCall.ok && !loaded.billingChannelId)
-      const items = buildingsCall.ok && Array.isArray(buildingsCall.result?.items) ? buildingsCall.result.items : []
-      setBuildings(items.map((item) => ({ value: item.id, label: item.name })))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const { settings, loadError: settingsError, retry: retrySettings } = useLeaseSettings()
+  const { buildings, loadError: buildingsError, retry: retryBuildings } = useLeaseBuildingOptions()
+  const canOpenSettings = useCanOpenLink('settings')
+  const [channelRefused, setChannelRefused] = React.useState(false)
+  const channelMissing = channelRefused || settings?.billingChannelConfigured === false
 
   const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'buildingId', label: t('property_management.leases.form.building', 'Building'), type: 'select', options: buildings, layout: 'half' },
+    { id: 'buildingId', label: t('property_management.leases.form.building', 'Building'), type: 'select', options: buildings ?? [], layout: 'half' },
     { id: 'startsOn', label: t('property_management.leases.form.startsOn', 'Lease start'), type: 'date', required: true, layout: 'half' },
     { id: 'termMonths', label: t('property_management.leases.form.termMonths', 'Term, months'), type: 'number', required: true, layout: 'half' },
     { id: 'termSummary', label: t('property_management.leases.form.ends', 'Lease end'), type: 'custom', layout: 'half', component: (props) => <TermSummaryField {...props} /> },
@@ -93,9 +78,9 @@ export function LeaseCreateForm() {
     {
       id: 'monthlyRate',
       label: t('property_management.leases.form.monthlyRate', 'Monthly rate'),
-      type: 'number',
+      type: 'custom',
       required: true,
-      description: t('property_management.leases.form.monthlyRateHint', 'In the currency of the unit’s product price.'),
+      component: (props) => <MonthlyRateField {...props} />,
     },
     {
       id: 'asProposal',
@@ -123,18 +108,19 @@ export function LeaseCreateForm() {
     { id: 'term', title: t('property_management.leases.form.groupTerm', 'Unit and term'), fields: ['buildingId', 'startsOn', 'termMonths', 'termSummary', 'unitId'] },
     { id: 'tenant', title: t('property_management.leases.form.groupTenant', 'Tenant and rate'), fields: ['customerCompanyId', 'primaryContactPersonId', 'monthlyRate'] },
     { id: 'proposal', title: t('property_management.leases.form.groupProposal', 'Proposal'), fields: ['asProposal', 'expiresInDays', 'message'] },
+    { id: 'customFields', title: t('entities.customFields.title', 'Custom fields'), kind: 'customFields' },
   ], [t])
 
   const initialValues = React.useMemo<Partial<LeaseFormValues>>(() => ({
     buildingId: null,
-    startsOn: todayIso(),
+    startsOn: leaseToday(settings),
     termMonths: 12,
     unitId: null,
     customerCompanyId: null,
     primaryContactPersonId: null,
     monthlyRate: null,
     asProposal: false,
-    expiresInDays: settings?.proposalExpiryDays ?? 14,
+    expiresInDays: settings?.proposalExpiryDays ?? null,
     message: '',
   }), [settings])
 
@@ -155,6 +141,8 @@ export function LeaseCreateForm() {
       monthlyRate: Number(values.monthlyRate),
       asProposal,
     }
+    const customFields = collectCustomFieldValues(values)
+    if (Object.keys(customFields).length) payload.customFields = customFields
     if (asProposal) {
       payload.expiresInDays = readPositiveInt(values.expiresInDays) ?? undefined
       if (values.message?.trim()) payload.message = values.message.trim()
@@ -172,17 +160,42 @@ export function LeaseCreateForm() {
       router.push(call.result?.id ? `${LEASES_HREF}/${call.result.id}` : LEASES_HREF)
     } catch (error) {
       const code = readErrorCode(error)
-      if (code === 'billing_channel_missing') setChannelMissing(true)
+      if (code === 'billing_channel_missing') setChannelRefused(true)
       if (code === 'lease_overlap') {
         const conflicts = (error as { conflicts?: OverlapConflict[] }).conflicts ?? []
-        const names = conflicts.map((entry) => `${entry.reference ?? ''} (${entry.startsOn ?? ''} — ${entry.endsOn ?? ''})`).join(', ')
-        throw createCrudFormError(`${readErrorMessage(error, '')} ${names}`.trim(), { unitId: readErrorMessage(error, '') })
+        const names = conflicts.map((entry) => t('property_management.leases.create.overlapEntry', '{reference} ({start} — {end})', {
+          reference: entry.reference ?? '',
+          start: formatDate(entry.startsOn, locale),
+          end: formatDate(entry.endsOn, locale),
+        })).join(', ')
+        const message = readErrorMessage(error, t('property_management.errors.leaseOverlap', 'Another lease or open proposal of this unit overlaps the term.'))
+        throw createCrudFormError(
+          names ? t('property_management.leases.create.overlapWith', '{message} Overlapping: {leases}.', { message, leases: names }) : message,
+          { unitId: message },
+        )
       }
       throw error
     }
   }
 
-  if (settings === null) {
+  const loadError = settingsError ?? buildingsError
+  if (loadError) {
+    const retry = () => {
+      if (settingsError) retrySettings()
+      if (buildingsError) retryBuildings()
+    }
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage
+            label={loadError}
+            action={<Button type="button" variant="outline" onClick={retry}>{t('property_management.common.retry', 'Try again')}</Button>}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (settings === null || buildings === null) {
     return (
       <Page>
         <PageBody>
@@ -203,13 +216,18 @@ export function LeaseCreateForm() {
           fields={fields}
           groups={groups}
           initialValues={initialValues}
+          entityId={E.property_management.lease}
           submitLabel={t('property_management.leases.create.submit', 'Save lease')}
           contentHeader={channelMissing ? (
             <Alert status="warning">
               <AlertTitle>{t('property_management.leases.create.channelMissingTitle', 'No sales channel for leases yet')}</AlertTitle>
               <AlertDescription>
-                {t('property_management.leases.create.channelMissing', 'Leases are billed through a sales channel. Choose it in the settings first.')}{' '}
-                <Link href={SETTINGS_HREF} className="font-medium underline">{t('property_management.leases.create.openSettings', 'Open settings')}</Link>
+                {canOpenSettings ? (
+                  <>
+                    {t('property_management.leases.create.channelMissing', 'Leases are billed through a sales channel. Choose it in the settings first.')}{' '}
+                    <Link href={SETTINGS_HREF} className="font-medium underline">{t('property_management.leases.create.openSettings', 'Open settings')}</Link>
+                  </>
+                ) : t('property_management.leases.create.channelMissingNoAccess', 'Leases are billed through a sales channel. Ask someone who manages the property settings to choose it.')}
               </AlertDescription>
             </Alert>
           ) : undefined}

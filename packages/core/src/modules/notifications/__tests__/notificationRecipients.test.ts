@@ -1,3 +1,9 @@
+const tryGetModules = jest.fn<Array<{ id: string }> | null, []>(() => null)
+
+jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
+  tryGetModules: () => tryGetModules(),
+}))
+
 import {
   getRecipientUserIdsForFeature,
   getRecipientUserIdsForRole,
@@ -103,5 +109,31 @@ describe('getScopedCustomerUserRecipientIds', () => {
     expect(query.where).toHaveBeenCalledWith('customer_users.tenant_id', '=', 'tenant-1')
     expect(query.where).toHaveBeenCalledWith('customer_users.organization_id', '=', 'org-1')
     expect(result).toEqual(['customer-1'])
+  })
+
+  it('queries customer users when the customer_accounts module is enabled', async () => {
+    tryGetModules.mockReturnValueOnce([{ id: 'notifications' }, { id: 'customer_accounts' }])
+    const query = createQuery([{ customer_user_id: 'customer-1' }])
+    const db = { selectFrom: jest.fn(() => query) }
+
+    await expect(getScopedCustomerUserRecipientIds(db as never, 'tenant-1', 'org-1', ['customer-1']))
+      .resolves.toEqual(['customer-1'])
+    expect(db.selectFrom).toHaveBeenCalledWith('customer_users')
+  })
+
+  it('resolves no recipients without touching customer_users when the customer_accounts module is disabled', async () => {
+    tryGetModules.mockReturnValueOnce([{ id: 'notifications' }, { id: 'auth' }])
+    const db = { selectFrom: jest.fn(() => createQuery([{ customer_user_id: 'customer-1' }])) }
+
+    await expect(getScopedCustomerUserRecipientIds(db as never, 'tenant-1', 'org-1', ['customer-1']))
+      .resolves.toEqual([])
+    expect(db.selectFrom).not.toHaveBeenCalled()
+  })
+
+  it('resolves no recipients for an empty id list without a query', async () => {
+    const db = { selectFrom: jest.fn(() => createQuery([])) }
+
+    await expect(getScopedCustomerUserRecipientIds(db as never, 'tenant-1', 'org-1', [])).resolves.toEqual([])
+    expect(db.selectFrom).not.toHaveBeenCalled()
   })
 })

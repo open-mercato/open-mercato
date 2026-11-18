@@ -9,18 +9,38 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FloorRow } from './buildingRecord'
 import { findCountIssue, parseCount, readFloorRows, relayFloorRows } from './floorRows'
+import { AvailabilitySwitch } from '../availability/AvailabilitySwitch'
+import { useUnavailabilities, type UnavailabilitiesState } from '../availability/useUnavailabilities'
+import { usePlural } from '../plural'
+
+function spaceCountOf(row: FloorRow): number {
+  return row.id ? row.spaceCount : 1
+}
 
 export type FloorsEditorProps = CrudFormGroupComponentProps & {
   buildingId: string | null
   savedFloors: readonly FloorRow[]
+  archived?: boolean
+  availability?: UnavailabilitiesState
 }
 
-export function FloorsEditor({ values, setValue, errors, buildingId, savedFloors }: FloorsEditorProps) {
+export function FloorsEditor({ values, setValue, errors, buildingId, savedFloors, archived = false, availability: sharedAvailability }: FloorsEditorProps) {
   const t = useT()
+  const { count } = usePlural()
   const below = parseCount(values.below, 0)
   const above = parseCount(values.above, 1)
   const rows = readFloorRows(values.floors)
   const issue = findCountIssue(savedFloors, below, above)
+  const savedFloorIds = savedFloors.map((floor) => floor.id ?? '').filter(Boolean).join(',')
+  const availabilityQuery = React.useMemo(
+    () => (buildingId && !sharedAvailability
+      ? { buildingIds: [buildingId], exactSubjectIds: [buildingId, ...(savedFloorIds ? savedFloorIds.split(',') : [])] }
+      : null),
+    [buildingId, savedFloorIds, sharedAvailability],
+  )
+  const ownAvailability = useUnavailabilities(availabilityQuery)
+  const availability = sharedAvailability ?? ownAvailability
+  const savedNames = React.useMemo(() => new Map(savedFloors.map((floor) => [floor.id, floor.name])), [savedFloors])
   const issueMessage = issue
     ? t(
         'property_management.buildings.form.countBlocked',
@@ -41,7 +61,7 @@ export function FloorsEditor({ values, setValue, errors, buildingId, savedFloors
 
   const belowError = (issue?.field === 'below' ? issueMessage : null) ?? errors.below
   const aboveError = (issue?.field === 'above' ? issueMessage : null) ?? errors.above
-  const totalSpaces = rows.reduce((sum, row) => sum + row.spaceCount, 0)
+  const totalSpaces = rows.reduce((sum, row) => sum + spaceCountOf(row), 0)
   const totalUnits = rows.reduce((sum, row) => sum + row.unitCount, 0)
 
   return (
@@ -79,10 +99,10 @@ export function FloorsEditor({ values, setValue, errors, buildingId, savedFloors
         )}
       </p>
       <p className="text-sm text-muted-foreground">
-        {t('property_management.buildings.form.floorsSummary', '{floors} floors · {spaces} spaces · {units} units', {
-          floors: rows.length,
-          spaces: totalSpaces,
-          units: totalUnits,
+        {t('property_management.buildings.form.floorsSummary', '{floors} · {spaces} · {units}', {
+          floors: count('floors', rows.length),
+          spaces: count('spaces', totalSpaces),
+          units: count('units', totalUnits),
         })}
       </p>
       <div className="overflow-x-auto">
@@ -94,6 +114,7 @@ export function FloorsEditor({ values, setValue, errors, buildingId, savedFloors
               <th className="py-2 pr-3 font-medium">{t('property_management.buildings.form.floorSize', 'Size, x × y (m)')} *</th>
               <th className="py-2 pr-3 font-medium">{t('property_management.buildings.form.floorSpaces', 'Spaces')}</th>
               <th className="py-2 pr-3 font-medium">{t('property_management.buildings.form.floorUnits', 'Units')}</th>
+              {buildingId ? <th className="py-2 pr-3 font-medium">{t('property_management.availability.column', 'Available')}</th> : null}
               {buildingId ? <th className="py-2 font-medium"><span className="sr-only">{t('property_management.common.actions', 'Actions')}</span></th> : null}
             </tr>
           </thead>
@@ -116,7 +137,7 @@ export function FloorsEditor({ values, setValue, errors, buildingId, savedFloors
                       min={0}
                       step="0.5"
                       value={row.sizeX}
-                      placeholder="x"
+                      placeholder={t('property_management.buildings.form.floorWidthPlaceholder', 'x')}
                       aria-label={t('property_management.buildings.form.floorWidthAria', 'Floor {number} width (x), metres', { number: row.number })}
                       onChange={(event) => updateRow(row.number, { sizeX: event.target.value })}
                     />
@@ -126,14 +147,33 @@ export function FloorsEditor({ values, setValue, errors, buildingId, savedFloors
                       min={0}
                       step="0.5"
                       value={row.sizeY}
-                      placeholder="y"
+                      placeholder={t('property_management.buildings.form.floorDepthPlaceholder', 'y')}
                       aria-label={t('property_management.buildings.form.floorDepthAria', 'Floor {number} depth (y), metres', { number: row.number })}
                       onChange={(event) => updateRow(row.number, { sizeY: event.target.value })}
                     />
                   </div>
                 </td>
-                <td className="py-2 pr-3 tabular-nums text-muted-foreground">{row.id ? row.spaceCount : 1}</td>
+                <td className="py-2 pr-3 tabular-nums text-muted-foreground">{spaceCountOf(row)}</td>
                 <td className="py-2 pr-3 tabular-nums text-muted-foreground">{row.unitCount}</td>
+                {buildingId ? (
+                  <td className="py-2 pr-3">
+                    {row.id ? (
+                      <AvailabilitySwitch
+                        subject={{ type: 'floor', id: row.id, name: savedNames.get(row.id) ?? row.name }}
+                        rows={availability.rows}
+                        ancestors={[{ type: 'building', id: buildingId }]}
+                        disabled={archived}
+                        loading={availability.loading}
+                        refreshing={availability.refreshing}
+                        error={availability.error}
+                        truncated={availability.truncated}
+                        retryable={!archived}
+                        onRetry={availability.reload}
+                        onChanged={availability.reload}
+                      />
+                    ) : null}
+                  </td>
+                ) : null}
                 {buildingId ? (
                   <td className="py-2">
                     {row.id ? (

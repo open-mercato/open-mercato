@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Lease, LeaseProposal, LeaseVersion, type LeaseStatus } from '../data/entities'
-import { compareIsoDates, localToday, rangesOverlap } from './leaseTerm'
+import { compareIsoDates, localToday, rangesOverlap, reservedInterval } from './leaseTerm'
 import type { Scope } from './productUse'
 
 export const RESERVING_LEASE_STATUSES: LeaseStatus[] = ['proposed', 'pending_order', 'active']
@@ -54,8 +54,7 @@ export async function loadReservedRanges(
     leaseId: lease.id,
     reference: lease.reference,
     unitId: lease.unitId,
-    startsOn: lease.startsOn,
-    endsOn: lease.endsOn,
+    ...reservedInterval(lease),
     source: 'lease',
   }))
   for (const version of pendingExtensions) {

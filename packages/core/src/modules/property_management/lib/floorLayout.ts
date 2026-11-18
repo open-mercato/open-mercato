@@ -7,7 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CommonArea, Floor, Space, Unit, type Building } from '../data/entities'
 import type { FloorLayoutInput } from '../data/validators'
 import { floorRect, fitsInside, sameRect, toRect, type Rect } from './geometry'
-import { minimumCounts } from './floorNumbering'
+import { isContiguousLayout, minimumCounts } from './floorNumbering'
 import type { Scope } from './productUse'
 
 export type RectSnapshot = { x: string; y: string; width: string; depth: string }
@@ -25,11 +25,18 @@ export type LayoutChangeSnapshot = {
   removedCommonAreaIds: string[]
 }
 
+export type LayoutEntityChanges = {
+  floors: { created: Floor[]; updated: Floor[]; removed: Floor[] }
+  spaces: { created: Space[]; updated: Space[]; removed: Space[] }
+  commonAreas: { created: CommonArea[]; removed: CommonArea[] }
+}
+
 export type LayoutChangeResult = {
   snapshot: LayoutChangeSnapshot
   createdFloors: Floor[]
   updatedFloors: Floor[]
   removedFloors: Floor[]
+  changes: LayoutEntityChanges
 }
 
 function metres(value: number): string {
@@ -103,6 +110,7 @@ export async function resizeFloor(
   sizeX: number,
   sizeY: number,
   snapshot: LayoutChangeSnapshot,
+  resizedSpaces?: Space[],
 ): Promise<boolean> {
   const current = floorRect(floor.sizeX, floor.sizeY)
   const next = floorRect(sizeX, sizeY)
@@ -121,6 +129,7 @@ export async function resizeFloor(
     })
     plan.defaultSpace.width = metres(sizeX)
     plan.defaultSpace.depth = metres(sizeY)
+    resizedSpaces?.push(plan.defaultSpace)
   }
   floor.sizeX = metres(sizeX)
   floor.sizeY = metres(sizeY)
@@ -208,12 +217,13 @@ export async function applyFloorLayout(
   if (blocking) return refuseRemoval(existing, unitCounts, blocking)
 
   const updatedFloors: Floor[] = []
+  const resizedSpaces: Space[] = []
   const existingByNumber = new Map(existing.map((floor) => [floor.number, floor]))
   for (const entry of layout.floors) {
     const floor = existingByNumber.get(entry.number)
     if (!floor) continue
     const before = snapshotFloor(floor)
-    const resized = await resizeFloor(em, scope, floor, entry.sizeX, entry.sizeY, snapshot)
+    const resized = await resizeFloor(em, scope, floor, entry.sizeX, entry.sizeY, snapshot, resizedSpaces)
     const renamed = floor.name !== entry.name
     if (renamed) floor.name = entry.name
     if (resized || renamed) {
@@ -247,64 +257,198 @@ export async function applyFloorLayout(
   await em.flush()
 
   const createdFloors: Floor[] = []
+  const createdSpaces: Space[] = []
   for (const entry of layout.floors) {
     if (existingByNumber.has(entry.number)) continue
     const { floor, space } = createFloorWithDefaultSpace(em, scope, building, entry, defaultSpaceName)
     createdFloors.push(floor)
+    createdSpaces.push(space)
     snapshot.createdFloorIds.push(floor.id)
     snapshot.createdSpaceIds.push(space.id)
   }
   await em.flush()
-  return { snapshot, createdFloors, updatedFloors, removedFloors: removed }
+  return {
+    snapshot,
+    createdFloors,
+    updatedFloors,
+    removedFloors: removed,
+    changes: {
+      floors: { created: createdFloors, updated: updatedFloors, removed },
+      spaces: { created: createdSpaces, updated: resizedSpaces, removed: removedSpaces },
+      commonAreas: { created: [], removed: removedAreas },
+    },
+  }
 }
 
-export async function revertFloorLayout(em: EntityManager, scope: Scope, snapshot: LayoutChangeSnapshot): Promise<void> {
-  const createdFloorIds = snapshot.createdFloorIds
-  if (createdFloorIds.length) {
-    const unitsOnCreated = await findWithDecryption(
-      em,
-      Unit,
-      { ...scope, floorId: { $in: createdFloorIds }, deletedAt: null },
-      undefined,
-      scope,
-    )
-    if (unitsOnCreated.length) {
-      const { translate } = await resolveTranslations()
-      throw new CrudHttpError(409, {
-        error: translate('property_management.errors.undoFloorsInUse', 'Cannot undo: units were added to the floors this change created.'),
-      })
-    }
+async function lockLayoutFloors(em: EntityManager, scope: Scope, ids: readonly string[]): Promise<Map<string, Floor>> {
+  const unique = Array.from(new Set(ids))
+  if (!unique.length) return new Map()
+  const floors = await findWithDecryption(
+    em,
+    Floor,
+    { ...scope, id: { $in: unique } },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true, orderBy: { id: 'asc' } },
+    scope,
+  )
+  return new Map(floors.map((floor) => [floor.id, floor]))
+}
+
+async function refuseUndo(key: string, fallback: string, extra: Record<string, unknown> = {}): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, { error: translate(key, fallback), ...extra })
+}
+
+async function assertCreatedFloorsEmpty(
+  em: EntityManager,
+  scope: Scope,
+  createdFloorIds: readonly string[],
+  createdSpaceIds: readonly string[],
+): Promise<void> {
+  if (!createdFloorIds.length) return
+  const onCreatedFloors = { ...scope, floorId: { $in: [...createdFloorIds] }, deletedAt: null }
+  const [unitsOnCreated, spacesOnCreated, areasOnCreated] = await Promise.all([
+    findWithDecryption(em, Unit, onCreatedFloors, undefined, scope),
+    findWithDecryption(em, Space, onCreatedFloors, undefined, scope),
+    findWithDecryption(em, CommonArea, onCreatedFloors, undefined, scope),
+  ])
+  if (unitsOnCreated.length) {
+    await refuseUndo('property_management.errors.undoFloorsInUse', 'Cannot undo: units were added to the floors this change created.')
   }
+  const addedSpaces = spacesOnCreated.filter((space) => !createdSpaceIds.includes(space.id))
+  if (addedSpaces.length || areasOnCreated.length) {
+    await refuseUndo(
+      'property_management.errors.undoFloorsHaveSpaces',
+      'Cannot undo: spaces or common areas were added to the floors this change created. Remove them first.',
+      {
+        code: 'floor_undo_floors_have_spaces',
+        spaces: addedSpaces.map((space) => space.name),
+        commonAreas: areasOnCreated.map((area) => area.name),
+      },
+    )
+  }
+}
+
+async function assertFloorNumbersFree(
+  em: EntityManager,
+  scope: Scope,
+  buildingId: string,
+  restoring: readonly Floor[],
+  deleting: readonly string[],
+): Promise<void> {
+  const reviving = restoring.filter((floor) => floor.deletedAt)
+  if (!reviving.length) return
+  const live = await findWithDecryption(
+    em,
+    Floor,
+    { ...scope, buildingId, number: { $in: reviving.map((floor) => floor.number) }, deletedAt: null },
+    undefined,
+    scope,
+  )
+  const taken = live.filter((floor) => !deleting.includes(floor.id))
+  if (taken.length) {
+    await refuseUndo(
+      'property_management.errors.undoFloorNumberTaken',
+      'Cannot undo: a floor with the same number was added since.',
+      { code: 'floor_undo_number_taken', floors: taken.map((floor) => floor.number) },
+    )
+  }
+}
+
+async function assertRevertContiguous(
+  em: EntityManager,
+  scope: Scope,
+  buildingId: string,
+  restoring: readonly Floor[],
+  deleting: readonly string[],
+): Promise<void> {
+  const reviving = restoring.filter((floor) => floor.deletedAt)
+  if (!reviving.length && !deleting.length) return
+  const live = await findWithDecryption(em, Floor, { ...scope, buildingId, deletedAt: null }, undefined, scope)
+  const numbers = [
+    ...live.filter((floor) => !deleting.includes(floor.id)).map((floor) => floor.number),
+    ...reviving.map((floor) => floor.number),
+  ]
+  if (isContiguousLayout(numbers)) return
+  await refuseUndo(
+    'property_management.errors.undoFloorsNotContiguous',
+    'Cannot undo: later floor changes would leave a gap in the floor numbers. Undo those changes first.',
+    { code: 'floor_undo_not_contiguous' },
+  )
+}
+
+type PlannedResize = { floor: Floor; before: FloorSnapshot; space: Space | null }
+
+async function planRevertResizes(
+  em: EntityManager,
+  scope: Scope,
+  snapshot: LayoutChangeSnapshot,
+  floorsById: Map<string, Floor>,
+): Promise<PlannedResize[]> {
+  const planned: PlannedResize[] = []
+  for (const before of snapshot.updatedFloors) {
+    const floor = floorsById.get(before.id)
+    if (!floor || floor.deletedAt) continue
+    const current = floorRect(floor.sizeX, floor.sizeY)
+    const next = floorRect(before.sizeX, before.sizeY)
+    if (sameRect(current, next)) {
+      planned.push({ floor, before, space: null })
+      continue
+    }
+    const [spaces, units, commonAreas] = await Promise.all([
+      findWithDecryption(em, Space, { ...scope, floorId: floor.id, deletedAt: null }, undefined, scope),
+      findWithDecryption(em, Unit, { ...scope, floorId: floor.id, deletedAt: null }, undefined, scope),
+      findWithDecryption(em, CommonArea, { ...scope, floorId: floor.id, deletedAt: null }, undefined, scope),
+    ])
+    const plan = planFloorResize(current, next, spaces, units, commonAreas)
+    if (plan.outside.length) return refuseResize(floor.name, plan.outside)
+    planned.push({ floor, before, space: plan.defaultSpace })
+  }
+  return planned
+}
+
+export async function revertFloorLayout(em: EntityManager, scope: Scope, snapshot: LayoutChangeSnapshot): Promise<LayoutEntityChanges> {
+  const createdFloorIds = snapshot.createdFloorIds
+  const floorsById = await lockLayoutFloors(em, scope, [
+    ...createdFloorIds,
+    ...snapshot.removedFloorIds,
+    ...snapshot.updatedFloors.map((floor) => floor.id),
+  ])
+  await assertCreatedFloorsEmpty(em, scope, createdFloorIds, snapshot.createdSpaceIds)
+  const removedFloors = snapshot.removedFloorIds.map((id) => floorsById.get(id)).filter((floor): floor is Floor => Boolean(floor))
+  await assertFloorNumbersFree(em, scope, snapshot.buildingId, removedFloors, createdFloorIds)
+  await assertRevertContiguous(em, scope, snapshot.buildingId, removedFloors, createdFloorIds)
+  const resizes = await planRevertResizes(em, scope, snapshot, floorsById)
   const now = new Date()
-  const [createdFloors, createdSpaces, createdAreas, removedFloors, removedSpaces, removedAreas, updatedFloors, resizedSpaces] = await Promise.all([
-    createdFloorIds.length ? findWithDecryption(em, Floor, { ...scope, id: { $in: createdFloorIds } }, undefined, scope) : Promise.resolve([]),
+  const createdFloors = createdFloorIds.map((id) => floorsById.get(id)).filter((floor): floor is Floor => Boolean(floor && !floor.deletedAt))
+  const [createdSpaces, createdAreas, removedSpaces, removedAreas] = await Promise.all([
     createdFloorIds.length ? findWithDecryption(em, Space, { ...scope, floorId: { $in: createdFloorIds }, deletedAt: null }, undefined, scope) : Promise.resolve([]),
     createdFloorIds.length ? findWithDecryption(em, CommonArea, { ...scope, floorId: { $in: createdFloorIds }, deletedAt: null }, undefined, scope) : Promise.resolve([]),
-    snapshot.removedFloorIds.length ? findWithDecryption(em, Floor, { ...scope, id: { $in: snapshot.removedFloorIds } }, undefined, scope) : Promise.resolve([]),
     snapshot.removedSpaceIds.length ? findWithDecryption(em, Space, { ...scope, id: { $in: snapshot.removedSpaceIds } }, undefined, scope) : Promise.resolve([]),
     snapshot.removedCommonAreaIds.length ? findWithDecryption(em, CommonArea, { ...scope, id: { $in: snapshot.removedCommonAreaIds } }, undefined, scope) : Promise.resolve([]),
-    snapshot.updatedFloors.length ? findWithDecryption(em, Floor, { ...scope, id: { $in: snapshot.updatedFloors.map((floor) => floor.id) } }, undefined, scope) : Promise.resolve([]),
-    snapshot.resizedSpaces.length ? findWithDecryption(em, Space, { ...scope, id: { $in: snapshot.resizedSpaces.map((space) => space.id) } }, undefined, scope) : Promise.resolve([]),
   ])
   for (const record of [...createdFloors, ...createdSpaces, ...createdAreas]) record.deletedAt = now
   await em.flush()
-  for (const record of [...removedFloors, ...removedSpaces, ...removedAreas]) record.deletedAt = null
-  const updatedById = new Map(snapshot.updatedFloors.map((floor) => [floor.id, floor]))
-  for (const floor of updatedFloors) {
-    const before = updatedById.get(floor.id)
-    if (!before) continue
+  const restoredFloors = removedFloors.filter((floor) => floor.deletedAt)
+  const restoredSpaces = removedSpaces.filter((space) => space.deletedAt)
+  const restoredAreas = removedAreas.filter((area) => area.deletedAt)
+  for (const record of [...restoredFloors, ...restoredSpaces, ...restoredAreas]) record.deletedAt = null
+  const updatedFloors: Floor[] = []
+  const updatedSpaces: Space[] = []
+  for (const { floor, before, space } of resizes) {
     floor.name = before.name
     floor.sizeX = before.sizeX
     floor.sizeY = before.sizeY
-  }
-  const resizedById = new Map(snapshot.resizedSpaces.map((space) => [space.id, space.before]))
-  for (const space of resizedSpaces) {
-    const before = resizedById.get(space.id)
-    if (!before) continue
-    space.x = before.x
-    space.y = before.y
-    space.width = before.width
-    space.depth = before.depth
+    updatedFloors.push(floor)
+    if (space) {
+      space.width = before.sizeX
+      space.depth = before.sizeY
+      updatedSpaces.push(space)
+    }
   }
   await em.flush()
+  return {
+    floors: { created: restoredFloors, updated: updatedFloors, removed: createdFloors },
+    spaces: { created: restoredSpaces, updated: updatedSpaces, removed: createdSpaces },
+    commonAreas: { created: restoredAreas, removed: createdAreas },
+  }
 }

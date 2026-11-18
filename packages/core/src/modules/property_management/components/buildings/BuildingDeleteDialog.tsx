@@ -14,6 +14,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { usePlural } from '../plural'
 import { isSubmitShortcut, useBuildingUsage } from './useBuildingUsage'
 
 export type BuildingDeleteTarget = { id: string; name: string; updatedAt: string | null }
@@ -29,12 +30,14 @@ const CONTEXT_ID = 'property-management-building-delete'
 
 export function BuildingDeleteDialog({ target, onClose, onDeleted, onArchiveInstead }: BuildingDeleteDialogProps) {
   const t = useT()
+  const { count } = usePlural()
   const [typed, setTyped] = React.useState('')
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const { usage, loading } = useBuildingUsage(target?.id ?? null, target !== null)
+  const { usage, loading, failed, retry } = useBuildingUsage(target?.id ?? null, target !== null)
   const { runMutation, retryLastMutation } = useGuardedMutation<{ formId: string; resourceKind: string; resourceId: string; retryLastMutation: () => Promise<boolean> }>({
     contextId: CONTEXT_ID,
+    blockedMessage: t('property_management.common.blocked', 'The change was blocked.'),
   })
 
   React.useEffect(() => {
@@ -42,7 +45,7 @@ export function BuildingDeleteDialog({ target, onClose, onDeleted, onArchiveInst
     setError(null)
   }, [target?.id])
 
-  const canConfirm = Boolean(target) && typed.trim() === target?.name.trim() && usage?.canDelete !== false && !pending && !loading
+  const canConfirm = Boolean(target) && typed.trim() === target?.name.trim() && usage?.canDelete === true && !failed && !pending && !loading
 
   const confirm = async () => {
     if (!target || !canConfirm) return
@@ -80,13 +83,21 @@ export function BuildingDeleteDialog({ target, onClose, onDeleted, onArchiveInst
         </DialogHeader>
         <div className="space-y-4">
           {loading ? <LoadingMessage label={t('property_management.common.loading', 'Loading…')} /> : null}
+          {failed ? (
+            <Alert status="error" data-testid="pm-building-delete-usage-error">
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+                <span>{t('property_management.buildings.delete.usageError', 'Could not check what belongs to this building and whether it can be deleted.')}</span>
+                <Button type="button" variant="outline" size="sm" onClick={retry}>{t('property_management.common.retry', 'Try again')}</Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
           {usage ? (
             <Alert status="warning">
               <AlertTitle>
-                {t('property_management.buildings.delete.counts', '{floors} floors, {spaces} spaces and {units} units belong to this building', {
-                  floors: usage.floorCount,
-                  spaces: usage.spaceCount,
-                  units: usage.unitCount,
+                {t('property_management.buildings.delete.counts', '{floors}, {spaces} and {units} belong to this building', {
+                  floors: count('floors', usage.floorCount),
+                  spaces: count('spaces', usage.spaceCount),
+                  units: count('units', usage.unitCount),
                 })}
               </AlertTitle>
               <AlertDescription>

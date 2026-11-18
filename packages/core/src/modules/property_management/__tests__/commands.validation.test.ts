@@ -37,15 +37,26 @@ jest.mock('../lib/productUse', () => {
       billingUnit: 'month',
     })),
     resolvePriceSnapshot: jest.fn(async () => ({ priceAmount: '1200.0000', currencyCode: 'PLN', priceKindId: null })),
+    lockProductUse: jest.fn(async (_em: unknown, _scope: unknown, catalogProductId: string) => ({ catalogProductId, use: 'leasable', billingUnit: 'month' })),
   }
 })
 
-jest.mock('../lib/usageGuards', () => ({
-  findActiveLeases: jest.fn(async () => []),
-  findUpcomingBookings: jest.fn(async () => []),
-  findUnitBlockers: jest.fn(async () => []),
-  findUnitsEverUsed: jest.fn(async () => []),
-}))
+jest.mock('../lib/usageGuards', () => {
+  const actual = jest.requireActual('../lib/usageGuards')
+  return {
+    findActiveLeases: jest.fn(async () => []),
+    findUpcomingBookings: jest.fn(async () => []),
+    findUpcomingBookingList: jest.fn(async () => ({ blockers: [], total: 0 })),
+    findUnitBlockers: jest.fn(async () => []),
+    findUnitBlockerList: jest.fn(async () => ({ blockers: [], total: 0 })),
+    findUnitsEverUsed: jest.fn(async () => []),
+    findBuildingUnitsEverUsed: jest.fn(async () => []),
+    usageBlockerListOf: actual.usageBlockerListOf,
+    usageBlockerConflictBody: actual.usageBlockerConflictBody,
+    USAGE_BLOCKER_LIST_LIMIT: actual.USAGE_BLOCKER_LIST_LIMIT,
+    HOLDING_BOOKING_STATUSES: actual.HOLDING_BOOKING_STATUSES,
+  }
+})
 
 jest.mock('../events', () => ({ emitPropertyManagementEvent: jest.fn(async () => undefined) }))
 

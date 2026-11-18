@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
@@ -5,13 +6,17 @@ import { getTokenContext } from '@open-mercato/core/helpers/integration/generalF
 import { stampOf } from './helpers'
 import {
   cleanupLeaseSetup,
+  cleanupPinnedLeaseSetup,
   createLease,
   createLeaseSetup,
   isActivated,
   isoDayFromToday,
   readLease,
+  pinPendingEnd,
   runLeaseSweep,
-  waitForLease,
+  expectBillingCancelRefused,
+  salesCancelUnavailable,
+  settleLease,
   type LeaseSetup,
 } from './leaseFixtures'
 
@@ -19,7 +24,10 @@ import {
  * TC-PM-017: lease sweep
  * The daily `property_management.lease_sweep` expires proposals whose respond-by date has passed
  * (the unit is free again) and never ends a lease whose billing change is still pending. The
- * respond-by / end dates are moved into the past directly in the database — no API sets them.
+ * respond-by / end dates are moved into the past directly in the database — no API sets them. The
+ * pending end is pinned in the database too, under its own change id, so the background sales worker
+ * cannot settle it before the sweep runs; while sales cannot cancel recurring orders the API end is
+ * refused (409 lease_billing_cancel_unavailable) and the pinned end alone is swept.
  */
 test.describe('TC-PM-017: lease sweep', () => {
   test('expires a proposal past its respond-by date and frees the unit', async ({ request }) => {
@@ -36,15 +44,17 @@ test.describe('TC-PM-017: lease sweep', () => {
         asProposal: true,
         expiresInDays: 14,
       })
-      const sent = await waitForLease(request, token, proposed.id, (detail) =>
-        detail.proposals.some((proposal) => proposal.id === proposed.proposalId && proposal.status === 'sent'),
+      await settleLease(
+        request,
+        token,
+        proposed.id,
+        (detail) => detail.proposals.some((proposal) => proposal.id === proposed.proposalId && proposal.status === 'sent'),
+        'the proposal quote',
       )
-      test.skip(!sent, 'the property_management.sales_operation worker did not run in this environment')
       await withClient((client) =>
         client.query('update property_management_lease_proposals set respond_by = $1 where id = $2', [isoDayFromToday(-1), proposed.proposalId]),
       )
-      const swept = await runLeaseSweep(getTokenContext(token))
-      test.skip(!swept, 'the property_management.lease_sweep worker did not run in this environment')
+      await runLeaseSweep(getTokenContext(token))
 
       const after = await readLease(request, token, proposed.id)
       expect(after?.lease.status).toBe('expired')
@@ -65,6 +75,8 @@ test.describe('TC-PM-017: lease sweep', () => {
   test('leaves a lease with a pending end alone', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = stampOf()
+    const pinnedChangeId = randomUUID()
+    let pinnedLeaseId: string | null = null
     let setup: LeaseSetup | null = null
     try {
       setup = await createLeaseSetup(request, token, stamp)
@@ -74,25 +86,21 @@ test.describe('TC-PM-017: lease sweep', () => {
         startsOn: isoDayFromToday(5),
         termMonths: 6,
       })
-      const active = await waitForLease(request, token, lease.id, isActivated)
-      test.skip(!active, 'the property_management.sales_operation worker did not run in this environment')
+      const active = await settleLease(request, token, lease.id, isActivated, 'the lease activation')
       const ended = await apiRequest(request, 'POST', `/api/property_management/leases/${lease.id}/end`, {
         token,
         data: { endsOn: isoDayFromToday(20), settlement: 'keep' },
       })
-      expect([200, 202]).toContain(ended.status())
-      const pending = await readLease(request, token, lease.id)
-      test.skip(!pending?.pendingChange, 'the end settled before the sweep could observe it as pending')
-      await withClient((client) =>
-        client.query('update property_management_leases set ends_on = $1 where id = $2', [isoDayFromToday(-1), lease.id]),
-      )
-      const swept = await runLeaseSweep(getTokenContext(token))
-      test.skip(!swept, 'the property_management.lease_sweep worker did not run in this environment')
+      if (salesCancelUnavailable(active)) await expectBillingCancelRefused(ended)
+      else expect([200, 202]).toContain(ended.status())
+      pinnedLeaseId = lease.id
+      expect(await pinPendingEnd(lease.id, pinnedChangeId, isoDayFromToday(-1)), 'the active lease gets a pinned pending end').toBe(1)
+      await runLeaseSweep(getTokenContext(token))
       const after = await readLease(request, token, lease.id)
-      expect(after?.pendingChange, 'the change is still pending').not.toBeNull()
+      expect(after?.pendingChange?.changeId, 'the change is still pending').toBe(pinnedChangeId)
       expect(after?.lease.status, 'the sweep skips a lease with a pending change').toBe('active')
     } finally {
-      await cleanupLeaseSetup(request, token, setup)
+      await cleanupPinnedLeaseSetup(request, token, setup, { leaseId: pinnedLeaseId, changeId: pinnedChangeId })
     }
   })
 })

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { listNotifications } from '@open-mercato/core/helpers/integration/notificationsFixtures'
@@ -8,19 +8,36 @@ import {
   cleanupLeaseSetup,
   createLease,
   createLeaseSetup,
-  isActivated,
+  drainSalesOperations,
   isoDayFromToday,
-  SALES_PHASES_SKIP_REASON,
-  salesRecurrenceSurfaceAvailable,
-  waitForLease,
   type LeaseSetup,
 } from './leaseFixtures'
+import {
+  bookingDay,
+  cancelBooking,
+  cleanupBookingSetup,
+  createBooking,
+  createBookingSetup,
+  isConfirmed,
+  settleBooking,
+  type BookingSetup,
+} from './bookingFixtures'
+
+async function recordHeldPayment(request: APIRequestContext, token: string, orderId: string): Promise<void> {
+  const response = await apiRequest(request, 'POST', '/api/sales/payments', {
+    token,
+    data: { orderId, amount: '10.00', currencyCode: 'EUR', receivedAt: new Date().toISOString() },
+  })
+  expect(response.status(), `POST payments → ${JSON.stringify(await readJsonSafe(response))}`).toBe(201)
+}
 
 /**
  * TC-PM-018: lease building access and staff notifications
  * Manager A cannot list, open, end, extend or delete a lease in manager B's building (filtered / 404).
- * Staff notifications about a lease (billing change refused, orphaned order) reach the building's
- * managers and the administrators, never manager B.
+ * Staff notifications go to the building audience: when sales refuses to cancel the order of a
+ * booking in manager A's building because it holds a payment (the deterministic refusal of TC-PM-021),
+ * `booking.order_cancel_refused` reaches manager A and the administrators, never manager B. Lease
+ * billing notifications use the same audience (`lib/staffRecipients.ts`).
  */
 test.describe('TC-PM-018: lease access and staff notifications', () => {
   test('scopes leases to the managers of their building', async ({ request }) => {
@@ -76,42 +93,39 @@ test.describe('TC-PM-018: lease access and staff notifications', () => {
     }
   })
 
-  test('sends billing notifications to the building managers and administrators only', async ({ request }) => {
+  test('sends the order-cancel-refused notification to the building managers and administrators only', async ({ request }) => {
+    test.slow()
     const adminToken = await getAuthToken(request, 'admin')
     const stamp = stampOf()
     let managers: ManagerFixture | null = null
-    let setup: LeaseSetup | null = null
+    let setup: BookingSetup | null = null
     try {
-      managers = await createManagers(request, adminToken, stamp, 2, ['property_management.leases.manage'])
+      managers = await createManagers(request, adminToken, stamp, 2, ['property_management.bookings.manage'])
       const [managerA, managerB] = managers.users
-      setup = await createLeaseSetup(request, adminToken, stamp, { managerUserIds: [managerA.id] })
-      const lease = await createLease(request, adminToken, setup, {
+      setup = await createBookingSetup(request, adminToken, stamp, { managerUserIds: [managerA.id] })
+      const day = bookingDay(6)
+      const bookingId = await createBooking(request, adminToken, setup, {
         unitId: setup.unitIds[0],
-        customerCompanyId: setup.companyIds[0],
-        startsOn: isoDayFromToday(0),
-        termMonths: 6,
+        startsAt: `${day}T11:00`,
+        endsAt: `${day}T12:00`,
+        bookedByPersonId: setup.personId as string,
+        customerCompanyId: setup.companyId,
       })
-      const active = await waitForLease(request, adminToken, lease.id, isActivated)
-      test.skip(!active, 'the property_management.sales_operation worker did not run in this environment')
-      const available = await salesRecurrenceSurfaceAvailable(request, adminToken, active?.lease.salesOrderId ?? null)
-      test.skip(!available, SALES_PHASES_SKIP_REASON)
+      const confirmed = await settleBooking(request, adminToken, bookingId, isConfirmed, 'the booking confirmation')
+      await recordHeldPayment(request, adminToken, confirmed.salesOrderId as string)
 
-      const ended = await apiRequest(request, 'POST', `/api/property_management/leases/${lease.id}/end`, {
-        token: managerA.token,
-        data: { endsOn: isoDayFromToday(0), settlement: 'keep' },
-      })
-      expect([200, 202]).toContain(ended.status())
-      const settled = await waitForLease(request, adminToken, lease.id, (detail) => detail.pendingChange === null)
-      test.skip(!settled?.lastBillingRefusal, 'sales did not refuse the cancellation (no invoice was issued between the check and the cancellation)')
-      const type = 'property_management.lease.billing_change_refused'
-      const forA = await listNotifications(request, managerA.token, { type })
-      const forAdmin = await listNotifications(request, adminToken, { type })
-      const forB = await listNotifications(request, managerB.token, { type })
-      expect(forA.items.some((item) => item.sourceEntityId === lease.id)).toBe(true)
-      expect(forAdmin.items.some((item) => item.sourceEntityId === lease.id)).toBe(true)
-      expect(forB.items.some((item) => item.sourceEntityId === lease.id), 'manager B is not notified').toBe(false)
+      const cancelled = await cancelBooking(request, managerA.token, bookingId)
+      expect(cancelled.status(), `POST cancel → ${JSON.stringify(await readJsonSafe(cancelled))}`).toBe(200)
+      await drainSalesOperations()
+
+      const type = 'property_management.booking.order_cancel_refused'
+      const notifiedFor = async (token: string) =>
+        (await listNotifications(request, token, { type })).items.some((item) => item.sourceEntityId === bookingId)
+      await expect.poll(() => notifiedFor(managerA.token), { timeout: 15_000, message: 'manager A is notified' }).toBe(true)
+      expect(await notifiedFor(adminToken), 'the administrator is notified').toBe(true)
+      expect(await notifiedFor(managerB.token), 'manager B is not notified').toBe(false)
     } finally {
-      await cleanupLeaseSetup(request, adminToken, setup)
+      await cleanupBookingSetup(request, adminToken, setup)
       await deleteManagers(request, adminToken, managers)
     }
   })

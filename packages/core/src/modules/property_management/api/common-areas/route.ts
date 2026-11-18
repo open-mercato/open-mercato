@@ -8,9 +8,12 @@ import { CommonArea } from '../../data/entities'
 import { COMMON_AREA_KINDS, commonAreaCreateSchema, commonAreaUpdateSchema } from '../../data/validators'
 import {
   asRecord,
+  assertCrudRecordBuildingAccess,
   createPagedListResponseSchema,
   createPropertyManagementCrudOpenApi,
   crudPermitted,
+  crudScopeFilters,
+  sealListScope,
   defaultOkResponseSchema,
   listQueryBase,
   parseScopedCommandInput,
@@ -20,6 +23,7 @@ import {
   rectFields,
   restrictBuildingField,
   withScopedPayload,
+  unscopedDocSchema,
 } from '../crudShared'
 
 const routeMetadata = {
@@ -60,19 +64,22 @@ const crud = makeCrudRoute({
   indexer: { entityType: E.property_management.common_area },
   list: {
     schema: listSchema,
+    disableListCache: true,
     entityId: E.property_management.common_area,
     fields: ['id', 'building_id', 'floor_id', 'name', 'kind', 'x', 'y', 'width', 'depth', 'organization_id', 'tenant_id', 'created_at', 'updated_at'],
     sortFieldMap: { name: 'name', kind: 'kind', updatedAt: 'updated_at' },
     defaultSort: { field: 'name', dir: 'asc' },
     tiebreakSortField: 'id',
+    omitAutomaticTenantOrgScope: true,
     buildFilters: async (query, ctx) => {
+      const scope = crudScopeFilters(ctx)
+      restrictBuildingField(scope, 'building_id', await crudPermitted(ctx), query.buildingId)
       const filters: Record<string, unknown> = {}
-      restrictBuildingField(filters, 'building_id', await crudPermitted(ctx), query.buildingId)
       if (query.id) filters.id = { $eq: query.id }
       if (query.floorId) filters.floor_id = { $eq: query.floorId }
       const term = query.search?.trim()
       if (term) filters.name = { $ilike: `%${escapeLikePattern(term)}%` }
-      return filters
+      return sealListScope(scope, filters)
     },
     transformItem: (item: Record<string, unknown>) => toItem(asRecord(item)),
   },
@@ -92,7 +99,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(commonAreaUpdateSchema, raw ?? {}, ctx, translate)
+        const input = parseScopedCommandInput(commonAreaUpdateSchema, raw ?? {}, ctx, translate)
+        await assertCrudRecordBuildingAccess(ctx, CommonArea, input.id)
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -101,7 +110,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        return withScopedPayload({ id: resolveCrudRecordId(parsed, ctx, translate) }, ctx, translate)
+        const input = withScopedPayload({ id: resolveCrudRecordId(parsed, ctx, translate) }, ctx, translate)
+        await assertCrudRecordBuildingAccess(ctx, CommonArea, input.id)
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -132,11 +143,11 @@ export const openApi = createPropertyManagementCrudOpenApi({
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(commonAreaItemSchema),
   create: {
-    schema: commonAreaCreateSchema,
+    schema: unscopedDocSchema(commonAreaCreateSchema),
     description: 'Creates a common area (corridor, kitchen, toilets…) on a floor. 422 when it leaves the floor or overlaps a unit or another common area.',
   },
   update: {
-    schema: commonAreaUpdateSchema,
+    schema: unscopedDocSchema(commonAreaUpdateSchema),
     responseSchema: defaultOkResponseSchema,
     description: 'Moves, resizes or renames a common area with the same checks as create.',
   },

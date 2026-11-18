@@ -15,6 +15,7 @@ import {
   readField,
   readLease,
   readSalesDocument,
+  requireLease,
   waitForLease,
   type LeaseSetup,
 } from './leaseFixtures'
@@ -28,6 +29,7 @@ import {
  */
 test.describe('TC-PM-014: lease proposal', () => {
   test('sends a recurring quote, reserves the unit and frees it on withdrawal', async ({ request }) => {
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = stampOf()
     let setup: LeaseSetup | null = null
@@ -70,7 +72,8 @@ test.describe('TC-PM-014: lease proposal', () => {
       )
       expect((proposedList?.items ?? []).map((item) => item.id)).toContain(proposed.id)
 
-      const sent = await waitForLease(request, token, proposed.id, proposalSent(proposed.proposalId as string))
+      const sending = await waitForLease(request, token, proposed.id, proposalSent(proposed.proposalId as string))
+      const sent = sending.value
       if (sent) {
         const proposal = sent.proposals.find((entry) => entry.id === proposed.proposalId)
         expect(proposal?.status).toBe('sent')
@@ -96,8 +99,8 @@ test.describe('TC-PM-014: lease proposal', () => {
       const freed = await createLease(request, token, setup, { unitId, customerCompanyId: companyB, startsOn: isoDayFromToday(60), termMonths: 3 })
       expect(freed.status, 'the unit is free again').toBe('pending_order')
 
-      test.skip(!sent, 'the property_management.sales_operation worker did not run in this environment')
-      const quoteId = sent?.proposals.find((entry) => entry.id === proposed.proposalId)?.salesQuoteId as string
+      const sentDetail = await requireLease(token, proposed.id, sending, 'the proposal quote')
+      const quoteId = sentDetail.proposals.find((entry) => entry.id === proposed.proposalId)?.salesQuoteId as string
       await drainSalesOperations()
       await expect
         .poll(async () => readField(await readSalesDocument(request, token, 'quotes', quoteId), 'status'), { timeout: 15_000 })

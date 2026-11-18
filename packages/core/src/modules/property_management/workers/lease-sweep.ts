@@ -1,9 +1,10 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
-import { LEASE_SWEEP_QUEUE, runLeaseSweep } from '../lib/leaseSweep'
+import { LEASE_SWEEP_QUEUE } from '../lib/queues'
+import { resolveTrustedSweepScope, runLeaseSweep, type SweepScopePayload } from '../lib/leaseSweep'
 
-type LeaseSweepPayload = { scope?: { tenantId?: string | null; organizationId?: string | null } }
+type LeaseSweepPayload = NonNullable<SweepScopePayload>
 
 type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
@@ -17,9 +18,9 @@ export const metadata: WorkerMeta = {
 }
 
 export default async function handle(job: QueuedJob<LeaseSweepPayload>, ctx: HandlerContext): Promise<void> {
-  const tenantId = job.payload?.scope?.tenantId
-  const organizationId = job.payload?.scope?.organizationId
-  if (typeof tenantId !== 'string' || !tenantId || typeof organizationId !== 'string' || !organizationId) return
+  const em = ctx.resolve<EntityManager>('em')
+  const scope = await resolveTrustedSweepScope(em, job.payload, 'lease')
+  if (!scope) return
   const container = (ctx.container ?? { resolve: ctx.resolve }) as AwilixContainer
-  await runLeaseSweep({ container, em: ctx.resolve<EntityManager>('em') }, { tenantId, organizationId })
+  await runLeaseSweep({ container, em }, scope)
 }

@@ -13,7 +13,12 @@ const logger = createLogger('property_management')
 export type StaffNotificationType =
   | 'property_management.lease.order_orphaned'
   | 'property_management.lease.billing_change_refused'
+  | 'property_management.lease.document_status_refused'
   | 'property_management.sales_operation.duplicated'
+  | 'property_management.sales_operation.stalled'
+  | 'property_management.booking.order_orphaned'
+  | 'property_management.booking.order_cancel_refused'
+  | 'property_management.booking.order_refused'
 
 export type StaffNotificationInput = {
   container: AwilixContainer
@@ -22,14 +27,38 @@ export type StaffNotificationInput = {
   type: StaffNotificationType
   buildingId: string | null
   audience?: StaffAudience
-  leaseId: string
+  leaseId?: string | null
+  bookingId?: string | null
   bodyVariables: Record<string, string>
   groupKey: string
 }
 
+type NotificationSource = { sourceEntityType: string; sourceEntityId: string; linkHref: string }
+
+export const BOOKINGS_HREF = '/backend/property_management/bookings'
+
+function sourceOf(input: StaffNotificationInput): NotificationSource | null {
+  if (input.leaseId) {
+    return {
+      sourceEntityType: 'property_management:lease',
+      sourceEntityId: input.leaseId,
+      linkHref: `/backend/property_management/leases/${input.leaseId}`,
+    }
+  }
+  if (input.bookingId) {
+    return {
+      sourceEntityType: 'property_management:booking',
+      sourceEntityId: input.bookingId,
+      linkHref: `${BOOKINGS_HREF}?id=${input.bookingId}`,
+    }
+  }
+  return null
+}
+
 export async function notifyStaff(input: StaffNotificationInput): Promise<string[]> {
   const typeDef = notificationTypes.find((entry) => entry.type === input.type)
-  if (!typeDef) return []
+  const source = sourceOf(input)
+  if (!typeDef || !source) return []
   try {
     const recipientUserIds = await resolveStaffRecipients({
       container: input.container,
@@ -45,16 +74,16 @@ export async function notifyStaff(input: StaffNotificationInput): Promise<string
         recipientUserIds,
         bodyVariables: input.bodyVariables,
         titleVariables: input.bodyVariables,
-        sourceEntityType: 'property_management:lease',
-        sourceEntityId: input.leaseId,
-        linkHref: `/backend/property_management/leases/${input.leaseId}`,
+        sourceEntityType: source.sourceEntityType,
+        sourceEntityId: source.sourceEntityId,
+        linkHref: source.linkHref,
         groupKey: input.groupKey,
       }),
       { tenantId: input.scope.tenantId, organizationId: input.scope.organizationId },
     )
     return recipientUserIds
   } catch (err) {
-    logger.error('Staff notification failed', { type: input.type, leaseId: input.leaseId, err })
+    logger.error('Staff notification failed', { type: input.type, sourceEntityId: source.sourceEntityId, err })
     getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.staff_notification_failed' })
     return []
   }

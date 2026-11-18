@@ -6,13 +6,13 @@ import { leaseProposalIdSchema, type LeaseProposalIdInput } from '../data/valida
 import { conflictError, notFoundError } from '../lib/errors'
 import { OPEN_PROPOSAL_STATUSES } from '../lib/leaseOccupancy'
 import { closeProposal, loadPermittedLease, lockLeaseRow } from '../lib/leaseRecords'
-import { isProposalExpired, isReminderDue } from '../lib/leaseProposalLifecycle'
+import { isProposalExpired } from '../lib/leaseProposalLifecycle'
 import { localToday } from '../lib/leaseTerm'
 import { emitProposalEvent, leaseCrudEvents, leaseCrudIndexer } from '../lib/leaseEvents'
 import { enqueueSalesOperations } from '../lib/salesOperations'
 import type { PermittedBuildings } from '../lib/buildingAccess'
 import type { Scope } from '../lib/productUse'
-import { LEASE_RESOURCE_KIND } from './lease'
+import { enforceLeaseLock, LEASE_RESOURCE_KIND } from './lease'
 import { buildCrudLog, emitSideEffects, ensureScope, resolveEm, resolvePermitted } from './shared'
 
 export type ProposalCloseResult = { proposalId: string; leaseId: string; status: string; changed: boolean }
@@ -38,6 +38,7 @@ async function closeOpenProposal(
   const today = localToday()
   const outcome = await em.fork().transactional(async (trx) => {
     const lease = await lockLeaseRow(trx, scope, current.leaseId)
+    if (status === 'withdrawn') await enforceLeaseLock(ctx, lease)
     const proposal = await findOneWithDecryption(trx, LeaseProposal, { id: current.id, ...scope }, { refresh: true }, scope)
     if (!proposal || !(OPEN_PROPOSAL_STATUSES as readonly string[]).includes(proposal.status)) {
       if (status === 'expired') return { lease, proposal, op: null, changed: false }
@@ -84,34 +85,11 @@ const expireCommand: CommandHandler<LeaseProposalIdInput, ProposalCloseResult> =
   isUndoable: false,
   async execute(rawInput, ctx) {
     const input = leaseProposalIdSchema.parse(rawInput ?? {})
-    ensureScope(ctx, { tenantId: input.tenantId, organizationId: input.organizationId })
-    return closeOpenProposal(input, ctx, 'expired', null)
-  },
-}
-
-const remindCommand: CommandHandler<LeaseProposalIdInput, { proposalId: string; reminded: boolean }> = {
-  id: 'property_management.lease_proposal.remind',
-  isUndoable: false,
-  async execute(rawInput, ctx) {
-    const input = leaseProposalIdSchema.parse(rawInput ?? {})
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     ensureScope(ctx, scope)
-    const em = resolveEm(ctx)
-    const today = localToday()
-    const reminded = await em.fork().transactional(async (trx) => {
-      const proposal = await findOneWithDecryption(trx, LeaseProposal, { id: input.id, ...scope }, { refresh: true }, scope)
-      if (!proposal || proposal.status !== 'sent' || proposal.remindedAt || !isReminderDue(proposal.respondBy, today)) return false
-      await lockLeaseRow(trx, scope, proposal.leaseId)
-      const locked = await findOneWithDecryption(trx, LeaseProposal, { id: input.id, ...scope }, { refresh: true }, scope)
-      if (!locked || locked.remindedAt) return false
-      locked.remindedAt = new Date()
-      await trx.flush()
-      return true
-    })
-    return { proposalId: input.id, reminded }
+    return closeOpenProposal(input, ctx, 'expired', await resolvePermitted(ctx, scope))
   },
 }
 
 registerCommand(withdrawCommand)
 registerCommand(expireCommand)
-registerCommand(remindCommand)

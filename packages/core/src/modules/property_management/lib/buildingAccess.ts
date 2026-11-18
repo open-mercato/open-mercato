@@ -22,9 +22,47 @@ export type BuildingAccessInput = {
   auth: AuthContext | null
   tenantId: string | null
   organizationId: string | null
+  system?: boolean
+  request?: Request | null
 }
 
 export type PermittedBuildings = string[] | null
+
+type RequestMemo<T> = WeakMap<Request, Map<string, Promise<T>>>
+
+const manageAllByRequest: RequestMemo<boolean> = new WeakMap()
+const permittedByRequest: RequestMemo<PermittedBuildings> = new WeakMap()
+
+function accessMemoKey(input: BuildingAccessInput): string {
+  const { auth } = input
+  return [
+    auth?.sub ?? '',
+    auth?.userId ?? '',
+    input.tenantId ?? auth?.tenantId ?? '',
+    input.organizationId ?? auth?.orgId ?? '',
+    input.system === true ? 'system' : '',
+  ].join('|')
+}
+
+function memoizePerRequest<T>(memo: RequestMemo<T>, input: BuildingAccessInput, load: () => Promise<T>): Promise<T> {
+  const request = input.request
+  if (!request) return load()
+  let entries = memo.get(request)
+  if (!entries) {
+    entries = new Map()
+    memo.set(request, entries)
+  }
+  const key = accessMemoKey(input)
+  const cached = entries.get(key)
+  if (cached) return cached
+  const pending = load()
+  const store = entries
+  store.set(key, pending)
+  pending.catch(() => {
+    if (store.get(key) === pending) store.delete(key)
+  })
+  return pending
+}
 
 function resolveActorUserId(auth: NonNullable<AuthContext>): string | null {
   const candidate = typeof auth.userId === 'string' && auth.userId.length ? auth.userId : auth.sub
@@ -40,7 +78,11 @@ function resolveRbac(container: AwilixContainer): RbacLike | null {
   }
 }
 
-export async function canManageAllBuildings(input: BuildingAccessInput): Promise<boolean> {
+export function canManageAllBuildings(input: BuildingAccessInput): Promise<boolean> {
+  return memoizePerRequest(manageAllByRequest, input, () => resolveManageAll(input))
+}
+
+async function resolveManageAll(input: BuildingAccessInput): Promise<boolean> {
   const { auth } = input
   if (!auth) return false
   const rbac = resolveRbac(input.container)
@@ -51,9 +93,13 @@ export async function canManageAllBuildings(input: BuildingAccessInput): Promise
   })
 }
 
-export async function permittedBuildingIds(input: BuildingAccessInput): Promise<PermittedBuildings> {
+export function permittedBuildingIds(input: BuildingAccessInput): Promise<PermittedBuildings> {
+  return memoizePerRequest(permittedByRequest, input, () => resolvePermittedBuildings(input))
+}
+
+async function resolvePermittedBuildings(input: BuildingAccessInput): Promise<PermittedBuildings> {
   const { auth } = input
-  if (!auth) return null
+  if (!auth) return input.system === true ? null : []
   if (await canManageAllBuildings(input)) return null
   const userId = resolveActorUserId(auth)
   const tenantId = input.tenantId ?? auth.tenantId ?? null

@@ -2,6 +2,7 @@ import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   Lease,
   LeaseProposal,
@@ -12,8 +13,13 @@ import {
   type LeaseChangeKind,
 } from '../data/entities'
 import type { ClassifiedSalesError } from './salesErrors'
-import { cancelOrderFromStart, type OperationRunContext, type OperationTargetHandler } from './salesOperationRunner'
+import { describeDuplicateOutcome, describeSalesError, salesRefusalMessage } from './salesErrorText'
+import { applyDocumentStatusEntry, cancelOrderFromStart, type OperationRunContext, type OperationTargetHandler } from './salesOperationRunner'
 import { compareIsoDates } from './leaseTerm'
+import { closeProposal } from './leaseRecords'
+import { recordOperation, TERMINAL_OPERATION_STATUSES } from './salesOperations'
+import { findOverlaps, loadReservedRanges } from './leaseOccupancy'
+import { findBookingListInTerm } from './usageGuards'
 import { emitLeaseEvent, emitProposalEvent, markLeaseChanged } from './leaseEvents'
 import { notifyStaff, type StaffNotificationType } from './staffNotifications'
 import type { StaffAudience } from './staffRecipients'
@@ -53,7 +59,7 @@ function refusalOf(
   error: ClassifiedSalesError,
   restored: LeaseBillingRefusal['restored'],
 ): LeaseBillingRefusal {
-  return { changeId, kind, code: error.code, message: error.message, at: new Date().toISOString(), restored }
+  return { changeId, kind, code: error.code, message: salesRefusalMessage(error), at: new Date().toISOString(), restored }
 }
 
 function scheduleNotification(
@@ -63,11 +69,9 @@ function scheduleNotification(
   error: ClassifiedSalesError | null,
   audience: StaffAudience = 'building',
 ): void {
-  const bodyVariables = {
-    reference: lease.reference,
-    error: error?.message ?? error?.code ?? '',
-  }
+  const reference = lease.reference
   ctx.postCommit.push(async () => {
+    const bodyVariables = { reference, error: await describeSalesError(error) }
     await notifyStaff({
       container: ctx.container,
       em: ctx.tx.fork(),
@@ -108,6 +112,7 @@ async function finishLeaseOrder(ctx: OperationRunContext, lease: Lease): Promise
   if (lease.deletedAt || lease.holdToken !== op.token) return 'invalid'
   const version = await loadVersion(tx, scope, op.targetId)
   if (!version) return 'invalid'
+  const compensationPending = await hasFailingOperation(ctx, lease.id)
   version.state = 'in_force'
   version.salesOrderId = op.salesDocumentId ?? null
   version.salesOrderLineId = op.salesDocumentLineId ?? null
@@ -116,9 +121,10 @@ async function finishLeaseOrder(ctx: OperationRunContext, lease: Lease): Promise
   lease.currentVersionId = version.id
   lease.salesOrderId = op.salesDocumentId ?? null
   lease.holdToken = null
-  lease.billingAttention = false
+  lease.billingAttention = compensationPending
   lease.updatedAt = new Date()
   ctx.postCommit.push(() => emitLeaseEvent('property_management.lease.activated', lease, { salesOrderId: lease.salesOrderId }))
+  if (lease.status === 'ended') ctx.postCommit.push(() => emitLeaseEvent('property_management.lease.ended', lease))
   scheduleLeaseChanged(ctx, lease)
   return 'done'
 }
@@ -126,7 +132,7 @@ async function finishLeaseOrder(ctx: OperationRunContext, lease: Lease): Promise
 async function finishExtensionOrder(ctx: OperationRunContext, lease: Lease): Promise<'done' | 'invalid'> {
   const { op, tx, scope } = ctx
   const version = await loadVersion(tx, scope, op.targetId)
-  if (!version || version.state !== 'pending' || version.holdToken !== op.token || lease.deletedAt) return 'invalid'
+  if (!version || version.state !== 'pending' || version.holdToken !== op.token || lease.deletedAt || lease.status !== 'active') return 'invalid'
   version.state = 'in_force'
   version.salesOrderId = op.salesDocumentId ?? null
   version.salesOrderLineId = op.salesDocumentLineId ?? null
@@ -135,13 +141,14 @@ async function finishExtensionOrder(ctx: OperationRunContext, lease: Lease): Pro
   lease.termMonths += version.months
   lease.currentVersionId = version.id
   lease.salesOrderId = op.salesDocumentId ?? null
+  clearSupersededRefusal(lease)
   lease.updatedAt = new Date()
   ctx.postCommit.push(() => emitLeaseEvent('property_management.lease.extended', lease, { versionId: version.id, salesOrderId: lease.salesOrderId }))
   scheduleLeaseChanged(ctx, lease)
   return 'done'
 }
 
-async function finishQuote(ctx: OperationRunContext): Promise<'done' | 'invalid'> {
+async function finishQuote(ctx: OperationRunContext, lease: Lease): Promise<'done' | 'invalid'> {
   const { op, tx, scope } = ctx
   const proposal = await loadProposal(tx, scope, op.targetId)
   if (!proposal || proposal.status !== 'sending' || proposal.holdToken !== op.token) return 'invalid'
@@ -150,6 +157,10 @@ async function finishQuote(ctx: OperationRunContext): Promise<'done' | 'invalid'
   proposal.holdToken = null
   proposal.updatedAt = new Date()
   ctx.postCommit.push(() => emitProposalEvent('property_management.lease_proposal.sent', proposal))
+  if (clearSupersededRefusal(lease)) {
+    lease.updatedAt = new Date()
+    scheduleLeaseChanged(ctx, lease)
+  }
   return 'done'
 }
 
@@ -158,7 +169,7 @@ async function finish(ctx: OperationRunContext): Promise<'done' | 'invalid'> {
   if (!lease) return 'invalid'
   if (ctx.op.kind === 'lease_order') return finishLeaseOrder(ctx, lease)
   if (ctx.op.kind === 'extension_order') return finishExtensionOrder(ctx, lease)
-  if (ctx.op.kind === 'quote') return finishQuote(ctx)
+  if (ctx.op.kind === 'quote') return finishQuote(ctx, lease)
   return 'done'
 }
 
@@ -172,6 +183,38 @@ async function changeOperations(ctx: OperationRunContext, changeId: string): Pro
   )
 }
 
+function retainsBillingAttention(lease: Lease): boolean {
+  const refusal = lease.lastBillingRefusal
+  if (!refusal || refusal.restored || refusal.kind === 'proposal' || refusal.kind === 'extension') return false
+  if (refusal.kind === 'activation') return lease.status === 'pending_order'
+  return true
+}
+
+function clearSupersededRefusal(lease: Lease): boolean {
+  if (!lease.lastBillingRefusal || retainsBillingAttention(lease)) return false
+  lease.lastBillingRefusal = null
+  return true
+}
+
+async function hasFailingOperation(ctx: OperationRunContext, leaseId: string): Promise<boolean> {
+  const failing = await findWithDecryption(
+    ctx.tx,
+    SalesOperation,
+    { ...ctx.scope, leaseId, status: 'compensating', id: { $ne: ctx.op.id } },
+    { refresh: true },
+    ctx.scope,
+  )
+  return failing.length > 0
+}
+
+async function clearSettledBillingAttention(ctx: OperationRunContext, lease: Lease): Promise<boolean> {
+  if (!lease.billingAttention || retainsBillingAttention(lease)) return false
+  if (await hasFailingOperation(ctx, lease.id)) return false
+  lease.billingAttention = false
+  lease.updatedAt = new Date()
+  return true
+}
+
 export async function completeChange(ctx: OperationRunContext, lease: Lease, changeId: string): Promise<void> {
   const pending = lease.pendingChange
   if (!pending || pending.changeId !== changeId) return
@@ -183,6 +226,8 @@ export async function completeChange(ctx: OperationRunContext, lease: Lease, cha
     lease.status = 'ended'
     ctx.postCommit.push(() => emitLeaseEvent('property_management.lease.ended', lease))
   }
+  await ctx.tx.flush()
+  await clearSettledBillingAttention(ctx, lease)
   scheduleLeaseChanged(ctx, lease)
 }
 
@@ -228,19 +273,72 @@ function storedError(op: SalesOperation): ClassifiedSalesError {
   }
 }
 
-async function onChangeRefused(ctx: OperationRunContext, lease: Lease, error: ClassifiedSalesError): Promise<void> {
-  const { op } = ctx
-  const changeId = op.changeId as string
-  const operations = await changeOperations(ctx, changeId)
-  for (const later of operations.filter((entry) => entry.sequence > op.sequence && entry.status === 'pending')) {
-    later.status = 'refused'
-    later.lastError = { code: 'predecessor_refused', message: null, status: null }
+function compareIds(left: SalesOperation, right: SalesOperation): number {
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+}
+
+async function lockSiblingOperations(ctx: OperationRunContext, operations: SalesOperation[]): Promise<SalesOperation[]> {
+  const locked: SalesOperation[] = []
+  for (const operation of [...operations].sort(compareIds)) {
+    const row = await findOneWithDecryption(
+      ctx.tx,
+      SalesOperation,
+      { id: operation.id, ...ctx.scope },
+      { lockMode: LockMode.PESSIMISTIC_WRITE_OR_FAIL, refresh: true },
+      ctx.scope,
+    )
+    if (row) locked.push(row)
   }
+  return locked
+}
+
+async function canRestoreDeletedLease(
+  ctx: OperationRunContext,
+  lease: Lease,
+  previous: { startsOn: string; endsOn: string },
+): Promise<boolean> {
+  const term = { startsOn: previous.startsOn, endsOn: previous.endsOn }
+  const ranges = await loadReservedRanges(ctx.tx, ctx.scope, [lease.unitId], { excludeLeaseId: lease.id })
+  if (findOverlaps(ranges, lease.unitId, term).length) return false
+  const bookings = await findBookingListInTerm(ctx.tx, ctx.scope, lease.unitId, term)
+  return bookings.total === 0
+}
+
+async function onChangeRefused(ctx: OperationRunContext, changeId: string, error: ClassifiedSalesError): Promise<void> {
+  const { op } = ctx
+  const snapshot = await loadLease(ctx.tx, ctx.scope, op.leaseId)
+  if (!snapshot) return
+  const operations = await changeOperations(ctx, changeId)
+  const later = operations.filter((entry) => entry.sequence > op.sequence && entry.status === 'pending')
   const earlier = operations.filter((entry) => entry.sequence < op.sequence && entry.status === 'done')
   const creations = earlier.filter((entry) => CREATION_KINDS.has(entry.kind))
   const cancellations = earlier.filter((entry) => entry.kind === 'recurrence_cancel')
+  const snapshotChange = snapshot.pendingChange
+  const compensatesCreations = Boolean(
+    snapshotChange && snapshotChange.changeId === changeId && snapshotChange.kind !== 'delete' && !cancellations.length && creations.length,
+  )
+  const laterIds = new Set(later.map((entry) => entry.id))
+  const compensatingIds: string[] = []
+  for (const sibling of await lockSiblingOperations(ctx, compensatesCreations ? [...later, ...creations] : later)) {
+    if (laterIds.has(sibling.id)) {
+      if (sibling.status !== 'pending') continue
+      sibling.status = 'refused'
+      sibling.lastError = { code: 'predecessor_refused', message: null, status: null }
+    } else if (sibling.status === 'done') {
+      sibling.status = 'compensating'
+      compensatingIds.push(sibling.id)
+    }
+  }
+  await ctx.tx.flush()
+  const lease = await lockLease(ctx)
+  if (!lease) return
   const pending = lease.pendingChange
   if (!pending || pending.changeId !== changeId) return
+  if (pending.kind === 'delete' && !cancellations.length && (await canRestoreDeletedLease(ctx, lease, pending.previous))) {
+    lease.deletedAt = null
+    await revertChange(ctx, lease, error)
+    return
+  }
   if (pending.kind === 'delete' || cancellations.length) {
     lease.pendingChange = null
     lease.billingAttention = true
@@ -251,23 +349,31 @@ async function onChangeRefused(ctx: OperationRunContext, lease: Lease, error: Cl
     return
   }
   if (creations.length) {
-    for (const creation of creations) creation.status = 'compensating'
-    ctx.enqueue(creations.map((entry) => entry.id))
+    ctx.enqueue(compensatingIds)
     return
   }
   await revertChange(ctx, lease, error)
 }
 
+async function closeRefusedProposal(ctx: OperationRunContext, lease: Lease): Promise<void> {
+  const proposal = await loadProposal(ctx.tx, ctx.scope, ctx.op.targetId)
+  if (!proposal || proposal.status !== 'sending' || proposal.holdToken !== ctx.op.token) return
+  const statusOp = await closeProposal(ctx.tx, ctx.scope, lease, proposal, 'withdrawn')
+  if (statusOp) ctx.enqueue([statusOp.id])
+  ctx.postCommit.push(() => emitProposalEvent('property_management.lease_proposal.withdrawn', proposal))
+}
+
 async function onRefused(ctx: OperationRunContext, error: ClassifiedSalesError): Promise<void> {
   const { op } = ctx
-  const lease = await lockLease(ctx)
-  if (!lease) return
   if (op.changeId) {
-    await onChangeRefused(ctx, lease, error)
+    await onChangeRefused(ctx, op.changeId, error)
     return
   }
+  const lease = await lockLease(ctx)
+  if (!lease) return
   if (op.kind === 'quote_status' || op.kind === 'order_status') {
     logger.warn('A sales status change was refused', { operationId: op.id, code: error.code })
+    scheduleNotification(ctx, lease, 'property_management.lease.document_status_refused', error)
     return
   }
   if (op.kind === 'extension_order') {
@@ -275,13 +381,16 @@ async function onRefused(ctx: OperationRunContext, error: ClassifiedSalesError):
     if (version && version.state === 'pending') {
       version.state = 'reverted'
       version.holdToken = null
+      await ctx.tx.flush()
     }
   }
-  const kind: LeaseBillingRefusal['kind'] = op.kind === 'quote' ? 'proposal' : 'activation'
-  lease.billingAttention = op.kind !== 'extension_order'
+  if (op.kind === 'quote') await closeRefusedProposal(ctx, lease)
+  const kind: LeaseBillingRefusal['kind'] = op.kind === 'quote' ? 'proposal' : op.kind === 'extension_order' ? 'extension' : 'activation'
+  const flagsAttention = op.kind !== 'extension_order' && op.kind !== 'quote'
+  if (flagsAttention) lease.billingAttention = true
   lease.lastBillingRefusal = refusalOf(op.id, kind, error, null)
   lease.updatedAt = new Date()
-  scheduleNotification(ctx, lease, 'property_management.lease.billing_change_refused', error)
+  scheduleNotification(ctx, lease, 'property_management.lease.billing_change_refused', error, flagsAttention ? 'administrators' : 'building')
   scheduleLeaseChanged(ctx, lease)
 }
 
@@ -292,49 +401,128 @@ async function onCompensated(ctx: OperationRunContext): Promise<void> {
     if (version && version.state === 'pending') {
       version.state = 'reverted'
       version.holdToken = null
+      await tx.flush()
     }
   }
-  if (!op.changeId) return
-  const operations = await changeOperations(ctx, op.changeId)
-  const refused = operations.find((entry) => entry.status === 'refused' && entry.lastError?.code !== 'predecessor_refused')
-  if (!refused) return
-  const stillCompensating = operations.some((entry) => entry.id !== op.id && entry.status === 'compensating')
-  if (stillCompensating) return
   const lease = await lockLease(ctx)
-  if (lease) await revertChange(ctx, lease, storedError(refused))
+  if (!lease) return
+  let reverted = false
+  if (op.changeId) {
+    const operations = await changeOperations(ctx, op.changeId)
+    const refused = operations.find((entry) => entry.status === 'refused' && entry.lastError?.code !== 'predecessor_refused')
+    const stillCompensating = operations.some((entry) => entry.id !== op.id && entry.status === 'compensating')
+    if (refused && !stillCompensating) {
+      await revertChange(ctx, lease, storedError(refused))
+      await tx.flush()
+      reverted = true
+    }
+  }
+  if ((await clearSettledBillingAttention(ctx, lease)) && !reverted) scheduleLeaseChanged(ctx, lease)
 }
 
-async function onCompensationFailed(ctx: OperationRunContext, error: ClassifiedSalesError): Promise<void> {
+async function onCompensationFailed(ctx: OperationRunContext, error: ClassifiedSalesError, failure: { first: boolean }): Promise<void> {
   const lease = await lockLease(ctx)
   if (!lease) return
   lease.billingAttention = true
   lease.updatedAt = new Date()
-  if (ctx.op.attempts <= 1) {
+  if (failure.first) {
     scheduleNotification(ctx, lease, 'property_management.lease.order_orphaned', error)
     ctx.postCommit.push(() => emitLeaseEvent('property_management.lease.order_orphaned', lease, { operationId: ctx.op.id }))
   }
 }
 
+export function duplicateCancellationSubjectKey(orderId: string): string {
+  return `duplicate_cancel:${orderId}`
+}
+
+export function duplicateQuoteCancellationSubjectKey(quoteId: string): string {
+  return `quote_status:${quoteId}:canceled`
+}
+
+async function scheduleDuplicateQuoteCancellation(ctx: OperationRunContext, quoteId: string): Promise<void> {
+  const subjectKey = duplicateQuoteCancellationSubjectKey(quoteId)
+  const existing = await findOneWithDecryption(ctx.tx, SalesOperation, { ...ctx.scope, subjectKey }, undefined, ctx.scope)
+  if (existing) {
+    if (!TERMINAL_OPERATION_STATUSES.has(existing.status)) ctx.enqueue([existing.id])
+    return
+  }
+  const operation = await recordOperation(ctx.tx, ctx.scope, {
+    kind: 'quote_status',
+    subjectKey,
+    payload: { quoteId, status: 'canceled' },
+    targetType: ctx.op.targetType,
+    targetId: ctx.op.targetId,
+    leaseId: ctx.op.leaseId ?? null,
+  })
+  await ctx.tx.flush()
+  ctx.enqueue([operation.id])
+}
+
+async function scheduleDuplicateCancellation(ctx: OperationRunContext, orderId: string): Promise<void> {
+  const subjectKey = duplicateCancellationSubjectKey(orderId)
+  const existing = await findOneWithDecryption(ctx.tx, SalesOperation, { ...ctx.scope, subjectKey }, undefined, ctx.scope)
+  if (existing) {
+    if (existing.status === 'compensating') ctx.enqueue([existing.id])
+    return
+  }
+  const operation = await recordOperation(ctx.tx, ctx.scope, {
+    kind: 'recurrence_cancel',
+    subjectKey,
+    payload: { orderId, duplicateOf: ctx.op.id },
+    targetType: ctx.op.targetType,
+    targetId: ctx.op.targetId,
+    leaseId: ctx.op.leaseId ?? null,
+    allowCredit: true,
+  })
+  operation.status = 'compensating'
+  operation.salesDocumentType = 'order'
+  operation.salesDocumentId = orderId
+  await ctx.tx.flush()
+  ctx.enqueue([operation.id])
+}
+
 async function onDuplicated(ctx: OperationRunContext, duplicateIds: string[]): Promise<void> {
   const lease = await loadLease(ctx.tx, ctx.scope, ctx.op.leaseId)
+  const cancelledIds: string[] = []
+  const failedIds: string[] = []
   for (const duplicateId of duplicateIds) {
     try {
       if (ctx.op.kind === 'quote') {
         const statusEntryId = await ctx.dispatcher.resolveStatusEntryId('canceled')
-        if (statusEntryId) await ctx.dispatcher.updateDocumentStatus('quote', duplicateId, statusEntryId)
+        if (!statusEntryId) {
+          failedIds.push(duplicateId)
+          continue
+        }
+        await applyDocumentStatusEntry(ctx.dispatcher, 'quote', duplicateId, statusEntryId)
       } else {
         await cancelOrderFromStart(ctx.dispatcher, duplicateId, `${ctx.op.id}:duplicate:${duplicateId}`)
       }
+      cancelledIds.push(duplicateId)
     } catch (err) {
+      failedIds.push(duplicateId)
       logger.error('Compensating a duplicated sales document failed', { operationId: ctx.op.id, duplicateId, err })
+      getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.duplicate_compensation_failed' })
     }
+  }
+  if (ctx.op.kind === 'quote' && failedIds.length) {
+    for (const duplicateId of failedIds) await scheduleDuplicateQuoteCancellation(ctx, duplicateId)
+  }
+  if (ctx.op.kind !== 'quote' && failedIds.length) {
+    const locked = await lockLease(ctx)
+    for (const duplicateId of failedIds) await scheduleDuplicateCancellation(ctx, duplicateId)
+    if (locked && !locked.billingAttention) {
+      locked.billingAttention = true
+      locked.updatedAt = new Date()
+      scheduleLeaseChanged(ctx, locked)
+    }
+    await ctx.tx.flush()
   }
   if (lease) {
     scheduleNotification(
       ctx,
       lease,
       'property_management.sales_operation.duplicated',
-      { kind: 'permanent', status: null, code: 'sales_operation_duplicated', message: duplicateIds.join(', ') },
+      { kind: 'permanent', status: null, code: 'sales_operation_duplicated', message: await describeDuplicateOutcome(cancelledIds, failedIds) },
       'administrators',
     )
   }

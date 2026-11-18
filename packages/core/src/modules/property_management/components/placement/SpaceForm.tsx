@@ -1,16 +1,20 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import type { PlacementIssue } from '../../lib/geometry'
 import { floorHref, formatMetres } from '../floor/types'
 import { PlacementEditor } from './PlacementEditor'
 import { PlacementFormShell, PlacementPageState } from './PlacementFormShell'
-import { toNumber } from './placementModel'
+import { AvailabilityCard } from '../availability/AvailabilityCard'
+import { blockedOnlyBy, toNumber } from './placementModel'
+import { usePlural } from '../plural'
 import { useGuardedDelete } from './useGuardedDelete'
 import { usePlacementHost, type PlacementRecord } from './usePlacementHost'
 
@@ -40,6 +44,8 @@ const FORM_ID = 'property-management-space-form'
 
 export function SpaceForm({ spaceId }: { spaceId?: string | null }) {
   const t = useT()
+  const locale = useLocale()
+  const { count } = usePlural()
   const router = useRouter()
   const recordId = spaceId || null
   const host = usePlacementHost<SpaceRecord>('spaces', recordId)
@@ -48,6 +54,8 @@ export function SpaceForm({ spaceId }: { spaceId?: string | null }) {
   const layout = host.layout
   const record = host.record
   const backHref = layout ? floorHref(layout.building.id, layout.floor.id) : '/backend/property_management/buildings'
+  const defaultSpace = layout?.spaces.find((space) => space.isDefault && space.id !== record?.id) ?? null
+  const blockingDefault = defaultSpace && blockedOnlyBy(issues, 'space', defaultSpace.name) ? defaultSpace : null
 
   const initialValues = React.useMemo<Partial<SpaceValues>>(() => {
     if (record) {
@@ -87,36 +95,55 @@ export function SpaceForm({ spaceId }: { spaceId?: string | null }) {
         id: 'placement',
         title: t('property_management.placement.previewTitle', 'Preview'),
         component: ({ values, setValue }) => (
-          <PlacementEditor
-            kind="space"
-            layout={layout}
-            selfId={record?.id ?? null}
-            label={String(values.name || t('property_management.spaces.form.newLabel', 'New space'))}
-            values={values}
-            setValue={setValue}
-            current={record}
-            onIssuesChange={setIssues}
-          />
+          <div className="space-y-3">
+            {blockingDefault ? (
+              <Alert status="information" data-testid="pm-space-default-blocks">
+                <AlertTitle>{t('property_management.spaces.form.defaultBlocks.title', 'Make room in {name} first', { name: blockingDefault.name })}</AlertTitle>
+                <AlertDescription>
+                  <p>
+                    {t(
+                      'property_management.spaces.form.defaultBlocks.body',
+                      'Every floor starts with one space, {name}, covering the whole floor. Spaces cannot overlap, so shrink or move {name} first to make room for this one.',
+                      { name: blockingDefault.name },
+                    )}
+                  </p>
+                  <Link href={`/backend/property_management/spaces/${blockingDefault.id}`} className="font-medium underline">
+                    {t('property_management.spaces.form.defaultBlocks.action', 'Edit {name}', { name: blockingDefault.name })}
+                  </Link>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <PlacementEditor
+              kind="space"
+              layout={layout}
+              selfId={record?.id ?? null}
+              label={String(values.name || t('property_management.spaces.form.newLabel', 'New space'))}
+              values={values}
+              setValue={setValue}
+              current={record}
+              onIssuesChange={setIssues}
+            />
+          </div>
         ),
       },
     ]
-  }, [layout, record, t])
+  }, [blockingDefault, layout, record, t])
 
   if (host.loading || host.notFound || host.error || !layout) {
-    return <PlacementPageState loading={host.loading} notFound={host.notFound || (!host.loading && !layout && !host.error)} error={host.error} backHref={backHref} />
+    return <PlacementPageState loading={host.loading} notFound={host.notFound || (!host.loading && !layout && !host.error)} error={host.error} backHref={backHref} onRetry={host.reload} />
   }
 
   const subtitle = record
-    ? t('property_management.spaces.form.editSubtitle', 'Space · {floor} · {building} · {count} units', {
+    ? t('property_management.spaces.form.editSubtitle', 'Space · {floor} · {building} · {units}', {
         floor: layout.floor.name,
         building: layout.building.name,
-        count: layout.units.filter((unit) => unit.spaceId === record.id).length,
+        units: count('units', layout.units.filter((unit) => unit.spaceId === record.id).length),
       })
     : t('property_management.spaces.form.createSubtitle', '{floor} · {building} · {x} × {y} m', {
         floor: layout.floor.name,
         building: layout.building.name,
-        x: formatMetres(layout.floor.sizeX),
-        y: formatMetres(layout.floor.sizeY),
+        x: formatMetres(layout.floor.sizeX, locale),
+        y: formatMetres(layout.floor.sizeY, locale),
       })
   const ownUnits = record ? layout.units.filter((unit) => unit.spaceId === record.id) : []
 
@@ -125,6 +152,14 @@ export function SpaceForm({ spaceId }: { spaceId?: string | null }) {
       <PlacementFormShell<SpaceValues>
         title={record ? record.name : t('property_management.spaces.form.createTitle', 'New space')}
         subtitle={subtitle}
+        contentHeader={record ? (
+          <AvailabilityCard
+            subject={{ type: 'space', id: record.id, name: record.name }}
+            buildingId={layout.building.id}
+            ancestors={[{ type: 'floor', id: layout.floor.id }, { type: 'building', id: layout.building.id }]}
+            disabled={layout.building.status === 'archived'}
+          />
+        ) : undefined}
         backHref={backHref}
         formId={FORM_ID}
         fields={fields}
@@ -132,6 +167,7 @@ export function SpaceForm({ spaceId }: { spaceId?: string | null }) {
         initialValues={initialValues}
         submitLabel={record ? t('property_management.common.saveChanges', 'Save changes') : t('property_management.spaces.form.create', 'Create space')}
         blocked={issues.length > 0}
+        archived={layout.building.status === 'archived'}
         blockedMessage={t('property_management.placement.blocked', 'Fix the placement before saving.')}
         deleteLabel={t('property_management.spaces.form.delete', 'Delete space')}
         deleteDisabledReason={ownUnits.length

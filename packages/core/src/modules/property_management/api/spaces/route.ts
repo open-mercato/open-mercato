@@ -9,10 +9,13 @@ import { Space, Unit } from '../../data/entities'
 import { spaceCreateSchema, spaceUpdateSchema } from '../../data/validators'
 import {
   asRecord,
+  assertCrudRecordBuildingAccess,
   createPagedListResponseSchema,
   createPropertyManagementCrudOpenApi,
   crudEm,
   crudPermitted,
+  crudScopeFilters,
+  sealListScope,
   crudScope,
   defaultOkResponseSchema,
   listItems,
@@ -25,6 +28,7 @@ import {
   rectFields,
   restrictBuildingField,
   withScopedPayload,
+  unscopedDocSchema,
 } from '../crudShared'
 
 const routeMetadata = {
@@ -78,19 +82,22 @@ const crud = makeCrudRoute({
   indexer: { entityType: E.property_management.space },
   list: {
     schema: listSchema,
+    disableListCache: true,
     entityId: E.property_management.space,
     fields: ['id', 'building_id', 'floor_id', 'name', 'purpose', 'x', 'y', 'width', 'depth', 'is_default', 'organization_id', 'tenant_id', 'created_at', 'updated_at'],
     sortFieldMap: { name: 'name', x: 'x', y: 'y', updatedAt: 'updated_at' },
     defaultSort: { field: 'name', dir: 'asc' },
     tiebreakSortField: 'id',
+    omitAutomaticTenantOrgScope: true,
     buildFilters: async (query, ctx) => {
+      const scope = crudScopeFilters(ctx)
+      restrictBuildingField(scope, 'building_id', await crudPermitted(ctx), query.buildingId)
       const filters: Record<string, unknown> = {}
-      restrictBuildingField(filters, 'building_id', await crudPermitted(ctx), query.buildingId)
       if (query.id) filters.id = { $eq: query.id }
       if (query.floorId) filters.floor_id = { $eq: query.floorId }
       const term = query.search?.trim()
       if (term) filters.name = { $ilike: `%${escapeLikePattern(term)}%` }
-      return filters
+      return sealListScope(scope, filters)
     },
     transformItem: (item: Record<string, unknown>) => toItem(asRecord(item)),
   },
@@ -111,7 +118,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(spaceUpdateSchema, raw ?? {}, ctx, translate)
+        const input = parseScopedCommandInput(spaceUpdateSchema, raw ?? {}, ctx, translate)
+        await assertCrudRecordBuildingAccess(ctx, Space, input.id)
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -120,7 +129,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        return withScopedPayload({ id: resolveCrudRecordId(parsed, ctx, translate) }, ctx, translate)
+        const input = withScopedPayload({ id: resolveCrudRecordId(parsed, ctx, translate) }, ctx, translate)
+        await assertCrudRecordBuildingAccess(ctx, Space, input.id)
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -152,11 +163,11 @@ export const openApi = createPropertyManagementCrudOpenApi({
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(spaceItemSchema),
   create: {
-    schema: spaceCreateSchema,
+    schema: unscopedDocSchema(spaceCreateSchema),
     description: 'Creates a space (a rectangle on the floor). 422 when it leaves the floor or overlaps another space, naming what is in the way.',
   },
   update: {
-    schema: spaceUpdateSchema,
+    schema: unscopedDocSchema(spaceUpdateSchema),
     responseSchema: defaultOkResponseSchema,
     description: 'Moves, resizes or renames a space. Units never move with it; 422 when any of its units would stick out.',
   },

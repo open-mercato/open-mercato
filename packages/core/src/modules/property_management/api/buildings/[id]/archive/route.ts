@@ -7,7 +7,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { Building, CommonArea, Floor, Space, Unit } from '../../../../data/entities'
 import { buildingIdSchema } from '../../../../data/validators'
 import { assertBuildingPermitted } from '../../../../lib/buildingAccess'
-import { findUnitBlockers, findUnitsEverUsed } from '../../../../lib/usageGuards'
+import { findBuildingUnitsEverUsed, findUnitBlockerList } from '../../../../lib/usageGuards'
 import { BUILDING_RESOURCE_KIND } from '../../../../commands/building'
 import { handleRouteError, readRouteParam, resolveStaffContext, runStaffGuard } from '../../../routeContext'
 
@@ -24,6 +24,10 @@ const blockerSchema = z.object({
   label: z.string(),
   unitId: z.string(),
   until: z.string().nullable(),
+  startsAt: z.string().optional(),
+  endsAt: z.string().optional(),
+  startsOn: z.string().optional(),
+  endsOn: z.string().optional(),
 })
 
 const usageSchema = z.object({
@@ -35,6 +39,7 @@ const usageSchema = z.object({
   canDelete: z.boolean(),
   canArchive: z.boolean(),
   blockers: z.array(blockerSchema),
+  blockerCount: z.number().int(),
 })
 
 export async function GET(req: Request, routeCtx: RouteContext) {
@@ -59,8 +64,8 @@ export async function GET(req: Request, routeCtx: RouteContext) {
     ])
     const unitIds = units.map((unit) => unit.id)
     const [blockers, used] = await Promise.all([
-      findUnitBlockers(context.em, scope, unitIds),
-      findUnitsEverUsed(context.em, scope, unitIds),
+      findUnitBlockerList(context.em, scope, unitIds),
+      findBuildingUnitsEverUsed(context.em, scope, buildingId),
     ])
     return NextResponse.json({
       floorCount: floors.length,
@@ -69,8 +74,9 @@ export async function GET(req: Request, routeCtx: RouteContext) {
       commonAreaCount: commonAreas.length,
       everUsed: used.length > 0,
       canDelete: used.length === 0,
-      canArchive: blockers.length === 0 && building.status !== 'archived',
-      blockers,
+      canArchive: blockers.total === 0 && building.status !== 'archived',
+      blockers: blockers.blockers,
+      blockerCount: blockers.total,
     })
   } catch (err) {
     const rejection = getCommandInterceptorHttpRejection(err)
@@ -112,12 +118,12 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'What deleting or archiving the building would take with it',
-      responses: [{ status: 200, description: 'Counts, usage and blockers', schema: usageSchema }],
+      responses: [{ status: 200, description: 'Counts, usage and blockers (at most 100; `blockerCount` counts all of them)', schema: usageSchema }],
       errors: [{ status: 404, description: 'Building not found or not assigned to the caller' }],
     },
     POST: {
       summary: 'Archive the building for good',
-      description: 'Final: the building leaves every list and switcher. Refused (409 `building_archive_blocked`, with `blockers`) while active leases or upcoming bookings exist.',
+      description: 'Final: the building leaves every list and switcher. Refused (409 `building_archive_blocked`, with at most 100 `blockers` and their total `blockerCount`) while active leases or upcoming bookings exist.',
       responses: [{ status: 200, description: 'Archived', schema: z.object({ ok: z.literal(true) }) }],
       errors: [
         { status: 404, description: 'Building not found or not assigned to the caller' },

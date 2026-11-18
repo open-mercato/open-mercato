@@ -2,19 +2,26 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { usePlural } from '../plural'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
+import { E } from '#generated/entities.ids.generated'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import type { PlacementIssue } from '../../lib/geometry'
 import { floorHref, formatMetres } from '../floor/types'
 import { PlacementEditor } from './PlacementEditor'
 import { PlacementFormShell, PlacementPageState } from './PlacementFormShell'
+import { AvailabilityCard } from '../availability/AvailabilityCard'
 import { toNumber } from './placementModel'
-import { UnitProductField, useCatalogCategories } from './UnitProductField'
-import { UnitProductHistory, useUnitProductInfo, type UsageBlockerRow } from './UnitProductHistory'
+import { CATALOG_OPTIONS_LIMIT, UnitProductField, useCatalogCategories } from './UnitProductField'
+import { CatalogLoadError } from './CatalogLoadError'
+import { UnitProductHistory, unitProductLockedReason, useUnitProductInfo, type UsageBlockerRow } from './UnitProductHistory'
 import { useGuardedDelete } from './useGuardedDelete'
+import { formatUsageBlocker } from '../usageBlockers'
 import { usePlacementHost, type PlacementRecord } from './usePlacementHost'
 
 type UnitRecord = PlacementRecord & {
@@ -27,6 +34,7 @@ type UnitRecord = PlacementRecord & {
   width: number
   depth: number
   blockers?: UsageBlockerRow[]
+  blockerCount?: number
 }
 
 type UnitValues = {
@@ -40,25 +48,26 @@ type UnitValues = {
   width: number
   depth: number
   updatedAt?: string | null
-}
+} & Record<string, unknown>
 
 const FORM_ID = 'property-management-unit-form'
 
 export function UnitForm({ unitId }: { unitId?: string | null }) {
   const t = useT()
+  const locale = useLocale()
+  const { plural } = usePlural()
   const router = useRouter()
   const recordId = unitId || null
   const host = usePlacementHost<UnitRecord>('units', recordId)
-  const { categories } = useCatalogCategories()
-  const { info } = useUnitProductInfo(recordId)
+  const productInfo = useUnitProductInfo(recordId)
+  const { info } = productInfo
   const [issues, setIssues] = React.useState<PlacementIssue[]>([])
   const { remove, ConfirmDialogElement } = useGuardedDelete(FORM_ID)
   const layout = host.layout
   const record = host.record
+  const { categories, hasMore: moreCategories, failedStatus: categoriesFailedStatus, retry: retryCategories } = useCatalogCategories(record?.catalogCategoryId ?? null)
   const backHref = layout ? floorHref(layout.building.id, layout.floor.id) : '/backend/property_management/buildings'
-  const lockedReason = info?.productLocked
-    ? t('property_management.units.form.productLocked', 'Locked while the unit is leased — the lease was signed for this product.')
-    : null
+  const lockedReason = unitProductLockedReason(t, recordId, productInfo)
 
   const initialValues = React.useMemo<Partial<UnitValues>>(() => {
     if (record) {
@@ -73,6 +82,7 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
         width: record.width,
         depth: record.depth,
         updatedAt: record.updatedAt,
+        ...extractCustomFieldEntries(record),
       }
     }
     const space = layout?.spaces[0] ?? null
@@ -101,10 +111,10 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
         value: space.id,
         label: t('property_management.units.form.spaceOption', '{name} — {width} × {depth} m at {x}, {y}', {
           name: space.name,
-          width: formatMetres(space.width),
-          depth: formatMetres(space.depth),
-          x: formatMetres(space.x),
-          y: formatMetres(space.y),
+          width: formatMetres(space.width, locale),
+          depth: formatMetres(space.depth, locale),
+          x: formatMetres(space.x, locale),
+          y: formatMetres(space.y, locale),
         }),
       })),
     },
@@ -114,7 +124,11 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
       type: 'select',
       required: true,
       disabled: Boolean(lockedReason),
-      description: t('property_management.units.form.typeHint', 'Categories from the product catalog.'),
+      description: categoriesFailedStatus !== null
+        ? <CatalogLoadError status={categoriesFailedStatus} kind="categories" onRetry={retryCategories} />
+        : moreCategories
+          ? t('property_management.units.form.typeTruncated', 'Only the first {count} catalog categories are listed.', { count: CATALOG_OPTIONS_LIMIT })
+          : t('property_management.units.form.typeHint', 'Categories from the product catalog.'),
       options: categories.map((category) => ({ value: category.id, label: `${'· '.repeat(category.depth)}${category.name}` })),
     },
     {
@@ -132,7 +146,7 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
     },
     { id: 'width', label: t('property_management.units.form.width', 'Width, metres'), type: 'number', required: true, layout: 'half' },
     { id: 'depth', label: t('property_management.units.form.depth', 'Depth, metres'), type: 'number', required: true, layout: 'half' },
-  ], [categories, categoryNames, layout, lockedReason, t])
+  ], [categories, categoriesFailedStatus, categoryNames, layout, locale, lockedReason, moreCategories, retryCategories, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     if (!layout) return []
@@ -158,14 +172,16 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
           />
         ),
       },
+      { id: 'customFields', title: t('entities.customFields.title', 'Custom fields'), kind: 'customFields' },
     ]
   }, [layout, record, t])
 
   if (host.loading || host.notFound || host.error || !layout) {
-    return <PlacementPageState loading={host.loading} notFound={host.notFound || (!host.loading && !layout && !host.error)} error={host.error} backHref={backHref} />
+    return <PlacementPageState loading={host.loading} notFound={host.notFound || (!host.loading && !layout && !host.error)} error={host.error} backHref={backHref} onRetry={host.reload} />
   }
 
   const blockers = record?.blockers ?? []
+  const moreBlockers = Math.max(0, (record?.blockerCount ?? blockers.length) - blockers.length)
   const upcoming = info?.upcomingBookings ?? []
   const contentHeader = (
     <>
@@ -181,11 +197,17 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
       {upcoming.length ? (
         <Alert status="information">
           <AlertDescription>
-            {t('property_management.units.form.bookingsNotice', 'This unit has {count} upcoming bookings. They keep the product and price they were made at; new bookings use the new product.', {
-              count: upcoming.length,
-            })}
+            {plural('property_management.units.form.bookingsNotice', 'This unit has {count} upcoming bookings. They keep the product and price they were made at; new bookings use the new product.', upcoming.length)}
           </AlertDescription>
         </Alert>
+      ) : null}
+      {record ? (
+        <AvailabilityCard
+          subject={{ type: 'unit', id: record.id, name: record.name }}
+          buildingId={layout.building.id}
+          ancestors={[{ type: 'space', id: record.spaceId }, { type: 'floor', id: layout.floor.id }, { type: 'building', id: layout.building.id }]}
+          disabled={layout.building.status === 'archived'}
+        />
       ) : null}
     </>
   )
@@ -197,23 +219,30 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
         subtitle={t('property_management.units.form.subtitle', '{floor} · {building} · {x} × {y} m', {
           floor: layout.floor.name,
           building: layout.building.name,
-          x: formatMetres(layout.floor.sizeX),
-          y: formatMetres(layout.floor.sizeY),
+          x: formatMetres(layout.floor.sizeX, locale),
+          y: formatMetres(layout.floor.sizeY, locale),
         })}
         backHref={backHref}
         formId={FORM_ID}
         fields={fields}
         groups={groups}
         initialValues={initialValues}
+        entityId={E.property_management.unit}
         submitLabel={record ? t('property_management.common.saveChanges', 'Save changes') : t('property_management.units.form.create', 'Create unit')}
         blocked={issues.length > 0}
+        archived={layout.building.status === 'archived'}
         blockedMessage={t('property_management.placement.blocked', 'Fix the placement before saving.')}
         contentHeader={contentHeader}
         deleteLabel={t('property_management.units.form.delete', 'Delete unit')}
         deleteDisabledReason={blockers.length
-          ? t('property_management.units.form.deleteBlocked', 'Cancel {items} first — a unit with a lease or bookings cannot be deleted.', {
-              items: blockers.map((blocker) => blocker.label).join(', '),
-            })
+          ? moreBlockers > 0
+            ? t('property_management.units.form.deleteBlockedMore', 'Cancel {items} and {count} more first — a unit with a lease or bookings cannot be deleted.', {
+                items: blockers.map((blocker) => formatUsageBlocker(blocker, locale)).join(', '),
+                count: moreBlockers,
+              })
+            : t('property_management.units.form.deleteBlocked', 'Cancel {items} first — a unit with a lease or bookings cannot be deleted.', {
+                items: blockers.map((blocker) => formatUsageBlocker(blocker, locale)).join(', '),
+              })
           : null}
         onDelete={record ? async () => {
           const done = await remove({
@@ -229,7 +258,7 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
           if (done) router.push(backHref)
         } : undefined}
         onSubmit={async (values) => {
-          const payload = {
+          const payload: Record<string, unknown> = {
             name: String(values.name ?? '').trim(),
             spaceId: String(values.spaceId ?? ''),
             catalogCategoryId: String(values.catalogCategoryId ?? ''),
@@ -239,6 +268,8 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
             width: toNumber(values.width),
             depth: toNumber(values.depth),
           }
+          const customFields = collectCustomFieldValues(values)
+          if (Object.keys(customFields).length) payload.customFields = customFields
           const errorMessage = t('property_management.units.form.saveError', 'Could not save the unit.')
           if (record) {
             await updateCrud('property_management/units', { id: record.id, ...payload }, { errorMessage })
@@ -249,7 +280,7 @@ export function UnitForm({ unitId }: { unitId?: string | null }) {
           router.push(backHref)
         }}
       >
-        {record ? <UnitProductHistory periods={info?.periods ?? []} /> : null}
+        {record ? <UnitProductHistory periods={info?.periods ?? []} failed={productInfo.failed && !info} onRetry={productInfo.retry} /> : null}
       </PlacementFormShell>
       {ConfirmDialogElement}
     </>

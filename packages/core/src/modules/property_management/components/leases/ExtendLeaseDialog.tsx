@@ -11,16 +11,34 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { usePlural } from '../plural'
 import { addDays, extensionAnchorDay, leaseEndsOn, respondByDate } from '../../lib/leaseTerm'
-import { formatDate, formatMoney, isSubmitShortcut, readErrorMessage, type LeaseSummary } from './leaseModel'
+import { formatDate, formatMoney, formatPercent, isSubmitShortcut, readErrorMessage, type LeaseSummary } from './leaseModel'
 import { useLeaseMutation } from './useLeaseMutation'
 
 type ExtendLeaseDialogProps = {
   lease: LeaseSummary | null
-  defaultExpiryDays: number
+  defaultExpiryDays: number | null
   onClose: () => void
   onExtended: () => void
+}
+
+const INLINE_FIELDS = ['months', 'monthlyRate', 'expiresInDays', 'message'] as const
+type InlineField = typeof INLINE_FIELDS[number]
+type InlineFieldErrors = Partial<Record<InlineField, string>>
+
+function splitFieldErrors(err: unknown): { inline: InlineFieldErrors; hasOther: boolean } {
+  const { fieldErrors } = mapCrudServerErrorToFormErrors(err)
+  const inline: InlineFieldErrors = {}
+  let hasOther = false
+  for (const [field, message] of Object.entries(fieldErrors ?? {})) {
+    const known = INLINE_FIELDS.find((entry) => entry === field)
+    if (known) inline[known] = message
+    else hasOther = true
+  }
+  return { inline, hasOther }
 }
 
 function positiveInt(value: string): number | null {
@@ -30,25 +48,35 @@ function positiveInt(value: string): number | null {
 
 export function ExtendLeaseDialog({ lease, defaultExpiryDays, onClose, onExtended }: ExtendLeaseDialogProps) {
   const t = useT()
+  const { plural } = usePlural()
   const locale = useLocale()
   const { send } = useLeaseMutation('property-management-lease-extend')
   const [months, setMonths] = React.useState('12')
   const [rate, setRate] = React.useState('')
   const [asProposal, setAsProposal] = React.useState(true)
-  const [expiry, setExpiry] = React.useState(String(defaultExpiryDays))
+  const [expiry, setExpiry] = React.useState(defaultExpiryDays === null ? '' : String(defaultExpiryDays))
   const [message, setMessage] = React.useState('')
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = React.useState<InlineFieldErrors>({})
+
+  const leaseId = lease?.id ?? null
+  const leaseRate = lease?.monthlyRate ?? null
 
   React.useEffect(() => {
-    if (!lease) return
+    if (!leaseId) return
     setMonths('12')
-    setRate(lease.monthlyRate ? String(Number(lease.monthlyRate)) : '')
+    setRate(leaseRate ? String(Number(leaseRate)) : '')
     setAsProposal(true)
-    setExpiry(String(defaultExpiryDays))
     setMessage('')
     setError(null)
-  }, [defaultExpiryDays, lease])
+    setFieldErrors({})
+  }, [leaseId, leaseRate])
+
+  React.useEffect(() => {
+    if (!leaseId) return
+    setExpiry(defaultExpiryDays === null ? '' : String(defaultExpiryDays))
+  }, [defaultExpiryDays, leaseId])
 
   const monthCount = positiveInt(months)
   const expiryDays = positiveInt(expiry)
@@ -64,6 +92,7 @@ export function ExtendLeaseDialog({ lease, defaultExpiryDays, onClose, onExtende
     if (!lease || !canConfirm) return
     setPending(true)
     setError(null)
+    setFieldErrors({})
     try {
       const body: Record<string, unknown> = { months: monthCount, monthlyRate: rateValue, asProposal }
       if (asProposal) {
@@ -90,7 +119,11 @@ export function ExtendLeaseDialog({ lease, defaultExpiryDays, onClose, onExtende
         onClose()
         return
       }
-      setError(readErrorMessage(err, t('property_management.leases.extend.error', 'Could not extend the lease.')))
+      const { inline, hasOther } = splitFieldErrors(err)
+      setFieldErrors(inline)
+      if (hasOther || !Object.keys(inline).length) {
+        setError(readErrorMessage(err, t('property_management.leases.extend.error', 'Could not extend the lease.')))
+      }
     } finally {
       setPending(false)
     }
@@ -98,7 +131,10 @@ export function ExtendLeaseDialog({ lease, defaultExpiryDays, onClose, onExtende
 
   const rateText = formatMoney(rateValue > 0 ? rateValue : null, lease?.currencyCode, locale)
   const deltaText = delta !== null && delta !== 0 && currentRate
-    ? `${delta > 0 ? '+' : ''}${formatMoney(delta, lease?.currencyCode, locale)} (${delta > 0 ? '+' : ''}${Math.round((delta / currentRate) * 1000) / 10}%)`
+    ? t('property_management.leases.extend.rateDelta', '{amount} ({percent})', {
+        amount: formatMoney(delta, lease?.currencyCode, locale, { signDisplay: 'exceptZero' }),
+        percent: formatPercent(delta / currentRate, locale, { signDisplay: 'exceptZero' }),
+      })
     : null
 
   return (
@@ -107,7 +143,7 @@ export function ExtendLeaseDialog({ lease, defaultExpiryDays, onClose, onExtende
         <DialogHeader>
           <DialogTitle>{t('property_management.leases.extend.title', 'Extend lease')}</DialogTitle>
           <DialogDescription>
-            {lease ? `${lease.reference} · ${lease.unitName ?? ''} · ${lease.companyName ?? ''}` : ''}
+            {lease ? [lease.reference, lease.unitName, lease.companyName].filter(Boolean).join(' · ') : ''}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-6 md:grid-cols-2">
@@ -127,7 +163,8 @@ export function ExtendLeaseDialog({ lease, defaultExpiryDays, onClose, onExtende
             />
             <div className="space-y-1">
               <Label htmlFor="pm-extend-months">{t('property_management.leases.extend.months', 'Extend by (months)')}</Label>
-              <Input id="pm-extend-months" type="number" min={1} value={months} onChange={(event) => setMonths(event.target.value)} />
+              <Input id="pm-extend-months" type="number" min={1} value={months} aria-invalid={fieldErrors.months ? true : undefined} onChange={(event) => setMonths(event.target.value)} />
+              {fieldErrors.months ? <p className="text-sm text-status-error-text" data-testid="pm-extend-months-error">{fieldErrors.months}</p> : null}
               <p className="text-sm text-muted-foreground">
                 {startsOn && endsOn
                   ? t('property_management.leases.extend.newTerm', 'New term: {start} — {end}', { start: formatDate(startsOn, locale), end: formatDate(endsOn, locale) })
@@ -136,23 +173,28 @@ export function ExtendLeaseDialog({ lease, defaultExpiryDays, onClose, onExtende
             </div>
             <div className="space-y-1">
               <Label htmlFor="pm-extend-rate">{t('property_management.leases.extend.rate', 'New monthly rate')}</Label>
-              <Input id="pm-extend-rate" type="number" min={0} step="0.01" value={rate} onChange={(event) => setRate(event.target.value)} />
+              <Input id="pm-extend-rate" type="number" min={0} step="0.01" value={rate} aria-invalid={fieldErrors.monthlyRate ? true : undefined} onChange={(event) => setRate(event.target.value)} />
+              {fieldErrors.monthlyRate ? <p className="text-sm text-status-error-text" data-testid="pm-extend-rate-error">{fieldErrors.monthlyRate}</p> : null}
               {deltaText ? <p className="text-sm text-muted-foreground">{deltaText}</p> : null}
             </div>
             {asProposal ? (
               <>
                 <div className="space-y-1">
                   <Label htmlFor="pm-extend-expiry">{t('property_management.leases.form.expiresInDays', 'Proposal expires after (days)')}</Label>
-                  <Input id="pm-extend-expiry" type="number" min={1} max={90} value={expiry} onChange={(event) => setExpiry(event.target.value)} />
+                  <Input id="pm-extend-expiry" type="number" min={1} max={90} value={expiry} aria-invalid={fieldErrors.expiresInDays ? true : undefined} onChange={(event) => setExpiry(event.target.value)} />
+                  {fieldErrors.expiresInDays ? <p className="text-sm text-status-error-text" data-testid="pm-extend-expiry-error">{fieldErrors.expiresInDays}</p> : null}
                   <p className="text-sm text-muted-foreground">
                     {respondBy
-                      ? t('property_management.leases.extend.respondBy', 'Respond by {date}. Settings default: {days} days.', { date: formatDate(respondBy, locale), days: defaultExpiryDays })
+                      ? defaultExpiryDays === null
+                        ? t('property_management.leases.extend.respondByOnly', 'Respond by {date}.', { date: formatDate(respondBy, locale) })
+                        : plural('property_management.leases.extend.respondBy', 'Respond by {date}. Settings default: {count} days.', defaultExpiryDays, { date: formatDate(respondBy, locale) })
                       : t('property_management.leases.form.expiryRange', 'Between 1 and 90 days.')}
                   </p>
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="pm-extend-message">{t('property_management.leases.extend.message', 'Message to the tenant (optional)')}</Label>
-                  <Textarea id="pm-extend-message" maxLength={4000} value={message} onChange={(event) => setMessage(event.target.value)} />
+                  <Textarea id="pm-extend-message" maxLength={4000} value={message} aria-invalid={fieldErrors.message ? true : undefined} onChange={(event) => setMessage(event.target.value)} />
+                  {fieldErrors.message ? <p className="text-sm text-status-error-text" data-testid="pm-extend-message-error">{fieldErrors.message}</p> : null}
                 </div>
               </>
             ) : (

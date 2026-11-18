@@ -1,14 +1,14 @@
 "use client"
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
-import type { PlacementIssue, PlacementKind } from '../../lib/geometry'
+import { fitsInside, type PlacementIssue, type PlacementKind } from '../../lib/geometry'
 import { describePlacementIssues } from '../../lib/placementMessages'
 import { FloorDrawing, LayoutTile } from '../floor/FloorDrawing'
 import { pixelsPerMetre } from '../floor/scale'
 import { formatMetres, rectArea, type FloorLayoutData, type LayoutRect } from '../floor/types'
-import { evaluatePlacement, issuesKey, rectFromValues } from './placementModel'
+import { evaluatePlacement, issuesKey, placeInsideSpace, rectFromValues, unitObstacles } from './placementModel'
 import { usePlacementDrag } from './usePlacementDrag'
 
 export type PlacementEditorProps = {
@@ -25,6 +25,7 @@ export type PlacementEditorProps = {
 
 export function PlacementEditor({ kind, layout, selfId, label, values, setValue, current, disabled, onIssuesChange }: PlacementEditorProps) {
   const t = useT()
+  const locale = useLocale()
   const rect = rectFromValues(values)
   const spaceId = typeof values.spaceId === 'string' && values.spaceId ? values.spaceId : null
   const evaluation = evaluatePlacement(kind, layout, rect, selfId, spaceId)
@@ -49,14 +50,25 @@ export function PlacementEditor({ kind, layout, selfId, label, values, setValue,
     const next = evaluatePlacement(kind, layout, settled, selfId, spaceId).containingSpaceId
     if (next && next !== spaceId) setValue('spaceId', next)
   }, [kind, layout, selfId, setValue, spaceId])
+  const previousSpaceIdRef = React.useRef(spaceId)
+  React.useEffect(() => {
+    if (kind !== 'unit' || previousSpaceIdRef.current === spaceId) return
+    previousSpaceIdRef.current = spaceId
+    const target = spaceId ? layout.spaces.find((item) => item.id === spaceId) ?? null : null
+    if (!target || fitsInside(rect, target)) return
+    const placed = placeInsideSpace(rect, target, unitObstacles(layout, selfId))
+    setValue('x', placed.x)
+    setValue('y', placed.y)
+  }, [kind, layout, rect, selfId, setValue, spaceId])
   const { floorRef, dragging, handlers } = usePlacementDrag({ rect, sizeX, sizeY, disabled, onMove, onSettle })
 
   const space = spaceId ? layout.spaces.find((item) => item.id === spaceId) ?? null : null
-  const area = formatMetres(rectArea(rect))
+  const area = formatMetres(rectArea(rect), locale)
   const okMessage = kind === 'unit' && space
     ? t('property_management.placement.fitsInSpace', 'Fits inside {space} · {area} m² · no overlaps.', { space: space.name, area })
     : t('property_management.placement.fitsOnFloor', 'Fits on the floor · {area} m² · no overlaps.', { area })
   const blocked = evaluation.issues.length > 0
+  const positionAnnouncement = t('property_management.placement.positionAnnouncement', 'Now at {x}, {y} m.', { x: formatMetres(rect.x, locale), y: formatMetres(rect.y, locale) })
   const targetLabel = t('property_management.placement.targetLabel', 'Place {name} — drag, or use the arrow keys', { name: label })
 
   return (
@@ -64,25 +76,29 @@ export function PlacementEditor({ kind, layout, selfId, label, values, setValue,
       <p
         role="status"
         aria-live="polite"
+        aria-atomic="true"
         data-testid="placement-status"
         className={cn('text-sm', blocked ? 'text-status-error-text' : 'text-muted-foreground')}
       >
         {blocked ? describePlacementIssues(evaluation.issues, translate) : okMessage}
+        {dragging ? null : <span className="sr-only"> {positionAnnouncement}</span>}
       </p>
       <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
         <div className="flex gap-2">
           <dt className="text-muted-foreground">{t('property_management.placement.position', 'Position, x, y')}</dt>
-          <dd data-testid="placement-position">{`${formatMetres(rect.x)}, ${formatMetres(rect.y)} m`}</dd>
+          <dd data-testid="placement-position">
+            {t('property_management.placement.positionValue', '{x}, {y} m', { x: formatMetres(rect.x, locale), y: formatMetres(rect.y, locale) })}
+          </dd>
         </div>
         {current ? (
           <div className="flex gap-2 text-muted-foreground">
             <dt>{t('property_management.placement.currently', 'Currently')}</dt>
             <dd>
               {t('property_management.placement.currentRect', '{width} × {depth} m at {x}, {y}', {
-                width: formatMetres(current.width),
-                depth: formatMetres(current.depth),
-                x: formatMetres(current.x),
-                y: formatMetres(current.y),
+                width: formatMetres(current.width, locale),
+                depth: formatMetres(current.depth, locale),
+                x: formatMetres(current.x, locale),
+                y: formatMetres(current.y, locale),
               })}
             </dd>
           </div>
@@ -139,7 +155,7 @@ export function PlacementEditor({ kind, layout, selfId, label, values, setValue,
           )}
           tileProps={{
             role: 'application',
-            'aria-roledescription': 'draggable',
+            'aria-roledescription': t('property_management.placement.draggable', 'draggable'),
             'aria-label': targetLabel,
             tabIndex: disabled ? -1 : 0,
             'data-testid': 'placement-target',

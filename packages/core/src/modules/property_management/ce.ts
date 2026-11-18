@@ -1,6 +1,9 @@
-export const entities = [
+import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
+import { E } from '#generated/entities.ids.generated'
+
+export const entities: CustomEntitySpec[] = [
   {
-    id: 'property_management:building',
+    id: E.property_management.building,
     label: 'Building',
     description: 'A building managed in Property Management.',
     labelField: 'name',
@@ -8,7 +11,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'property_management:unit',
+    id: E.property_management.unit,
     label: 'Unit',
     description: 'A leasable or bookable unit on a floor.',
     labelField: 'name',
@@ -16,7 +19,7 @@ export const entities = [
     fields: [],
   },
   {
-    id: 'property_management:lease',
+    id: E.property_management.lease,
     label: 'Lease',
     description: 'A lease of a unit.',
     labelField: 'reference',

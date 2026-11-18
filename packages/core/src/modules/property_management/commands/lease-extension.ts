@@ -6,7 +6,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { LeaseProposal, LeaseVersion, type SalesOperation } from '../data/entities'
 import { leaseExtensionSchema, type LeaseExtensionInput } from '../data/validators'
 import { conflictError, unprocessableError } from '../lib/errors'
-import { compareIsoDates, extensionAnchorDay, extensionStartsOn, leaseEndsOn, respondByDate } from '../lib/leaseTerm'
+import { compareIsoDates, extensionAnchorDay, extensionStartsOn, leaseEndsOn, localToday, respondByDate } from '../lib/leaseTerm'
 import {
   buildLeaseOrderPayload,
   buildLeaseQuotePayload,
@@ -14,6 +14,7 @@ import {
   leaseProductOf,
   loadPermittedLease,
   lockLeaseRow,
+  lockUnitRow,
   nextVersionNo,
 } from '../lib/leaseRecords'
 import { enqueueSalesOperations, recordOperation } from '../lib/salesOperations'
@@ -21,7 +22,7 @@ import { resolveOrderStatusEntryId } from '../lib/salesLookups'
 import { loadSettings } from '../lib/settings'
 import { leaseCrudEvents, leaseCrudIndexer } from '../lib/leaseEvents'
 import type { Scope } from '../lib/productUse'
-import { assertNoOverlap, enforceLeaseLock, LEASE_RESOURCE_KIND } from './lease'
+import { assertNoBookingsInTerm, assertNoOverlap, assertUnitAvailableForTerm, enforceLeaseLock, LEASE_RESOURCE_KIND } from './lease'
 import { buildCrudLog, emitSideEffects, ensureScope, lockBuilding, resolveEm, resolvePermitted } from './shared'
 
 export type LeaseExtensionResult = {
@@ -35,10 +36,13 @@ export type LeaseExtensionResult = {
 async function assertExtendable(
   em: EntityManager,
   scope: Scope,
-  lease: { id: string; status: string; pendingChange?: unknown },
+  lease: { id: string; status: string; endsOn: string; pendingChange?: unknown },
 ): Promise<void> {
   if (lease.status !== 'active') {
     throw await conflictError('property_management.errors.leaseNotActive', 'Only an active lease can be extended.', { code: 'lease_not_active' })
+  }
+  if (compareIsoDates(lease.endsOn, localToday()) < 0) {
+    throw await conflictError('property_management.errors.leaseAlreadyEnded', 'This lease has already ended.', { code: 'lease_already_ended' })
   }
   if (lease.pendingChange) {
     throw await conflictError('property_management.errors.leaseChangePending', 'A billing update of this lease is still pending. Try again once it has settled.', {
@@ -102,11 +106,15 @@ async function extendLease(input: LeaseExtensionInput, ctx: CommandRuntimeContex
   const outcome = await em.fork().transactional(async (trx) => {
     await lockBuilding(trx, scope, current.buildingId)
     const lease = await lockLeaseRow(trx, scope, current.id)
+    await enforceLeaseLock(ctx, lease)
     await assertExtendable(trx, scope, lease)
     if (lease.endsOn !== current.endsOn) {
       throw await conflictError('property_management.errors.leaseChangedMeanwhile', 'The lease changed meanwhile. Reload and try again.', { code: 'lease_changed' })
     }
+    const unit = await lockUnitRow(trx, scope, lease.unitId)
+    await assertUnitAvailableForTerm(trx, scope, unit, { startsOn, endsOn })
     await assertNoOverlap(trx, scope, lease.unitId, { startsOn, endsOn }, lease.id)
+    await assertNoBookingsInTerm(trx, scope, lease.unitId, { startsOn, endsOn })
     const version = trx.create(LeaseVersion, {
       id: randomUUID(),
       ...scope,
@@ -116,7 +124,7 @@ async function extendLease(input: LeaseExtensionInput, ctx: CommandRuntimeContex
       state: 'pending',
       catalogProductId: product.catalogProductId,
       productName: product.productName,
-      monthlyRate: String(input.monthlyRate),
+      monthlyRate: input.monthlyRate,
       currencyCode: product.currencyCode,
       startsOn,
       endsOn,
@@ -147,7 +155,7 @@ async function extendLease(input: LeaseExtensionInput, ctx: CommandRuntimeContex
         startsOn,
         endsOn,
         months: input.months,
-        monthlyRate: String(input.monthlyRate),
+        monthlyRate: input.monthlyRate,
         currencyCode: product.currencyCode,
         message: input.message ?? null,
         expiresInDays,

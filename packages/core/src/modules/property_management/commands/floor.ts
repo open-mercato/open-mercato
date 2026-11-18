@@ -3,6 +3,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { Space } from '../data/entities'
 import {
   floorLayoutReplaceSchema,
   floorUpdateSchema,
@@ -18,18 +19,24 @@ import {
   type LayoutChangeSnapshot,
 } from '../lib/floorLayout'
 import {
+  assertCtxBuildingAccess,
   buildCrudLog,
   buildingCrudIndexer,
   conflict,
+  emitLayoutChangeSideEffects,
   emitSideEffects,
+  enforceRecordVersion,
   ensureScope,
-  floorCrudEvents,
   floorCrudIndexer,
+  floorUpdatedEvents,
   loadBuilding,
   loadFloor,
-  lockBuilding,
   lockFloor,
+  lockWritableBuilding,
+  renamedFloorIds,
   resolveEm,
+  spaceCrudEvents,
+  spaceCrudIndexer,
 } from './shared'
 import { BUILDING_RESOURCE_KIND } from './building'
 
@@ -45,27 +52,27 @@ const layoutReplaceCommand: CommandHandler<FloorLayoutReplaceInput, { buildingId
     ensureScope(ctx, scope)
     const em = resolveEm(ctx)
     const current = await loadBuilding(em, ctx, scope, parsed.buildingId)
-    await enforceCommandOptimisticLockWithGuards(ctx.container, {
-      resourceKind: BUILDING_RESOURCE_KIND,
-      resourceId: current.id,
-      current: current.updatedAt,
-      request: ctx.request ?? null,
-    })
     if (current.status === 'archived') {
       await conflict('property_management.errors.buildingArchived', 'An archived building cannot be changed.')
     }
     const { translate } = await resolveTranslations()
     const spaceName = translate('property_management.spaces.defaultName', 'Whole floor')
     const outcome = await em.fork().transactional(async (trx) => {
-      const building = await lockBuilding(trx, scope, parsed.buildingId)
+      const building = await lockWritableBuilding(trx, scope, parsed.buildingId)
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
+        resourceKind: BUILDING_RESOURCE_KIND,
+        resourceId: building.id,
+        current: building.updatedAt,
+        request: ctx.request ?? null,
+      })
       const layout = await applyFloorLayout(trx, scope, building, parsed.layout, spaceName)
       building.updatedAt = new Date()
       return { building, layout }
     })
     await emitSideEffects(ctx, 'updated', outcome.building, { indexer: buildingCrudIndexer })
-    for (const floor of outcome.layout.createdFloors) await emitSideEffects(ctx, 'created', floor, { indexer: floorCrudIndexer, events: floorCrudEvents })
-    for (const floor of outcome.layout.updatedFloors) await emitSideEffects(ctx, 'updated', floor, { indexer: floorCrudIndexer, events: floorCrudEvents })
-    for (const floor of outcome.layout.removedFloors) await emitSideEffects(ctx, 'deleted', floor, { indexer: floorCrudIndexer, events: floorCrudEvents })
+    await emitLayoutChangeSideEffects(ctx, outcome.layout.changes, 'write', {
+      renamedFloorIds: renamedFloorIds(outcome.layout.snapshot.updatedFloors, outcome.layout.changes.floors.updated),
+    })
     return { buildingId: outcome.building.id, layout: outcome.layout.snapshot }
   },
   buildLog: async ({ input, result, ctx }) => {
@@ -78,15 +85,17 @@ const layoutReplaceCommand: CommandHandler<FloorLayoutReplaceInput, { buildingId
     if (!payload?.layout || !payload.scope) return
     const scope = payload.scope
     ensureScope(ctx, scope)
-    const em = resolveEm(ctx)
     const layout = payload.layout
-    const building = await em.fork().transactional(async (trx) => {
-      const record = await lockBuilding(trx, scope, layout.buildingId)
-      await revertFloorLayout(trx, scope, layout)
+    await assertCtxBuildingAccess(ctx, scope, layout.buildingId)
+    const em = resolveEm(ctx)
+    const outcome = await em.fork().transactional(async (trx) => {
+      const record = await lockWritableBuilding(trx, scope, layout.buildingId)
+      const reverted = await revertFloorLayout(trx, scope, layout)
       record.updatedAt = new Date()
-      return record
+      return { record, reverted }
     })
-    await emitSideEffects(ctx, 'updated', building, { indexer: buildingCrudIndexer }, 'undo')
+    await emitSideEffects(ctx, 'updated', outcome.record, { indexer: buildingCrudIndexer }, 'undo')
+    await emitLayoutChangeSideEffects(ctx, outcome.reverted, 'undo')
   },
 }
 
@@ -105,22 +114,26 @@ const updateFloorCommand: CommandHandler<FloorUpdateInput, { floorId: string; la
     const em = resolveEm(ctx)
     const current = await loadFloor(em, ctx, scope, parsed.id)
     const outcome = await em.fork().transactional(async (trx) => {
-      const building = await lockBuilding(trx, scope, current.buildingId)
-      if (building.status === 'archived') {
-        await conflict('property_management.errors.buildingArchived', 'An archived building cannot be changed.')
-      }
+      const building = await lockWritableBuilding(trx, scope, current.buildingId)
       const floor = await lockFloor(trx, scope, parsed.id)
+      await enforceRecordVersion(ctx, FLOOR_RESOURCE_KIND, floor)
       const before = snapshotFloor(floor)
       const layout = emptyLayoutSnapshot(building.id)
       const sizeX = parsed.sizeX ?? Number(floor.sizeX)
       const sizeY = parsed.sizeY ?? Number(floor.sizeY)
-      await resizeFloor(trx, scope, floor, sizeX, sizeY, layout)
+      const resizedSpaces: Space[] = []
+      await resizeFloor(trx, scope, floor, sizeX, sizeY, layout, resizedSpaces)
       if (parsed.name !== undefined) floor.name = parsed.name
-      floor.updatedAt = new Date()
+      const changedAt = new Date()
+      floor.updatedAt = changedAt
+      building.updatedAt = changedAt
       layout.updatedFloors.push(before)
-      return { floor, before, layout }
+      return { building, floor, before, layout, resizedSpaces }
     })
-    await emitSideEffects(ctx, 'updated', outcome.floor, { indexer: floorCrudIndexer, events: floorCrudEvents })
+    await emitSideEffects(ctx, 'updated', outcome.building, { indexer: buildingCrudIndexer })
+    const nameChanged = outcome.floor.name !== outcome.before.name
+    await emitSideEffects(ctx, 'updated', outcome.floor, { indexer: floorCrudIndexer, events: floorUpdatedEvents(nameChanged) })
+    for (const space of outcome.resizedSpaces) await emitSideEffects(ctx, 'updated', space, { indexer: spaceCrudIndexer, events: spaceCrudEvents })
     return { floorId: outcome.floor.id, layout: outcome.layout, before: outcome.before }
   },
   buildLog: async ({ input, result, ctx }) => {
@@ -137,16 +150,17 @@ const updateFloorCommand: CommandHandler<FloorUpdateInput, { floorId: string; la
     if (!payload?.layout || !payload.scope) return
     const scope = payload.scope
     ensureScope(ctx, scope)
-    const em = resolveEm(ctx)
     const layout = payload.layout
-    await em.fork().transactional(async (trx) => {
-      await lockBuilding(trx, scope, layout.buildingId)
-      await revertFloorLayout(trx, scope, layout)
+    await assertCtxBuildingAccess(ctx, scope, layout.buildingId)
+    const em = resolveEm(ctx)
+    const outcome = await em.fork().transactional(async (trx) => {
+      const building = await lockWritableBuilding(trx, scope, layout.buildingId)
+      const reverted = await revertFloorLayout(trx, scope, layout)
+      building.updatedAt = new Date()
+      return { building, reverted }
     })
-    const floorId = payload.before?.id
-    if (!floorId) return
-    const floor = await loadFloor(em, ctx, scope, floorId).catch(() => null)
-    if (floor) await emitSideEffects(ctx, 'updated', floor, { indexer: floorCrudIndexer, events: floorCrudEvents }, 'undo')
+    await emitSideEffects(ctx, 'updated', outcome.building, { indexer: buildingCrudIndexer }, 'undo')
+    await emitLayoutChangeSideEffects(ctx, outcome.reverted, 'undo')
   },
 }
 

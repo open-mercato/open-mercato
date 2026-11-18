@@ -4,17 +4,22 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
 import { Floor, Space, Unit, UnitProductPeriod } from '../../data/entities'
-import { unitCreateSchema, unitUpdateSchema } from '../../data/validators'
-import { loadCategoryNames, loadProductNames, loadProductUses } from '../../lib/productUse'
-import { findUnitBlockers } from '../../lib/usageGuards'
+import { liftCustomFields, unitCreateSchema, unitUpdateSchema } from '../../data/validators'
+import { loadCategoryNames, loadProductNames, loadProductUses, periodPricesOf } from '../../lib/productUse'
+import { findUnitBlockerListsByUnit } from '../../lib/usageGuards'
+import { loadSettings } from '../../lib/settings'
 import {
   asRecord,
+  assertCrudRecordBuildingAccess,
   createPagedListResponseSchema,
   createPropertyManagementCrudOpenApi,
   crudEm,
   crudPermitted,
+  crudScopeFilters,
+  sealListScope,
   crudScope,
   defaultOkResponseSchema,
   listItems,
@@ -26,6 +31,7 @@ import {
   rectFields,
   restrictBuildingField,
   withScopedPayload,
+  unscopedDocSchema,
 } from '../crudShared'
 
 const routeMetadata = {
@@ -61,10 +67,11 @@ function toItem(row: Record<string, unknown>) {
     tenantId: readString(row, 'tenant_id', 'tenantId'),
     createdAt: readIso(row, 'created_at', 'createdAt'),
     updatedAt: readIso(row, 'updated_at', 'updatedAt'),
+    ...extractAllCustomFieldEntries(row),
   }
 }
 
-async function decorateUnits(payload: unknown, ctx: CrudCtx): Promise<void> {
+export async function decorateUnits(payload: unknown, ctx: CrudCtx): Promise<void> {
   const scope = crudScope(ctx)
   const items = listItems(payload)
   if (!scope || !items.length) return
@@ -81,9 +88,11 @@ async function decorateUnits(payload: unknown, ctx: CrudCtx): Promise<void> {
     findWithDecryption(em, UnitProductPeriod, { ...scope, unitId: { $in: unitIds }, validTo: null }, undefined, scope),
     findWithDecryption(em, Space, { ...scope, id: { $in: spaceIds } }, undefined, scope),
     findWithDecryption(em, Floor, { ...scope, id: { $in: floorIds } }, undefined, scope),
-    findUnitBlockers(em, scope, unitIds),
+    findUnitBlockerListsByUnit(em, scope, unitIds),
   ])
   const periodByUnit = new Map(periods.map((period) => [period.unitId, period]))
+  const settings = await loadSettings(em, scope)
+  const prices = await periodPricesOf(em, ctx.container, scope, periods, { channelId: settings.billingChannelId })
   const spaceNames = new Map(spaces.map((space) => [space.id, space.name]))
   const floorById = new Map(floors.map((floor) => [floor.id, floor]))
   for (const item of items) {
@@ -100,8 +109,11 @@ async function decorateUnits(payload: unknown, ctx: CrudCtx): Promise<void> {
     item.spaceName = spaceNames.get(readString(item, 'spaceId') ?? '') ?? null
     item.floorName = floor?.name ?? null
     item.floorNumber = floor?.number ?? null
-    item.price = period ? { amount: period.priceAmount ?? null, currencyCode: period.currencyCode ?? null } : null
-    item.blockers = blockers.filter((blocker) => blocker.unitId === id)
+    const price = period ? prices.get(period.id) : undefined
+    item.price = period ? { amount: price?.priceAmount ?? null, currencyCode: price?.currencyCode ?? null } : null
+    const unitBlockers = blockers.get(id)
+    item.blockers = unitBlockers?.blockers ?? []
+    item.blockerCount = unitBlockers?.total ?? 0
   }
 }
 
@@ -111,6 +123,7 @@ const crud = makeCrudRoute({
   indexer: { entityType: E.property_management.unit },
   list: {
     schema: listSchema,
+    disableListCache: true,
     entityId: E.property_management.unit,
     fields: [
       'id',
@@ -132,18 +145,21 @@ const crud = makeCrudRoute({
     sortFieldMap: { name: 'name', updatedAt: 'updated_at' },
     defaultSort: { field: 'name', dir: 'asc' },
     tiebreakSortField: 'id',
+    omitAutomaticTenantOrgScope: true,
     buildFilters: async (query, ctx) => {
+      const scope = crudScopeFilters(ctx)
+      restrictBuildingField(scope, 'building_id', await crudPermitted(ctx), query.buildingId)
       const filters: Record<string, unknown> = {}
-      restrictBuildingField(filters, 'building_id', await crudPermitted(ctx), query.buildingId)
       if (query.id) filters.id = { $eq: query.id }
       if (query.floorId) filters.floor_id = { $eq: query.floorId }
       if (query.spaceId) filters.space_id = { $eq: query.spaceId }
       if (query.productId) filters.catalog_product_id = { $eq: query.productId }
       const term = query.search?.trim()
       if (term) filters.name = { $ilike: `%${escapeLikePattern(term)}%` }
-      return filters
+      return sealListScope(scope, filters)
     },
     transformItem: (item: Record<string, unknown>) => toItem(asRecord(item)),
+    decorateCustomFields: { entityIds: E.property_management.unit, stripPrefixedKeys: true },
   },
   hooks: { afterList: decorateUnits },
   actions: {
@@ -152,7 +168,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(unitCreateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(unitCreateSchema, liftCustomFields(raw ?? {}), ctx, translate)
       },
       response: ({ result }) => ({ id: result?.unitId ?? null }),
       status: 201,
@@ -162,7 +178,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(unitUpdateSchema, raw ?? {}, ctx, translate)
+        const input = parseScopedCommandInput(unitUpdateSchema, liftCustomFields(raw ?? {}), ctx, translate)
+        await assertCrudRecordBuildingAccess(ctx, Unit, input.id)
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -171,7 +189,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        return withScopedPayload({ id: resolveCrudRecordId(parsed, ctx, translate) }, ctx, translate)
+        const input = withScopedPayload({ id: resolveCrudRecordId(parsed, ctx, translate) }, ctx, translate)
+        await assertCrudRecordBuildingAccess(ctx, Unit, input.id)
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -182,6 +202,18 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const usageBlockerSchema = z.object({
+  kind: z.enum(['lease', 'booking']),
+  id: z.string().uuid(),
+  label: z.string(),
+  unitId: z.string().uuid(),
+  until: z.string().nullable(),
+  startsAt: z.string().optional(),
+  endsAt: z.string().optional(),
+  startsOn: z.string().optional(),
+  endsOn: z.string().optional(),
+})
 
 const unitItemSchema = z.object({
   id: z.string().uuid(),
@@ -204,7 +236,11 @@ const unitItemSchema = z.object({
   floorName: z.string().nullable(),
   floorNumber: z.number().int().nullable(),
   price: z.object({ amount: z.string().nullable(), currencyCode: z.string().nullable() }).nullable(),
+  blockers: z.array(usageBlockerSchema),
+  blockerCount: z.number().int(),
   updatedAt: z.string().nullable(),
+  customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+  customFields: z.array(z.object({ key: z.string(), label: z.string(), value: z.unknown(), kind: z.string().nullable(), multi: z.boolean() })).optional(),
 })
 
 export const openApi = createPropertyManagementCrudOpenApi({
@@ -212,17 +248,17 @@ export const openApi = createPropertyManagementCrudOpenApi({
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(unitItemSchema),
   create: {
-    schema: unitCreateSchema,
+    schema: unscopedDocSchema(unitCreateSchema),
     description: 'Creates a unit inside a space. The product must belong to the unit type (catalog category or a descendant) and be marked leasable or bookable. Opens the first product history period.',
   },
   update: {
-    schema: unitUpdateSchema,
+    schema: unscopedDocSchema(unitUpdateSchema),
     responseSchema: defaultOkResponseSchema,
-    description: 'Moves, resizes, renames or re-types a unit; a product change opens a new product history period (409 while an active lease locks the product).',
+    description: 'Moves, resizes, renames or re-types a unit; a product change opens a new product history period (409 while an active lease locks the product, with at most 100 `blockers` and their total `blockerCount`).',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Deletes a unit (409 while it has a lease or bookings).',
+    description: 'Deletes a unit (409 `unit_in_use` while it has a lease or bookings, with at most 100 `blockers` and their total `blockerCount`).',
   },
 })

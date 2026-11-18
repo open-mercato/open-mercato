@@ -10,7 +10,8 @@ type ListBody = { items?: Array<{ id: string }>; canManageAll?: boolean }
  * TC-PM-008: building access on staff routes
  * In one organization, manager A sees and changes only the buildings assigned to them: B's building
  * is filtered from lists and 404 on detail, layout and mutations; a manager with no assignment sees
- * an empty list; an administrator (manage_all) sees both.
+ * an empty list; an administrator (manage_all) sees both. Full exports (`exportScope=full` /
+ * `full=true`) of buildings, floors and spaces apply the same building restriction.
  */
 test.describe('TC-PM-008: building access', () => {
   test('scopes buildings, floors and spaces to assigned managers', async ({ request }) => {
@@ -34,6 +35,16 @@ test.describe('TC-PM-008: building access', () => {
 
       const detailB = await readJsonSafe<ListBody>(await apiRequest(request, 'GET', `/api/property_management/buildings?id=${buildingB}`, { token: managerA.token }))
       expect(detailB?.items ?? []).toHaveLength(0)
+
+      for (const exportQuery of ['format=json&exportScope=full', 'format=csv&full=true']) {
+        for (const resource of ['buildings', 'floors', 'spaces']) {
+          const exported = await apiRequest(request, 'GET', `/api/property_management/${resource}?${exportQuery}`, { token: managerA.token })
+          expect(exported.status(), `${resource} full export (${exportQuery})`).toBe(200)
+          const text = await exported.text()
+          expect(text, `${resource} full export keeps manager A's building`).toContain(buildingA)
+          expect(text, `${resource} full export leaves out building B`).not.toContain(buildingB)
+        }
+      }
 
       const floorsB = await listFloors(request, adminToken, buildingB)
       const floorsSeenByA = await readJsonSafe<ListBody>(

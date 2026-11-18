@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityName } from '@mikro-orm/core'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 import {
@@ -10,8 +11,10 @@ import {
   type CrudOpenApiOptions,
 } from '@open-mercato/shared/lib/openapi/crud'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { NO_MATCH_ID, permittedBuildingIds, type PermittedBuildings } from '../lib/buildingAccess'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { assertBuildingPermitted, NO_MATCH_ID, permittedBuildingIds, type PermittedBuildings } from '../lib/buildingAccess'
 import type { Scope } from '../lib/productUse'
+import type { CrmAccess } from '../lib/crmAccess'
 
 export const { withScopedPayload, parseScopedCommandInput } = createScopedApiHelpers({
   messages: {
@@ -41,6 +44,12 @@ export function createPropertyManagementCrudOpenApi(options: CrudOpenApiOptions)
 
 export const rawBodySchema = z.object({}).passthrough()
 
+const SCOPE_KEYS = new Set(['tenantId', 'organizationId'])
+
+export function unscopedDocSchema(schema: z.ZodObject<z.ZodRawShape>): z.ZodObject<z.ZodRawShape> {
+  return z.object(Object.fromEntries(Object.entries(schema.shape).filter(([key]) => !SCOPE_KEYS.has(key))))
+}
+
 export function crudScope(ctx: CrudCtx): Scope | null {
   const tenantId = ctx.auth?.tenantId ?? null
   const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
@@ -55,11 +64,50 @@ export async function crudPermitted(ctx: CrudCtx): Promise<PermittedBuildings> {
     auth: ctx.auth,
     tenantId: scope?.tenantId ?? null,
     organizationId: scope?.organizationId ?? null,
+    request: ctx.request ?? null,
   })
 }
 
 export function crudEm(ctx: CrudCtx): EntityManager {
   return (ctx.container.resolve('em') as EntityManager).fork()
+}
+
+type BuildingScopedRecord = { id: string; tenantId: string; organizationId: string; buildingId: string }
+
+export async function assertCrudBuildingAccess(ctx: CrudCtx, buildingId: string): Promise<void> {
+  await assertBuildingPermitted(await crudPermitted(ctx), buildingId)
+}
+
+export async function assertCrudRecordBuildingAccess(
+  ctx: CrudCtx,
+  entity: EntityName<BuildingScopedRecord>,
+  id: string,
+): Promise<void> {
+  const permitted = await crudPermitted(ctx)
+  if (permitted === null) return
+  const scope = crudScope(ctx)
+  if (!scope) return
+  const record = await findOneWithDecryption(crudEm(ctx), entity, { id, ...scope }, undefined, scope)
+  if (record) await assertBuildingPermitted(permitted, record.buildingId)
+}
+
+function listOrganizationId(ctx: CrudCtx): string | null {
+  const organizationId = crudScope(ctx)?.organizationId ?? null
+  if (!organizationId) return null
+  if (Array.isArray(ctx.organizationIds) && !ctx.organizationIds.includes(organizationId)) return null
+  return organizationId
+}
+
+export function crudScopeFilters(ctx: CrudCtx): Record<string, unknown> {
+  return {
+    tenant_id: { $eq: ctx.auth?.tenantId ?? NO_MATCH_ID },
+    organization_id: { $eq: listOrganizationId(ctx) ?? NO_MATCH_ID },
+  }
+}
+
+export function sealListScope(scope: Record<string, unknown>, filters: Record<string, unknown>): Record<string, unknown> {
+  const existing = Array.isArray(filters.$and) ? filters.$and : []
+  return { ...filters, $and: [...existing, scope] }
 }
 
 export function restrictToBuildings(filters: Record<string, unknown>, field: string, permitted: PermittedBuildings): void {
@@ -138,6 +186,14 @@ export function listItems(payload: unknown): Record<string, unknown>[] {
   return Array.isArray(items) ? items.map(asRecord) : []
 }
 
+export function attachCrmAccess(payload: unknown, crmAccess: CrmAccess): void {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) Object.assign(payload, { crmAccess })
+}
+
+export const crmAccessSchema = z
+  .object({ people: z.boolean(), companies: z.boolean() })
+  .describe('Which CRM data the caller may see: `people` = `customers.people.view`, `companies` = `customers.companies.view` (wildcard grants count)')
+
 export function rectFields(record: Record<string, unknown>) {
   return {
     x: readNumber(record, 'x') ?? 0,
@@ -150,7 +206,7 @@ export function rectFields(record: Record<string, unknown>) {
 export const listQueryBase = {
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
-  search: z.string().optional(),
+  search: z.string().max(200).optional(),
   id: z.string().uuid().optional(),
   ids: z.string().optional(),
   sortField: z.string().optional(),

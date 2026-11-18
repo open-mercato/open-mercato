@@ -3,7 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { resolveOperationHandler } from '../lib/operationHandlers'
 import { runSalesOperation } from '../lib/salesOperationRunner'
-import { resolveSalesConcurrency, SALES_OPERATION_QUEUE, type SalesOperationJob } from '../lib/salesOperations'
+import { SALES_OPERATION_QUEUE } from '../lib/queues'
+import { resolveSalesConcurrency, type SalesOperationJob } from '../lib/salesOperations'
 
 type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
@@ -20,6 +21,7 @@ export default async function handle(job: QueuedJob<SalesOperationJob>, ctx: Han
   const operationId = job.payload?.operationId
   if (typeof operationId !== 'string' || !operationId.length) return
   const container = (ctx.container ?? { resolve: ctx.resolve }) as AwilixContainer
+  const recheck = job.payload?.recheck
   await runSalesOperation(
     {
       container,
@@ -27,5 +29,6 @@ export default async function handle(job: QueuedJob<SalesOperationJob>, ctx: Han
       resolveHandler: resolveOperationHandler,
     },
     operationId,
+    typeof recheck === 'number' && Number.isInteger(recheck) && recheck > 0 ? { recheck } : {},
   )
 }

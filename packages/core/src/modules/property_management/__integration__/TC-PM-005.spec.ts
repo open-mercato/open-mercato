@@ -16,11 +16,14 @@ import {
   updateSpace,
   type UnitProductFixture,
 } from './helpers'
+import { watchHydration } from './hydrationWatch'
 
 const FLOOR_X = 20
 
 async function dragTargetBy(page: Page, dxMetres: number, dyMetres: number): Promise<void> {
-  const floorBox = await page.getByTestId('floor-drawing').boundingBox()
+  const floor = page.getByTestId('floor-drawing')
+  await floor.scrollIntoViewIfNeeded()
+  const floorBox = await floor.boundingBox()
   const targetBox = await page.getByTestId('placement-target').boundingBox()
   expect(floorBox, 'floor drawing is rendered').not.toBeNull()
   expect(targetBox, 'draggable unit is rendered').not.toBeNull()
@@ -28,6 +31,8 @@ async function dragTargetBy(page: Page, dxMetres: number, dyMetres: number): Pro
   const pxPerMetre = floorBox.width / FLOOR_X
   const startX = targetBox.x + targetBox.width / 2
   const startY = targetBox.y + targetBox.height / 2
+  const grabbed = await page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('[data-testid="placement-target"]')), [startX, startY])
+  expect(grabbed, 'the pointer lands on the draggable unit').toBe(true)
   await page.mouse.move(startX, startY)
   await page.mouse.down()
   await page.mouse.move(startX + dxMetres * pxPerMetre, startY + dyMetres * pxPerMetre, { steps: 12 })
@@ -76,6 +81,8 @@ test.describe('TC-PM-005: unit placement editor', () => {
       expect(unit.status()).toBe(201)
       const unitId = expectId(unitBody?.id, 'unit id')
 
+      const watch = watchHydration(page)
+
       await login(page, 'admin')
       await page.goto(`/backend/property_management/units/${unitId}`)
       const target = page.getByTestId('placement-target')
@@ -95,6 +102,7 @@ test.describe('TC-PM-005: unit placement editor', () => {
       await dragTargetBy(page, 1, 5)
       await expect(page.getByTestId('placement-status')).toContainText('Kitchen')
       await expect(submit).toBeDisabled()
+      watch.assertClean()
     } finally {
       await deleteBuildingIfExists(request, token, buildingId)
       await deleteUnitProducts(request, token, products)

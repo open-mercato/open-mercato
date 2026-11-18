@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PropertyManagementSettings } from '../data/entities'
@@ -30,8 +31,13 @@ export function settingsValuesOf(record: PropertyManagementSettings | null): Set
   }
 }
 
-export async function loadSettingsRecord(em: EntityManager, scope: Scope): Promise<PropertyManagementSettings | null> {
-  return findOneWithDecryption(em, PropertyManagementSettings, { ...scope }, undefined, scope)
+export async function loadSettingsRecord(
+  em: EntityManager,
+  scope: Scope,
+  options: { lock?: boolean } = {},
+): Promise<PropertyManagementSettings | null> {
+  const findOptions = options.lock ? { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } : undefined
+  return findOneWithDecryption(em, PropertyManagementSettings, { ...scope }, findOptions, scope)
 }
 
 export async function loadSettings(em: EntityManager, scope: Scope): Promise<SettingsValues> {

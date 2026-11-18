@@ -1,19 +1,21 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   OPEN_PROPOSAL_STATUSES,
+  canSeeSales,
   formatDate,
   formatMoney,
+  salesDocumentLink,
   type LeaseDetail,
   type LeaseProposalRow,
   type LeaseVersionRow,
 } from './leaseModel'
+import { SalesDocumentLinkView } from './SalesDocumentLinkView'
 
 type HistoryRow =
   | { kind: 'version'; at: string; version: LeaseVersionRow }
@@ -25,20 +27,24 @@ type LeaseHistoryCardProps = {
   onWithdraw: (proposal: LeaseProposalRow) => void
 }
 
-function InvoicesCell({ version }: { version: LeaseVersionRow }) {
+function InvoicesCell({ version, visible }: { version: LeaseVersionRow; visible: boolean }) {
   const t = useT()
-  if (version.state !== 'in_force' && !version.invoices.length) {
+  const invoices = version.invoices
+  if (!visible || !invoices) {
+    return <span className="text-muted-foreground" data-testid={`pm-lease-invoices-hidden-${version.id}`}>{t('property_management.leases.salesAccess.invoicesHidden', 'Viewing invoices needs access to sales invoices')}</span>
+  }
+  if (version.state !== 'in_force' && !invoices.length) {
     return <span className="text-muted-foreground">{t('property_management.leases.history.notInForce', 'None yet — not in force')}</span>
   }
   if (version.recurrence && version.recurrence.invoicesAvailable === false) {
     return <span className="text-muted-foreground">{t('property_management.leases.history.invoicesUnavailable', 'Invoices are not available yet')}</span>
   }
-  if (!version.invoices.length) {
+  if (!invoices.length) {
     return <span className="text-muted-foreground">{t('property_management.leases.history.noInvoices', 'No invoices yet')}</span>
   }
   return (
     <ul className="space-y-1">
-      {version.invoices.map((invoice) => (
+      {invoices.map((invoice) => (
         <li key={`${version.id}-${invoice.periodIndex}`}>
           {invoice.invoiceId ? <span>{invoice.invoiceNumber ?? invoice.invoiceId}</span> : null}
           {invoice.creditMemoNumber ? <span className="text-muted-foreground"> · {invoice.creditMemoNumber}</span> : null}
@@ -51,6 +57,9 @@ function InvoicesCell({ version }: { version: LeaseVersionRow }) {
 export function LeaseHistoryCard({ detail, canManage, onWithdraw }: LeaseHistoryCardProps) {
   const t = useT()
   const locale = useLocale()
+  const ordersVisible = canSeeSales(detail, 'orders')
+  const quotesVisible = canSeeSales(detail, 'quotes')
+  const invoicesVisible = canSeeSales(detail, 'invoices')
   const rows = React.useMemo<HistoryRow[]>(() => {
     const versions: HistoryRow[] = detail.versions
       .filter((version) => !(version.state === 'pending' && detail.proposals.some((proposal) => proposal.status !== 'approved' && proposal.startsOn === version.startsOn && proposal.endsOn === version.endsOn)))
@@ -95,11 +104,13 @@ export function LeaseHistoryCard({ detail, canManage, onWithdraw }: LeaseHistory
                 <td className="py-2 pr-4">{formatDate(row.version.startsOn, locale)} — {formatDate(row.version.endsOn, locale)}</td>
                 <td className="py-2 pr-4">{formatMoney(row.version.monthlyRate, row.version.currencyCode, locale)}</td>
                 <td className="py-2 pr-4">
-                  {row.version.salesOrderId ? (
-                    <Link href={`/backend/sales/orders/${row.version.salesOrderId}`} className="hover:underline">{row.version.salesOrderNumber ?? row.version.salesOrderId}</Link>
-                  ) : '—'}
+                  <SalesDocumentLinkView
+                    link={salesDocumentLink('orders', row.version.salesOrderId, row.version.salesOrderNumber, ordersVisible)}
+                    hiddenLabel={t('property_management.leases.salesAccess.orderHidden', 'Created — viewing it needs access to sales orders')}
+                    testId={`pm-lease-version-order-${row.version.id}`}
+                  />
                 </td>
-                <td className="py-2"><InvoicesCell version={row.version} /></td>
+                <td className="py-2"><InvoicesCell version={row.version} visible={invoicesVisible} /></td>
               </tr>
             ) : (
               <tr key={row.proposal.id} className="border-t border-border align-top">
@@ -120,9 +131,11 @@ export function LeaseHistoryCard({ detail, canManage, onWithdraw }: LeaseHistory
                 <td className="py-2 pr-4">{formatDate(row.proposal.startsOn, locale)} — {formatDate(row.proposal.endsOn, locale)}</td>
                 <td className="py-2 pr-4">{formatMoney(row.proposal.monthlyRate, row.proposal.currencyCode, locale)}</td>
                 <td className="py-2 pr-4">
-                  {row.proposal.salesQuoteId ? (
-                    <Link href={`/backend/sales/quotes/${row.proposal.salesQuoteId}`} className="hover:underline">{row.proposal.salesQuoteNumber ?? row.proposal.salesQuoteId}</Link>
-                  ) : '—'}
+                  <SalesDocumentLinkView
+                    link={salesDocumentLink('quotes', row.proposal.salesQuoteId, row.proposal.salesQuoteNumber, quotesVisible)}
+                    hiddenLabel={t('property_management.leases.salesAccess.quoteHidden', 'Created — viewing it needs access to sales quotes')}
+                    testId={`pm-lease-proposal-quote-${row.proposal.id}`}
+                  />
                 </td>
                 <td className="py-2">
                   <span className="text-muted-foreground">{t('property_management.leases.history.proposalNotBilled', 'None — proposals are not billed')}</span>

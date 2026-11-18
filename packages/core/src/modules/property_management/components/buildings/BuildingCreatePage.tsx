@@ -5,34 +5,38 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
-import type { BuildingListPayload, FloorRow, ManagerRecord } from './buildingRecord'
+import type { FloorRow, ManagerRecord } from './buildingRecord'
 import { buildBuildingPayload, createInitialValues, useBuildingFormConfig, type BuildingFormValues } from './buildingForm'
 
 const LIST_HREF = '/backend/property_management/buildings'
 const NO_FLOORS: FloorRow[] = []
 const NO_MANAGERS: ManagerRecord[] = []
+const MANAGE_ALL_FEATURE = 'property_management.buildings.manage_all'
 
 export function BuildingCreatePage() {
   const t = useT()
   const router = useRouter()
-  const [canManageAll, setCanManageAll] = React.useState(false)
-
-  React.useEffect(() => {
-    let cancelled = false
-    void apiCall<BuildingListPayload>('/api/property_management/buildings?pageSize=1', undefined, { fallback: {} }).then((call) => {
-      if (!cancelled) setCanManageAll(call.ok && call.result?.canManageAll === true)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const { payload: chrome, isReady } = useBackendChrome()
+  const canManageAll = hasFeature(chrome?.grantedFeatures, MANAGE_ALL_FEATURE)
 
   const { fields, groups } = useBuildingFormConfig(t, { buildingId: null, canManageAll, managers: NO_MANAGERS, savedFloors: NO_FLOORS })
   const initialValues = React.useMemo(() => createInitialValues(null), [])
+
+  if (!isReady) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('property_management.common.loading', 'Loading…')} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>

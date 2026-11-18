@@ -7,8 +7,10 @@ import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/in
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { leaseEndsOn, respondByDate } from '../../lib/leaseTerm'
 import { formatDate, formatMoney } from './leaseModel'
+import { PickerLoadError } from './PickerLoadError'
 
 export type AvailableUnit = {
   id: string
@@ -30,6 +32,7 @@ type FieldProps = {
 }
 
 const NO_UNIT = '__none__'
+export const UNIT_CURRENCY_FIELD = 'unitCurrencyCode'
 
 function readText(values: Record<string, unknown> | undefined, key: string): string | null {
   const value = values?.[key]
@@ -52,10 +55,12 @@ export function computeEndsOn(startsOn: string | null, months: number | null): s
 
 export function useAvailableUnits(startsOn: string | null, termMonths: number | null, buildingId: string | null) {
   const [units, setUnits] = React.useState<AvailableUnit[]>([])
-  const [loading, setLoading] = React.useState(false)
+  const [loading, setLoading] = React.useState(true)
+  const [failedStatus, setFailedStatus] = React.useState<number | null>(null)
   React.useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setFailedStatus(null)
     const params = new URLSearchParams()
     if (startsOn && termMonths) {
       params.set('startsOn', startsOn)
@@ -64,7 +69,15 @@ export function useAvailableUnits(startsOn: string | null, termMonths: number | 
     if (buildingId) params.set('buildingId', buildingId)
     void apiCall<{ items?: AvailableUnit[] }>(`/api/property_management/leases/available-units?${params.toString()}`, undefined, { fallback: {} })
       .then((call) => {
-        if (!cancelled) setUnits(call.ok && Array.isArray(call.result?.items) ? call.result.items : [])
+        if (cancelled) return
+        setFailedStatus(call.ok ? null : call.status)
+        setUnits(call.ok && Array.isArray(call.result?.items) ? call.result.items : [])
+      })
+      .catch((err) => {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.available_units_load_failed' })
+        setFailedStatus(0)
+        setUnits([])
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -73,7 +86,7 @@ export function useAvailableUnits(startsOn: string | null, termMonths: number | 
       cancelled = true
     }
   }, [startsOn, termMonths, buildingId])
-  return { units, loading }
+  return { units, loading, failedStatus }
 }
 
 export function UnitPickerField({ value, setValue, values, setFormValue, disabled }: FieldProps) {
@@ -81,13 +94,19 @@ export function UnitPickerField({ value, setValue, values, setFormValue, disable
   const locale = useLocale()
   const startsOn = readText(values, 'startsOn')
   const termMonths = readPositiveInt(values?.termMonths)
-  const { units, loading } = useAvailableUnits(startsOn, termMonths, readText(values, 'buildingId'))
+  const { units, loading, failedStatus } = useAvailableUnits(startsOn, termMonths, readText(values, 'buildingId'))
   const selectedId = typeof value === 'string' && value ? value : null
   const selected = units.find((unit) => unit.id === selectedId) ?? null
 
   React.useEffect(() => {
-    if (!loading && selectedId && !selected) setValue(null)
-  }, [loading, selected, selectedId, setValue])
+    if (!loading && failedStatus === null && selectedId && !selected) setValue(null)
+  }, [failedStatus, loading, selected, selectedId, setValue])
+
+  const selectedCurrency = selected?.currencyCode ?? null
+  React.useEffect(() => {
+    if (loading) return
+    if ((values?.[UNIT_CURRENCY_FIELD] ?? null) !== selectedCurrency) setFormValue?.(UNIT_CURRENCY_FIELD, selectedCurrency)
+  }, [loading, selectedCurrency, setFormValue, values])
 
   const pick = (next: string) => {
     if (next === NO_UNIT) {
@@ -107,7 +126,7 @@ export function UnitPickerField({ value, setValue, values, setFormValue, disable
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={NO_UNIT}>
-            {units.length
+            {units.length || failedStatus !== null
               ? t('property_management.leases.form.unitPlaceholder', 'Choose a unit')
               : t('property_management.leases.form.noUnits', 'No leasable unit is free for this term')}
           </SelectItem>
@@ -118,6 +137,7 @@ export function UnitPickerField({ value, setValue, values, setFormValue, disable
           ))}
         </SelectContent>
       </Select>
+      <PickerLoadError status={failedStatus} kind="units" />
       {selected ? (
         <p className="flex items-center gap-1 text-sm text-muted-foreground">
           <Lock className="size-3.5" aria-hidden />
@@ -133,6 +153,7 @@ export function UnitPickerField({ value, setValue, values, setFormValue, disable
 
 export function CompanyPickerField({ value, setValue, setFormValue, disabled }: FieldProps) {
   const t = useT()
+  const [failedStatus, setFailedStatus] = React.useState<number | null>(null)
   const fetchItems = React.useCallback(async (query: string): Promise<LookupSelectItem[]> => {
     const params = new URLSearchParams({ pageSize: '20' })
     if (query.trim()) params.set('search', query.trim())
@@ -141,57 +162,58 @@ export function CompanyPickerField({ value, setValue, setFormValue, disabled }: 
       undefined,
       { fallback: {} },
     )
+    setFailedStatus(call.ok ? null : call.status)
     const items = call.ok && Array.isArray(call.result?.items) ? call.result.items : []
     return items.map((item) => ({ id: item.id, title: item.display_name ?? item.id, subtitle: item.primary_email ?? null }))
   }, [])
   return (
-    <LookupSelect
-      value={typeof value === 'string' && value ? value : null}
-      onChange={(next) => {
-        setValue(next)
-        setFormValue?.('primaryContactPersonId', null)
-      }}
-      fetchItems={fetchItems}
-      minQuery={0}
-      disabled={disabled}
-      placeholder={t('property_management.leases.form.tenantPlaceholder', 'Search CRM companies')}
-    />
+    <div className="space-y-1">
+      <LookupSelect
+        value={typeof value === 'string' && value ? value : null}
+        onChange={(next) => {
+          setValue(next)
+          setFormValue?.('primaryContactPersonId', null)
+        }}
+        fetchItems={fetchItems}
+        minQuery={0}
+        disabled={disabled}
+        placeholder={t('property_management.leases.form.tenantPlaceholder', 'Search CRM companies')}
+      />
+      <PickerLoadError status={failedStatus} kind="companies" />
+    </div>
   )
 }
 
 export function ContactPickerField({ value, setValue, values, disabled }: FieldProps) {
   const t = useT()
   const companyId = readText(values, 'customerCompanyId')
-  const [people, setPeople] = React.useState<Array<{ id: string; displayName: string }>>([])
-  React.useEffect(() => {
-    if (!companyId) {
-      setPeople([])
-      return
-    }
-    let cancelled = false
-    void apiCall<{ items?: Array<{ id: string; displayName: string }> }>(
-      `/api/customers/companies/${encodeURIComponent(companyId)}/people?pageSize=100`,
+  const [failedStatus, setFailedStatus] = React.useState<number | null>(null)
+  const fetchItems = React.useCallback(async (query: string): Promise<LookupSelectItem[]> => {
+    if (!companyId) return []
+    const params = new URLSearchParams({ pageSize: '20' })
+    if (query.trim()) params.set('search', query.trim())
+    const call = await apiCall<{ items?: Array<{ id: string; displayName: string; primaryEmail?: string | null }> }>(
+      `/api/customers/companies/${encodeURIComponent(companyId)}/people?${params.toString()}`,
       undefined,
       { fallback: {} },
-    ).then((call) => {
-      if (!cancelled) setPeople(call.ok && Array.isArray(call.result?.items) ? call.result.items : [])
-    })
-    return () => {
-      cancelled = true
-    }
+    )
+    setFailedStatus(call.ok ? null : call.status)
+    const items = call.ok && Array.isArray(call.result?.items) ? call.result.items : []
+    return items.map((item) => ({ id: item.id, title: item.displayName, subtitle: item.primaryEmail ?? null }))
   }, [companyId])
   return (
-    <Select value={typeof value === 'string' && value ? value : NO_UNIT} onValueChange={(next) => setValue(next === NO_UNIT ? null : next)} disabled={disabled || !companyId}>
-      <SelectTrigger aria-label={t('property_management.leases.form.contact', 'Primary contact')}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={NO_UNIT}>{t('property_management.leases.form.contactNone', 'No primary contact')}</SelectItem>
-        {people.map((person) => (
-          <SelectItem key={person.id} value={person.id}>{person.displayName}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="space-y-1">
+      <LookupSelect
+        key={companyId ?? 'none'}
+        value={typeof value === 'string' && value ? value : null}
+        onChange={setValue}
+        fetchItems={fetchItems}
+        minQuery={0}
+        disabled={disabled || !companyId}
+        clearLabel={t('property_management.leases.form.contactNone', 'No primary contact')}
+      />
+      <PickerLoadError status={failedStatus} kind="contacts" />
+    </div>
   )
 }
 
@@ -205,6 +227,30 @@ export function TermSummaryField({ values }: FieldProps) {
         ? t('property_management.leases.form.endsOn', 'Ends {date}. Billed monthly on the anniversary of the start date.', { date: formatDate(endsOn, locale) })
         : t('property_management.leases.form.endsOnPending', 'Pick a start date and a term to see the end date.')}
     </p>
+  )
+}
+
+export function MonthlyRateField({ value, setValue, values, disabled }: FieldProps) {
+  const t = useT()
+  const currency = readText(values, UNIT_CURRENCY_FIELD)
+  return (
+    <div className="space-y-1">
+      <Input
+        type="number"
+        min={0}
+        step="0.01"
+        value={value === null || value === undefined ? '' : String(value)}
+        onChange={(event) => setValue(event.target.value === '' ? null : Number(event.target.value))}
+        disabled={disabled}
+        aria-label={t('property_management.leases.form.monthlyRate', 'Monthly rate')}
+        data-testid="pm-lease-monthly-rate"
+      />
+      <p className="text-sm text-muted-foreground" data-testid="pm-lease-monthly-rate-currency">
+        {currency
+          ? t('property_management.leases.form.monthlyRateCurrency', 'In {currency}, the currency of the unit’s product price.', { currency })
+          : t('property_management.leases.form.monthlyRateHint', 'In the currency of the unit’s product price.')}
+      </p>
+    </div>
   )
 }
 

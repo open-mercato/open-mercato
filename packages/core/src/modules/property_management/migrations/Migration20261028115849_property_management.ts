@@ -33,4 +33,13 @@ export class Migration20261028115849_property_management extends Migration {
     this.addSql(`alter table "property_management_sales_operations" add constraint "property_management_sales_operations_subject_unique" unique ("organization_id", "subject_key");`);
   }
 
+  override down(): void | Promise<void> {
+    this.addSql(`drop table if exists "property_management_sales_operations" cascade;`);
+    this.addSql(`drop table if exists "property_management_settings" cascade;`);
+    this.addSql(`drop table if exists "property_management_lease_versions" cascade;`);
+    this.addSql(`drop table if exists "property_management_lease_reference_counters" cascade;`);
+    this.addSql(`drop table if exists "property_management_lease_proposals" cascade;`);
+    this.addSql(`drop table if exists "property_management_leases" cascade;`);
+  }
+
 }

@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EnricherContext, ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 import { E } from '#generated/entities.ids.generated'
-import { loadProductUses } from '../lib/productUse'
+import { loadProductUsesByProductOrganization } from '../lib/productUse'
 import type { BillingUnit, ProductUseKind } from './entities'
 
 type CatalogProductRecord = Record<string, unknown> & { id?: string }
@@ -33,7 +33,7 @@ export const catalogProductUseEnricher: ResponseEnricher<CatalogProductRecord, C
     const ids = records.map(recordId).filter((id): id is string => Boolean(id))
     if (!ids.length) return records.map((record) => ({ ...record, ...EMPTY }))
     const em = (context.em as EntityManager).fork()
-    const uses = await loadProductUses(em, { tenantId: context.tenantId, organizationId: context.organizationId }, ids)
+    const uses = await loadProductUsesByProductOrganization(em, context.tenantId, ids)
     return records.map((record) => {
       const id = recordId(record)
       const use = id ? uses.get(id) : undefined

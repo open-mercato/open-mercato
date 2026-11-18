@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatMetres, type LayoutRect } from './types'
-import { rectStyle } from './scale'
+import { HATCH_STYLE, rectStyle } from './scale'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type FloorDrawingProps = {
   sizeX: number
@@ -16,6 +17,8 @@ export type FloorDrawingProps = {
 }
 
 export function FloorDrawing({ sizeX, sizeY, pxPerMetre, ariaLabel, floorRef, interactive, children }: FloorDrawingProps) {
+  const t = useT()
+  const locale = useLocale()
   const style: React.CSSProperties = {
     width: `${sizeX * pxPerMetre}px`,
     height: `${sizeY * pxPerMetre}px`,
@@ -26,10 +29,10 @@ export function FloorDrawing({ sizeX, sizeY, pxPerMetre, ariaLabel, floorRef, in
   return (
     <div className="overflow-x-auto pb-2">
       <div className="inline-flex flex-col gap-1">
-        <span className="pl-6 text-center text-xs text-muted-foreground">{formatMetres(sizeX)} m</span>
+        <span className="pl-6 text-center text-xs text-muted-foreground">{t('property_management.common.metres', '{value} m', { value: formatMetres(sizeX, locale) })}</span>
         <div className="flex gap-1">
           <span className="flex w-5 items-center justify-center text-xs text-muted-foreground" style={{ writingMode: 'vertical-rl' }}>
-            {formatMetres(sizeY)} m
+            {t('property_management.common.metres', '{value} m', { value: formatMetres(sizeY, locale) })}
           </span>
           <div
             ref={floorRef}
@@ -52,7 +55,7 @@ export type LayoutTileVariant = 'space' | 'leasable' | 'bookable' | 'unit' | 'co
 const VARIANT_CLASSES: Record<LayoutTileVariant, string> = {
   space: 'border-2 border-dashed border-muted-foreground/60',
   leasable: 'border border-foreground/50 bg-card',
-  bookable: 'border border-accent-indigo bg-accent-indigo/10',
+  bookable: 'border border-status-info-border bg-status-info-bg',
   unit: 'border border-foreground/50 bg-card',
   commonArea: 'border border-border bg-muted',
   target: 'z-10 border-2 border-primary bg-primary/10',
@@ -67,12 +70,13 @@ export type LayoutTileProps = {
   sublabel?: string | null
   faded?: boolean
   flagged?: boolean
+  hatched?: boolean
   className?: string
   children?: React.ReactNode
   tileProps?: React.HTMLAttributes<HTMLDivElement> & Record<`data-${string}`, string | undefined>
 }
 
-export function LayoutTile({ rect, sizeX, sizeY, variant, label, sublabel, faded, flagged, className, children, tileProps }: LayoutTileProps) {
+export function LayoutTile({ rect, sizeX, sizeY, variant, label, sublabel, faded, flagged, hatched, className, children, tileProps }: LayoutTileProps) {
   return (
     <div
       {...tileProps}
@@ -83,10 +87,18 @@ export function LayoutTile({ rect, sizeX, sizeY, variant, label, sublabel, faded
         flagged ? 'ring-2 ring-status-error-border' : null,
         className,
       )}
-      style={rectStyle(rect, sizeX, sizeY)}
+      data-hatched={hatched ? 'true' : undefined}
+      style={{ ...rectStyle(rect, sizeX, sizeY), ...(hatched ? HATCH_STYLE : null) }}
     >
       {label ? (
-        <span className={cn('block truncate px-1 text-xs', variant === 'space' ? 'font-medium text-muted-foreground' : 'text-foreground')}>
+        <span
+          className={cn(
+            'block truncate px-1 text-xs',
+            variant === 'space' ? 'font-medium text-muted-foreground' : 'text-foreground',
+            variant === 'target' ? 'absolute bottom-0 left-0 max-w-full rounded-sm bg-background' : null,
+            hatched && variant !== 'target' ? 'm-0.5 w-fit max-w-full rounded-sm bg-background' : null,
+          )}
+        >
           {sublabel ? <span className="block truncate text-muted-foreground">{sublabel}</span> : null}
           {label}
         </span>

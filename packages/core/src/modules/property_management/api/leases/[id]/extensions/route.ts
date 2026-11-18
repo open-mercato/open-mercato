@@ -6,8 +6,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { leaseExtensionBodySchema, leaseExtensionSchema } from '../../../../data/validators'
 import { LEASE_RESOURCE_KIND } from '../../../../commands/lease'
+import { loadPermittedLease } from '../../../../lib/leaseRecords'
 import type { LeaseExtensionResult } from '../../../../commands/lease-extension'
-import { handleRouteError, readRouteParam, resolveStaffContext, runStaffGuard } from '../../../routeContext'
+import { guardedCommandInput, handleRouteError, readRouteParam, resolveStaffContext, runStaffGuard } from '../../../routeContext'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['property_management.leases.manage'] },
@@ -22,9 +23,10 @@ export async function POST(req: Request, routeCtx: RouteContext) {
     if (!id) return NextResponse.json({ error: context.translate('property_management.errors.leaseNotFound', 'Lease not found.') }, { status: 404 })
     const body = leaseExtensionBodySchema.parse((await readJsonSafe<Record<string, unknown>>(req, {})) ?? {})
     const input = leaseExtensionSchema.parse({ ...body, id, tenantId: context.tenantId, organizationId: context.organizationId })
+    await loadPermittedLease(context.em, { tenantId: context.tenantId, organizationId: context.organizationId }, context.permitted, id)
     const guarded = await runStaffGuard(req, context, { resourceKind: LEASE_RESOURCE_KIND, resourceId: id, operation: 'update', payload: { ...input } })
     if (!guarded.ok) return guarded.response
-    const commandInput = guarded.modifiedPayload ? leaseExtensionSchema.parse(guarded.modifiedPayload) : input
+    const commandInput = guardedCommandInput(leaseExtensionSchema, guarded, input, { id, tenantId: context.tenantId, organizationId: context.organizationId })
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus
     const commandId = commandInput.asProposal ? 'property_management.lease.propose_extension' : 'property_management.lease.extend'
     const { result } = await commandBus.execute<typeof commandInput, LeaseExtensionResult>(commandId, { input: commandInput, ctx: context.ctx })
@@ -61,7 +63,7 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 404, description: 'Lease not found or its building is not assigned to the caller' },
-        { status: 409, description: 'lease_proposal_open, lease_change_pending, lease_not_active or lease_overlap' },
+        { status: 409, description: 'lease_proposal_open, lease_change_pending, lease_not_active, lease_overlap, or lease_overlaps_bookings (with at most 100 `blockers` and their total `blockerCount`)' },
         { status: 422, description: 'billing_channel_missing or a proposal that would start before its respond-by date' },
       ],
     },

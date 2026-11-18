@@ -1,11 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { Building, Floor, Lease, LeaseProposal, LeaseVersion, Unit } from '../data/entities'
 import { OPEN_PROPOSAL_STATUSES } from './leaseOccupancy'
 import { daysUntil, localToday } from './leaseTerm'
+import { resolveUnitsAvailability } from './availabilityResolver'
+import { leaseUnavailability } from './leaseAvailability'
 import { loadSalesDocuments } from './salesLookups'
 import type { Scope } from './productUse'
+import { crmName, loadCrmRecords, type CrmAccess } from './crmAccess'
 
 export type LeaseSummary = {
   id: string
@@ -17,9 +19,9 @@ export type LeaseSummary = {
   unitName: string | null
   floorName: string | null
   customerCompanyId: string
-  companyName: string | null
+  companyName?: string | null
   primaryContactPersonId: string | null
-  contactName: string | null
+  contactName?: string | null
   startsOn: string
   termMonths: number
   endsOn: string
@@ -34,6 +36,8 @@ export type LeaseSummary = {
   billingPending: boolean
   billingAttention: boolean
   unitUnavailable: boolean
+  unitUnavailableFrom: string | null
+  unitUnavailableUntil: string | null
   updatedAt: string
   createdAt: string
 }
@@ -42,16 +46,25 @@ function uniqueIds(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0)))
 }
 
-export async function summarizeLeases(em: EntityManager, scope: Scope, leases: readonly Lease[]): Promise<LeaseSummary[]> {
+export type LeaseSummaryOptions = { crmAccess: CrmAccess; salesOrderNumbers?: boolean }
+
+export async function summarizeLeases(
+  em: EntityManager,
+  scope: Scope,
+  leases: readonly Lease[],
+  options: LeaseSummaryOptions,
+): Promise<LeaseSummary[]> {
   if (!leases.length) return []
   const leaseIds = leases.map((lease) => lease.id)
   const unitIds = uniqueIds(leases.map((lease) => lease.unitId))
   const buildingIds = uniqueIds(leases.map((lease) => lease.buildingId))
-  const customerIds = uniqueIds(leases.flatMap((lease) => [lease.customerCompanyId, lease.primaryContactPersonId]))
   const [units, buildings, customers, versions, proposals] = await Promise.all([
     findWithDecryption(em, Unit, { ...scope, id: { $in: unitIds } }, undefined, scope),
     findWithDecryption(em, Building, { ...scope, id: { $in: buildingIds } }, undefined, scope),
-    customerIds.length ? findWithDecryption(em, CustomerEntity, { ...scope, id: { $in: customerIds } }, undefined, scope) : [],
+    loadCrmRecords(em, scope, options.crmAccess, {
+      people: leases.map((lease) => lease.primaryContactPersonId),
+      companies: leases.map((lease) => lease.customerCompanyId),
+    }),
     findWithDecryption(em, LeaseVersion, { ...scope, leaseId: { $in: leaseIds } }, { orderBy: { versionNo: 'desc' } }, scope),
     findWithDecryption(
       em,
@@ -62,19 +75,21 @@ export async function summarizeLeases(em: EntityManager, scope: Scope, leases: r
     ),
   ])
   const floors = await findWithDecryption(em, Floor, { ...scope, id: { $in: uniqueIds(units.map((unit) => unit.floorId)) } }, undefined, scope)
-  const orders = await loadSalesDocuments(em, scope, 'order', uniqueIds(leases.map((lease) => lease.salesOrderId)))
+  const includeOrderNumbers = options.salesOrderNumbers !== false
+  const orders = await loadSalesDocuments(em, scope, 'order', includeOrderNumbers ? uniqueIds(leases.map((lease) => lease.salesOrderId)) : [])
+  const today = localToday()
+  const availability = await resolveUnitsAvailability(em, scope, units, { start: `${today}T00:00`, end: null })
   const unitById = new Map(units.map((unit) => [unit.id, unit]))
   const floorById = new Map(floors.map((floor) => [floor.id, floor]))
   const buildingById = new Map(buildings.map((building) => [building.id, building]))
-  const customerById = new Map(customers.map((customer) => [customer.id, customer]))
   const proposalByLease = new Map(proposals.map((proposal) => [proposal.leaseId, proposal]))
-  const today = localToday()
   return leases.map((lease) => {
     const unit = unitById.get(lease.unitId)
     const leaseVersions = versions.filter((version) => version.leaseId === lease.id)
     const version = leaseVersions.find((entry) => entry.id === lease.currentVersionId) ?? leaseVersions[leaseVersions.length - 1] ?? null
     const proposal = proposalByLease.get(lease.id)
     const order = lease.salesOrderId ? orders.get(lease.salesOrderId) : null
+    const unavailable = leaseUnavailability(lease, availability.get(lease.unitId) ?? [], today)
     return {
       id: lease.id,
       reference: lease.reference,
@@ -85,9 +100,9 @@ export async function summarizeLeases(em: EntityManager, scope: Scope, leases: r
       unitName: unit?.name ?? null,
       floorName: unit ? floorById.get(unit.floorId)?.name ?? null : null,
       customerCompanyId: lease.customerCompanyId,
-      companyName: customerById.get(lease.customerCompanyId)?.displayName ?? null,
+      ...(options.crmAccess.companies ? { companyName: crmName(customers, lease.customerCompanyId) } : {}),
       primaryContactPersonId: lease.primaryContactPersonId ?? null,
-      contactName: lease.primaryContactPersonId ? customerById.get(lease.primaryContactPersonId)?.displayName ?? null : null,
+      ...(options.crmAccess.people ? { contactName: crmName(customers, lease.primaryContactPersonId) } : {}),
       startsOn: lease.startsOn,
       termMonths: lease.termMonths,
       endsOn: lease.endsOn,
@@ -101,7 +116,9 @@ export async function summarizeLeases(em: EntityManager, scope: Scope, leases: r
       pendingChange: lease.pendingChange ? { kind: lease.pendingChange.kind, changeId: lease.pendingChange.changeId } : null,
       billingPending: Boolean(lease.pendingChange) || lease.status === 'pending_order',
       billingAttention: lease.billingAttention,
-      unitUnavailable: false,
+      unitUnavailable: unavailable !== null,
+      unitUnavailableFrom: unavailable?.from ?? null,
+      unitUnavailableUntil: unavailable?.until ?? null,
       updatedAt: lease.updatedAt.toISOString(),
       createdAt: lease.createdAt.toISOString(),
     }

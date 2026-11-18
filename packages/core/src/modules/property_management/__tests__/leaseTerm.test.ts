@@ -8,6 +8,7 @@ import {
   monthsRemainingAfter,
   nextAnniversaryAfter,
   rangesOverlap,
+  reservedInterval,
   respondByDate,
 } from '../lib/leaseTerm'
 
@@ -62,5 +63,38 @@ describe('leaseTerm', () => {
   it('derives respond-by dates and days left from the local calendar', () => {
     expect(respondByDate(14, '2026-10-28')).toBe('2026-11-11')
     expect(daysUntil('2026-11-11', '2026-10-28')).toBe(14)
+  })
+
+  describe('reservedInterval', () => {
+    const term = { startsOn: '2026-01-01', endsOn: '2026-06-30' }
+    const pending = (kind: 'end' | 'delete' | 'correction' | 'reschedule', previous: { startsOn: string; endsOn: string }) => ({
+      ...term,
+      pendingChange: { kind, previous },
+    })
+
+    it('is the current term without a pending change', () => {
+      expect(reservedInterval(term)).toEqual(term)
+      expect(reservedInterval({ ...term, pendingChange: null })).toEqual(term)
+    })
+
+    it('keeps the months a pending end releases', () => {
+      expect(reservedInterval(pending('end', { startsOn: '2026-01-01', endsOn: '2026-12-31' }))).toEqual({
+        startsOn: '2026-01-01',
+        endsOn: '2026-12-31',
+      })
+    })
+
+    it('spans the old and new start of a pending reschedule', () => {
+      expect(reservedInterval({ startsOn: '2026-03-01', endsOn: '2026-08-31', pendingChange: { kind: 'reschedule', previous: term } })).toEqual({
+        startsOn: '2026-01-01',
+        endsOn: '2026-08-31',
+      })
+    })
+
+    it('keeps no union for a correction or a delete', () => {
+      const wider = { startsOn: '2025-01-01', endsOn: '2027-12-31' }
+      expect(reservedInterval(pending('correction', wider))).toEqual(term)
+      expect(reservedInterval(pending('delete', wider))).toEqual(term)
+    })
   })
 })

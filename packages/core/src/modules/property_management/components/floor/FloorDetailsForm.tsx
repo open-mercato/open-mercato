@@ -6,6 +6,7 @@ import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { FloorLayoutData } from './types'
+import { ArchivedBuildingNotice, ViewOnlyNotice } from '../manageAccess'
 
 type FloorFormValues = {
   id: string
@@ -18,9 +19,11 @@ type FloorFormValues = {
 export type FloorDetailsFormProps = {
   floor: FloorLayoutData['floor']
   onSaved: () => void
+  readOnly?: boolean
+  archived?: boolean
 }
 
-export function FloorDetailsForm({ floor, onSaved }: FloorDetailsFormProps) {
+export function FloorDetailsForm({ floor, onSaved, readOnly = false, archived = false }: FloorDetailsFormProps) {
   const t = useT()
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('property_management.floors.details.name', 'Name'), type: 'text', required: true, layout: 'full' },
@@ -57,6 +60,8 @@ export function FloorDetailsForm({ floor, onSaved }: FloorDetailsFormProps) {
         formId="property-management-floor-details"
         fields={fields}
         initialValues={initialValues}
+        readOnly={readOnly}
+        readOnlyOverlay={archived ? <ArchivedBuildingNotice /> : <ViewOnlyNotice />}
         submitLabel={t('property_management.floors.details.save', 'Save floor')}
         onSubmit={async (values) => {
           await updateCrud('property_management/floors', {

@@ -3,6 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createBuilding, deleteBuildingIfExists, stampOf } from './helpers'
 import { createManagers, deleteManagers, type ManagerFixture } from './staffFixtures'
+import { cleanupLeaseSetup, createLease, createLeaseSetup, isoDayFromToday, type LeaseSetup } from './leaseFixtures'
 
 type SearchResult = { entityId?: string; recordId?: string }
 
@@ -22,25 +23,30 @@ async function writeStrategies(request: APIRequestContext, token: string, strate
 
 async function globalSearch(request: APIRequestContext, token: string, q: string): Promise<SearchResult[]> {
   const response = await apiRequest(request, 'GET', `/api/search/search/global?${new URLSearchParams({ q, limit: '50' })}`, { token })
-  if (!response.ok()) return []
   const body = await readJsonSafe<{ results?: SearchResult[] }>(response)
+  expect(response.status(), `GET search/global?q=${q} → ${JSON.stringify(body)}`).toBe(200)
   return Array.isArray(body?.results) ? body.results : []
+}
+
+function moduleResults(results: SearchResult[]): SearchResult[] {
+  return results.filter((result) => (result.entityId ?? '').startsWith(MODULE_PREFIX))
 }
 
 /**
  * TC-PM-009: global search is limited to unrestricted staff
  * Global search cannot filter by building, so property_management search entities require
- * `property_management.buildings.manage_all`: an administrator finds both buildings, while
- * building-scoped manager A finds neither B's nor even their own building there.
+ * `property_management.buildings.manage_all`: an administrator finds both buildings and the unit and
+ * lease in building B, while building-scoped manager A finds none of them — not even their own
+ * building. Every search must answer 200, so an error never passes as "nothing found".
  */
 test.describe('TC-PM-009: global search and building access', () => {
   test('a building-scoped manager finds no property_management records in global search', async ({ request }) => {
-    test.setTimeout(120_000)
+    test.setTimeout(180_000)
     const adminToken = await getAuthToken(request, 'admin')
     const stamp = stampOf().replace(/-/g, '')
     let managers: ManagerFixture | null = null
     let buildingA: string | null = null
-    let buildingB: string | null = null
+    let leaseSetup: LeaseSetup | null = null
     let originalStrategies: string[] | null = null
     try {
       originalStrategies = await readStrategies(request, adminToken)
@@ -49,18 +55,39 @@ test.describe('TC-PM-009: global search and building access', () => {
       const [managerA, managerB] = managers.users
       const nameA = `QAPMSRCHA${stamp}`
       const nameB = `QAPMSRCHB${stamp}`
+      const unitNameB = `QAPMSRCHU${stamp}`
       buildingA = await createBuilding(request, adminToken, { name: nameA, managerUserIds: [managerA.id] })
-      buildingB = await createBuilding(request, adminToken, { name: nameB, managerUserIds: [managerB.id] })
+      leaseSetup = await createLeaseSetup(request, adminToken, stamp, {
+        managerUserIds: [managerB.id],
+        buildingName: nameB,
+        unitName: () => unitNameB,
+      })
+      const buildingB = leaseSetup.buildingId as string
+      const [unitB] = leaseSetup.unitIds
+      const leaseB = await createLease(request, adminToken, leaseSetup, {
+        unitId: unitB,
+        customerCompanyId: leaseSetup.companyIds[0],
+        startsOn: isoDayFromToday(10),
+        termMonths: 3,
+      })
 
-      for (const [name, id] of [[nameA, buildingA], [nameB, buildingB]] as const) {
+      const expected: Array<[string, string, string]> = [
+        [nameA, buildingA, 'building A'],
+        [nameB, buildingB, 'building B'],
+        [unitNameB, unitB, 'the unit in building B'],
+        [unitNameB, leaseB.id, 'the lease in building B'],
+      ]
+      for (const [query, id, label] of expected) {
         await expect
-          .poll(async () => (await globalSearch(request, adminToken, name)).some((result) => result.recordId === id), { timeout: 45_000 })
+          .poll(async () => (await globalSearch(request, adminToken, query)).some((result) => result.recordId === id), {
+            timeout: 45_000,
+            message: `the administrator finds ${label}`,
+          })
           .toBe(true)
       }
 
-      for (const name of [nameA, nameB]) {
-        const results = await globalSearch(request, managerA.token, name)
-        expect(results.filter((result) => (result.entityId ?? '').startsWith(MODULE_PREFIX))).toEqual([])
+      for (const query of [nameA, nameB, unitNameB]) {
+        expect(moduleResults(await globalSearch(request, managerA.token, query)), `manager A finds nothing for ${query}`).toEqual([])
       }
 
       const ownList = await readJsonSafe<{ items?: Array<{ id: string }> }>(
@@ -70,7 +97,7 @@ test.describe('TC-PM-009: global search and building access', () => {
     } finally {
       if (originalStrategies) await writeStrategies(request, adminToken, originalStrategies).catch(() => undefined)
       await deleteBuildingIfExists(request, adminToken, buildingA)
-      await deleteBuildingIfExists(request, adminToken, buildingB)
+      await cleanupLeaseSetup(request, adminToken, leaseSetup)
       await deleteManagers(request, adminToken, managers)
     }
   })

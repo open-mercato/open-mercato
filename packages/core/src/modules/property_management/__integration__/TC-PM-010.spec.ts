@@ -1,19 +1,16 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { fillControlledInput, waitForApiMutation } from '@open-mercato/core/helpers/integration/ui'
+import { deleteBuildingIfExists } from './helpers'
+import { watchHydration } from './hydrationWatch'
 
 export const integrationMeta = {
   dependsOnModules: ['property_management'],
 }
 
 type FloorsResponse = { items?: Array<{ number?: number }> }
-
-async function deleteBuildingIfExists(request: APIRequestContext, token: string, id: string | null): Promise<void> {
-  if (!id) return
-  await apiRequest(request, 'DELETE', `/api/property_management/buildings?id=${encodeURIComponent(id)}`, { token }).catch(() => undefined)
-}
 
 test.describe('TC-PM-010: building edit page re-lays floors and deletes with name confirmation', () => {
   test('raises the above-ground count, saves four floors, then deletes the building from the dialog', async ({ page, request }) => {
@@ -44,6 +41,8 @@ test.describe('TC-PM-010: building edit page re-lays floors and deletes with nam
       const created = await readJsonSafe<{ id?: string }>(createResponse)
       buildingId = typeof created?.id === 'string' ? created.id : null
       expect(buildingId, 'building id').toBeTruthy()
+
+      const watch = watchHydration(page)
 
       await login(page, 'admin')
       await page.goto(`/backend/property_management/buildings/${buildingId}`)
@@ -82,7 +81,7 @@ test.describe('TC-PM-010: building edit page re-lays floors and deletes with nam
       }, 'DELETE')
       expect(deleteResponse.ok(), `DELETE building should succeed, got ${deleteResponse.status()}`).toBeTruthy()
       await page.waitForURL(/\/backend\/property_management\/buildings$/)
-      buildingId = null
+      watch.assertClean()
     } finally {
       await deleteBuildingIfExists(request, token, buildingId)
     }

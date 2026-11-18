@@ -8,6 +8,7 @@ import {
   localToday,
   type RecurrenceSchedule,
 } from '@open-mercato/core/modules/sales/lib/recurrence'
+import type { LeaseChangeKind } from '../data/entities'
 
 export { addDays, compareIsoDates, isIsoDate, localToday }
 
@@ -68,6 +69,24 @@ export function nextAnniversaryAfter(startsOn: string, months: number, date: str
 
 export function rangesOverlap(left: { startsOn: string; endsOn: string }, right: { startsOn: string; endsOn: string }): boolean {
   return compareIsoDates(left.startsOn, right.endsOn) <= 0 && compareIsoDates(right.startsOn, left.endsOn) <= 0
+}
+
+const DATE_CHANGING_KINDS: ReadonlySet<LeaseChangeKind> = new Set(['end', 'reschedule'])
+
+export type ReservableLease = {
+  startsOn: string
+  endsOn: string
+  pendingChange?: { kind: LeaseChangeKind; previous: { startsOn: string; endsOn: string } } | null
+}
+
+export function reservedInterval(lease: ReservableLease): { startsOn: string; endsOn: string } {
+  const change = lease.pendingChange
+  if (!change || !DATE_CHANGING_KINDS.has(change.kind)) return { startsOn: lease.startsOn, endsOn: lease.endsOn }
+  const { previous } = change
+  return {
+    startsOn: compareIsoDates(previous.startsOn, lease.startsOn) < 0 ? previous.startsOn : lease.startsOn,
+    endsOn: compareIsoDates(previous.endsOn, lease.endsOn) > 0 ? previous.endsOn : lease.endsOn,
+  }
 }
 
 export function daysUntil(date: string, today: string = localToday()): number {

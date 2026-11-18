@@ -18,8 +18,9 @@ type Period = { catalogProductId: string; validTo: string | null; use: string }
 /**
  * TC-PM-004: units and the unit product history
  * An overlapping unit is refused with 422 naming the unit in the way; a product change through
- * `POST units/{id}/product` closes the open history period and opens a new one. (The active-lease
- * lock, 409, is covered with leases in Phase 2.)
+ * `POST units/{id}/product` closes the open history period and opens a new one; posting the product the
+ * unit already has is a no-op (null periodId, history unchanged). (The active-lease lock, 409, is covered
+ * with leases in Phase 2.)
  */
 test.describe('TC-PM-004: units', () => {
   test('refuses overlaps and keeps a product history', async ({ request }) => {
@@ -61,6 +62,18 @@ test.describe('TC-PM-004: units', () => {
       expect(periods.filter((period) => period.validTo === null).map((period) => period.catalogProductId)).toEqual([products.secondProductId])
       expect(periods.find((period) => period.catalogProductId === products?.productId)?.validTo).not.toBeNull()
       expect(historyBody?.productLocked).toBe(false)
+
+      const unchanged = await apiRequest(request, 'POST', `/api/property_management/units/${unitId}/product`, {
+        token,
+        data: { catalogProductId: products.secondProductId, catalogCategoryId: products.categoryId },
+      })
+      const unchangedBody = await readJsonSafe<{ ok?: boolean; periodId?: string | null }>(unchanged)
+      expect(unchanged.status(), `re-posting the current product → ${JSON.stringify(unchangedBody)}`).toBe(200)
+      expect(unchangedBody).toMatchObject({ ok: true, periodId: null })
+      const historyAfterNoop = await readJsonSafe<{ periods?: Period[] }>(
+        await apiRequest(request, 'GET', `/api/property_management/units/${unitId}/product`, { token }),
+      )
+      expect(historyAfterNoop?.periods ?? [], 'a no-op change adds no history period').toHaveLength(periods.length)
 
       const listed = await readJsonSafe<{ items?: Array<{ id: string; catalogProductId: string; use: string | null }> }>(
         await apiRequest(request, 'GET', `/api/property_management/units?id=${unitId}`, { token }),

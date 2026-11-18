@@ -5,6 +5,7 @@ import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/com
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { leaseProposalIdSchema } from '../../../../../data/validators'
 import { LEASE_RESOURCE_KIND } from '../../../../../commands/lease'
+import { loadPermittedLease } from '../../../../../lib/leaseRecords'
 import type { ProposalCloseResult } from '../../../../../commands/lease-proposal'
 import { handleRouteError, readRouteParam, resolveStaffContext, runStaffGuard } from '../../../../routeContext'
 
@@ -23,6 +24,7 @@ export async function DELETE(req: Request, routeCtx: RouteContext) {
       return NextResponse.json({ error: context.translate('property_management.errors.proposalNotFound', 'Proposal not found.') }, { status: 404 })
     }
     const input = leaseProposalIdSchema.parse({ id: proposalId, leaseId, tenantId: context.tenantId, organizationId: context.organizationId })
+    await loadPermittedLease(context.em, { tenantId: context.tenantId, organizationId: context.organizationId }, context.permitted, leaseId)
     const guarded = await runStaffGuard(req, context, { resourceKind: LEASE_RESOURCE_KIND, resourceId: leaseId, operation: 'update', payload: { ...input } })
     if (!guarded.ok) return guarded.response
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus

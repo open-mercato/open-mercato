@@ -12,7 +12,7 @@ import { createOrganizationInDb, deleteOrganizationInDb, deleteUserAclInDb } fro
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { stampOf } from './helpers'
-import { createSalesChannel, readSettings, saveSettings, type SettingsBody } from './leaseFixtures'
+import { createSalesChannel, readSettings, restoreSettings, saveSettings, settingsReleased, type SettingsBody } from './leaseFixtures'
 
 /**
  * TC-PM-012: property management settings
@@ -53,8 +53,9 @@ test.describe('TC-PM-012: settings', () => {
       expect(reread.billingChannelId).toBe(channelId)
       expect(reread.proposalExpiryDays).toBe(21)
     } finally {
-      if (original) await saveSettings(request, token, original).catch(() => undefined)
-      await deleteEntityIfExists(request, token, '/api/sales/channels', channelId)
+      const restore = await restoreSettings(request, token, original)
+      if (settingsReleased(restore, { channelId })) await deleteEntityIfExists(request, token, '/api/sales/channels', channelId)
+      if (restore.failure) throw new Error(`[internal] ${restore.failure}; the QA sales channel ${channelId} was kept`)
     }
   })
 
@@ -109,12 +110,13 @@ test.describe('TC-PM-012: settings', () => {
 
       expect((await readSettings(request, adminToken)).proposalExpiryDays, 'org A keeps its own value').toBe(30)
     } finally {
-      if (original) await saveSettings(request, adminToken, original).catch(() => undefined)
-      await deleteEntityIfExists(request, adminToken, '/api/sales/channels', channelId)
+      const restore = await restoreSettings(request, adminToken, original)
+      if (settingsReleased(restore, { channelId })) await deleteEntityIfExists(request, adminToken, '/api/sales/channels', channelId)
       await deleteUserIfExists(request, adminToken, userId)
       await deleteUserAclInDb(userId ?? '').catch(() => undefined)
       await deleteRoleIfExists(request, adminToken, roleId)
       await deleteOrganizationInDb(orgBId).catch(() => undefined)
+      if (restore.failure) throw new Error(`[internal] ${restore.failure}; the QA sales channel ${channelId} was kept`)
     }
   })
 })

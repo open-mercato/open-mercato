@@ -1,32 +1,51 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
+import { GatedLink } from '../featureLinks'
 import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { formatMetres, rectArea, type FloorLayoutData, type LayoutCommonArea, type LayoutSpace, type LayoutUnit } from './types'
 import { useGuardedDelete } from '../placement/useGuardedDelete'
+import { AvailabilityCell, AvailabilityStateProvider } from '../availability/AvailabilityCell'
+import type { UnavailabilitiesState } from '../availability/useUnavailabilities'
+import { usePlural } from '../plural'
 
-export type FloorTablesProps = { layout: FloorLayoutData; onChanged: () => void }
-
-function sizeLabel(row: { width: number; depth: number }): string {
-  return `${formatMetres(row.width)} × ${formatMetres(row.depth)} m`
+export type FloorTablesProps = {
+  layout: FloorLayoutData
+  onChanged: () => void
+  availability: UnavailabilitiesState
+  readOnly?: boolean
 }
 
-function positionLabel(row: { x: number; y: number }): string {
-  return `${formatMetres(row.x)}, ${formatMetres(row.y)}`
+function sizeLabel(t: TranslateFn, row: { width: number; depth: number }, locale: string): string {
+  return t('property_management.common.sizeMetres', '{width} × {depth} m', { width: formatMetres(row.width, locale), depth: formatMetres(row.depth, locale) })
 }
 
-export function FloorTables({ layout, onChanged }: FloorTablesProps) {
+function areaLabel(t: TranslateFn, row: { x: number; y: number; width: number; depth: number }, locale: string): string {
+  return t('property_management.common.areaSquareMetres', '{area} m²', { area: formatMetres(rectArea(row), locale) })
+}
+
+function positionLabel(row: { x: number; y: number }, locale: string): string {
+  return `${formatMetres(row.x, locale)}, ${formatMetres(row.y, locale)}`
+}
+
+export function FloorTables({ layout, onChanged, availability, readOnly = false }: FloorTablesProps) {
   const t = useT()
+  const locale = useLocale()
+  const { count } = usePlural()
   const router = useRouter()
   const { remove, ConfirmDialogElement } = useGuardedDelete('property-management-floor-tables')
   const spaceNames = React.useMemo(() => new Map(layout.spaces.map((space) => [space.id, space.name])), [layout.spaces])
   const floorArea = rectArea({ x: 0, y: 0, width: layout.floor.sizeX, depth: layout.floor.sizeY })
   const spacedArea = layout.spaces.reduce((sum, space) => sum + rectArea(space), 0)
+  const archived = layout.building.status === 'archived'
+  const floorAncestors = React.useMemo(
+    () => [{ type: 'floor' as const, id: layout.floor.id }, { type: 'building' as const, id: layout.building.id }],
+    [layout.building.id, layout.floor.id],
+  )
   const kindLabel = React.useCallback(
     (kind: string) => t(`property_management.commonAreas.kind.${kind}`, kind),
     [t],
@@ -40,11 +59,19 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
       meta: { maxWidth: '260px', truncate: true },
       cell: ({ row }) => row.original.purpose ?? <span className="text-muted-foreground">—</span>,
     },
-    { id: 'position', header: t('property_management.spaces.columns.position', 'Position (x, y)'), cell: ({ row }) => positionLabel(row.original) },
-    { id: 'size', header: t('property_management.spaces.columns.size', 'Size'), cell: ({ row }) => sizeLabel(row.original) },
-    { id: 'area', header: t('property_management.spaces.columns.area', 'Area'), cell: ({ row }) => `${formatMetres(rectArea(row.original))} m²` },
+    { id: 'position', header: t('property_management.spaces.columns.position', 'Position (x, y)'), cell: ({ row }) => positionLabel(row.original, locale) },
+    { id: 'size', header: t('property_management.spaces.columns.size', 'Size'), cell: ({ row }) => sizeLabel(t, row.original, locale) },
+    { id: 'area', header: t('property_management.spaces.columns.area', 'Area'), cell: ({ row }) => areaLabel(t, row.original, locale) },
     { accessorKey: 'unitCount', header: t('property_management.spaces.columns.units', 'Units') },
-  ], [t])
+    {
+      id: 'available',
+      header: t('property_management.availability.column', 'Available'),
+      meta: { truncate: false },
+      cell: ({ row }) => (
+        <AvailabilityCell subject={{ type: 'space', id: row.original.id, name: row.original.name }} ancestors={floorAncestors} disabled={archived} />
+      ),
+    },
+  ], [archived, floorAncestors, locale, t])
 
   const unitColumns = React.useMemo<ColumnDef<LayoutUnit>[]>(() => [
     { accessorKey: 'name', header: t('property_management.units.columns.name', 'Unit'), meta: { maxWidth: '220px', truncate: true } },
@@ -54,17 +81,17 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
       id: 'product',
       header: t('property_management.units.columns.product', 'Product'),
       cell: ({ row }) => (
-        <Link
+        <GatedLink
+          target="product"
           href={`/backend/catalog/products/${row.original.catalogProductId}`}
-          className="hover:underline"
           onClick={(event) => event.stopPropagation()}
         >
           {row.original.productName ?? t('property_management.units.productMissing', 'Product missing')}
-        </Link>
+        </GatedLink>
       ),
     },
-    { id: 'size', header: t('property_management.units.columns.size', 'Size'), cell: ({ row }) => sizeLabel(row.original) },
-    { id: 'area', header: t('property_management.units.columns.area', 'Area'), cell: ({ row }) => `${formatMetres(rectArea(row.original))} m²` },
+    { id: 'size', header: t('property_management.units.columns.size', 'Size'), cell: ({ row }) => sizeLabel(t, row.original, locale) },
+    { id: 'area', header: t('property_management.units.columns.area', 'Area'), cell: ({ row }) => areaLabel(t, row.original, locale) },
     {
       id: 'use',
       header: t('property_management.units.columns.use', 'Use'),
@@ -72,15 +99,27 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
         ? t(`property_management.units.use.${row.original.use}`, row.original.use)
         : <span className="text-muted-foreground">—</span>,
     },
-  ], [spaceNames, t])
+    {
+      id: 'available',
+      header: t('property_management.availability.column', 'Available'),
+      meta: { truncate: false },
+      cell: ({ row }) => (
+        <AvailabilityCell
+          subject={{ type: 'unit', id: row.original.id, name: row.original.name }}
+          ancestors={[{ type: 'space', id: row.original.spaceId }, ...floorAncestors]}
+          disabled={archived}
+        />
+      ),
+    },
+  ], [archived, floorAncestors, locale, spaceNames, t])
 
   const areaColumns = React.useMemo<ColumnDef<LayoutCommonArea>[]>(() => [
     { accessorKey: 'name', header: t('property_management.commonAreas.columns.name', 'Common area'), meta: { maxWidth: '220px', truncate: true } },
     { id: 'kind', header: t('property_management.commonAreas.columns.kind', 'Kind'), cell: ({ row }) => kindLabel(row.original.kind) },
-    { id: 'position', header: t('property_management.commonAreas.columns.position', 'Position (x, y)'), cell: ({ row }) => positionLabel(row.original) },
-    { id: 'size', header: t('property_management.commonAreas.columns.size', 'Size'), cell: ({ row }) => sizeLabel(row.original) },
-    { id: 'area', header: t('property_management.commonAreas.columns.area', 'Area'), cell: ({ row }) => `${formatMetres(rectArea(row.original))} m²` },
-  ], [kindLabel, t])
+    { id: 'position', header: t('property_management.commonAreas.columns.position', 'Position (x, y)'), cell: ({ row }) => positionLabel(row.original, locale) },
+    { id: 'size', header: t('property_management.commonAreas.columns.size', 'Size'), cell: ({ row }) => sizeLabel(t, row.original, locale) },
+    { id: 'area', header: t('property_management.commonAreas.columns.area', 'Area'), cell: ({ row }) => areaLabel(t, row.original, locale) },
+  ], [kindLabel, locale, t])
 
   const deleteSpace = (space: LayoutSpace) => remove({
     resource: 'spaces',
@@ -88,9 +127,6 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
     id: space.id,
     updatedAt: space.updatedAt,
     title: t('property_management.spaces.delete.title', 'Delete {name}?', { name: space.name }),
-    description: space.unitCount
-      ? t('property_management.spaces.delete.hasUnits', 'It still has {count} units. Move or delete them first.', { count: space.unitCount })
-      : undefined,
     successMessage: t('property_management.spaces.delete.success', 'Space deleted.'),
     errorMessage: t('property_management.spaces.delete.error', 'Could not delete the space.'),
     onDeleted: onChanged,
@@ -113,26 +149,28 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
   const bookable = layout.units.filter((unit) => unit.use === 'bookable').length
 
   return (
-    <>
+    <AvailabilityStateProvider value={availability}>
       <DataTable<LayoutSpace>
         title={t('property_management.spaces.list.title', 'Spaces')}
         actions={(
           <span className="text-sm text-muted-foreground">
-            {t('property_management.spaces.list.summary', '{count} spaces · {spaced} of {total} m² of the floor is in a space', {
-              count: layout.spaces.length,
-              spaced: formatMetres(spacedArea),
-              total: formatMetres(floorArea),
+            {t('property_management.spaces.list.summary', '{spaces} · {spaced} of {total} m² of the floor is in a space', {
+              spaces: count('spaces', layout.spaces.length),
+              spaced: formatMetres(spacedArea, locale),
+              total: formatMetres(floorArea, locale),
             })}
           </span>
         )}
         columns={spaceColumns}
         data={layout.spaces}
-        onRowClick={(row) => router.push(`/backend/property_management/spaces/${row.id}`)}
-        rowActions={(row) => (
+        onRowClick={readOnly ? undefined : (row) => router.push(`/backend/property_management/spaces/${row.id}`)}
+        rowActions={readOnly ? undefined : (row) => (
           <RowActions
             items={[
               { id: 'edit', label: t('property_management.common.edit', 'Edit'), onSelect: () => router.push(`/backend/property_management/spaces/${row.id}`) },
-              { id: 'delete', label: t('property_management.common.delete', 'Delete'), destructive: true, onSelect: () => { void deleteSpace(row) } },
+              ...(row.unitCount
+                ? []
+                : [{ id: 'delete', label: t('property_management.common.delete', 'Delete'), destructive: true, onSelect: () => { void deleteSpace(row) } }]),
             ]}
           />
         )}
@@ -141,8 +179,8 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
         title={t('property_management.units.list.title', 'Units')}
         actions={(
           <span className="text-sm text-muted-foreground">
-            {t('property_management.units.list.summary', '{count} units — {leasable} leasable, {bookable} bookable', {
-              count: layout.units.length,
+            {t('property_management.units.list.summary', '{units} — {leasable} leasable, {bookable} bookable', {
+              units: count('units', layout.units.length),
               leasable,
               bookable,
             })}
@@ -150,8 +188,8 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
         )}
         columns={unitColumns}
         data={layout.units}
-        onRowClick={(row) => router.push(`/backend/property_management/units/${row.id}`)}
-        rowActions={(row) => (
+        onRowClick={readOnly ? undefined : (row) => router.push(`/backend/property_management/units/${row.id}`)}
+        rowActions={readOnly ? undefined : (row) => (
           <RowActions
             items={[{ id: 'edit', label: t('property_management.common.edit', 'Edit'), onSelect: () => router.push(`/backend/property_management/units/${row.id}`) }]}
           />
@@ -161,16 +199,16 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
         title={t('property_management.commonAreas.list.title', 'Common areas')}
         actions={(
           <span className="text-sm text-muted-foreground">
-            {t('property_management.commonAreas.list.summary', '{count} common areas · {area} m² — not leasable, not bookable', {
-              count: layout.commonAreas.length,
-              area: formatMetres(layout.commonAreas.reduce((sum, area) => sum + rectArea(area), 0)),
+            {t('property_management.commonAreas.list.summary', '{areas} · {area} m² — not leasable, not bookable', {
+              areas: count('commonAreas', layout.commonAreas.length),
+              area: formatMetres(layout.commonAreas.reduce((sum, area) => sum + rectArea(area), 0), locale),
             })}
           </span>
         )}
         columns={areaColumns}
         data={layout.commonAreas}
-        onRowClick={(row) => router.push(`/backend/property_management/common-areas/${row.id}`)}
-        rowActions={(row) => (
+        onRowClick={readOnly ? undefined : (row) => router.push(`/backend/property_management/common-areas/${row.id}`)}
+        rowActions={readOnly ? undefined : (row) => (
           <RowActions
             items={[
               { id: 'edit', label: t('property_management.common.edit', 'Edit'), onSelect: () => router.push(`/backend/property_management/common-areas/${row.id}`) },
@@ -180,6 +218,6 @@ export function FloorTables({ layout, onChanged }: FloorTablesProps) {
         )}
       />
       {ConfirmDialogElement}
-    </>
+    </AvailabilityStateProvider>
   )
 }

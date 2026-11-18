@@ -3,11 +3,15 @@
 import * as React from 'react'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { BuildingRecord, FloorRow, ManagerRecord } from './buildingRecord'
 import { FloorsEditor } from './FloorsEditor'
 import { ManagersField } from './ManagersField'
 import { findCountIssue, parseCount, parseMetres, readFloorRows, relayFloorRows } from './floorRows'
+import { OpeningHoursEditor } from './OpeningHoursEditor'
+import { openingHoursPayload, openingRowsOf, readOpeningRows, type OpeningRow } from './openingHoursRows'
+import type { UnavailabilitiesState } from '../availability/useUnavailabilities'
 
 export type BuildingFormValues = {
   id?: string
@@ -17,6 +21,8 @@ export type BuildingFormValues = {
   below: number
   above: number
   floors: FloorRow[]
+  openingHoursEnabled: boolean
+  openingRows: OpeningRow[]
   updatedAt?: string | null
 } & Record<string, unknown>
 
@@ -26,11 +32,23 @@ export type BuildingPayload = {
   address: string
   managerUserIds?: string[]
   layout: { below: number; above: number; floors: Array<{ number: number; name: string; sizeX: number; sizeY: number }> }
+  openingHoursEnabled: boolean
+  openingHours: Array<{ weekday: number; opensAt: string; closesAt: string }>
+  customFields?: Record<string, unknown>
 }
 
 export function createInitialValues(record: BuildingRecord | null): BuildingFormValues {
   if (!record) {
-    return { name: '', address: '', managerUserIds: [], below: 0, above: 1, floors: relayFloorRows([], 0, 1) }
+    return {
+      name: '',
+      address: '',
+      managerUserIds: [],
+      below: 0,
+      above: 1,
+      floors: relayFloorRows([], 0, 1),
+      openingHoursEnabled: false,
+      openingRows: openingRowsOf([]),
+    }
   }
   return {
     id: record.id,
@@ -40,15 +58,25 @@ export function createInitialValues(record: BuildingRecord | null): BuildingForm
     below: record.floorsBelow,
     above: Math.max(1, record.floorsAbove),
     floors: record.floors,
+    openingHoursEnabled: record.openingHoursEnabled,
+    openingRows: openingRowsOf(record.openingHours, record.openingHoursEnabled),
     updatedAt: record.updatedAt,
+    ...record.customFieldValues,
   }
 }
 
 export function useBuildingFormConfig(
   t: TranslateFn,
-  options: { buildingId: string | null; canManageAll: boolean; managers: readonly ManagerRecord[]; savedFloors: readonly FloorRow[] },
+  options: {
+    buildingId: string | null
+    canManageAll: boolean
+    managers: readonly ManagerRecord[]
+    savedFloors: readonly FloorRow[]
+    archived?: boolean
+    availability?: UnavailabilitiesState
+  },
 ): { fields: CrudField[]; groups: CrudFormGroup[] } {
-  const { buildingId, canManageAll, managers, savedFloors } = options
+  const { buildingId, canManageAll, managers, savedFloors, archived = false, availability } = options
   return React.useMemo(() => {
     const fields: CrudField[] = [
       {
@@ -90,11 +118,23 @@ export function useBuildingFormConfig(
         title: t('property_management.buildings.form.groupFloors', 'Floors'),
         description: t('property_management.buildings.form.floorsHint', 'Give each floor a name and a size — units are laid out afterwards, on the floor page.'),
         column: 1,
-        component: (ctx) => <FloorsEditor {...ctx} buildingId={buildingId} savedFloors={savedFloors} />,
+        component: (ctx) => <FloorsEditor {...ctx} buildingId={buildingId} savedFloors={savedFloors} archived={archived} availability={availability} />,
+      },
+      {
+        id: 'openingHours',
+        title: t('property_management.buildings.form.groupHours', 'Opening hours'),
+        column: 1,
+        component: (ctx) => <OpeningHoursEditor {...ctx} />,
+      },
+      {
+        id: 'customFields',
+        title: t('entities.customFields.title', 'Custom fields'),
+        column: 1,
+        kind: 'customFields',
       },
     ]
     return { fields, groups }
-  }, [buildingId, canManageAll, managers, savedFloors, t])
+  }, [archived, availability, buildingId, canManageAll, managers, savedFloors, t])
 }
 
 export function buildBuildingPayload(
@@ -124,12 +164,21 @@ export function buildBuildingPayload(
     }
     return { number: row.number, name, sizeX, sizeY }
   })
+  const opening = openingHoursPayload(readOpeningRows(values.openingRows))
+  if (values.openingHoursEnabled === true && opening.invalidWeekday !== null) {
+    const message = t('property_management.buildings.hours.orderError', 'Closing time must be after opening time (no overnight hours).')
+    throw createCrudFormError(message, { openingRows: message })
+  }
   const payload: BuildingPayload = {
     name: String(values.name ?? '').trim(),
     address: String(values.address ?? '').trim(),
     layout: { below, above, floors },
+    openingHoursEnabled: values.openingHoursEnabled === true,
+    openingHours: opening.entries,
   }
   if (values.id) payload.id = values.id
+  const customFields = collectCustomFieldValues(values)
+  if (Object.keys(customFields).length) payload.customFields = customFields
   if (options.includeManagers) {
     payload.managerUserIds = Array.isArray(values.managerUserIds) ? values.managerUserIds : []
   }

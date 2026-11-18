@@ -2,7 +2,9 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { listSweepScopes, runLeaseSweep } from './lib/leaseSweep'
+import { runBookingSweep } from './lib/bookingSweep'
 import { resolveOperationHandler } from './lib/operationHandlers'
 import { runSalesOperation } from './lib/salesOperationRunner'
 import type { OperationEnqueuer } from './lib/salesOperations'
@@ -35,6 +37,7 @@ function inlineEnqueuer(container: AwilixContainer, em: EntityManager): Operatio
         await runSalesOperation({ container, em, resolveHandler: resolveOperationHandler, enqueuer: run }, operationId)
       } catch (err) {
         console.error(`Sales operation ${operationId} failed:`, err instanceof Error ? err.message : err)
+        getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.sweep_cli_operation_failed' })
       }
     }
   }
@@ -51,14 +54,15 @@ const sweepRunCommand: ModuleCli = {
     try {
       const scopes = (await listSweepScopes(em)).filter((scope) => !organizationFilter || scope.organizationId === organizationFilter)
       if (!scopes.length) {
-        console.log('No organization has leases yet; nothing to sweep.')
+        console.log('No organization has leases or bookings yet; nothing to sweep.')
         return
       }
       const enqueuer = inlineEnqueuer(container, em)
       for (const scope of scopes) {
         const summary = await runLeaseSweep({ container, em, enqueuer }, scope)
+        const bookings = await runBookingSweep({ container, em, enqueuer, skipReenqueue: true }, scope)
         console.log(
-          `Organization ${scope.organizationId}: ended ${summary.ended}, expired ${summary.expired}, reminded ${summary.reminded}, billing operations retried ${summary.reenqueued}`,
+          `Organization ${scope.organizationId}: ended ${summary.ended}, expired ${summary.expired}, reminded ${summary.reminded}, bookings completed ${bookings.completed}, billing operations retried ${summary.reenqueued}, unavailabilities resumed ${bookings.resumedClosures}`,
         )
       }
     } finally {

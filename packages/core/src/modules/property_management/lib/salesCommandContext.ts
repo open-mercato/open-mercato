@@ -12,6 +12,7 @@ export function buildTrustedSalesContext(
   const ctx: CommandRuntimeContext = {
     container,
     auth: null,
+    systemActor: true,
     organizationScope: {
       tenantId: scope.tenantId,
       selectedId: scope.organizationId,

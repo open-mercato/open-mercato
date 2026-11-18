@@ -14,7 +14,7 @@ type DeleteLeaseDialogProps = {
   lease: LeaseSummary | null
   onClose: () => void
   onDeleted: () => void
-  onEndInstead: () => void
+  onEndInstead?: () => void
 }
 
 export function DeleteLeaseDialog({ lease, onClose, onDeleted, onEndInstead }: DeleteLeaseDialogProps) {
@@ -29,10 +29,12 @@ export function DeleteLeaseDialog({ lease, onClose, onDeleted, onEndInstead }: D
     setError(null)
   }, [lease?.id])
 
+  const canEnd = lease?.status === 'active' && Boolean(onEndInstead)
+
   const confirm = async () => {
     if (!lease || pending) return
     if (refused) {
-      onEndInstead()
+      if (canEnd) onEndInstead?.()
       return
     }
     setPending(true)
@@ -61,8 +63,6 @@ export function DeleteLeaseDialog({ lease, onClose, onDeleted, onEndInstead }: D
       setPending(false)
     }
   }
-
-  const canEnd = lease?.status === 'active'
 
   return (
     <Dialog open={lease !== null} onOpenChange={(open) => { if (!open) onClose() }}>

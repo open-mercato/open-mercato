@@ -11,6 +11,7 @@ import {
   buildCrudLog,
   conflict,
   emitSideEffects,
+  enforceRecordVersion,
   ensureScope,
   loadFloor,
   loadFloorGeometry,
@@ -63,12 +64,17 @@ function snapshotSpace(space: Space): SpaceSnapshot {
   }
 }
 
-async function loadSpaceSnapshot(ctx: CommandRuntimeContext, id: string): Promise<SpaceSnapshot | null> {
+async function loadSpaceSnapshot(
+  ctx: CommandRuntimeContext,
+  id: string,
+  input?: { tenantId?: string | null; organizationId?: string | null } | null,
+): Promise<SpaceSnapshot | null> {
   const em = resolveEm(ctx)
-  const space = await findOneWithDecryption(em, Space, { id }, undefined, {
-    tenantId: ctx.auth?.tenantId ?? null,
-    organizationId: ctx.selectedOrganizationId ?? null,
-  })
+  const lookupScope = {
+    tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+    organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? null,
+  }
+  const space = await findOneWithDecryption(em, Space, { id, ...lookupScope }, undefined, lookupScope)
   return space ? snapshotSpace(space) : null
 }
 
@@ -120,7 +126,7 @@ const createSpaceCommand: CommandHandler<SpaceCreateInput, { spaceId: string }> 
     await emitSideEffects(ctx, 'created', space, { indexer: spaceCrudIndexer, events: spaceCrudEvents })
     return { spaceId: space.id }
   },
-  captureAfter: async (_input, result, ctx) => loadSpaceSnapshot(ctx, result.spaceId),
+  captureAfter: async (input, result, ctx) => loadSpaceSnapshot(ctx, result.spaceId, input),
   buildLog: async ({ input, result, ctx, snapshots }) => {
     const base = await buildCrudLog(ctx, input, result?.spaceId ?? null, 'property_management.audit.space.create', 'Create space', SPACE_RESOURCE_KIND)
     const after = snapshots?.after as SpaceSnapshot | undefined
@@ -131,8 +137,10 @@ const createSpaceCommand: CommandHandler<SpaceCreateInput, { spaceId: string }> 
     if (!after) return
     const scope = scopeOf(after)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, after.buildingId)
     const em = resolveEm(ctx)
     const space = await em.fork().transactional(async (trx) => {
+      await assertBuildingWritable(trx, scope, after.buildingId)
       await lockFloor(trx, scope, after.floorId)
       const units = await findWithDecryption(trx, Unit, { ...scope, spaceId: after.id, deletedAt: null }, undefined, scope)
       if (units.length) {
@@ -152,7 +160,7 @@ const createSpaceCommand: CommandHandler<SpaceCreateInput, { spaceId: string }> 
 const updateSpaceCommand: CommandHandler<SpaceUpdateInput, { spaceId: string }> = {
   id: 'property_management.space.update',
   prepare: async (input, ctx) => {
-    const before = await loadSpaceSnapshot(ctx, requireId(input?.id))
+    const before = await loadSpaceSnapshot(ctx, requireId(input?.id), input)
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
@@ -167,6 +175,7 @@ const updateSpaceCommand: CommandHandler<SpaceUpdateInput, { spaceId: string }> 
       const geometry = await loadFloorGeometry(trx, scope, floor)
       const record = geometry.spaceRecords.find((item) => item.id === parsed.id)
       if (!record) return notFound('property_management.errors.spaceNotFound', 'Space not found.')
+      await enforceRecordVersion(ctx, SPACE_RESOURCE_KIND, record)
       const existing = toRect(record)
       const rect = {
         x: parsed.x ?? existing.x,
@@ -188,7 +197,7 @@ const updateSpaceCommand: CommandHandler<SpaceUpdateInput, { spaceId: string }> 
     await emitSideEffects(ctx, 'updated', space, { indexer: spaceCrudIndexer, events: spaceCrudEvents })
     return { spaceId: space.id }
   },
-  captureAfter: async (_input, result, ctx) => loadSpaceSnapshot(ctx, result.spaceId),
+  captureAfter: async (input, result, ctx) => loadSpaceSnapshot(ctx, result.spaceId, input),
   buildLog: async ({ input, result, ctx, snapshots }) => {
     const base = await buildCrudLog(ctx, input, result?.spaceId ?? null, 'property_management.audit.space.update', 'Update space', SPACE_RESOURCE_KIND)
     const before = snapshots?.before as SpaceSnapshot | undefined
@@ -200,8 +209,10 @@ const updateSpaceCommand: CommandHandler<SpaceUpdateInput, { spaceId: string }> 
     if (!before) return
     const scope = scopeOf(before)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, before.buildingId)
     const em = resolveEm(ctx)
     const space = await em.fork().transactional(async (trx) => {
+      await assertBuildingWritable(trx, scope, before.buildingId)
       const floor = await lockFloor(trx, scope, before.floorId)
       const geometry = await loadFloorGeometry(trx, scope, floor)
       const issues = checkPlacement({ kind: 'space', rect: toRect(before), selfId: before.id }, geometry)
@@ -223,7 +234,7 @@ const updateSpaceCommand: CommandHandler<SpaceUpdateInput, { spaceId: string }> 
 const deleteSpaceCommand: CommandHandler<{ id?: string; tenantId?: string; organizationId?: string }, { spaceId: string }> = {
   id: 'property_management.space.delete',
   prepare: async (input, ctx) => {
-    const before = await loadSpaceSnapshot(ctx, requireId(input?.id))
+    const before = await loadSpaceSnapshot(ctx, requireId(input?.id), input)
     return before ? { before } : {}
   },
   async execute(input, ctx) {
@@ -238,6 +249,9 @@ const deleteSpaceCommand: CommandHandler<{ id?: string; tenantId?: string; organ
     const space = await em.fork().transactional(async (trx) => {
       await assertBuildingWritable(trx, scope, current.buildingId)
       await lockFloor(trx, scope, current.floorId)
+      const record = await findOneWithDecryption(trx, Space, { id: current.id, ...scope, deletedAt: null }, undefined, scope)
+      if (!record) return notFound('property_management.errors.spaceNotFound', 'Space not found.')
+      await enforceRecordVersion(ctx, SPACE_RESOURCE_KIND, record)
       const units = await findWithDecryption(trx, Unit, { ...scope, spaceId: current.id, deletedAt: null }, undefined, scope)
       if (units.length) {
         await conflict('property_management.errors.spaceHasUnits', 'This space still has units. Move or delete them first.', {
@@ -245,8 +259,6 @@ const deleteSpaceCommand: CommandHandler<{ id?: string; tenantId?: string; organ
           units: units.map((unit) => unit.name),
         })
       }
-      const record = await findOneWithDecryption(trx, Space, { id: current.id, ...scope, deletedAt: null }, undefined, scope)
-      if (!record) return notFound('property_management.errors.spaceNotFound', 'Space not found.')
       record.deletedAt = new Date()
       return record
     })
@@ -263,8 +275,10 @@ const deleteSpaceCommand: CommandHandler<{ id?: string; tenantId?: string; organ
     if (!before) return
     const scope = scopeOf(before)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, before.buildingId)
     const em = resolveEm(ctx)
     const space = await em.fork().transactional(async (trx) => {
+      await assertBuildingWritable(trx, scope, before.buildingId)
       const floor = await lockFloor(trx, scope, before.floorId)
       const geometry = await loadFloorGeometry(trx, scope, floor)
       const issues = checkPlacement({ kind: 'space', rect: toRect(before), selfId: before.id }, geometry)

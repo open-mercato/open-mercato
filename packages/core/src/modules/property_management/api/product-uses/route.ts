@@ -1,25 +1,29 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isUuidListParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { ProductUse } from '../../data/entities'
-import { productUseSetSchema } from '../../data/validators'
+import { productUseSetSchema, type ProductUseSetInput } from '../../data/validators'
 import {
   asRecord,
   createPagedListResponseSchema,
   createPropertyManagementCrudOpenApi,
+  crudEm,
   defaultOkResponseSchema,
   parseScopedCommandInput,
   rawBodySchema,
   readIso,
   readString,
+  unscopedDocSchema,
 } from '../crudShared'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['property_management.view'] },
-  POST: { requireAuth: true, requireFeatures: ['property_management.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['property_management.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['property_management.manage'] },
+  POST: { requireAuth: true, requireFeatures: ['property_management.manage', 'property_management.buildings.manage_all'] },
+  PUT: { requireAuth: true, requireFeatures: ['property_management.manage', 'property_management.buildings.manage_all'] },
+  DELETE: { requireAuth: true, requireFeatures: ['property_management.manage', 'property_management.buildings.manage_all'] },
 }
 
 export const metadata = routeMetadata
@@ -28,7 +32,10 @@ const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(100),
-    productIds: z.string().optional(),
+    productIds: z
+      .string()
+      .optional()
+      .refine(isUuidListParam, { message: 'productIds must be a comma-separated list of UUIDs' }),
     use: z.enum(['leasable', 'bookable']).optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -46,15 +53,25 @@ function toItem(row: Record<string, unknown>) {
 }
 
 function readProductId(raw: unknown, request: Request | undefined): string | null {
-  const fromBody = readString(asRecord(raw), 'catalogProductId')
+  const envelope = asRecord(raw)
+  const fromBody = readString(asRecord(envelope.body), 'catalogProductId') ?? readString(envelope, 'catalogProductId')
   if (fromBody) return fromBody
+  const fromQuery = readString(asRecord(envelope.query), 'catalogProductId')
+  if (fromQuery) return fromQuery
   if (!request) return null
   return new URL(request.url).searchParams.get('catalogProductId')
+}
+
+async function withGuardResourceId(ctx: CrudCtx, input: ProductUseSetInput): Promise<ProductUseSetInput & { id: string }> {
+  const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+  const record = await findOneWithDecryption(crudEm(ctx), ProductUse, { ...scope, catalogProductId: input.catalogProductId }, undefined, scope)
+  return { ...input, id: record?.id ?? input.catalogProductId }
 }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: { entity: ProductUse, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: null },
+  indexer: { entityType: E.property_management.product_use },
   list: {
     schema: listSchema,
     entityId: E.property_management.product_use,
@@ -64,7 +81,7 @@ const crud = makeCrudRoute({
     tiebreakSortField: 'id',
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
-      const ids = (query.productIds ?? '').split(',').map((value) => value.trim()).filter((value) => value.length > 0)
+      const ids = splitIdListParam(query.productIds)
       if (ids.length) filters.catalog_product_id = { $in: ids }
       if (query.use) filters.use = { $eq: query.use }
       return filters
@@ -87,7 +104,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(productUseSetSchema, raw ?? {}, ctx, translate)
+        return withGuardResourceId(ctx, parseScopedCommandInput(productUseSetSchema, raw ?? {}, ctx, translate))
       },
       response: () => ({ ok: true }),
     },
@@ -96,11 +113,14 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(
-          productUseSetSchema,
-          { catalogProductId: readProductId(raw, ctx.request), use: null, billingUnit: null },
+        return withGuardResourceId(
           ctx,
-          translate,
+          parseScopedCommandInput(
+            productUseSetSchema,
+            { catalogProductId: readProductId(raw, ctx.request), use: null, billingUnit: null },
+            ctx,
+            translate,
+          ),
         )
       },
       response: () => ({ ok: true }),
@@ -127,17 +147,17 @@ export const openApi = createPropertyManagementCrudOpenApi({
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(productUseItemSchema),
   create: {
-    schema: productUseSetSchema,
-    description: 'Marks a catalog product leasable (billed per month) or bookable (per hour or day). Upserts by product.',
+    schema: unscopedDocSchema(productUseSetSchema),
+    description: 'Marks a catalog product leasable (billed per month) or bookable (per hour or day). Upserts by product. Requires `property_management.buildings.manage_all`, since a product use applies to units of every building.',
   },
   update: {
-    schema: productUseSetSchema,
+    schema: unscopedDocSchema(productUseSetSchema),
     responseSchema: defaultOkResponseSchema,
-    description: 'Changes a product use; `use: null` clears it. Refused (409) while units use the product (clear) or the change would strand leases or upcoming bookings.',
+    description: 'Changes a product use; `use: null` clears it. Refused (409) while units use the product (clear) or the change would strand leases or upcoming bookings. Requires `property_management.buildings.manage_all`.',
   },
   del: {
     schema: z.object({ catalogProductId: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Clears the use of a product (pass `catalogProductId` in the body or query).',
+    description: 'Clears the use of a product (pass `catalogProductId` in the body or query). Requires `property_management.buildings.manage_all`.',
   },
 })

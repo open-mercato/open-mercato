@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -38,6 +38,7 @@ const FORM_ID = 'property-management-common-area-form'
 
 export function CommonAreaForm({ commonAreaId }: { commonAreaId?: string | null }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const recordId = commonAreaId || null
   const host = usePlacementHost<CommonAreaRecord>('common-areas', recordId)
@@ -101,7 +102,7 @@ export function CommonAreaForm({ commonAreaId }: { commonAreaId?: string | null 
   }, [layout, record, t])
 
   if (host.loading || host.notFound || host.error || !layout) {
-    return <PlacementPageState loading={host.loading} notFound={host.notFound || (!host.loading && !layout && !host.error)} error={host.error} backHref={backHref} />
+    return <PlacementPageState loading={host.loading} notFound={host.notFound || (!host.loading && !layout && !host.error)} error={host.error} backHref={backHref} onRetry={host.reload} />
   }
 
   return (
@@ -111,8 +112,8 @@ export function CommonAreaForm({ commonAreaId }: { commonAreaId?: string | null 
         subtitle={t('property_management.commonAreas.form.subtitle', '{floor} · {building} · {x} × {y} m', {
           floor: layout.floor.name,
           building: layout.building.name,
-          x: formatMetres(layout.floor.sizeX),
-          y: formatMetres(layout.floor.sizeY),
+          x: formatMetres(layout.floor.sizeX, locale),
+          y: formatMetres(layout.floor.sizeY, locale),
         })}
         backHref={backHref}
         formId={FORM_ID}
@@ -121,6 +122,7 @@ export function CommonAreaForm({ commonAreaId }: { commonAreaId?: string | null 
         initialValues={initialValues}
         submitLabel={record ? t('property_management.common.saveChanges', 'Save changes') : t('property_management.commonAreas.form.create', 'Create common area')}
         blocked={issues.length > 0}
+        archived={layout.building.status === 'archived'}
         blockedMessage={t('property_management.placement.blocked', 'Fix the placement before saving.')}
         deleteLabel={t('property_management.commonAreas.form.delete', 'Delete common area')}
         onDelete={record ? async () => {

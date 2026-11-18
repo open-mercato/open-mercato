@@ -229,6 +229,11 @@ export class Unit {
 @Entity({ tableName: 'property_management_unit_product_periods' })
 @Index({ name: 'property_management_unit_product_periods_unit_idx', properties: ['organizationId', 'unitId', 'validFrom'] })
 @Index({
+  name: 'property_management_unit_product_periods_open_product_idx',
+  expression:
+    'create index "property_management_unit_product_periods_open_product_idx" on "property_management_unit_product_periods" ("organization_id", "catalog_product_id") where "valid_to" is null',
+})
+@Index({
   name: 'property_management_unit_product_periods_open_unique',
   expression:
     'create unique index "property_management_unit_product_periods_open_unique" on "property_management_unit_product_periods" ("unit_id") where "valid_to" is null',
@@ -358,6 +363,112 @@ export class ProductUse {
   updatedAt: Date = new Date()
 }
 
+@Entity({ tableName: 'property_management_opening_hours' })
+@Unique({ name: 'property_management_opening_hours_weekday_unique', properties: ['buildingId', 'weekday'] })
+@Index({ name: 'property_management_opening_hours_building_idx', properties: ['organizationId', 'buildingId'] })
+export class OpeningHours {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'building_id', type: 'uuid' })
+  buildingId!: string
+
+  @Property({ type: 'int' })
+  weekday!: number
+
+  @Property({ name: 'opens_at', type: 'string', runtimeType: 'string', columnType: 'time' })
+  opensAt!: string
+
+  @Property({ name: 'closes_at', type: 'string', runtimeType: 'string', columnType: 'time' })
+  closesAt!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+export type UnavailabilitySubjectType = 'building' | 'floor' | 'space' | 'unit'
+export type UnavailabilityApplyStatus = 'applied' | 'applying'
+
+@Entity({ tableName: 'property_management_unavailabilities' })
+@Index({ name: 'property_management_unavailabilities_subject_idx', properties: ['organizationId', 'subjectType', 'subjectId', 'startsAt'] })
+@Index({ name: 'property_management_unavailabilities_building_idx', properties: ['organizationId', 'buildingId', 'startsAt'] })
+export class Unavailability {
+  [OptionalProps]?:
+    | ScopedOptionalProps
+    | 'reasonEntryId'
+    | 'endsAt'
+    | 'endedAt'
+    | 'cancelledBookingCount'
+    | 'applyStatus'
+    | 'progressJobId'
+    | 'applyHeartbeatAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'building_id', type: 'uuid' })
+  buildingId!: string
+
+  @Property({ name: 'subject_type', type: 'text' })
+  subjectType!: UnavailabilitySubjectType
+
+  @Property({ name: 'subject_id', type: 'uuid' })
+  subjectId!: string
+
+  @Property({ name: 'reason_entry_id', type: 'uuid', nullable: true })
+  reasonEntryId?: string | null
+
+  @Property({ name: 'reason_text', type: 'text' })
+  reasonText!: string
+
+  @Property({ name: 'starts_at', type: 'string', runtimeType: 'string', columnType: 'timestamp' })
+  startsAt!: string
+
+  @Property({ name: 'ends_at', type: 'string', runtimeType: 'string', columnType: 'timestamp', nullable: true })
+  endsAt?: string | null
+
+  @Property({ name: 'ended_at', type: 'string', runtimeType: 'string', columnType: 'timestamp', nullable: true })
+  endedAt?: string | null
+
+  @Property({ name: 'cancelled_booking_count', type: 'int', default: 0 })
+  cancelledBookingCount: number = 0
+
+  @Property({ name: 'apply_status', type: 'text', default: 'applied' })
+  applyStatus: UnavailabilityApplyStatus = 'applied'
+
+  @Property({ name: 'progress_job_id', type: 'uuid', nullable: true })
+  progressJobId?: string | null
+
+  @Property({ name: 'apply_heartbeat_at', type: Date, nullable: true })
+  applyHeartbeatAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 export type LeaseStatus = 'proposed' | 'pending_order' | 'active' | 'declined' | 'withdrawn' | 'expired' | 'ended'
 export type LeaseVersionEvent = 'activated' | 'corrected' | 'extended' | 'rescheduled'
 export type LeaseVersionState = 'pending' | 'in_force' | 'reverted'
@@ -391,7 +502,7 @@ export type LeasePendingChange = {
 
 export type LeaseBillingRefusal = {
   changeId: string
-  kind: LeaseChangeKind | 'activation' | 'proposal'
+  kind: LeaseChangeKind | 'activation' | 'extension' | 'proposal'
   code: string | null
   message: string | null
   at: string
@@ -402,6 +513,7 @@ export type LeaseBillingRefusal = {
 @Index({ name: 'property_management_leases_unit_status_idx', properties: ['organizationId', 'unitId', 'status'] })
 @Index({ name: 'property_management_leases_building_idx', properties: ['organizationId', 'buildingId'] })
 @Index({ name: 'property_management_leases_company_idx', properties: ['organizationId', 'customerCompanyId'] })
+@Index({ name: 'property_management_leases_sweep_idx', properties: ['organizationId', 'status', 'endsOn', 'id'] })
 @Unique({ name: 'property_management_leases_reference_unique', properties: ['organizationId', 'reference'] })
 export class Lease {
   [OptionalProps]?:
@@ -669,6 +781,7 @@ export class LeaseReferenceCounter {
 @Index({ name: 'property_management_sales_operations_status_idx', properties: ['organizationId', 'status'] })
 @Index({ name: 'property_management_sales_operations_change_idx', properties: ['organizationId', 'changeId', 'sequence'] })
 @Index({ name: 'property_management_sales_operations_target_idx', properties: ['organizationId', 'targetType', 'targetId'] })
+@Index({ name: 'property_management_sales_operations_lease_idx', properties: ['organizationId', 'leaseId', 'status'] })
 export class SalesOperation {
   [OptionalProps]?:
     | 'createdAt'
@@ -741,13 +854,118 @@ export class SalesOperation {
   attempts: number = 0
 
   @Property({ name: 'last_error', type: 'jsonb', nullable: true })
-  lastError?: { code: string | null; message: string | null; status: number | null } | null
+  lastError?: { code: string | null; message: string | null; status: number | null; compensation?: boolean; stalledReported?: boolean } | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
   @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+export type BookingStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled'
+export type BookingCancelReason = 'customer' | 'manager' | 'unavailability' | 'order_refused'
+
+@Entity({ tableName: 'property_management_bookings' })
+@Index({ name: 'property_management_bookings_unit_starts_idx', properties: ['organizationId', 'unitId', 'startsAt'] })
+@Index({ name: 'property_management_bookings_customer_user_idx', properties: ['organizationId', 'customerUserId', 'startsAt'] })
+@Index({ name: 'property_management_bookings_status_idx', properties: ['organizationId', 'status', 'startsAt'] })
+@Index({ name: 'property_management_bookings_building_idx', properties: ['organizationId', 'buildingId', 'startsAt'] })
+@Index({ name: 'property_management_bookings_unavailability_idx', properties: ['organizationId', 'unavailabilityId'] })
+@Index({ name: 'property_management_bookings_sweep_idx', properties: ['organizationId', 'status', 'endsAt', 'id'] })
+export class Booking {
+  [OptionalProps]?:
+    | ScopedOptionalProps
+    | 'customerCompanyId'
+    | 'customerUserId'
+    | 'holdToken'
+    | 'cancelReason'
+    | 'unavailabilityId'
+    | 'currencyCode'
+    | 'salesOrderId'
+    | 'reminderSentAt'
+    | 'notes'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'building_id', type: 'uuid' })
+  buildingId!: string
+
+  @Property({ name: 'unit_id', type: 'uuid' })
+  unitId!: string
+
+  @Property({ name: 'customer_company_id', type: 'uuid', nullable: true })
+  customerCompanyId?: string | null
+
+  @Property({ name: 'booked_by_person_id', type: 'uuid' })
+  bookedByPersonId!: string
+
+  @Property({ name: 'customer_user_id', type: 'uuid', nullable: true })
+  customerUserId?: string | null
+
+  @Property({ name: 'starts_at', type: 'string', runtimeType: 'string', columnType: 'timestamp' })
+  startsAt!: string
+
+  @Property({ name: 'ends_at', type: 'string', runtimeType: 'string', columnType: 'timestamp' })
+  endsAt!: string
+
+  @Property({ type: 'text' })
+  status!: BookingStatus
+
+  @Property({ name: 'hold_token', type: 'uuid', nullable: true })
+  holdToken?: string | null
+
+  @Property({ name: 'cancel_reason', type: 'text', nullable: true })
+  cancelReason?: BookingCancelReason | null
+
+  @Property({ name: 'unavailability_id', type: 'uuid', nullable: true })
+  unavailabilityId?: string | null
+
+  @Property({ name: 'catalog_product_id', type: 'uuid' })
+  catalogProductId!: string
+
+  @Property({ name: 'product_name', type: 'text' })
+  productName!: string
+
+  @Property({ name: 'unit_price', type: 'numeric', precision: 16, scale: 4 })
+  unitPrice!: string
+
+  @Property({ type: 'int' })
+  quantity!: number
+
+  @Property({ name: 'billing_unit', type: 'text' })
+  billingUnit!: BillingUnit
+
+  @Property({ name: 'total_amount', type: 'numeric', precision: 16, scale: 4 })
+  totalAmount!: string
+
+  @Property({ name: 'currency_code', type: 'text', nullable: true })
+  currencyCode?: string | null
+
+  @Property({ name: 'sales_order_id', type: 'uuid', nullable: true })
+  salesOrderId?: string | null
+
+  @Property({ name: 'reminder_sent_at', type: Date, nullable: true })
+  reminderSentAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'property_management_settings' })

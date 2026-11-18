@@ -7,9 +7,12 @@ import { Floor } from '../../data/entities'
 import { floorUpdateSchema } from '../../data/validators'
 import {
   asRecord,
+  assertCrudRecordBuildingAccess,
   createPagedListResponseSchema,
   createPropertyManagementCrudOpenApi,
   crudPermitted,
+  crudScopeFilters,
+  sealListScope,
   defaultOkResponseSchema,
   listQueryBase,
   parseScopedCommandInput,
@@ -18,6 +21,7 @@ import {
   readNumber,
   readString,
   restrictBuildingField,
+  unscopedDocSchema,
 } from '../crudShared'
 
 const routeMetadata = {
@@ -61,18 +65,21 @@ const crud = makeCrudRoute({
   indexer: { entityType: E.property_management.floor },
   list: {
     schema: listSchema,
+    disableListCache: true,
     entityId: E.property_management.floor,
     fields: ['id', 'building_id', 'number', 'name', 'size_x', 'size_y', 'organization_id', 'tenant_id', 'created_at', 'updated_at'],
     sortFieldMap: { number: 'number', name: 'name', updatedAt: 'updated_at' },
     defaultSort: { field: 'number', dir: 'asc' },
     tiebreakSortField: 'id',
+    omitAutomaticTenantOrgScope: true,
     buildFilters: async (query, ctx) => {
+      const scope = crudScopeFilters(ctx)
+      restrictBuildingField(scope, 'building_id', await crudPermitted(ctx), query.buildingId)
       const filters: Record<string, unknown> = {}
-      restrictBuildingField(filters, 'building_id', await crudPermitted(ctx), query.buildingId)
       if (query.id) filters.id = { $eq: query.id }
       const term = query.search?.trim()
       if (term) filters.name = { $ilike: `%${escapeLikePattern(term)}%` }
-      return filters
+      return sealListScope(scope, filters)
     },
     transformItem: (item: Record<string, unknown>) => toItem(asRecord(item)),
   },
@@ -82,7 +89,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(floorUpdateSchema, raw ?? {}, ctx, translate)
+        const input = parseScopedCommandInput(floorUpdateSchema, raw ?? {}, ctx, translate)
+        await assertCrudRecordBuildingAccess(ctx, Floor, input.id)
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -110,7 +119,7 @@ export const openApi = createPropertyManagementCrudOpenApi({
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(floorItemSchema),
   update: {
-    schema: floorUpdateSchema,
+    schema: unscopedDocSchema(floorUpdateSchema),
     responseSchema: defaultOkResponseSchema,
     description: 'Renames or resizes a floor. Refused (422) when the new size would leave a space, unit or common area outside the floor. Floors are added and removed through the building layout endpoint.',
   },

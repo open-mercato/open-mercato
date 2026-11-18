@@ -1,10 +1,15 @@
 import { randomUUID } from 'node:crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { E } from '#generated/entities.ids.generated'
 import { Building, CommonArea, Floor, Space, Unit } from '../data/entities'
 import {
   buildingCreateSchema,
@@ -13,32 +18,58 @@ import {
   type BuildingCreateInput,
   type BuildingIdInput,
   type BuildingUpdateInput,
+  type OpeningHoursEntry,
 } from '../data/validators'
 import { canManageAllBuildings } from '../lib/buildingAccess'
 import { applyFloorLayout, revertFloorLayout, type LayoutChangeSnapshot } from '../lib/floorLayout'
-import { assertManagerUsers, loadManagerIds, replaceManagers } from '../lib/managers'
-import { findUnitBlockers, findUnitsEverUsed } from '../lib/usageGuards'
-import { emitPropertyManagementEvent } from '../events'
-import type { Scope } from '../lib/productUse'
+import { assertManagerUsers, filterOrganizationUsers, loadManagerIds, replaceManagers } from '../lib/managers'
+import { findBuildingUnitsEverUsed, findUnitBlockerList, usageBlockerConflictBody } from '../lib/usageGuards'
 import {
+  findBookingsOutsideHours,
+  sameOpeningHours,
+  type BookingOutsideHours,
+  loadBuildingOpening,
+  loadOpeningHours,
+  replaceOpeningHours,
+  serializeWeeklyHours,
+} from '../lib/openingHours'
+import { emitPropertyManagementEvent } from '../events'
+import { lockProductUse, type Scope } from '../lib/productUse'
+import {
+  assertCtxBuildingAccess,
   buildCrudLog,
   buildingCrudEvents,
   buildingCrudIndexer,
+  buildingUpdatedEvents,
+  commonAreaCrudEvents,
   commonAreaCrudIndexer,
   conflict,
+  emitLayoutChangeSideEffects,
   emitSideEffects,
   ensureScope,
   floorCrudEvents,
   floorCrudIndexer,
   isoOrNull,
   loadBuilding,
+  loadCustomFields,
   lockBuilding,
+  lockWritableBuilding,
+  persistentEventOptions,
+  renamedFloorIds,
   requireId,
   resolveEm,
+  restoreCustomFields,
+  restoredProductUnavailable,
   scopeOf,
+  spaceCrudEvents,
   spaceCrudIndexer,
+  unitCrudEvents,
   unitCrudIndexer,
+  writeCustomFields,
+  type CustomFieldValues,
 } from './shared'
+
+const logger = createLogger('property_management')
 
 export const BUILDING_RESOURCE_KIND = 'property_management.building'
 
@@ -51,8 +82,12 @@ export type BuildingSnapshot = {
   status: 'active' | 'archived'
   archivedAt: string | null
   openingHoursEnabled: boolean
+  openingHours?: OpeningHoursEntry[]
   managerUserIds: string[]
+  custom?: CustomFieldValues
 }
+
+const BUILDING_ENTITY_ID = E.property_management.building
 
 type BuildingUndoPayload = {
   before?: BuildingSnapshot | null
@@ -73,12 +108,15 @@ async function defaultSpaceName(): Promise<string> {
   return translate('property_management.spaces.defaultName', 'Whole floor')
 }
 
-async function snapshotBuilding(ctx: CommandRuntimeContext, id: string): Promise<BuildingSnapshot | null> {
+type SnapshotScopeInput = { tenantId?: string | null; organizationId?: string | null } | null | undefined
+
+async function snapshotBuilding(ctx: CommandRuntimeContext, id: string, input?: SnapshotScopeInput): Promise<BuildingSnapshot | null> {
   const em = resolveEm(ctx)
-  const building = await findOneWithDecryption(em, Building, { id }, undefined, {
-    tenantId: ctx.auth?.tenantId ?? null,
-    organizationId: ctx.selectedOrganizationId ?? null,
-  })
+  const lookupScope = {
+    tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+    organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? null,
+  }
+  const building = await findOneWithDecryption(em, Building, { id, ...lookupScope }, undefined, lookupScope)
   if (!building) return null
   const scope = scopeOf(building)
   return {
@@ -90,7 +128,9 @@ async function snapshotBuilding(ctx: CommandRuntimeContext, id: string): Promise
     status: building.status,
     archivedAt: isoOrNull(building.archivedAt),
     openingHoursEnabled: building.openingHoursEnabled,
+    openingHours: serializeWeeklyHours((await loadOpeningHours(em, scope, [building.id])).get(building.id) ?? new Map()),
     managerUserIds: await loadManagerIds(em, scope, building.id),
+    custom: await loadCustomFields(em, BUILDING_ENTITY_ID, building),
   }
 }
 
@@ -100,20 +140,23 @@ async function resolveManagerAssignment(
   requested: string[] | undefined,
   mode: 'create' | 'update',
 ): Promise<string[] | undefined> {
-  const manageAll = await canManageAllBuildings({ container: ctx.container, auth: ctx.auth, ...scope })
-  if (manageAll || !ctx.auth) return requested
+  if (!ctx.auth) {
+    if (ctx.systemActor === true) return requested
+    const { translate } = await resolveTranslations()
+    throw forbidden(translate('property_management.errors.forbidden', 'You do not have permission to do this.'))
+  }
+  const manageAll = await canManageAllBuildings({ container: ctx.container, auth: ctx.auth, ...scope, request: ctx.request })
+  if (manageAll) return requested
   if (mode === 'update') return undefined
   const actor = typeof ctx.auth.userId === 'string' && ctx.auth.userId ? ctx.auth.userId : ctx.auth.sub
-  return actor && !actor.startsWith('api_key:') ? [actor] : []
-}
-
-async function emitLayoutSideEffects(
-  ctx: CommandRuntimeContext,
-  floors: { created: Floor[]; updated: Floor[]; removed: Floor[] },
-): Promise<void> {
-  for (const floor of floors.created) await emitSideEffects(ctx, 'created', floor, { indexer: floorCrudIndexer, events: floorCrudEvents })
-  for (const floor of floors.updated) await emitSideEffects(ctx, 'updated', floor, { indexer: floorCrudIndexer, events: floorCrudEvents })
-  for (const floor of floors.removed) await emitSideEffects(ctx, 'deleted', floor, { indexer: floorCrudIndexer, events: floorCrudEvents })
+  if (!actor || actor.startsWith('api_key:')) return []
+  const [member] = await filterOrganizationUsers(resolveEm(ctx), scope, [actor])
+  if (member) return [member]
+  const { translate } = await resolveTranslations()
+  throw forbidden(translate(
+    'property_management.errors.buildingCreateOutsideOrganization',
+    'You can only create buildings in your own organization. Ask someone who manages all buildings to create it.',
+  ))
 }
 
 const createBuildingCommand: CommandHandler<BuildingCreateInput, { buildingId: string }> = {
@@ -126,25 +169,28 @@ const createBuildingCommand: CommandHandler<BuildingCreateInput, { buildingId: s
     const managerIds = await resolveManagerAssignment(ctx, scope, parsed.managerUserIds, 'create')
     const validManagers = managerIds ? await assertManagerUsers(em, scope, managerIds) : []
     const spaceName = await defaultSpaceName()
-    const { building, createdFloors } = await em.fork().transactional(async (trx) => {
+    const { building, layoutChanges } = await em.fork().transactional(async (trx) => {
       const record = trx.create(Building, {
         id: randomUUID(),
         ...scope,
         name: parsed.name,
         address: parsed.address,
+        openingHoursEnabled: parsed.openingHoursEnabled ?? false,
       })
       trx.persist(record)
       await trx.flush()
+      if (parsed.openingHours) await replaceOpeningHours(trx, scope, record.id, parsed.openingHours)
       await replaceManagers(trx, scope, record.id, validManagers)
       await trx.flush()
       const layout = await applyFloorLayout(trx, scope, record, parsed.layout, spaceName)
-      return { building: record, createdFloors: layout.createdFloors }
+      await writeCustomFields(trx, ctx, BUILDING_ENTITY_ID, record, parsed.customFields)
+      return { building: record, layoutChanges: layout.changes }
     })
     await emitSideEffects(ctx, 'created', building, { indexer: buildingCrudIndexer, events: buildingCrudEvents })
-    await emitLayoutSideEffects(ctx, { created: createdFloors, updated: [], removed: [] })
+    await emitLayoutChangeSideEffects(ctx, layoutChanges)
     return { buildingId: building.id }
   },
-  captureAfter: async (_input, result, ctx) => snapshotBuilding(ctx, result.buildingId),
+  captureAfter: async (input, result, ctx) => snapshotBuilding(ctx, result.buildingId, input),
   buildLog: async ({ input, result, ctx, snapshots }) => {
     const base = await buildCrudLog(ctx, input, result?.buildingId ?? null, 'property_management.audit.building.create', 'Create building', BUILDING_RESOURCE_KIND)
     const after = snapshots?.after as BuildingSnapshot | undefined
@@ -156,8 +202,9 @@ const createBuildingCommand: CommandHandler<BuildingCreateInput, { buildingId: s
     if (!after) return
     const scope = scopeOf(after)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, after.id)
     const em = resolveEm(ctx)
-    await softDeleteBuildingTree(ctx, scope, after.id, em)
+    await softDeleteBuildingTree(ctx, scope, after.id, em, 'undo')
   },
 }
 
@@ -171,25 +218,50 @@ async function collectBuildingTree(em: ReturnType<typeof resolveEm>, scope: Scop
   return { floors, spaces, units, commonAreas }
 }
 
+async function assertBuildingNeverUsed(em: ReturnType<typeof resolveEm>, scope: Scope, buildingId: string): Promise<void> {
+  const used = await findBuildingUnitsEverUsed(em, scope, buildingId)
+  if (used.length) {
+    await conflict(
+      'property_management.errors.buildingUsed',
+      'This building has had leases or bookings, so it cannot be deleted. Archive it instead.',
+      { code: 'building_used' },
+    )
+  }
+}
+
+type BuildingTree = Awaited<ReturnType<typeof collectBuildingTree>>
+
+async function emitTreeSideEffects(
+  ctx: CommandRuntimeContext,
+  action: 'created' | 'deleted',
+  tree: BuildingTree,
+  origin: 'write' | 'undo',
+): Promise<void> {
+  for (const floor of tree.floors) await emitSideEffects(ctx, action, floor, { indexer: floorCrudIndexer, events: floorCrudEvents }, origin)
+  for (const space of tree.spaces) await emitSideEffects(ctx, action, space, { indexer: spaceCrudIndexer, events: spaceCrudEvents }, origin)
+  for (const unit of tree.units) await emitSideEffects(ctx, action, unit, { indexer: unitCrudIndexer, events: unitCrudEvents }, origin)
+  for (const area of tree.commonAreas) await emitSideEffects(ctx, action, area, { indexer: commonAreaCrudIndexer, events: commonAreaCrudEvents }, origin)
+}
+
 async function softDeleteBuildingTree(
   ctx: CommandRuntimeContext,
   scope: Scope,
   buildingId: string,
   em: ReturnType<typeof resolveEm>,
+  origin: 'write' | 'undo' = 'write',
 ): Promise<DeletedBuildingTree> {
   const result = await em.fork().transactional(async (trx) => {
-    const building = await lockBuilding(trx, scope, buildingId)
+    const building = origin === 'undo' ? await lockWritableBuilding(trx, scope, buildingId) : await lockBuilding(trx, scope, buildingId)
+    if (origin === 'write') await enforceBuildingVersion(ctx, building)
+    await assertBuildingNeverUsed(trx, scope, buildingId)
     const tree = await collectBuildingTree(trx, scope, buildingId)
     const now = new Date()
     building.deletedAt = now
     for (const record of [...tree.floors, ...tree.spaces, ...tree.units, ...tree.commonAreas]) record.deletedAt = now
     return { building, tree }
   })
-  await emitSideEffects(ctx, 'deleted', result.building, { indexer: buildingCrudIndexer, events: buildingCrudEvents })
-  for (const floor of result.tree.floors) await emitSideEffects(ctx, 'deleted', floor, { indexer: floorCrudIndexer })
-  for (const space of result.tree.spaces) await emitSideEffects(ctx, 'deleted', space, { indexer: spaceCrudIndexer })
-  for (const unit of result.tree.units) await emitSideEffects(ctx, 'deleted', unit, { indexer: unitCrudIndexer })
-  for (const area of result.tree.commonAreas) await emitSideEffects(ctx, 'deleted', area, { indexer: commonAreaCrudIndexer })
+  await emitSideEffects(ctx, 'deleted', result.building, { indexer: buildingCrudIndexer, events: buildingCrudEvents }, origin)
+  await emitTreeSideEffects(ctx, 'deleted', result.tree, origin)
   return {
     floorIds: result.tree.floors.map((record) => record.id),
     spaceIds: result.tree.spaces.map((record) => record.id),
@@ -198,10 +270,54 @@ async function softDeleteBuildingTree(
   }
 }
 
-const updateBuildingCommand: CommandHandler<BuildingUpdateInput, { buildingId: string; layout: LayoutChangeSnapshot | null }> = {
+async function enforceBuildingVersion(ctx: CommandRuntimeContext, building: Building): Promise<void> {
+  await enforceCommandOptimisticLockWithGuards(ctx.container, {
+    resourceKind: BUILDING_RESOURCE_KIND,
+    resourceId: building.id,
+    current: building.updatedAt,
+    request: ctx.request ?? null,
+  })
+}
+
+async function assertRevivedUnitProductsUsable(em: ReturnType<typeof resolveEm>, scope: Scope, units: readonly Unit[]): Promise<void> {
+  const productIds = Array.from(new Set(units.map((unit) => unit.catalogProductId))).sort((left, right) => left.localeCompare(right))
+  for (const productId of productIds) {
+    if (!(await lockProductUse(em, scope, productId, 'share'))) await restoredProductUnavailable()
+  }
+}
+
+function stillDeleted<T extends { deletedAt?: Date | null }>(items: readonly T[]): T[] {
+  return items.filter((item) => Boolean(item.deletedAt))
+}
+
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  const set = new Set(left)
+  return right.every((id) => set.has(id))
+}
+
+async function managersChanged(
+  em: ReturnType<typeof resolveEm>,
+  scope: Scope,
+  before: BuildingSnapshot,
+  after: BuildingSnapshot | null | undefined,
+): Promise<boolean> {
+  const previous = Array.isArray(before.managerUserIds) ? before.managerUserIds : []
+  if (after && Array.isArray(after.managerUserIds)) return !sameIds(previous, after.managerUserIds)
+  return !sameIds(previous, await loadManagerIds(em, scope, before.id))
+}
+
+export type BuildingUpdateResult = {
+  buildingId: string
+  layout: LayoutChangeSnapshot | null
+  bookingsOutsideHours: BookingOutsideHours[]
+  bookingsOutsideHoursTotal: number
+}
+
+const updateBuildingCommand: CommandHandler<BuildingUpdateInput, BuildingUpdateResult> = {
   id: 'property_management.building.update',
   prepare: async (input, ctx) => {
-    const before = await snapshotBuilding(ctx, requireId(input?.id))
+    const before = await snapshotBuilding(ctx, requireId(input?.id), input)
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
@@ -217,7 +333,9 @@ const updateBuildingCommand: CommandHandler<BuildingUpdateInput, { buildingId: s
     const validManagers = managerIds ? await assertManagerUsers(em, scope, managerIds) : undefined
     const spaceName = await defaultSpaceName()
     const outcome = await em.fork().transactional(async (trx) => {
-      const building = await lockBuilding(trx, scope, parsed.id)
+      const building = await lockWritableBuilding(trx, scope, parsed.id)
+      await enforceBuildingVersion(ctx, building)
+      const previousName = building.name
       let layout: Awaited<ReturnType<typeof applyFloorLayout>> | null = null
       if (parsed.layout) {
         layout = await applyFloorLayout(trx, scope, building, parsed.layout, spaceName)
@@ -226,22 +344,36 @@ const updateBuildingCommand: CommandHandler<BuildingUpdateInput, { buildingId: s
         await replaceManagers(trx, scope, building.id, validManagers)
         await trx.flush()
       }
+      const previousHours = serializeWeeklyHours((await loadOpeningHours(trx, scope, [building.id])).get(building.id) ?? new Map())
+      const weeklyChanged = parsed.openingHours !== undefined && !sameOpeningHours(previousHours, parsed.openingHours)
+      const enabledChanged = parsed.openingHoursEnabled !== undefined && parsed.openingHoursEnabled !== building.openingHoursEnabled
+      if (parsed.openingHours && weeklyChanged) await replaceOpeningHours(trx, scope, building.id, parsed.openingHours)
       if (parsed.name !== undefined) building.name = parsed.name
       if (parsed.address !== undefined) building.address = parsed.address
+      if (parsed.openingHoursEnabled !== undefined) building.openingHoursEnabled = parsed.openingHoursEnabled
       building.updatedAt = new Date()
-      return { building, layout }
+      await trx.flush()
+      await writeCustomFields(trx, ctx, BUILDING_ENTITY_ID, building, parsed.customFields)
+      return { building, layout, hoursChanged: weeklyChanged || enabledChanged, nameChanged: building.name !== previousName }
     })
-    await emitSideEffects(ctx, 'updated', outcome.building, { indexer: buildingCrudIndexer, events: buildingCrudEvents })
+    const outsideHours = outcome.hoursChanged
+      ? await findBookingsOutsideHours(em.fork(), scope, outcome.building.id, await loadBuildingOpening(em.fork(), scope, outcome.building))
+      : { bookings: [], total: 0 }
+    await emitSideEffects(ctx, 'updated', outcome.building, { indexer: buildingCrudIndexer, events: buildingUpdatedEvents(outcome.nameChanged) })
     if (outcome.layout) {
-      await emitLayoutSideEffects(ctx, {
-        created: outcome.layout.createdFloors,
-        updated: outcome.layout.updatedFloors,
-        removed: outcome.layout.removedFloors,
+      await emitLayoutChangeSideEffects(ctx, outcome.layout.changes, 'write', {
+        buildingRenamed: outcome.nameChanged,
+        renamedFloorIds: renamedFloorIds(outcome.layout.snapshot.updatedFloors, outcome.layout.changes.floors.updated),
       })
     }
-    return { buildingId: outcome.building.id, layout: outcome.layout?.snapshot ?? null }
+    return {
+      buildingId: outcome.building.id,
+      layout: outcome.layout?.snapshot ?? null,
+      bookingsOutsideHours: outsideHours.bookings,
+      bookingsOutsideHoursTotal: outsideHours.total,
+    }
   },
-  captureAfter: async (_input, result, ctx) => snapshotBuilding(ctx, result.buildingId),
+  captureAfter: async (input, result, ctx) => snapshotBuilding(ctx, result.buildingId, input),
   buildLog: async ({ input, result, ctx, snapshots }) => {
     const base = await buildCrudLog(ctx, input, result?.buildingId ?? null, 'property_management.audit.building.update', 'Update building', BUILDING_RESOURCE_KIND)
     const before = snapshots?.before as BuildingSnapshot | undefined
@@ -260,24 +392,41 @@ const updateBuildingCommand: CommandHandler<BuildingUpdateInput, { buildingId: s
     if (!before) return
     const scope = scopeOf(before)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, before.id)
     const em = resolveEm(ctx)
-    const building = await em.fork().transactional(async (trx) => {
-      const record = await lockBuilding(trx, scope, before.id)
-      if (payload?.layout) await revertFloorLayout(trx, scope, payload.layout)
-      await replaceManagers(trx, scope, record.id, before.managerUserIds)
+    const after = payload?.after ?? null
+    const restoresManagers = await canManageAllBuildings({ container: ctx.container, auth: ctx.auth, ...scope, request: ctx.request })
+    const restoredManagers = restoresManagers
+      ? await filterOrganizationUsers(em, scope, Array.isArray(before.managerUserIds) ? before.managerUserIds : [])
+      : null
+    const outcome = await em.fork().transactional(async (trx) => {
+      const record = await lockWritableBuilding(trx, scope, before.id)
+      const previousName = record.name
+      const layout = payload?.layout ? await revertFloorLayout(trx, scope, payload.layout) : null
+      if (restoredManagers && await managersChanged(trx, scope, before, after)) {
+        await replaceManagers(trx, scope, record.id, restoredManagers)
+        await trx.flush()
+      }
+      if (before.openingHours && (!after?.openingHours || !sameOpeningHours(before.openingHours, after.openingHours))) {
+        await replaceOpeningHours(trx, scope, record.id, before.openingHours)
+      }
+      if (!after || after.name !== before.name) record.name = before.name
+      if (!after || after.address !== before.address) record.address = before.address
+      if (!after || after.openingHoursEnabled !== before.openingHoursEnabled) record.openingHoursEnabled = before.openingHoursEnabled
+      record.updatedAt = new Date()
       await trx.flush()
-      record.name = before.name
-      record.address = before.address
-      return record
+      await restoreCustomFields(trx, ctx, BUILDING_ENTITY_ID, record, before.custom, after?.custom)
+      return { record, layout, nameChanged: record.name !== previousName }
     })
-    await emitSideEffects(ctx, 'updated', building, { indexer: buildingCrudIndexer, events: buildingCrudEvents }, 'undo')
+    await emitSideEffects(ctx, 'updated', outcome.record, { indexer: buildingCrudIndexer, events: buildingUpdatedEvents(outcome.nameChanged) }, 'undo')
+    if (outcome.layout) await emitLayoutChangeSideEffects(ctx, outcome.layout, 'undo', { buildingRenamed: outcome.nameChanged })
   },
 }
 
 const deleteBuildingCommand: CommandHandler<BuildingIdInput, { buildingId: string; deleted: DeletedBuildingTree }> = {
   id: 'property_management.building.delete',
   prepare: async (input, ctx) => {
-    const before = await snapshotBuilding(ctx, requireId(input?.id))
+    const before = await snapshotBuilding(ctx, requireId(input?.id), input)
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
@@ -286,21 +435,6 @@ const deleteBuildingCommand: CommandHandler<BuildingIdInput, { buildingId: strin
     ensureScope(ctx, scope)
     const em = resolveEm(ctx)
     const building = await loadBuilding(em, ctx, scope, parsed.id)
-    await enforceCommandOptimisticLockWithGuards(ctx.container, {
-      resourceKind: BUILDING_RESOURCE_KIND,
-      resourceId: building.id,
-      current: building.updatedAt,
-      request: ctx.request ?? null,
-    })
-    const units = await findWithDecryption(em, Unit, { ...scope, buildingId: building.id }, undefined, scope)
-    const used = await findUnitsEverUsed(em, scope, units.map((unit) => unit.id))
-    if (used.length) {
-      await conflict(
-        'property_management.errors.buildingUsed',
-        'This building has had leases or bookings, so it cannot be deleted. Archive it instead.',
-        { code: 'building_used' },
-      )
-    }
     const deleted = await softDeleteBuildingTree(ctx, scope, building.id, em)
     return { buildingId: building.id, deleted }
   },
@@ -316,11 +450,19 @@ const deleteBuildingCommand: CommandHandler<BuildingIdInput, { buildingId: strin
     if (!before) return
     const scope = scopeOf(before)
     ensureScope(ctx, scope)
+    await assertCtxBuildingAccess(ctx, scope, before.id)
     const em = resolveEm(ctx)
     const deleted = payload?.deleted
-    const building = await em.fork().transactional(async (trx) => {
-      const record = await findOneWithDecryption(trx, Building, { id: before.id, ...scope }, undefined, scope)
+    const outcome = await em.fork().transactional(async (trx) => {
+      const record = await findOneWithDecryption(
+        trx,
+        Building,
+        { id: before.id, ...scope },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        scope,
+      )
       if (!record) return null
+      if (!record.deletedAt) return { record, tree: null }
       const [floors, spaces, units, commonAreas] = deleted
         ? await Promise.all([
             deleted.floorIds.length ? findWithDecryption(trx, Floor, { ...scope, id: { $in: deleted.floorIds } }, undefined, scope) : Promise.resolve([]),
@@ -329,11 +471,20 @@ const deleteBuildingCommand: CommandHandler<BuildingIdInput, { buildingId: strin
             deleted.commonAreaIds.length ? findWithDecryption(trx, CommonArea, { ...scope, id: { $in: deleted.commonAreaIds } }, undefined, scope) : Promise.resolve([]),
           ])
         : [[], [], [], []]
+      const tree: BuildingTree = {
+        floors: stillDeleted(floors),
+        spaces: stillDeleted(spaces),
+        units: stillDeleted(units),
+        commonAreas: stillDeleted(commonAreas),
+      }
+      await assertRevivedUnitProductsUsable(trx, scope, tree.units)
       record.deletedAt = null
-      for (const item of [...floors, ...spaces, ...units, ...commonAreas]) item.deletedAt = null
-      return record
+      for (const item of [...tree.floors, ...tree.spaces, ...tree.units, ...tree.commonAreas]) item.deletedAt = null
+      return { record, tree }
     })
-    if (building) await emitSideEffects(ctx, 'created', building, { indexer: buildingCrudIndexer, events: buildingCrudEvents }, 'undo')
+    if (!outcome?.tree) return
+    await emitSideEffects(ctx, 'created', outcome.record, { indexer: buildingCrudIndexer, events: buildingCrudEvents }, 'undo')
+    await emitTreeSideEffects(ctx, 'created', outcome.tree, 'undo')
   },
 }
 
@@ -345,24 +496,19 @@ const archiveBuildingCommand: CommandHandler<BuildingIdInput, { buildingId: stri
     ensureScope(ctx, scope)
     const em = resolveEm(ctx)
     const current = await loadBuilding(em, ctx, scope, parsed.id)
-    await enforceCommandOptimisticLockWithGuards(ctx.container, {
-      resourceKind: BUILDING_RESOURCE_KIND,
-      resourceId: current.id,
-      current: current.updatedAt,
-      request: ctx.request ?? null,
-    })
     if (current.status === 'archived') {
       await conflict('property_management.errors.buildingArchived', 'An archived building cannot be changed.')
     }
     const building = await em.fork().transactional(async (trx) => {
-      const record = await lockBuilding(trx, scope, parsed.id)
-      const units = await findWithDecryption(trx, Unit, { ...scope, buildingId: record.id, deletedAt: null }, undefined, scope)
-      const blockers = await findUnitBlockers(trx, scope, units.map((unit) => unit.id))
-      if (blockers.length) {
+      const record = await lockWritableBuilding(trx, scope, parsed.id)
+      await enforceBuildingVersion(ctx, record)
+      const units = await findWithDecryption(trx, Unit, { ...scope, buildingId: record.id, deletedAt: null }, { fields: ['id'] }, scope)
+      const blockers = await findUnitBlockerList(trx, scope, units.map((unit) => unit.id))
+      if (blockers.total) {
         await conflict(
           'property_management.errors.buildingArchiveBlocked',
           'This building still has active leases or upcoming bookings.',
-          { code: 'building_archive_blocked', blockers },
+          { code: 'building_archive_blocked', ...usageBlockerConflictBody(blockers) },
         )
       }
       record.status = 'archived'
@@ -370,11 +516,14 @@ const archiveBuildingCommand: CommandHandler<BuildingIdInput, { buildingId: stri
       return record
     })
     await emitSideEffects(ctx, 'updated', building, { indexer: buildingCrudIndexer })
-    void emitPropertyManagementEvent('property_management.building.archived', {
+    await emitPropertyManagementEvent('property_management.building.archived', {
       id: building.id,
       tenantId: building.tenantId,
       organizationId: building.organizationId,
-    }, { persistent: true }).catch(() => undefined)
+    }, persistentEventOptions(scopeOf(building))).catch((err: unknown) => {
+      logger.error('Building archived event failed', { buildingId: building.id, err })
+      getTelemetryRuntime()?.reportError(err, { module: 'property_management', code: 'property_management.building_archived_event_failed' })
+    })
     return { buildingId: building.id }
   },
   buildLog: async ({ input, result, ctx }) =>

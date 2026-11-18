@@ -20,3 +20,7 @@ export function rectStyle(rect: { x: number; y: number; width: number; depth: nu
     height: `${(rect.depth / safeY) * 100}%`,
   }
 }
+
+export const HATCH_STYLE = {
+  backgroundImage: 'repeating-linear-gradient(135deg, var(--status-warning-icon) 0 1px, transparent 1px 8px)',
+}

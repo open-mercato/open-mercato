@@ -5,7 +5,7 @@ import { listManagerCandidates } from '../../lib/managers'
 import { handleRouteError, resolveStaffContext } from '../routeContext'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['property_management.buildings.manage_all'] },
+  GET: { requireAuth: true, requireFeatures: ['property_management.manage', 'property_management.buildings.manage_all'] },
 }
 
 const querySchema = z.object({ search: z.string().max(200).optional() })
@@ -33,6 +33,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Staff users that can be assigned as building managers',
+      description: 'Requires property_management.manage and property_management.buildings.manage_all.',
       query: querySchema,
       responses: [{ status: 200, description: 'Candidates', schema: responseSchema }],
     },

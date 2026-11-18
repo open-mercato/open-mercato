@@ -6,12 +6,13 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { CANCEL_SETTLEMENT_VALUES, leaseEndBodySchema, leaseEndSchema } from '../../../../data/validators'
 import { loadPermittedLease } from '../../../../lib/leaseRecords'
-import { defaultRecurrenceReader, loadBilledVersions, planLeaseEnd } from '../../../../lib/leaseEndPlan'
+import { defaultRecurrenceReader, loadBilledVersions, memoizeRecurrenceReader, planLeaseEnd } from '../../../../lib/leaseEndPlan'
 import { hasCreditPermission } from '../../../../lib/creditPermission'
 import { defaultCancelSettlement, isRecurrenceCancelAvailable } from '../../../../lib/salesRecurrence'
 import { isIsoDate } from '../../../../lib/leaseTerm'
 import { LEASE_RESOURCE_KIND, type LeaseChangeResult } from '../../../../commands/lease'
-import { handleRouteError, readRouteParam, resolveStaffContext, runStaffGuard } from '../../../routeContext'
+import { guardedCommandInput, handleRouteError, readRouteParam, resolveStaffContext, runStaffGuard } from '../../../routeContext'
+import { buildQueryParams } from '@open-mercato/shared/lib/crud/query-params'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['property_management.leases.manage'] },
@@ -29,9 +30,9 @@ export async function GET(req: Request, routeCtx: RouteContext) {
     if (!id) return NextResponse.json({ error: context.translate('property_management.errors.leaseNotFound', 'Lease not found.') }, { status: 404 })
     const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
     const lease = await loadPermittedLease(context.em, scope, context.permitted, id)
-    const query = previewQuerySchema.parse(Object.fromEntries(new URL(req.url).searchParams))
+    const query = previewQuerySchema.parse(buildQueryParams(new URL(req.url).searchParams))
     const versions = await loadBilledVersions(context.em, scope, lease.id)
-    const reader = defaultRecurrenceReader(context.em, scope)
+    const reader = memoizeRecurrenceReader(defaultRecurrenceReader(context.em, scope))
     const [canCredit, defaultSettlement, cancelAvailable] = await Promise.all([
       hasCreditPermission(context.ctx.container, context.ctx.auth, scope),
       defaultCancelSettlement(context.em, scope),
@@ -57,9 +58,10 @@ export async function POST(req: Request, routeCtx: RouteContext) {
     if (!id) return NextResponse.json({ error: context.translate('property_management.errors.leaseNotFound', 'Lease not found.') }, { status: 404 })
     const body = leaseEndBodySchema.parse((await readJsonSafe<Record<string, unknown>>(req, {})) ?? {})
     const input = leaseEndSchema.parse({ ...body, id, tenantId: context.tenantId, organizationId: context.organizationId })
+    await loadPermittedLease(context.em, { tenantId: context.tenantId, organizationId: context.organizationId }, context.permitted, id)
     const guarded = await runStaffGuard(req, context, { resourceKind: LEASE_RESOURCE_KIND, resourceId: id, operation: 'update', payload: { ...input } })
     if (!guarded.ok) return guarded.response
-    const commandInput = guarded.modifiedPayload ? leaseEndSchema.parse(guarded.modifiedPayload) : input
+    const commandInput = guardedCommandInput(leaseEndSchema, guarded, input, { id, tenantId: context.tenantId, organizationId: context.organizationId })
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<typeof commandInput, LeaseChangeResult>('property_management.lease.end', { input: commandInput, ctx: context.ctx })
     await guarded.runAfterSuccess()
@@ -109,7 +111,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'The settlement would credit an invoice and the caller lacks sales.credit_memos.manage' },
         { status: 404, description: 'Lease not found or its building is not assigned to the caller' },
-        { status: 409, description: 'lease_end_later_than_current, lease_already_ended, lease_change_pending, lease_not_active' },
+        { status: 409, description: 'lease_end_later_than_current, lease_already_ended, lease_change_pending, lease_not_active, lease_billing_cancel_unavailable (sales cannot cancel recurring orders yet and the end needs a cancellation)' },
         { status: 422, description: 'End before the start date' },
       ],
     },
