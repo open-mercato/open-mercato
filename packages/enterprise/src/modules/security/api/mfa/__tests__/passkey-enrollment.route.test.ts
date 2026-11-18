@@ -1,3 +1,4 @@
+jest.mock('../../../lib/mfa-sudo', () => ({ requireMfaEnrollmentSudo: jest.fn().mockResolvedValue(undefined) }))
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { generateRegistrationOptions, verifyRegistrationResponse } from '@simplewebauthn/server'
 import { emitSecurityEvent } from '../../../events'
@@ -50,6 +51,7 @@ describe('passkey enrollment route with the real service and provider', () => {
     }
     const pending = { ...method }
     const em = {
+      count: jest.fn(async () => 0),
       transactional: jest.fn(async (callback: (transaction: unknown) => Promise<unknown>): Promise<unknown> => callback(em)),
       execute: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => query.secret === setup.setupId ? method : null),

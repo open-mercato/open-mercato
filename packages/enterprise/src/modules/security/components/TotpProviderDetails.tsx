@@ -1,13 +1,13 @@
 'use client'
 
 import * as React from 'react'
+import { useMfaMutation } from './hooks/useMfaMutation'
 import { formatDistanceToNow } from 'date-fns'
 import { Loader2, Smartphone, Trash2 } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation.js'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -78,6 +78,7 @@ export default function TotpProviderDetails({
   onMethodsChanged,
 }: TotpProviderDetailsProps) {
   const t = useT()
+  const mutateMfa = useMfaMutation()
   const router = useRouter()
   const [loading, setLoading] = React.useState(false)
   const [setup, setSetup] = React.useState<TotpSetupState | null>(null)
@@ -91,7 +92,7 @@ export default function TotpProviderDetails({
     setLoading(true)
     setSetupError(null)
     try {
-      const result = await readApiResultOrThrow<TotpSetupResponse>(
+      const result = await mutateMfa<TotpSetupResponse>(
         '/api/security/mfa/provider/totp',
         {
           method: 'POST',
@@ -110,14 +111,14 @@ export default function TotpProviderDetails({
     } finally {
       setLoading(false)
     }
-  }, [hasConfiguredMethod, t])
+  }, [hasConfiguredMethod, mutateMfa, t])
 
   const confirmSetup = React.useCallback(async () => {
     if (!setup || hasConfiguredMethod || code.trim().length === 0) return
     setLoading(true)
     setSetupError(null)
     try {
-      await readApiResultOrThrow<TotpConfirmResponse>(
+      await mutateMfa<TotpConfirmResponse>(
         '/api/security/mfa/provider/totp',
         {
           method: 'PUT',
@@ -146,7 +147,7 @@ export default function TotpProviderDetails({
     } finally {
       setLoading(false)
     }
-  }, [code, hasConfiguredMethod, onMethodsChanged, router, setup, t])
+  }, [code, hasConfiguredMethod, mutateMfa, onMethodsChanged, router, setup, t])
 
   React.useEffect(() => {
     if (hasConfiguredMethod || setup != null) return

@@ -1,5 +1,7 @@
 'use client'
 
+import { SudoProvider } from '../../../../../components/SudoProvider'
+
 import * as React from 'react'
 import { useRouter } from 'next/navigation.js'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -20,7 +22,7 @@ type MfaProviderMethodsPageProps = {
   }
 }
 
-export default function MfaProviderMethodsPage({ params }: MfaProviderMethodsPageProps) {
+function MfaProviderMethodsPageContent({ params }: MfaProviderMethodsPageProps) {
   const t = useT()
   const router = useRouter()
   const providerType = (params?.providername ?? '').trim()
@@ -132,4 +134,8 @@ export default function MfaProviderMethodsPage({ params }: MfaProviderMethodsPag
       </PageBody>
     </Page>
   )
+}
+
+export default function MfaProviderMethodsPage({ params }: MfaProviderMethodsPageProps) {
+  return <SudoProvider><MfaProviderMethodsPageContent params={params} /></SudoProvider>
 }

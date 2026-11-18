@@ -1,5 +1,7 @@
 'use client'
 
+import { SudoProvider } from '../../../../components/SudoProvider'
+
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation.js'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -69,7 +71,7 @@ export function ProviderListCell({ row, onOpenProvider }: ProviderListCellProps)
   )
 }
 
-export default function SecurityMfaPage() {
+function SecurityMfaPageContent() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -160,4 +162,8 @@ export default function SecurityMfaPage() {
       </PageBody>
     </Page>
   )
+}
+
+export default function SecurityMfaPage() {
+  return <SudoProvider><SecurityMfaPageContent /></SudoProvider>
 }

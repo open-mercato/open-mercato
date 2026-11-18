@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { isSudoRequiredError } from '../../lib/sudo-middleware'
 import { z } from 'zod'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -117,6 +118,9 @@ export function readString(value: unknown): string | null {
 }
 
 export async function mapMfaError(error: unknown): Promise<NextResponse> {
+  if (isSudoRequiredError(error)) {
+    return NextResponse.json(error.body, { status: error.statusCode })
+  }
   if (error instanceof CrudHttpError) {
     return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
   }

@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import type {
   MfaMethodRecord,
   MfaProviderInterface,
   MfaProviderUser,
+  MfaProviderRuntimeContext,
   MfaVerifyContext,
 } from '../mfa-provider-interface'
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from '../otp'
@@ -19,7 +21,7 @@ const setupPayloadSchema = z.object({
 })
 
 const confirmPayloadSchema = z.object({
-  email: z.string().email().optional(),
+  code: z.string().regex(/^\d{6}$/),
   label: z.string().min(1).max(100).optional(),
 })
 
@@ -29,9 +31,12 @@ const verifyPayloadSchema = z.object({
 
 type PendingSetup = {
   userId: string
-  email?: string
+  email: string
   label?: string
+  codeHash: string
   createdAt: number
+  attempts: number
+  verifying?: boolean
 }
 
 type PendingOtpChallenge = {
@@ -79,8 +84,22 @@ export class OtpEmailProvider implements MfaProviderInterface {
     }
   }
 
-  async setup(userId: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
+  async setup(userId: string, payload: unknown, context?: MfaProviderRuntimeContext): Promise<{ setupId: string; clientData: Record<string, unknown> }> {
     const parsed = setupPayloadSchema.parse(payload ?? {})
+    if (!parsed.email) throw new Error('[internal] Email OTP destination is required')
+    const code = generateOtpCode()
+    const codeHash = await hashOtpCode(code)
+    const auth = context?.request ? await getAuthFromRequest(context.request) : null
+    await sendEmail({
+      to: parsed.email,
+      tenantId: auth?.tenantId ?? undefined,
+      organizationId: auth?.orgId ?? null,
+      subject: this.securityConfig.otpEmail.subject,
+      react: OtpCodeEmail({
+        code,
+        expiresInMinutes: Math.max(1, Math.ceil(this.securityConfig.otpEmail.setupTtlMs / (60 * 1000))),
+      }),
+    })
     const setupId = randomBytes(16).toString('hex')
     const now = Date.now()
     this.cleanupExpiredSetups(now)
@@ -88,13 +107,16 @@ export class OtpEmailProvider implements MfaProviderInterface {
       userId,
       email: parsed.email,
       label: parsed.label,
+      codeHash,
       createdAt: now,
+      attempts: 0,
     })
     return {
       setupId,
       clientData: {
         channel: 'email',
         emailHint: this.maskEmail(parsed.email),
+        ...(parseBooleanWithDefault(process.env.OM_TEST_MODE, false) ? { code } : {}),
       },
     }
   }
@@ -113,8 +135,24 @@ export class OtpEmailProvider implements MfaProviderInterface {
       this.pendingSetups.delete(setupId)
       throw new Error('Email OTP setup session expired')
     }
+    if (pending.verifying) throw new Error('[internal] Email OTP setup verification in progress')
+    pending.verifying = true
+    pending.attempts += 1
+    let valid: boolean
+    try {
+      valid = await verifyOtpCode(parsed.code, pending.codeHash)
+    } finally {
+      pending.verifying = false
+    }
+    if (!valid) {
+      if (pending.attempts >= 5) this.pendingSetups.delete(setupId)
+      throw new z.ZodError([{ code: 'custom', path: ['code'], message: 'Invalid payload' }])
+    }
+    if (this.pendingSetups.get(setupId) !== pending) {
+      throw new Error('[internal] Email OTP setup session consumed')
+    }
     this.pendingSetups.delete(setupId)
-    const email = parsed.email ?? pending.email
+    const email = pending.email
     return {
       metadata: {
         email,

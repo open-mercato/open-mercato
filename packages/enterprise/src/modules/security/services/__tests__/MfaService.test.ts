@@ -1,3 +1,4 @@
+jest.mock('../../lib/mfa-sudo', () => ({ requireMfaEnrollmentSudo: jest.fn().mockResolvedValue(undefined) }))
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { UserMfaMethod } from '../../data/entities'

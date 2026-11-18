@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { requireMfaEnrollmentSudo } from '../lib/mfa-sudo'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { ZodError } from 'zod'
@@ -122,6 +123,11 @@ export class MfaService {
       }
 
       await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple, em)
+
+      if (context?.request) {
+        const activeMethodCount = await em.count(UserMfaMethod, { userId, isActive: true, deletedAt: null })
+        await requireMfaEnrollmentSudo(context.request, userId, activeMethodCount > 0)
+      }
 
       let confirmation: MfaProviderConfirmResult
       try {

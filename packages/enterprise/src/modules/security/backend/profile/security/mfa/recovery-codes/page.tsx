@@ -1,11 +1,13 @@
 'use client'
 
+import { SudoProvider } from '../../../../../components/SudoProvider'
+
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms/FormHeader'
 import RecoveryCodesProviderDetails from '../../../../../components/RecoveryCodesProviderDetails'
 
-export default function RecoveryCodesPage() {
+function RecoveryCodesPageContent() {
   const t = useT()
 
   return (
@@ -25,4 +27,8 @@ export default function RecoveryCodesPage() {
       </PageBody>
     </Page>
   )
+}
+
+export default function RecoveryCodesPage() {
+  return <SudoProvider><RecoveryCodesPageContent /></SudoProvider>
 }
