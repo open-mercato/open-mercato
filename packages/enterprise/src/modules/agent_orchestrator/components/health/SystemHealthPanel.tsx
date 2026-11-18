@@ -10,14 +10,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { HealthIndicator, HealthIndicatorId, WebSearchHealthPayload } from '../../lib/systemHealth'
 import { HealthRow } from './HealthRow'
 import { HealthStateBadge } from './HealthStateBadge'
-import { formatProbeAge } from './vocabulary'
-
-const INDICATOR_LABEL_KEY: Record<HealthIndicatorId, string> = {
-  webSearch: 'agent_orchestrator.overview.health.webSearch',
-  mcp: 'agent_orchestrator.overview.health.mcp',
-  opencode: 'agent_orchestrator.overview.health.opencode',
-  opencodeMcp: 'agent_orchestrator.overview.health.opencodeMcp',
-}
+import { HEALTH_INDICATOR_LABEL_KEY, formatProbeAge } from './vocabulary'
 
 const RUNTIME_ORDER: HealthIndicatorId[] = ['mcp', 'opencode', 'opencodeMcp']
 
@@ -54,6 +47,7 @@ export function SystemHealthPanel({
   }, [indicators])
 
   const webSearchIndicator = byId.get('webSearch')
+  const otelExportIndicator = byId.get('otelExport')
   const enabledAdapters = webSearch?.adapters.filter((adapter) => adapter.enabled) ?? []
   const disabledAdapters = webSearch?.adapters.filter((adapter) => !adapter.enabled) ?? []
   const disabledIds = disabledAdapters.map((adapter) => adapter.id).join(', ')
@@ -101,7 +95,7 @@ export function SystemHealthPanel({
               return (
                 <HealthRow
                   key={id}
-                  label={t(INDICATOR_LABEL_KEY[id])}
+                  label={t(HEALTH_INDICATOR_LABEL_KEY[id])}
                   detail={indicator.detail}
                   trailing={<HealthStateBadge state={indicator.state} />}
                 />
@@ -109,6 +103,21 @@ export function SystemHealthPanel({
             })}
           </ul>
         </section>
+
+        {otelExportIndicator ? (
+          <section className="space-y-1.5 border-t border-border pt-2">
+            <p className="text-overline font-semibold uppercase tracking-widest text-muted-foreground">
+              {t('agent_orchestrator.health.otelExport.section', 'Telemetry export')}
+            </p>
+            <ul className="space-y-1.5">
+              <HealthRow
+                label={t(HEALTH_INDICATOR_LABEL_KEY.otelExport)}
+                detail={otelExportIndicator.detail}
+                trailing={<HealthStateBadge state={otelExportIndicator.state} />}
+              />
+            </ul>
+          </section>
+        ) : null}
 
         {webSearchIndicator ? (
           <section className="space-y-1.5 border-t border-border pt-2">
