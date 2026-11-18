@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 188 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 189 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,6 +18,7 @@ This catalog indexes 188 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
 - [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context
 
 - [Stabilization CI must not follow label churn](lessons/stabilization-ci-must-not-follow-label-churn.md) — area:ai-workflow,testing; module:platform; topic:ci-scheduling,stabilization,required-checks,regression-testing
