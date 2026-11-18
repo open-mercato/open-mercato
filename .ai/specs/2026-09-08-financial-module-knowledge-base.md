@@ -493,7 +493,7 @@ Fowler nor Hay use those exact terms):**
   different book from the Kieso one above — good secondary confirmation,
   but Kieso above is now the stronger citation since it was checked as a
   complete book.
-  3. **New 2026-09-17, for Annual Financial Statements** — three more
+  3. **New 2026-09-17, for Annual Financial Statements (Kieso 17e, not Spiceland)** — three more
      Confirmed hits: Ch.5 "Balance Sheet and Statement of Cash Flows,"
      "Classification in the Balance Sheet" (pp.5-5–5-6, Illustration
      5.1) — the general classified format (Current assets / Long-term
@@ -555,7 +555,9 @@ compliant*):**
   accounting coverage relative to this project's real requirements.
 - Hay, *Data Model Patterns* — ch.7 "Accounting" (pseudo-entity Account/
   Account Type, Account Categories and Structure, Cost/Revenue Center
-  Assignment) — read in full; the ACCOUNTS PAYABLE pseudo-entity discussion
+  Assignment) — available pages read; printed pages 136–137 are missing
+  (see the [partial-PDF note](#2026-10-26-cont--hays-pdf-is-partial-every-hay-absence-means-in-the-pages-available));
+  the ACCOUNTS PAYABLE pseudo-entity discussion
   (pp.124–130) is the closest real textual match to our control-account
   design of anything found so far. **Confirmed and applied 2026-09-15**
   in Accounts Payable's own new Literature & Prior Art section: Figure
