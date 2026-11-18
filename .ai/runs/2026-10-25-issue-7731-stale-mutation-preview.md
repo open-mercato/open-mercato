@@ -61,3 +61,10 @@ Runner: local, focused fallback for the new correction under the repository CI-f
 Carried forward from #7756 by `om-auto-review-pr` autofix, preserving @haxiorz authorship. Current main `fca667374c88b5bd5cbed5cbfd68da86db583389` integrated cleanly. No production conflict resolution was needed; owner scopes, argument-based request identity, confirmed/executing TTL reuse, encryption and confirmation rechecks remain unchanged.
 
 Runner: local, narrow fallback before the new candidate had hosted checks. Preparation/repository/recheck suites: 73 tests passed; AI-assistant package build and target-relative whitespace check passed. Fresh hosted CI and legitimate live single/bulk stale-preview and already-executed QA remain the orchestrator’s next gates. Historical NOT EXERCISED browser QA is not approval.
+
+## Security remediation — 2026-11-18
+
+- [x] 3.1 Retire a superseded pending approval before inserting its replacement: the row moves to the existing terminal `cancelled` state (no state-machine/API change — an existing edge applied at the supersede site), so a later confirm of the stale id is rejected with `409 invalid_status`. The existing-row read takes a pessimistic write lock so a concurrent confirm either wins (create reuses it) or loses deterministically. — 2c6c3b7fc7
+- [x] 3.2 Regressions: plain preview change, unchanged/null `recordVersion`, and both orderings of the replacement/confirm race. — 2c6c3b7fc7
+
+Runner: local focused fallback for the changed package (repository + preparation suites: 49 tests pass); hosted CI remains the merge gate. The prior finding is the one from review 5747272318; no other actionable finding was open.
