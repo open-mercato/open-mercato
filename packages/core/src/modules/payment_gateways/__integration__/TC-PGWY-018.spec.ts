@@ -29,6 +29,15 @@ test.describe('TC-PGWY-018: Non-existent resource lookups', () => {
     const statusBody = await readJsonSafe<{ error?: string }>(status)
     expect(statusBody?.error, 'status reports transaction not found').toMatch(/not found/i)
 
+    for (const action of ['capture', 'refund']) {
+      const response = await apiRequest(request, 'POST', `/api/payment_gateways/${action}`, {
+        token,
+        data: { transactionId: unknownTransactionId, amount: 1 },
+      })
+      expect(response.status(), `unknown transaction ${action} is not found`).toBe(404)
+      expect(await readJsonSafe(response)).toEqual({ error: 'Transaction not found' })
+    }
+
     const provider = await apiRequest(request, 'GET', '/api/payment_gateways/providers/definitely-not-a-real-provider', { token })
     expect(provider.status(), 'unknown provider descriptor is not found').toBe(404)
     const providerBody = await readJsonSafe<{ error?: string }>(provider)

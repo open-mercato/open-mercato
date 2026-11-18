@@ -31,6 +31,7 @@ const OPERATION_ID = '22222222-2222-4222-8222-222222222222'
 const RESOURCE_KIND = 'payment_gateways.gateway_transaction'
 
 const service = {
+  findTransaction: jest.fn(),
   createPaymentSession: jest.fn(),
   capturePayment: jest.fn(),
   refundPayment: jest.fn(),
@@ -59,6 +60,7 @@ beforeEach(() => {
     transaction: { id: 'txn_created', providerKey: 'stripe', paymentId: 'pay_1' },
     session: { sessionId: 'sess_1', status: 'pending', clientSecret: null, providerData: null, clientSession: null },
   })
+  service.findTransaction.mockResolvedValue({ id: TXN_ID })
   service.capturePayment.mockResolvedValue({ ok: true })
   service.refundPayment.mockResolvedValue({ ok: true })
   service.cancelPayment.mockResolvedValue({ ok: true })
@@ -155,6 +157,39 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
       const response = await capturePayment(buildRequest(body))
       expect(response.status).toBe(423)
       expect(service.capturePayment).not.toHaveBeenCalled()
+      expect(service.findTransaction).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 for a transaction outside the current scope without capture', async () => {
+      service.findTransaction.mockResolvedValue(null)
+
+      const response = await capturePayment(buildRequest(body))
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: 'Transaction not found' })
+      expect(service.findTransaction).toHaveBeenCalledWith(TXN_ID, { organizationId: 'o1', tenantId: 't1' })
+      expect(service.capturePayment).not.toHaveBeenCalled()
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
+    })
+
+    it.each(['provider timeout', 'Transaction not found'])('keeps provider errors as 502: %s', async (message) => {
+      service.capturePayment.mockRejectedValue(new Error(message))
+
+      const response = await capturePayment(buildRequest(body))
+
+      expect(response.status).toBe(502)
+      expect(await response.json()).toEqual({ error: message })
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
+    })
+
+    it('preserves typed business conflicts as 409', async () => {
+      service.capturePayment.mockRejectedValue(conflict('Invalid payment status transition'))
+
+      const response = await capturePayment(buildRequest(body))
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: 'Invalid payment status transition' })
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
     })
 
     it('runs after-success hooks once the capture succeeds', async () => {
@@ -187,6 +222,39 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
       const response = await refundPayment(buildRequest(body))
       expect(response.status).toBe(423)
       expect(service.refundPayment).not.toHaveBeenCalled()
+      expect(service.findTransaction).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 for a transaction outside the current scope without refund', async () => {
+      service.findTransaction.mockResolvedValue(null)
+
+      const response = await refundPayment(buildRequest(body))
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: 'Transaction not found' })
+      expect(service.findTransaction).toHaveBeenCalledWith(TXN_ID, { organizationId: 'o1', tenantId: 't1' })
+      expect(service.refundPayment).not.toHaveBeenCalled()
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
+    })
+
+    it.each(['provider timeout', 'Transaction not found'])('keeps provider errors as 502: %s', async (message) => {
+      service.refundPayment.mockRejectedValue(new Error(message))
+
+      const response = await refundPayment(buildRequest(body))
+
+      expect(response.status).toBe(502)
+      expect(await response.json()).toEqual({ error: message })
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
+    })
+
+    it('preserves typed business conflicts as 409', async () => {
+      service.refundPayment.mockRejectedValue(conflict('Invalid payment status transition'))
+
+      const response = await refundPayment(buildRequest(body))
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: 'Invalid payment status transition' })
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
     })
 
     it('runs after-success hooks once the refund succeeds', async () => {

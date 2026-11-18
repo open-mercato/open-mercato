@@ -5,6 +5,7 @@
   "payment_gateways.errors.sessionAmountMismatch": "결제 세션 금액 {amount}가 주문 {orderId}에 대한 금액과 일치하지 않습니다.",
   "payment_gateways.errors.sessionCurrencyMismatch": "결제 세션 통화 {currencyCode}가 주문 통화 {orderId}와 일치하지 않습니다.",
   "payment_gateways.errors.sessionOrderNotFound": "현재 범위에서 {orderId} 주문을 찾을 수 없습니다.",
+  "payment_gateways.errors.transactionNotFound": "거래를 찾을 수 없습니다",
   "payment_gateways.feature.capture": "승인된 결제 청구",
   "payment_gateways.feature.manage": "결제 세션 관리",
   "payment_gateways.feature.refund": "청구된 결제 환불",
