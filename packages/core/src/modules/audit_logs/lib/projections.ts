@@ -97,9 +97,36 @@ export function deriveActionLogChangedFields(
   ).sort((left, right) => left.localeCompare(right))
 }
 
+export const ACTION_LOG_CORRELATION_KEYS_MAX = 16
+
+const CORRELATION_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
+const CORRELATION_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const CORRELATION_SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
+
+function isIdShapedCorrelationValue(value: string): boolean {
+  return CORRELATION_UUID_PATTERN.test(value) || CORRELATION_SAFE_ID_PATTERN.test(value)
+}
+
+export function deriveActionLogCorrelationKeys(context: Record<string, unknown> | null | undefined): string[] {
+  const correlation = isRecord(context) ? context.correlation : undefined
+  if (!isRecord(correlation)) return []
+
+  const keys = new Set<string>()
+  for (const [key, value] of Object.entries(correlation)) {
+    if (!CORRELATION_KEY_PATTERN.test(key)) continue
+    if (typeof value !== 'string' || !isIdShapedCorrelationValue(value)) continue
+    keys.add(`${key}:${value}`)
+  }
+
+  return Array.from(keys)
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, ACTION_LOG_CORRELATION_KEYS_MAX)
+}
+
 export function deriveActionLogProjection(input: ProjectionInput): {
   actionType: ActionLogProjectionType
   changedFields: string[]
+  correlationKeys: string[]
   primaryChangedField: string | null
   sourceKey: ActionLogSourceKey
 } {
@@ -108,6 +135,7 @@ export function deriveActionLogProjection(input: ProjectionInput): {
   return {
     actionType: deriveActionLogActionType(input),
     changedFields,
+    correlationKeys: deriveActionLogCorrelationKeys(input.context),
     primaryChangedField: changedFields[0] ?? null,
     sourceKey: deriveActionLogSource(input.context, input.actorUserId),
   }
