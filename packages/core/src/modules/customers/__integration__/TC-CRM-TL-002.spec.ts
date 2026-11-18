@@ -531,6 +531,13 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
           expect(placement!.startsAfterLane, 'the current column is not hidden behind the pinned lane column').toBe(true);
           expect(placement!.startsInsideGrid, 'the current column is visible without scrolling at 390px').toBe(true);
           await expect(timelineCard(page, dealId)).toBeVisible();
+          const pageScrollWidth = () => page.evaluate(() => document.documentElement.scrollWidth);
+          expect(await pageScrollWidth(), 'only the grid scrolls sideways on a phone, not the page').toBeLessThanOrEqual(390);
+          for (const control of ['Previous', 'Today', 'Next']) {
+            await page.getByRole('button', { name: control, exact: true }).first().click();
+            await expect(page.locator('[role="grid"][aria-busy="true"]')).toHaveCount(0, { timeout: 60_000 });
+            expect(await pageScrollWidth(), `no page-level horizontal scroll after ${control} at 390px`).toBeLessThanOrEqual(390);
+          }
         }
       }
     } finally {

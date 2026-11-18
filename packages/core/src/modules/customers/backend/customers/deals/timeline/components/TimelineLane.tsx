@@ -240,7 +240,7 @@ export function TimelineLane({
             showWon={showWonAmounts}
             scopeLabel={display.label}
             capped={amountsCapped}
-            layout={compactHeader ? 'stacked' : 'inline'}
+            layout="stacked"
           />
         </div>
       </div>

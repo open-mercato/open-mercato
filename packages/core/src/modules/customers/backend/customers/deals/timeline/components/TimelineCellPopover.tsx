@@ -150,26 +150,28 @@ export function TimelineCellPopover({
                     className="flex h-auto w-full flex-col items-stretch gap-0.5 px-2 py-1.5 text-left"
                     onClick={(event) => onOpenDeal(item, event.currentTarget)}
                   >
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {item.title || translateWithFallback(t, 'customers.deals.pipeline.untitled', 'Untitled deal')}
-                    </span>
-                    <span className="flex items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
-                      <span className="truncate">{item.primaryCompany?.label ?? ''}</span>
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-sm font-medium text-foreground">
+                        {item.title || translateWithFallback(t, 'customers.deals.pipeline.untitled', 'Untitled deal')}
+                      </span>
                       <span
-                        className={`inline-flex shrink-0 items-center gap-1 ${overdue ? 'text-status-error-text' : ''}`}
+                        className={`inline-flex shrink-0 items-center gap-1 text-xs font-normal ${
+                          overdue ? 'text-status-error-text' : 'text-muted-foreground'
+                        }`}
                       >
                         {overdue ? <AlertTriangle className="size-3" aria-hidden="true" /> : null}
                         {formatTimelineDate(item.expectedCloseAt, locale) ?? ''}
                       </span>
                     </span>
-                    {value || closed ? (
+                    {item.primaryCompany?.label || value || closed ? (
                       <span className="flex items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
-                        <span className="truncate">{value ?? ''}</span>
-                        {closed ? (
-                          <StatusBadge variant={CLOSED_KIND_VARIANT[closed]} className="shrink-0">
-                            {timelineClosedLabel(t, closed)}
-                          </StatusBadge>
-                        ) : null}
+                        <span className="min-w-0 truncate">{item.primaryCompany?.label ?? ''}</span>
+                        <span className="inline-flex shrink-0 items-center gap-2">
+                          {value ? <span className="tabular-nums">{value}</span> : null}
+                          {closed ? (
+                            <StatusBadge variant={CLOSED_KIND_VARIANT[closed]}>{timelineClosedLabel(t, closed)}</StatusBadge>
+                          ) : null}
+                        </span>
                       </span>
                     ) : null}
                   </Button>

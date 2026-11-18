@@ -1316,7 +1316,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
             aria-busy={isLoadingInitial || isRefreshing}
             aria-label={translateWithFallback(t, 'customers.nav.deals.timeline', 'Deals Timeline')}
             onKeyDown={handleKeyNavigation}
-            className={`overflow-x-auto rounded-lg border border-border transition-opacity ${isRefreshing ? 'opacity-60' : ''}`}
+            className={`relative overflow-x-auto rounded-lg border border-border transition-opacity ${isRefreshing ? 'opacity-60' : ''}`}
           >
             <div className="w-full" style={{ minWidth: gridMinWidth }}>
               <div role="row" className="grid border-b border-border bg-muted/40" style={{ gridTemplateColumns: gridTemplate }}>
