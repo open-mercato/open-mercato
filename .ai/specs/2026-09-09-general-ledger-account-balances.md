@@ -839,7 +839,8 @@ metadata changes, migrations and non-command writers. Assign revisions under
 a per-scope transaction lock held through commit; committed revisions must
 never repeat, including after restore or failover. A rolled-back transaction
 does not publish a revision. Restore requires a non-reused durable epoch
-before reports resume; its source and ordering still need a concrete design.
+before reports resume; its source, ordering and the paginated restart
+protocol are specified in Prerequisite contracts and rollout (below).
 Define a single lock order
 with the existing clock, operation, hierarchy, period, type and account
 locks and migrate or fence all legacy writers. If any writer, restore or
@@ -1955,11 +1956,121 @@ enabling reports. Default `NULL` is not a historical backfill. Coordinate
 hierarchy/posting guards and fiscal-year authority with #5663; frozen
 hierarchy and fiscal-year containment can reject previously valid writes.
 The prerequisites need staged compatibility, mixed-version writer
-enforcement, attestation and rollback plans before activation. No blanket
+enforcement, attestation and rollback plans before activation; the
+concrete stages, legacy-client behavior, rollback rules and pilot-scope
+eligibility are specified in Prerequisite contracts and rollout (below). No blanket
 additive-only claim covers those behavioral changes. The pending-create
 bridge, scope-wide temporary report outage, future-date restriction and
 first-posting-day delay must be explicitly reviewed for compatibility with
 existing #5663 clients and operational requirements before rollout.
+
+### Prerequisite contracts and rollout
+
+This section pins the contracts of the prerequisites named above
+without implementing them. None of it is satisfied by the existing
+`ledger` code in this checkout, and every report stays disabled until a
+scope satisfies all of it.
+
+**Linked prerequisite designs.** The ledger core engine and posting
+schema are specified by #5663 (`2026-08-18-general-ledger-core-engine.md`,
+reviewed head `61bc044f43c7d8db963849fc16c1734a9795dacf`), specifically its
+`LedgerAccount` (nullable `parentAccountId`, `number`, `description`,
+`accountTypeId`, `accountGroupId`, `currencyId`), `JournalEntry` and
+`JournalEntryLine` (with `operation_date` and per-line `amountCurrency`)
+contracts; the multi-dimensional tag write is specified by
+`2026-09-06-journal-entry-line-dimension.md`. The fiscal-year authority,
+the opening-policy authority and the report-revision store are
+coordinated prerequisites of the same scope authority; this document
+consumes them and does not ship them. The hierarchy column, its index
+and the effective-start field are this document's own additive schema,
+specified in Data Models.
+
+- **Data contract consumed from the prerequisites.** Per scope
+  (tenant, organization) the authority exposes `authorityEpoch` (durable,
+  never reused), `policyRevision`, `goLiveDate`, the authoritative
+  fiscal-year start for a requested period, attested `coverage` intervals
+  with their attestation time, and `reportRevision`. All of them are read
+  inside the report's repeatable-read snapshot; the integrity,
+  fiscal-year, opening-policy and revision decisions use that same
+  snapshot, so a value read once cannot disagree with another read in the
+  same response. `reportRevision` advances by one on every committed
+  mutation that can change report membership, values, ordering,
+  period/fiscal boundaries, hierarchy or policy validity.
+- **Writer contract.** Every writer that can change those facts — the
+  account create/update/delete/restore/undo commands, posting paths,
+  imports, reversals, period and type writes, policy/attestation
+  migrations, and any non-command writer — takes the scope locks in the
+  single global order specified in this document's Risks section and
+  advances `reportRevision` in the same transaction as its business
+  change. A writer that cannot participate is a legacy writer and must be
+  fenced before activation; a report never trusts a revision that a
+  non-participating writer could have bypassed.
+
+**Report revision source and restore protocol (paginated endpoint).**
+`reportRevision` and `authorityEpoch` are durable per-scope rows in the
+prerequisite authority, not counters derived per request: a committed
+revision never repeats, including after restore or failover, and a
+rolled-back transaction publishes no revision. A restore (backup
+restore, point-in-time recovery, or scope re-creation) must publish a
+strictly greater `authorityEpoch` and a fresh `reportRevision` — reusing
+an epoch or a revision is a hard failure that keeps paginated reports
+disabled with `503` rather than risk serving pages from two histories.
+Until that epoch is durably published and the fence in Migration &
+deployment is re-established, the first page and every subsequent page
+fail closed. A `reportVersion` minted under the old epoch then yields
+`409 { error: 'report_changed' }` (never an authorization error), and the
+client restarts from page 1; the token is never treated as proof of
+authorization and never reveals foreign scopes. A restore that cannot
+prove a non-reused epoch, or whose epoch publication is uncertain,
+disables paginated and single-page reports for that scope until an
+operator resolves it.
+
+**Mixed-version rollout.** Activation proceeds in four stages, each
+gated on evidence: (1) ship the additive storage and the authority reads
+behind a disabled flag — both routes fail closed, no client contract
+changes; (2) all writers enforce the hierarchy, fiscal-year and revision
+contracts, then a dual-version window fences and drains legacy writers as
+specified in Migration & deployment; (3) publish the attested baseline,
+`authorityEpoch`, `policyRevision` and `reportRevision` atomically in one
+transaction and only then enable the routes for the scope; (4)
+tighten constraints (for example making the parent column `NOT NULL`)
+only after every retained row is verified. A stage that cannot prove its
+evidence aborts activation and leaves reports disabled.
+
+**Legacy-client behavior.** Existing #5663 account, journal and
+period clients see only additive response fields; Phase 1 adds no
+required request field to them. On the report routes, `page`/`pageSize`
+stay optional (defaults unchanged), `reportVersion` is optional for the
+first page, and every new error is an explicit `4xx`/`5xx` body from API
+Contracts with no figures. A client that cannot carry `reportVersion`
+keeps working on the first page only: it may not present a partial page
+as the full report and cannot silently continue past a `409`; paginated
+browsing requires a client that carries the version.
+
+**Rollback.** Rollback reverts application code and the feature flag
+only. The additive storage, the fence, the attested coverage and the
+`authorityEpoch` stay in place; reports remain disabled for the scope
+until a compatible state is re-attested, and the fence is not lifted
+while reports rely on frozen history. Rolling back to a state without the
+revision contract requires a new, strictly greater epoch — never a
+reused one. A partial rollback that leaves a writer un-fenced disables
+reporting rather than serving a mixed history.
+
+**Pilot scopes that can establish the required history and
+fiscal-year authority.** A scope is eligible only when an independent
+review attests all of: (a) the scope was created on or after the
+authority's go-live cutover, or its complete pre-go-live source
+population is independently evidenced and reconciled through the
+initialization protocol above; (b) its chart is complete, acyclic and
+fully covered by attested history, with no in-scope account or ancestor
+outside coverage; (c) every writer touching the scope — commands,
+imports, undo/restore, administrative scripts and external integrations —
+is in the fenced inventory and enforces the writer contract; and (d) a
+fiscal-year authority is published for every fiscal year the report can
+reach, including the year containing the requested period. Naming the
+actual pilot tenants is an operator decision, not something this
+document can assert; until such scopes are nominated and the prerequisite
+designs are reviewed, reporting is disabled for every scope.
 
 ## Out of scope (tracked separately)
 
@@ -2064,18 +2175,24 @@ existing #5663 clients and operational requirements before rollout.
 
 ### Non-Compliant Items
 
-Fiscal-year writer compatibility and migration are not yet specified.
-Historical hierarchy semantics, annual opening-entry treatment and
-cross-page consistency remain unresolved. The prior checklist cannot be
-treated as a compliance approval until these issues are resolved and
-independently reviewed.
+The prerequisite authorities remain unimplemented: the fiscal-year
+authority, the opening-policy authority and the durable report-revision
+store are designs this document consumes, not ships. Their consumed data
+and writer contracts, mixed-version rollout, legacy-client behavior,
+rollback and pilot-scope eligibility are now specified (Prerequisite
+contracts and rollout), but the authorities themselves and the
+accounting-owner sign-off on the continuous-ledger mode are still
+outstanding. The prior checklist cannot be treated as a compliance
+approval until those issues are resolved and independently reviewed.
 
 ### Verdict
 
-**Blocked — not ready for implementation.** Resolve the fiscal-year
-authority and compatibility prerequisite, historical hierarchy,
-opening-entry policy and multi-page report consistency; reconcile the
-result with #5663 and obtain fresh independent and security review.
+**Blocked — not ready for implementation.** The report design, the
+hierarchy/accounting-date/revision corrections and the prerequisite
+contract shapes are specified; what remains is the prerequisite
+authorities' implementation, the accounting-owner approval of the
+continuous-ledger mode and the annual-opening alternative, and a fresh
+independent and security review of the reconciled result with #5663.
 The existing accounting references and earlier checklist do not resolve
 these issues or authorize release.
 
@@ -2407,3 +2524,23 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
 - Bound account-create admission and retained work without discarding retry
   evidence; verifier outage remains an explicit fail-closed availability risk.
   These controls are unimplemented release prerequisites.
+
+### 2026-11-18 — prerequisite contracts, revision/restore and rollout (#9722 review)
+
+- Add "Prerequisite contracts and rollout": link the reviewed prerequisites
+  (#5663 at `61bc044f`, the journal-entry-line-dimension spec, and the scope
+  authority that owns the fiscal-year, opening-policy and revision state) with
+  the concrete data contract this report consumes and the writer contract every
+  participating writer must satisfy.
+- Specify the report-revision source, ordering and the restore protocol for the
+  paginated endpoint: a durable per-scope `reportRevision` plus a never-reused
+  `authorityEpoch`, a `409 report_changed` restart, and fail-closed behavior
+  when an epoch cannot be proven — replacing the previous "still needs a
+  concrete design" pointer.
+- Specify the four-stage mixed-version rollout, legacy-client behavior and
+  rollback rules, and the evidence an eligible pilot scope must carry for
+  history and fiscal-year authority. Naming actual pilot tenants remains an
+  operator decision.
+- The Verdict stays blocked: the prerequisite authorities are still
+  unimplemented and the accounting-owner approval plus a fresh independent and
+  security review remain outstanding.
