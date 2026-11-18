@@ -47,6 +47,7 @@ import {
   detectAttachmentMimeType,
   hasDangerousExecutableExtension,
   isActiveContentAttachment,
+  sanitizeAttachmentDisplayName,
   sanitizeUploadedFileName,
 } from '../lib/security'
 import {
@@ -445,6 +446,7 @@ async function uploadAttachment(req: Request) {
   }
   const buf = Buffer.from(await file.arrayBuffer())
   const safeName = sanitizeUploadedFileName(file.name)
+  const displayName = sanitizeAttachmentDisplayName(file.name)
   const fileMimeType = detectAttachmentMimeType(buf, safeName, (file as any).type)
   if (isActiveContentAttachment(buf, safeName, fileMimeType)) {
     return NextResponse.json({ error: t('attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
@@ -608,7 +610,7 @@ async function uploadAttachment(req: Request) {
     recordId,
     organizationId: orgId,
     tenantId: auth.tenantId!,
-    fileName: safeName,
+    fileName: displayName,
     mimeType: fileMimeType,
     fileSize: buf.length,
     partitionCode: partition.code,
@@ -685,7 +687,7 @@ async function uploadAttachment(req: Request) {
     item: {
       id: attachmentId,
       url: att.url,
-      fileName: safeName,
+      fileName: displayName,
       fileSize: buf.length,
       partitionCode: partition.code,
       thumbnailUrl: buildAttachmentImageUrl(attachmentId, {

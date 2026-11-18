@@ -6,6 +6,7 @@
  * - both are reachable as tabs of the related-content workspace (inline or via the
  *   person page's More menu) and render their own heading once selected
  * - selecting one does not break the built-in tabs
+ * - on a phone-width person page the Related documents actions stay inside the viewport
  *
  * Fixtures: one person, one company and one deal created through the API and removed in
  * `finally`. Needs the workflows and documents modules.
@@ -80,6 +81,42 @@ test.describe('TC-CRM-7488: work and documents inside the CRM detail workspace',
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('keeps the Related documents actions inside a 390px viewport on the person page', async ({ page, request }) => {
+    test.slow()
+    const stamp = Date.now()
+    const phoneWidth = 390
+    let token: string | null = null
+    let personId: string | null = null
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      personId = await createPersonFixture(request, token, { firstName: 'QA', lastName: `Phone ${stamp}`, displayName: `QA 7488 Phone ${stamp}` })
+      await login(page, 'admin')
+
+      await page.goto(`/backend/customers/people-v2/${personId}?tab=related-documents`, { waitUntil: 'domcontentloaded' })
+      const main = page.getByRole('main')
+      await expect(main.getByRole('heading', { name: 'Related documents' })).toBeVisible({ timeout: 30_000 })
+
+      await page.setViewportSize({ width: phoneWidth, height: 844 })
+      await main.getByRole('tab', { name: 'Activity', exact: true }).click()
+      await expect(main.getByRole('heading', { name: 'Related documents' })).toBeVisible({ timeout: 30_000 })
+
+      const actions = main.getByTestId('related-documents-actions')
+      await expect(actions).toBeVisible()
+      const buttons = actions.getByRole('button')
+      await expect(buttons).toHaveCount(2)
+      for (const button of await buttons.all()) {
+        await button.scrollIntoViewIfNeeded()
+        const box = await button.boundingBox()
+        expect(box, 'action button is laid out').not.toBeNull()
+        expect(box!.x, 'action button starts inside the viewport').toBeGreaterThanOrEqual(0)
+        expect(box!.x + box!.width, 'action button ends inside the viewport').toBeLessThanOrEqual(phoneWidth)
+      }
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }
   })
 })

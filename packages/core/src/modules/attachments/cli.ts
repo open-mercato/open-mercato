@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -24,26 +25,7 @@ import { removeAttachmentRecord } from './lib/storageReferences'
 type ParsedArgs = Record<string, string | boolean>
 
 function parseArgs(rest: string[]): ParsedArgs {
-  const args: ParsedArgs = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part || !part.startsWith('--')) continue
-    const [rawKey, rawValue] = part.replace(/^--/, '').split('=')
-    const key = rawKey.trim()
-    if (!key) continue
-    if (rawValue !== undefined) {
-      args[key] = rawValue
-      continue
-    }
-    const next = rest[i + 1]
-    if (next && !next.startsWith('--')) {
-      args[key] = next
-      i += 1
-    } else {
-      args[key] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { trimKeys: true, skipEmptyKeys: true })
 }
 
 function coerceIdList(value?: string | boolean): string[] {

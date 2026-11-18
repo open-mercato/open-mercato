@@ -31,6 +31,7 @@ import {
   resolveToolReplayDecision,
   withToolReplayContext,
 } from './llm-adapters/tool-replay-context'
+import { resolveStagedToolInput } from './tool-input'
 
 const logger = createLogger('ai_assistant')
 
@@ -324,11 +325,15 @@ function adaptToolToAiSdk(
           args && typeof args === 'object' && !Array.isArray(args)
             ? { ...(args as Record<string, unknown>) }
             : {}
+        const stagedInput = resolveStagedToolInput(tool.inputSchema, toolCallArgs)
+        if (!stagedInput.success) {
+          throw new Error(stagedInput.error)
+        }
         const { uiPart, pendingAction, reused } = await prepareMutation(
           {
             agent: mutation.agent,
             tool: mutation.tool,
-            toolCallArgs,
+            toolCallArgs: stagedInput.input,
             conversationId: mutation.conversationId,
             mutationPolicyOverride: mutation.mutationPolicyOverride,
             channel: mutation.channel,

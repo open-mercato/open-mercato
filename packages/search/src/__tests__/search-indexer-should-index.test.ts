@@ -48,7 +48,7 @@ function makeQueryEngine(items: Record<string, unknown>[]): QueryEngine {
   }
 }
 
-function makeSearchService(fulltext?: { bulkIndex: jest.Mock; recreateIndex: jest.Mock }): SearchServiceMock {
+function makeSearchService(fulltext?: { bulkIndex: jest.Mock; recreateIndex: jest.Mock; purge: jest.Mock }): SearchServiceMock {
   return {
     index: jest.fn().mockResolvedValue(undefined),
     bulkIndex: jest.fn().mockResolvedValue(undefined),
@@ -188,7 +188,7 @@ describe('SearchIndexer shouldIndex gate', () => {
   })
 
   it('applies the gate in the direct fulltext reindex path', async () => {
-    const fulltext = { bulkIndex: jest.fn().mockResolvedValue(undefined), recreateIndex: jest.fn().mockResolvedValue(undefined) }
+    const fulltext = { bulkIndex: jest.fn().mockResolvedValue(undefined), recreateIndex: jest.fn().mockResolvedValue(undefined), purge: jest.fn().mockResolvedValue(undefined) }
     const searchService = makeSearchService(fulltext)
     const indexer = makeIndexer(searchService, { shouldIndex: gatedShouldIndex })
 

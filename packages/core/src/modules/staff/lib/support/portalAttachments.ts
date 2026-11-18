@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { Attachment as AttachmentEntity } from '@open-mercato/core/modules/attachments/data/entities'
 import type { SupportPortalScope } from './portalTickets'
@@ -43,9 +44,12 @@ export type PortalSupportAttachmentItem = z.infer<typeof portalSupportAttachment
 
 /**
  * Staff keeps no static edge to the attachments module: it is loaded on demand and a
- * deployment without it reads as "attachments unavailable" (`null`).
+ * deployment without it reads as "attachments unavailable" (`null`). The attachments
+ * code always ships in `@open-mercato/core`, so availability is decided by whether the
+ * app registered the `attachments:attachment` entity, not by whether the import works.
  */
 export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi | null> {
+  if (!getEntityIds(false).attachments?.attachment) return null
   try {
     const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService, storageReferences] = await Promise.all([
       import('@open-mercato/core/modules/attachments/data/entities'),

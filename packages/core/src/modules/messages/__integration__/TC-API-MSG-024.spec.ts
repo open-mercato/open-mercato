@@ -1,126 +1,147 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { deleteAttachmentIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures';
-import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
+import { z } from 'zod';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { createUserFixture } from '@open-mercato/core/helpers/integration/authFixtures';
+import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
-  STRUCTURE_TEST_TIMEOUT_MS,
-  buildRulebookPdf,
-  deletePartitionQuietly,
-  extractAndWait,
-  prepareStructurePartition,
-  uploadStructureDocument,
-  type StructurePartition,
-} from '@open-mercato/core/modules/attachments/__integration__/helpers/documentStructure';
-import { decodeJwtSubject, deleteMessageIfExists } from './helpers';
+  createOrganizationInDb,
+  setUserAclInDb,
+  withClient,
+} from '@open-mercato/core/helpers/integration/dbFixtures';
 
-/**
- * TC-API-MSG-024: removing a draft attachment purges its document structure (C-13, PR #9648)
- * Surfaces: DELETE /api/messages/:id/attachments (messages.attachments.unlink_from_draft) and
- * PATCH /api/messages/:id with attachmentIds (messages.messages.update_draft).
- *
- * Both paths delete the attachment row. The extraction and its encrypted section text must go
- * with it; the structure routes cannot show that once the row is gone, so the rows are counted
- * directly in Postgres.
- */
+const listSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    subject: z.string(),
+    status: z.string(),
+    readAt: z.string().transform((value) => new Date(value).toISOString()).nullable(),
+  })),
+  total: z.number(),
+});
 
-type StructureRowCounts = { attachments: number; extractions: number; sections: number };
+const listUrl = '/api/messages?folder=inbox&page=1&pageSize=100';
 
-async function countStructureRows(attachmentId: string): Promise<StructureRowCounts> {
-  return withClient(async (client) => {
-    const result = await client.query<{ attachments: string; extractions: string; sections: string }>(
-      `select
-         (select count(*) from attachments where id = $1) as attachments,
-         (select count(*) from attachment_document_extractions where attachment_id = $1) as extractions,
-         (select count(*) from attachment_document_sections where attachment_id = $1) as sections`,
-      [attachmentId],
-    );
-    const row = result.rows[0];
-    return {
-      attachments: Number(row.attachments),
-      extractions: Number(row.extractions),
-      sections: Number(row.sections),
-    };
-  });
+async function listMessages(request: APIRequestContext, token: string) {
+  const response = await apiRequest(request, 'GET', listUrl, { token });
+  expect(response.status()).toBe(200);
+  return listSchema.parse(await response.json());
 }
 
-async function uploadExtractedPdf(
-  request: APIRequestContext,
-  token: string,
-  partition: StructurePartition,
-  fileName: string,
-): Promise<string> {
-  const attachmentId = await uploadStructureDocument(request, token, partition, {
-    fileName,
-    mimeType: 'application/pdf',
-    buffer: await buildRulebookPdf(),
-  });
-  const structure = await extractAndWait(request, token, attachmentId, partition);
-  expect(structure.extraction?.status).toBe('completed');
-  return attachmentId;
-}
-
-test.describe('TC-API-MSG-024: draft attachment removal purges document structure', () => {
-  test('unlink and draft update drop extractions and sections with the attachment row', async ({ request }) => {
-    test.setTimeout(STRUCTURE_TEST_TIMEOUT_MS * 2);
-    let token: string | null = null;
-    let draftId: string | null = null;
-    let partition: StructurePartition | null = null;
-    const attachmentIds: string[] = [];
+test.describe('TC-API-MSG-024: User-scoped message list cache regression (#4835)', () => {
+  test('serves cache hits without leaking messages or recipient state and invalidates on mark-read', async ({ request }) => {
+    expect(process.env.ENABLE_CRUD_API_CACHE, 'Run through the cache-enabled managed integration runner').toBe('true');
+    const adminToken = await getAuthToken(request, 'superadmin');
+    const { tenantId } = getTokenScope(adminToken);
+    const stamp = randomUUID();
+    const password = `Msg1!${randomUUID()}`;
+    const userIds: string[] = [];
+    const messageIds = [randomUUID(), randomUUID(), randomUUID()];
+    const [onlyAId, onlyBId, sharedId] = messageIds;
+    let organizationId: string | null = null;
 
     try {
-      token = await getAuthToken(request, 'admin');
-      const employeeUserId = decodeJwtSubject(await getAuthToken(request, 'employee'));
-      partition = await prepareStructurePartition(request, token, 'msgdraft');
-      const unlinkedId = await uploadExtractedPdf(request, token, partition, `qa-msg-024-unlink-${Date.now()}.pdf`);
-      attachmentIds.push(unlinkedId);
-      const replacedId = await uploadExtractedPdf(request, token, partition, `qa-msg-024-replace-${Date.now()}.pdf`);
-      attachmentIds.push(replacedId);
-
-      const createResponse = await apiRequest(request, 'POST', '/api/messages', {
-        token,
-        data: {
-          isDraft: true,
-          recipients: [{ userId: employeeUserId, type: 'to' }],
-          subject: `QA TC-API-MSG-024 ${Date.now()}`,
-          body: 'Draft carrying structured attachments',
-          sendViaEmail: false,
-        },
-      });
-      expect(createResponse.status()).toBe(201);
-      draftId = ((await createResponse.json()) as { id: string }).id;
-
-      const linkResponse = await apiRequest(request, 'POST', `/api/messages/${draftId}/attachments`, {
-        token,
-        data: { attachmentIds: [unlinkedId, replacedId] },
-      });
-      expect(linkResponse.status()).toBe(200);
-
-      const unlinkedBefore = await countStructureRows(unlinkedId);
-      expect(unlinkedBefore.attachments).toBe(1);
-      expect(unlinkedBefore.extractions).toBeGreaterThan(0);
-      expect(unlinkedBefore.sections).toBeGreaterThan(0);
-      expect((await countStructureRows(replacedId)).sections).toBeGreaterThan(0);
-
-      const unlinkResponse = await apiRequest(request, 'DELETE', `/api/messages/${draftId}/attachments`, {
-        token,
-        data: { attachmentIds: [unlinkedId] },
-      });
-      expect(unlinkResponse.status()).toBe(200);
-      expect(await countStructureRows(unlinkedId)).toEqual({ attachments: 0, extractions: 0, sections: 0 });
-      expect((await countStructureRows(replacedId)).sections).toBeGreaterThan(0);
-
-      const updateResponse = await apiRequest(request, 'PATCH', `/api/messages/${draftId}`, {
-        token,
-        data: { attachmentIds: [] },
-      });
-      expect(updateResponse.status()).toBe(200);
-      expect(await countStructureRows(replacedId)).toEqual({ attachments: 0, extractions: 0, sections: 0 });
-    } finally {
-      if (token) {
-        for (const attachmentId of attachmentIds) await deleteAttachmentIfExists(request, token, attachmentId);
-        await deleteMessageIfExists(request, token, draftId);
-        await deletePartitionQuietly(request, token, partition);
+      organizationId = await createOrganizationInDb({ name: `TC-API-MSG-024 ${stamp}`, tenantId });
+      const tokens: string[] = [];
+      for (const suffix of ['a', 'b']) {
+        const email = `msg-cache-${suffix}-${stamp}@example.com`;
+        const userId = await createUserFixture(request, adminToken, {
+          email, password, organizationId, roles: [],
+        });
+        userIds.push(userId);
+        await setUserAclInDb({
+          userId, tenantId, organizations: [organizationId], features: ['messages.view'],
+        });
+        const token = await getAuthToken(request, email, password);
+        expect(getTokenScope(token)).toMatchObject({ tenantId, organizationId, userId });
+        tokens.push(token);
       }
+      const [userAId, userBId] = userIds;
+      const [tokenA, tokenB] = tokens;
+      const sharedReadAt = new Date().toISOString();
+
+      await withClient(async (client) => {
+        for (const messageId of messageIds) {
+          await client.query(
+            `insert into messages
+               (id, sender_user_id, subject, body, status, is_draft, sent_at, tenant_id, organization_id, created_at, updated_at)
+             values ($1, $2, $3, $4, 'sent', false, now(), $5, $6, now(), now())`,
+            [messageId, userAId, `TC-API-MSG-024 ${messageId}`, 'Cache isolation fixture', tenantId, organizationId],
+          );
+        }
+        for (const [messageId, userId, status, readAt] of [
+          [onlyAId, userAId, 'unread', null],
+          [onlyBId, userBId, 'unread', null],
+          [sharedId, userAId, 'unread', null],
+          [sharedId, userBId, 'read', sharedReadAt],
+        ]) {
+          await client.query(
+            `insert into message_recipients (id, message_id, recipient_user_id, status, read_at, created_at)
+             values (gen_random_uuid(), $1, $2, $3, $4, now())`,
+            [messageId, userId, status, readAt],
+          );
+        }
+      });
+
+      const warmedAt = Date.now();
+      const coldA = await listMessages(request, tokenA);
+      expect(coldA.total).toBe(2);
+      expect(coldA.items.map((item) => item.id).sort()).toEqual([onlyAId, sharedId].sort());
+      expect(coldA.items.every((item) => item.status === 'unread' && item.readAt === null)).toBe(true);
+
+      await test.step('prove a real cache hit using an out-of-band fixture update', async () => {
+        await withClient(async (client) => {
+          const changed = await client.query<{ status: string }>(
+            `update message_recipients set status = 'read', read_at = now()
+             where message_id = $1 and recipient_user_id = $2 returning status`,
+            [onlyAId, userAId],
+          );
+          expect(changed.rows).toEqual([{ status: 'read' }]);
+        });
+        expect(await listMessages(request, tokenA), 'The identical request must serve cached unread state despite the changed DB row').toEqual(coldA);
+        await withClient(async (client) => {
+          await client.query(
+            `update message_recipients set status = 'unread', read_at = null
+             where message_id = $1 and recipient_user_id = $2`,
+            [onlyAId, userAId],
+          );
+        });
+      });
+
+      await test.step('isolate both private records and shared-message recipient state on the same URL', async () => {
+        const coldB = await listMessages(request, tokenB);
+        expect(coldB.total).toBe(2);
+        expect(coldB.items.map((item) => item.id).sort()).toEqual([onlyBId, sharedId].sort());
+        expect(coldB.items.find((item) => item.id === sharedId)).toMatchObject({ status: 'read', readAt: sharedReadAt });
+        expect(coldB.items.find((item) => item.id === onlyBId)).toMatchObject({ status: 'unread', readAt: null });
+        expect(await listMessages(request, tokenB)).toEqual(coldB);
+        expect(await listMessages(request, tokenA)).toEqual(coldA);
+      });
+
+      await test.step('invalidate the warm list immediately through the real mark-read API', async () => {
+        const response = await apiRequest(request, 'PUT', `/api/messages/${onlyAId}/read`, { token: tokenA });
+        expect(response.status()).toBe(200);
+        const updatedA = await listMessages(request, tokenA);
+        expect(Date.now() - warmedAt, 'The original 30-second cache TTL must not have expired').toBeLessThan(30_000);
+        expect(updatedA.total).toBe(2);
+        expect(updatedA.items.map((item) => item.id).sort()).toEqual([onlyAId, sharedId].sort());
+        expect(updatedA.items.find((item) => item.id === onlyAId)).toMatchObject({ status: 'read', readAt: expect.any(String) });
+        expect(updatedA.items.find((item) => item.id === sharedId)).toMatchObject({ status: 'unread', readAt: null });
+        const updatedB = await listMessages(request, tokenB);
+        expect(updatedB.items.map((item) => item.id).sort()).toEqual([onlyBId, sharedId].sort());
+        expect(updatedB.items.find((item) => item.id === onlyBId)).toMatchObject({ status: 'unread', readAt: null });
+        expect(updatedB.items.find((item) => item.id === sharedId)).toMatchObject({ status: 'read', readAt: sharedReadAt });
+      });
+    } finally {
+      await withClient(async (client) => {
+        await client.query('delete from message_recipients where message_id = any($1::uuid[])', [messageIds]);
+        await client.query('delete from messages where id = any($1::uuid[])', [messageIds]);
+        await client.query('delete from sessions where user_id = any($1::uuid[])', [userIds]);
+        await client.query('delete from user_acls where user_id = any($1::uuid[])', [userIds]);
+        await client.query('delete from user_roles where user_id = any($1::uuid[])', [userIds]);
+        await client.query('delete from users where id = any($1::uuid[])', [userIds]);
+        if (organizationId) await client.query('delete from organizations where id = $1', [organizationId]);
+      });
     }
   });
 });

@@ -204,6 +204,20 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     return { em, container, invokeAgentForWorkflow }
   }
 
+  it('refuses a persisted legacy actor before dispatching a previously queued agent', async () => {
+    const { em, container, invokeAgentForWorkflow } = makeDeps({
+      id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId,
+      metadata: { initiatedBy: 'user-1', labels: { trigger_id: 'old-trigger' } },
+    })
+
+    await expect(handleInvokeAgentJob(em, container, makeJob()))
+      .rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+
+    expect(invokeAgentForWorkflow).not.toHaveBeenCalled()
+    expect(container.resolve).not.toHaveBeenCalled()
+    expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+
   it('skips (idempotent) when this step attempt already resolved', async () => {
     const { em, container, invokeAgentForWorkflow } = makeDeps(
       { id: 'instance-1', currentStepId: 'next_step', status: 'RUNNING', tenantId, organizationId },
