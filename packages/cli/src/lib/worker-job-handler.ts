@@ -4,7 +4,7 @@ import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
-import { bindRequestScopeContainer, runInRequestScope } from '@open-mercato/shared/lib/di/request-scope'
+import { bindRequestScopeContainer, runInRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 
 export type WorkerJobContainer = {
   resolve: <T = unknown>(name: string) => T
@@ -43,7 +43,7 @@ export function createPerJobWorkerHandler(
             operation: worker.id,
             resourceId: worker.id,
           },
-          () => worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) }),
+          () => runWithRequestScopeContainer(container, () => worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })),
         )
       }
     } finally {

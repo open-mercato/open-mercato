@@ -17,6 +17,7 @@ export type RequestScopeContainer = {
 
 type RequestScopeStore = {
   container: RequestScopeContainer | null
+  owner?: RequestScopeContainer
 }
 
 const REQUEST_SCOPE_STORAGE_KEY = Symbol.for('@open-mercato/shared/di/request-scope')
@@ -39,13 +40,18 @@ export function runInRequestScope<T>(fn: () => T): T {
   return requestScopeStorage.run({ container: null }, fn)
 }
 
+export function runWithRequestScopeContainer<T>(container: RequestScopeContainer, fn: () => T): T {
+  return requestScopeStorage.run({ container, owner: container }, fn)
+}
+
 export function bindRequestScopeContainer(container: RequestScopeContainer): void {
   const store = requestScopeStorage.getStore()
   if (store) store.container = container
 }
 
 export function getRequestScopeContainer(): RequestScopeContainer | null {
-  return requestScopeStorage.getStore()?.container ?? null
+  const store = requestScopeStorage.getStore()
+  return store?.owner ?? store?.container ?? null
 }
 
 type EmittingBus = {
