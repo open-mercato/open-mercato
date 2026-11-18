@@ -126,6 +126,7 @@ interface ITaxEngineLine {
 
 interface ITaxEngine {
   taxCode: string
+  label: string              // display label for the TaxCode row and settings page
   accountRoles: string[]     // static declaration — drives the settings-page UI (UI/UX)
   calculate(input: { periodId, tenantId, organizationId }): Promise<{
     amount: string
@@ -375,7 +376,9 @@ without deleting the historical ones, and `deletedAt` follows this
 project's universal soft-delete convention.
 
 **`TaxCodeAccountMapping`** — `{ id, tenantId, organizationId, taxCode,
-accountRoles (jsonb, Record<string, uuid | null>), updatedAt }`.
+accountRoles (jsonb, Record<string, uuid | null>), updatedAt }`,
+unique on `(tenantId, organizationId, taxCode)` so the settings upsert
+targets exactly one row.
 **The B1 fix**: replaces the original `liabilityAccountId`/
 `expenseAccountId` pair (Design decisions explains why that pair was
 wrong for 2 of 3 taxes). Every role starts unmapped (`null`) — same
@@ -385,8 +388,8 @@ wrong for 2 of 3 taxes). Every role starts unmapped (`null`) — same
 `updateTaxCodeAccountMapping`, gated by `tax_management.settings.manage`.
 
 **`TaxLiabilityRecord`** — `{ id, tenantId, organizationId, periodId
-(FK-id to ledger.FiscalPeriod), taxCode, amount, currencyId (FK-id to
-Currency), lines (jsonb, immutable `ITaxEngineLine[]` snapshot —
+(FK-id to ledger.FiscalPeriod), taxCode, amount (decimal string),
+currencyId (FK-id to Currency), lines (jsonb, immutable `ITaxEngineLine[]` snapshot —
 the M3 fix), correctsRecordId (nullable FK-id, set on a correction —
 the M4 fix), status ('calculated' | 'superseded' | 'posted' | 'paid' |
 'reversed'), journalEntryId (nullable FK-id to ledger.JournalEntry, set
@@ -430,8 +433,8 @@ page with no API behind it):
 
 | Route | Features | Behavior |
 |---|---|---|
-| `GET /api/tax-management/tax-code-mappings` | `tax_management.settings.manage` | Returns the registered engines (code, label, declared `accountRoles`) and the current mapping for the caller's tenant/organization; runs the lazy `ensureTaxCodesForScope` first. |
-| `PUT /api/tax-management/tax-code-mappings` | `tax_management.settings.manage` | Validates and upserts `accountRoles` for one `taxCode` through `updateTaxCodeAccountMapping`: unknown role → 422, account outside the caller's organization → 403, stale `updatedAt` → 409 (optimistic lock header, the standard `CrudForm`/`withScopedApiRequestHeaders` path). |
+| `GET /api/tax_management/tax-code-mappings` | `tax_management.settings.manage` | Returns the registered engines (code, label, declared `accountRoles`) and the current mapping for the caller's tenant/organization; runs the lazy `ensureTaxCodesForScope` first. |
+| `PUT /api/tax_management/tax-code-mappings` | `tax_management.settings.manage` | Validates and upserts `accountRoles` for one `taxCode` through `updateTaxCodeAccountMapping`: unknown role → 422, account outside the caller's organization → 403, stale `updatedAt` → 409 (optimistic lock header, the standard `CrudForm`/`withScopedApiRequestHeaders` path). |
 
 `calculateTaxLiability`/`postTaxLiability`/`markTaxLiabilityPaid` stay
 commands invoked by `financial_pl`'s own routes/period-close flow
