@@ -13,7 +13,7 @@ import { settledStatusXml } from './helpers/provider-responses'
 import {
   drainAutopayPollerQueue,
   drainEventsQueue,
-  resolveInProcessPollerSkipReason,
+  requireInProcessPollerLane,
   runLocalSchedulerTick,
   withAutopayStatusStub,
 } from './helpers/runtime'
@@ -35,8 +35,7 @@ function pollerTransitionLogs(details: GatewayTransactionDetails) {
 test.describe('TC-AUTOPAY-003: settled payment reconciliation', () => {
   test('drives a pending payment to captured with one canonical transition', async ({ request }) => {
     test.setTimeout(AUTOPAY_INTEGRATION_TEST_TIMEOUT_MS)
-    const skipReason = resolveInProcessPollerSkipReason()
-    test.skip(skipReason !== null, skipReason ?? '')
+    requireInProcessPollerLane()
 
     const token = await getAuthToken(request, 'superadmin')
     const fixture = await createAutopayScopeFixture(request, token, 'tc-autopay-003', drainEventsQueue)

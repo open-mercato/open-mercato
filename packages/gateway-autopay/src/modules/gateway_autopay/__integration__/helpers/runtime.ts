@@ -1,15 +1,23 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { test } from '@playwright/test'
 import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import { drainQueueFromAppRoot } from '@open-mercato/core/helpers/integration/queue-runner'
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { AUTOPAY_STATUS_POLLER_QUEUE } from '../../lib/status-poller-schedule'
 
 const AUTOPAY_STATUS_ENDPOINT = 'https://testpay.autopay.eu/webapi/transactionStatus'
 const DRAIN_JOB_LIMIT = 100
+
+/**
+ * Set by the CI lane that exists to run the in-process poller specs. Under it a
+ * spec that would otherwise skip fails instead, so a misconfigured lane cannot
+ * pass by silently skipping the production worker.
+ */
+export const IN_PROCESS_WORKERS_REQUIRED_ENV = 'OM_INTEGRATION_IN_PROCESS_WORKERS_REQUIRED'
 
 /**
  * The Autopay client only talks to the two documented hosts, so the provider
@@ -35,6 +43,22 @@ export function resolveInProcessPollerSkipReason(): string | null {
     return 'The in-process scheduler tick uses the local scheduler strategy; the BullMQ strategy dispatches from its own worker'
   }
   return null
+}
+
+/**
+ * Skips the current test outside the in-process worker lane. When the lane is
+ * declared required (`OM_INTEGRATION_IN_PROCESS_WORKERS_REQUIRED`), the same
+ * condition is a failure: that lane's whole purpose is to run these specs.
+ */
+export function requireInProcessPollerLane(): void {
+  const skipReason = resolveInProcessPollerSkipReason()
+  if (!skipReason) return
+  if (parseBooleanWithDefault(process.env[IN_PROCESS_WORKERS_REQUIRED_ENV], false)) {
+    throw new Error(
+      `[internal] ${IN_PROCESS_WORKERS_REQUIRED_ENV} is set, but the Autopay poller specs would be skipped: ${skipReason}`,
+    )
+  }
+  test.skip(true, skipReason)
 }
 
 function resolveQueueBaseDir(appRoot: string): string {

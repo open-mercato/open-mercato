@@ -13,7 +13,7 @@ import { foreignKeyStatusXml, settledStatusXml } from './helpers/provider-respon
 import {
   drainAutopayPollerQueue,
   drainEventsQueue,
-  resolveInProcessPollerSkipReason,
+  requireInProcessPollerLane,
   runLocalSchedulerTick,
   withAutopayStatusStub,
   type AutopayStatusResponder,
@@ -31,8 +31,7 @@ import {
 test.describe('TC-AUTOPAY-004: provider error isolation and retry', () => {
   test('logs a failed poll, retries on the next run and recovers once the provider answers', async ({ request }) => {
     test.setTimeout(AUTOPAY_INTEGRATION_TEST_TIMEOUT_MS)
-    const skipReason = resolveInProcessPollerSkipReason()
-    test.skip(skipReason !== null, skipReason ?? '')
+    requireInProcessPollerLane()
 
     const token = await getAuthToken(request, 'superadmin')
     const fixture = await createAutopayScopeFixture(request, token, 'tc-autopay-004', drainEventsQueue)

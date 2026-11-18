@@ -1233,6 +1233,146 @@ jobs:
             .ai/qa/test-results/coverage-shard-${{ steps.shard-meta.outputs.shard_index }}/
           if-no-files-found: ignore
 
+  # ── Autopay scheduled reconciliation (in-process worker lane) ───────────────
+  # TC-AUTOPAY-002..004 drive the production `gateway_autopay:status-poller`
+  # worker through the real local scheduler with Autopay HTTP stubbed inside
+  # the Playwright process. The Autopay client accepts only the two documented
+  # hosts, so that stub can only reach a worker drained in the same process:
+  # under the managed worker processes the `ephemeral-integration` shards use
+  # (AUTO_SPAWN_WORKERS=true) those specs skip. This lane runs them with
+  # in-process queue drains, turns the skip into a failure
+  # (OM_INTEGRATION_IN_PROCESS_WORKERS_REQUIRED) and re-checks the Playwright
+  # report afterwards, so a silent skip can never pass.
+  gateway-autopay-poller-integration:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      !cancelled() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success' &&
+      needs.prepare.outputs.skip_integration != 'true'
+    env:
+      JWT_SECRET: 'ci-ephemeral-test-jwt-secret-32-chars-min'
+      OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
+      # Queue jobs are drained inside the Playwright process (see
+      # packages/core/src/helpers/integration/queue.ts), where the specs own
+      # the Autopay HTTP stub. Both values reach the spawned app and the runner.
+      AUTO_SPAWN_WORKERS: 'false'
+      OM_INTEGRATION_IN_PROCESS_WORKERS_REQUIRED: '1'
+      OM_INTEGRATION_MODULES: gateway_autopay
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Download app build
+        uses: actions/download-artifact@v8
+        with:
+          name: app-build
+
+      - name: Extract app build
+        run: tar -xzf app-build.tar.gz -C apps/mercato/
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-v1.50.0
+
+      - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the Autopay reconciliation specs with in-process queue workers
+        env:
+          OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
+        run: |
+          OM_INIT_SUPERADMIN_PASSWORD="$(node -e "process.stdout.write('aA1!' + require('node:crypto').randomBytes(32).toString('base64url'))")"
+          echo "::add-mask::$OM_INIT_SUPERADMIN_PASSWORD"
+          export OM_INIT_SUPERADMIN_PASSWORD
+          yarn test:integration:ephemeral gateway_autopay
+
+      - name: Assert TC-AUTOPAY-001..004 ran and passed
+        # The in-spec gate already fails instead of skipping under
+        # OM_INTEGRATION_IN_PROCESS_WORKERS_REQUIRED; this re-reads the
+        # Playwright report so a discovery or filter change that drops a spec
+        # entirely is caught as well.
+        run: |
+          node -e "
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync('.ai/qa/test-results/results.json', 'utf8'));
+          const required = ['TC-AUTOPAY-001', 'TC-AUTOPAY-002', 'TC-AUTOPAY-003', 'TC-AUTOPAY-004'];
+          const statuses = new Map(required.map((id) => [id, []]));
+          const walk = (suite) => {
+            for (const spec of suite.specs ?? []) {
+              const id = required.find((name) => String(spec.file ?? suite.file ?? '').includes(name));
+              if (!id) continue;
+              for (const run of spec.tests ?? []) statuses.get(id).push(run.status);
+            }
+            for (const child of suite.suites ?? []) walk(child);
+          };
+          for (const suite of report.suites ?? []) walk(suite);
+          const problems = [];
+          for (const [id, runs] of statuses) {
+            if (runs.length === 0) problems.push(id + ': not found in the Playwright report');
+            else if (!runs.every((status) => status === 'expected' || status === 'flaky')) problems.push(id + ': ' + runs.join(','));
+          }
+          if (problems.length > 0) {
+            console.error('Autopay reconciliation specs did not run green:\n' + problems.join('\n'));
+            process.exit(1);
+          }
+          console.log('All Autopay reconciliation specs ran and passed: ' + required.join(', '));
+          "
+
+      - name: Upload Autopay integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gateway-autopay-poller-integration
+          path: |
+            .ai/qa/test-results/html/
+            .ai/qa/test-results/artifacts/
+            .ai/qa/test-results/results.json
+          if-no-files-found: ignore
+
   # ── Merge shard coverage ─────────────────────────────────────────────────────
   # Final gate — runs after all integration shards AND the test job complete.
   # Ensures both typecheck/units and integration must pass before reporting green.
