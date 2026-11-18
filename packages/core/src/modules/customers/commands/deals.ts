@@ -56,6 +56,7 @@ import {
   type PipelineStageSnapshot,
 } from '../lib/closureStage'
 import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
+import { resolveStageDefaultProbability } from '../lib/stageDefaultProbability'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { decimalToString, parseDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
@@ -593,6 +594,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       pipelineStageId: null,
     }
     let resolvedPipelineStageLabel: string | null = null
+    let stageDefaultProbability: number | null = null
     const createdDictionaryKinds = new Set<string>()
     await withAtomicFlush(em, [
       async () => {
@@ -614,6 +616,13 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
             value: stageSnapshot.label,
           }, createdDictionaryKinds))?.value ?? stageSnapshot.label
           : parsed.pipelineStage ?? null
+        stageDefaultProbability = pipelineAssignment.pipelineStageId && parsed.probability === undefined
+          ? await resolveStageDefaultProbability(em, {
+            stageId: pipelineAssignment.pipelineStageId,
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+          })
+          : null
       },
       async () => {
         deal = em.create(CustomerDeal, {
@@ -627,7 +636,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           pipelineStageId: pipelineAssignment.pipelineStageId,
           valueAmount: toNumericString(parsed.valueAmountExact ?? parsed.valueAmount),
           valueCurrency: parsed.valueCurrency ?? null,
-          probability: parsed.probability ?? null,
+          probability: parsed.probability ?? stageDefaultProbability,
           expectedCloseAt: parsed.expectedCloseAt ?? null,
           ownerUserId: parsed.ownerUserId ?? null,
           source: parsed.source ?? null,
@@ -820,6 +829,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     let nextPipelineStageLabel: string | null = null
     let resolvedCurrentPipelineStageLabel: string | null = null
     let pipelineStageAssignmentChanged = false
+    let stageDefaultProbability: number | null = null
     let requestedClosureOutcome: DealClosureOutcome | null = null
     const createdDictionaryKinds = new Set<string>()
 
@@ -889,6 +899,17 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
               ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId, createdDictionaryKinds)
               : null
+          const enteredStageId =
+            pipelineStageAssignmentChanged && nextPipelineAssignment.pipelineStageId !== previousPipelineStageId
+              ? nextPipelineAssignment.pipelineStageId
+              : null
+          stageDefaultProbability = enteredStageId && parsed.probability === undefined
+            ? await resolveStageDefaultProbability(em, {
+              stageId: enteredStageId,
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+            })
+            : null
         },
         () => {
           if (parsed.title !== undefined) record.title = parsed.title
@@ -909,6 +930,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmountExact ?? parsed.valueAmount)
           if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
           if (parsed.probability !== undefined) record.probability = parsed.probability ?? null
+          else if (stageDefaultProbability !== null) record.probability = stageDefaultProbability
           if (parsed.expectedCloseAt !== undefined) record.expectedCloseAt = parsed.expectedCloseAt ?? null
           if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
           if (parsed.source !== undefined) record.source = parsed.source ?? null

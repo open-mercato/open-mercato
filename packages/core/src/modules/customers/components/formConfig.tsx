@@ -3,7 +3,7 @@
 import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import * as React from 'react'
 import { z } from 'zod'
-import { isWithinDecimalCaps } from '@open-mercato/shared/lib/decimal'
+import { isNegativeDecimal, isWithinDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import Link from 'next/link'
 import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -34,6 +34,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField, type PhoneCountry } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 import type {
   CrudCustomFieldRenderProps,
   CrudField,
@@ -866,9 +867,9 @@ export const createDisplayNameSection = (t: Translator) =>
     }
 
     return (
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="min-w-0 overflow-hidden rounded-lg border bg-muted/30 p-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('customers.people.form.displayNamePreview')}
             </div>
@@ -882,7 +883,7 @@ export const createDisplayNameSection = (t: Translator) =>
                 {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
               </div>
             ) : (
-              <div className="mt-1 text-base font-medium">{previewValue || placeholder}</div>
+              <div className="mt-1 break-words text-base font-medium">{previewValue || placeholder}</div>
             )}
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={toggleEditing}>
@@ -1568,6 +1569,7 @@ export const createCompanyFormGroups = (t: Translator): CrudFormGroup[] => [
 export function buildCompanyPayload(
   values: CompanyFormValues | CompanyEditFormValues,
   organizationId?: string | null,
+  locale?: string,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
 
@@ -1600,11 +1602,11 @@ export function buildCompanyPayload(
 
   const rawRevenue = typeof values.annualRevenue === 'string' ? values.annualRevenue.trim() : ''
   if (rawRevenue.length) {
-    const normalized = rawRevenue.replace(/,/g, '').replace(/\s+/g, '')
-    if (!/^\d+(\.\d+)?$/.test(normalized) || !isWithinDecimalCaps(normalized)) {
+    const exactRevenue = parseLocaleDecimal(rawRevenue, locale)
+    if (exactRevenue === null || isNegativeDecimal(exactRevenue) || !isWithinDecimalCaps(exactRevenue)) {
       throw new Error('ANNUAL_REVENUE_INVALID')
     }
-    payload.annualRevenue = normalized
+    payload.annualRevenue = exactRevenue
   }
 
   const customFields = collectCustomFieldValues(values, {
@@ -2052,8 +2054,12 @@ const assignClearable = (payload: Record<string, unknown>, key: string, raw: unk
   payload[key] = trimmed.length ? trimmed : null
 }
 
-export function buildCompanyEditPayload(values: CompanyEditFormValues, organizationId?: string | null): Record<string, unknown> {
-  const payload = buildCompanyPayload(values, organizationId)
+export function buildCompanyEditPayload(
+  values: CompanyEditFormValues,
+  organizationId?: string | null,
+  locale?: string,
+): Record<string, unknown> {
+  const payload = buildCompanyPayload(values, organizationId, locale)
   payload.id = values.id
 
   assignClearable(payload, 'primaryEmail', values.primaryEmail)

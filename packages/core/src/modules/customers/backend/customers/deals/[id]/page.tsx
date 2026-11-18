@@ -124,6 +124,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const {
     plannedActivities,
+    plannedLoadFailed,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,
@@ -338,9 +339,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           id: data.deal.pipelineId,
           name: currentPipelineName ?? t('customers.deals.detail.pipeline.defaultName', 'Current pipeline'),
           isDefault: false,
+          stageProbabilitiesEnabled: data.pipelineStageProbabilitiesEnabled === true,
         }]
       : [],
-    [currentPipelineName, data?.deal.pipelineId, t],
+    [currentPipelineName, data?.deal.pipelineId, data?.pipelineStageProbabilitiesEnabled, t],
   )
 
   if (isLoading) {
@@ -510,6 +512,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               )}
               <PlannedActivitiesSection
                 activities={plannedActivities}
+                loadFailed={plannedLoadFailed}
+                onRetryLoad={() => { void loadPlannedActivities() }}
                 onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
                 onSchedule={selectedActivityEntity ? openSchedule : undefined}
                 onEdit={handleEditActivity}
