@@ -11,21 +11,21 @@ async function expectViewportContained(page: Page) {
     .toBeLessThanOrEqual(0)
 }
 
-test.describe('TC-WC-039: warranty claim create form stays inside the phone viewport', () => {
+test.describe('TC-WC-042: warranty claim create form stays inside the phone viewport', () => {
   test('the claim-line table scrolls locally instead of widening the page at 390px', async ({ page, request }, testInfo) => {
     const token = await getAuthToken(request, 'admin')
-    const stamp = `tc-wc-039-${Date.now()}`
+    const stamp = `tc-wc-042-${Date.now()}`
     let customerId: string | null = null
     let orderId: string | null = null
 
     try {
-      customerId = await createCompanyFixture(request, token, `WC-039 customer ${stamp}`)
+      customerId = await createCompanyFixture(request, token, `WC-042 customer ${stamp}`)
       const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
         data: {
           customerEntityId: customerId,
           currencyCode: 'USD',
-          lines: [{ currencyCode: 'USD', name: `WC-039 imported line with a deliberately long product description ${stamp}`, quantity: 2, unitPriceNet: 10, unitPriceGross: 12 }],
+          lines: [{ currencyCode: 'USD', name: `WC-042 imported line with a deliberately long product description ${stamp}`, quantity: 2, unitPriceNet: 10, unitPriceGross: 12 }],
         },
       })
       const orderBody = await readJsonSafe<{ id?: string; orderId?: string }>(orderResponse)
@@ -43,7 +43,7 @@ test.describe('TC-WC-039: warranty claim create form stays inside the phone view
       await orderDialog.getByRole('checkbox').first().check()
       await orderDialog.getByRole('button', { name: 'Add selected lines', exact: true }).click()
 
-      await expect(page.getByText(`WC-039 imported line with a deliberately long product description ${stamp}`).first()).toBeVisible()
+      await expect(page.getByText(`WC-042 imported line with a deliberately long product description ${stamp}`).first()).toBeVisible()
       await expectViewportContained(page)
       await page.screenshot({ path: testInfo.outputPath('create-390.png'), fullPage: true })
 
