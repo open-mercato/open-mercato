@@ -25,6 +25,15 @@ stage, so narrow screens keep the quick stage change the header dropdown used to
 All of these stay for at least one minor release after 0.10.0 and are tracked in
 `.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
 
+## Invoice delete checks the expected version under the row lock
+
+`DELETE /api/sales/invoices` now locks the invoice row and compares the
+`x-om-ext-optimistic-lock-expected-updated-at` header with the `updated_at` of the
+locked row, as order delete already does. A delete whose invoice another request
+edited after the route's version check now answers 409 `optimistic_lock_conflict`
+instead of deleting the edited invoice. Deleting a missing or already deleted
+invoice answers 404 instead of 500.
+No migration or configuration change.
 ## Catalog price-kind seed keeps existing price kinds (#8104)
 
 `seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
