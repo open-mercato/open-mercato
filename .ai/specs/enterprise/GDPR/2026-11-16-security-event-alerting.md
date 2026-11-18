@@ -89,7 +89,13 @@ An alert is a prompt to look. Under GDPR Art. 33 the 72 hours run from the contr
 | Large export | Rows of one kind exported by one actor within a window | 5,000 in 1 hour | `auth:user` or `api_keys:key`, actor id | Exported `resourceKind` | warning | Seam 4; `audit_logs` enabled and event enqueue succeeds |
 | Repeated failures | Failed sign-ins for one user | 10 in 10 minutes | `auth:user`, failed user id | Empty | warning | The 11-13 spec's seam |
 
-**When the MFA rule decides "privileged".** A removal or reset is privileged when the event's `targetPrivileged` is `true`, whatever happens to the target's access before delivery, so revoking the target's features after weakening MFA cannot suppress the alert. When it is `false`, the subscriber checks again at delivery and raises only if the target has since become privileged. When it is `null` or absent (a failed check or a legacy payload), the delivery check decides, and it fails closed: a target that no longer exists or is deleted, or an RBAC read that fails, raises the alert. Only `false` at emission with a successful non-privileged delivery check raises nothing.
+**When the MFA rule decides “privileged”.** Apply the decision table after validating the event scope. A known privileged emission remains alertable after later access revocation. When the event is legacy or its check failed, a successful delivery check can still prove the target non-privileged. A deleted target or failed delivery check raises for every emission state. The producer still never blocks the MFA operation on a privilege lookup.
+
+| Privileged at emission | Privileged at delivery | Confirmed non-privileged at delivery | Target deleted, missing or RBAC check failed |
+|---|---|---|---|
+| `true` | Alert | Alert | Alert |
+| `false` | Alert | No alert | Alert |
+| `null` or absent | Alert | No alert | Alert |
 
 Severity is the closed set `warning | high`, mapped to `status-warning-*` and `status-error-*` tokens respectively. Feature tests use the server RBAC policy, including wildcard expansion and disabled features. A configured pattern matches active concrete feature ids with the shared matcher; `*` and `<module>.*` are supported. Super-administrator gains always count. An empty list is valid, explicitly warned about in settings, and disables feature-based matching but not super-administrator gains or bypass detection. A rule's window is one minute to 24 hours.
 
@@ -422,7 +428,7 @@ type AlertAcknowledged = AlertEvent & { acknowledgedBy: string; acknowledgedAt: 
 | One user or key active in two organizations | Each organization has its own lock, sum and open alert |
 | A user removes their own MFA method | The event carries the method's tenant and organization; the rule scopes it without a lookup |
 | A privileged target's features are revoked before the MFA event is delivered | `targetPrivileged: true` from emission raises the alert anyway |
-| The MFA target is deleted before delivery, or RBAC cannot be read at delivery | With an emission flag of `null` or absent, the alert is raised (fail closed); with `true` it is raised; with `false` nothing is raised |
+| The MFA target is deleted before delivery, or RBAC cannot be read at delivery | Raise for every emission state under the MFA decision table. |
 | The transaction commits and the delivery worker fails | The alert has no notification time; the next run or the sweep sends the notification and emits the event |
 | An attack that continues for days with nobody acknowledging | One open alert whose last-seen time keeps advancing and whose count shows the busiest window |
 | No user holds the alerts feature | The alert is listed; the page says nobody will be notified |
@@ -467,7 +473,7 @@ type AlertAcknowledged = AlertEvent & { acknowledgedBy: string; acknowledgedAt: 
 4. The notification type and the delivery worker, which also emits the outward event; the list route and page; acknowledge command. `alert-acknowledge.test.ts`: two concurrent acknowledgements, stale 409, current-version idempotent retry, cross-organization 404, tenant-wide scope, one audit/event on transition and guards; delivery tests: delivery after a failed subscriber; a retry that finds the notification already sent; a tenant-wide alert notified only to holders whose scope is every organization, listed only for them, and emitting no event.
 5. The two `pruneRecords` handlers, the bound handler, their DI keys and the system schedule through the shared runner. `alert-retention.test.ts`: batch limit at most 100, fixed-cutoff/keyset continuation, effective-window changes, minimum signal age, open alert with a recent signal kept, acknowledged safety cutoff, old row deleted and idempotent rerun, and both set declarations carrying `unmatchedHoldsOptOut: 'forbidden'`. `alert-retention-bounds.test.ts` verifies `securityAlertRetentionBounds`: its real DI registration and `resolve`/`evaluateFixtureRow` methods, effective-window/parser and eligibility parity with deletion for each table/state, exact captured row/column and scope matching, read-only enforcement, the hold, missing-runner and pending projections, and unavailable or unknown scheduling/worker states without a finite-bound claim. Missing or throwing projection/evaluation must block verification. With a registered guard, a subject hold skips both sets even under an engine unmatched-hold policy, failure refuses, and release permits expiry at the original age; no scheduler leaves explicit commands usable, no runner deletes nothing. TC-SEC-ALERT-005 covers the real shared-service path.
 6. The MFA events: `security.mfa.removed` with the method's tenant and organization and `occurredAt`, and both events with an `occurrenceId` and `targetPrivileged`, emitted persistent with their scope. Unit tests for payloads and emit options, reset-notification occurrence deduplication after an email failure, and skip-inline delivery with single delivery off; update `services/__tests__/MfaAdminService.test.ts`. The PR carries the maintainer confirmation of the delivery change that the events Ask First requires.
-7. The MFA rule, with wildcard-aware matching and the emission/delivery privilege rule. `mfa-rule.test.ts` covers delayed delivery: privileged at emission then revoked before delivery (raises), non-privileged at emission then granted before delivery (raises), non-privileged at both times (nothing), a null or absent flag with a deleted target (raises), a null flag with an RBAC read failure (raises), and the producer's check failing without blocking the MFA operation. Integration test TC-SEC-ALERT-001. Re-run `yarn generate` after changing declarations and commands; update module snapshots for the new columns/tables.
+7. The MFA rule, with wildcard-aware matching and the emission/delivery privilege rule. `mfa-rule.test.ts` covers delayed delivery: privileged at emission then revoked before delivery (raises), non-privileged at emission then granted before delivery (raises), non-privileged at both times (nothing), all emission states against deleted, missing and RBAC read failure (each raises), and a null or absent flag with a confirmed non-privileged target (no alert), and the producer's check failing without blocking the MFA operation. Integration test TC-SEC-ALERT-001. Re-run `yarn generate` after changing declarations and commands; update module snapshots for the new columns/tables.
 8. `alert-tenant-export.test.ts` asserts owner DI registration and declaration coverage for the three tables, count/read parity, keyset pagination and exact tenant attribution in export and scan modes. Test foreign tenant rejection across organizations, included tenant-wide null-organization rows, signal `source_key` redaction with count unchanged, and reviewed settings JSON. Run TC-SEC-ALERT-006 through the Enterprise handover path.
 
 ### Phase 2
@@ -591,6 +597,10 @@ Phase 4 ships only with TC-SEC-ALERT-004 passing against the 11-13 spec's real s
 **Verdict:** ready. The design is decided. Phase 1 waits for the contract and record-retention prerequisites it names; its PR carries the maintainer confirmation of the MFA delivery change that the events Ask First requires. No implementation validation is claimed. Phases 2 to 4 each wait for the OSS seam they name.
 
 ## Changelog
+
+### 2026-11-18 — Review remediation
+
+- Use one MFA privilege truth table for the event contract, failed-read behavior and rule test fixtures.
 
 ### 2026-11-18
 

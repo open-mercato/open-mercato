@@ -200,7 +200,7 @@ flowchart TD
   E["encryptEntityPayload callers (existing)"] --> D
   C["custom-field values (existing)"] --> D
   I["query-index document (existing)"] --> D
-  V["vector strategy encryption (B4 planned)"] -. "required before Phase 3" .-> D
+  V["vector strategy encryption (B4 planned)"] -. "required before complete vector coverage and the default flip" .-> D
   B["command bus (existing)"] -- "pin before prepare through persistLog" --> D
   D -- "count · report · throw" --> T["telemetry facade + logger (existing)"]
   D -. "toggle, map, command pin, shared cache, health" .-> K["backend-scoped process cache (changed)"]
@@ -499,6 +499,10 @@ Every database-backed case owns a dedicated schema or tenant/organization, ident
 **Design ready for Phases 1, 2 and 3.** A3 opt-in precedes B4 Phase 2, which verifies active-vector coverage. The operator note promises backfill after B1 Phase A. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. The default flip is a separate tracked task with the gates under Migration. The program closes only after the protected production default is `fail` and the B1 no-map disposition is recorded.
 
 ## Changelog
+
+### 2026-11-18 — Review remediation
+
+- Align the vector coverage diagram with the A3 opt-in and production-default sequence.
 
 ### 2026-11-18 — Review corrections
 

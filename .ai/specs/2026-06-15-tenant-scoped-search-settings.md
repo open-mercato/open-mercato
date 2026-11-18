@@ -173,9 +173,13 @@ Reuse the existing `EmbeddingProviderProbe` from `lib/provider-probe.ts`, DI key
 | `tenant_id` | uuid **null** | existing — scope; `NULL` = global/instance default |
 | `created_at` / `updated_at` | timestamptz | unchanged |
 
-Existing indexes: `module_configs_global_unique` (`WHERE tenant_id IS NULL`), `module_configs_scoped_unique` (`WHERE tenant_id IS NOT NULL`) and `module_configs_module_name_tenant_idx` on `(module_id, name, tenant_id)`. This remaining work adds no schema or index swap; preserve the R3-3 storage prerequisite.
+Existing indexes: `module_configs_global_unique` (`WHERE tenant_id IS NULL`), `module_configs_scoped_unique` (`WHERE tenant_id IS NOT NULL`) and `module_configs_module_name_tenant_idx` on `(module_id, name, tenant_id)`. The config settings work adds no `module_configs` schema or index swap. Preserve the R3-3 storage prerequisite. The generation transition below adds search-owned runtime storage only.
 
-No new entities. `EmbeddingProviderConfig` (`packages/search/src/vector/types.ts`) is unchanged on the wire; preserve the existing sibling `source` response field rather than adding it to the config.
+**Search-owned generation storage.** The pgvector driver’s existing SQL migration registry adds nullable `vector_search.embedding_generation` and a search-owned `vector_tenant_generations` table keyed by tenant UUID with a current generation UUID, effective configuration identity and status. The identity covers the owner's uncached settings revision and source, normalized effective provider/model/dimensions/endpoint identity and a pinned deployment default revision where inherited environment defaults apply. Store no API key or clear sensitive endpoint credentials. Give the new runtime table and vector column their search-owned catalogue and privacy inventory declarations. Existing rows start with null provenance and stay excluded from generation-aware vector lookup until the tenant completes a verified reindex. No speculative backfill or table rewrite is required.
+
+**Settings and vector commit fence.** Serialize relevant tenant/global owner settings writes, generation reconciliation and final vector writes or completion checks through a single search-owned installation advisory fence on the target database. Keep external embedding calls outside the fence. At every repair, commit or query admission, read the current effective settings revision and active generation through their owners. A settings commit followed by a process crash before generation publication leaves a revision mismatch, which refuses vector reads and writes for affected tenants until the generation is explicitly reconciled. Reconciliation publishes a fresh UUID and a pending reindex under the fence. The previous generation cannot become current again even after a configuration changes back. Effective changes written through separately supported owner paths must participate in the fence or force a paused rollout and verified reconciliation. For inherited environment defaults, publish a fresh installation-pinned default revision with traffic and vector workers paused, then reconcile affected tenants before resuming. Mixed-default replicas refuse affected vector requests and writes. Every vector final write and reindex completion verifies its captured generation against the fresh owner state inside the same fence as the write. Vector reads verify the captured generation immediately before publishing results. Token and fulltext fallback remains available throughout.
+
+`EmbeddingProviderConfig` (`packages/search/src/vector/types.ts`) is unchanged on the wire; preserve the existing sibling `source` response field rather than adding it to the config.
 
 ## API Contracts
 
@@ -204,7 +208,7 @@ Response additions are backward-compatible (new fields only). The tenantless-wri
 
 Contract surfaces consumed (per `BACKWARD_COMPATIBILITY.md`): existing **DB schema** (`module_configs`), **DI/types** (`ModuleConfigService`, `EmbeddingService`), **API routes** (search settings). Remaining changes preserve their shapes:
 
-- **Schema:** scope columns and partial indexes already exist. No new migration, snapshot edit or backfill is required. Existing global rows remain the instance defaults for search; the R3-3 privacy adapter continues to discard them.
+- **Schema:** keep existing `module_configs` columns, scope indexes and snapshots. Add the search-owned pgvector driver migration and its runtime table declaration. Migrate before generation-aware readers and writers activate. Pause and drain vector workers for the transition, reconcile effective generations and reindex by tenant before enabling that tenant’s generation-aware results. Keep fallback available and never guess provenance for legacy rows. On rollback, pause affected vector work until older workers cannot expose mixed generations. Existing global rows remain instance defaults for search; the R3-3 privacy adapter discards them.
 - **`ModuleConfigService`:** preserve existing optional scope, `v2` cache keys and no-scope behavior. Retain the C1-owned optional `expectedUpdatedAt` extension if it lands first; do not claim another cache-version or signature migration here.
 - **Search APIs:** preserve existing request/response shapes, source metadata and tenant-scoped settings writes. A tenantless principal can no longer write the instance-default row through either settings POST (`403`); operators set instance defaults through env vars, as Q2 already states. The remaining bug fix makes workers and queries honor that same configuration; document the runtime-isolation correction in UPGRADE_NOTES.
 - **Provider/runtime availability:** reuse the existing async probe and 409 response while keeping synchronous credential helper signatures. Remove first-party shared-service mutations without removing `EmbeddingService.updateConfig` or renaming `vectorEmbeddingService`. Document that each tenant now controls its own runtime configuration and in-flight operations retain their snapshot.
@@ -237,6 +241,7 @@ The four phases preserve existing storage first, then close runtime isolation, c
 ### Phase 2 — Tenant-scoped search settings + env-derived defaults
 - 2.1 Complete scope propagation at both worker `resolveEmbeddingConfig` calls (`:228`, `:344`), both query routes (`api/search/route.ts:104`, `api/search/global/route.ts:108`), the worker auto-index read (`:329`) and the `vector_upsert` / `vector_delete` auto-index reads (`:47`), using validated job, resolved record or resolved auth scope. Keep already-scoped settings APIs intact, and add the tenantless-write `403` to both settings POSTs.
 - 2.1a Build operation-scoped embedding service/strategy/indexer snapshots. Remove every first-party shared-service `updateConfig`, including the embeddings save at `:341-345`, the embeddings reindex route (`api/embeddings/reindex/route.ts:106-109`, which only enqueues) and `subscribers/vector_purge.ts:41-44` (purge needs no embedding), while preserving its public method and DI key for isolated callers.
+- 2.1b Deliver additive pgvector storage, owner catalogue declarations, authoritative revision reads and the shared commit fence before enabling generation-aware results. Keep the old driver interface behind the paused/reindex path when the driver lacks generation support.
 - 2.2 Preserve env-derived defaults and the existing `source` discriminator; verify worker/query snapshots use the same effective fallback as the settings GET.
 - 2.3 Integration tests in `packages/search/src/modules/search/__integration__`: interleave A/B saves, both worker paths and both query endpoints with deterministic per-config embeddings; prove immutable in-flight snapshots, tenant auto-index/strategy behavior and inherited defaults. Fixtures and teardown belong to each test; no demo tenants/provider calls.
 
@@ -264,7 +269,7 @@ The four phases preserve existing storage first, then close runtime isolation, c
 - Each concurrency test owns all config/map/index/provider fixtures, barriers and process overrides; release blocked operations, stop owned workers, restore DI/environment and remove records, tenant settings, vectors, organizations and tenants in `finally`. Assert actual calls/results after the barriers, never a vacuous empty index.
 - Integration tests are self-contained (API-created fixtures, cleaned up in teardown), per `.ai/qa/AGENTS.md` and the per-module colocation rule.
 
-- Within one tenant, pause an old-generation worker after embedding, change to a different same-dimension provider/model and finish the reindex. Release the older worker and assert it cannot overwrite the new vector, affect the new generation's completion, or reappear in queries. Cover historical null generation, inherited changes, cross-tenant isolation, and a driver without generation support.
+- Within one tenant, pause an old-generation worker after embedding, change to a different same-dimension provider/model and finish the reindex. Release the older worker and assert it cannot overwrite the new vector, affect the new generation's completion, or reappear in queries. Cover historical null generation, inherited changes, cross-tenant isolation, and a driver without generation support. Exercise a crash after settings commit but before generation publication, a configuration changed back to its old values and rolling workers with different defaults. All affected vector paths must refuse stale generations until reconciliation and reindex.
 
 For work proposed under #8593, the GDPR hand-off remains subject to the program DEC-2 written upstream carrier approval. The independent search-settings work retains its own approval route.
 
@@ -280,10 +285,14 @@ For work proposed under #8593, the GDPR hand-off remains subject to the program 
 | Zod validation for API inputs | ✅ Existing search validators extended |
 | Encryption maps for sensitive columns | N/A — no new PII columns (secrets stay env-level) |
 | Design System tokens / shared primitives | ✅ Required in Phase 4 |
-| Existing storage and R3-3 prerequisite preserved | ✅ Phase 1 characterizes; no duplicate migration |
+| Config storage and R3-3 prerequisite preserved | Compliant design. No duplicate config migration. Phase 2 adds search-owned generation state and a nullable vector provenance column through driver migrations. |
 | Integration coverage for affected API + UI paths | ✅ Test Plan above |
 
 ## Changelog
+
+### 2026-11-18 — Review remediation
+
+- Specify additive search-owned migrations, the generation commit fence and safe legacy-row rollout for same-tenant model changes.
 
 - 2026-11-18 — Fence same-tenant model generation changes through final writes, query eligibility and reindex completion.
 

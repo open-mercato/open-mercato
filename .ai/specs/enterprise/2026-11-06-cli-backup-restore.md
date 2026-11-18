@@ -221,6 +221,8 @@ Rules: show running entities, the 3 most recent completions, failures, then a `�
 
 **Trust:** the manifest digest is emitted on completion and must reach `verify`/`restore`/`exercise` through an independent channel (`--trusted-manifest-sha256`). Manifest → index digest → chunk digests forms the chain, and that chain is the **only** integrity and provenance guarantee. age with X25519 recipients provides confidentiality and detects corruption, but it is not sender-authenticated: anyone holding the public recipients can produce a valid ciphertext, so a successful decrypt proves nothing about who wrote a chunk. Every chunk is therefore checked against its index hash, both in `verify` and again while it is loaded.
 
+**Protected privacy cutover.** C9 verifies the signed source, the pinned manifest digest and its encrypted index evidence. Only `single-snapshot` and `quiesced` archives can support protected clearance. The engine may verify, exercise or restore a `multi-snapshot` archive for disaster recovery with its normal consistency label. It prints privacy-unchecked guidance and identifies that archive as ineligible for protected cutover. The earliest time bound cannot prove that tenant tables and replay applied rows came from the same state. A separately verified PostgreSQL PITR coordinate remains eligible under C9.
+
 ### Restore report v1
 
 External to the artifact: restore run id, backup id, trusted manifest digest, target identity digest, consistency mode, resumes count with timestamps, per-entity rows loaded vs expected, per-phase durations, FK validation results per entity, `keyRecovery: 'not-tested'|'passed'|'failed'`, `externalAssets: 'not-tested'|'operator-attested'`, `promotionReady: false`. Exclusive owner-only file, finalized atomically.
@@ -398,3 +400,4 @@ Verdict: **design review only; not approved for implementation** until Q2/Q3 sec
 11. Full matrix, performance evidence, docs (`apps/docs`: enterprise backup runbook incl. encryption, resume and rotation), configured validation gate.
 
 - 2026-11-18 review fixes: align protected recovery provenance and strict gate instructions across CLI entry points.
+- 2026-11-18 review remediation: distinguish archive restore success from protected privacy cutover eligibility and reject mixed-epoch archives as protected recovery evidence.

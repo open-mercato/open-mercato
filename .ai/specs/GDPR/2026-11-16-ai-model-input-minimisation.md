@@ -117,7 +117,7 @@ No phase builds alternative A.
 ### Option B
 1. Program DEC-11 records Q1=B. The deployment-docs owner writes **What the assistant sends to a model** in G5 Stage 1; the program's **Known limits** links it.
 2. Verify the statement against the route inventory and shipped provider-policy coverage. Do not close the documentation task with an empty placeholder.
-3. G5 Stage 1 adds the model-input inventory test (`scripts/__tests__/gdpr-model-input-routes.test.mjs`, with its route list `gdpr-model-input-routes.json`). It finds every non-test source file under `packages/*/src` that imports `generateText`, `streamText`, `generateObject`, `streamObject`, `embed` or `embedMany` from `ai` or from the assistant's `lib/ai-sdk` re-export, including a dynamic `import('ai')`, or that calls `runAiAgentText` / `runAiAgentObject`. Each must be listed with its route; each route must appear in the published section; a listed file that no longer exists fails. Direct HTTP callers (moderation, decision adapters) are listed by hand.
+3. G5 Stage 1 owns the [model-input inventory contract](2026-11-16-gdpr-deployment-docs.md#-proposed-solution), including its package, application and template source roots, supported SDK/typed-agent/OpenCode/direct-adapter call sites, and reviewed cases beyond scanner reach. Reuse its route list and tests. Do not narrow the inventory to package imports.
 
 ### Alternative A
 Not built, so no steps. The review fixed what a later field-level control spec would have to deliver in one change: the exported scoped formatter with JSON Pointer validation and unit tests; declarations on the people/companies/deals tools, with both context builders routed through the formatter; the scoped `withheld_fields` setting with optimistic locking and coverage UI; and a deterministic test-only recording model adapter with self-contained integration tests.
@@ -134,7 +134,7 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 | Provider permission read as field minimisation | The section states that provider permission is not field minimisation |
 | A value reaches a model through OpenCode over MCP, a search snippet, an attachment or a prompt | The route is listed in the disclosure; no route is presented as filtered |
 | Chat transcript and UI parts | Unchanged; B adds no formatter, so Q2 is moot |
-| A new model path ships later | The inventory test fails until the file is listed with a route and the route is on the page; G5 also updates the section for later F1 controls |
+| A new model path ships later | G5’s inventory test rejects newly detected and unclassified send sites, even within listed files. Owner review traces arbitrary HTTP and behavior beyond the recognizers. |
 | A model call made by plain HTTP rather than the AI SDK | Not detected by the inventory pattern; listed by hand, and the review rule requires it |
 
 ## 📝 Risks & Impact Review
@@ -153,11 +153,15 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 | Direction decision recorded | Decided | Q1=B under program DEC-11 with a concrete carrier; Q2 moot |
 | Additive contracts and tenant scope | Compliant | B changes no contract, setting or tenant-scoped data |
 | Integration coverage | Not applicable to B | No API/UI path; G5 content checks assert the section; A's tests are not delivered because A is not built |
-| Honest limits | Compliant design | The disclosure names OpenCode/MCP, embeddings, text extraction, web research, moderation, agent context and every other route; an inventory test keeps the list complete for AI SDK callers; provider permission is not field minimisation |
+| Honest limits | Compliant design | The disclosure names OpenCode/MCP, embeddings, text extraction, web research, moderation, agent context and every other route; the G5 inventory guards the listed recognizers and the owner reviews uncovered routes; provider permission is not field minimisation |
 
 **Verdict:** G5 owns the proposed disclosure in DEC-11. DEC-14 requires written upstream acceptance of that substitution or shipped acceptance evidence for the technical requirement before #8593 closes.
 
 ## Changelog
+
+### 2026-11-18 — Review remediation
+
+- Use G5’s authoritative source scope and call-site inventory, including OpenCode and direct adapters, with its explicit manual-review boundary.
 
 ### 2026-11-18
 

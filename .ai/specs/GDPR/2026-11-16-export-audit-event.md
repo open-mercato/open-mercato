@@ -78,16 +78,17 @@ The helper first checks that `audit_logs` is enabled in the module registry. If 
 
 The factory uses it in both export branches, once per response: after the query-engine page loop, or after the fallback's complete list has been prepared. Both count final exported rows after hooks, not the first-page count or requested total. Each route classified as an export below uses it in place of building its own response. The timesheet route keeps its own event as well. The one enterprise route adopts the OSS helper in the same change; nothing enterprise-only is specified here.
 
-**The classified list.** A guard test finds every API route file under the repository's module roots — `packages/*/src/modules/*/api/`, `apps/*/src/modules/*/api/`, `packages/create-app/template/src/modules/*/api/`, and the module API directories of `external/official-modules/` when that submodule is checked out — that sets an attachment header, lies under a path segment containing `export`, or reads `exportScope`. Each must be in a hand-kept list with a class and a reason, the way `packages/core/src/__tests__/optimistic-lock-editable-entities.test.ts` keeps its list. The guard covers the code in this repository only: modules of a standalone app or an official module that is not checked out are outside it, and their custom export routes are recorded only if they call the helper. Today the app and template roots hold no route that matches. A route added later joins the list in its own change; the enterprise DSR engine's Phase 2 adds `data_erasure/api/subjects/export` as an export ([`../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md`](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md), **A subject request from the page**):
+**The classified list.** A guard test finds every API route file under the repository's module roots — `packages/*/src/modules/*/api/`, `apps/*/src/modules/*/api/`, `packages/create-app/template/src/modules/*/api/`, and the module API directories of `external/official-modules/` when that submodule is checked out — that sets an attachment header, lies under a path segment containing `export`, or reads `exportScope`. Each must be in a hand-kept list with a class and a reason, the way `packages/core/src/__tests__/optimistic-lock-editable-entities.test.ts` keeps its list. The guard covers the code in this repository only: modules of a standalone app or an official module that is not checked out are outside it, and their custom export routes are recorded only if they call the helper. Today the app and template roots hold no route that matches. A route added later joins the list in its own change. Phase 2 of [portal self-service](2026-11-16-portal-privacy-self-service.md) adds `customer_accounts/api/portal/privacy/export.ts` as a mandatory C1 subject copy. The enterprise DSR engine's Phase 2 adds `data_erasure/api/subjects/export` as an export ([`../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md`](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md), **A subject request from the page**):
 
 | Class | Routes | Rule |
 |---|---|---|
 | Export | The ten routes above, and `data_erasure/api/subjects/export` once the DSR engine's Phase 2 adds it (`scope: 'subject'`) | Must call `exportResponse` |
 | Own copy | `forms/api/public/submissions/[id]/pdf` | Must not call it (assumption 3) |
+| Mandatory C1 subject copy | Portal `POST /api/customer_accounts/portal/privacy/export` once self-service Phase 2 adds it | Require the strict C1 export service and completed terminal audit before attaching data. No `exportResponse` call or `audit_logs.export.completed` event. |
 | Plain download | The nine file and template routes above | Must not call it |
 | Factory route | `devices/api/route.ts`, which names `exportScope` in a comment and has exports disabled | Builds no export response of its own; the factory records any export |
 
-A route found by the scan and absent from the list fails the test, so a new route that hands out a file is classified when it is written. A listed route that no longer exists fails it too.
+A route found by the scan and absent from the list fails the test, so a new route that hands out a file is classified when it is written. A listed route that no longer exists fails it too. Each owner adds its row when the route lands and this guard classifies an already present portal route when the guard lands later. The mandatory C1 subject-copy class checks the C1 owner-service call, excludes the generic helper and links the owner integration case that refuses an attachment when terminal proof is missing. C1 owns that evidence and its expiry.
 
 | Alternative | Why rejected |
 |---|---|
@@ -139,6 +140,10 @@ With `audit_logs` enabled, the system SHALL attempt one durable audit entry and 
 ##### Scenario: A respondent's own copy
 - WHEN a respondent downloads the PDF of their own submission through the public route
 - THEN nothing is recorded
+
+##### Scenario: A portal subject's own copy
+- WHEN the authenticated portal download is present
+- THEN the guard classifies it as a mandatory C1 subject copy. The portal's C1 evidence must complete before an attachment is sent. The route emits no generic best-effort record or event.
 
 ##### Scenario: An unclassified route
 - WHEN an API route sets an attachment header, lies under an `export` path or reads `exportScope`, and is not in the classified list
@@ -246,7 +251,7 @@ Additive: an event, a helper, a resource kind, a new `events.ts`. With the audit
 3. Use it in the factory's two branches. `factory-export-audit.test.ts`, with a small configured batch, for `view` scope with filters and `full` scope, each across several pages, and for a non-export response; assert all full-export aliases use `exportFullRequested`. Add a user allowed two of three organizations who selects all (null organization, `organizationScope: 'several'` with both ids), one selected organization, and an unrestricted user (`'all'`).
 4. Add `audit_logs/events.ts`; run the generators.
 5. Move each of the ten routes to the helper, one step per module: `entities`; `audit_logs`; `staff`; `forms`, its two exports and the staff PDF; `packages/documents`; `eudr`, the annual report and the statement packet; `agent_orchestrator` in `packages/enterprise`. One unit test per route, asserting its scope and unchanged response, plus the matching table-driven integration case TC-AUD-EXPORT-002 below. Each case observes the actual event in the test queue and the audit entry, rather than only mocking the helper.
-6. The guard test with its classified list: exports, the own copy, plain downloads and the factory route, scanning the package, app, create-app template and present official-module roots. Unit tests that an unlisted route found by each trigger fails it under each root, that an absent official-module checkout is skipped rather than failed, and that a listed export without the helper fails it. The audit page's filter and its i18n keys; do not change default action-type filters.
+6. The guard test with its classified list: exports, the own copy, mandatory C1 subject copies, plain downloads and the factory route, scanning the package, app, create-app template and present official-module roots. Unit tests that an unlisted route found by each trigger fails it under each root, that an absent official-module checkout is skipped rather than failed, and that a listed export without the helper fails it. The audit page's filter and its i18n keys; do not change default action-type filters. Check that the portal class uses the C1 operation and refuses use of the generic helper when the portal route exists. TC-PORTAL-PRIVACY-002 exercises the C1 success and audit failure paths.
 7. Integration tests TC-AUD-EXPORT-001 and TC-AUD-EXPORT-002 (enterprise eval export case runs in the enterprise environment); the audit-logs docs page; the dated entry.
 8. Add the evidence-expiry setting, set, DI handler and docs after their named prerequisites, including the record-retention owner's shared aggregate writer and `retentionEvidenceSummary.test.ts` in step 7. `exportEvidenceRetention.test.ts`: exact kind and cutoff mapping to DEC-B, helper `scope: 'subject'` entries expiring with the set while C1 `privacy.subject_export` / `privacy.subject_export_request` entries are untouched, the `unmatchedHoldsOptOut: 'forbidden'` declaration, current setting minimum, version-change refusal, dry-run/keyset batches of at most 100, old/recent/foreign-kind and foreign-tenant entries, whole-entry removal of actor/resource/parent/related/context, any subject hold even under engine opt-out, guard failure/release, active replay incomplete then successful retry, declaration-selected `PrivacyRetentionAggregateSummary` only and null-tenant evidence reported outside this set. Add TC-AUD-EXPORT-003. The feature ships with this expiry path and operator scheduling instructions; it never claims a running job from a declaration alone.
 9. Archive this Delta into `.ai/specs/capabilities/export-audit.md` if that directory has been adopted by then.
@@ -302,7 +307,7 @@ Counting across several pages is unit-tested: the batch size cannot be set by a 
 - **Scenario**: A new route builds a file itself.
 - **Severity**: High
 - **Affected area**: that module's exports
-- **Mitigation**: The helper is the way to build an export response. Every API route that sets an attachment header, lies under an `export` path or reads `exportScope` must be in the guard's classified list, and an export in it must use the helper.
+- **Mitigation**: The helper is the way to build an export response. Every API route that sets an attachment header, lies under an `export` path or reads `exportScope` belongs on the classified list. A staff or API key export uses the helper. A portal subject copy uses the strict C1 route contract.
 - **Residual risk**: A route that hands out records as a plain JSON body, under no `export` path and without an attachment header, and every export assembled in the browser. A route misclassified as a plain download is caught only in review. Custom routes in a standalone app or an official module that is not checked out are outside the guard.
 
 #### Export evidence is missing
@@ -335,6 +340,10 @@ Counting across several pages is unit-tested: the batch size cannot be set by a 
 **Verdict:** design ready, subject to the settings, retention, erasure and scheduling prerequisites. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
 
 ## Changelog
+
+### 2026-11-18 — Follow-up review
+
+- Classify the portal subject copy under its mandatory C1 audit rather than the generic export event.
 
 ### 2026-11-18 — Review corrections
 
