@@ -265,6 +265,14 @@ describe('storage_s3 configure-from-env --all-tenants helper', () => {
 })
 
 describe('storage_s3 parseCliArgs', () => {
+  it('preserves embedded equals signs and explicit empty option values', () => {
+    expect(parseCliArgs(['--tenant=a=b', '--org=encoded==', '--empty='])).toEqual({
+      tenant: 'a=b',
+      org: 'encoded==',
+      empty: '',
+    })
+  })
+
   it('parses standalone flags as boolean true', () => {
     expect(parseCliArgs(['--all-tenants'])).toEqual({ 'all-tenants': true })
     expect(parseCliArgs(['--force'])).toEqual({ force: true })
