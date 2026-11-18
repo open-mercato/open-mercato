@@ -3,6 +3,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { MfaProviderRegistry } from '../../../lib/mfa-provider-registry'
 import type { MfaProviderInterface } from '../../../lib/mfa-provider-interface'
+import { OtpEmailProvider } from '../../../lib/providers/OtpEmailProvider'
 import { MfaService } from '../../../services/MfaService'
 import { emitSecurityEvent } from '../../../events'
 import { resolveMfaRequestContext } from '../_shared'
@@ -24,6 +25,7 @@ jest.mock('../_shared', () => ({
   resolveMfaRequestContext: jest.fn(),
 }))
 jest.mock('../../../events', () => ({ emitSecurityEvent: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/email/send', () => ({ sendEmail: jest.fn().mockResolvedValue(undefined) }))
 
 const validateToken = jest.fn()
 const checkUserCompliance = jest.fn()
@@ -103,6 +105,36 @@ describe('MFA HTTP mutations with real sudo middleware and enrollment service', 
     expect((await PUT(request('PUT'), { params: Promise.resolve({ providername: 'totp' }) })).status).toBe(200)
     enrollmentContext(1)
     expect((await PUT(request('PUT'), { params: Promise.resolve({ providername: 'totp' }) })).status).toBe(403)
+  })
+
+  test('real Email OTP confirmation maps a wrong code to 400 without activating, then accepts the sent code', async () => {
+    const previousTestMode = process.env.OM_TEST_MODE
+    process.env.OM_TEST_MODE = 'true'
+    try {
+      const provider = new OtpEmailProvider()
+      const setup = await provider.setup('user-1', { email: 'owner@example.test' })
+      const registry = new MfaProviderRegistry()
+      registry.register(provider)
+      const { method, em } = enrollmentContext(0)
+      method.type = 'otp_email'
+      em.findOne.mockImplementation(async (_entity: unknown, query: Record<string, unknown>) => query.isActive === false ? method : null)
+      jest.mocked(resolveMfaRequestContext).mockResolvedValue({
+        auth, container, commandContext: { auth, container },
+        mfaService: new MfaService(em as unknown as EntityManager, registry),
+      } as never)
+      const confirm = (code: unknown) => PUT(new Request('https://example.test/api/security/mfa/provider/otp_email', {
+        method: 'PUT', headers: { 'content-type': 'application/json', 'x-sudo-token': 'valid' },
+        body: JSON.stringify({ setupId: setup.setupId, payload: { code, email: 'substituted@example.test' } }),
+      }), { params: Promise.resolve({ providername: 'otp_email' }) })
+      const wrongCode = setup.clientData.code === '000000' ? '111111' : '000000'
+      expect((await confirm(wrongCode)).status).toBe(400)
+      expect(method.isActive).toBe(false)
+      expect((await confirm(setup.clientData.code)).status).toBe(200)
+      expect(method.providerMetadata).toMatchObject({ email: 'owner@example.test' })
+    } finally {
+      if (previousTestMode === undefined) delete process.env.OM_TEST_MODE
+      else process.env.OM_TEST_MODE = previousTestMode
+    }
   })
 
   test.each([false, true])('removal and recovery regeneration require sudo (valid=%s)', async (valid) => {
