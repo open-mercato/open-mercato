@@ -104,6 +104,8 @@ let restrictedToolRuns = 0
 let lastAllowedToolContext: ObservedToolContext | null = null
 let port: number
 let httpServerStartupError: unknown
+const serverShutdown = new AbortController()
+let serverClosed: Promise<void>
 
 async function callTool(opts: { apiKey?: string; args: Record<string, unknown> }, toolName: string) {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
@@ -118,7 +120,14 @@ async function callTool(opts: { apiKey?: string; args: Record<string, unknown> }
     await client.connect(transport)
     return await client.callTool({ name: toolName, arguments: opts.args })
   } finally {
-    await client.close().catch(() => {})
+    // The server is already torn down in `afterAll` via `serverShutdown`; a
+    // close() rejection here just means the connection was already gone
+    // (e.g. the server rejected it before the handshake completed), which
+    // every call site in this suite already exercises intentionally — surface
+    // it on stderr instead of masking it, but never fail the test on it.
+    await client.close().catch((error) => {
+      console.warn('MCP test client close() failed (non-fatal):', error)
+    })
   }
 }
 
@@ -189,11 +198,15 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
     } as unknown as AwilixContainer
 
     port = await getFreePort()
-    runMcpHttpServer({ config: { name: 'test-mcp', version: '0.0.0' }, container, port, host: '127.0.0.1' }).catch(
-      (error) => {
-        httpServerStartupError = error
-      }
-    )
+    serverClosed = runMcpHttpServer({
+      config: { name: 'test-mcp', version: '0.0.0' },
+      container,
+      port,
+      host: '127.0.0.1',
+      signal: serverShutdown.signal,
+    }).catch((error) => {
+      httpServerStartupError = error
+    })
     await waitForHealth(port)
   }, 15000)
 
@@ -204,9 +217,15 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
     loadAcl.mockClear()
   })
 
-  afterAll(() => {
+  afterAll(async () => {
     unregisterMcpTool('allowed_tool')
     unregisterMcpTool('restricted_tool')
+    // Own and await this suite's own server teardown instead of relying on
+    // `--forceExit` to paper over the leaked listening socket and
+    // SIGINT/SIGTERM handlers — and never send a real process signal, which
+    // would also reach unrelated fixtures sharing this Jest worker.
+    serverShutdown.abort()
+    await serverClosed
     expect(httpServerStartupError).toBeUndefined()
   })
 

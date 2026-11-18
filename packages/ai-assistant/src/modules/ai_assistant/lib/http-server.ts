@@ -17,8 +17,11 @@ import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('ai_assistant').child({ component: 'mcp-http' })
+
+const MCP_SESSION_TOKEN_REQUIRED_ERROR_KEY = 'ai_assistant.errors.mcpSessionTokenRequired'
 
 /**
  * Options for the HTTP MCP server.
@@ -36,6 +39,12 @@ export type McpHttpServerOptions = {
    * explicitly to opt into that, paired with a firewall and a strong, rotated key.
    */
   host?: string
+  /**
+   * Programmatic shutdown trigger, for callers (tests) that need to tear the
+   * server down deterministically without sending a process-wide SIGINT/SIGTERM
+   * — a real signal would also reach unrelated fixtures sharing the process.
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -220,14 +229,19 @@ export function createMcpServerForRequest(
             // with the transport key's ACL. The HTTP transport is the chat-facing surface;
             // it has no header-only operator mode. Operator/automation access that must
             // bypass per-user session tokens uses the structurally separate stdio transport
-            // (`mcp:serve --allow-unauthenticated-superadmin`), which a chat turn can never
-            // reach (#5173).
+            // (`mcp:serve`, authenticated via `OPEN_MERCATO_API_KEY` or `--user <id>`; the
+            // dev/test-only `--allow-unauthenticated-superadmin` flag is not a production
+            // substitute), which a chat turn can never reach (#5173).
+            const { translate } = await resolveTranslations()
             return {
               content: [
                 {
                   type: 'text' as const,
                   text: JSON.stringify({
-                    error: 'Authentication failed: a session token (_sessionToken) is required for this tool call.',
+                    error: translate(
+                      MCP_SESSION_TOKEN_REQUIRED_ERROR_KEY,
+                      'Authentication failed: a session token (_sessionToken) is required for this tool call.'
+                    ),
                     code: 'UNAUTHORIZED',
                   }),
                 },
@@ -553,6 +567,8 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
     })
 
     const shutdown = async () => {
+      process.off('SIGINT', shutdown)
+      process.off('SIGTERM', shutdown)
       logger.info('Shutting down')
       httpServer.close(() => {
         logger.info('Server closed')
@@ -562,5 +578,10 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
 
     process.on('SIGINT', shutdown)
     process.on('SIGTERM', shutdown)
+
+    if (options.signal) {
+      if (options.signal.aborted) void shutdown()
+      else options.signal.addEventListener('abort', () => void shutdown(), { once: true })
+    }
   })
 }
