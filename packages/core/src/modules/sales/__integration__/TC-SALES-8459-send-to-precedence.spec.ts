@@ -50,6 +50,22 @@ async function expectNoRecipient(page: Page): Promise<void> {
   await expect(await openSendAction(page), 'sending needs a recipient').toBeDisabled()
 }
 
+// Opening the picker searches for the current customer first, so the list is still being
+// replaced while the new name is typed and a click can land on a row that has just moved.
+// The pick only counts once the summary row names the customer; otherwise it is repeated.
+async function pickCustomer(page: Page, displayName: string): Promise<void> {
+  const search = page.getByPlaceholder('Search customers…')
+  const option = page.getByRole('option', { name: new RegExp(displayName) })
+  const picked = page.getByTestId('lookup-select-selected')
+  await expect(async () => {
+    if (await picked.isVisible()) await picked.getByRole('button', { name: 'Change' }).click()
+    await search.fill(displayName)
+    await expect(option).toBeVisible({ timeout: 3_000 })
+    await option.click({ timeout: 3_000 })
+    await expect(picked).toContainText(displayName, { timeout: 3_000 })
+  }).toPass({ timeout: 45_000 })
+}
+
 async function saveCustomerCard(page: Page): Promise<void> {
   const saved = page.waitForResponse(
     (response) => new URL(response.url()).pathname === '/api/sales/quotes' && response.request().method() === 'PUT',
@@ -254,14 +270,7 @@ test.describe('TC-SALES-8459: Send to precedence', () => {
       await login(page, 'admin')
       await page.goto(`/backend/sales/quotes/${encodeURIComponent(quoteId as string)}`, { waitUntil: 'domcontentloaded' })
       await page.getByRole('button', { name: 'Select customer' }).and(page.locator('button')).click()
-      const search = page.getByPlaceholder('Search customers…')
-      const option = page.getByRole('option', { name: new RegExp(noEmailName) })
-      await expect(async () => {
-        await search.fill(noEmailName)
-        await expect(option).toBeVisible({ timeout: 3_000 })
-      }).toPass({ timeout: 30_000 })
-      await option.click()
-      await expect(page.getByTestId('lookup-select-selected')).toContainText(noEmailName)
+      await pickCustomer(page, noEmailName)
       const [saved] = await Promise.all([
         page.waitForResponse(
           (response) => new URL(response.url()).pathname === '/api/sales/quotes' && response.request().method() === 'PUT',
