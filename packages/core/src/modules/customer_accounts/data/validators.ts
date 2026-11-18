@@ -86,6 +86,12 @@ export const inviteUserSchema = z.object({
   displayName: displayNameField.optional(),
 })
 
+export const cancelInvitationSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export type CancelInvitationInput = z.infer<typeof cancelInvitationSchema>
+
 export const assignRolesSchema = z.object({
   roleIds: z.array(z.string().uuid()).min(1),
 })

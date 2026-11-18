@@ -119,7 +119,7 @@ function DealsOverview({ stats, loading }: { stats: DealStats | null; loading: b
 3. Always pass `loading` and `error` through to the component instead of conditionally rendering your own spinner/error markup.
 4. `Sparkline` requires `ariaLabel` — pass a translated description.
 
-**Reference call site:** `packages/core/src/modules/customers/components/DealsKpiStrip.tsx` (KpiCard) and `packages/core/src/modules/customers/components/detail/dashboard/helpers.ts` (charts).
+**Reference call site:** `packages/core/src/modules/customers/components/detail/CompanyKpiBar.tsx` (KpiCard) and `packages/core/src/modules/customers/components/detail/dashboard/helpers.ts` (charts).
 
 ---
 

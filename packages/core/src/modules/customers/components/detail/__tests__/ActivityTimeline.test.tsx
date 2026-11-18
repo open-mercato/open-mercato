@@ -139,3 +139,21 @@ describe('ActivityTimeline delete affordance', () => {
     expect(screen.queryByRole('button', { name: 'Open actions' })).toBeNull()
   })
 })
+
+describe('ActivityTimeline Mark done version', () => {
+  it('sends the version of the row as it is now, after a reload replaced it with a newer one', async () => {
+    const onMarkDone = jest.fn(async () => {})
+    const view = renderWithProviders(<ActivityTimeline activities={[createActivity()]} onMarkDone={onMarkDone} />)
+
+    view.rerender(
+      <ActivityTimeline
+        activities={[createActivity({ title: 'Send revised offer v2', updatedAt: '2026-04-11T12:00:00.000Z' })]}
+        onMarkDone={onMarkDone}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Mark done' }))
+
+    await waitFor(() => expect(onMarkDone).toHaveBeenCalledTimes(1))
+    expect(onMarkDone).toHaveBeenCalledWith('activity-1', '2026-04-11T12:00:00.000Z')
+  })
+})
