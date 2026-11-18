@@ -42,6 +42,7 @@ No product redesign, unrelated cleanup, production changes, base-branch merges, 
 CI may reveal additional failures beyond the baseline. Local dependencies and service availability must be established; document actual validation limits. Keep draft and withhold automerge until full exact-head checks pass. Existing older stabilization PRs have active claims; leave them untouched.
 
 ## Completion evidence
+- The bookkeeping-only head 6cebe98130 exposed another existing scenario-budget failure in [CI 44333304410](https://github.com/open-mercato/open-mercato/actions/runs/44333304410): `TC-CRM-6197` ran translation editing and both locale filter journeys in one 20-second test. Its retry trace completed Polish filtering with HTTP 200 and started the English navigation approximately 19.5 seconds after setup began, then teardown raced its remaining assertions. Split the manager-save journey and each locale filter into three independent cases using the same fixtures, selectors, assertions and shared timeout; each filter case arranges its own translation through the existing API. No retries or timeouts are increased. Final verification and review reopen until this additional source change passes.
 - [Source CI 44324078494](https://github.com/open-mercato/open-mercato/actions/runs/44324078494) passed all 15 integration shards, merged coverage and the configured validation commands on 23024b438e. Parent independently verified all job conclusions and the affected test logs: all six encryption scenarios passed; all four recipient scenarios passed, including the customer switch in 6.6 seconds. Scope-dependent audit and mutation execution remained skipped by existing workflow rules.
 - [Independent final review](https://github.com/open-mercato/open-mercato/pull/9729#pullrequestreview-5959309525) by task f4b8d2af approved the complete source delta with zero findings at 23024b438e. The reviewer made no source edits. GitHub rejected native approval by the author App (HTTP 422); its COMMENT review records the independent verdict and does not replace any separate-account approval requirement.
 - The final commit updates only this evidence and checklist. Parent inspected that bookkeeping delta; the reviewed source stays identical. Final promotion and the operator-requested automerge label are guarded by another exact-head full-suite pass after this commit. This run does not merge into main.
@@ -58,6 +59,6 @@ PR: #9729
 
 ### Phase 2: Verification and handoff
 
-- [x] 2.1 Run the configured local gate and the PR full suite; repair any further failures. — 23024b438e; hosted gate substituted for interrupted local gate as documented above.
-- [x] 2.2 Dispatch one final independent review, resolve its findings, and verify the final head. — 23024b438e; independent review 5959309525, zero findings.
-- [x] 2.3 Publish evidence, finish the plan, make ready, and apply automerge only with all checks green. — 23024b438e; evidence prepared, promotion guarded by the final bookkeeping commit's exact-head CI.
+- [ ] 2.1 Run the configured local gate and the PR full suite; repair any further failures.
+- [ ] 2.2 Dispatch one final independent review, resolve its findings, and verify the final head.
+- [ ] 2.3 Publish evidence, finish the plan, make ready, and apply automerge only with all checks green.
