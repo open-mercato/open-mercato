@@ -128,8 +128,9 @@ interface ITaxEngine {
   taxCode: string
   label: string              // display label for the TaxCode row and settings page
   accountRoles: string[]     // static declaration — drives the settings-page UI (UI/UX)
+  payableRole?: string       // role whose net credit must equal `amount` when declared
   calculate(input: { periodId, tenantId, organizationId }): Promise<{
-    amount: string
+    amount: string           // the remittance amount for this period
     currencyId: string
     lines: ITaxEngineLine[]  // must balance (sum debit === sum credit); may be empty
   }>
@@ -141,10 +142,25 @@ an immutable snapshot on the `TaxLiabilityRecord`; `postTaxLiability`
 resolves each snapshot line's `accountRole` against
 `TaxCodeAccountMapping.accountRoles[taxCode]` (same reject-if-unset
 posture as before, now per-role instead of per-fixed-field), re-verifies
-the snapshot balances and totals `amount`, then calls
-`ledger.postJournalEntry` (a named `tax_management` error is friendlier
-than a raw `ledger` 500 for a plugin bug) with **exactly the stored
-lines** — one, two, three, or (Edge Cases) zero.
+the snapshot, then calls `ledger.postJournalEntry` (a named
+`tax_management` error is friendlier than a raw `ledger` 500 for a plugin
+bug) with **exactly the stored lines** — one, two, three, or (Edge
+Cases) zero.
+
+**Journal balance and remittance amount are separate checks.** The
+journal entry must balance (`sum(debit) === sum(credit)`), and `ledger`
+enforces that again on its side. `amount` is the *remittance* for the
+period, which is not the same figure as journal turnover: a VAT
+settlement debits `vatOutputClearing` by 5,000 and credits
+`vatInputClearing` 2,000 plus `vatPayable` 3,000, and the amount to
+remit is 3,000, not 5,000. So the framework does **not** require total
+debits to equal `amount`. An engine that wants the amount checked
+against its posting declares `payableRole` (e.g. `vatPayable`); then the
+net credit on that role (`sum(credit) − sum(debit)` for the role) must
+equal `amount`. Without `payableRole`, `amount` is stored and shown to
+the accountant but not cross-checked against the lines. A three-line VAT
+case is part of the contract test suite (Implementation Plan), so the
+reconciliation cannot regress into a debit-total rule.
 
 **One `TaxCodeAccountMapping` row per tax code, generalized to named
 roles.** `PostingRulesSettings`/`FixedAssetSettings` each hold a
@@ -274,9 +290,9 @@ existing territory in `sales`, unaffected by this document.
   subscriber never observes a rollback; the Phase 2 bank-statement
   reconciliation subscribes to `posted`/`paid`. Because posting composes
   the ledger transaction (m1, below), `ledger` delegates
-  `ledger.journal_entry.posted` to its composing caller, so this module
-  emits `tax_management.liability.posted` after commit and does not
-  double-emit the ledger event.
+  `ledger.journal_entry.posted` to its composing caller: this module
+  emits that ledger event after commit for the settlement entry and for
+  any reversal entry, then the `tax_management.liability.*` event.
 - `packages/core/src/modules/tax_management/commands/`:
   - `registerTaxCode` — the plugin-facing write path; upserts a
     `TaxCode` row (idempotent on `(tenantId, organizationId, code)`).
@@ -291,12 +307,13 @@ existing territory in `sales`, unaffected by this document.
     `taxEngineRegistry.resolve(taxCode)`, then calls
     `.calculate({ periodId, tenantId, organizationId })`. It validates
     the returned lines: each declares exactly one of `debit`/`credit`,
-    the debit and credit totals are equal, and — when `lines` is
-    non-empty — the debit total equals `amount`. An empty `lines` is
-    allowed with a non-zero `amount` only for the already-booked case
-    (PIT-4, Edge Cases), where the amount records a liability recognized
-    elsewhere and nothing new is posted. It then stores an **immutable
-    snapshot** of those lines on
+    and the debit and credit totals are equal (journal balance). When
+    the engine declares `payableRole`, the net credit on that role must
+    equal `amount`; total debits are deliberately **not** compared to
+    `amount` (a VAT settlement's turnover and remittance differ, Design
+    decisions). An empty `lines` is allowed with a non-zero `amount`
+    for the already-booked case (PIT-4, Edge Cases). It then stores an
+    **immutable snapshot** of those lines on
     the new `TaxLiabilityRecord` (the M3 fix) with
     `status: 'calculated'` and, when supplied, `correctsRecordId`
     (which must name an existing `'posted'`/`'paid'` record of the same
@@ -318,9 +335,9 @@ existing territory in `sales`, unaffected by this document.
     (`SELECT ... FOR UPDATE`), requires `status === 'calculated'`, and
     resolves the **stored snapshot's** `accountRole`s against
     `TaxCodeAccountMapping.accountRoles`; it never re-runs the engine
-    (the M3 fix). It re-verifies the snapshot balances and, for a
-    non-empty snapshot, that its debit total still equals the stored
-    `amount`. **Correction flow (the
+    (the M3 fix). It re-verifies the snapshot balances and, when the
+    engine declares `payableRole`, that the role's net credit still
+    equals the stored `amount`. **Correction flow (the
     M4 fix):** when the record carries `correctsRecordId`, the same
     transaction first calls `ledger.reverseJournalEntry` for the
     original record's `journalEntryId`, moves the original to
@@ -336,21 +353,34 @@ existing territory in `sales`, unaffected by this document.
     still be `'calculated'`.
   - **Ledger call contract (the m1 fix).** `postTaxLiability` calls
     `commandBus.execute('ledger.postJournalEntry', { input: { lines:
-    resolvedLines, operationDate: <fiscal period end date>, description:
+    resolvedLines, tenantId, organizationId, currencyId,
+    operationDate: <fiscal period end date>, description:
     `Tax settlement ${taxCode} ${periodLabel}`, referenceType:
     'tax_management.tax_liability', referenceId: record.id },
-    ctx: { ...ctx, transactionalEm } })`. Passing `transactionalEm`
+    ctx: { ...ctx, transactionalEm } })` — the full scoped input #6340's
+    validator requires, not just `lines`. Passing `transactionalEm`
     makes `ledger` join this transaction instead of committing on its
-    own; because the transaction is composed here, `ledger` does not
-    emit its own `journal_entry.posted`, so `postTaxLiability` emits
-    `tax_management.liability.posted` after commit. **If `lines` is
-    empty** (Edge Cases — PIT-4's own case), it skips the ledger call
-    and sets `status: 'posted'` with `journalEntryId: null`.
+    own; because the transaction is composed here, `ledger` delegates
+    `ledger.journal_entry.posted` to this caller, so after commit
+    `postTaxLiability` emits **both** `ledger.journal_entry.posted` (for
+    the settlement entry, and for the reversal entry when it is a
+    correction) **and** `tax_management.liability.posted`, in that
+    order. Nothing is emitted on rollback. **If `lines` is empty**
+    (Edge Cases — PIT-4's own case), it skips the ledger call and sets
+    `status: 'posted'` with `journalEntryId: null`; there is no journal
+    entry, so no `ledger.journal_entry.posted` is emitted — only the tax
+    event.
   - `markTaxLiabilityPaid(taxLiabilityRecordId, paidAt,
-    paymentReference)` — sets `status: 'paid'`, rejects a `'reversed'`
-    or `'superseded'` record, and keeps the `updatedAt` optimistic lock.
-    Called by `financial_pl`'s own route, which enforces
-    `requireFeatures` at the trust boundary (the same posture
+    paymentReference)` — **requires `status === 'posted'`** (a
+    `'calculated'`/`'superseded'`/`'reversed'` record is rejected: paying
+    a draft would consume the live posted/paid slot and leave a
+    mistakenly non-postable record), sets `status: 'paid'`, and keeps
+    the `updatedAt` optimistic lock. A repeat confirmation is idempotent
+    when the existing `paymentReference` and `paidAt` match (returns the
+    paid record without a second event); a conflicting second
+    confirmation is rejected with a named error rather than overwriting
+    the recorded payment. Called by `financial_pl`'s own route, which
+    enforces `requireFeatures` at the trust boundary (the same posture
     `ledger.postJournalEntry` takes toward its callers).
 - `packages/core/src/modules/tax_management/api/tax-code-mappings/route.ts`
   — `GET` (registered engines, their declared roles, the current
@@ -419,8 +449,13 @@ indexes:
 2. `(tenant_id, organization_id, period_id, tax_code) where status =
    'calculated'` — the single-live-draft backstop (m2).
 3. `(tenant_id, organization_id, corrects_record_id) where
-   corrects_record_id is not null` — a given record can be corrected
-   once, so a retried correction cannot reverse it twice.
+   corrects_record_id is not null and status <> 'superseded'` — a given
+   record has at most one **live** correction draft or applied
+   correction. `'superseded'` is excluded so recalculating a correction
+   (which supersedes the previous draft before inserting its
+   replacement) does not violate the index; the one-successful-
+   correction invariant is enforced by the posting lock below (the
+   original can leave `'posted'`/`'paid'` only once).
 
 `lines` is written once at `calculateTaxLiability` and never updated —
 `postTaxLiability` posts exactly that snapshot, so a change to the
@@ -488,9 +523,12 @@ as paid" button) lives in that document now (`#7524`).
   `status: 'reversed'` (from `'posted'` or `'paid'`; `paidAt` and
   `paymentReference` stay on the row as history), and posts the new
   record's lines. If the post fails, the whole transaction rolls back
-  and the original stays posted — retrying is safe because the original
-  can be reversed only once (the `corrects_record_id` partial unique
-  index blocks a second correction of the same record). This replaces
+  and the original stays posted. A correction draft that has not been
+  posted can be recalculated: the new calculation supersedes it and the
+  replacement inserts cleanly (the `corrects_record_id` index excludes
+  `'superseded'`). Two **successful** corrections of the same record
+  remain impossible: the second post finds the original already
+  `'reversed'` under the record lock and is rejected. This replaces
   the previous revision's "second post" flow, which the posted/paid
   unique index rejected and which, without the index, would have booked
   the full liability twice.
@@ -501,12 +539,15 @@ as paid" button) lives in that document now (`#7524`).
   `journalEntryId: null`, and skips the `ledger.postJournalEntry` call;
   the `lines`-total-vs-`amount` check applies only to a non-empty
   snapshot.
-- **`ITaxEngine.calculate()` returns unbalanced lines, or a debit total
-  that differs from `amount`.** Rejected at `calculateTaxLiability`
-  (before the record exists) and re-checked at `postTaxLiability`
-  against the stored snapshot — a named `tax_management` error (a
-  plugin bug), not a raw `ledger` 500. The snapshot is the only thing
-  posted, so a later engine change cannot alter a reviewed draft.
+- **`ITaxEngine.calculate()` returns unbalanced lines, or a declared
+  `payableRole` whose net credit differs from `amount`.** Rejected at
+  `calculateTaxLiability` (before the record exists) and re-checked at
+  `postTaxLiability` against the stored snapshot — a named
+  `tax_management` error (a plugin bug), not a raw `ledger` 500. Total
+  debits are never compared to `amount`; the VAT worked example
+  (3,000 remittance over a 5,000-debit settlement) is a contract test.
+  The snapshot is the only thing posted, so a later engine change
+  cannot alter a reviewed draft.
 - **`TaxCode` rows missing for the scope.** `ensureTaxCodesForScope`
   creates them lazily from the registry and is idempotent — covers an
   existing tenant that installs the plugin later, and an organization
@@ -570,8 +611,9 @@ entry.
 **Affected area:** `tax_management` posting path, GL balances.
 **Mitigation:** the M3 fix stores an immutable `lines` snapshot on
 `TaxLiabilityRecord` at calculation time and posts exactly that
-snapshot; the post re-validates the snapshot's balance and, when it is
-non-empty, its total against the stored `amount`, refusing on mismatch.
+snapshot; the post re-validates the snapshot's balance and, when the
+engine declares `payableRole`, that role's net credit against the stored
+`amount`, refusing on mismatch.
 **Residual risk:** Low — the engine is never invoked again after
 calculation.
 
@@ -667,17 +709,24 @@ decisions; doesn't fit VAT or PIT-4.
    `api/tax-code-mappings/route.ts` (`GET`/`PUT`, M5) + settings page
    for `TaxCodeAccountMapping` (role-driven picker layout, stale-edit
    409).
-5. Integration tests: cross-module resolution (`financial_pl` →
-   `tax_management` → `ledger`, once `#7524` exists), tenant isolation
-   on `TaxLiabilityRecord`, two-contender recalculation and
-   concurrent-post races (mirroring `ledger`'s own concurrent-import
-   test pattern, PR #6137 review m1), empty-lines post path, the
-   reverse-and-repost correction (including an already-paid original),
-   registry replay/conflict, pre-existing-tenant and
-   later-organization `TaxCode` creation, settings `GET`/`PUT` and its
-   stale-edit 409.
-6. Event tests: `calculated`/`posted`/`paid` emitted only after
-   commit, never on rollback.
+5. Integration and contract tests: cross-module resolution
+   (`financial_pl` → `tax_management` → `ledger`, once `#7524` exists),
+   tenant isolation on `TaxLiabilityRecord`, two-contender
+   recalculation and concurrent-post races (mirroring `ledger`'s own
+   concurrent-import test pattern, PR #6137 review m1), the
+   three-line VAT worked example (5,000 debit, 2,000 + 3,000 credits,
+   3,000 remittance — accepted because `payableRole` reconciles the
+   amount instead of the debit total), empty-lines post path, the
+   reverse-and-repost correction (including an already-paid original,
+   a correction draft replaced before posting, and a second successful
+   reversal rejected), the `calculated → paid` rejection and idempotent
+   repeat confirmation, registry replay/conflict, pre-existing-tenant
+   and later-organization `TaxCode` creation, settings `GET`/`PUT` and
+   its stale-edit 409.
+6. Event tests: `calculated`/`posted`/`paid`, plus
+   `ledger.journal_entry.posted` for the settlement and reversal
+   entries, emitted only after commit and never on rollback; the
+   zero-line post emits only the tax event.
 7. Record this document's findings in
    `financial-module-knowledge-base.md` §3/§1
    ([`open-mercato#6016`](https://github.com/open-mercato/open-mercato/pull/6016) —
