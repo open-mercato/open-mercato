@@ -26,9 +26,11 @@ import {
 } from './lib/time-tracking/billability'
 import {
   resolveTimesheetCapacity,
+  resolveTimesheetCapacityAsync,
   type CapacityContext,
   type CapacityDateRange,
   type CapacityResult,
+  type ResolvedCapacity,
 } from './lib/time-tracking/capacity'
 import {
   evaluateOverlapPolicies,
@@ -74,11 +76,17 @@ export type BillabilityResolverService = {
 }
 
 export type TimeCapacityResolver = {
+  /** @deprecated Synchronous; never consults a provider's `resolveAsync`. Use `resolveCapacityAsync`. */
   resolveCapacity(
     staffMemberId: string | null,
     dateRange: CapacityDateRange,
     ctx: CapacityContext,
   ): CapacityResult
+  resolveCapacityAsync?(
+    staffMemberId: string | null,
+    dateRange: CapacityDateRange,
+    ctx: CapacityContext,
+  ): Promise<ResolvedCapacity>
 }
 
 export type OverlapPolicyResolver = {
@@ -98,7 +106,10 @@ export function register(container: AppContainer) {
   }
   const timeRateResolver: TimeRateResolverService = { resolveRate: resolveTimeRate }
   const timeBillabilityResolver: BillabilityResolverService = { resolveBillability }
-  const timeCapacityResolver: TimeCapacityResolver = { resolveCapacity: resolveTimesheetCapacity }
+  const timeCapacityResolver: TimeCapacityResolver = {
+    resolveCapacity: resolveTimesheetCapacity,
+    resolveCapacityAsync: resolveTimesheetCapacityAsync,
+  }
   const timeOverlapPolicyResolver: OverlapPolicyResolver = { evaluate: evaluateOverlapPolicies }
   const timeProjectCodeResolver: ProjectCodeResolver = {
     generate: (name, taken, ctx) => deriveProjectCode(name, taken, ctx ?? undefined),
