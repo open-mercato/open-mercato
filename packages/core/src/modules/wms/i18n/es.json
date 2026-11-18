@@ -734,6 +734,7 @@
   "wms.backend.inventory.release.summary.warehouse": "Almacén",
   "wms.backend.inventory.release.warning": "Esta acción no se puede deshacer — la cantidad reservada se liberará de inmediato.",
   "wms.backend.inventory.reservationStatuses.active": "Activo",
+  "wms.backend.inventory.reservationStatuses.allocated": "Asignado",
   "wms.backend.inventory.reservationStatuses.fulfilled": "Cumplido",
   "wms.backend.inventory.reservationStatuses.released": "Liberado",
   "wms.backend.inventory.reservations.actions.allocate": "Asignar",

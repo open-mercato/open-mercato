@@ -734,6 +734,7 @@
   "wms.backend.inventory.release.summary.warehouse": "Lager",
   "wms.backend.inventory.release.warning": "Diese Aktion kann nicht widerrufen werden — die reservierte Menge wird sofort freigegeben.",
   "wms.backend.inventory.reservationStatuses.active": "Aktiv",
+  "wms.backend.inventory.reservationStatuses.allocated": "Zugeteilt",
   "wms.backend.inventory.reservationStatuses.fulfilled": "Erfüllt",
   "wms.backend.inventory.reservationStatuses.released": "Freigegeben",
   "wms.backend.inventory.reservations.actions.allocate": "Zuweisen",

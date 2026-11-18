@@ -734,6 +734,7 @@
   "wms.backend.inventory.release.summary.warehouse": "창고",
   "wms.backend.inventory.release.warning": "이 작업은 취소할 수 없습니다. 예약된 수량은 즉시 해제됩니다.",
   "wms.backend.inventory.reservationStatuses.active": "활동적인",
+  "wms.backend.inventory.reservationStatuses.allocated": "할당됨",
   "wms.backend.inventory.reservationStatuses.fulfilled": "이행됨",
   "wms.backend.inventory.reservationStatuses.released": "출시된",
   "wms.backend.inventory.reservations.actions.allocate": "할당하다",

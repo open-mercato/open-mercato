@@ -734,6 +734,7 @@
   "wms.backend.inventory.release.summary.warehouse": "Magazyn",
   "wms.backend.inventory.release.warning": "Tej operacji nie można odwołać — zarezerwowana ilość zostanie natychmiast zwolniona.",
   "wms.backend.inventory.reservationStatuses.active": "Aktywna",
+  "wms.backend.inventory.reservationStatuses.allocated": "Przydzielona",
   "wms.backend.inventory.reservationStatuses.fulfilled": "Zrealizowana",
   "wms.backend.inventory.reservationStatuses.released": "Zwolniona",
   "wms.backend.inventory.reservations.actions.allocate": "Przydziel",
