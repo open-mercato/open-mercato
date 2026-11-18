@@ -524,8 +524,8 @@ export type AgentEvalSeverity = 'gate' | 'warn'
 /**
  * A configured assertion applied to agent runs during evaluation. Editable
  * (carries `updated_at` → optimistic lock). `key` selects the shared pure-function
- * scorer; `config` parameterizes it. Only `deterministic` assertions may carry
- * `severity: 'gate'` (the gate tier must be reproducible); `llm_judge` is always `warn`.
+ * scorer; `config` parameterizes it. An `llm_judge` row may carry `gate`, honoured
+ * only when the run's `judgeMayGate` is true (manual runs, never CI or online).
  */
 @Entity({ tableName: 'agent_eval_assertions' })
 @Index({ name: 'agent_eval_assertions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })

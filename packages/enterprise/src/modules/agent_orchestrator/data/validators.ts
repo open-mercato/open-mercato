@@ -791,8 +791,8 @@ export type EvalCaseListQuery = z.infer<typeof evalCaseListQuerySchema>
  * Create/update schemas for `AgentEvalAssertion` rows (editable → optimistic
  * lock applies). `config` parameterizes the scorer/judge; it stays permissive
  * (`unknown`) and is narrowed only at this zod boundary. `appliesTo` is an agent
- * id or `'*'` (every agent). Only `deterministic` assertions are gate-graded —
- * the route enforces that `llm_judge` is always `warn` (the judge cannot block).
+ * id or `'*'` (every agent). Severity is not coerced: an `llm_judge` `gate` is
+ * honoured only when the run's `judgeMayGate` is true.
  */
 export const evalAssertionType = z.enum(['deterministic', 'llm_judge'])
 export type EvalAssertionType = z.infer<typeof evalAssertionType>

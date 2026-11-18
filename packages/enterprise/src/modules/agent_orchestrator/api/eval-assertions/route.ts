@@ -263,7 +263,7 @@ export const openApi = createAgentOrchestratorCrudOpenApi({
     schema: evalAssertionCreateSchema,
     responseSchema: defaultCreateResponseSchema,
     description:
-      'Creates an evaluation assertion. `llm_judge` assertions are always stored as `warn` severity (the judge tier never blocks production).',
+      'Creates an evaluation assertion. Severity is stored as sent. An `llm_judge` assertion with `gate` only gates manual runs (`judgeMayGate: true`); CI and online ingest never let a judge gate.',
   },
   update: {
     schema: evalAssertionUpdateSchema,

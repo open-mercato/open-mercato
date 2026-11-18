@@ -197,11 +197,11 @@ The file is the `EvalSetManifest` minus generated ids, plus authoring convenienc
 }
 ```
 
-- Validation: Zod. Every `scorerKey` must exist in the registry and its `config` must pass `parseScorerConfig`, the same write-boundary validation as `POST /eval-assertions`. `gate` severity is refused for `llm_judge` (existing invariant). Keys must be unique.
+- Validation: Zod. Every `scorerKey` must exist in the registry and its `config` must pass `parseScorerConfig`, the same write-boundary validation as `POST /eval-assertions`. `gate` severity is refused for `llm_judge`. A file is a CI input and CI runs with `judgeMayGate: false`, so a judge `gate` would never apply there. Database rows may still carry it for manual runs (workbench spec, `GatePolicy`). Keys must be unique.
 - Ids: `deterministicCaseId(agentId, key)` and `deterministicAssertionId(agentId, key)`, both UUIDv5. `AgentEvalCaseRun.evalCaseId` and `AgentEvalResult.assertionId` stay non-null and stable across runs, so the baseline can match per case.
 - Running a file needs **no** `AgentEvalCase` rows. Replay resolves everything from the manifest. The UI renders a file case run with its manifest name and a "file case" badge, without a link to a case detail page.
 - **Import** (`POST /eval-sets/import`, command `agent_orchestrator.evalSets.import`): materializes the file into rows so the cases become editable in the UI. Cases are written with `sourceType: 'file'` (the varchar(20) accepts it, and the TS union widens additively) and `sourceId` = the deterministic id. They are `status: 'draft'` unless `approve: true`, which stamps `approvedByUserId` with the caller. Assertions are upserted by `(org, appliesTo=agentId, key)`. Undo soft-deletes the cases created by the command and restores the assertion configs it overwrote.
-- **Export** (`GET /eval-sets/:version/export?agentDefinitionId=`): returns a manifest (or the current DB state when `version=current`) as a file. Round trip: export → `--cases` produces the same hash.
+- **Export** (`GET /eval-sets/:version/export?agentDefinitionId=`): returns a manifest (or the current DB state when `version=current`) as a file. Round trip: export → `--cases` produces the same hash, except when export rewrites a judge `gate` to `warn` or drops undeclared assertion refs (see the 2026-10-30 changelog).
 - Location convention, documented and not auto-discovered: `agents/<id>/evals/*.json` for file agents and `<module>/evals/<agentId>/*.json` for code agents. No generator change, so no new auto-discovery contract.
 
 ### Reproducibility (d)
@@ -567,7 +567,7 @@ Offline replay tests use synthetic SDK model responses and recorded fixtures. No
 | AO AGENTS.md | Propose-only; writes via Command path | Compliant | Import is a command; replay never executes handlers |
 | AO AGENTS.md | Every route exports `openApi`; custom writes wire the mutation guard | Compliant | Import route wires it |
 | AO AGENTS.md | Ask before changing the committed manifest shape (`FileAgentDescriptor`) | Ask first | Optional `evalRubrics`; Phase 5 step 2 gated |
-| AO AGENTS.md | `llm_judge` never `gate` | Compliant | File validation refuses it |
+| Workbench spec `GatePolicy` | A judge `gate` applies only when `judgeMayGate` is true | Compliant | Files are CI inputs and refuse it |
 | packages/core AGENTS.md | Commands undoable | Compliant | `evalSets.import` undo defined |
 | packages/ui AGENTS.md | `apiCall`, DS tokens, `StatusBadge`, dialog shortcuts | Compliant | Download via `apiCall`; badges via `StatusBadge` |
 | BACKWARD_COMPATIBILITY.md | Additive-only on contract surfaces | Compliant | See the Migration table |
@@ -617,7 +617,7 @@ None. One ask-first item (generated descriptor field) is open; the YAML dependen
 ### 2026-10-30
 - Phases 3-5 implemented so far (agent platform wave 5, Steps 7.1-7.11): eval-set files (JSON and YAML) with `eval-set validate` / `eval-set export` and `eval --cases`, the import and export APIs, tool fixture record/replay, call settings and the filled report environment block, the rubric library with `rubricRef`, and the CI recipe in `apps/docs/docs/framework/ai-assistant/agent-eval-ci.mdx`.
 - Deviations and clarifications:
-  - A file refuses `gate` on `llm_judge` assertions. Export downgrades them to `warn` and reports the keys on CLI stderr or in the `x-om-eval-set-downgraded` header.
+  - A file refuses `gate` on `llm_judge` assertions. Export downgrades them to `warn` and reports the keys on CLI stderr or in the `x-om-eval-set-downgraded` header. Re-importing such a file stores `warn`, so the judge no longer gates manual runs.
   - Cases reference assertions by assertion key. Undeclared refs are dropped on export.
   - Files run through the gate command, the CLI and the import API. HTTP `POST /eval-runs` is unchanged for files. File cases count as approved. Repeat runs reuse the first run's stored manifest.
   - Eval-set import has no optimistic lock, caps the body at twice the file cap, demotes an approved case to draft on a content change unless the import approves it, emits no per-case created events, has no dry run and does not import fixtures.
@@ -644,3 +644,4 @@ Existing CLI invocations keep live model behavior unless `--offline true` or `fi
 - **2026-11-17 A-3 review fixes:** record URL preprocessing with the SDK download hook; forward it through native SDK calls and judges, replay bytes without external fetches, and require custom SDK callbacks to forward the hook. Use a bounded nonblocking regular-file reader, including a real FIFO regression. Combined execution marks tool refs trial-scoped even with the default programmatic file store. Add missing/mismatched judge-fixture tests so best-effort judge handling cannot hide replay errors.
 - **2026-11-17 A-4:** hand-written per-case tool mocks extend §(d) tool replay; see [`2026-11-17-eval-case-tool-mocks.md`](./2026-11-17-eval-case-tool-mocks.md).
 - **2026-11-18 A-3 mixed model fixtures:** without `--offline true`, `fixtures.model` replays the model per case. Cases without it run live, and `summary.__evalRun.modelMode` records `mixed`; the report environment keeps its `live | scripted` enum and shows `live`. `--offline true` stays strict. `--repeat` above 1 with any `fixtures.model` case exits 2 unless `--record`/`--replay <dir>` supplies per-trial files.
+- **2026-11-18 judge-gate rule:** the file refusal of a judge `gate` is no longer called an "existing invariant". Database rows may carry it for manual runs (`judgeMayGate`). The round-trip claim now names the two exceptions. Docs only.

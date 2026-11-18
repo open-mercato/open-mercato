@@ -263,7 +263,7 @@ yarn generate   # then, for file agents: docker compose --project-directory . -f
 - **AgentSpan** (`agent_spans`) / **AgentToolCall** (`agent_tool_calls`) — append-only OTel-GenAI trace tree. Full payloads offload to S3; rows keep redacted summaries.
 - **AgentCorrection** (`agent_corrections`) — append-only flywheel entry. MUST record `action` (`edit|reject|override|answer`) + mandatory `reason`.
 - **AgentEvalCase** (`agent_eval_cases`) — regression case (`draft → approved → archived`), sourced from a correction or golden run. Editable.
-- **AgentEvalAssertion** (`agent_eval_assertions`) — applied per-agent or `*`. `gate` MUST be `deterministic`; `llm_judge` is always `warn`. Unique on (org, appliesTo, key).
+- **AgentEvalAssertion** (`agent_eval_assertions`) — applied per-agent or `*`. An `llm_judge` row may carry `gate`, but it only gates where `judgeMayGate` is true (manual workbench runs); CI and online ingest run with `false`. Eval-set files refuse `gate` on a judge, and export rewrites it to `warn`. Unique on (org, appliesTo, key).
 - **AgentEvalResult** (`agent_eval_results`) — append-only verdict of one assertion on one run.
 - **AgentMetricRollup** (`agent_metric_rollups`) — precomputed KPI snapshot; idempotent per (org, agent, windowStart).
 - **AgentGuardrailCheck** (`agent_guardrail_checks`) — append-only audit of every runtime check; evidence MUST be redacted (never raw PII).
