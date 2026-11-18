@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, Inbox, ClipboardCheck, GitCompare } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
@@ -24,7 +25,6 @@ import {
   formatTokens,
   formatCostMinor,
   type ContextBundleView,
-  type GuardrailCheckView,
   type ProposalView,
   type RunDetailView,
   type SpanView,
@@ -40,6 +40,15 @@ import { findProposalOption, normalizeProposalEnvelope, rankProposalOptions } fr
 import { buildSpanTimeline, truncateSpanName } from '../../../lib/trace/spanTimeline'
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { EmptyArt } from '../../../components/EmptyArt'
+import { RunManifestCard } from '../../../components/RunManifestCard'
+import { InspectorCard } from '../../../components/trace/InspectorCard'
+import { GuardrailsCard } from '../../../components/trace/GuardrailsCard'
+import { LlmStepMetadataCard, useCanViewContent } from '../../../components/trace/LlmStepMetadataCard'
+import { RunCopyMenu } from '../../../components/trace/RunCopyMenu'
+import { OtelTraceLink } from '../../../components/trace/OtelTraceLink'
+import { RunActionsCard } from '../../../components/trace/RunActionsCard'
+import { RunFilesCard } from '../../../components/trace/RunFilesCard'
+import { OffloadStatusNote } from '../../../components/trace/OffloadStatusNote'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
@@ -49,6 +58,8 @@ const SPAN_KIND_BAR: Record<string, string> = {
   tool: 'bg-accent-indigo',
   system: 'bg-muted-foreground',
 }
+
+const RunCompareDialog = dynamic(() => import('../../../components/trace/RunCompareDialog'), { ssr: false })
 
 function spanBarClass(kind: string): string {
   return SPAN_KIND_BAR[kind] ?? 'bg-muted-foreground'
@@ -99,35 +110,6 @@ function StatCell({
       <p className="mt-1 text-xl font-bold tabular-nums tracking-tight text-foreground">{value}</p>
       {hint ? <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">{hint}</p> : null}
     </div>
-  )
-}
-
-function InspectorCard({
-  title,
-  hint,
-  sampleLabel,
-  children,
-}: {
-  title: string
-  hint?: string
-  sampleLabel?: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-          {sampleLabel ? (
-            <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-              {sampleLabel}
-            </span>
-          ) : null}
-        </div>
-        {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-      </div>
-      {children}
-    </section>
   )
 }
 
@@ -199,94 +181,6 @@ function ContextAssembledCard({ bundle }: { bundle: ContextBundleView | null }) 
           </button>
         ) : null}
       </div>
-    </InspectorCard>
-  )
-}
-
-// Guardrails — the run's persisted AgentGuardrailCheck verdicts (all checks,
-// passed and tripped), each expandable to its redacted evidence + set version.
-const GUARDRAIL_RESULT_VARIANT: Record<GuardrailCheckView['result'], 'success' | 'warning' | 'error'> = {
-  pass: 'success',
-  warn: 'warning',
-  block: 'error',
-}
-
-function GuardrailsCard({ checks }: { checks: GuardrailCheckView[] }) {
-  const t = useT()
-  const [openId, setOpenId] = React.useState<string | null>(null)
-  const passedCount = checks.filter((check) => check.result === 'pass').length
-  return (
-    <InspectorCard
-      title={t('agent_orchestrator.traces.detail.guardrails')}
-      hint={
-        checks.length > 0
-          ? t('agent_orchestrator.traces.detail.guardrailsHint', undefined, {
-              passed: passedCount,
-              total: checks.length,
-            })
-          : undefined
-      }
-    >
-      {checks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('agent_orchestrator.traces.detail.noGuardrailChecks')}</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {checks.map((check) => {
-            const open = openId === check.id
-            const expandable = check.evidence != null || check.guardrailSetVersion != null
-            return (
-              <li key={check.id} className="overflow-hidden rounded-lg border border-border">
-                <button
-                  type="button"
-                  aria-expanded={expandable ? open : undefined}
-                  onClick={() => setOpenId(open ? null : check.id)}
-                  disabled={!expandable}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors enabled:hover:bg-muted/40"
-                >
-                  {check.result === 'pass' ? (
-                    <ShieldCheck className="size-4 shrink-0 text-status-success-text" />
-                  ) : (
-                    <ShieldAlert
-                      className={`size-4 shrink-0 ${check.result === 'block' ? 'text-status-error-text' : 'text-status-warning-text'}`}
-                    />
-                  )}
-                  <span className="truncate font-mono text-xs text-foreground">{check.kind}</span>
-                  <span className="shrink-0 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                    {t(`agent_orchestrator.traces.detail.guardrailPhase.${check.phase}`, check.phase)}
-                  </span>
-                  <span className="min-w-0 flex-1" />
-                  <StatusBadge variant={GUARDRAIL_RESULT_VARIANT[check.result]}>
-                    {t(`agent_orchestrator.traces.detail.guardrailResult.${check.result}`, check.result)}
-                  </StatusBadge>
-                  {expandable ? (
-                    <ChevronRight
-                      className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
-                    />
-                  ) : null}
-                </button>
-                {open && expandable ? (
-                  <div className="space-y-2 border-t border-border bg-muted/30 px-3 py-2.5">
-                    {check.guardrailSetVersion ? (
-                      <p className="text-xs text-muted-foreground">
-                        <span className="font-medium">{t('agent_orchestrator.traces.detail.guardrailSetVersion')}:</span>{' '}
-                        <span className="font-mono">{check.guardrailSetVersion}</span>
-                      </p>
-                    ) : null}
-                    {check.evidence != null ? (
-                      <div>
-                        <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          {t('agent_orchestrator.traces.detail.guardrailEvidence')}
-                        </p>
-                        <JsonDisplay data={check.evidence} />
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
-      )}
     </InspectorCard>
   )
 }
@@ -462,6 +356,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
                         </p>
                         <SummaryDisplay value={toolCall.requestSummary} />
                         <ArtifactExpander runId={runId} artifactKey={toolCall.requestArtifactKey} kind="tool_request" />
+                        <OffloadStatusNote summary={toolCall.requestSummary} />
                       </div>
                     ) : null}
                     {hasSummary(toolCall.responseSummary) ? (
@@ -471,6 +366,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
                         </p>
                         <SummaryDisplay value={toolCall.responseSummary} />
                         <ArtifactExpander runId={runId} artifactKey={toolCall.responseArtifactKey} kind="tool_response" />
+                        <OffloadStatusNote summary={toolCall.responseSummary} />
                       </div>
                     ) : null}
                   </div>
@@ -636,89 +532,6 @@ function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
   )
 }
 
-// File plane (#12): files the agent produced during the run (AgentRunArtifact),
-// fetched from the dedicated list endpoint and downloadable. Distinct from the
-// trace `ArtifactExpander` above (which loads offloaded tool-call payloads).
-type RunArtifactRow = {
-  id: string
-  fileName: string
-  mimeType: string
-  fileSize: number
-  caption: string | null
-  promotedAttachmentId: string | null
-  createdAt: string
-}
-
-function formatArtifactSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function FilesCard({ runId }: { runId: string }) {
-  const t = useT()
-  const locale = useLocale()
-  const [rows, setRows] = React.useState<RunArtifactRow[] | null>(null)
-  React.useEffect(() => {
-    let active = true
-    void (async () => {
-      const call = await apiCall<{ items: RunArtifactRow[] }>(
-        `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/artifacts`,
-        undefined,
-        { fallback: { items: [] } },
-      )
-      if (active && call.ok) setRows(call.result?.items ?? [])
-    })()
-    return () => {
-      active = false
-    }
-  }, [runId])
-
-  // Hide the card entirely when the run produced no files (the common case).
-  if (rows != null && rows.length === 0) return null
-
-  return (
-    <InspectorCard title={t('agent_orchestrator.artifacts.title')}>
-      {rows == null ? (
-        <p className="text-sm text-muted-foreground">{t('agent_orchestrator.artifacts.loading')}</p>
-      ) : (
-        <ul className="space-y-2">
-          {rows.map((row) => (
-            <li
-              key={row.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate font-mono text-xs text-foreground">{row.fileName}</span>
-                  {row.promotedAttachmentId ? (
-                    <span className="rounded-md border border-status-success-border bg-status-success-bg px-1.5 py-0.5 text-xs text-status-success-text">
-                      {t('agent_orchestrator.artifacts.promoted')}
-                    </span>
-                  ) : null}
-                </div>
-                {row.caption ? (
-                  <p className="truncate text-xs text-muted-foreground">{row.caption}</p>
-                ) : null}
-                <p className="text-xs text-muted-foreground">
-                  {formatArtifactSize(row.fileSize)} · {formatDateTime(row.createdAt, locale)}
-                </p>
-              </div>
-              <a
-                href={`/api/agent_orchestrator/artifacts/file/${encodeURIComponent(row.id)}?download=1`}
-                className="shrink-0 rounded-md border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
-                aria-label={t('agent_orchestrator.artifacts.download')}
-              >
-                {t('agent_orchestrator.artifacts.download')}
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
-    </InspectorCard>
-  )
-}
-
 export default function AgentRunTracePage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const locale = useLocale()
@@ -733,6 +546,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
   const [inEvalSet, setInEvalSet] = React.useState(false)
   const [flagging, setFlagging] = React.useState(false)
   const [rerunning, setRerunning] = React.useState(false)
+  const [compareOpen, setCompareOpen] = React.useState(false)
+  const canViewContent = useCanViewContent()
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
     contextId: 'agent_orchestrator.traces',
@@ -1029,6 +844,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           </PopoverContent>
                         </Popover>
                       ) : null}
+                      {detail.otel ? <OtelTraceLink link={detail.otel} /> : null}
                       {run.workflowInstanceId ? (
                         <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.openProcessTooltip', 'Open the workflow run that started this agent')}>
                           <Button
@@ -1070,6 +886,17 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           </Button>
                         </SimpleTooltip>
                       )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCompareOpen(true)}
+                        data-testid="run-compare-open"
+                      >
+                        <GitCompare className="size-4" />
+                        {t('agent_orchestrator.trace.compareWith')}
+                      </Button>
+                      <RunCopyMenu run={run} spans={detail.spans} canViewContent={canViewContent} />
                       <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.actionRerunTooltip', 'Re-run this agent with the same input')}>
                         <Button
                           variant="outline"
@@ -1097,6 +924,9 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     </div>
                   </div>
 
+                  {compareOpen ? (
+                    <RunCompareDialog open={compareOpen} onOpenChange={setCompareOpen} run={run} spans={detail.spans} />
+                  ) : null}
                   {run.errorMessage ? (
                     <div className="mt-4 rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-sm text-status-error-text">
                       <span className="font-medium">{t('agent_orchestrator.traces.detail.runError')}:</span>{' '}
@@ -1329,6 +1159,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 </InspectorCard>
                 </div>
 
+                <LlmStepMetadataCard runId={runId} spans={detail.spans} currency={run.currency} />
+
                 {/* Tool calls + Output — two columns */}
                 <div className="grid gap-6 lg:grid-cols-2">
                   <ToolCallsCard toolCalls={detail.toolCalls} runId={run.id} />
@@ -1337,6 +1169,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       <div className="space-y-1">
                         <JsonDisplay data={run.output} />
                         <ArtifactExpander runId={run.id} artifactKey={run.outputArtifactKey} kind="output" />
+                        <OffloadStatusNote summary={run.output} />
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
@@ -1352,10 +1185,18 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                   <ReasoningCard proposals={detail.proposals} input={run.input} output={run.output} />
                   <DispositionCard proposals={detail.proposals} />
                   {detail.guardrailChecks.length > 0 ? (
-                    <GuardrailsCard checks={detail.guardrailChecks} />
+                    <GuardrailsCard
+                      checks={detail.guardrailChecks}
+                      runId={run.id}
+                      integrityOutcome={detail.integrityOutcome}
+                      rawOutputKey={detail.rawOutputKey}
+                      returnedOutput={run.output}
+                    />
                   ) : null}
-                  <FilesCard runId={run.id} />
+                  <RunFilesCard runId={run.id} />
+                  <RunActionsCard runId={run.id} />
                   {detail.contextBundle ? <ContextAssembledCard bundle={detail.contextBundle} /> : null}
+                  <RunManifestCard spans={detail.spans} agentVersion={run.agentVersion} />
                 </div>
                 {/* Absence is still stated — it just no longer costs a card each.
                     The copy was right; the footprint was not. */}

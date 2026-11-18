@@ -1,6 +1,8 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { AgentRun } from '../../data/entities'
+import { findReviewRequestedRunIds } from '../../lib/guardrails/integrity/reviewRequestedRuns'
 import { runIdPrefixRange, runListQuerySchema } from '../../data/validators'
 import {
   createAgentOrchestratorCrudOpenApi,
@@ -76,7 +78,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       updatedAt: 'updated_at',
     },
     defaultSort: { field: 'created_at', dir: 'desc' },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       else if (query.idPrefix) {
@@ -92,18 +94,36 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       // different facts and a run may legitimately disagree with its agent's declaration.
       if (query.agentType) filters.agent_type = { $eq: query.agentType }
       if (query.flagged) filters.flagged_at = { $ne: null }
+      const createdAtRange: Record<string, string> = {}
       if (query.window && WINDOW_MS[query.window]) {
-        filters.created_at = { $gte: new Date(Date.now() - WINDOW_MS[query.window]).toISOString() }
+        createdAtRange.$gte = new Date(Date.now() - WINDOW_MS[query.window]).toISOString()
       }
+      if (query.createdBefore) createdAtRange.$lt = new Date(query.createdBefore).toISOString()
+      if (Object.keys(createdAtRange).length > 0) filters.created_at = createdAtRange
       // 'overridden' joins on AgentCorrection, which lands in PR2; until then only
       // the self-contained facets are honored.
       if (query.filter === 'eval-fail') filters.eval_passed = { $eq: false }
       else if (query.filter === 'low-confidence') filters.confidence = { $lt: LOW_CONFIDENCE_THRESHOLD }
       else if (query.filter === 'needs-review') {
-        // The traces-list union facet: failed eval OR low confidence.
+        // The traces-list union facet: failed eval OR low confidence OR an
+        // integrity rule that asked for a human (`abstain_or_review` warn).
+        const reviewRequestedRunIds = ctx
+          ? await findReviewRequestedRunIds((ctx.container.resolve('em') as EntityManager).fork(), {
+              tenantId: ctx.auth?.tenantId,
+              organizationIds: ctx.organizationIds,
+              createdAfter: createdAtRange.$gte ? new Date(createdAtRange.$gte) : null,
+              createdBefore: createdAtRange.$lt ? new Date(createdAtRange.$lt) : null,
+              agentId: query.agentId ?? null,
+              status: query.status ?? null,
+              resultKind: query.resultKind ?? null,
+              agentType: query.agentType ?? null,
+              flagged: query.flagged ?? null,
+            })
+          : []
         filters.$or = [
           { eval_passed: { $eq: false } },
           { confidence: { $lt: LOW_CONFIDENCE_THRESHOLD } },
+          ...(reviewRequestedRunIds.length > 0 ? [{ id: { $in: reviewRequestedRunIds } }] : []),
         ]
       }
       return filters

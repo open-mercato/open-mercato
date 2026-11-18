@@ -244,6 +244,12 @@ document, and it carries the writer's token and pid so a stale run is rejected.
 
 ## Changelog
 
+### 2026-10-23
+
+- Added the **Start building** (Cezar) splash action `POST /actions/start-building`
+  and the dev-only loopback frame policy for Cezar's Preview panel; see
+  [`2026-10-23-dev-splash-start-building-cezar.md`](2026-10-23-dev-splash-start-building-cezar.md).
+
 ### 2026-08-21
 
 - Connected the in-app banner to the recovery allowlist: `POST

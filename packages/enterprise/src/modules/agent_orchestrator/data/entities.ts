@@ -444,7 +444,7 @@ export class AgentCorrection {
   createdAt: Date = new Date()
 }
 
-export type AgentEvalCaseSourceType = 'correction' | 'golden_run'
+export type AgentEvalCaseSourceType = 'correction' | 'golden_run' | 'file'
 export type AgentEvalCaseStatus = 'draft' | 'approved' | 'archived'
 
 /**
@@ -529,8 +529,8 @@ export type AgentEvalSeverity = 'gate' | 'warn'
 /**
  * A configured assertion applied to agent runs during evaluation. Editable
  * (carries `updated_at` → optimistic lock). `key` selects the shared pure-function
- * scorer; `config` parameterizes it. Only `deterministic` assertions may carry
- * `severity: 'gate'` (the gate tier must be reproducible); `llm_judge` is always `warn`.
+ * scorer; `config` parameterizes it. An `llm_judge` row may carry `gate`, honoured
+ * only when the run's `judgeMayGate` is true (manual runs, never CI or online).
  */
 @Entity({ tableName: 'agent_eval_assertions' })
 @Index({ name: 'agent_eval_assertions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
@@ -783,6 +783,11 @@ export type GuardrailKind =
   | 'schema'
   | 'moderation'
   | 'tool_scope'
+  | 'evidence_quote'
+  | 'reference_exists'
+  | 'tool_consulted'
+  | 'custom_integrity'
+  | 'abstain_or_review'
 
 export type GuardrailResult = 'pass' | 'warn' | 'block'
 
@@ -880,7 +885,7 @@ export class AgentGuardrailSet {
   @Property({ name: 'version', type: 'varchar', length: 64 })
   version!: string
 
-  /** The grounding policy body. Shape enforced by Zod in data/validators.ts. */
+  /** The set body (`grounding` or `integrity`). Shape enforced by Zod `agentGuardrailSetBodySchema` in data/validators.ts. */
   @Property({ name: 'body', type: 'jsonb' })
   body!: unknown
 

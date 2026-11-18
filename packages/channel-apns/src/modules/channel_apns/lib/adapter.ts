@@ -128,6 +128,10 @@ export function buildApnsNotification(
     note.sound = options.sound ?? 'default'
     if (typeof options.badge === 'number') note.badge = options.badge
     if (options.priority === 'normal') note.priority = 5
+    if (options.image) {
+      note.mutableContent = true
+      note.payload = { ...payload.data, imageUrl: options.image }
+    }
   }
   return note
 }

@@ -45,6 +45,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-mcp.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-session-recovery.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-session-recovery.mjs'),
+    rel: 'scripts/dev-session-recovery.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-session-guard.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-session-guard.mjs'),
     rel: 'scripts/dev-session-guard.mjs',
@@ -62,6 +67,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-memory-sampler.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-env-file.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-env-file.mjs'),
+    rel: 'scripts/dev-env-file.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash.html'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash.html'),
     rel: 'scripts/dev-splash.html',
@@ -75,6 +85,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-cache-purge.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-cache-purge.mjs'),
     rel: 'scripts/dev-cache-purge.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-port-preflight.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-port-preflight.mjs'),
+    rel: 'scripts/dev-port-preflight.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
@@ -177,6 +192,26 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'infra-preflight.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-infra-preflight.mjs'),
     rel: 'scripts/dev-infra-preflight.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'service-modes.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-service-modes.mjs'),
+    rel: 'scripts/dev-service-modes.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'service-connections.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-service-connections.mjs'),
+    rel: 'scripts/dev-service-connections.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'database-write-guard.mjs'),
+    templateFile: path.join(ROOT, 'scripts', 'dev-database-write-guard.mjs'),
+    rel: 'scripts/dev-database-write-guard.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'packages', 'starter', 'src', 'database-write-guard.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-write-guard.mjs'),
+    rel: 'scripts/dev-database-write-guard.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
@@ -298,9 +333,8 @@ function stripTemplateDisabledModules(content: string, rel: string): string {
   return stripped
 }
 
-// Modules that stay commented out (not stripped) in the template: enabling them pushes the
-// generated root close to its byte budget, so the template keeps a maintainer-facing explanation
-// instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
+// Modules that stay opt-in (commented out rather than stripped) in the template.
+// Keep activation prerequisites beside each registration.
 // Each entry replaces the app's registration and its leading comment verbatim, so a reworded
 // source comment fails the transform loudly rather than drifting back into the template. The
 // replacement goes in as a function so a `$` in a template body stays literal instead of being
@@ -317,7 +351,7 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
   // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
   // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
-  // work, same as channel_discord's byte-budget call below.
+  // work, like the other opt-in modules below.
   // { id: 'customer_groups', from: '@open-mercato/core' },`,
   },
   gateway_tpay: {
@@ -334,16 +368,8 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // provider-owned Gateway worker + a signed Interactions endpoint, plus an
   // optional AI auto-reply subscriber.
   { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
-    template: `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
-  // but stays disabled by default. #4989 removed the hard overflow this used to
-  // cause (the generated root now sheds its module-fact index instead), but the
-  // headroom is still gone: enabling it puts the generated root at 12,275 of the
-  // 12,288-byte target, so the next module enabled after it drops the inline
-  // index to pointer form. Enabling is therefore a maintainer call about that
-  // budget, not a one-line edit — see
-  // packages/create-app/src/lib/agent-instruction-budget.test.ts
-  // ('one more template module still fits the root budget with its inline index
-  // intact'), and #4983 for the discussion.
+    template: `  // Optional Discord bot channel (SPEC 2026-06-19). To enable it, first run
+  // yarn add @open-mercato/channel-discord, then uncomment the registration.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
   },
   gateway_autopay: {
@@ -472,7 +498,7 @@ export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => st
       "\nfunction isAutoLoginEnabled(): boolean {\n  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)\n}\n",
     ),
   // Scaffolds ship the example and design-system source but keep both runtime-disabled;
-  // channel_discord stays commented out with a byte-budget explanation instead.
+  // Optional providers keep their activation instructions beside the commented registration.
   'modules.ts': (content) => commentOutTemplateModules(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
