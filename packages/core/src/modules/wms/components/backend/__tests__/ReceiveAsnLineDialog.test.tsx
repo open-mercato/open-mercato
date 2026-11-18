@@ -83,11 +83,21 @@ function lineReload(receivedQty: number | string) {
   }
 }
 
-function receiveOk(receivedQty: number, movementIds?: string[]) {
+function receiveOk(
+  receivedQty: number,
+  movementIds?: string[],
+  appliedQty?: number,
+) {
   return {
     ok: true,
     status: 200,
-    result: { ok: true, receivedQty, movementIds, asnUpdatedAt: '2026-08-22T10:05:00.000Z' },
+    result: {
+      ok: true,
+      receivedQty,
+      movementIds,
+      appliedQty,
+      asnUpdatedAt: '2026-08-22T10:05:00.000Z',
+    },
     response: new Response(null, { status: 200 }),
   }
 }
@@ -345,6 +355,49 @@ describe('ReceiveAsnLineDialog', () => {
     const retryBody = JSON.parse(String(mockApiCall.mock.calls[3][1].body)) as { targetReceivedQty?: number }
     expect(retryBody.targetReceivedQty).toBe(8)
     await waitFor(() => expect(flash).toHaveBeenCalledWith('ASN line received', 'success'))
+  })
+
+  it('treats an applied QC-failed retry as recorded when the line reload failed', async () => {
+    const freshUpdatedAt = '2026-08-22T10:05:00.000Z'
+    const onOpenChange = jest.fn()
+    mockApiCall
+      .mockResolvedValueOnce(conflict(freshUpdatedAt))
+      .mockResolvedValueOnce({ ok: false, status: 500, result: null, response: new Response(null, { status: 500 }) })
+      .mockResolvedValueOnce(receiveOk(5, [], 3))
+
+    render(
+      <ReceiveAsnLineDialog
+        open
+        onOpenChange={onOpenChange}
+        access={access}
+        asnId="11111111-1111-1111-1111-111111111111"
+        warehouseId="22222222-2222-2222-2222-222222222222"
+        line={{
+          ...line,
+          expectedQty: 5,
+          receivedQty: 2,
+          qcStatus: 'failed',
+          rejectionReason: 'Damaged carton',
+        }}
+      />,
+    )
+
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
+
+    fireEvent.click(screen.getByTestId('receive-asn-submit'))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(3))
+    const retryBody = JSON.parse(String(mockApiCall.mock.calls[2][1].body)) as {
+      targetReceivedQty?: number
+      qcStatus?: string
+    }
+    expect(retryBody.targetReceivedQty).toBe(5)
+    expect(retryBody.qcStatus).toBe('failed')
+    await waitFor(() =>
+      expect(flash).toHaveBeenCalledWith('ASN line recorded with QC fail', 'success'),
+    )
+    expect(flash).not.toHaveBeenCalledWith(expect.stringContaining('Nothing new was recorded'), 'warning')
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('keeps a same-target replay successful when the response was lost', async () => {

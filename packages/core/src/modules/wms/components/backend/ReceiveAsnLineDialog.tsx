@@ -317,6 +317,7 @@ export function ReceiveAsnLineDialog({
         let mutationResult: {
           ok?: boolean
           receivedQty?: number
+          appliedQty?: number
           asnUpdatedAt?: string
           movementIds?: string[]
         } = {}
@@ -346,6 +347,7 @@ export function ReceiveAsnLineDialog({
             const call = await apiCall<{
               ok?: boolean
               receivedQty?: number
+              appliedQty?: number
               asnUpdatedAt?: string
               movementIds?: string[]
             }>(
@@ -400,13 +402,17 @@ export function ReceiveAsnLineDialog({
                 ? mutationResult.receivedQty
                 : targetReceivedQty
             const movementIds = mutationResult.movementIds
-            const noNewMovement = !Array.isArray(movementIds) || movementIds.length === 0
+            const wroteThisAttempt =
+              typeof mutationResult.appliedQty === 'number'
+                ? mutationResult.appliedQty > 0.000001
+                : Array.isArray(movementIds) && movementIds.length > 0
             const reachedTarget = serverQty + 0.000001 >= targetReceivedQty
             // A lost response replays the same absolute target and still reaches it.
-            // After a failed reload, that same shape is a stale no-op, not a new receipt.
+            // After a failed reload, an attempt that wrote nothing is a stale no-op.
+            // QC-fail receipts write no movements, so appliedQty is the write evidence.
             const staleNoOp =
               receiptNeedsReconcileRef.current &&
-              noNewMovement &&
+              !wroteThisAttempt &&
               Math.abs(serverQty - targetReceivedQty) <= 0.000001
             deltaApplied = reachedTarget && !staleNoOp
             if (deltaApplied) {

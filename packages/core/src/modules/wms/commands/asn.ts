@@ -55,6 +55,7 @@ import {
   computeUncommittedPutawaySourceQuantity,
   selectCoveringOpenPutawayTask,
 } from '../lib/putaway'
+import { buildSqlInClause } from '../lib/sqlInClause'
 import {
   applyInventoryReceiveInTransaction,
   emitInventoryReceiveSideEffects,
@@ -626,8 +627,6 @@ function assertIncomingSerialsAreNew(
   }
 }
 
-const ACTIVE_SERIAL_LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?, 0))'
-
 function activeSerialLockKey(scope: Scope, catalogVariantId: string, serialNumber: string): string {
   return [
     'wms:active-serial',
@@ -638,7 +637,18 @@ function activeSerialLockKey(scope: Scope, catalogVariantId: string, serialNumbe
   ].join(':')
 }
 
-/** Reject a serial that still has on-hand stock for this variant, including on another ASN. */
+function compareSerialNumber(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+/**
+ * Reject a serial that still has on-hand stock for this variant, including on another ASN.
+ * An empty list issues no statements. Any non-empty list issues exactly two, independent of
+ * how many serials arrived: one ordered advisory-lock batch, then one scoped balance read.
+ * em.execute keeps both inside the caller's transaction.
+ */
 async function assertNoActiveSerialBalance(
   em: EntityManager,
   scope: Scope,
@@ -646,29 +656,33 @@ async function assertNoActiveSerialBalance(
   serialNumbers: string[],
 ): Promise<void> {
   if (serialNumbers.length === 0) return
-  // em.execute keeps the transaction-scoped advisory lock and FOR UPDATE inside the
-  // caller's transaction. Sorted order keeps concurrent multi-serial receipts deadlock-free.
-  const orderedSerials = [...serialNumbers].sort()
-  for (const serialNumber of orderedSerials) {
-    await em.execute(ACTIVE_SERIAL_LOCK_SQL, [
-      activeSerialLockKey(scope, catalogVariantId, serialNumber),
-    ])
-    const rows = await em.execute<Array<{ id: string }>>(
-      `select id
-       from wms_inventory_balances
-       where organization_id = ?
-         and tenant_id = ?
-         and catalog_variant_id = ?
-         and serial_number = ?
-         and deleted_at is null
-         and quantity_on_hand > 0
-       limit 1
-       for update`,
-      [scope.organizationId, scope.tenantId, catalogVariantId, serialNumber],
-    )
-    if (rows.length > 0) {
-      throw new CrudHttpError(422, { error: 'duplicate_serial' })
-    }
+  const orderedSerials = [...serialNumbers].sort(compareSerialNumber)
+  const lockKeys = orderedSerials.map((serialNumber) =>
+    activeSerialLockKey(scope, catalogVariantId, serialNumber),
+  )
+  const lockRows = lockKeys.map(() => '(?)').join(', ')
+  await em.execute(
+    `select pg_advisory_xact_lock(hashtextextended(lock_key, 0))
+     from (values ${lockRows}) as lock_keys(lock_key)
+     order by lock_key`,
+    lockKeys,
+  )
+  const serials = buildSqlInClause('serial_number', orderedSerials)
+  const rows = await em.execute<Array<{ id: string }>>(
+    `select id
+     from wms_inventory_balances
+     where organization_id = ?
+       and tenant_id = ?
+       and catalog_variant_id = ?
+       and deleted_at is null
+       and quantity_on_hand > 0
+       and ${serials.sql}
+     limit 1
+     for update`,
+    [scope.organizationId, scope.tenantId, catalogVariantId, ...serials.params],
+  )
+  if (rows.length > 0) {
+    throw new CrudHttpError(422, { error: 'duplicate_serial' })
   }
 }
 
@@ -1593,6 +1607,7 @@ type ReceiveAsnLineResult = {
   lineId: string
   asnId: string
   receivedQty: number
+  appliedQty: number
   asnUpdatedAt: string
 }
 
@@ -1685,6 +1700,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
           previousStatus,
           receivingStarted,
           lineUpdated,
+          applyQty: lineUpdated ? attempt.applyQty : 0,
         }
       })
 
@@ -1721,6 +1737,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
         lineId: locked.line.id,
         asnId: locked.asn.id,
         receivedQty: toNumber(locked.line.receivedQty),
+        appliedQty: locked.applyQty,
         asnUpdatedAt: locked.asn.updatedAt.toISOString(),
       }
     }
@@ -2027,6 +2044,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
         lineId: outcome.line.id,
         asnId: outcome.asn.id,
         receivedQty: outcome.currentReceivedQty,
+        appliedQty: 0,
         asnUpdatedAt: outcome.asn.updatedAt.toISOString(),
       }
     }
@@ -2074,6 +2092,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
       lineId: outcome.line.id,
       asnId: outcome.asn.id,
       receivedQty: toNumber(outcome.line.receivedQty),
+      appliedQty: outcome.applyQty,
       asnUpdatedAt: outcome.asn.updatedAt.toISOString(),
     }
   },

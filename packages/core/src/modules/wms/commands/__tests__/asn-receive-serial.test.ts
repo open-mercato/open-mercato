@@ -412,13 +412,18 @@ describe('wms.asns.receive-line serial identity', () => {
       createCtx(em) as never,
     )
 
-    const lockedKeys = execute.mock.calls
-      .filter((call) => String(call[0]).includes('pg_advisory_xact_lock'))
-      .map((call) => call[1])
-    expect(lockedKeys).toEqual([
-      [`wms:active-serial:${ORG}:${TENANT}:${VARIANT_ID}:SN-A`],
-      [`wms:active-serial:${ORG}:${TENANT}:${VARIANT_ID}:SN-B`],
+    const lockCalls = execute.mock.calls.filter((call) => String(call[0]).includes('pg_advisory_xact_lock'))
+    const balanceCalls = execute.mock.calls.filter((call) => String(call[0]).includes('quantity_on_hand'))
+    expect(lockCalls).toHaveLength(1)
+    expect(String(lockCalls[0]?.[0])).toContain('order by lock_key')
+    expect(lockCalls[0]?.[1]).toEqual([
+      `wms:active-serial:${ORG}:${TENANT}:${VARIANT_ID}:SN-A`,
+      `wms:active-serial:${ORG}:${TENANT}:${VARIANT_ID}:SN-B`,
     ])
+    expect(balanceCalls).toHaveLength(1)
+    expect(String(balanceCalls[0]?.[0])).toContain('for update')
+    expect(balanceCalls[0]?.[1]).toEqual([ORG, TENANT, VARIANT_ID, 'SN-A', 'SN-B'])
+    expect(execute).toHaveBeenCalledTimes(2)
     expect(applyInventoryReceiveInTransaction).toHaveBeenCalledTimes(2)
   })
 
@@ -487,9 +492,65 @@ describe('wms.asns.receive-line serial identity', () => {
       createCtx(em) as never,
     )
 
-    expect(result).toEqual(expect.objectContaining({ movementIds: [], receivedQty: 1 }))
+    expect(result).toEqual(expect.objectContaining({ movementIds: [], receivedQty: 1, appliedQty: 0 }))
     expect(applyInventoryReceiveInTransaction).not.toHaveBeenCalled()
     expect(execute.mock.calls.some((call) => String(call[0]).includes('quantity_on_hand'))).toBe(false)
     expect(receivingLine.receivedQty).toBe('1')
+  })
+
+  it('reports the written quantity when a QC-failed receipt creates no movements', async () => {
+    const em = createEm()
+    const receivingLine = line({ expectedQty: '4' })
+    stubReceiveLookups(em, receivingLine)
+
+    const handler = commandRegistry.get('wms.asns.receive-line')
+    const result = await handler!.execute(
+      receiveInput({
+        receivedQty: 2,
+        targetReceivedQty: 2,
+        qcStatus: 'failed',
+        rejectionReason: 'damaged',
+      }),
+      createCtx(em) as never,
+    )
+
+    expect(applyInventoryReceiveInTransaction).not.toHaveBeenCalled()
+    expect(result).toEqual(expect.objectContaining({
+      movementIds: [],
+      appliedQty: 2,
+      receivedQty: 2,
+    }))
+    expect(receivingLine.qcStatus).toBe('failed')
+    expect(receivingLine.receivedQty).toBe('2')
+  })
+
+  it('reports appliedQty 0 when a QC-failed receipt is already at the absolute target', async () => {
+    const em = createEm()
+    const receivingLine = line({
+      expectedQty: '2',
+      receivedQty: '2',
+      qcStatus: 'failed',
+      rejectionReason: 'damaged',
+    })
+    stubReceiveLookups(em, receivingLine)
+
+    const handler = commandRegistry.get('wms.asns.receive-line')
+    const result = await handler!.execute(
+      receiveInput({
+        receivedQty: 2,
+        targetReceivedQty: 2,
+        qcStatus: 'failed',
+        rejectionReason: 'damaged',
+      }),
+      createCtx(em) as never,
+    )
+
+    expect(result).toEqual(expect.objectContaining({
+      movementIds: [],
+      appliedQty: 0,
+      receivedQty: 2,
+    }))
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(applyInventoryReceiveInTransaction).not.toHaveBeenCalled()
   })
 })

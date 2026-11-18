@@ -51,7 +51,7 @@ import {
   inventoryMoveSchema,
   inventoryReceiveSchema,
   inventoryReservationAllocateSchema,
-  inventoryReservationCreateSchema,
+  inventoryReservationCommandInputSchema,
   inventoryReservationReleaseSchema,
   type InventoryAdjustInput,
   type InventoryCycleCountInput,
@@ -963,7 +963,7 @@ const reserveInventoryCommand: CommandHandler<InventoryReservationCreateInput, R
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
   isUndoable: false,
   async execute(rawInput, ctx) {
-    const input = inventoryReservationCreateSchema.parse(rawInput ?? {})
+    const input = inventoryReservationCommandInputSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = resolveEm(ctx)

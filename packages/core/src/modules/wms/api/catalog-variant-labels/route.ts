@@ -6,7 +6,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { organizationScopeRequiredResponse } from '@open-mercato/shared/lib/auth/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { E } from '#generated/entities.ids.generated'
@@ -41,13 +43,16 @@ const labelListSchema = z.object({
 const errorSchema = z.object({ error: z.string() })
 
 export async function GET(request: Request) {
+  let translate = (_key: string, fallback?: string) => fallback ?? _key
   try {
+    const translations = await resolveTranslations()
+    translate = translations.translate
     const url = new URL(request.url)
     const query = parseCatalogVariantLabelsQuery(url.searchParams)
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(request)
     if (!auth?.tenantId) {
-      throw new CrudHttpError(401, { error: 'Unauthorized' })
+      throw new CrudHttpError(401, { error: translate('wms.errors.unauthorized', 'Unauthorized') })
     }
     const organizationScope = await resolveOrganizationScopeForRequest({
       container,
@@ -79,10 +84,17 @@ export async function GET(request: Request) {
       return NextResponse.json(error.body, { status: error.status })
     }
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Validation failed', details: error.issues }, { status: 400 })
+      return NextResponse.json(
+        { error: translate('wms.errors.validationFailed', 'Validation failed'), details: error.issues },
+        { status: 400 },
+      )
     }
     logger.error('catalog variant label lookup failed', { err: error })
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    getTelemetryRuntime()?.reportError(error, { code: 'wms.catalog_variant_labels.lookup_failed' })
+    return NextResponse.json(
+      { error: translate('wms.errors.internalServerError', 'Internal server error') },
+      { status: 500 },
+    )
   }
 }
 

@@ -10,6 +10,10 @@ import {
   ProductInventoryProfile,
   Warehouse,
 } from '../../data/entities'
+import {
+  inventoryReservationCommandInputSchema,
+  inventoryReservationCreateSchema,
+} from '../../data/validators'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -428,6 +432,45 @@ describe('wms inventory reserve command', () => {
     const persisted = em.create.mock.calls.find((call) => call[0] === InventoryReservation)
     expect(String(persisted?.[1]?.idempotencyKey)).toMatch(/\|4$/)
     expect(em.persist).toHaveBeenCalled()
+  })
+
+  it('drops a forged reservedBefore before it can replay a later cumulative reservation', async () => {
+    const em = createEm()
+    const balance = makeBalance({ quantityOnHand: '10', quantityReserved: '2' })
+    const cumulativeReservation = makeReservation({ id: 'res-cumulative', quantity: '2' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+      if (entity === InventoryReservation) {
+        const key = typeof where?.idempotencyKey === 'string' ? where.idempotencyKey : ''
+        return key.endsWith('|4') ? cumulativeReservation : null
+      }
+      if (entity === ProductInventoryProfile) return null
+      if (entity === InventoryBalance) return balance
+      return null
+    })
+    findWithDecryption.mockImplementation((_em: unknown, entity: unknown) => {
+      if (entity === InventoryBalance) return [balance]
+      if (entity === InventoryMovement) return []
+      return []
+    })
+
+    const forged = {
+      ...makeReserveInput({ quantity: 2 }),
+      reservedBefore: 2,
+    }
+    const parsed = inventoryReservationCreateSchema.parse(forged)
+    expect(parsed).not.toHaveProperty('reservedBefore')
+    expect(
+      inventoryReservationCommandInputSchema.parse(forged).reservedBefore,
+    ).toBe(2)
+
+    const handler = commandRegistry.get('wms.inventory.reserve')
+    const created = await handler!.execute!(parsed, createCtx(em))
+    expect(created).toMatchObject({ appliedQuantity: 2, idempotentReplay: false })
+    expect(created).not.toMatchObject({ reservationId: 'res-cumulative' })
+    const persisted = em.create.mock.calls.find((call) => call[0] === InventoryReservation)
+    expect(String(persisted?.[1]?.idempotencyKey)).toMatch(/\|2$/)
   })
 })
 

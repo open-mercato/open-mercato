@@ -28,6 +28,18 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: (...args: unknown[]) => resolveOrganizationScopeForRequestMock(...args),
 }))
 
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (key: string, fallback?: string) => fallback ?? key,
+  })),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { E } from '#generated/entities.ids.generated'
@@ -141,5 +153,18 @@ describe('GET /api/wms/catalog-variant-labels', () => {
       code: 'organization_scope_required',
     })
     expect(query).not.toHaveBeenCalled()
+  })
+
+  it('reports an unexpected lookup failure without a record payload', async () => {
+    const failure = new Error('query engine down')
+    query.mockRejectedValue(failure)
+
+    const response = await GET(new Request('http://localhost/api/wms/catalog-variant-labels'))
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: 'Internal server error' })
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      code: 'wms.catalog_variant_labels.lookup_failed',
+    })
   })
 })
