@@ -353,7 +353,7 @@ is its NIP), `bankAccountMasked` (`'****'` + the line's
 `whitelistCheckResult.accountNumberLast4` — the account actually paid
 to) and `whitelistCheck` (`{ status, checkedAt, requestId }` from the
 line's `whitelistCheckResult`, i.e. the live check this module holds when
-it posts — after the same-day re-check below). The invoice entry's snapshot (`source: 'vendor_invoice'`,
+it posts — after the revalidation at send below). The invoice entry's snapshot (`source: 'vendor_invoice'`,
 name and tax id, no account) is written by `postVendorInvoice` in the
 sibling document.
 
@@ -1172,12 +1172,13 @@ through the module configuration screen.
 
 ## Edge Cases & Failure Scenarios
 
-Added 2026-10-20, for the same-day re-check at `markPaymentBatchSent`
-(see Design decisions, 2026-10-20).
+Added 2026-10-20 (updated 2026-11-18, review round: eligibility is
+always revalidated at send, with the Ministry's same-day evidence reused
+by the registry); see Design decisions, 2026-10-20.
 
-- **Batch confirmed on one day, sent on a later one.** The stored check
-  is from an earlier Warsaw calendar day; every such line is checked
-  again before posting. The result replaces the stored one; the old one
+- **Batch confirmed on one day, sent on a later one.** The registry is
+  called again for every line; a newer Warsaw business day means fresh
+  Ministry evidence. The result replaces the stored one; the old one
   remains in the registry's history.
 - **Day boundary.** Dates are compared in `Europe/Warsaw`, not UTC: a
   check at 23:30 Warsaw time and a send at 00:10 the next morning are on
@@ -1188,8 +1189,11 @@ Added 2026-10-20, for the same-day re-check at `markPaymentBatchSent`
   of a batch does not exist. The clerk removes the cause or cancels the
   batch.
 - **Ministry API down at send time.** `WHITELIST_UNAVAILABLE`; blocked,
-  as at confirmation. A check already made today is reused, so a batch
-  confirmed today can still be sent while the API is down.
+  as at confirmation. The registry's evidence cache may still serve
+  today's Ministry result, so a batch confirmed today can be sent while
+  the remote API is down — but local eligibility is still re-read, and a
+  contractor or account deactivated since the confirmation blocks the
+  send.
 - **Back-dated `sentOn`.** `sentOn` only sets the entry's accounting
   date; the re-check compares with the day the command runs, because
   that is when the transfer is ordered.
