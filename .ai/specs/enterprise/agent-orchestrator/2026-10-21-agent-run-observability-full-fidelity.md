@@ -253,7 +253,7 @@ export function reportRetrieval(entry: { source: string; queryHash: string; k: n
 | `om.latency.ms` | `responseTimeMs` | metadata |
 | `om.cost.micros`, `om.cost.currency`, `om.cost.pricing_source` (`default|env_override|unknown`) | `computeCostMicros(responseModel ?? requestModel, …)` | metadata |
 | `om.prompt.system.sha256`, `om.tools.sha256`, `om.tools.count`, `om.messages.count` | hashes over the canonical JSON | metadata |
-| `om.content.request.key` / `.sha256` / `.bytes`, `om.content.response.key` / `.sha256` / `.bytes`, `om.content.status` (`stored|storage_unavailable|disabled|over_cap_truncated`), `om.content.redactions` | artifact offload | full |
+| `om.content.request.key` / `.sha256` / `.bytes`, `om.content.response.key` / `.sha256` / `.bytes`, `om.content.status` (`stored|storage_unavailable|encryption_unavailable|disabled|over_cap_truncated`), `om.content.redactions` | artifact offload | full |
 | `om.capture.fidelity` (`exact|reconstructed|reported`) | runtime | all |
 
 Request artifact shape (`llm_request.v1`): `{ schema: 'om.llm_request.v1', provider, modelId, system, messages, tools: [{ name, description, inputSchema }], responseFormat, params, providerBody? }`. Response artifact (`llm_response.v1`): `{ schema, finishReason, content, object?, usage, providerMetadata? }`.
@@ -618,3 +618,14 @@ Phase 0 spike results (installed `ai` 7.0.83, `@ai-sdk/provider` 4.0.8, pinned `
   - **The default compare target is the re-run source, else the previous run of the same agent.** "Same subject" is not matched. Finding the previous run needed a new additive `createdBefore` filter on `GET /runs`.
   - **Long message lists are not virtualized:** the Request tab renders the first 200 messages with a "show more" control, so no new dependency is needed.
   - **"Copy run" with content fetches the artifacts at click time,** four at a time, and only when the caller holds `trace.view_content`.
+
+### 2026-11-16
+- **Content capture fails closed on encryption (#9648, B-6).** With tenant data encryption on, content is never uploaded unencrypted: when the service, the KMS or the tenant DEK is unavailable, the step records the new `om.content.status = encryption_unavailable` value instead of `storage_unavailable`, and the trace UI names the cause.
+
+### 2026-11-18
+- **Encryption turned off by the operator stores plaintext (#9648, B-6).** With `TENANT_DATA_ENCRYPTION=false`, artifacts are stored unencrypted, consistent with every other encrypted column in that mode. Fail-closed applies only while encryption is on.
+- **A failed content delete no longer holds the retention cursor (#9648, C-4 follow-up).** When deleting one expired key fails, retention reports it (`reportError` code `agent_orchestrator.trace_content_retention_delete_failed`, plus a scoped warning log; tenant and organization only, no content), counts it in `failed`, moves the cursor past the row and does not retry the key on later runs. Before, such a key held the cursor, so one undeletable object stalled retention for the whole tenant and organization. A key that has not expired yet still holds the cursor, and a scope whose storage is unavailable is still skipped without moving the cursor. An object that is left behind has to be removed from storage by hand.
+
+### 2026-11-17
+- **Retention resumes from a cursor (#9648, C-4).** The `trace-content-retention` worker no longer scans a fixed seven-day window before the cutoff. It keeps a per-organization `(created_at, id)` cursor per row family (`llm` spans, context bundles) in tenant-scoped module config (`trace_content_retention_cursor:<organizationId>:<source>`; a stand-in, no AO DDL until the next re-squash, which adds the table `agent_trace_content_retention_cursors`), walks every row created before the cutoff, and resumes there on the next run. A missed run, a lowered `retentionDays` and a backlog over the 10,000-row per-run cap are therefore caught up. The cursor never moves past a row whose key has not expired yet. A key whose delete fails is reported and counted, and the cursor moves past it, so that key is not retried (see 2026-11-18). Keys are still read from the database, not by listing storage, and spans and bundles stay append-only.
+- **Schedule for existing organizations.** New CLI `yarn mercato agent_orchestrator trace-retention:schedule [--tenant] [--org]` registers the same idempotent per-organization schedule that setup registers for new tenants and organizations.

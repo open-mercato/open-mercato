@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { createMcpServer } from '../mcp-server'
-import { createDevMcpServer } from '../mcp-dev-server'
+import { createMcpServer, runMcpServer } from '../mcp-server'
+import { createDevMcpServer, runMcpDevServer } from '../mcp-dev-server'
 import { DEFAULT_MCP_EXPOSURE_CONFIG, resolveMcpExposureConfig, type McpExposureConfig } from '../mcp-exposure'
 import type { AiToolDefinition, McpServerOptions, McpToolContext, McpToolDefinition } from '../types'
 
@@ -121,6 +121,14 @@ describe('MCP exposure filter in the stdio and dev servers', () => {
   afterEach(() => {
     process.env = originalEnv
     jest.restoreAllMocks()
+  })
+
+  it('refuses to start the stdio and dev servers on an invalid OM_MCP_MUTATION_MODE', async () => {
+    process.env.OM_MCP_MUTATION_MODE = 'aproval'
+    const options = { config: { name: 'test', version: '0.0.0' } } as unknown as McpServerOptions
+
+    await expect(runMcpServer(options)).rejects.toThrow('Invalid OM_MCP_MUTATION_MODE "aproval"')
+    await expect(runMcpDevServer()).rejects.toThrow('Invalid OM_MCP_MUTATION_MODE "aproval"')
   })
 
   it('keeps feature-only filtering in the stdio server when no exposure env is set', async () => {

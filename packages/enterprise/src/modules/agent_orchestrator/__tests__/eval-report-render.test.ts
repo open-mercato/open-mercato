@@ -522,4 +522,37 @@ describe('eval report renderers', () => {
       expect(joinCdataSegments(systemOut)).toContain('Output:\n{\n  "action": "<ignore>"\n}')
     })
   })
+
+  describe('A-4 tool mock usage', () => {
+    const mocks: NonNullable<EvalReportTrial['mocks']> = {
+      used: [{ id: 'search', tool: 'customers.search_companies', match: 'strict', calls: 1 }],
+      unused: [{ id: 'stock', tool: 'catalog.get_stock', required: true }],
+      unmatched: [{ tool: 'orders.list', argsKey: 'k1', occurrence: 0, toolCallId: null, resolution: 'fixture' }],
+      unmatchedTruncated: false,
+    }
+    const mocked = () =>
+      singleTrialReport({
+        trialOverrides: { status: 'failed', error: '[internal] mock_required_unused: stock', results: [], mocks },
+      })
+
+    it('validates a report that carries mock usage', () => {
+      expect(() =>
+        evalReportSchema.parse({ ...mocked(), environment: { ...mocked().environment, mocks: { cases: 1, requiredUnused: 1 } } }),
+      ).not.toThrow()
+    })
+
+    it('renders a Mocks table per mocked case and nothing without mocks', () => {
+      const markdown = renderEvalReportMarkdown(mocked())
+      expect(markdown).toContain('## Mocks')
+      expect(markdown).toContain('| search | customers.search_companies | used | strict, 1 call(s) |')
+      expect(markdown).toContain('| stock | catalog.get_stock | unused | required |')
+      expect(markdown).toContain('| — | orders.list | unmatched | fixture, occurrence 0 |')
+      expect(renderEvalReportMarkdown(singleTrialReport())).not.toContain('## Mocks')
+    })
+
+    it('reports an unused required mock as a JUnit failure', () => {
+      expect(renderEvalReportJunit(mocked())).toContain('<failure message="mock_required_unused: stock" type="assertion">')
+    })
+  })
 })
+

@@ -88,16 +88,19 @@ import { z } from 'zod'
 import { ARTIFACT_REFS } from '../lib/trace/artifactStore'
 import { integrityRuleSchema, untrustedInputDeclSchema } from '../data/validators'
 import { resolveIntegritySet } from '../lib/guardrails/integrity/integritySets'
-import { AgentGuardrailBlockedError } from '../lib/runtime/errors'
+import { AgentGuardrailBlockedError, AgentOutputInvalidError } from '../lib/runtime/errors'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { resetAgentAdmissionForTests } from '../lib/runtime/admission'
 import { resetProviderBudgetForTests } from '../lib/runtime/providerBudget'
 import { buildNativeTracePayload, type NativeTraceInput } from '../lib/runtime/nativeTraceCapture'
 import { RUN_MANIFEST_SPAN_NAME, computeManifestSha256 } from '../lib/trace/runManifest'
+import { resolveRunAgentVersion } from '../lib/trace/definitionHash'
 import { reportKnowledgeVersion } from '@open-mercato/shared/lib/ai/run-observation'
 import { ContextResolverImpl } from '../lib/context/contextResolver'
 import { entityProvenance, registerContextModule } from '../lib/context/registry'
+import { compileOutcome } from '../lib/sdk/outcomeSchema'
+import { attachStrictModelSchema } from '../lib/sdk/fileAgentNative'
 
 function registerNativeAgent(id: string): AgentRegistryEntry {
   const existing = getAgentEntry(id)
@@ -244,7 +247,22 @@ describe('native run stamping', () => {
       workflowInstanceId: 'instance-1',
       correlationId: 'correlation-1',
       apiKeyId: 'key-1',
+      agentId: 'native.correlation_agent',
+      agentVersion: expect.stringMatching(/^sha256:[0-9a-f]{16}$/),
     })
+  })
+
+  it('stamps the same agent version on the audit correlation as on the run row', async () => {
+    registerNativeAgent('native.correlation_version_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.correlation_version_agent', {}, runCtx)
+
+    const createInput = createRunMock.mock.calls[0][2] as { agentId: string; definitionHash: string }
+    const stamped = (completeRunMock.mock.calls[0][1] as { auditCorrelation: Record<string, string> }).auditCorrelation
+    expect(stamped.agentId).toBe(createInput.agentId)
+    expect(stamped.agentVersion).toBe(resolveRunAgentVersion({ definitionHash: createInput.definitionHash }))
   })
 
   it('stamps only the run id when the context carries no other correlation', async () => {
@@ -255,7 +273,11 @@ describe('native run stamping', () => {
     await expect(service.run('native.correlation_bare_agent', {}, runCtx)).rejects.toThrow('model down')
 
     const runId = await createRunMock.mock.results[0].value
-    expect((failRunMock.mock.calls[0][1] as Record<string, unknown>).auditCorrelation).toEqual({ agentRunId: runId })
+    expect((failRunMock.mock.calls[0][1] as Record<string, unknown>).auditCorrelation).toEqual({
+      agentRunId: runId,
+      agentId: 'native.correlation_bare_agent',
+      agentVersion: expect.stringMatching(/^sha256:[0-9a-f]{16}$/),
+    })
   })
 
   it('dispatches a legacy in-process entry to the same native runner', async () => {
@@ -1505,5 +1527,143 @@ describe('untrusted input wiring', () => {
 
     expect(checkInputMock.mock.calls[0][0]).toEqual({ capability: 'native.no_untrusted_input_agent', untrustedSpans: [] })
     expect(syncIntegritySetsMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('native file agents (A-1)', () => {
+  function registerStrictFileAgent(id: string): AgentRegistryEntry {
+    const existing = getAgentEntry(id)
+    if (existing) return existing
+    const outcomeSchema = {
+      type: 'object' as const,
+      properties: { summary: { type: 'string' as const }, note: { type: 'string' as const } },
+      required: ['summary'],
+    }
+    const entry: AgentRegistryEntry = {
+      ...registerNativeAgentShape(id),
+      schema: compileOutcome({ kind: 'research', schema: outcomeSchema }).resultSchema,
+      outcomeSchema,
+      definitionSource: 'file',
+    }
+    attachStrictModelSchema(entry)
+    registerFileAgent(entry)
+    return entry
+  }
+
+  function registerNativeAgentShape(id: string): AgentRegistryEntry {
+    return {
+      id,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'research',
+      schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
+      tools: [],
+      skills: [],
+      subAgents: [],
+      label: 'Native file agent',
+      description: 'File agent for native-runner wiring tests.',
+      instructions: 'inform',
+      runtime: 'native',
+    }
+  }
+
+  it('asks the model for the strict schema and maps its nulls back before validating against the authored one', async () => {
+    const entry = registerStrictFileAgent('native.strict_file_agent')
+    expect(entry.modelSchema).toBeDefined()
+    runAiAgentObjectMock.mockResolvedValue({
+      mode: 'generate',
+      object: { kind: 'research', data: { summary: 'ok', note: null } },
+      usage: { inputTokens: 1, outputTokens: 1 },
+    })
+
+    const result = await makeService().run('native.strict_file_agent', {}, runCtx)
+
+    const output = runAiAgentObjectMock.mock.calls[0][0].output as { schema: unknown }
+    expect(output.schema).toBe(entry.modelSchema)
+    expect(output.schema).not.toBe(entry.schema)
+    expect(result).toMatchObject({ kind: 'research', data: { summary: 'ok' } })
+    expect((result as { data: Record<string, unknown> }).data).not.toHaveProperty('note')
+    expect(failRunMock).not.toHaveBeenCalled()
+  })
+
+  function sdkError(name: string, fields: Record<string, unknown> = {}): Error {
+    const error = new Error(name === 'AI_NoOutputGeneratedError' ? 'No output generated.' : 'No object generated: response did not match schema.')
+    error.name = name
+    Object.assign(error, fields)
+    return error
+  }
+
+  it('judges an answer the strict schema rejected against the authored one, and accepts it when it fits (A-2)', async () => {
+    registerStrictFileAgent('native.strict_file_agent_recovered')
+    runAiAgentObjectMock.mockRejectedValue(
+      sdkError('AI_NoObjectGeneratedError', {
+        text: '{"kind":"research","data":{"summary":"ok"}}',
+        usage: { inputTokens: 5, outputTokens: 2 },
+      }),
+    )
+
+    const result = await makeService().run('native.strict_file_agent_recovered', {}, runCtx)
+
+    expect(result).toMatchObject({ kind: 'research', data: { summary: 'ok' } })
+    expect(failRunMock).not.toHaveBeenCalled()
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails an unusable answer as invalid output with a schema check, not as a crash (A-2)', async () => {
+    registerStrictFileAgent('native.strict_file_agent_garbage')
+    runAiAgentObjectMock.mockRejectedValue(sdkError('AI_NoObjectGeneratedError', { text: 'I could not decide.' }))
+
+    const failure = makeService().run('native.strict_file_agent_garbage', {}, runCtx)
+
+    await expect(failure).rejects.toBeInstanceOf(AgentOutputInvalidError)
+    await expect(failure).rejects.toThrow('the model answer did not match the structured-output schema')
+    expect(checkOutputMock.mock.calls[0][0].output).toBeUndefined()
+    expect(persistVerdictMock).toHaveBeenCalled()
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+    expect(String((failRunMock.mock.calls[0][2] as { errorMessage: string }).errorMessage)).toContain(
+      'the model answer did not match the structured-output schema',
+    )
+    expect(createProposalMock).not.toHaveBeenCalled()
+  })
+
+  it('fails a tool loop that ended without a final answer as invalid output (A-2)', async () => {
+    registerStrictFileAgent('native.strict_file_agent_no_output')
+    runAiAgentObjectMock.mockRejectedValue(sdkError('AI_NoOutputGeneratedError'))
+
+    await expect(makeService().run('native.strict_file_agent_no_output', {}, runCtx)).rejects.toThrow(
+      'the model ended without a final structured answer',
+    )
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a code agent structured-output failure as it was: rethrown unchanged', async () => {
+    registerNativeAgent('native.code_agent_no_object')
+    const error = sdkError('AI_NoObjectGeneratedError', { text: '{"kind":"research","data":{"ok":true}}' })
+    runAiAgentObjectMock.mockRejectedValue(error)
+
+    await expect(makeService().run('native.code_agent_no_object', {}, runCtx)).rejects.toBe(error)
+    expect(checkOutputMock).not.toHaveBeenCalled()
+  })
+
+  it('drops the OpenCode-only __files envelope before the input is persisted or prompted', async () => {
+    registerNativeAgent('native.files_envelope_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+    const logs = captureLogs()
+    try {
+      await makeService().run(
+        'native.files_envelope_agent',
+        { question: 'q', __files: { attachments: [{ attachmentId: '11111111-1111-4111-8111-111111111111' }] } },
+        runCtx,
+      )
+      expect(logs.at('warn').map((record) => record.message)).toContain(
+        'native run ignores the attachment envelope; the file plane is OpenCode-only',
+      )
+    } finally {
+      logs.restore()
+    }
+
+    expect((createRunMock.mock.calls[0][2] as { input: unknown }).input).toEqual({ question: 'q' })
+    const prompted = JSON.stringify(runAiAgentObjectMock.mock.calls[0][0].input)
+    expect(prompted).toContain('question')
+    expect(prompted).not.toContain('__files')
   })
 })

@@ -175,6 +175,7 @@ describe('dispose command — correction flywheel hook (step 8b)', () => {
       proposalId: PROPOSAL_ID,
       correlationId: 'request-1',
       agentRunId: RUN_ID,
+      agentId: 'deals.health_check',
     })
   })
 

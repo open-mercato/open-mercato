@@ -58,6 +58,31 @@ describe('RunActionsCard', () => {
     expect(mockedApiCall).toHaveBeenCalledWith(`/api/agent_orchestrator/runs/${RUN_ID}/actions?pageSize=50`)
   })
 
+  it('links each action to its audit entry and its proposal', async () => {
+    respond(200, {
+      items: [{
+        id: '66666666-6666-4666-8666-666666666666',
+        commandId: 'customers.deals.update',
+        actionLabel: 'Update deal',
+        resourceKind: 'customers.deal',
+        resourceId: 'deal-1',
+        actorUserId: null,
+        onBehalfOfUserId: null,
+        sourceKey: 'agent',
+        correlation: { agentRunId: RUN_ID, proposalId: PROPOSAL_ID },
+        createdAt: '2026-10-28T10:00:00.000Z',
+      }],
+      total: 1,
+    })
+
+    renderWithProviders(<RunActionsCard runId={RUN_ID} />, { dict })
+
+    const auditLink = await screen.findByTestId('run-action-audit-link')
+    expect(auditLink.getAttribute('href')).toBe('/backend/audit-logs?logId=66666666-6666-4666-8666-666666666666')
+    expect(auditLink.textContent).toBe(dict['agent_orchestrator.audit.links.openEntry'])
+    expect(screen.getByTestId('run-action-proposal-link').getAttribute('href')).toBe(`/backend/caseload/${PROPOSAL_ID}`)
+  })
+
   it('shows the empty state when the run caused no recorded changes', async () => {
     respond(200, { items: [], total: 0 })
 

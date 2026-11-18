@@ -496,6 +496,9 @@ export class ActionLogService {
     if (parsed.tenantId) query = query.where('action_logs.tenant_id', '=', parsed.tenantId)
     if (parsed.organizationId) query = query.where('action_logs.organization_id', '=', parsed.organizationId)
 
+    const ids = Array.from(new Set(parsed.ids ?? []))
+    if (ids.length > 0) query = query.where('action_logs.id', 'in', ids)
+
     if (parsed.actorSubject) {
       const actor = canonicalizeActorSubject(parsed.actorSubject)
       if (!actor) return query.where(sql<boolean>`false`)

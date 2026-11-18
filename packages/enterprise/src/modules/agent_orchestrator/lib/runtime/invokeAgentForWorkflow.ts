@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
-import type { ZodTypeAny } from 'zod'
+import { z, type ZodTypeAny } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentProposal } from '../../data/entities'
 import { ensureAgentsLoaded, listAgentEntries } from '../sdk/defineAgent'
 import { resolveAgentOutcomeZod } from '../sdk/agentOutcomeContract'
@@ -9,6 +10,10 @@ import type { AgentRuntimeService } from './agentRuntime'
 import type { AgentRunAs } from './persistence'
 import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
 import { withProcessSubject } from '../processes/subjectContext'
+import {
+  aiAgentHttpCallSettingsSchema,
+  type AiAgentHttpCallSettings,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import type {
   AgentDispositionReview,
   DispositionService,
@@ -53,6 +58,13 @@ export type InvokeAgentForWorkflowArgs = {
      * only carries the answer onto the task it creates.
      */
     review?: AgentDispositionReview
+    /**
+     * The INVOKE_AGENT node's per-call model settings, merged over the agent's
+     * `modelSettings` for this run only. Re-validated here because it crosses
+     * the queue boundary; an invalid value fails the step rather than being
+     * dropped.
+     */
+    callSettings?: unknown
   }
 }
 
@@ -108,7 +120,28 @@ export interface AgentWorkflowBridge {
    * INVOKE_AGENT step targets. OPTIONAL for the same reason as above.
    */
   listAgentAccessRequirements?(): Promise<AgentAccessRequirementSnapshot[]>
+  /**
+   * Whether a proposal id read from a (user-writable) workflow context names a
+   * proposal raised by that same workflow instance, in the instance's tenant and
+   * organization. The workflows module stamps the id on an effector's audit
+   * correlation only when this answers true. OPTIONAL for the same reason as above.
+   */
+  verifyProposalForInstance?(args: ProposalInstanceVerificationArgs): Promise<boolean>
 }
+
+export type ProposalInstanceVerificationArgs = {
+  proposalId: string
+  workflowInstanceId: string
+  tenantId: string
+  organizationId: string
+}
+
+const proposalInstanceVerificationSchema = z.object({
+  proposalId: z.string().uuid(),
+  workflowInstanceId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+})
 
 export type AgentWorkflowBridgeDeps = {
   container: AwilixContainer
@@ -143,6 +176,7 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     // reason to refuse the run — the projection then simply lists the process
     // by workflow name with no business facets.
     const subject = this.parseSubject(ctx.subject)
+    const callSettings = this.parseCallSettings(ctx.callSettings)
 
     // The run this call caused, learned from the run itself rather than guessed
     // afterwards. `onRunPersisted` fires again for each nested sub-agent
@@ -163,6 +197,7 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
           if (!topLevelRunId) topLevelRunId = runId
         },
         ...(runAs ? { runAs } : {}),
+        ...(callSettings ? { callSettings } : {}),
       }),
     )
 
@@ -246,10 +281,37 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     }))
   }
 
+  async verifyProposalForInstance(args: ProposalInstanceVerificationArgs): Promise<boolean> {
+    const parsed = proposalInstanceVerificationSchema.safeParse(args)
+    if (!parsed.success) return false
+    const { proposalId, workflowInstanceId, tenantId, organizationId } = parsed.data
+    const em = (this.container.resolve('em') as EntityManager).fork()
+    const proposal = await findOneWithDecryption(
+      em,
+      AgentProposal,
+      { id: proposalId, tenantId, organizationId, workflowInstanceId },
+      { fields: ['id'] },
+      { tenantId, organizationId },
+    )
+    return proposal !== null
+  }
+
   private parseSubject(raw: unknown): ProcessSubject | null {
     if (!raw || typeof raw !== 'object') return null
     const parsed = processSubjectSchema.safeParse(raw)
     return parsed.success ? parsed.data : null
+  }
+
+  private parseCallSettings(raw: unknown): AiAgentHttpCallSettings | null {
+    if (raw === undefined || raw === null) return null
+    const parsed = aiAgentHttpCallSettingsSchema.safeParse(raw)
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((issue) => `${issue.path.join('.') || 'callSettings'}: ${issue.message}`)
+        .join('; ')
+      throw new Error(`[internal] INVOKE_AGENT callSettings are invalid: ${issues}`)
+    }
+    return Object.keys(parsed.data).length > 0 ? parsed.data : null
   }
 
   /**

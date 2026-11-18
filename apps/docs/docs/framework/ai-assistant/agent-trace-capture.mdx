@@ -63,10 +63,11 @@ Each LLM span carries these keys when the level is `metadata` or above.
 | `om.prompt.system.sha256`, `om.tools.sha256`, `om.tools.count`, `om.messages.count` | Hashes and counts for the request, never the text. |
 | `om.content.request.sha256`, `om.content.request.bytes`, and the `response` equivalents | Content hashes and sizes. The hash is computed over the request as sent, before redaction. |
 | `om.content.request.key`, `om.content.response.key` | Storage keys of the content artifacts. Only at `full`, and only when the upload succeeded. |
-| `om.content.status` | `stored`, `over_cap_truncated` (stored, but cut to the byte cap), `storage_unavailable` (the upload failed, metadata only), or `disabled` below `full`. |
+| `om.content.status` | `stored`, `over_cap_truncated` (stored, but cut to the byte cap), `storage_unavailable` (storage unavailable or the upload failed; metadata only), `encryption_unavailable` (nothing was stored because tenant data encryption is on but unavailable; metadata only), or `disabled` below `full`. |
 | `om.content.redactions` | `{ rule, count }` per redaction rule applied to the stored content. |
 | `om.capture.fidelity` | `exact`, `reconstructed` or `reported`. |
 | `om.params.defaults` | `true` when no request parameters were sent at all, so every parameter was left to the provider default. Not written when any parameter was sent. |
+| `om.params.ignored` | Requested settings the provider reported as unsupported and dropped (`unsupported` warnings of the AI SDK), for example `temperature` and `topP` on OpenAI reasoning models or `seed` on the OpenAI Responses API. A dropped setting is not written as `gen_ai.request.*`; the trace page shows it as "Ignored by the model". Exported over OTLP as the same key. |
 
 The legacy keys `inputTokens`, `outputTokens` and `finishReason` are still written, so existing consumers keep working.
 
@@ -92,6 +93,15 @@ At the `full` level each LLM step uploads two artifacts and the context assemble
 
 A failed upload never fails the run: the step records `om.content.status = storage_unavailable` and keeps its metadata.
 
+With tenant data encryption on, content is never written to storage unencrypted. If the encryption service is missing, the KMS is unhealthy, or no data key can be resolved for the tenant, the upload is skipped and the step records `encryption_unavailable`. The same rule applies to the other offloaded payloads (full run output, tool request/response, integrity evidence) and to agent-produced file artifacts, which are marked as failed captures. When an operator turns encryption off (`TENANT_DATA_ENCRYPTION=false`), artifacts are stored unencrypted, like every other encrypted column in that mode. Blobs of either form stay readable.
+
+Where the failure shows up on the trace page:
+
+- **LLM steps** show the step's `om.content.status`.
+- **Files card**: how many agent-produced files were not stored and why (`encryption_unavailable` or `storage_unavailable`). The count and reason are kept on an `artifact.capture` system span of the run and returned as `captureFailure` by `GET /api/agent_orchestrator/runs/:id/artifacts`. File names are never recorded or logged.
+- **Run output and tool request/response** that were too large to keep inline show the reason under the preview. The truncated summary carries `offloadStatus`.
+- **Run compare** labels such a step `encryption_unavailable`.
+
 ### Redaction
 
 Content is redacted before it is stored. Secret-looking object keys and secret strings (session tokens, authorization headers, bearer and basic credentials) are always removed. With `redactPii` on, emails, phone numbers, IBANs and card numbers are replaced as well. File and image parts are replaced by `{ type: 'file', mediaType, bytes, sha256 }`, so binary data is never stored. Every rule that fired is counted in `om.content.redactions`.
@@ -113,9 +123,9 @@ The other artifact kinds (`output`, `tool_request`, `tool_response`, `raw_output
 
 ### Retention
 
-The `agent_orchestrator:trace-content-retention` worker runs once a day per organization (a schedule registered by the module's tenant setup). It reads content keys from the database, from `llm` spans and context bundles created between seven days before the retention cutoff and the cutoff, and deletes those objects. An object that is already gone counts as deleted, and when storage is unavailable the organization is skipped until the next run. Span and bundle rows are append-only and are not changed: the route answers 410 from the key's age.
+The `agent_orchestrator:trace-content-retention` worker runs once a day per organization (a schedule registered by the module's tenant setup; for organizations that existed before the worker shipped, register it with `yarn mercato agent_orchestrator trace-retention:schedule [--tenant <id>] [--org <id>]`). It reads content keys from the database, from `llm` spans and context bundles created before the retention cutoff, and deletes those objects. It walks the rows in creation order from a per-organization cursor (kept in tenant-scoped module config as `trace_content_retention_cursor:<organizationId>:<llm_span|context_bundle>`), so a run that was missed, a lowered `retentionDays` or a backlog larger than one run (10,000 rows per row family) is caught up by the next runs. A key that has not expired yet holds the cursor so the next run retries it. A key whose delete fails is reported (`reportError` code `agent_orchestrator.trace_content_retention_delete_failed`, plus a scoped warning log), and the cursor moves past it, so that key is not retried and has to be removed by hand. An object that is already gone counts as deleted, and when storage is unavailable the organization is skipped until the next run. Span and bundle rows are append-only and are not changed: the route answers 410 from the key's age.
 
-Because the worker only looks back seven days past the cutoff, content from periods when it did not run is not swept later. Add a bucket lifecycle rule that expires objects under the `agent-trace-content` prefix after your longest `retentionDays` as a backstop.
+A bucket lifecycle rule that expires objects under the `agent-trace-content` prefix after your longest `retentionDays` remains a useful backstop for objects no span or bundle references.
 
 Captured content counts against the tenant's attachment storage quota.
 

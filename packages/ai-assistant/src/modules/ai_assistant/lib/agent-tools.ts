@@ -1,3 +1,4 @@
+import { shouldIsolateModelFactoryTools, withModelFactoryToolScope } from './model-factory-context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { dynamicTool, type Tool } from 'ai'
 import type { AwilixContainer } from 'awilix'
@@ -28,6 +29,7 @@ import {
   buildRecordedToolFixture,
   emitRecordedToolFixture,
   resolveToolReplayDecision,
+  withToolReplayContext,
 } from './llm-adapters/tool-replay-context'
 import { resolveStagedToolInput } from './tool-input'
 
@@ -375,7 +377,10 @@ function adaptToolToAiSdk(
         uiParts: { enqueue: uiPartBuffer.enqueue },
       }
       const { executeTool } = await import('./tool-executor')
-      const execResult = await executeTool(tool.name, args, freshContext)
+      const execute = () => executeTool(tool.name, args, freshContext)
+      const execResult = replayDecision.kind === 'record' && shouldIsolateModelFactoryTools()
+        ? await withToolReplayContext({ mode: 'record', sink: () => undefined }, () => withModelFactoryToolScope(execute))
+        : await execute()
       if (!execResult.success) {
         throw new Error(execResult.error || 'Tool execution failed')
       }

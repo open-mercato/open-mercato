@@ -19,10 +19,12 @@ import {
   agentRunSuccessResponse,
   agentRunSuccessResponseSchema,
   createRunIdObserver,
+  callSettingsUnsupportedErrorSchema,
   guardrailBlockedErrorSchema,
   modelUnavailableErrorSchema,
   parseAgentRunRequest,
   unclassifiedErrorSchema,
+  outcomeSchemaRejectedErrorSchema,
 } from '../../../../../lib/runtime/agentRunHttp'
 
 /**
@@ -126,6 +128,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     entryPoint: 'agent_api',
     correlationId: resolveCorrelationId(req.headers.get(CORRELATION_ID_HEADER)),
     onRunPersisted: runIdObserver.onRunPersisted,
+    ...(parsed.callSettings ? { callSettings: parsed.callSettings } : {}),
   }
 
   let result: unknown
@@ -164,7 +167,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: {
         contentType: 'application/json',
         schema: agentRunRequestSchema,
-        description: 'Agent input payload (shape is agent-specific).',
+        description: 'Agent input payload (shape is agent-specific) plus optional `callSettings`, with the same limits as POST /agents/{id}/run.',
       },
       responses: [
         {
@@ -189,8 +192,8 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid input, invalid model output, run wall-clock timeout, or a runtime guardrail block (`code: "guardrail_blocked"`, with `kind`/`phase`/`guardrailSetVersion` and the blocking integrity `ruleId` or null)',
-          schema: z.union([agentRunErrorSchema, guardrailBlockedErrorSchema]),
+            'Invalid input or `callSettings`, invalid model output, run wall-clock timeout, `callSettings` the agent\'s runtime cannot apply (`code: "agent_call_settings_unsupported"`), or a runtime guardrail block (`code: "guardrail_blocked"`, with `kind`/`phase`/`guardrailSetVersion` and the blocking integrity `ruleId` or null)',
+          schema: z.union([agentRunErrorSchema, guardrailBlockedErrorSchema, callSettingsUnsupportedErrorSchema]),
         },
         {
           status: 429,
@@ -199,8 +202,9 @@ export const openApi: OpenApiRouteDoc = {
         },
         {
           status: 500,
-          description: 'The run failed for a reason this route does not classify (`code: "agent_run_failed"`)',
-          schema: unclassifiedErrorSchema,
+          description:
+            'The run failed for a reason this route does not classify (`code: "agent_run_failed"`), or the LLM provider rejected the agent output schema (`code: "outcome_schema_rejected"`)',
+          schema: z.union([unclassifiedErrorSchema, outcomeSchemaRejectedErrorSchema]),
         },
         {
           status: 503,

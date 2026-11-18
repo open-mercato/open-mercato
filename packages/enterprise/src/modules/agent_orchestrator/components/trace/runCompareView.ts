@@ -8,7 +8,7 @@ export const RUN_COPY_SCHEMA = 'om.agent_run_trace.v1'
 export const COMPARE_CANDIDATE_PAGE_SIZE = 25
 export const CONTENT_FETCH_CONCURRENCY = 4
 
-const contentSideStatusSchema = z.enum(['ok', 'expired', 'unavailable', 'not_captured', 'forbidden'])
+const contentSideStatusSchema = z.enum(['ok', 'expired', 'unavailable', 'encryption_unavailable', 'not_captured', 'forbidden'])
 export type CompareContentStatus = z.infer<typeof contentSideStatusSchema>
 
 const fieldDiffSchema = z.object({ key: z.string(), left: z.unknown(), right: z.unknown() })

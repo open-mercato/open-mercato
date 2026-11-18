@@ -133,6 +133,25 @@ describe('file agent definition hash', () => {
     expect(withChangedSample).toBe(reference)
   })
 
+  it('changes when a GOVERNANCE.json is added or edited, at the root or in a sub-agent', () => {
+    const reference = computeFileAgentDefinitionHash(sourceFiles)
+    const governed = computeFileAgentDefinitionHash([
+      ...sourceFiles,
+      { path: 'GOVERNANCE.json', content: '{"modelSettings":{"temperature":0}}', inContext: false },
+    ])
+    const edited = computeFileAgentDefinitionHash([
+      ...sourceFiles,
+      { path: 'GOVERNANCE.json', content: '{"modelSettings":{"temperature":1}}', inContext: false },
+    ])
+    const subAgentGoverned = computeFileAgentDefinitionHash([
+      ...sourceFiles,
+      { path: 'sub-agents/scan/GOVERNANCE.json', content: '{"modelSettings":{"temperature":0}}', inContext: false },
+    ])
+    expect(governed).not.toBe(reference)
+    expect(edited).not.toBe(governed)
+    expect(subAgentGoverned).not.toBe(reference)
+  })
+
   it('is independent of file order and changes with in-context content', () => {
     const reference = computeFileAgentDefinitionHash(sourceFiles)
     expect(computeFileAgentDefinitionHash([...sourceFiles].reverse())).toBe(reference)

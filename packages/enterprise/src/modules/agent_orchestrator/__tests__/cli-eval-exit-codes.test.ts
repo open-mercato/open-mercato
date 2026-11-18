@@ -112,6 +112,49 @@ describe('agent_orchestrator eval CLI exit codes and reports', () => {
     process.env = { ...originalEnv }
   })
 
+  it('A-3 forwards explicit offline model replay and rejects live fallback', async () => {
+    mockRunEvalGate.mockResolvedValue(gateResult())
+    mockFork.mockReturnValueOnce({ forked: true, findOne: async () => null } as ReturnType<typeof mockFork>)
+    await runEval([...scopeArgs, '--replay', reportDir, '--offline', 'true'])
+    expect(mockRunEvalGate.mock.calls[0][1]).toMatchObject({ modelFixtures: { mode: 'replay', directory: reportDir }, toolFixtures: { mode: 'replay', onMiss: 'error' } })
+    mockRunEvalGate.mockClear()
+    expect(await runEval([...scopeArgs, '--replay', reportDir, '--offline', 'true', '--on-fixture-miss', 'live'])).toBe(2)
+    expect(mockRunEvalGate).not.toHaveBeenCalled()
+  })
+
+  function writeCasesFile(withModelFixture: boolean): string {
+    const filePath = path.join(reportDir, 'cases.json')
+    fs.writeFileSync(filePath, JSON.stringify({
+      format: EVAL_SET_FORMAT,
+      formatVersion: EVAL_SET_FORMAT_VERSION,
+      agentId: 'invoice_triage',
+      assertions: [],
+      cases: [
+        { key: 'recorded', input: { q: 'a' }, ...(withModelFixture ? { fixtures: { model: 'fixtures/recorded.model.json' } } : {}) },
+        { key: 'live', input: { q: 'b' } },
+      ],
+    }))
+    return filePath
+  }
+
+  it('exits 2 when --repeat above 1 meets a case that declares fixtures.model', async () => {
+    const casesPath = writeCasesFile(true)
+    expect(await runEval([...scopeArgs, '--cases', casesPath, '--repeat', '3'])).toBe(2)
+    expect(await runEval([...scopeArgs, '--cases', casesPath, '--repeat', '2', '--offline', 'true'])).toBe(2)
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('fixtures.model'))
+    expect(mockRunEvalGate).not.toHaveBeenCalled()
+  })
+
+  it('keeps --repeat allowed without fixtures.model and replays declared cases only in a mixed file', async () => {
+    mockRunEvalGate.mockResolvedValue(gateResult())
+    expect(await runEval([...scopeArgs, '--cases', writeCasesFile(false), '--repeat', '3'])).toBeUndefined()
+    expect(mockRunEvalGate.mock.calls[0][1]).toMatchObject({ repeatCount: 3 })
+    expect(mockRunEvalGate.mock.calls[0][1]).not.toHaveProperty('modelFixtures')
+    mockRunEvalGate.mockClear()
+    expect(await runEval([...scopeArgs, '--cases', writeCasesFile(true)])).toBeUndefined()
+    expect(mockRunEvalGate.mock.calls[0][1].modelFixtures).toEqual({ mode: 'replay', directory: undefined, evalSetDir: reportDir, declaredOnly: true })
+  })
+
   it('exits 0 on a passing gate and writes json + md by default', async () => {
     mockRunEvalGate.mockResolvedValue(gateResult())
     mockBuildEvalReport.mockResolvedValue(completedReport())
@@ -158,6 +201,59 @@ describe('agent_orchestrator eval CLI exit codes and reports', () => {
     expect(await runEval([...scopeArgs, '--eval-set-version', 'v1', '--gate', 'true', '--min-pass-score', '0.7'])).toBeUndefined()
     mockRunEvalGate.mockResolvedValue(gateResult({ passScore: null }))
     expect(await runEval([...scopeArgs, '--eval-set-version', 'v1', '--gate', 'true', '--min-pass-score', '0'])).toBe(1)
+  })
+
+  describe('errored case runs under fixture replay', () => {
+    const pinnedGate = [...scopeArgs, '--eval-set-version', 'v1', '--gate', 'true']
+
+    async function runReplayEval(argv: string[]): Promise<number | undefined> {
+      mockFork.mockReturnValueOnce({ forked: true, findOne: async () => null } as ReturnType<typeof mockFork>)
+      return runEval(argv)
+    }
+
+    it('exits 1 when offline replay leaves a case unmeasured, even though the stored outcome passed', async () => {
+      mockRunEvalGate.mockResolvedValue(gateResult({ passScore: 1, errorCount: 2 }))
+      expect(await runReplayEval([...pinnedGate, '--replay', reportDir, '--offline', 'true'])).toBe(1)
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining('2 case run(s) errored under fixture replay'))
+    })
+
+    it('exits 1 on an errored case under tool-only replay that errors on a miss', async () => {
+      mockRunEvalGate.mockResolvedValue(gateResult({ passScore: 1, errorCount: 1 }))
+      expect(await runReplayEval([...pinnedGate, '--replay', reportDir])).toBe(1)
+    })
+
+    it('exits 1 on an errored case when a --cases file declares fixtures.model', async () => {
+      mockRunEvalGate.mockResolvedValue(gateResult({ passScore: 1, errorCount: 1 }))
+      const casesPath = path.join(reportDir, 'model-cases.json')
+      fs.writeFileSync(casesPath, JSON.stringify({
+        format: EVAL_SET_FORMAT,
+        formatVersion: EVAL_SET_FORMAT_VERSION,
+        agentId: 'invoice_triage',
+        assertions: [],
+        cases: [{ key: 'recorded', input: { q: 'a' }, fixtures: { model: 'fixtures/recorded.model.json' } }],
+      }))
+      expect(await runEval([...scopeArgs, '--cases', casesPath, '--gate', 'true'])).toBe(1)
+    })
+
+    it('passes a clean replay', async () => {
+      mockRunEvalGate.mockResolvedValue(gateResult({ errorCount: 0 }))
+      expect(await runReplayEval([...pinnedGate, '--replay', reportDir, '--offline', 'true'])).toBeUndefined()
+    })
+
+    it('keeps errored cases advisory when tool misses fall back to live tools', async () => {
+      mockRunEvalGate.mockResolvedValue(gateResult({ errorCount: 1 }))
+      expect(await runReplayEval([...pinnedGate, '--replay', reportDir, '--on-fixture-miss', 'live'])).toBeUndefined()
+    })
+
+    it('keeps errored cases advisory on a live run without fixtures', async () => {
+      mockRunEvalGate.mockResolvedValue(gateResult({ errorCount: 1 }))
+      expect(await runEval(pinnedGate)).toBeUndefined()
+    })
+
+    it('keeps a report-only replay at exit 0', async () => {
+      mockRunEvalGate.mockResolvedValue(gateResult({ errorCount: 3 }))
+      expect(await runReplayEval([...scopeArgs, '--replay', reportDir, '--offline', 'true'])).toBeUndefined()
+    })
   })
 
   it('narrows a pass to exit 1 on flaky cases only with --fail-on-flaky true', async () => {

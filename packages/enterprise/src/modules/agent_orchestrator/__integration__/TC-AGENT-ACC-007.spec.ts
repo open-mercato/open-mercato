@@ -6,7 +6,6 @@ import {
   GATED_AGENT_FEATURE,
   GATED_AGENT_ID,
   GATED_AGENT_INPUT,
-  INVOKE_DENIED_CODE,
   TOOLS_EXECUTE_PATH,
   createScopedAgentUser,
   deleteScopedAgentUser,
@@ -21,13 +20,18 @@ import {
  *
  * The delegate tool (`agent_orchestrator.delegate_agent`) is a registered
  * ai-assistant tool, so `/api/ai_assistant/tools/execute` reaches its handler
- * without a model. Outside a parent run the invoker is the tool caller (the same
- * identity a parent run started by that caller passes on), so the check under
- * test is identical: the child `support.ticket_triage` requires
- * `agent_orchestrator.agents.view`, which the caller lacks. The handler returns
- * `{ ok: false, error: 'agent_invoke_denied' }` as data (the tool call itself
- * succeeds — a parent loop is never crashed by one denied child), before the
- * child run is admitted.
+ * without a model. Delegation is scoped to the `subAgents` the CALLING agent
+ * declares (B-13), and the calling agent is resolved server-side from the run
+ * context or run session. A direct call through `tools/execute` belongs to no
+ * agent run, so it is refused with `{ ok: false, error: 'no_active_run' }` as
+ * data — even for a caller who could invoke the target — before any child run
+ * is admitted. The tool ACL still applies first (403 without
+ * `agent_orchestrator.agents.run`).
+ *
+ * The invoke-permission denial for a child delegated from a real parent run
+ * (`agent_invoke_denied` as data) is covered by the unit suites
+ * `agent-invoke-entry-points.test.ts` and `agent-invoke-access.test.ts`, which
+ * bind a parent agent the way the runners do.
  *
  * Model-dependent (skipped): "the parent run still completes" needs the parent
  * agent's model loop to call the tool.
@@ -36,18 +40,19 @@ import {
  */
 
 const DELEGATE_TOOL = 'agent_orchestrator.delegate_agent'
+const NO_ACTIVE_RUN_CODE = 'no_active_run'
 
 type DelegateResult = { ok?: boolean; agentId?: string; error?: string; data?: unknown }
 type ExecuteBody = { success?: boolean; result?: DelegateResult; error?: string }
 
-test.describe('TC-AGENT-ACC-007: delegate_agent honours the agent invoke permission', () => {
-  test('a caller without the child agent feature gets agent_invoke_denied as data', async ({ request }) => {
+test.describe('TC-AGENT-ACC-007: delegate_agent honours the agent invoke permission and the parent scope', () => {
+  test('a call outside any agent run is refused with no_active_run as data', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     let caller: ScopedAgentUser | null = null
     try {
       caller = await createScopedAgentUser(request, adminToken, {
-        label: 'delegate-no-view',
-        features: ['ai_assistant.view', AGENT_RUN_FEATURE],
+        label: 'delegate-no-parent',
+        features: ['ai_assistant.view', AGENT_RUN_FEATURE, GATED_AGENT_FEATURE],
       })
 
       const response = await apiRequest(request, 'POST', TOOLS_EXECUTE_PATH, {
@@ -58,7 +63,7 @@ test.describe('TC-AGENT-ACC-007: delegate_agent honours the agent invoke permiss
       expect(response.status(), raw).toBe(200)
       const body = JSON.parse(raw) as ExecuteBody
       expect(body.success).toBe(true)
-      expect(body.result).toEqual({ ok: false, agentId: GATED_AGENT_ID, error: INVOKE_DENIED_CODE })
+      expect(body.result).toEqual({ ok: false, agentId: GATED_AGENT_ID, error: NO_ACTIVE_RUN_CODE })
       expect(raw, 'the agent required features are never echoed').not.toContain(GATED_AGENT_FEATURE)
     } finally {
       await deleteScopedAgentUser(request, adminToken, caller)

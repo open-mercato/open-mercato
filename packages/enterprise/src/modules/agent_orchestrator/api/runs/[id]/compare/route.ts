@@ -47,7 +47,7 @@ export const querySchema = z.object({
 
 const errorSchema = z.object({ error: z.string() })
 
-const contentSideStatusSchema = z.enum(['ok', 'expired', 'unavailable', 'not_captured', 'forbidden'])
+const contentSideStatusSchema = z.enum(['ok', 'expired', 'unavailable', 'encryption_unavailable', 'not_captured', 'forbidden'])
 type ContentSideStatus = z.infer<typeof contentSideStatusSchema>
 
 const fieldDiffSchema = z.object({ key: z.string(), left: z.unknown(), right: z.unknown() })
@@ -150,7 +150,10 @@ async function readSideContent(
   retentionDays: number,
 ): Promise<ContentSide> {
   const key = side.stepMetadata?.contentRequestKey
-  if (!key) return { status: 'not_captured', payload: null }
+  if (!key) {
+    const encryptionUnavailable = side.stepMetadata?.contentStatus === 'encryption_unavailable'
+    return { status: encryptionUnavailable ? 'encryption_unavailable' : 'not_captured', payload: null }
+  }
   const result = await readTraceContentArtifact(container, {
     scope: { tenantId: side.run.tenantId, organizationId: side.run.organizationId },
     runId: side.run.id,
@@ -253,7 +256,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Diff the run manifest, request parameters and captured request content of two runs at one step',
       description:
-        '`step` selects the n-th `llm` span (0-based, by sequence) of each run. `diff.manifest` and `diff.params` (`gen_ai.request.*`) list only changed fields and need agent_orchestrator.trace.view. With agent_orchestrator.trace.view_content the captured request content of each side is read (and access-logged) and, when both sides are available, `diff.systemPrompt` (line diff), `diff.messages` and `diff.tools` (JSON-path diffs) are added; diffs are bounded and flag `truncated`. Without it `content` is `forbidden` and only metadata is diffed. Per-side `contentStatus` is `ok`, `expired`, `unavailable`, `not_captured` or `forbidden`. Both runs must belong to the caller organization (404 otherwise).',
+        '`step` selects the n-th `llm` span (0-based, by sequence) of each run. `diff.manifest` and `diff.params` (`gen_ai.request.*`) list only changed fields and need agent_orchestrator.trace.view. With agent_orchestrator.trace.view_content the captured request content of each side is read (and access-logged) and, when both sides are available, `diff.systemPrompt` (line diff), `diff.messages` and `diff.tools` (JSON-path diffs) are added; diffs are bounded and flag `truncated`. Without it `content` is `forbidden` and only metadata is diffed. Per-side `contentStatus` is `ok`, `expired`, `unavailable`, `encryption_unavailable` (content was not stored because tenant data encryption was unavailable), `not_captured` or `forbidden`. Both runs must belong to the caller organization (404 otherwise).',
       query: querySchema,
       responses: [{ status: 200, description: 'Run comparison', schema: responseSchema }],
       errors: [

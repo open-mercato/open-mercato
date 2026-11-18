@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { z } from 'zod'
 import { createMcpHttpRequestHandler } from '../http-server'
-import { DEFAULT_MCP_EXPOSURE_CONFIG } from '../mcp-exposure'
+import { DEFAULT_MCP_EXPOSURE_CONFIG, type McpExposureConfig } from '../mcp-exposure'
 import { MCP_AUDIT_RESOURCE_KIND, type McpAuditAccessLogInput } from '../mcp-audit'
 import { buildAgentToolOutputSchema } from '../agent-tool'
 import type { McpToolExecutionObserver, McpToolExecutionObserverContext } from '../mcp-tool-execution-observer'
@@ -80,11 +80,11 @@ const serverConfig: McpServerConfig = { name: 'test-mcp', version: '0.0.0' }
 
 let activeServer: Server | null = null
 
-async function startHandler(): Promise<string> {
+async function startHandler(exposureOverrides: Partial<McpExposureConfig> = {}): Promise<string> {
   const handler = createMcpHttpRequestHandler({
     config: serverConfig,
     container: makeContainer() as unknown as Parameters<typeof createMcpHttpRequestHandler>[0]['container'],
-    exposureConfig: { ...DEFAULT_MCP_EXPOSURE_CONFIG },
+    exposureConfig: { ...DEFAULT_MCP_EXPOSURE_CONFIG, ...exposureOverrides },
   })
   activeServer = createServer(handler)
   await new Promise<void>((resolve) => activeServer?.listen(0, '127.0.0.1', resolve))
@@ -451,5 +451,146 @@ describe('MCP HTTP server — tools/call audit', () => {
     expect(correlationId).toMatch(/^[0-9a-f-]{36}$/)
     expect(accessLogEntries).toHaveLength(1)
     expect(accessLogEntries[0].context).toMatchObject({ outcome: 'error', errorCode: 'EXCEPTION', correlationId })
+  })
+
+  describe('calls the SDK refuses before the tool handler runs', () => {
+    it('records denied NOT_FOUND for an unknown tool with the request correlation id', async () => {
+      const baseUrl = await startHandler()
+
+      const body = await callTool(baseUrl, 'does.not_exist', { id: SECRET_ARG_VALUE }, { 'x-correlation-id': 'corr-unknown' })
+
+      expect(body.result?.isError).toBe(true)
+      expect(body.result?.content?.[0]?.text).toContain('Tool does.not_exist not found')
+      expect(body.result?._meta).toEqual({ correlationId: 'corr-unknown' })
+      expect(mockExecuteTool).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0]).toMatchObject({
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        actorUserId: 'user-1',
+        resourceKind: MCP_AUDIT_RESOURCE_KIND,
+        resourceId: 'does.not_exist',
+        context: {
+          channel: 'mcp',
+          mcpServer: 'http',
+          apiKeyId: SERVER_KEY_ID,
+          sessionKeyId: null,
+          principal: 'api_key',
+          outcome: 'denied',
+          errorCode: 'NOT_FOUND',
+          isMutation: false,
+          correlationId: 'corr-unknown',
+          argKeys: ['id'],
+        },
+      })
+      expect(JSON.stringify(accessLogEntries[0])).not.toContain(SECRET_ARG_VALUE)
+    })
+
+    it('records denied NOT_FOUND for a tool hidden by the caller ACL, with the same response as an unknown tool', async () => {
+      registerTool({ name: 'catalog.update_product', requiredFeatures: ['catalog.products.manage'], isMutation: true })
+      const baseUrl = await startHandler()
+
+      const hidden = await callTool(baseUrl, 'catalog.update_product', { id: 'p-1' })
+      const unknown = await callTool(baseUrl, 'catalog.no_such_tool', { id: 'p-1' })
+
+      expect(hidden.result?.content?.[0]?.text).toBe(
+        unknown.result?.content?.[0]?.text?.replace('catalog.no_such_tool', 'catalog.update_product'),
+      )
+      expect(mockExecuteTool).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(2)
+      expect(accessLogEntries[0]).toMatchObject({
+        resourceId: 'catalog.update_product',
+        context: { outcome: 'denied', errorCode: 'NOT_FOUND', isMutation: true, principal: 'api_key' },
+      })
+    })
+
+    it('records denied NOT_FOUND for a mutation tool hidden by the deny mutation mode', async () => {
+      const baseUrl = await startHandler({ mutationMode: 'deny' })
+
+      const body = await callTool(baseUrl, 'customers.update_person', { id: 'p-1' })
+
+      expect(body.result?.isError).toBe(true)
+      expect(mockExecuteTool).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0].context).toMatchObject({ outcome: 'denied', errorCode: 'NOT_FOUND', isMutation: true })
+    })
+
+    it('records invalid_input for arguments rejected by the input schema', async () => {
+      registerTool({
+        name: 'customers.get_person',
+        requiredFeatures: ['customers.people.view'],
+        inputSchema: z.object({ id: z.string() }),
+      })
+      const baseUrl = await startHandler()
+
+      const body = await callTool(baseUrl, 'customers.get_person', { id: 42 }, { 'x-correlation-id': 'corr-invalid' })
+
+      expect(body.result?.isError).toBe(true)
+      expect(body.result?.content?.[0]?.text).toContain('Input validation error')
+      expect(body.result?._meta).toEqual({ correlationId: 'corr-invalid' })
+      expect(mockExecuteTool).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0]).toMatchObject({
+        resourceId: 'customers.get_person',
+        context: { outcome: 'invalid_input', errorCode: 'VALIDATION_ERROR', principal: 'api_key', argKeys: ['id'] },
+      })
+    })
+
+    it('never resolves or records an unverified _sessionToken argument on a refused call', async () => {
+      const baseUrl = await startHandler()
+
+      await callTool(baseUrl, 'does.not_exist', { _sessionToken: SESSION_TOKEN })
+
+      expect(mockFindSessionApiKeyWithSecret).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0]).toMatchObject({
+        actorUserId: 'user-1',
+        context: { principal: 'api_key', sessionKeyId: null, argKeys: [] },
+      })
+      expect(JSON.stringify(accessLogEntries[0])).not.toContain(SESSION_TOKEN)
+    })
+
+    it('attributes a refused call to the verified session header principal and its scope', async () => {
+      mockFindSessionApiKeyWithSecret.mockImplementation(async (_em: unknown, token: string) =>
+        token === SESSION_TOKEN
+          ? {
+              key: { id: SESSION_KEY_ID, tenantId: 'tenant-1', organizationId: 'org-2', sessionUserId: 'user-2' },
+              secret: 'omk_session_secret',
+            }
+          : null,
+      )
+      const baseUrl = await startHandler()
+
+      await callTool(baseUrl, 'customers.list_people', {}, { 'x-om-session-token': SESSION_TOKEN })
+
+      expect(mockExecuteTool).not.toHaveBeenCalled()
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0]).toMatchObject({
+        tenantId: 'tenant-1',
+        organizationId: 'org-2',
+        actorUserId: 'user-2',
+        resourceId: 'customers.list_people',
+        context: { principal: 'session', sessionKeyId: SESSION_KEY_ID, apiKeyId: SERVER_KEY_ID, outcome: 'denied', errorCode: 'NOT_FOUND' },
+      })
+    })
+
+    it('bounds a caller-supplied tool name in the audit row', async () => {
+      const baseUrl = await startHandler()
+
+      await callTool(baseUrl, `x${'a'.repeat(5000)}`, {})
+
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0].resourceId).toHaveLength(128)
+    })
+
+    it('writes exactly one row for a call the tool handler handled', async () => {
+      mockExecuteTool.mockResolvedValue({ success: false, error: 'bad input', errorCode: 'VALIDATION_ERROR' })
+      const baseUrl = await startHandler()
+
+      await callTool(baseUrl, 'customers.list_people', { id: 'p-1' })
+
+      expect(accessLogEntries).toHaveLength(1)
+      expect(accessLogEntries[0].context).toMatchObject({ outcome: 'invalid_input', errorCode: 'VALIDATION_ERROR' })
+    })
   })
 })

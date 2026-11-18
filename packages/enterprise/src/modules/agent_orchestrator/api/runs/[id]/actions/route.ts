@@ -6,15 +6,19 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentProposal, AgentRun } from '../../../../data/entities'
+import { resolveActionAgentAttribution } from '../../../../lib/identity/actionAgentAttribution'
 import {
   buildRunActionCorrelationKeys,
   parseCorrelationKeys,
   RUN_ACTIONS_MAX_PAGE_SIZE,
+  RUN_CORRELATION_KEY,
 } from '../../../../lib/identity/runActionCorrelation'
 
 /**
  * The domain writes a run caused: action-log entries whose correlation keys carry
  * this run id, or the id of one of its proposals (effector writes after approval).
+ * A proposal-matched entry is listed only when its proposal id is verified (same
+ * run, or same workflow instance); the rest are dropped from the page.
  * Read through the audit_logs action-log service, which decrypts the entries.
  * Org-scoped — a run outside the caller's organization returns 404.
  */
@@ -66,6 +70,9 @@ const actionItemSchema = z.object({
   onBehalfOfUserId: z.string().nullable(),
   sourceKey: z.string().nullable(),
   correlation: z.record(z.string(), z.string()),
+  /** The agent behind the entry: stamped on it, else its run, else a proposal of the same workflow instance; null when unverifiable. */
+  agentId: z.string().nullable(),
+  agentVersion: z.string().nullable(),
   createdAt: z.string(),
 })
 
@@ -123,7 +130,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   const proposals = await em.find(
     AgentProposal,
     { runId: run.id, tenantId: run.tenantId, organizationId: run.organizationId },
-    { fields: ['id'] },
+    { fields: ['id', 'runId', 'agentId', 'workflowInstanceId'] },
   )
   const keys = buildRunActionCorrelationKeys(run.id, proposals.map((proposal) => proposal.id))
   const result = await service.listByCorrelationKeys({
@@ -134,20 +141,51 @@ export async function GET(req: Request, ctx: RouteContext) {
     pageSize,
   })
 
+  const correlations = result.items.map((entry) => parseCorrelationKeys(entry.correlationKeys))
+  const attributions = await resolveActionAgentAttribution(
+    em,
+    { tenantId: run.tenantId, organizationId: run.organizationId },
+    correlations,
+    {
+      runs: [{ id: run.id, agentId: run.agentId, agentVersion: run.agentVersion ?? null }],
+      proposals: proposals.map((proposal) => ({
+        id: proposal.id,
+        runId: proposal.runId,
+        agentId: proposal.agentId,
+        workflowInstanceId: proposal.workflowInstanceId ?? null,
+      })),
+    },
+  )
+
+  const runProposalIds = new Set(proposals.map((proposal) => proposal.id))
+  const belongsToRun = (index: number): boolean => {
+    if (correlations[index]?.[RUN_CORRELATION_KEY] === run.id) return true
+    const verifiedProposalId = attributions[index]?.verifiedProposalId
+    return verifiedProposalId !== null && verifiedProposalId !== undefined && runProposalIds.has(verifiedProposalId)
+  }
+  const keptIndexes = result.items.map((_entry, index) => index).filter(belongsToRun)
+  const excludedOnPage = result.items.length - keptIndexes.length
+
   return NextResponse.json({
-    items: result.items.map((entry) => ({
-      id: entry.id,
-      commandId: entry.commandId,
-      actionLabel: entry.actionLabel ?? null,
-      resourceKind: entry.resourceKind ?? null,
-      resourceId: entry.resourceId ?? null,
-      actorUserId: entry.actorUserId ?? null,
-      onBehalfOfUserId: entry.onBehalfOfUserId ?? null,
-      sourceKey: entry.sourceKey ?? null,
-      correlation: parseCorrelationKeys(entry.correlationKeys),
-      createdAt: toIsoString(entry.createdAt),
-    })),
-    total: result.total,
+    items: keptIndexes.map((index) => {
+      const entry = result.items[index]
+      const correlation = correlations[index] ?? {}
+      return {
+        id: entry.id,
+        commandId: entry.commandId,
+        actionLabel: entry.actionLabel ?? null,
+        resourceKind: entry.resourceKind ?? null,
+        resourceId: entry.resourceId ?? null,
+        actorUserId: entry.actorUserId ?? null,
+        onBehalfOfUserId: entry.onBehalfOfUserId ?? null,
+        sourceKey: entry.sourceKey ?? null,
+        correlation,
+        agentId: attributions[index]?.agentId ?? null,
+        agentVersion: attributions[index]?.agentVersion ?? null,
+        createdAt: toIsoString(entry.createdAt),
+      }
+    }),
+    total: Math.max(0, result.total - excludedOnPage),
     page,
     pageSize,
   })
@@ -160,7 +198,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List action-log entries correlated with an agent run',
       description:
-        'Returns the decrypted action-log entries whose correlation carries this run id (`agentRunId`) or the id of one of its proposals (`proposalId`, effector writes after approval), newest first. `correlation` is the id-shaped correlation subset recorded on the entry. Org-scoped (404 for a run outside the caller organization); requires agent_orchestrator.trace.view and audit_logs.view_tenant; pageSize is capped at 100.',
+        'Returns the decrypted action-log entries whose correlation carries this run id (`agentRunId`) or the id of one of its proposals (`proposalId`, effector writes after approval), newest first. `correlation` is the id-shaped correlation subset recorded on the entry; `agentId` / `agentVersion` name the agent and version behind it: stamped on the entry, else its run, else a proposal of this run that belongs to the same workflow instance as the entry; null when none can be verified. An entry matched only through a `proposalId` is listed only when that id is verified — the entry also names this run, or its `workflowInstanceId` matches the workflow instance of that proposal — so a proposal id forged into a workflow context never lists a write under this run. Unverified entries are dropped from the page, so a page may hold fewer than `pageSize` items and `total` (the stored match count minus the entries dropped from this page) is an upper bound. Org-scoped (404 for a run outside the caller organization); requires agent_orchestrator.trace.view and audit_logs.view_tenant; pageSize is capped at 100.',
       query: querySchema,
       responses: [{ status: 200, description: 'Run actions', schema: responseSchema }],
       errors: [

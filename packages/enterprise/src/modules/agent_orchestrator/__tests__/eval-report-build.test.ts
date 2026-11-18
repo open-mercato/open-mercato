@@ -184,6 +184,44 @@ describe('buildEvalReport', () => {
     expect(() => evalReportSchema.parse(report)).not.toThrow()
   })
 
+  it('A-4 reports per-trial mock usage and the mock totals from the suite summary', async () => {
+    const usage = {
+      used: [{ id: 'search', tool: 'customers.search_companies', match: 'strict', calls: 1 }],
+      unused: [{ id: 'stock', tool: 'catalog.get_stock', required: true }],
+      unmatched: [],
+      unmatchedTruncated: false,
+    }
+    const seed = baseSeed()
+    seed.set(AgentEvalSuiteRun, [
+      suiteRun('suite-1', {
+        summary: {
+          __evalRun: {
+            mocks: { byCaseRun: { 'cr-2': usage }, totals: { cases: 1, used: 1, unused: 1, requiredUnused: 1, unmatched: 0 } },
+          },
+        },
+      }),
+    ])
+    const report = await buildEvalReport(createFakeEm(seed).em, SCOPE, 'suite-1', { now: FIXED_NOW, env: {} })
+    expect(() => evalReportSchema.parse(report)).not.toThrow()
+    expect(report?.environment.mocks).toEqual({ cases: 1, requiredUnused: 1 })
+    expect(report?.environment.warnings).toBeUndefined()
+    const trials = report?.cases.flatMap((entry) => entry.trials) ?? []
+    expect(trials.find((entry) => entry.caseRunId === 'cr-2')?.mocks).toEqual(usage)
+    expect(trials.find((entry) => entry.caseRunId === 'cr-1')).not.toHaveProperty('mocks')
+  })
+
+  it('A-4 warns when the mock usage was truncated', async () => {
+    const seed = baseSeed()
+    seed.set(AgentEvalSuiteRun, [
+      suiteRun('suite-1', {
+        summary: { __evalRun: { mocks: { totals: { cases: 3, used: 0, unused: 0, requiredUnused: 0, unmatched: 0 }, truncated: true } } },
+      }),
+    ])
+    const report = await buildEvalReport(createFakeEm(seed).em, SCOPE, 'suite-1', { now: FIXED_NOW, env: {} })
+    expect(report?.environment.warnings).toEqual(['mock_usage_truncated'])
+    expect(report?.cases.flatMap((entry) => entry.trials).some((entry) => 'mocks' in entry)).toBe(false)
+  })
+
   it('produces a report that validates against the versioned schema', async () => {
     const { em } = createFakeEm(baseSeed())
     const report = await buildEvalReport(em, SCOPE, 'suite-1', { now: FIXED_NOW, env: {} })
@@ -594,7 +632,11 @@ describe('buildEvalReport', () => {
       cliVersion: '1.2.3',
       env: { OM_EVAL_GIT_SHA: 'abc123', OM_AI_PROVIDER: 'scripted' },
     })
-    expect(report?.environment).toMatchObject({ gitSha: 'abc123', cliVersion: '1.2.3', modelMode: 'scripted' })
+    expect(report?.environment).toMatchObject({ gitSha: 'abc123', cliVersion: '1.2.3', modelMode: 'live' })
+    const seed = baseSeed()
+    ;(seed.get(AgentEvalSuiteRun) as Row[])[0].summary = { __evalRun: { modelMode: 'scripted' } }
+    const offline = await buildEvalReport(createFakeEm(seed).em, SCOPE, 'suite-1', { env: {} })
+    expect(offline?.environment.modelMode).toBe('scripted')
   })
 
   it('computes nearest-rank percentiles', () => {

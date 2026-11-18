@@ -16,6 +16,7 @@ import {
 import { contextBundleRoutedSourcesSchema } from '../data/validators'
 import { AGENT_TRACE_CONTENT_NAMESPACE } from '../lib/trace/artifactStore'
 import { CONTEXT_PAYLOAD_ARTIFACT_SCHEMA, buildContextPayloadArtifact } from '../lib/trace/contentCapture'
+import { createTestArtifactEncryption, passThroughArtifactEncryption } from './support/artifactEncryption'
 
 type UploadCall = { namespace: string; fileName: string; buffer: Buffer; scope: Record<string, unknown> }
 
@@ -37,7 +38,9 @@ function createFakeEm() {
   return { em: em as unknown as EntityManager, rows }
 }
 
-type StorageMode = 'ok' | 'throws' | 'absent' | 'long-key'
+type StorageMode = 'ok' | 'throws' | 'absent' | 'long-key' | 'unencrypted'
+
+const testEncryption = createTestArtifactEncryption()
 
 function fakeContainer(storage: StorageMode, uploads: UploadCall[]): AwilixContainer {
   const queryEngine: QueryEngine = {
@@ -75,7 +78,12 @@ function fakeContainer(storage: StorageMode, uploads: UploadCall[]): AwilixConta
       }
     },
   }
-  const registered = new Set(['queryEngine', 'searchService', ...(storage === 'absent' ? [] : ['storageService'])])
+  const registered = new Set([
+    'queryEngine',
+    'searchService',
+    'tenantEncryptionService',
+    ...(storage === 'absent' ? [] : ['storageService']),
+  ])
   return {
     hasRegistration(name: string) {
       return registered.has(name)
@@ -84,6 +92,9 @@ function fakeContainer(storage: StorageMode, uploads: UploadCall[]): AwilixConta
       if (name === 'queryEngine') return queryEngine
       if (name === 'searchService') return searchService
       if (name === 'storageService' && storage !== 'absent') return storageService
+      if (name === 'tenantEncryptionService') {
+        return storage === 'unencrypted' ? passThroughArtifactEncryption : testEncryption.service
+      }
       throw new Error(`[internal] unexpected resolve("${name}") in test`)
     },
   } as unknown as AwilixContainer
@@ -138,7 +149,7 @@ function input(contentCapture?: AssembleContentCapture) {
 }
 
 function uploadedPayload(upload: UploadCall): Record<string, unknown> {
-  const wrapper = JSON.parse(upload.buffer.toString('utf8')) as { input: string }
+  const wrapper = testEncryption.openSealedBuffer(upload.buffer)
   return JSON.parse(wrapper.input) as Record<string, unknown>
 }
 
@@ -203,7 +214,7 @@ describe('ContextResolverImpl.assemble context payload offload', () => {
     expect(JSON.stringify(uploadedPayload(uploads[0]))).not.toContain('alice@example.com')
   })
 
-  it.each(['throws', 'absent', 'long-key'] as const)(
+  it.each(['throws', 'absent', 'long-key', 'unencrypted'] as const)(
     'keeps payloadRef null and still persists the bundle when storage is %s',
     async (mode) => {
       const uploads: UploadCall[] = []
@@ -216,6 +227,7 @@ describe('ContextResolverImpl.assemble context payload offload', () => {
       expect(rows).toHaveLength(1)
       expect(rows[0].payloadRef).toBeNull()
       expect(result.untrustedSpans).toHaveLength(2)
+      if (mode === 'unencrypted') expect(uploads).toHaveLength(0)
     },
   )
 

@@ -55,6 +55,7 @@ const CONTENT_STATUS_VARIANT: Record<CompareContentStatus, StatusBadgeVariant> =
   ok: 'success',
   expired: 'warning',
   unavailable: 'error',
+  encryption_unavailable: 'warning',
   not_captured: 'neutral',
   forbidden: 'neutral',
 }

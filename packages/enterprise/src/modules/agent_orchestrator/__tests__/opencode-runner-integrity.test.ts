@@ -28,6 +28,7 @@ jest.mock('../lib/trace/artifactStore', () => {
 
 const emitRunReviewRequestedMock = jest.fn<Promise<boolean>, unknown[]>()
 jest.mock('../lib/guardrails/integrity/reviewRequestedEvent', () => ({
+  ...jest.requireActual('../lib/guardrails/integrity/reviewRequestedEvent'),
   emitRunReviewRequested: (...args: unknown[]) => emitRunReviewRequestedMock(...args),
 }))
 
@@ -229,6 +230,7 @@ describe('OpenCodeAgentRunner output pipeline', () => {
     expect(putArtifactMock.mock.calls[0][3]).toEqual(RAW_OUTCOME)
     expect(syncIntegritySetsMock).toHaveBeenCalledTimes(1)
     expect(emitRunReviewRequestedMock).toHaveBeenCalledTimes(1)
+    expect(emitRunReviewRequestedMock.mock.calls[0][0]).toMatchObject({ invokedByUserId: 'user-1' })
   })
 
   it('never blocks on OpenCode built-in tool calls: tool_scope sees no attempted tools', async () => {

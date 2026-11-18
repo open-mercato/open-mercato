@@ -3,8 +3,9 @@ import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decry
 import {
   AGENT_TRACE_CONTENT_NAMESPACE,
   ARTIFACT_REFS,
-  putArtifact,
+  putArtifactResult,
   type ArtifactEncryptionRef,
+  type ArtifactPutResult,
   type ArtifactScope,
 } from '../trace/artifactStore'
 import { buildLlmRequestArtifact, buildLlmResponseArtifact, type ContentRedaction } from '../trace/contentCapture'
@@ -79,12 +80,17 @@ function prepareContent(
 
 function resolveOutcome(
   prepared: PreparedCall | null,
-  requestKey: string | null,
-  responseKey: string | null,
+  request: ArtifactPutResult | null,
+  response: ArtifactPutResult | null,
 ): NativeModelCallContentOutcome {
   const redactions = prepared?.redactions ?? []
+  const requestKey = request?.status === 'stored' ? request.key : null
+  const responseKey = response?.status === 'stored' ? response.key : null
   if (!prepared || !requestKey || !responseKey) {
-    return { status: 'storage_unavailable', requestKey, responseKey, redactions }
+    const encryptionUnavailable =
+      request?.status === 'encryption_unavailable' || response?.status === 'encryption_unavailable'
+    const status = encryptionUnavailable ? 'encryption_unavailable' : 'storage_unavailable'
+    return { status, requestKey, responseKey, redactions }
   }
   return { status: prepared.truncated ? 'over_cap_truncated' : 'stored', requestKey, responseKey, redactions }
 }
@@ -93,11 +99,11 @@ async function uploadTask(
   container: MinimalContainer,
   scope: ArtifactScope,
   task: UploadTask,
-): Promise<string | null> {
+): Promise<ArtifactPutResult> {
   try {
-    return await putArtifact(container, scope, task.ref, task.payload, AGENT_TRACE_CONTENT_NAMESPACE)
+    return await putArtifactResult(container, scope, task.ref, task.payload, AGENT_TRACE_CONTENT_NAMESPACE)
   } catch {
-    return null
+    return { status: 'storage_unavailable' }
   }
 }
 
@@ -107,7 +113,8 @@ export type LlmContentEntry = { label: string; content: NativeModelCallContent }
  * Builds the redacted, capped request/response artifacts of every entry,
  * uploads them to the trace content namespace with bounded concurrency and
  * returns one offload outcome per entry (`null` for a `null` entry). Never
- * throws: a failed build or upload yields `storage_unavailable`.
+ * throws: a failed build or upload yields `storage_unavailable`, and content
+ * that could not be encrypted yields `encryption_unavailable`.
  */
 export async function offloadLlmContentEntries(
   container: MinimalContainer,
@@ -122,19 +129,19 @@ export async function offloadLlmContentEntries(
     tasks.push({ callIndex, part: 'request', ref: entry.request.ref, payload: entry.request.payload })
     tasks.push({ callIndex, part: 'response', ref: entry.response.ref, payload: entry.response.payload })
   })
-  const keys = await mapWithConcurrency(tasks, CONTENT_UPLOAD_CONCURRENCY, (task) =>
+  const results = await mapWithConcurrency(tasks, CONTENT_UPLOAD_CONCURRENCY, (task) =>
     uploadTask(container, scope, task),
   )
-  const keysByCall = new Map<number, { request: string | null; response: string | null }>()
+  const resultsByCall = new Map<number, { request: ArtifactPutResult | null; response: ArtifactPutResult | null }>()
   tasks.forEach((task, index) => {
-    const entry = keysByCall.get(task.callIndex) ?? { request: null, response: null }
-    entry[task.part] = keys[index]
-    keysByCall.set(task.callIndex, entry)
+    const entry = resultsByCall.get(task.callIndex) ?? { request: null, response: null }
+    entry[task.part] = results[index]
+    resultsByCall.set(task.callIndex, entry)
   })
   return entries.map((entry, callIndex) => {
     if (!entry) return null
-    const callKeys = keysByCall.get(callIndex) ?? { request: null, response: null }
-    return resolveOutcome(prepared[callIndex], callKeys.request, callKeys.response)
+    const callResults = resultsByCall.get(callIndex) ?? { request: null, response: null }
+    return resolveOutcome(prepared[callIndex], callResults.request, callResults.response)
   })
 }
 

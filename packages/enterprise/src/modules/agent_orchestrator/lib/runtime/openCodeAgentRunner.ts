@@ -11,7 +11,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import { emitAgentOrchestratorEvent } from '../../events'
 import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
-import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { resolveAgentDefinitionHash, resolveRunAgentVersion } from '../trace/definitionHash'
 import { buildAgentRunManifestInput, buildRunManifestSpan, captureManifestTraceparent } from '../trace/runManifestEntry'
 import { resolveRunCapture } from '../trace/capturePolicy'
 import type { RunManifestCapture } from '../trace/runManifest'
@@ -26,7 +26,7 @@ import {
 } from '../guardrails/integrity/pipeline'
 import { isAgentIntegrityEnforced, resolveIntegritySet } from '../guardrails/integrity/integritySets'
 import type { IntegrityToolCall } from '../guardrails/integrity/types'
-import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
+import { emitRunReviewRequested, resolveInteractiveInvokerUserId } from '../guardrails/integrity/reviewRequestedEvent'
 import { readCheckRuleId } from '../guardrails/integrity/summary'
 import { ensureRunIntegritySetSynced, storeRunRawOutput } from './integrityRunSupport'
 import { AgentGuardrailBlockedError } from './errors'
@@ -214,6 +214,8 @@ export class OpenCodeAgentRunner {
       : null
     const messageCollector = runCapture && runCapture.level !== 'off' ? createOpenCodeMessageCollector() : null
 
+    const definitionHash = resolveAgentDefinitionHash(entry)
+    const auditAgent = { agentId, agentVersion: resolveRunAgentVersion({ definitionHash }) }
     const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
       tenantId: ctx.tenantId,
@@ -228,9 +230,9 @@ export class OpenCodeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
-      definitionHash: resolveAgentDefinitionHash(entry),
+      definitionHash,
     })
-    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId)
+    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId, auditAgent)
 
     if (ctx.onRunPersisted) {
       try {
@@ -438,6 +440,7 @@ export class OpenCodeAgentRunner {
           workflowInstanceId: ctx.workflowInstanceId ?? null,
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
+          invokedByUserId: resolveInteractiveInvokerUserId(ctx),
           reviewRequest: integrity.reviewRequest,
         })
       }
@@ -448,7 +451,7 @@ export class OpenCodeAgentRunner {
       // never fails an otherwise-successful run (the JSON outcome still stands).
       if (workspace) {
         try {
-          const summary = await collectArtifacts({
+          await collectArtifacts({
             commandBus: this.commandBus,
             commandCtx,
             outDir: workspace.outDir,
@@ -456,16 +459,18 @@ export class OpenCodeAgentRunner {
             tenantId: ctx.tenantId,
             organizationId: ctx.organizationId,
           })
-          if (summary.failed.length > 0) {
-            logger.warn('artifact capture could not store files (storage-s3 unavailable?)', {
-              agentId,
-              failedCount: summary.failed.length,
-            })
-          }
         } catch (err) {
           logger.warn('artifact capture threw', {
             agentId,
+            runId,
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
             error: err instanceof Error ? err.message : String(err),
+          })
+          getTelemetryRuntime()?.reportError(err, {
+            module: 'agent_orchestrator',
+            code: 'artifact_capture_failed',
+            attributes: { runId, agentId },
           })
         }
       }

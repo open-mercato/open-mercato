@@ -23,8 +23,10 @@ const PROPOSAL_A = '55555555-5555-4555-8555-555555555555'
 const PROPOSAL_B = '66666666-6666-4666-8666-666666666666'
 const AGENT_USER = '77777777-7777-4777-8777-777777777777'
 const HUMAN = '88888888-8888-4888-8888-888888888888'
+const INSTANCE = '99999999-9999-4999-8999-999999999999'
+const OTHER_INSTANCE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
-const RUN = { id: RUN_ID, tenantId: TENANT, organizationId: ORG }
+const RUN = { id: RUN_ID, tenantId: TENANT, organizationId: ORG, agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' }
 
 const ENTRY = {
   id: 'log-1',
@@ -47,7 +49,9 @@ function makeRequest(query: Record<string, string> = {}) {
 
 const params = Promise.resolve({ id: RUN_ID })
 
-async function setup(options: { orgId?: string; registered?: boolean; proposals?: Array<{ id: string }> } = {}) {
+type ProposalRow = { id: string; runId: string; agentId: string; workflowInstanceId: string | null }
+
+async function setup(options: { orgId?: string; registered?: boolean; proposals?: ProposalRow[] } = {}) {
   const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
   const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
@@ -55,7 +59,10 @@ async function setup(options: { orgId?: string; registered?: boolean; proposals?
   ;(findOneWithDecryption as jest.Mock).mockImplementation(async (_em: unknown, _entity: unknown, where: Record<string, unknown>) => (
     where.organizationId === RUN.organizationId && where.tenantId === RUN.tenantId && where.id === RUN.id ? RUN : null
   ))
-  const find = jest.fn(async () => options.proposals ?? [{ id: PROPOSAL_A }, { id: PROPOSAL_B }])
+  const find = jest.fn(async () => options.proposals ?? [
+    { id: PROPOSAL_A, runId: RUN_ID, agentId: 'support.triage', workflowInstanceId: INSTANCE },
+    { id: PROPOSAL_B, runId: RUN_ID, agentId: 'support.triage', workflowInstanceId: INSTANCE },
+  ])
   const listByCorrelationKeys = jest.fn(async () => ({ items: [ENTRY], total: 1 }))
   const registered = options.registered !== false
   ;(createRequestContainer as jest.Mock).mockResolvedValue({
@@ -88,7 +95,7 @@ describe('GET /api/agent_orchestrator/runs/:id/actions', () => {
     expect(find).toHaveBeenCalledWith(
       expect.anything(),
       { runId: RUN_ID, tenantId: TENANT, organizationId: ORG },
-      { fields: ['id'] },
+      { fields: ['id', 'runId', 'agentId', 'workflowInstanceId'] },
     )
     expect(listByCorrelationKeys).toHaveBeenCalledWith({
       tenantId: TENANT,
@@ -109,12 +116,65 @@ describe('GET /api/agent_orchestrator/runs/:id/actions', () => {
         onBehalfOfUserId: HUMAN,
         sourceKey: 'agent',
         correlation: { agentRunId: RUN_ID, proposalId: PROPOSAL_A },
+        agentId: 'support.triage',
+        agentVersion: 'sha256:0123456789abcdef',
         createdAt: '2026-10-28T10:00:00.000Z',
       }],
       total: 1,
       page: 1,
       pageSize: 50,
     })
+  })
+
+  it('prefers the agent and version stamped on the entry over the run record', async () => {
+    const { listByCorrelationKeys } = await setup()
+    listByCorrelationKeys.mockResolvedValueOnce({
+      items: [{
+        ...ENTRY,
+        correlationKeys: [`agentRunId:${RUN_ID}`, 'agentId:support.triage', 'agentVersion:2.1.0'],
+      }],
+      total: 1,
+    })
+
+    const res = await GET(makeRequest(), { params })
+    const body = await res.json()
+
+    expect(body.items[0].agentId).toBe('support.triage')
+    expect(body.items[0].agentVersion).toBe('2.1.0')
+  })
+
+  it('lists an effector write matched through a proposal only when the workflow instance verifies it', async () => {
+    const { listByCorrelationKeys } = await setup()
+    listByCorrelationKeys.mockResolvedValueOnce({
+      items: [
+        { ...ENTRY, id: 'effector-ok', correlationKeys: [`proposalId:${PROPOSAL_A}`, `workflowInstanceId:${INSTANCE}`] },
+        { ...ENTRY, id: 'effector-forged', correlationKeys: [`proposalId:${PROPOSAL_A}`, `workflowInstanceId:${OTHER_INSTANCE}`] },
+        { ...ENTRY, id: 'effector-unscoped', correlationKeys: [`proposalId:${PROPOSAL_A}`] },
+      ],
+      total: 3,
+    })
+
+    const body = await (await GET(makeRequest(), { params })).json()
+
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual(['effector-ok'])
+    expect(body.items[0]).toMatchObject({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' })
+    expect(body.total).toBe(1)
+  })
+
+  it('keeps a write stamped with this run even when its proposal id is unverified', async () => {
+    const { listByCorrelationKeys } = await setup()
+    listByCorrelationKeys.mockResolvedValueOnce({
+      items: [
+        { ...ENTRY, id: 'run-write', correlationKeys: [`agentRunId:${RUN_ID}`, `proposalId:${PROPOSAL_B}`] },
+        { ...ENTRY, id: 'forged', correlationKeys: [`proposalId:${PROPOSAL_B}`, `workflowInstanceId:${OTHER_INSTANCE}`] },
+      ],
+      total: 7,
+    })
+
+    const body = await (await GET(makeRequest(), { params })).json()
+
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual(['run-write'])
+    expect(body.total).toBe(6)
   })
 
   it('returns 404 for a run outside the caller organization without querying the audit log', async () => {

@@ -1,3 +1,4 @@
+import { isOfflineModelReplay, ModelReplayError } from '../eval/modelReplay'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -9,7 +10,7 @@ import { getCurrentRunId } from './runContext'
 import { acquireAgentRunSlot, type AgentRunSlotRelease } from './admission'
 import { withAgentActor } from '../identity/agentWriteScope'
 import { registerAgentKindNoBypassSubscriber } from '../identity/agentNoBypassSubscriber'
-import { AgentNotFoundError } from './errors'
+import { AgentCallSettingsUnsupportedError, AgentNotFoundError } from './errors'
 import { enforceAgentInvocable } from '../access/agentInvokeAccess'
 import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
 import type { AgentRunCtx } from './persistence'
@@ -24,6 +25,7 @@ export {
   AgentRunTimeoutError,
   AgentOutputInvalidError,
   AgentGuardrailBlockedError,
+  AgentCallSettingsUnsupportedError,
 } from './errors'
 export { DEFAULT_CONTEXT_TOKEN_BUDGET } from './nativeAgentRunner'
 
@@ -57,6 +59,10 @@ export class AgentRuntimeService {
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
     await enforceAgentInvocable(this.container, entry, ctx)
+    if (entry.runtime === 'opencode' && isOfflineModelReplay()) throw new ModelReplayError('model_replay_unsupported_runtime')
+    if (entry.runtime === 'opencode' && ctx.callSettings && Object.keys(ctx.callSettings).length > 0) {
+      throw new AgentCallSettingsUnsupportedError(agentId)
+    }
     const runAs = ctx.runAs ?? (await resolveRunAsForAgent(this.container, { agentId, entry, ctx }))
     const runCtx: AgentRunCtx = runAs && !ctx.runAs ? { ...ctx, runAs } : ctx
 

@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { listAgentEntries, ensureAgentsLoaded } from '../../lib/sdk/defineAgent'
+import { resolveAgentDefinitionSource } from '../../lib/sdk/agentDefinitionSource'
 import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContract'
 import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
@@ -40,6 +41,9 @@ const agentItemSchema = z.object({
   // an empty array means nothing survived the intersection.
   allowedActions: z.array(z.string()).nullable(),
   runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
+  // Where the agent is authored (`file` = an agents/<id>/ directory), independent
+  // of the runtime it executes on — file agents run natively by default.
+  source: z.enum(['code', 'file']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
   // Declared invoke features — returned to agents.manage holders only; feature
@@ -144,6 +148,7 @@ export async function GET(req: Request) {
       agentType: entry.agentType ?? null,
       allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
       runtime: entry.runtime,
+      source: resolveAgentDefinitionSource(entry),
       tools: entry.tools,
       skills: entry.skills,
       ...(isManager ? { requiredFeatures: entry.requiredFeatures ? [...entry.requiredFeatures] : [] } : {}),

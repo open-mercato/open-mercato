@@ -8,7 +8,8 @@ import {
   AttachmentDocumentSection,
   AttachmentPartition,
 } from '../../data/entities'
-import { assertAttachmentScopeInvariant, checkAttachmentAccess, isSuperAdminAuth } from '../access'
+import { assertAttachmentScopeInvariant, isSuperAdminAuth } from '../access'
+import { evaluateAttachmentAccess, type AttachmentAccessContext } from '../access-runner'
 import {
   buildCitation,
   buildCitationRef,
@@ -237,6 +238,12 @@ export type AttachmentDocumentStructureServiceDeps = {
   em: EntityManager
   enqueue?: DocumentStructureEnqueue
   queueContainer?: DocumentStructureQueueContainer | null
+  /**
+   * Builds the owner-access context (`evaluateAttachmentAccess`) for callers that
+   * pass `scope.auth`. Without it, and always for principal-less service callers
+   * (CLI), an owner-protected attachment is denied.
+   */
+  accessContext?: () => AttachmentAccessContext
 }
 
 type NormalizedScope = { tenantId: string | null; organizationId: string | null }
@@ -369,9 +376,15 @@ export function createAttachmentDocumentStructureService(
       normalized,
     )
     if (!partition || !partitionMatchesScope(partition, normalized)) return null
-    const access = checkAttachmentAccess(principal, attachment, partition, { requireAuthForPublic: true })
-    if (!access.ok) return null
-    return { attachment, scope: normalized }
+    const access = await evaluateAttachmentAccess({
+      auth: principal,
+      attachment,
+      partition,
+      action: 'read',
+      context: scope.auth === undefined ? null : deps.accessContext?.() ?? null,
+      requireAuthForPublic: true,
+    })
+    return access.ok ? { attachment, scope: normalized } : null
   }
 
   async function findLiveExtraction(

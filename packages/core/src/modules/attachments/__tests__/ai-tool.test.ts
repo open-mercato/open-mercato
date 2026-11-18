@@ -6,6 +6,7 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/citations'
 import aclFeatures from '../acl'
 import aiTools from '../ai-tools'
+import { buildDocumentSectionHref } from '../lib/documentStructure/sectionLink'
 import type { DocumentSection } from '../lib/documentStructure/service'
 
 const ATTACHMENT_ID = '11111111-1111-4111-8111-111111111111'
@@ -13,6 +14,8 @@ const PARENT_ID = '22222222-2222-4222-8222-222222222222'
 const TENANT_ID = '33333333-3333-4333-8333-333333333333'
 const ORG_ID = '44444444-4444-4444-8444-444444444444'
 const USER_ID = '55555555-5555-4555-8555-555555555555'
+const ANCHOR_A = '0123456789abcdef0123456789abcdef'
+const ANCHOR_B = 'fedcba9876543210fedcba9876543210'
 
 const tool = aiTools.find((entry) => entry.name === 'attachments.get_document_sections')!
 
@@ -183,7 +186,7 @@ describe('attachments.get_document_sections', () => {
     expect(call).toMatchObject({
       attachmentId: ATTACHMENT_ID,
       numberLabel: '8.12',
-      page: 4,
+      page: null,
       parentId: PARENT_ID,
       afterOrdinal: 3,
       limit: 5,
@@ -196,6 +199,21 @@ describe('attachments.get_document_sections', () => {
       auth: { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID, isSuperAdmin: false },
     })
     expectNoWrites(service)
+  })
+
+  it('reads as the API key itself, not as its creator, when an API key calls the tool', async () => {
+    const service = makeService()
+    service.getStructure.mockResolvedValue(null)
+    const handler = tool.handler as (input: unknown, ctx: McpToolContext) => Promise<{ status: string }>
+    const result = await handler(
+      { attachmentId: ATTACHMENT_ID },
+      makeCtx(service, { apiKeyId: 'key-1' }),
+    )
+    expect(result.status).toBe('not_found')
+    const scope = service.getStructure.mock.calls[0][0].scope
+    expect(scope.auth).toMatchObject({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', orgId: ORG_ID })
+    expect(scope.auth).not.toHaveProperty('userId')
+    expect(service.listSections).not.toHaveBeenCalled()
   })
 
   it('returns an outline without content when includeText is false', async () => {
@@ -213,6 +231,16 @@ describe('attachments.get_document_sections', () => {
     expect(result.items[0]).not.toHaveProperty('content')
     expect(result.items[0].textTruncated).toBe(false)
     expectNoWrites(service)
+  })
+
+  it('ignores page when looking a section up by number label (models fill optional fields)', async () => {
+    const service = makeService()
+    service.getStructure.mockResolvedValue(completedStructure())
+    service.listSections.mockResolvedValue({ extractionId: 'extraction-1', items: [makeSection()], nextCursor: null })
+    await run(service, { attachmentId: ATTACHMENT_ID, numberLabel: '8.12', page: 1 })
+    expect(service.listSections.mock.calls[0][0]).toMatchObject({ numberLabel: '8.12', page: null })
+    await run(service, { attachmentId: ATTACHMENT_ID, page: 3 })
+    expect(service.listSections.mock.calls[1][0]).toMatchObject({ numberLabel: null, page: 3 })
   })
 
   it('returns not_extracted with a hint when no extraction exists', async () => {
@@ -287,12 +315,12 @@ describe('attachments.get_document_sections', () => {
       service.listSections.mockResolvedValue({
         extractionId: 'extraction-1',
         items: [
-          makeSection({ text: 'x'.repeat(1500) }),
+          makeSection({ text: 'x'.repeat(1500), anchorKey: ANCHOR_A, citationRef: `${ATTACHMENT_ID}#${ANCHOR_A}` }),
           makeSection({
             id: 'b',
             numberLabel: null,
-            anchorKey: 'sec:b',
-            citationRef: `${ATTACHMENT_ID}#sec:b`,
+            anchorKey: ANCHOR_B,
+            citationRef: `${ATTACHMENT_ID}#${ANCHOR_B}`,
             citation: 'Preamble (p. 1)',
             pageStart: 1,
             text: undefined,
@@ -312,18 +340,18 @@ describe('attachments.get_document_sections', () => {
       expect(citations).toEqual([
         {
           kind: 'attachment',
-          ref: `${ATTACHMENT_ID}#sec:8.12`,
+          ref: `${ATTACHMENT_ID}#${ANCHOR_A}`,
           label: 'contract.pdf, p. 4-5, §8.12',
           locator: '8.12',
           quote: 'x'.repeat(1000),
-          href: '/backend/storage/attachments',
+          href: `/backend/storage/attachments/${ATTACHMENT_ID}/sections/${ANCHOR_A}`,
         },
         {
           kind: 'attachment',
-          ref: `${ATTACHMENT_ID}#sec:b`,
+          ref: `${ATTACHMENT_ID}#${ANCHOR_B}`,
           label: 'Preamble (p. 1)',
           locator: 'p. 1',
-          href: '/backend/storage/attachments',
+          href: `/backend/storage/attachments/${ATTACHMENT_ID}/sections/${ANCHOR_B}`,
         },
       ])
       for (const citation of citations) {
@@ -349,6 +377,40 @@ describe('attachments.get_document_sections', () => {
       expect(result.items).toHaveLength(total)
       expect(parts[0].payload.citations).toHaveLength(AI_CITATIONS_MAX_PER_CALL)
       expectNoWrites(service)
+    })
+
+    it('links every citation to its own section page, never to the library root', async () => {
+      const service = makeService()
+      service.getStructure.mockResolvedValue(completedStructure())
+      service.listSections.mockResolvedValue({
+        extractionId: 'extraction-1',
+        items: [makeSection({ anchorKey: ANCHOR_A, citationRef: `${ATTACHMENT_ID}#${ANCHOR_A}` })],
+        nextCursor: null,
+      })
+      const { parts, collector } = makeUiParts()
+      await run(service, { attachmentId: ATTACHMENT_ID }, makeCtx(service, { uiParts: collector }))
+      const [citation] = parts[0].payload.citations
+      expect(citation.href).not.toBe('/backend/storage/attachments')
+      expect(citation.href).toBe(buildDocumentSectionHref(ATTACHMENT_ID, ANCHOR_A))
+      expect(String(citation.href).startsWith('/') && !String(citation.href).startsWith('//')).toBe(true)
+    })
+
+    it('emits no citations for an outline call (includeText: false)', async () => {
+      const service = makeService()
+      service.getStructure.mockResolvedValue(completedStructure())
+      service.listSections.mockResolvedValue({
+        extractionId: 'extraction-1',
+        items: [makeSection({ text: undefined, anchorKey: ANCHOR_A, citationRef: `${ATTACHMENT_ID}#${ANCHOR_A}` })],
+        nextCursor: null,
+      })
+      const { parts, collector } = makeUiParts()
+      const result = await run(
+        service,
+        { attachmentId: ATTACHMENT_ID, includeText: false },
+        makeCtx(service, { uiParts: collector }),
+      )
+      expect(result.items).toHaveLength(1)
+      expect(parts).toHaveLength(0)
     })
 
     it('emits no citations when no sections are returned', async () => {

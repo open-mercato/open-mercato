@@ -284,6 +284,7 @@ Every `tools/call` handled by any MCP server, and every `POST /api/ai_assistant/
 - **Argument values are never logged**, only top-level key names (`argKeys`). This is the same redaction-by-construction rule AO applies to flow summaries.
 - `correlationId`: the `x-correlation-id` request header if present (validated, max 128 chars), else a fresh UUID. It is echoed in the tool result `_meta.correlationId` and passed to `runAiAgentObject` (`trace.correlationId`) and to the dispatcher, so it lands in `ai_agent_runs.correlation_id` (chat-tracing spec), in the AO run manifest `om.correlation_id` (observability spec) and in `action_logs.context_json.correlation.correlationId` for writes an AO run causes (identity spec §D).
 - **Correlation vocabulary** (shared by all 2026-10-21 agent-platform specs; see the roadmap): `correlationId` = one inbound request at a door; `aiAgentRunId` = `ai_agent_runs.id` (OSS run, called `runId` inside ai-assistant APIs); `agentRunId` = the dispatcher's run id (`agent_runs.id` for AO); `channel` = the ai-assistant door (`chat | playground | run-object | mcp | tools-api | internal`); `entryPoint` = AO's door enum (identity spec), never written by ai-assistant.
+- **Refused calls (#9648 B-2):** `mcp:serve-http` and `mcp:dev` also audit the calls the SDK `McpServer` refuses before the tool callback runs: an unknown or hidden tool (`denied` / `NOT_FOUND`, the same as on stdio) and arguments failing the input schema (`invalid_input` / `VALIDATION_ERROR`). The SDK's refusal result is kept and gets `_meta.correlationId`. The row is attributed to the request's verified principal, never to a `_sessionToken` argument. `NOT_FOUND` therefore covers both unknown names and tools hidden by exposure, mutation mode or ACL. `argKeys` is capped at 64 names of at most 128 characters.
 - **Retention:** `access_logs` rows outside `CORE_RESOURCE_KINDS` (`auth.user`, `auth.role`) are deleted after `AUDIT_LOGS_NON_CORE_RETENTION_HOURS` (default 8 h). This spec adds an additive env `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` (comma list, appended to the frozen default set) to `audit_logs`, and documents `ai_assistant.mcp_tool_call` as a recommended entry. Core retention defaults to 7 days (`AUDIT_LOGS_CORE_RETENTION_DAYS`). Deployments needing longer retention ship logs to their SIEM. The default is unchanged to avoid growing every tenant's table.
 - Writes through MCP keep producing their own `action_logs` rows via the command path (actor `api_key:<id>`). Writes caused by an AO run reached through the dispatcher carry `correlationId` via the identity spec's `CommandRuntimeContext.auditCorrelation`. Linking raw MCP tool writes (no agent run) to the MCP `correlationId` needs request-context propagation in the command bus and is Future Work; it should reuse the same `auditCorrelation` key.
 
@@ -616,6 +617,13 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 - `TC-AI-MCP-AUDIT-014`: after a call, `GET /api/audit_logs/audit-logs/access?resourceKind=ai_assistant.mcp_tool_call` returns a row with `apiKeyId`, `outcome`, `durationMs`, no argument values.
 - Extend `TC-AI-TOOLS-EXECUTE-007-direct-tool-execution.spec.ts` with the audit assertion.
 - Enterprise (Phase 5): `TC-AO-MCP-DISPATCH-001`: an AO researcher agent exposed via `defineAgentTool({ agentId: <AO id> })`; a call creates an `agent_runs` row whose `run.manifest` span carries `om.correlation_id` equal to the audit row's `correlationId` and `om.entry_point = 'tool'`.
+- `TC-AI-MCP-RATE-LIMIT-018`: an agent-tool call over the per-user ceiling gets `429` + `Retry-After` and a `denied` audit row; another user keeps a separate bucket.
+
+**Waiver — agent-tool rate limit (`TC-AI-MCP-RATE-LIMIT-018`):**
+- Not covered in CI: the end-to-end 429 / `Retry-After` / audit-row path through a running app. The spec skips in CI.
+- Why: it needs an app started with `OM_TEST_RATE_LIMIT_MODE=enabled`, `RATE_LIMIT_AI_AGENT_TOOL_POINTS` between 1 and 3 and the `agent_examples` module (`OM_ENABLE_ENTERPRISE_MODULES=true`, `OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`). CI runs with rate limits off and default points, and a dedicated CI profile is not worth it for this one check.
+- What covers it: `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/tool-executor.agent-tool-rate-limit.test.ts` (key per API key / session user, `RATE_LIMITED` + `retryAfterSeconds`, `RATE_LIMIT_UNAVAILABLE` on a failing limiter, channel and plain-tool exemptions). This unit test is the accepted CI evidence.
+- How to run manually: start the app with the env above, then run the spec with the same `OM_TEST_RATE_LIMIT_MODE` and `RATE_LIMIT_AI_AGENT_TOOL_POINTS` values, e.g. `OM_TEST_RATE_LIMIT_MODE=enabled RATE_LIMIT_AI_AGENT_TOOL_POINTS=1 yarn test:integration TC-AI-MCP-RATE-LIMIT-018`.
 
 ## Risks & Impact Review
 
@@ -680,7 +688,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 - **Scenario**: An MCP client loops on an agent tool, incurring LLM cost.
 - **Severity**: Medium
 - **Affected area**: LLM spend, tenant quotas
-- **Mitigation**: Agent loop budgets (`loop.budget`) and `timeoutMs` apply; token usage is recorded per run (`ai_token_usage_events`); existing rate limiting (`lib/rate-limit.ts`) can be applied per API key on the HTTP handler (Phase 4 step 1 wires it for agent tools).
+- **Mitigation**: Agent loop budgets (`loop.budget`) and `timeoutMs` apply; token usage is recorded per run (`ai_token_usage_events`); `executeTool` rate-limits agent tools on the `mcp` and `tools-api` channels per tenant and API key, or per session user (`lib/agent-tool-rate-limit.ts`, `RATE_LIMIT_AI_AGENT_TOOL_*`, default 30/min; fail closed when a registered limiter cannot decide). Fail closed is deliberate: each call runs a paid agent loop, callers are mostly API keys (a leaked key in a loop is the case the limit exists for), and under `OM_MCP_MUTATION_MODE=approval` the agent can queue writes, so the platform rule for endpoints that cost money or mutate state applies (`rate-limiting.mdx` → Choosing a Failure Posture, #5030). An absent limiter or `RATE_LIMIT_ENABLED=false` still allows the call, as in checkout. The AI chat limiter (`lib/rate-limit.ts`, #2975) stays fail open; it predates `failClosed` and is not the model here.
 - **Residual risk**: Per-key spend caps are out of scope.
 
 #### AO dispatcher absent or failing
@@ -797,3 +805,13 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 
 - Integration: `TC-AI-MCP-PARITY-011` now exists — for one API-key role it compares `customers.deal_analyzer` `allowedTools` reachable via `/api/ai_assistant/ai/agents` + the tool list with the `view=mcp` exposure filtered to those tools, and asserts an agent the role lacks `requiredFeatures` for is absent from `/ai/agents`, its agent tool (when registered) is absent from both listings and refused on `/tools/execute`, and `/ai/run-object` answers 403 `agent_features_denied`.
 - Deviation recorded: the audit assertion was not added to `TC-AI-TOOLS-EXECUTE-007-direct-tool-execution.spec.ts` as planned. `TC-AI-MCP-AUDIT-014-tool-call-audit.spec.ts` covers it instead: a `/tools/execute` call with an `x-correlation-id` writes an access-log row (`resourceKind` `ai_assistant.mcp_tool_call`, `channel: tools-api`, `principal: session`, `isMutation: false`) with no argument values.
+
+### 2026-11-17
+
+- Agent-tool rate limit (roadmap-gaps item C-3; the risk register promised it, but no MCP path called a limiter). `executeTool` consumes one point from `ai_agent_tool` for every tool with `agentRef` on the `mcp` and `tools-api` channels, after the ACL and input checks and before the handler. The key is `tenant:key:<apiKeyId>` for API-key callers, `tenant:user:<userId>` for session-token callers. Over the limit it returns `RATE_LIMITED` with `retryAfterSeconds` (audit `denied`; `/tools/execute` answers `429` with `Retry-After`). A registered limiter that throws or reports `degraded` gives `RATE_LIMIT_UNAVAILABLE` (audit `error`; `503`); the reason for failing closed is in the risk entry "Agent tool cost/latency abuse". No registered limiter, or `RATE_LIMIT_ENABLED=false`, means no limit. The `agent` channel (in-loop calls), plain tools and workers are unchanged.
+- Not covered: per-key rate limiting of plain `tools/call` (the approval-queue risk entry above still claims it exists).
+
+### 2026-11-18
+
+- Testing: recorded a waiver for `TC-AI-MCP-RATE-LIMIT-018`. It is an opt-in manual check that skips in CI; `tool-executor.agent-tool-rate-limit.test.ts` is the CI evidence. No CI profile is added. The spec's skip messages now name the required env vars and module and point to the unit test.
+- Recorded why the agent-tool rate limit fails closed (risk entry "Agent tool cost/latency abuse"): paid agent loop, API-key callers, queued writes in approval mode. Behaviour unchanged.

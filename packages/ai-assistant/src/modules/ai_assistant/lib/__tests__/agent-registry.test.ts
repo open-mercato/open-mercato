@@ -1,10 +1,12 @@
 import type { AiAgentDefinition } from '../ai-agent-definition'
 import {
   applyAgentExtensionEntriesForTests,
+  applyAgentOverrideEntriesForTests,
   getAgent,
   listAgents,
   listAgentsByModule,
   loadAgentRegistry,
+  registerRuntimeAiAgents,
   resetAgentRegistryForTests,
   seedAgentRegistryForTests,
 } from '../agent-registry'
@@ -310,5 +312,84 @@ describe('agent-registry', () => {
     expect(listAgents().map((agent) => agent.id)).toEqual(firstIds)
     expect(errorSpy).toHaveBeenCalledTimes(firstIds.length === 0 ? 1 : 0)
     errorSpy.mockRestore()
+  })
+
+  describe('registerRuntimeAiAgents', () => {
+    it('registers runtime agents alongside the generated ones', async () => {
+      seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
+
+      const registered = await registerRuntimeAiAgents([
+        makeAgent({ id: 'deals.health_check', moduleId: 'agent_examples', readOnly: true, mutationPolicy: 'read-only' }),
+      ])
+
+      expect(registered).toEqual(['deals.health_check'])
+      expect(getAgent('deals.health_check')).toMatchObject({ readOnly: true, mutationPolicy: 'read-only' })
+      expect(listAgents().map((agent) => agent.id)).toEqual(['customers.assistant', 'deals.health_check'])
+    })
+
+    it('never replaces an agent that is already registered', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers', systemPrompt: 'original' }),
+      ])
+
+      const registered = await registerRuntimeAiAgents([
+        makeAgent({ id: 'customers.assistant', moduleId: 'agent_examples', systemPrompt: 'impostor' }),
+      ])
+
+      expect(registered).toEqual([])
+      expect(getAgent('customers.assistant')?.systemPrompt).toBe('original')
+    })
+
+    it('skips malformed candidates and the reserved raw-tool agent id', async () => {
+      seedAgentRegistryForTests([])
+
+      const registered = await registerRuntimeAiAgents([
+        { id: 'broken.agent' },
+        makeAgent({ id: 'ai_assistant.raw_tool', moduleId: 'agent_examples' }),
+        makeAgent({ id: 'deals.ok', moduleId: 'agent_examples' }),
+      ])
+
+      expect(registered).toEqual(['deals.ok'])
+      expect(getAgent('ai_assistant.raw_tool')).toBeUndefined()
+      expect(getAgent('broken.agent')).toBeUndefined()
+    })
+
+    it('refuses a runtime agent whose id was disabled by an override', async () => {
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'deals.health_check', moduleId: 'agent_examples' }),
+        makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+      ])
+      applyAgentOverrideEntriesForTests([
+        { moduleId: 'app', overrides: { 'deals.health_check': null, 'deals.never_defined': null } },
+      ])
+      expect(getAgent('deals.health_check')).toBeUndefined()
+      testLogger.warn.mockClear()
+
+      const registered = await registerRuntimeAiAgents([
+        makeAgent({ id: 'deals.health_check', moduleId: 'agent_orchestrator' }),
+        makeAgent({ id: 'deals.never_defined', moduleId: 'agent_orchestrator' }),
+      ])
+
+      expect(registered).toEqual([])
+      expect(getAgent('deals.health_check')).toBeUndefined()
+      expect(getAgent('deals.never_defined')).toBeUndefined()
+      expect(listAgents().map((agent) => agent.id)).toEqual(['customers.assistant'])
+      expect(testLogger.warn).toHaveBeenCalledWith(
+        'AI Agents — Skipping runtime agent whose id is disabled by an override',
+        expect.objectContaining({ agentId: 'deals.health_check' }),
+      )
+    })
+
+    it('still registers a runtime agent whose id is not disabled', async () => {
+      seedAgentRegistryForTests([makeAgent({ id: 'deals.health_check', moduleId: 'agent_examples' })])
+      applyAgentOverrideEntriesForTests([{ moduleId: 'app', overrides: { 'deals.health_check': null } }])
+
+      const registered = await registerRuntimeAiAgents([
+        makeAgent({ id: 'deals.stale_check', moduleId: 'agent_orchestrator' }),
+      ])
+
+      expect(registered).toEqual(['deals.stale_check'])
+      expect(getAgent('deals.stale_check')).toMatchObject({ moduleId: 'agent_orchestrator' })
+    })
   })
 })

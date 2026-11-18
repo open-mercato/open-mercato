@@ -37,9 +37,23 @@ export function computeCodeAgentDefinitionHash(input: CodeAgentDefinitionHashInp
   return `${DEFINITION_HASH_PREFIX}${sha256Hex(canonical)}`
 }
 
+const DEFINITION_FILE_NAMES = new Set(['GOVERNANCE.json'])
+
+function isDefinitionFile(file: DefinitionHashSourceFile): boolean {
+  if (file.inContext) return true
+  const name = file.path.slice(file.path.lastIndexOf('/') + 1)
+  return DEFINITION_FILE_NAMES.has(name)
+}
+
+/**
+ * Hash of the files that define a file agent's behaviour: every in-context
+ * file plus `GOVERNANCE.json` (principal, integrity, untrusted inputs, model
+ * settings), which shapes the run without being sent to the model as-is. Agents
+ * without a governance file hash exactly as before.
+ */
 export function computeFileAgentDefinitionHash(sourceFiles: readonly DefinitionHashSourceFile[]): string {
   const inContextFiles = sourceFiles
-    .filter((file) => file.inContext)
+    .filter(isDefinitionFile)
     .map((file) => ({ path: file.path, content: file.content }))
     .sort((left, right) => compareCodePoints(left.path, right.path))
   return `${DEFINITION_HASH_PREFIX}${sha256Hex(canonicalJsonStringify(inContextFiles))}`

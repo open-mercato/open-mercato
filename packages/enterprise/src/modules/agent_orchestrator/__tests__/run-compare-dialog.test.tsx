@@ -280,6 +280,15 @@ describe('RunCompareDialog', () => {
     expect(screen.queryByTestId('compare-system-prompt')).toBeNull()
   })
 
+  it('labels a side whose content was not stored for lack of encryption with its own status', async () => {
+    routeApi({ ...COMPARE_INCLUDED, right: side(SOURCE_ID, 'encryption_unavailable') }, LIST_ITEMS)
+    renderWithProviders(
+      <RunCompareDialog open onOpenChange={jest.fn()} run={runView({ rerunOfRunId: SOURCE_ID })} spans={SPANS} />,
+    )
+    const result = await screen.findByTestId('run-compare-result')
+    expect(result.textContent).toContain('agent_orchestrator.trace.compare.contentStatus.encryption_unavailable')
+  })
+
   it('shows an empty state when no other run exists', async () => {
     routeApi(COMPARE_FORBIDDEN, [])
     renderWithProviders(<RunCompareDialog open onOpenChange={jest.fn()} run={runView()} spans={SPANS} />)

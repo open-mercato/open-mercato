@@ -30,6 +30,27 @@ describe('run audit correlation', () => {
     ).toEqual({ agentRunId: 'run-1' })
   })
 
+  it('stamps the agent id and version when the run names its agent', () => {
+    expect(
+      buildRunAuditCorrelation(baseRunCtx, 'run-1', { agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' }),
+    ).toEqual({ agentRunId: 'run-1', agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' })
+  })
+
+  it('stamps the agent id alone when the run has no version', () => {
+    expect(buildRunAuditCorrelation(baseRunCtx, 'run-1', { agentId: 'support.triage', agentVersion: null })).toEqual({
+      agentRunId: 'run-1',
+      agentId: 'support.triage',
+    })
+  })
+
+  it('carries the agent through withRunAuditCorrelation', () => {
+    const commandCtx = {} as unknown as CommandRuntimeContext
+    expect(
+      withRunAuditCorrelation(commandCtx, baseRunCtx, 'run-1', { agentId: 'support.triage', agentVersion: 'v2' })
+        .auditCorrelation,
+    ).toEqual({ agentRunId: 'run-1', agentId: 'support.triage', agentVersion: 'v2' })
+  })
+
   it('keeps correlation already on the command context and leaves the rest of it intact', () => {
     const commandCtx = {
       selectedOrganizationId: 'org-1',
@@ -47,6 +68,14 @@ describe('proposal audit correlation', () => {
     expect(buildProposalAuditCorrelation({ id: 'proposal-1', runId: 'run-1' })).toEqual({
       proposalId: 'proposal-1',
       agentRunId: 'run-1',
+    })
+  })
+
+  it('stamps the agent that made the proposal', () => {
+    expect(buildProposalAuditCorrelation({ id: 'proposal-1', runId: 'run-1', agentId: 'support.triage' })).toEqual({
+      proposalId: 'proposal-1',
+      agentRunId: 'run-1',
+      agentId: 'support.triage',
     })
   })
 

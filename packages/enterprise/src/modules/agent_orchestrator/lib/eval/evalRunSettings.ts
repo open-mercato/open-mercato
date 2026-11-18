@@ -144,3 +144,9 @@ export function withEvalRunToolSummary(summary: unknown, tools: EvalRunToolSumma
     : {}
   return { ...base, [EVAL_RUN_SUMMARY_KEY]: { ...current, tools } }
 }
+
+export function readEvalRunModelMode(summary: unknown): 'live' | 'scripted' {
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return 'live'
+  const entry = (summary as Record<string, unknown>)[EVAL_RUN_SUMMARY_KEY]
+  return entry && typeof entry === 'object' && 'modelMode' in entry && entry.modelMode === 'scripted' ? 'scripted' : 'live'
+}

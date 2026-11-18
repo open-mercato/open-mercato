@@ -321,6 +321,7 @@ function buildLlmSpan(span: RunExportSpan, bundle: MapAgentRunBundle, traceId: s
   setAttribute(attributes, OM_LLM_ATTRIBUTES.contentStatus, metadata.contentStatus)
   setAttribute(attributes, OM_LLM_ATTRIBUTES.captureFidelity, metadata.fidelity)
   setAttribute(attributes, OM_LLM_ATTRIBUTES.paramsDefaults, metadata.paramsDefaults)
+  setAttribute(attributes, OM_LLM_ATTRIBUTES.paramsIgnored, metadata.paramsIgnored)
   const { status, errorType } = statusFor(span.status)
   setAttribute(attributes, OTEL_STANDARD_ATTRIBUTES.errorType, errorType)
   const endTime = endTimeFor(span.startedAt, span.endedAt, span.durationMs)

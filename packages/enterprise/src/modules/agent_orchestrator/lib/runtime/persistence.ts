@@ -147,13 +147,26 @@ export function buildCommandContext(
   }
 }
 
+/** Which agent, at which version, produced the run — stamped so an audit row names it without a join. */
+export type RunAuditAgent = {
+  agentId: string
+  agentVersion?: string | null
+}
+
 /**
  * Correlation ids stamped on every action log a run's command context writes, so
- * the audit trail can answer "what did this run change". Ids only, present values
- * only; attached after `createRun` because the run id does not exist before it.
+ * the audit trail can answer "what did this run change" and "which agent, at which
+ * version". Ids only, present values only; attached after `createRun` because the
+ * run id does not exist before it.
  */
-export function buildRunAuditCorrelation(ctx: AgentRunCtx, runId: string): Record<string, string> {
+export function buildRunAuditCorrelation(
+  ctx: AgentRunCtx,
+  runId: string,
+  agent?: RunAuditAgent | null,
+): Record<string, string> {
   const correlation: Record<string, string> = { agentRunId: runId }
+  if (agent?.agentId) correlation.agentId = agent.agentId
+  if (agent?.agentVersion) correlation.agentVersion = agent.agentVersion
   if (ctx.parentRunId) correlation.parentAgentRunId = ctx.parentRunId
   if (ctx.workflowInstanceId) correlation.workflowInstanceId = ctx.workflowInstanceId
   if (ctx.correlationId) correlation.correlationId = ctx.correlationId
@@ -166,10 +179,11 @@ export function withRunAuditCorrelation(
   commandCtx: CommandRuntimeContext,
   ctx: AgentRunCtx,
   runId: string,
+  agent?: RunAuditAgent | null,
 ): CommandRuntimeContext {
   return {
     ...commandCtx,
-    auditCorrelation: { ...(commandCtx.auditCorrelation ?? {}), ...buildRunAuditCorrelation(ctx, runId) },
+    auditCorrelation: { ...(commandCtx.auditCorrelation ?? {}), ...buildRunAuditCorrelation(ctx, runId, agent) },
   }
 }
 

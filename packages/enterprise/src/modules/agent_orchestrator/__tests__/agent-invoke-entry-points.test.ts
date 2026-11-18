@@ -61,6 +61,7 @@ const KEY_OWNER = '88888888-8888-4888-8888-888888888888'
 const SOURCE_RUN_ID = '55555555-5555-4555-8555-555555555555'
 const AGENT_PRINCIPAL_USER = '99999999-9999-4999-8999-999999999999'
 const AGENT_ID = 'test.invoke_gated'
+const DELEGATING_PARENT_ID = 'test.invoke_gated_parent'
 const SECRET_FEATURE = 'secret_module.secret_feature'
 
 type Row = Record<string, unknown>
@@ -172,7 +173,9 @@ async function viaDelegateTool(): Promise<AdapterOutcome> {
   const container = {
     resolve: (name: string) => {
       if (name === 'agentRuntime') return runtime
-      if (name === 'agentRunSessionStore') return { resolveActiveRunId: async () => null }
+      if (name === 'agentRunSessionStore') {
+        return { resolveActiveRunId: async () => null, resolveActiveAgentId: async () => DELEGATING_PARENT_ID }
+      }
       return undefined
     },
   }
@@ -180,6 +183,7 @@ async function viaDelegateTool(): Promise<AdapterOutcome> {
     tenantId: TENANT,
     organizationId: ORG,
     userId: USER,
+    sessionId: 'sess_delegating_parent',
     container,
     userFeatures: [],
     isSuperAdmin: false,
@@ -246,6 +250,15 @@ beforeAll(() => {
     description: 'Researcher sub-agent gated by a feature.',
     instructions: 'BASE',
     requiredFeatures: [SECRET_FEATURE],
+    result: { kind: 'research', schema: z.object({ kind: z.literal('research'), data: z.unknown() }) },
+  })
+  defineAgent({
+    id: DELEGATING_PARENT_ID,
+    moduleId: 'agent_orchestrator',
+    label: 'Delegating parent',
+    description: 'Parent that declares the gated researcher as a sub-agent.',
+    instructions: 'BASE',
+    subAgents: [AGENT_ID],
     result: { kind: 'research', schema: z.object({ kind: z.literal('research'), data: z.unknown() }) },
   })
 })

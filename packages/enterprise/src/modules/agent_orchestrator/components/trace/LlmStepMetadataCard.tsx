@@ -49,18 +49,38 @@ function ModelCell({ row }: { row: LlmStepRow }) {
   )
 }
 
+function IgnoredParametersNote({ row }: { row: LlmStepRow }) {
+  const t = useT()
+  if (row.ignoredParameters.length === 0) return null
+  return (
+    <span className="block text-xs text-muted-foreground" data-testid="llm-step-params-ignored">
+      {t('agent_orchestrator.trace.paramsIgnored', undefined, { names: row.ignoredParameters.join(', ') })}
+    </span>
+  )
+}
+
 function ParametersCell({ row }: { row: LlmStepRow }) {
   const t = useT()
   if (!row.recorded) return <MutedText>{t('agent_orchestrator.trace.notRecorded')}</MutedText>
-  if (row.parameters.length === 0) return <MutedText>{t('agent_orchestrator.trace.providerDefault')}</MutedText>
+  if (row.parameters.length === 0) {
+    return (
+      <span className="block space-y-0.5">
+        <MutedText>{t('agent_orchestrator.trace.providerDefault')}</MutedText>
+        <IgnoredParametersNote row={row} />
+      </span>
+    )
+  }
   return (
-    <ul className="space-y-0.5">
-      {row.parameters.map((parameter) => (
-        <li key={parameter.name} className="break-all font-mono text-xs text-foreground">
-          {parameter.name}={parameter.value}
-        </li>
-      ))}
-    </ul>
+    <span className="block space-y-0.5">
+      <ul className="space-y-0.5">
+        {row.parameters.map((parameter) => (
+          <li key={parameter.name} className="break-all font-mono text-xs text-foreground">
+            {parameter.name}={parameter.value}
+          </li>
+        ))}
+      </ul>
+      <IgnoredParametersNote row={row} />
+    </span>
   )
 }
 

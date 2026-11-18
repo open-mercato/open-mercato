@@ -216,6 +216,30 @@ function expectExportSafe(resourceSpans: OtlpResourceSpansInput[]): void {
 }
 
 describe('mapAgentRunToOtlp', () => {
+  test.each(['stored', 'storage_unavailable', 'encryption_unavailable', 'disabled', 'over_cap_truncated'])(
+    'exports om.content.status = %s on the chat span unchanged',
+    (status) => {
+      const bundle = standaloneBundle()
+      const llm = bundle.spans.find((span) => span.id === LLM_SPAN_ID)!
+      llm.attributes = { ...llm.attributes, 'om.content.status': status }
+
+      const output = mapAgentRunToOtlp(bundle, OPTIONS)
+
+      expectExportSafe(output)
+      expect(attr(spanByName(output, 'chat gpt-test-2026'), 'om.content.status')).toBe(status)
+    },
+  )
+
+  test('drops an om.content.status value outside the known statuses', () => {
+    const bundle = standaloneBundle()
+    const llm = bundle.spans.find((span) => span.id === LLM_SPAN_ID)!
+    llm.attributes = { ...llm.attributes, 'om.content.status': 'not_a_status' }
+
+    const output = mapAgentRunToOtlp(bundle, OPTIONS)
+
+    expect(attr(spanByName(output, 'chat gpt-test-2026'), 'om.content.status')).toBeUndefined()
+  })
+
   test('standalone run maps run, chat, tool and system spans with the resource and scope', () => {
     const output = mapAgentRunToOtlp(standaloneBundle(), { ...OPTIONS, environment: 'staging' })
     expectExportSafe(output)
@@ -866,6 +890,29 @@ function contentBundle(content: RunExportContent, toolAttributes: Record<string,
     content,
   }
 }
+
+describe('mapAgentRunToOtlp provider-dropped settings', () => {
+  it('exports om.params.ignored and no gen_ai.request key for the dropped setting', () => {
+    const bundle = buildBundle({
+      spans: [
+        buildSpan({
+          id: LLM_SPAN_ID,
+          kind: 'llm',
+          name: 'llm.step',
+          attributes: {
+            'gen_ai.provider.name': 'openai',
+            'gen_ai.request.model': 'gpt-5-mini',
+            'gen_ai.request.seed': 7,
+            'om.params.ignored': ['temperature'],
+          },
+        }),
+      ],
+    })
+    const chatSpan = allSpans(mapAgentRunToOtlp(bundle, OPTIONS)).find((span) => span.name.startsWith('chat'))
+    expect(chatSpan?.attributes).toMatchObject({ 'gen_ai.request.seed': 7, 'om.params.ignored': ['temperature'] })
+    expect(chatSpan?.attributes).not.toHaveProperty('gen_ai.request.temperature')
+  })
+})
 
 describe('mapAgentRunToOtlp content', () => {
   const exported = () => contentFor({ status: 'exported', request: LLM_REQUEST, response: LLM_RESPONSE })

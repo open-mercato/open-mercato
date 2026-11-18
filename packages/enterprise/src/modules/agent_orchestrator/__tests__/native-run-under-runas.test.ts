@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto'
 import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
 import type { QueryEngine, QueryOptions, QueryResult } from '@open-mercato/shared/lib/query/types'
 import { captureLogs } from './support/captureLogs'
+import { decoratedTableName } from './support/entityTableName'
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import {
   CommandBus as SharedCommandBus,
@@ -160,7 +161,7 @@ function createFakeOrm() {
       const payload = type === 'update' ? changedFields(row) : { ...row }
       return {
         entity: row,
-        meta: { className: entity?.name, class: entity },
+        meta: { className: entity?.name, tableName: decoratedTableName(entity), class: entity },
         changeSet: { type, payload },
       } as unknown as EventArgs<unknown>
     }
@@ -833,10 +834,17 @@ describe('ambient run correlation for tool writes', () => {
     await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, { ...baseCtx, correlationId: 'corr-1' })
 
     const runId = String(onlyRun(orm).id)
-    expect(ambientSeenByTool).toEqual({ agentRunId: runId, correlationId: 'corr-1' })
+    expect(ambientSeenByTool).toEqual({
+      agentRunId: runId,
+      correlationId: 'corr-1',
+      agentId: AGENT_ID,
+      agentVersion: expect.stringMatching(/^sha256:[0-9a-f]{16}$/),
+    })
     expect(actionLog).toHaveBeenCalledTimes(1)
     const logged = actionLog.mock.calls[0][0]
-    expect(logged.context).toEqual({ correlation: { agentRunId: runId, correlationId: 'corr-1' } })
+    expect(logged.context).toEqual({
+      correlation: { agentRunId: runId, correlationId: 'corr-1', agentId: AGENT_ID, agentVersion: expect.stringMatching(/^sha256:[0-9a-f]{16}$/) },
+    })
     expect(getAmbientAuditCorrelation()).toBeNull()
   })
 })

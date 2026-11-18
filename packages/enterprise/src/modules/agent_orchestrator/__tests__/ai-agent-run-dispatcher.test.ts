@@ -4,7 +4,12 @@ import {
   type AiAgentRunDispatchInput,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-run-dispatcher'
 import type { AgentRegistryEntry } from '../lib/sdk/defineAgent'
-import { AgentInvokeDeniedError, AgentPrincipalMissingError, AgentRunTimeoutError } from '../lib/runtime/errors'
+import {
+  AgentCallSettingsUnsupportedError,
+  AgentInvokeDeniedError,
+  AgentPrincipalMissingError,
+  AgentRunTimeoutError,
+} from '../lib/runtime/errors'
 import type { AgentRunCtx } from '../lib/runtime/persistence'
 
 const registeredEntries = new Map<string, AgentRegistryEntry>()
@@ -201,6 +206,15 @@ describe('AO ai-assistant agent run dispatcher', () => {
     await expect(principalMissing.dispatcher.runObject(dispatchInput())).rejects.toMatchObject({
       name: 'AiAgentDispatchDeniedError',
       code: 'agent_principal_missing',
+      agentId: 'test.research',
+    })
+
+    const settingsUnsupported = buildRuntime(async () => {
+      throw new AgentCallSettingsUnsupportedError('test.research')
+    })
+    await expect(settingsUnsupported.dispatcher.runObject(dispatchInput())).rejects.toMatchObject({
+      name: 'AiAgentDispatchDeniedError',
+      code: 'agent_call_settings_unsupported',
       agentId: 'test.research',
     })
 

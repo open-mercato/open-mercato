@@ -13,7 +13,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { withAuditCorrelation } from '@open-mercato/shared/lib/commands/auditCorrelationScope'
 import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
 import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
-import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { resolveAgentDefinitionHash, resolveRunAgentVersion } from '../trace/definitionHash'
 import { buildAgentRunManifestInput, captureManifestTraceparent } from '../trace/runManifestEntry'
 import type { RunManifestCapture, RunManifestInput } from '../trace/runManifest'
 import { resolveRunCapture } from '../trace/capturePolicy'
@@ -45,7 +45,7 @@ import {
   buildToolConsultedPrepareStep,
   collectEnforcedToolSets,
 } from '../guardrails/integrity/rules/toolConsulted'
-import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
+import { emitRunReviewRequested, resolveInteractiveInvokerUserId } from '../guardrails/integrity/reviewRequestedEvent'
 import { readCheckRuleId } from '../guardrails/integrity/summary'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
@@ -55,6 +55,7 @@ import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
   buildNativeStepRecord,
+  extractIgnoredCallSettings,
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
@@ -79,9 +80,15 @@ import {
   shapeResult,
 } from './persistence'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  describeStructuredOutputFailure,
+  readStructuredOutputFailure,
+  type StructuredOutputFailure,
+} from './structuredOutputFailure'
 import { resolveEffectiveToolAcl } from '../identity/resolveEffectiveToolAcl'
 import { resolvePrincipalToolAclRecord } from '../identity/principalDeniedTools'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { extractFileInput } from './fileInput'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
 
@@ -141,11 +148,20 @@ export class NativeAgentRunner {
   async run(
     agentId: string,
     entry: AgentRegistryEntry,
-    input: unknown,
+    rawInput: unknown,
     ctx: AgentRunCtx,
   ): Promise<AgentResult> {
     const baseCommandCtx = buildCommandContext(this.container, ctx)
+    // The reserved `__files` envelope stages attachments into an OpenCode
+    // sandbox. Native has no sandbox, so it is dropped before the input is
+    // persisted or prompted — business data only, same as the OpenCode runner.
+    const { input, files: droppedFiles } = extractFileInput(rawInput)
+    if (droppedFiles) {
+      logger.warn('native run ignores the attachment envelope; the file plane is OpenCode-only', { agentId })
+    }
 
+    const definitionHash = resolveAgentDefinitionHash(entry)
+    const auditAgent = { agentId, agentVersion: resolveRunAgentVersion({ definitionHash }) }
     const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
       tenantId: ctx.tenantId,
@@ -163,9 +179,9 @@ export class NativeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
-      definitionHash: resolveAgentDefinitionHash(entry),
+      definitionHash,
     })
-    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId)
+    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId, auditAgent)
 
     if (ctx.onRunPersisted) {
       try {
@@ -413,7 +429,9 @@ export class NativeAgentRunner {
 
     const modelStartMs = Date.now()
     let rawObject: unknown
+    let structuredFailure: StructuredOutputFailure | null = null
     let fallbackUsage: { inputTokens?: number; outputTokens?: number } | null = null
+    let fallbackIgnoredSettings: ReturnType<typeof extractIgnoredCallSettings> = []
     // Usage + estimated-cost stamp for the terminal transition (data-honesty
     // spec §3.2): tokens summed from the recorded steps (or the object-mode
     // fallback usage), cost from the static pricing table for the model that
@@ -499,6 +517,7 @@ export class NativeAgentRunner {
           fallbackUsage,
           fallbackModel: entry.defaultModel ?? null,
           fallbackCall: attached.fallbackCall,
+          ...(fallbackIgnoredSettings.length > 0 ? { fallbackIgnoredSettings } : {}),
           manifest: buildManifest(),
           ...(runCapture ? { captureLevel: runCapture.level, redactPii: runCapture.redactPii } : {}),
         },
@@ -519,14 +538,14 @@ export class NativeAgentRunner {
         withRunContext(
           runId,
           () =>
-            withAuditCorrelation(buildRunAuditCorrelation(ctx, runId), () =>
+            withAuditCorrelation(buildRunAuditCorrelation(ctx, runId, auditAgent), () =>
               runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
                 const objectResult = await runAiAgentObject({
                   agentId,
                   input: renderUntrustedModelInput(input, entry.untrustedInputs, createUntrustedInputNonce()),
                   authContext,
                   container: this.container,
-                  output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
+                  output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.modelSchema ?? entry.schema },
                   // Propose-only agents stay read-only: run a read-only tool loop so the
                   // agent can gather data (via its own tools or skill-contributed tools)
                   // before proposing. The runtime auto-falls back to a plain structured
@@ -550,12 +569,14 @@ export class NativeAgentRunner {
                   return await objectResult.object
                 }
                 fallbackUsage = objectResult.usage ?? null
+                fallbackIgnoredSettings = extractIgnoredCallSettings(objectResult.warnings)
                 return objectResult.object
               }),
             ),
           ctx.source,
           resolveInvoker(ctx) ?? undefined,
           runToolCallSink,
+          agentId,
         ),
       )
       const raced = await Promise.race([
@@ -577,16 +598,34 @@ export class NativeAgentRunner {
         })
         throw new AgentRunTimeoutError(agentId, runTimeoutMs)
       }
-      rawObject = raced
+      rawObject = entry.normalizeModelOutput ? entry.normalizeModelOutput(raced) : raced
     } catch (err) {
       if (err instanceof AgentRunTimeoutError) {
         await captureTrace()
         throw err
       }
-      const message = err instanceof Error ? err.message : String(err)
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
-      await captureTrace()
-      throw err
+      // A file agent's model is given the strict variant of its OUTCOME schema
+      // (A-2). When the provider's structured output fails, the answer goes on to
+      // the output checks below instead of failing the run as a crash: the
+      // AUTHORED schema judges it, and a failure is recorded as a schema check.
+      structuredFailure = entry.modelSchema ? readStructuredOutputFailure(err) : null
+      if (structuredFailure) {
+        logger.warn('structured output failed; judging the answer against the authored schema', {
+          runId,
+          agentId,
+          reason: structuredFailure.reason,
+        })
+        if (structuredFailure.usage && stepRecords.length === 0) fallbackUsage = structuredFailure.usage
+        rawObject =
+          structuredFailure.recovered !== undefined && entry.normalizeModelOutput
+            ? entry.normalizeModelOutput(structuredFailure.recovered)
+            : structuredFailure.recovered
+      } else {
+        const message = err instanceof Error ? err.message : String(err)
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
+        await captureTrace()
+        throw err
+      }
     } finally {
       deadline.cancel()
     }
@@ -696,7 +735,11 @@ export class NativeAgentRunner {
         phase: 'output',
         proposalId: null,
       })
-      const detail = parsed.success ? 'guardrail block' : parsed.error.message
+      const detail = parsed.success
+        ? 'guardrail block'
+        : structuredFailure
+          ? `${describeStructuredOutputFailure(structuredFailure)}: ${parsed.error.message}`
+          : parsed.error.message
       await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...buildUsageStamp() })
       await captureTrace()
       const blocked = verdict.blockedReason
@@ -761,6 +804,7 @@ export class NativeAgentRunner {
       workflowInstanceId: ctx.workflowInstanceId ?? null,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
+      invokedByUserId: resolveInteractiveInvokerUserId(ctx),
       reviewRequest: integrityOutcome?.reviewRequest,
     })
 

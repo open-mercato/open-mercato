@@ -19,6 +19,8 @@ import {
   MCP_AUDIT_RESOURCE_KIND,
   MCP_AUDIT_WRITE_TIMEOUT_MS,
   buildMcpAuditAccessLogInput,
+  MAX_AUDIT_ARG_KEYS,
+  MAX_AUDIT_ARG_KEY_LENGTH,
   extractArgKeys,
   mapToolResultToAuditOutcome,
   recordMcpToolCall,
@@ -81,6 +83,12 @@ describe('extractArgKeys', () => {
     expect(extractArgKeys(null)).toEqual([])
     expect(extractArgKeys('text')).toEqual([])
     expect(extractArgKeys([1, 2])).toEqual([])
+  })
+
+  it('caps the number and length of recorded keys', () => {
+    const manyKeys = Object.fromEntries(Array.from({ length: 1000 }, (_, index) => [`key${index}`, index]))
+    expect(extractArgKeys(manyKeys)).toHaveLength(MAX_AUDIT_ARG_KEYS)
+    expect(extractArgKeys({ [`k${'x'.repeat(5000)}`]: 1 })[0]).toHaveLength(MAX_AUDIT_ARG_KEY_LENGTH)
   })
 })
 

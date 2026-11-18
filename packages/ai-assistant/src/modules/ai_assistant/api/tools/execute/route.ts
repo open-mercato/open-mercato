@@ -45,7 +45,9 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Missing tool name, unknown tool, invalid input, or tool execution error.' },
         { status: 401, description: 'Unauthenticated.' },
         { status: 403, description: 'Mutation tools cannot execute directly, or caller lacks tool permissions.' },
+        { status: 429, description: 'Agent tool call rate limit exceeded for this API key or user (see Retry-After).' },
         { status: 500, description: 'Unexpected failure while executing the tool.' },
+        { status: 503, description: 'Agent tool refused because the configured rate limiter is unavailable.' },
       ],
     },
   },
@@ -180,6 +182,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { success: false, error: result.error, code: result.errorCode },
         { status: 403 }
+      )
+    }
+
+    if (result.errorCode === 'RATE_LIMITED') {
+      return NextResponse.json(
+        { success: false, error: result.error, code: result.errorCode },
+        { status: 429, headers: { 'Retry-After': String(result.retryAfterSeconds ?? 1) } }
+      )
+    }
+
+    if (result.errorCode === 'RATE_LIMIT_UNAVAILABLE') {
+      return NextResponse.json(
+        { success: false, error: result.error, code: result.errorCode },
+        { status: 503 }
       )
     }
 

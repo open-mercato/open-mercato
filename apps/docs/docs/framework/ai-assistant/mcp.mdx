@@ -347,6 +347,16 @@ export const aiTools = [
 - **Kill switch.** `OM_AGENT_INVOKE_ENFORCEMENT=off` turns invoke denials into log entries (a warning is logged at boot). Use it only to unblock a rollout, and turn it back on.
 - **Module disabled.** Without `agent_orchestrator` no dispatcher is registered and nothing else knows the agent id. The tool is then hidden from `tools/list`, a direct call returns `AGENT_DISPATCHER_UNAVAILABLE`, and the MCP server starts normally.
 
+#### Rate limit
+
+Each agent-tool call runs a full agent loop, so calls over the MCP servers (`mcp:serve-http`, `mcp:serve`, `mcp:dev`) and `POST /api/ai_assistant/tools/execute` are rate-limited. One bucket covers every agent tool, per tenant and per API key; a caller using a session token (`_sessionToken` or a staff session) gets a bucket per user instead. The default is 30 calls per 60 seconds, tunable with `RATE_LIMIT_AI_AGENT_TOOL_POINTS`, `RATE_LIMIT_AI_AGENT_TOOL_DURATION` and `RATE_LIMIT_AI_AGENT_TOOL_BLOCK_DURATION`. Plain (non-agent) tools and agent tools called from inside an agent's own loop are not counted.
+
+- Over the limit, the call returns `RATE_LIMITED` without starting the agent; `/tools/execute` answers `429` with `Retry-After`. The audit row records `outcome: denied`.
+- When a limiter is registered but cannot decide (for example Redis is unreachable), the call returns `RATE_LIMIT_UNAVAILABLE` (`503` on `/tools/execute`, audit `outcome: error`) instead of running unmetered.
+- With no limiter registered, or `RATE_LIMIT_ENABLED=false`, calls are not limited.
+
+To check the limit end to end, start the app with `OM_TEST_RATE_LIMIT_MODE=enabled`, `RATE_LIMIT_AI_AGENT_TOOL_POINTS=1` and the `agent_examples` module (`OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`), then run the integration spec `TC-AI-MCP-RATE-LIMIT-018` with the same two rate-limit variables. CI skips this spec and relies on the unit test `tool-executor.agent-tool-rate-limit.test.ts`.
+
 #### Audit
 
 A call to an agent tool writes the usual `access_logs` row (see [Audit of MCP tool calls](#audit-of-mcp-tool-calls)) with three extra `context` fields: `agentId`, `aiAgentRunId` (the `runId` above) and `agentRunId`, so a call can be traced to the agent run it started.
@@ -370,7 +380,7 @@ The exposure config decides which registered tools a server offers at all, befor
 | Mutation mode | `--mutation-mode direct\|deny\|approval` | `OM_MCP_MUTATION_MODE` | `direct` |
 | Include tools that wrap AI agents | `--no-agent-tools` (hides them) | `OM_MCP_AGENT_TOOLS` (boolean) | `true` |
 
-Precedence per setting: CLI flag, then env var, then default. The flags are accepted by `mcp:serve` and `mcp:serve-http`; `mcp:dev` reads the env vars only. An invalid `--mutation-mode` refuses to start; an invalid `OM_MCP_MUTATION_MODE` falls back to `direct` and logs a warning.
+Precedence per setting: CLI flag, then env var, then default. The flags are accepted by `mcp:serve` and `mcp:serve-http`; `mcp:dev` reads the env vars only. An invalid `--mutation-mode` or `OM_MCP_MUTATION_MODE` refuses to start the server, so a typo can never silently turn approval off. Code that reads the env var without starting a server (the `/api/ai_assistant/tools` view, the pending-action re-check) treats an invalid value as `deny`.
 
 A tool is exposed when all of these hold:
 
@@ -428,7 +438,9 @@ Every `tools/call` on the three servers and every `POST /api/ai_assistant/tools/
 | actor | the session user, else the API key's session user, else the key's `createdBy` user |
 | `context` | `channel` (`mcp` / `tools-api`), `mcpServer` (`http` / `dev` / `stdio` / `null`), `apiKeyId`, `sessionKeyId`, `principal`, `outcome` (`ok`, `denied`, `invalid_input`, `error`, `mutation_denied`, `pending_approval`, `dispatcher_unavailable`), `errorCode`, `durationMs`, `isMutation`, `agentId`, `aiAgentRunId`, `agentRunId` (agent tools only, otherwise `null`), `pendingActionIds`, `correlationId`, `argKeys` |
 
-Argument **values** are never stored, only the argument names (`argKeys`, without `_sessionToken`).
+Argument **values** are never stored, only the argument names (`argKeys`, without `_sessionToken`; at most 64 names, each cut to 128 characters).
+
+Refused calls are audited too. A call for an unknown tool, or for a tool hidden from the caller by the exposure config, the mutation mode or the ACL, writes `outcome: 'denied'` with `errorCode: 'NOT_FOUND'`; on `mcp:serve-http` and `mcp:dev`, arguments rejected by the tool's input schema write `outcome: 'invalid_input'` with `errorCode: 'VALIDATION_ERROR'`. The caller gets the same "not found" result for a hidden tool as for an unknown one. On `mcp:serve-http` a refused call is attributed to the request's verified principal (the `x-om-session-token` header user, else the API key), never to an unverified `_sessionToken` argument. In the row, a refused tool name is cut to 128 characters and control or formatting characters are replaced with `?`.
 
 Every call gets a correlation id: the `x-correlation-id` request header when it is valid (max 128 characters, `[A-Za-z0-9._:-]`), otherwise a fresh UUID. MCP tool results echo it as `_meta.correlationId`, so a client can quote it when reporting a problem.
 
@@ -481,6 +493,7 @@ Pending MCP actions are approved on the **Pending AI actions** page at `/backend
 | `OM_MCP_TOOL_DENYLIST` | unset | Comma-separated tool names or `prefix*` globs to hide. Wins over the allowlist. |
 | `OM_MCP_MUTATION_MODE` | `direct` | `direct`, `deny`, or `approval`. MCP servers only; `/api/ai_assistant/tools/execute` always refuses mutation tools. Recommended in production: `approval`. |
 | `OM_MCP_AGENT_TOOLS` | `true` | Set to `false` to hide tools that wrap AI agents. |
+| `RATE_LIMIT_AI_AGENT_TOOL_POINTS` / `_DURATION` / `_BLOCK_DURATION` | `30` / `60` / unset | Agent-tool calls allowed per window, per tenant and API key (or session user). See [Rate limit](#rate-limit). |
 | `OM_MCP_PENDING_ACTION_TTL_SECONDS` | `86400` | Expiry of pending actions created by MCP and `/tools/execute`. |
 | `AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA` | unset | Add `ai_assistant.mcp_tool_call` to keep MCP audit rows for the core retention window. |
 

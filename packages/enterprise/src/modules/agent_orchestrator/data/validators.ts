@@ -283,11 +283,24 @@ export const runListQuerySchema = z
   .passthrough()
 export type RunListQuery = z.infer<typeof runListQuerySchema>
 
-/** Body schema for POST /agents/:id/run (playground). */
+/**
+ * Body schema for POST /agents/:id/run (playground) and POST /agent-api/agents/:id/run.
+ *
+ * `callSettings` are per-call model settings merged over the agent's
+ * `modelSettings` key by key. Same HTTP contract as the ai-assistant
+ * `run-object` route: strict keys, capped values, no `providerOptions`.
+ */
 export const agentRunRequestSchema = z.object({
   input: z.unknown(),
+  callSettings: aiAgentHttpCallSettingsSchema.optional(),
 })
 export type AgentRunRequest = z.infer<typeof agentRunRequestSchema>
+
+/** Optional body for POST /runs/:id/rerun — the original input is reused; only model settings may change. */
+export const agentRerunRequestSchema = z.object({
+  callSettings: aiAgentHttpCallSettingsSchema.optional(),
+})
+export type AgentRerunRequest = z.infer<typeof agentRerunRequestSchema>
 
 /** The dispositions an operator may set through the dispose endpoint (area 03). */
 export type ProposalDisposition = 'approved' | 'edited' | 'rejected'
@@ -2217,6 +2230,22 @@ export const evalCaseRunListQuerySchema = z.object({
   after: z.string().optional(),
 })
 export type EvalCaseRunListQuery = z.infer<typeof evalCaseRunListQuerySchema>
+
+/** Regression dashboard: completed suite runs of one agent, oldest → newest. */
+export const evalRunTrendQuerySchema = z.object({
+  agentDefinitionId: z.string().min(1).max(100),
+  evalSetVersion: z.string().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+})
+export type EvalRunTrendQuery = z.infer<typeof evalRunTrendQuerySchema>
+
+export const evalRunCompareQuerySchema = z
+  .object({
+    base: z.string().uuid(),
+    head: z.string().uuid(),
+  })
+  .refine((value) => value.base !== value.head, { message: 'base and head must differ', path: ['head'] })
+export type EvalRunCompareQuery = z.infer<typeof evalRunCompareQuerySchema>
 
 const queryBooleanSchema = z
   .string()

@@ -53,6 +53,7 @@ export type EvalToolFixtureCaseRef = {
   caseKey: string
   fixturePath: string | null
   trialIndex: number
+  trialScoped?: boolean
 }
 
 export type EvalToolFixtureLoad =
@@ -249,10 +250,17 @@ export function createFileToolFixtureStore(options: {
   recordDir?: string | null
   evalSetDir?: string | null
   maxBytes?: number
+  perTrial?: boolean
 }): EvalToolFixtureStore & { resolveReplayPath: (ref: EvalToolFixtureCaseRef) => string | null } {
   const maxBytes = options.maxBytes ?? resolveEvalToolFixtureMaxBytes()
+  const trialPath = (directory: string, ref: EvalToolFixtureCaseRef): string => {
+    const conventional = conventionalToolFixturePath(directory, ref.agentId, ref.caseKey)
+    return (options.perTrial || ref.trialScoped) && ref.trialIndex > 0
+      ? conventional.replace(/\.tools\.json$/, `.${ref.trialIndex}.tools.json`)
+      : conventional
+  }
   const resolveReplayPath = (ref: EvalToolFixtureCaseRef): string | null => {
-    if (options.replayDir) return conventionalToolFixturePath(options.replayDir, ref.agentId, ref.caseKey)
+    if (options.replayDir) return trialPath(options.replayDir, ref)
     if (ref.fixturePath && options.evalSetDir) {
       const baseDir = path.resolve(options.evalSetDir)
       const target = path.resolve(baseDir, ref.fixturePath)
@@ -273,7 +281,7 @@ export function createFileToolFixtureStore(options: {
     async save(ref, fixtures) {
       if (!options.recordDir) throw new Error(`[internal] ${TOOL_FIXTURE_RECORD_FAILED}: no record directory`)
       const file = buildToolFixtureFile({ agentId: ref.agentId, caseKey: ref.caseKey, fixtures })
-      writeToolFixtureFile(conventionalToolFixturePath(options.recordDir, ref.agentId, ref.caseKey), file, maxBytes)
+      writeToolFixtureFile(trialPath(options.recordDir, ref), file, maxBytes)
     },
   }
 }
@@ -358,8 +366,9 @@ export type EvalCliToolFixtureFlags = {
   record?: string
   replay?: string
   onFixtureMiss?: string
+  perTrial?: boolean
   fixturesFromRun?: string
-  casesFile?: { cases: ReadonlyArray<{ fixtures?: { tools?: string } | null }> } | null
+  casesFile?: { cases: ReadonlyArray<{ fixtures?: { tools?: string } | null; mocks?: unknown }> } | null
   evalSetDir?: string | null
 }
 
@@ -370,8 +379,8 @@ export type EvalCliToolFixtureResult =
 /**
  * Parses the eval CLI `--record`, `--replay`, `--on-fixture-miss` and
  * `--fixtures-from-run` flags. A `--cases` file whose cases reference
- * `fixtures.tools` replays those fixtures without `--replay`; cases without a
- * reference then run live and the suite reports `mixed`.
+ * `fixtures.tools` or declare `mocks` replays them without `--replay`; cases
+ * with neither then run live and the suite reports `mixed`.
  */
 export function parseEvalCliToolFixtureFlags(flags: EvalCliToolFixtureFlags): EvalCliToolFixtureResult {
   if (flags.record !== undefined && flags.replay !== undefined) {
@@ -390,16 +399,16 @@ export function parseEvalCliToolFixtureFlags(flags: EvalCliToolFixtureFlags): Ev
       ok: true,
       recordDir,
       implicitReplay: false,
-      options: { mode: 'record', store: createFileToolFixtureStore({ recordDir }) },
+      options: { mode: 'record', store: createFileToolFixtureStore({ recordDir, perTrial: flags.perTrial }) },
     }
   }
   const implicitReplay =
     flags.replay === undefined &&
     Boolean(flags.evalSetDir) &&
-    Boolean(flags.casesFile?.cases.some((entry) => Boolean(entry.fixtures?.tools)))
+    Boolean(flags.casesFile?.cases.some((entry) => Boolean(entry.fixtures?.tools) || Boolean(entry.mocks)))
   if (flags.replay === undefined && !implicitReplay) {
     if (flags.onFixtureMiss !== undefined) {
-      return { ok: false, message: '--on-fixture-miss requires --replay <dir> or a --cases file with fixtures.tools' }
+      return { ok: false, message: '--on-fixture-miss requires --replay <dir> or a --cases file with fixtures.tools or mocks' }
     }
     return { ok: true, options: null, recordDir: null, implicitReplay: false }
   }
@@ -412,6 +421,7 @@ export function parseEvalCliToolFixtureFlags(flags: EvalCliToolFixtureFlags): Ev
       mode: 'replay',
       onMiss,
       store: createFileToolFixtureStore({
+        perTrial: flags.perTrial,
         replayDir: flags.replay ? path.resolve(flags.replay) : null,
         evalSetDir: flags.evalSetDir ?? null,
       }),

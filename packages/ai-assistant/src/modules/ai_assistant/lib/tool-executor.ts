@@ -9,6 +9,7 @@ import { isMutationTool } from './mcp-audit'
 import { isRefusedInApprovalMode, type McpMutationMode } from './mcp-exposure'
 import { AiMutationPreparationError, prepareRawToolMutation } from './prepare-mutation'
 import { isAgentToolError } from './agent-tool-error'
+import { checkAgentToolRateLimit } from './agent-tool-rate-limit'
 
 const logger = createLogger('ai_assistant')
 
@@ -122,6 +123,36 @@ async function resolveMutationGate(
   return buildMutationRequiresApprovalResult(tool.name)
 }
 
+async function enforceAgentToolRateLimit(
+  tool: McpToolDefinition,
+  context: McpToolContext,
+  options: ExecuteToolOptions,
+): Promise<ToolExecutionResult | null> {
+  if (!(tool as AiToolDefinition).agentRef) return null
+  if (options.channel !== 'mcp' && options.channel !== 'tools-api') return null
+  const decision = await checkAgentToolRateLimit(context.container, {
+    tenantId: context.tenantId,
+    userId: options.requester?.userId ?? context.userId,
+    apiKeyId: options.requester?.apiKeyId ?? null,
+  })
+  if (decision.allowed) return null
+  if (decision.reason === 'rate_limited') {
+    logger.warn('Agent tool call rate limited', { toolName: tool.name, channel: options.channel })
+    return {
+      success: false,
+      error: `Tool "${tool.name}" was rate limited: too many agent tool calls, retry in ${decision.retryAfterSeconds}s`,
+      errorCode: 'RATE_LIMITED',
+      retryAfterSeconds: decision.retryAfterSeconds,
+    }
+  }
+  logger.warn('Agent tool call refused: rate limiter unavailable', { toolName: tool.name, channel: options.channel })
+  return {
+    success: false,
+    error: `Tool "${tool.name}" cannot run: the rate limiter is unavailable`,
+    errorCode: 'RATE_LIMIT_UNAVAILABLE',
+  }
+}
+
 function buildHandlerContext(
   context: McpToolContext,
   tool: McpToolDefinition,
@@ -188,6 +219,9 @@ export async function executeTool(
     const gateResult = await resolveMutationGate(tool as AiToolDefinition, parseResult.data, context, options)
     if (gateResult) return gateResult
   }
+
+  const rateLimitResult = await enforceAgentToolRateLimit(tool, context, options)
+  if (rateLimitResult) return rateLimitResult
 
   // Execute tool. Attach `tool` to the context so handlers that build an
   // `AiToolExecutionContext` (e.g. via `createAiApiOperationRunner`) keep their

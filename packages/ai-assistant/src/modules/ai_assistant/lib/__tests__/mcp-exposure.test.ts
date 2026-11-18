@@ -1,6 +1,8 @@
 import {
+  assertValidMcpExposureConfig,
   buildDirectMutationModeWarning,
   collectMcpExposureWarnings,
+  findMcpExposureConfigError,
   listExposedMutationToolNames,
   filterToolsForCaller,
   isMcpMutationMode,
@@ -99,11 +101,12 @@ describe('resolveMcpExposureConfig', () => {
     expect(config.allow).toEqual([])
   })
 
-  it('falls back to direct for unknown mutation modes', () => {
-    expect(resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'yolo' }, {}).mutationMode).toBe('direct')
+  it('fails closed to deny for unknown mutation modes', () => {
+    expect(resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'yolo' }, {}).mutationMode).toBe('deny')
+    expect(resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'aproval' }, {}).mutationMode).toBe('deny')
     expect(
-      resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'deny' }, { 'mutation-mode': 'nope' }).mutationMode,
-    ).toBe('direct')
+      resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'direct' }, { 'mutation-mode': 'nope' }).mutationMode,
+    ).toBe('deny')
   })
 
   it('normalizes mutation mode case', () => {
@@ -134,6 +137,40 @@ describe('collectMcpExposureWarnings', () => {
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain('OM_MCP_MUTATION_MODE "aproval"')
     expect(warnings[0]).toContain('direct, deny, approval')
+    expect(warnings[0]).toContain('"deny"')
+  })
+})
+
+describe('findMcpExposureConfigError', () => {
+  it('accepts unset, blank and valid mutation modes', () => {
+    expect(findMcpExposureConfigError({}, {})).toBeNull()
+    expect(findMcpExposureConfigError({ OM_MCP_MUTATION_MODE: '  ' }, {})).toBeNull()
+    expect(findMcpExposureConfigError({ OM_MCP_MUTATION_MODE: ' Approval ' }, {})).toBeNull()
+    expect(findMcpExposureConfigError({}, { 'mutation-mode': 'DENY' })).toBeNull()
+  })
+
+  it('rejects an invalid env mutation mode', () => {
+    const error = findMcpExposureConfigError({ OM_MCP_MUTATION_MODE: 'aproval' }, {})
+    expect(error).toContain('Invalid OM_MCP_MUTATION_MODE "aproval"')
+    expect(error).toContain('direct, deny, approval')
+  })
+
+  it('rejects an invalid or missing CLI mutation mode', () => {
+    expect(findMcpExposureConfigError({}, { 'mutation-mode': 'nope' })).toContain('Invalid --mutation-mode "nope"')
+    expect(findMcpExposureConfigError({}, { 'mutation-mode': true })).toContain('Invalid --mutation-mode (missing value)')
+  })
+
+  it('ignores an invalid env value when a valid CLI flag overrides it', () => {
+    expect(findMcpExposureConfigError({ OM_MCP_MUTATION_MODE: 'yolo' }, { 'mutation-mode': 'approval' })).toBeNull()
+  })
+})
+
+describe('assertValidMcpExposureConfig', () => {
+  it('throws on an invalid env mutation mode and passes otherwise', () => {
+    expect(() => assertValidMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'yolo' })).toThrow(
+      'Invalid OM_MCP_MUTATION_MODE "yolo"',
+    )
+    expect(() => assertValidMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'approval' })).not.toThrow()
   })
 })
 

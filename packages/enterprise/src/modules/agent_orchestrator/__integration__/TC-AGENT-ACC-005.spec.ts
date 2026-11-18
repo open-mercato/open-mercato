@@ -21,6 +21,8 @@ import {
   NO_LLM_PROVIDER_SKIP_REASON,
 } from './helpers/llmProvider'
 import {
+  FORGED_PROPOSAL_ACTION_COMMAND_ID,
+  FORGED_PROPOSAL_ACTION_LABEL,
   PROPOSAL_ACTION_COMMAND_ID,
   PROPOSAL_ACTION_LABEL,
   RUN_ACTION_COMMAND_ID,
@@ -105,7 +107,8 @@ test.describe('TC-AGENT-ACC-005: run actions', () => {
       expect(items.map((item) => item.commandId)).toEqual([PROPOSAL_ACTION_COMMAND_ID, RUN_ACTION_COMMAND_ID])
       expect(items.map((item) => item.actionLabel)).toEqual([PROPOSAL_ACTION_LABEL, RUN_ACTION_LABEL])
       for (const item of items) expect(item.resourceKind).toBe(RUN_ACTION_RESOURCE_KIND)
-      expect(items[0]?.correlation).toEqual({ proposalId: own.proposalId })
+      expect(items.map((item) => item.commandId)).not.toContain(FORGED_PROPOSAL_ACTION_COMMAND_ID)
+      expect(items[0]?.correlation).toEqual({ proposalId: own.proposalId, workflowInstanceId: own.workflowInstanceId })
       expect(items[1]?.correlation).toEqual({ agentRunId: own.correlatedRunId })
 
       const empty = await apiRequest(request, 'GET', runActionsPath(own.emptyRunId), { token: adminToken })
@@ -155,6 +158,7 @@ test.describe('TC-AGENT-ACC-005: run actions', () => {
       await expect(card).toBeVisible({ timeout: 15_000 })
       await expect(card).toContainText(RUN_ACTION_LABEL)
       await expect(card).toContainText(PROPOSAL_ACTION_LABEL)
+      await expect(card).not.toContainText(FORGED_PROPOSAL_ACTION_LABEL)
       await expect(card).toContainText(RUN_ACTION_COMMAND_ID)
       await expect(card).toContainText(englishMessage('agent_orchestrator.traces.actions.columns.proposal'))
       await expect(card).toContainText(own.proposalId.slice(0, 8))

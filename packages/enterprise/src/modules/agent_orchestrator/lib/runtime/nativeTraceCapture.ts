@@ -7,7 +7,7 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/loop-step-extraction'
 import type { TraceIngest, TraceSpanIngest } from '../../data/validators'
 import { ingestTrace, SUMMARY_CHAR_LIMIT } from '../trace/traceIngestionService'
-import { createArtifactOffloader } from '../trace/artifactStore'
+import { createArtifactResultOffloader } from '../trace/artifactStore'
 import { evaluateRun } from '../eval/evalRuntimeService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { invalidateAgentRunCache } from '../crudCache'
@@ -18,6 +18,8 @@ import {
   GEN_AI_ATTRIBUTES,
   GEN_AI_OPERATIONS,
   GEN_AI_OUTPUT_TYPES,
+  IGNORABLE_CALL_SETTINGS,
+  type IgnorableCallSetting,
   LEGACY_LLM_ATTRIBUTES,
   OM_LLM_ATTRIBUTES,
   STOP_SEQUENCES_MAX_COUNT,
@@ -61,6 +63,8 @@ export type NativeStepRecord = {
   /** Wall-clock ms when the step's onStepFinish fired. */
   endedAtMs: number
   call?: NativeModelCallRecord
+  /** Requested settings the provider dropped for this step (`unsupported` warnings). */
+  ignoredSettings?: IgnorableCallSetting[]
 }
 
 export type NativeTraceInput = {
@@ -76,6 +80,8 @@ export type NativeTraceInput = {
   /** Declared model id fallback when no step reported one. */
   fallbackModel?: string | null
   fallbackCall?: NativeModelCallRecord | null
+  /** Settings the provider dropped on the toolless call (`unsupported` warnings of the generate result). */
+  fallbackIgnoredSettings?: IgnorableCallSetting[]
   /** Run manifest facts; when present the payload carries one `run.manifest` system span. */
   manifest?: RunManifestInput | null
   /** Per-step metadata level; `off` keeps the legacy llm span attributes only. Defaults to `metadata`. */
@@ -97,6 +103,7 @@ export function buildNativeStepRecord(
 ): NativeStepRecord {
   const raw = (event && typeof event === 'object' ? event : {}) as RawStepEvent
   const meta = extractStepMeta(raw)
+  const ignoredSettings = extractIgnoredCallSettings((raw as { warnings?: unknown }).warnings)
   return {
     modelId: meta.modelId,
     finishReason: meta.finishReason,
@@ -109,7 +116,26 @@ export function buildNativeStepRecord(
       durationMs: toolCall.durationMs ?? 0,
     })),
     endedAtMs,
+    ...(ignoredSettings.length > 0 ? { ignoredSettings } : {}),
   }
+}
+
+/**
+ * The call settings an AI SDK result reports as dropped: `unsupported` warnings
+ * whose `feature` names a call setting (OpenAI reasoning models drop
+ * `temperature`/`topP`, Anthropic drops `seed`, …). Anything else is ignored.
+ */
+export function extractIgnoredCallSettings(warnings: unknown): IgnorableCallSetting[] {
+  if (!Array.isArray(warnings)) return []
+  const ignored = new Set<IgnorableCallSetting>()
+  for (const warning of warnings) {
+    if (!warning || typeof warning !== 'object') continue
+    const { type, feature } = warning as { type?: unknown; feature?: unknown }
+    if (type !== 'unsupported' || typeof feature !== 'string') continue
+    const setting = IGNORABLE_CALL_SETTINGS.find((candidate) => candidate === feature)
+    if (setting) ignored.add(setting)
+  }
+  return [...ignored]
 }
 
 /** Escape hatch: `OM_AGENT_TRACE_CAPTURE=off` disables native span capture. */
@@ -148,8 +174,14 @@ function capStopSequences(values: unknown): string[] {
     .map((value) => value.slice(0, STOP_SEQUENCE_MAX_CHARS))
 }
 
-function buildRequestParameterAttributes(call: NativeModelCallRecord): SpanAttributes {
-  const settings = call.callSettings
+function buildRequestParameterAttributes(
+  call: NativeModelCallRecord,
+  ignoredSettings: readonly IgnorableCallSetting[] = [],
+): SpanAttributes {
+  const ignored = new Set<string>(ignoredSettings)
+  const settings = Object.fromEntries(
+    Object.entries(call.callSettings).filter(([key]) => !ignored.has(key)),
+  ) as NativeModelCallRecord['callSettings']
   const params: SpanAttributes = {}
   assignNumber(params, GEN_AI_ATTRIBUTES.requestTemperature, settings.temperature)
   assignNumber(params, GEN_AI_ATTRIBUTES.requestTopP, settings.topP)
@@ -161,6 +193,8 @@ function buildRequestParameterAttributes(call: NativeModelCallRecord): SpanAttri
   const stopSequences = capStopSequences(settings.stopSequences)
   if (stopSequences.length > 0) params[GEN_AI_ATTRIBUTES.requestStopSequences] = stopSequences
   if (Object.keys(params).length === 0) params[OM_LLM_ATTRIBUTES.paramsDefaults] = true
+  const dropped = ignoredSettings.filter((key) => call.callSettings[key] !== undefined)
+  if (dropped.length > 0) params[OM_LLM_ATTRIBUTES.paramsIgnored] = dropped
   return params
 }
 
@@ -172,6 +206,7 @@ function buildCallMetadataAttributes(
   call: NativeModelCallRecord,
   captureLevel: RunManifestCaptureLevel,
   fallbackUsage: { inputTokens?: number; outputTokens?: number } | null | undefined,
+  ignoredSettings: readonly IgnorableCallSetting[],
 ): SpanAttributes {
   const attributes: SpanAttributes = {
     [GEN_AI_ATTRIBUTES.operationName]: GEN_AI_OPERATIONS.chat,
@@ -181,7 +216,7 @@ function buildCallMetadataAttributes(
   assignText(attributes, GEN_AI_ATTRIBUTES.requestModel, call.requestModel)
   assignText(attributes, GEN_AI_ATTRIBUTES.responseModel, call.responseModel)
   assignText(attributes, GEN_AI_ATTRIBUTES.responseId, call.responseId)
-  Object.assign(attributes, buildRequestParameterAttributes(call))
+  Object.assign(attributes, buildRequestParameterAttributes(call, ignoredSettings))
   const inputTokens = isFiniteNumber(call.usage.inputTokens) ? call.usage.inputTokens : fallbackUsage?.inputTokens
   const outputTokens = isFiniteNumber(call.usage.outputTokens) ? call.usage.outputTokens : fallbackUsage?.outputTokens
   assignNumber(attributes, GEN_AI_ATTRIBUTES.usageInputTokens, inputTokens)
@@ -250,9 +285,10 @@ function buildLlmSpanAttributes(
   call: NativeModelCallRecord | null | undefined,
   captureLevel: RunManifestCaptureLevel,
   fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null,
+  ignoredSettings: readonly IgnorableCallSetting[] = [],
 ): SpanAttributes | null {
   if (captureLevel === 'off' || !call) return legacy
-  const metadata = buildCallMetadataAttributes(call, captureLevel, fallbackUsage)
+  const metadata = buildCallMetadataAttributes(call, captureLevel, fallbackUsage, ignoredSettings)
   const combined = { ...(legacy ?? {}), ...metadata }
   if (fitsSpanAttributeCap(combined)) return combined
   const withoutStopSequences = withoutKey(combined, GEN_AI_ATTRIBUTES.requestStopSequences)
@@ -295,6 +331,7 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
         step.call,
         captureLevel,
         step.usage,
+        step.ignoredSettings,
       ),
     })
     for (let toolIndex = 0; toolIndex < step.toolCalls.length; toolIndex += 1) {
@@ -337,6 +374,7 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
       input.fallbackCall,
       captureLevel,
       input.fallbackUsage,
+      input.fallbackIgnoredSettings,
     )
     spans.push({
       externalSpanId: `${input.runId}:0`,
@@ -440,7 +478,7 @@ export async function captureNativeRunTrace(
     const prepared = await offloadNativeTraceContent(container, scope, input)
     const result = await withRuntimeAuditWrite(() =>
       ingestTrace(em, scope, buildNativeTracePayload(prepared), {
-        offloadArtifact: createArtifactOffloader(container, scope),
+        offloadArtifactResult: createArtifactResultOffloader(container, scope),
         trustSpanContentKeys: true,
       }),
     )

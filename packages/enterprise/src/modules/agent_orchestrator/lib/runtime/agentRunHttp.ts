@@ -12,7 +12,12 @@ import {
   AgentOutputInvalidError,
   AgentRunTimeoutError,
 } from './agentRuntime'
-import { isAgentInvokeDeniedError, isAgentPrincipalMissingError } from './errors'
+import {
+  isAgentCallSettingsUnsupportedError,
+  isAgentInvokeDeniedError,
+  isAgentPrincipalMissingError,
+} from './errors'
+import type { AiAgentHttpCallSettings } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from './admission'
 import { invokeDeniedBody, principalMissingBody } from '../access/invokeDenial'
 import { integritySummarySchema, loadRunIntegritySummary, type IntegritySummary } from '../guardrails/integrity/summary'
@@ -36,9 +41,24 @@ export const guardrailBlockedErrorSchema = agentRunErrorSchema.extend({
   ruleId: z.string().nullable().optional(),
 })
 
+/** 422 body when per-call model settings target an agent whose runtime cannot apply them. */
+export const callSettingsUnsupportedErrorSchema = agentRunErrorSchema.extend({
+  code: z.literal('agent_call_settings_unsupported'),
+})
+
 /** 500 body for a failure this route could not classify — it names itself. */
 export const unclassifiedErrorSchema = agentRunErrorSchema.extend({
   code: z.literal('agent_run_failed'),
+  reason: z.string().optional(),
+})
+
+/**
+ * 500 body for a provider that rejected the structured-output schema the agent
+ * sent (a 400 naming the schema). The run never reached the model: the agent's
+ * OUTCOME schema, or its strict variant, is something this provider cannot take.
+ */
+export const outcomeSchemaRejectedErrorSchema = agentRunErrorSchema.extend({
+  code: z.literal('outcome_schema_rejected'),
   reason: z.string().optional(),
 })
 
@@ -94,9 +114,32 @@ function asModelFactoryError(err: unknown): { code: string } | null {
   return { code }
 }
 
+/**
+ * The AI SDK retries a retryable provider error (429, 5xx) and, when every
+ * attempt fails, throws `AI_RetryError` carrying the last attempt's error. The
+ * checks below judge that last error, so an exhausted quota is still recognised
+ * as a refusal after the retries.
+ */
+function unwrapRetryError(err: unknown): unknown {
+  if (!err || typeof err !== 'object') return err
+  const candidate = err as { name?: unknown; lastError?: unknown }
+  return candidate.name === 'AI_RetryError' && candidate.lastError ? candidate.lastError : err
+}
+
+const SCHEMA_REJECTION = /invalid schema|response_format|output_format|response_?schema|json_schema/i
+
+function isProviderSchemaRejection(err: unknown): boolean {
+  const unwrapped = unwrapRetryError(err)
+  if (!unwrapped || typeof unwrapped !== 'object') return false
+  const candidate = unwrapped as { name?: unknown; statusCode?: unknown; message?: unknown }
+  if (candidate.name !== 'AI_APICallError' || candidate.statusCode !== 400) return false
+  return typeof candidate.message === 'string' && SCHEMA_REJECTION.test(candidate.message)
+}
+
 function isProviderRefusal(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const candidate = err as { name?: unknown; statusCode?: unknown; responseBody?: unknown }
+  const unwrapped = unwrapRetryError(err)
+  if (!unwrapped || typeof unwrapped !== 'object') return false
+  const candidate = unwrapped as { name?: unknown; statusCode?: unknown; responseBody?: unknown }
   if (candidate.name !== 'AI_APICallError') return false
   const status = typeof candidate.statusCode === 'number' ? candidate.statusCode : null
   if (status !== null && PROVIDER_REFUSAL_STATUSES.has(status)) return true
@@ -105,12 +148,15 @@ function isProviderRefusal(err: unknown): boolean {
 }
 
 export type ParsedAgentRunRequest =
-  | { ok: true; input: unknown }
+  | { ok: true; input: unknown; callSettings?: AiAgentHttpCallSettings }
   | { ok: false; response: NextResponse }
 
 export function parseAgentRunRequest(body: unknown): ParsedAgentRunRequest {
   const parsed = agentRunRequestSchema.safeParse(body)
-  if (parsed.success) return { ok: true, input: parsed.data.input }
+  if (parsed.success) {
+    const { input, callSettings } = parsed.data
+    return callSettings ? { ok: true, input, callSettings } : { ok: true, input }
+  }
   return {
     ok: false,
     response: NextResponse.json(
@@ -160,6 +206,12 @@ export function agentRunErrorResponse(
   }
   if (isAgentPrincipalMissingError(err)) {
     return NextResponse.json(principalMissingBody(err, agentId), { status: 409 })
+  }
+  if (isAgentCallSettingsUnsupportedError(err)) {
+    return NextResponse.json(
+      { error: 'This agent does not accept per-call model settings', code: 'agent_call_settings_unsupported' },
+      { status: 422 },
+    )
   }
   // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
   // the typed reason (kind/phase/set version) must reach the client instead
@@ -217,6 +269,22 @@ export function agentRunErrorResponse(
     return NextResponse.json(
       { error: 'The configured LLM provider refused the request for this deployment', code: 'provider_rejected' },
       { status: 503 },
+    )
+  }
+  // The provider refused the agent's structured-output schema: an authoring or
+  // platform defect, not a bad model answer and not a missing provider. Named so
+  // the author can find it; the reason is the provider's message (which names the
+  // offending schema path), never its response body.
+  if (isProviderSchemaRejection(err)) {
+    logger.error('LLM provider rejected the agent structured-output schema', { agentId, runId, err })
+    const rejected = unwrapRetryError(err) as { message: string }
+    return NextResponse.json(
+      {
+        error: 'The LLM provider rejected the agent output schema',
+        code: 'outcome_schema_rejected',
+        ...(options.exposeReason === false ? {} : { reason: rejected.message.slice(0, 300) }),
+      },
+      { status: 500 },
     )
   }
   // Anything past the typed mappings above used to rethrow into an

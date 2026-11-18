@@ -1,3 +1,5 @@
+import { withModelFactoryOverride, getModelFactoryOverride } from '../model-factory-context'
+import { withToolReplayContext, getToolReplayContext, resolveToolReplayDecision, type ToolReplayFixture } from '../llm-adapters/tool-replay-context'
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: () => null,
@@ -97,6 +99,26 @@ describe('resolveAiAgentTools', () => {
   afterAll(() => {
     resetAgentRegistryForTests()
     toolRegistry.clear()
+  })
+
+  it('A-3 encapsulates nested inference and tool calls in the recorded outer tool result', async () => {
+    const recorded: ToolReplayFixture[] = []
+    const definition = makeTool({ name: 'customers.nested_lookup', handler: async () => {
+      expect(getModelFactoryOverride()).toBeUndefined()
+      const nested = resolveToolReplayDecision({ toolName: 'child.lookup', args: {}, isMutation: false, toolCallId: 'child-call' })
+      if (nested.kind === 'record') nested.sink({ toolName: 'child.lookup', argsKey: nested.call.argsKey, args: {}, output: {}, occurrence: 0 })
+      expect(getToolReplayContext()?.mode).toBe('record')
+      return { value: 'synthetic-child-output' }
+    } })
+    registerMcpTool(definition, { moduleId: 'customers' })
+    seedAgentRegistryForTests([makeAgent({ id: 'customers.nested', moduleId: 'customers', allowedTools: [definition.name] })])
+    const result = await resolveAiAgentTools({ agentId: 'customers.nested', authContext: baseAuth })
+    const execute = result.tools.customers__nested_lookup as { execute: (args: unknown, options: { toolCallId: string; messages: unknown[] }) => Promise<unknown> }
+    await withModelFactoryOverride(() => { throw new Error('Parent inference override must not reach the tool') }, () =>
+      withToolReplayContext({ mode: 'record', sink: (fixture) => recorded.push(fixture) }, () => execute.execute({}, { toolCallId: 'outer-call', messages: [] })), { isolateTools: true })
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0].toolName).toBe('customers.nested_lookup')
+    expect(recorded[0].output).toEqual({ value: 'synthetic-child-output' })
   })
 
   it('throws AgentPolicyError with structured deny code when the agent is unknown', async () => {

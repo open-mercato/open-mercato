@@ -37,6 +37,7 @@ function row(overrides: Partial<LlmStepRow> = {}): LlmStepRow {
     requestModel: 'model-large',
     responseModel: null,
     parameters: [],
+    ignoredParameters: [],
     usage: {},
     costMicros: 1_500_000,
     currency: 'USD',
@@ -209,6 +210,25 @@ describe('LlmStepPanels', () => {
     )
     expect(screen.getByTestId('llm-content-not-captured')).not.toBeNull()
     expect(screen.getByText('agent_orchestrator.trace.contentStatus.disabled')).not.toBeNull()
+    expect(apiCallMock).not.toHaveBeenCalled()
+  })
+
+  it('names encryption as the reason when content was not stored because encryption was unavailable', () => {
+    renderWithProviders(
+      <LlmStepPanels
+        runId={RUN_ID}
+        row={row({
+          content: {
+            status: 'encryption_unavailable',
+            request: { key: null, sha256: REQUEST_HASH, bytes: 10 },
+            response: { key: null, sha256: null, bytes: null },
+          },
+        })}
+        canViewContent
+      />,
+    )
+    expect(screen.getByTestId('llm-content-not-captured')).not.toBeNull()
+    expect(screen.getByText('agent_orchestrator.trace.contentStatus.encryption_unavailable')).not.toBeNull()
     expect(apiCallMock).not.toHaveBeenCalled()
   })
 

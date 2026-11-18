@@ -3,6 +3,7 @@ import type {
   SearchEntityConfig,
   SearchResult,
   SearchStrategyId,
+  SearchViewer,
 } from '@open-mercato/shared/modules/search'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import {
@@ -41,6 +42,7 @@ type ToolContext = {
   }
   userFeatures: string[]
   isSuperAdmin: boolean
+  apiKeyId?: string | null
 }
 
 /**
@@ -154,6 +156,28 @@ async function resolveActorOrganizationScope(ctx: ToolContext): Promise<{
 }
 
 /**
+ * The caller the search runs for, so entities with a per-record `filterResults`
+ * hook (e.g. document sections) apply their own open rule instead of dropping
+ * every hit. An API-key caller is the key itself (`api_key:<id>`, no user), so
+ * owner checks see the key's own ACL rather than its creator's.
+ */
+function buildSearchViewer(ctx: ToolContext, organizationId: string | undefined): SearchViewer | undefined {
+  if (!ctx.userId || !ctx.tenantId) return undefined
+  const apiKeyId = typeof ctx.apiKeyId === 'string' && ctx.apiKeyId.length > 0 ? ctx.apiKeyId : null
+  return {
+    auth: {
+      sub: apiKeyId ? `api_key:${apiKeyId}` : ctx.userId,
+      tenantId: ctx.tenantId,
+      orgId: organizationId ?? null,
+      features: [...ctx.userFeatures],
+      isSuperAdmin: ctx.isSuperAdmin === true,
+      ...(apiKeyId ? { isApiKey: true, keyId: apiKeyId } : { userId: ctx.userId }),
+    },
+    container: ctx.container,
+  }
+}
+
+/**
  * Strip fields that the entity's field policy marks as sensitive
  * (`hashOnly` exact-match PII or fully `excluded`) from a query-engine record.
  * Defense-in-depth so even an authorized caller never receives decrypted PII or
@@ -256,6 +280,7 @@ Searches customers, products, orders, deals, and more in one call.`,
       entityTypes: readableEntityTypes,
       strategies: input.strategies as SearchStrategyId[],
       limit: input.limit,
+      viewer: buildSearchViewer(ctx, orgScope.organizationId),
     })
 
     const results = filterSearchResultsByEntityAccess(rawResults, searchIndexer, subject)

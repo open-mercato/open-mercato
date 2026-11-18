@@ -1,20 +1,14 @@
+import { readEvalRunModelMode } from '../evalRunSettings'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
-  AgentEvalAssertion,
   AgentEvalCase,
   AgentEvalCaseRun,
   AgentEvalResult,
   AgentEvalSuiteRun,
   AgentRun,
 } from '../../../data/entities'
-import {
-  compareToBaseline,
-  resolveBaselineSuiteRun,
-  type AssertionBucket,
-  type EvalScope,
-  type SuiteAggregate,
-} from '../evalReplayService'
+import { compareToBaseline, resolveBaselineSuiteRun, type EvalScope } from '../evalReplayService'
 import {
   EVAL_SET_UNRESOLVED,
   readEvalSetPointer,
@@ -25,6 +19,7 @@ import {
 import type { Json } from '../types'
 import { detectFlaky } from './flaky'
 import { readEvalRunCallSettings, readEvalRunToolMode, readEvalRunToolSummary } from '../evalRunSettings'
+import { MOCK_USAGE_TRUNCATED, readEvalRunMockSummary } from '../toolMocks'
 import { getAgentEntry } from '../../sdk/defineAgent'
 import {
   buildEnvironmentWarnings,
@@ -35,6 +30,7 @@ import {
   resolveEffectiveModelSettings,
   type RecordedLlmCall,
 } from './reportEnvironment'
+import { caseStatusOf, groupCaseRunsByCase, loadAssertions, loadSuite, summarizeBuckets } from './suiteAggregation'
 import {
   EVAL_REPORT_SCHEMA,
   EVAL_REPORT_SCHEMA_VERSION,
@@ -65,13 +61,6 @@ export class EvalRunNotFinishedError extends Error {
     super('[internal] eval suite run is not finished')
     this.name = 'EvalRunNotFinishedError'
   }
-}
-
-type BaselineStatus = EvalReportCase['baselineStatus']
-
-type LoadedSuite = {
-  caseRuns: AgentEvalCaseRun[]
-  results: AgentEvalResult[]
 }
 
 function toIso(value: Date | null | undefined): string | null {
@@ -131,73 +120,6 @@ export function percentile(sortedValues: ReadonlyArray<number>, rank: number): n
 function sumOrNull(values: ReadonlyArray<number | null | undefined>): number | null {
   const present = values.filter((value): value is number => typeof value === 'number')
   return present.length ? present.reduce((sum, value) => sum + value, 0) : null
-}
-
-type AssertionInfo = { scorerKey: string; type: string }
-
-function summarizeBuckets(
-  results: ReadonlyArray<AgentEvalResult>,
-  assertionsById: Map<string, AssertionInfo>,
-): SuiteAggregate['summary'] {
-  const summary: SuiteAggregate['summary'] = {}
-  for (const result of results) {
-    const bucket: AssertionBucket = summary[result.assertionKey] ?? {
-      passed: 0,
-      failed: 0,
-      skipped: 0,
-      severity: result.severity,
-      judge: assertionsById.get(result.assertionId)?.type === 'llm_judge',
-      passRate: null,
-    }
-    if (result.passed === null || result.passed === undefined) bucket.skipped += 1
-    else if (result.passed) bucket.passed += 1
-    else bucket.failed += 1
-    summary[result.assertionKey] = bucket
-  }
-  for (const bucket of Object.values(summary)) {
-    const applied = bucket.passed + bucket.failed
-    bucket.passRate = applied ? bucket.passed / applied : null
-  }
-  return summary
-}
-
-function baselineStatusOf(trials: ReadonlyArray<AgentEvalCaseRun>): BaselineStatus {
-  if (!trials.length) return 'absent'
-  if (trials.some((trial) => trial.status === 'failed')) return 'failed'
-  if (trials.some((trial) => trial.status === 'passed')) return 'passed'
-  if (trials.some((trial) => trial.status === 'error')) return 'error'
-  return 'skipped'
-}
-
-async function loadSuite(em: EntityManager, scope: EvalScope, suiteRunId: string): Promise<LoadedSuite> {
-  const caseRuns = await findWithDecryption(
-    em,
-    AgentEvalCaseRun,
-    { suiteRunId, ...scope },
-    { orderBy: { createdAt: 'ASC' } },
-    scope,
-  )
-  const caseRunIds = caseRuns.map((entry) => entry.id)
-  const results = caseRunIds.length
-    ? await findWithDecryption(em, AgentEvalResult, { ...scope, evalCaseRunId: { $in: caseRunIds } }, undefined, scope)
-    : []
-  return { caseRuns, results }
-}
-
-async function loadAssertions(
-  em: EntityManager,
-  scope: EvalScope,
-  results: ReadonlyArray<AgentEvalResult>,
-  manifest: EvalSetManifest | null,
-): Promise<Map<string, AssertionInfo>> {
-  const assertionIds = Array.from(new Set(results.map((result) => result.assertionId)))
-  if (!assertionIds.length) return new Map()
-  const assertions = await findWithDecryption(em, AgentEvalAssertion, { id: { $in: assertionIds }, ...scope }, undefined, scope)
-  const byId = new Map<string, AssertionInfo>(
-    (manifest?.assertions ?? []).map((assertion) => [assertion.id, assertion]),
-  )
-  for (const assertion of assertions) byId.set(assertion.id, assertion)
-  return byId
 }
 
 /**
@@ -275,20 +197,8 @@ export async function buildEvalReport(
     resultsByCaseRun.set(result.evalCaseRunId, bucket)
   }
 
-  const trialsByCase = new Map<string, AgentEvalCaseRun[]>()
-  for (const caseRun of current.caseRuns) {
-    const bucket = trialsByCase.get(caseRun.evalCaseId) ?? []
-    bucket.push(caseRun)
-    trialsByCase.set(caseRun.evalCaseId, bucket)
-  }
-  for (const trials of trialsByCase.values()) trials.sort((left, right) => left.trialIndex - right.trialIndex)
-
-  const baselineTrialsByCase = new Map<string, AgentEvalCaseRun[]>()
-  for (const caseRun of baseline?.caseRuns ?? []) {
-    const bucket = baselineTrialsByCase.get(caseRun.evalCaseId) ?? []
-    bucket.push(caseRun)
-    baselineTrialsByCase.set(caseRun.evalCaseId, bucket)
-  }
+  const trialsByCase = groupCaseRunsByCase(current.caseRuns)
+  const baselineTrialsByCase = groupCaseRunsByCase(baseline?.caseRuns ?? [])
 
   const flaky = detectFlaky(
     suiteRun.repeatCount,
@@ -322,6 +232,7 @@ export async function buildEvalReport(
     }
   }
 
+  const mockSummary = readEvalRunMockSummary(suiteRun.summary)
   const buildTrial = (caseRun: AgentEvalCaseRun): EvalReportTrial => {
     const agentRunId = caseRun.agentRunId ?? null
     const trial: EvalReportTrial = {
@@ -340,6 +251,8 @@ export async function buildEvalReport(
         .map(buildResult),
     }
     if (includePayloads) trial.output = toJson(agentRunId ? runsById.get(agentRunId)?.output : null) ?? null
+    const mocks = mockSummary?.byCaseRun?.[caseRun.id]
+    if (mocks) trial.mocks = mocks
     return trial
   }
 
@@ -352,7 +265,7 @@ export async function buildEvalReport(
       name: frozenCase ? frozenCase.name : evalCase?.name ?? null,
       source: frozenCase && manifest ? manifest.source : 'db',
       flaky: flaky.flakyCaseIds.has(caseId),
-      baselineStatus: baseline ? baselineStatusOf(baselineTrialsByCase.get(caseId) ?? []) : 'absent',
+      baselineStatus: baseline ? caseStatusOf(baselineTrialsByCase.get(caseId) ?? []) : 'absent',
       trials: (trialsByCase.get(caseId) ?? []).map(buildTrial),
     }
     if (includePayloads) {
@@ -408,6 +321,7 @@ export async function buildEvalReport(
   const providers = providersOf(recordedLlmCalls)
   const toolSummary = readEvalRunToolSummary(suiteRun.summary)
   const environmentWarnings = buildEnvironmentWarnings(toolSummary)
+  if (mockSummary?.truncated) environmentWarnings.push(MOCK_USAGE_TRUNCATED)
   const countStatus = (target: AgentEvalCaseRun['status']) =>
     current.caseRuns.filter((entry) => entry.status === target).length
   const evalSetVersion = suiteRun.evalSetVersion ?? null
@@ -459,10 +373,13 @@ export async function buildEvalReport(
       modelSettings: buildReportModelSettings(effectiveModelSettings, recordedLlmCalls),
       ...(providers.length ? { providers } : {}),
       toolMode: readEvalRunToolMode(suiteRun.summary),
-      modelMode: env.OM_AI_PROVIDER === 'scripted' ? 'scripted' : 'live',
+      modelMode: readEvalRunModelMode(suiteRun.summary),
       gitSha: readString(env.GITHUB_SHA) ?? readString(env.OM_EVAL_GIT_SHA),
       cliVersion: options.cliVersion ?? null,
       ...(environmentWarnings.length ? { warnings: environmentWarnings } : {}),
+      ...(mockSummary
+        ? { mocks: { cases: mockSummary.totals.cases, requiredUnused: mockSummary.totals.requiredUnused } }
+        : {}),
     },
     totals: {
       cases: caseIds.length,

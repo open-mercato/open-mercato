@@ -7,7 +7,7 @@
 - Treat the public AI assistant docs linked below as the source of truth when they disagree with this file.
 - Use `registerMcpTool`/`defineAiTool` with Zod schemas, `moduleId`, `requiredFeatures`, and serializable handler results.
 - Run `yarn generate` after adding or changing agents, tools, API discovery metadata, or tool packs.
-- Route model selection through `createModelFactory(container)` instead of ad hoc provider clients.
+- Route model selection through `createModelFactory(container)`; scoped overrides in `model-factory-context.ts` support eval replay before credentials. Recording can isolate tool inference; see `agent-eval-ci.mdx`.
 - Route mutation-capable AI tools through the mutation approval path before execution.
 - Bind MCP and session keys with `sessionUserId`; RBAC intersects their role grants with the owner's effective ACL. Unbound machine keys retain independent role grants.
 - In delegated-key tests, check organization isolation on business records. The UserAcl API clears an empty feature list; retain an unrelated feature when testing revocation.
@@ -60,8 +60,6 @@ If a section in this AGENTS.md disagrees with one of those public docs, treat th
 - Enable dynamic API discovery so the agent can call any endpoint without hardcoded tools
 - Build the Raycast-style Command Palette UI (Cmd+K) for user interaction
 
-Four core components to understand:
-
 1. **OpenCode Agent** — AI backend that processes natural language and executes tools
 2. **MCP HTTP Server** — Exposes tools to OpenCode via HTTP on port 3001
 3. **Code Mode Tools** — 2 meta-tools (`search` + `execute`) where the AI writes JavaScript that runs in a `node:vm` sandbox
@@ -71,10 +69,7 @@ Four core components to understand:
 
 ### Add a New Tool
 
-1. Import `registerMcpTool` from `@open-mercato/ai-assistant`
-2. Define the tool with name, description, input schema, required features, and handler
-3. Register it with a `moduleId`
-4. Restart the MCP server
+Define tools with `registerMcpTool` (name, description, schema, features, handler), register a `moduleId`, then restart MCP.
 
 ```typescript
 import { registerMcpTool } from '@open-mercato/ai-assistant'

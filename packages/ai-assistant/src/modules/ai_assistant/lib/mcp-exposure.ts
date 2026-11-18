@@ -63,16 +63,46 @@ function parseMutationMode(raw: unknown): McpMutationMode | undefined {
   if (typeof raw !== 'string') return undefined
   const normalized = raw.trim().toLowerCase()
   if (!normalized) return undefined
-  return isMcpMutationMode(normalized) ? normalized : 'direct'
+  return isMcpMutationMode(normalized) ? normalized : 'deny'
 }
 
+export function findMcpExposureConfigError(
+  env: McpExposureEnv,
+  cliArgs: Record<string, unknown> = {},
+): string | null {
+  const cliMode = readCliValue(cliArgs, ['mutation-mode', 'mutationMode'])
+  if (cliMode !== undefined) {
+    const normalized = typeof cliMode === 'string' ? cliMode.trim().toLowerCase() : ''
+    if (isMcpMutationMode(normalized)) return null
+    const shown = typeof cliMode === 'string' ? `"${cliMode}"` : '(missing value)'
+    return `Invalid --mutation-mode ${shown}. Allowed values: ${MCP_MUTATION_MODES.join(', ')}.`
+  }
+  const raw = env.OM_MCP_MUTATION_MODE
+  if (typeof raw !== 'string') return null
+  const normalized = raw.trim().toLowerCase()
+  if (!normalized || isMcpMutationMode(normalized)) return null
+  return `Invalid OM_MCP_MUTATION_MODE "${raw}"; refusing to start. Allowed values: ${MCP_MUTATION_MODES.join(', ')}.`
+}
+
+export function assertValidMcpExposureConfig(
+  env: McpExposureEnv,
+  cliArgs: Record<string, unknown> = {},
+): void {
+  const error = findMcpExposureConfigError(env, cliArgs)
+  if (error) throw new Error(`[internal] ${error}`)
+}
+
+/**
+ * @deprecated An invalid `OM_MCP_MUTATION_MODE` is now a startup error; use
+ * `findMcpExposureConfigError` / `assertValidMcpExposureConfig`.
+ */
 export function collectMcpExposureWarnings(env: McpExposureEnv): string[] {
   const raw = env.OM_MCP_MUTATION_MODE
   if (typeof raw !== 'string') return []
   const normalized = raw.trim().toLowerCase()
   if (!normalized || isMcpMutationMode(normalized)) return []
   return [
-    `Invalid OM_MCP_MUTATION_MODE "${raw}"; falling back to "direct". Allowed values: ${MCP_MUTATION_MODES.join(', ')}.`,
+    `Invalid OM_MCP_MUTATION_MODE "${raw}"; treated as "deny". Allowed values: ${MCP_MUTATION_MODES.join(', ')}.`,
   ]
 }
 

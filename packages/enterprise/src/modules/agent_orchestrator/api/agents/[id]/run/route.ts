@@ -15,10 +15,12 @@ import {
   agentRunSuccessResponse,
   agentRunSuccessResponseSchema,
   createRunIdObserver,
+  callSettingsUnsupportedErrorSchema,
   guardrailBlockedErrorSchema,
   modelUnavailableErrorSchema,
   parseAgentRunRequest,
   unclassifiedErrorSchema,
+  outcomeSchemaRejectedErrorSchema,
 } from '../../../../lib/runtime/agentRunHttp'
 
 export const metadata = {
@@ -81,6 +83,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     invoker: invokerFromAuth(auth),
     entryPoint: 'run_api',
     onRunPersisted: runIdObserver.onRunPersisted,
+    ...(parsed.callSettings ? { callSettings: parsed.callSettings } : {}),
   }
 
   let result: unknown
@@ -122,7 +125,8 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: {
         contentType: 'application/json',
         schema: agentRunRequestSchema,
-        description: 'Agent input payload (shape is agent-specific).',
+        description:
+          'Agent input payload (shape is agent-specific) plus optional `callSettings` (temperature 0–2, topP 0–1, topK 1–1000, maxOutputTokens 1–32768, seed, at most 4 stopSequences of up to 64 characters, penalties -2–2), merged over the agent\'s `modelSettings`. Unknown keys, `providerOptions` and out-of-range values are rejected with 422.',
       },
       responses: [
         {
@@ -150,15 +154,15 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid input, invalid model output, run wall-clock timeout — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason and `ruleId` (the integrity rule that blocked, null otherwise)',
-          schema: z.union([errorSchema, guardrailBlockedErrorSchema]),
+            'Invalid input or `callSettings`, invalid model output, run wall-clock timeout, `callSettings` sent to an agent whose runtime cannot apply them (`code: "agent_call_settings_unsupported"`, file-defined OpenCode agents) — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason and `ruleId` (the integrity rule that blocked, null otherwise)',
+          schema: z.union([errorSchema, guardrailBlockedErrorSchema, callSettingsUnsupportedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
         {
           status: 500,
           description:
-            'The run failed for a reason this route does not classify; the body carries `code` (`agent_run_failed`) and a truncated `reason`',
-          schema: unclassifiedErrorSchema,
+            'The run failed for a reason this route does not classify (`code: "agent_run_failed"`), or the LLM provider rejected the agent output schema (`code: "outcome_schema_rejected"`); both carry a truncated `reason`',
+          schema: z.union([unclassifiedErrorSchema, outcomeSchemaRejectedErrorSchema]),
         },
         {
           status: 503,

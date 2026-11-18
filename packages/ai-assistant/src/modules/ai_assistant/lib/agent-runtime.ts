@@ -450,6 +450,7 @@ function appendLoopFinishToStream(baseResponse: Response, options: StreamFinaliz
  */
 export interface PreparedAiSdkOptions {
   model: LanguageModel
+  experimental_download?: import('ai').Experimental_DownloadFunction
   tools: ToolSet
   system: string
   messages: Awaited<ReturnType<typeof convertToModelMessages>>
@@ -534,6 +535,7 @@ type ToolLoopAgentSettingsWithModelCallHooks = ToolLoopAgentSettings<never, Tool
  */
 export interface PreparedAiSdkObjectOptions {
   model: LanguageModel
+  experimental_download?: import('ai').Experimental_DownloadFunction
   system: string
   messages: Awaited<ReturnType<typeof convertToModelMessages>>
   schemaName: string
@@ -1133,6 +1135,7 @@ export function assertLoopObjectModeCompatible(loopConfig: Partial<AiAgentLoopCo
 
 interface ResolvedAgentModel {
   model: LanguageModel
+  experimental_download?: import('ai').Experimental_DownloadFunction
   modelId: string
   providerId: string
   /**
@@ -1226,6 +1229,7 @@ function resolveAgentModel(
   })
   return {
     model: resolution.model as LanguageModel,
+    experimental_download: resolution.download,
     modelId: resolution.modelId,
     providerId: resolution.providerId,
     providerOptions: resolution.providerOptions,
@@ -2145,6 +2149,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   if (agent.executionEngine === 'tool-loop-agent') {
     const agentSettings: ToolLoopAgentSettingsWithModelCallHooks = {
       model,
+      ...(resolvedModel.experimental_download ? { experimental_download: resolvedModel.experimental_download } : {}),
       instructions: systemPrompt,
       tools: tools as ToolSet,
       stopWhen: stopConditions,
@@ -2164,6 +2169,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
 
   const preparedOptions: PreparedAiSdkOptions = {
     model,
+    ...(resolvedModel.experimental_download ? { experimental_download: resolvedModel.experimental_download } : {}),
     tools,
     system: systemPrompt,
     messages: modelMessages,
@@ -2259,6 +2265,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     // Default stream-text path (executionEngine === 'stream-text' or unset).
     const result = streamText({
       model,
+      ...(resolvedModel.experimental_download ? { experimental_download: resolvedModel.experimental_download } : {}),
       system: systemPrompt,
       messages: modelMessages,
       tools,
@@ -2476,8 +2483,25 @@ export type RunAiAgentObjectGenerateResult<TSchema> = {
    * Present only when at least one was created.
    */
   pendingActionIds?: string[]
+  /**
+   * Provider warnings of the toolless `generateObject` call (e.g. an
+   * `unsupported` setting the provider dropped). The tool-loop branch reports
+   * them per step through `loop.onStepFinish` instead. Additive.
+   */
+  warnings?: AiAgentCallWarning[]
   /** Run identifier the call is traced under (`ai_agent_runs.id`). */
   runId?: string
+}
+
+export type AiAgentCallWarning = { type: string; feature?: string; details?: string; message?: string }
+
+function readCallWarnings(result: unknown): AiAgentCallWarning[] | undefined {
+  const warnings = (result as { warnings?: unknown } | null)?.warnings
+  if (!Array.isArray(warnings) || warnings.length === 0) return undefined
+  return warnings.filter(
+    (warning): warning is AiAgentCallWarning =>
+      Boolean(warning) && typeof warning === 'object' && typeof (warning as { type?: unknown }).type === 'string',
+  )
 }
 
 export type RunAiAgentObjectStreamResult<TSchema> = {
@@ -2791,6 +2815,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       })
       const toolResult = await generateText({
         model,
+        ...(resolvedObjectModel.experimental_download ? { experimental_download: resolvedObjectModel.experimental_download } : {}),
         system: systemPrompt,
         messages: modelMessages,
         tools,
@@ -2830,6 +2855,7 @@ export async function runAiAgentObject<TSchema = unknown>(
 
     const preparedObjectOptions: PreparedAiSdkObjectOptions = {
       model,
+      ...(resolvedObjectModel.experimental_download ? { experimental_download: resolvedObjectModel.experimental_download } : {}),
       system: systemPrompt,
       messages: modelMessages,
       schemaName: resolvedOutput.schemaName,
@@ -2880,17 +2906,20 @@ export async function runAiAgentObject<TSchema = unknown>(
       }
       const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
       await synthesizedModelCall?.end(readSynthesizedResultMetadata(typedResult))
+      const genWarnings = readCallWarnings(typedResult)
       return {
         mode: 'generate',
         object: genResult.object as TSchema,
         finishReason: genResult.finishReason,
         usage: genResult.usage,
+        ...(genWarnings ? { warnings: genWarnings } : {}),
       }
     }
 
     if (resolvedOutput.mode === 'stream') {
       const streamArgs = {
         model,
+        ...(resolvedObjectModel.experimental_download ? { experimental_download: resolvedObjectModel.experimental_download } : {}),
         system: systemPrompt,
         messages: modelMessages,
         schema: resolvedOutput.schema as never,
@@ -2921,6 +2950,7 @@ export async function runAiAgentObject<TSchema = unknown>(
 
     const generateArgs = {
       model,
+      ...(resolvedObjectModel.experimental_download ? { experimental_download: resolvedObjectModel.experimental_download } : {}),
       system: systemPrompt,
       messages: modelMessages,
       schema: resolvedOutput.schema as never,
@@ -2934,11 +2964,13 @@ export async function runAiAgentObject<TSchema = unknown>(
 
     const result = await generateObject(generateArgs)
     await synthesizedModelCall?.end(readSynthesizedResultMetadata(result))
+    const resultWarnings = readCallWarnings(result)
     return {
       mode: 'generate',
       object: (result as { object: unknown }).object as TSchema,
       finishReason: (result as { finishReason?: string }).finishReason,
       usage: (result as { usage?: { inputTokens?: number; outputTokens?: number } }).usage,
+      ...(resultWarnings ? { warnings: resultWarnings } : {}),
     }
   }
 

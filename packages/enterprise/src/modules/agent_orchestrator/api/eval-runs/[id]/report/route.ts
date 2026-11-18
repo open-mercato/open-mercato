@@ -90,7 +90,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Portable suite run report as JSON, Markdown or JUnit',
       description:
-        'Renders the versioned `open-mercato.agent-eval-report` (schemaVersion 1) for one suite run. `format` selects json (default), md or junit; the response is an attachment named `eval-<suiteRunId>.<ext>`. Case inputs and agent outputs are excluded unless `includePayloads=true`. Returns 409 `run_not_finished` while the run is queued or running unless `partial=true`, which returns the report with status `running`. Cross-tenant ids return 404. Gated by agent_orchestrator.eval.export.',
+        'Renders the versioned `open-mercato.agent-eval-report` (schemaVersion 1) for one suite run. `format` selects json (default), md or junit; the response is an attachment named `eval-<suiteRunId>.<ext>`. Case inputs and agent outputs are excluded unless `includePayloads=true`. Returns 409 `run_not_finished` while the run is queued or running unless `partial=true`, which returns the report with status `running`. Cases that declared tool mocks add optional `cases[].trials[].mocks` (used / unused / unmatched mocks, call args never included) and `environment.mocks` (`cases`, `requiredUnused`). Cross-tenant ids return 404. Gated by agent_orchestrator.eval.export.',
       query: evalReportQuerySchema,
       responses: [
         { status: 200, description: 'Report file (application/json, text/markdown or application/xml)' },

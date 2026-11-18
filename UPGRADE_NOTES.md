@@ -1,5 +1,79 @@
 # Upgrade Notes
 
+## Eval cases may declare tool mocks (#9648, A-4)
+
+**Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
+
+**Action:** none. An older CLI rejects an eval-set file that uses `mocks` (the file schema is strict), so upgrade every CLI that runs such files.
+
+## Trace content retention resumes from a cursor and can be scheduled for existing organizations (#9648, C-4)
+
+**Fixed (enterprise `agent_orchestrator`).** The daily `trace-content-retention` worker used to scan only rows created in the seven days before the retention cutoff, at most 10,000 per run. Content stayed in storage when the worker did not run for a week, when `retentionDays` was lowered, or when an organization produced more rows than one run could read. The worker now keeps a per-organization cursor (tenant-scoped module config rows `agent_orchestrator` / `trace_content_retention_cursor:<organizationId>:<llm_span|context_bundle>`; no migration) and walks every `llm` span and context bundle created before the cutoff, resuming where the previous run stopped. A key that has not expired yet holds the cursor so the next run retries it (a failed delete does not; see below). The first run after the upgrade walks the whole history in batches over the following days and deletes content that the old window missed.
+
+**Action:** organizations created before the retention worker shipped have no retention schedule, because setup registers it only for new tenants and organizations. Register it once with `yarn mercato agent_orchestrator trace-retention:schedule` (every organization; `--tenant <id>` / `--org <id>` narrow the set). It is an idempotent upsert, so running it again is safe. It needs the scheduler module.
+
+**Behaviour change.** When deleting one expired storage key fails, retention now reports it (`reportError` code `agent_orchestrator.trace_content_retention_delete_failed`, plus a scoped warning log), moves the cursor past that row and does not retry the key on later runs. Before, such a key held the cursor and stalled retention for that tenant and organization. A scope whose storage is unavailable is still skipped without moving the cursor. **Action:** watch for that error code and remove the reported object from storage by hand if needed.
+
+## `delegate_agent` only reaches the calling agent's declared sub-agents (#9648, B-13)
+
+**Behaviour change (enterprise `agent_orchestrator`).** `agent_orchestrator.delegate_agent` used to run any registered `research` agent without `subAgents`, whichever agent called it. It now resolves the calling agent server-side (the native run context, or the OpenCode run session) and runs the target only when that agent lists it in `subAgents`. A call that belongs to no agent run returns `{ ok: false, error: 'no_active_run' }`; a target the calling agent did not declare returns `{ ok: false, error: 'sub_agent_not_allowed' }`. Both are returned as data, like the existing refusals.
+
+**Action:** none for agents that delegate only to their declared `subAgents`. A client that called `delegate_agent` directly, outside an agent run (for example through `/api/ai_assistant/tools/execute` or an MCP client), must run the agent through its run route or an agent tool instead.
+
+## File agents run on the native runtime by default (#9648, lightweight agent runtime Phase 3)
+
+**Behaviour change (enterprise `agent_orchestrator`, additive `ai-assistant` seam).** File-defined agents (`agents/<id>/`, including their sub-agents) used to run on the OpenCode container. The loader now registers them with `runtime: 'native'` and builds a read-only ai-assistant definition for each one: object execution mode, `readOnly: true` with `mutationPolicy: 'read-only'` (mutation tools are stripped), and an allowlist of the agent's own tools plus `load_skill`/`run_skill_script` (when it has skills or local tools) and `delegate_agent` (when it declares sub-agents). The model gets a strict variant of the OUTCOME schema, but answers are still validated against the authored schema. OpenCode MCP tool names written in `AGENT.md` (`open-mercato_<module>_<tool>`) are rewritten to native names for allowlisted tools. The generated manifest is unchanged, so you do not need to regenerate it.
+
+These agents stay on OpenCode:
+- agents with an `artifact` outcome (they write files to `out/` and return through `submit_outcome`);
+- every file agent when `OM_AGENT_FILE_AGENT_RUNTIME=opencode` is set;
+- an agent whose native definition could not be built, or that the ai-assistant registry did not accept (registry unavailable, or the id already belongs to another agent). A warning names the agent.
+
+An agent that falls back to OpenCode is not registered at all if it declares governance OpenCode cannot enforce (see the `GOVERNANCE.json` entry below).
+
+**The file plane is OpenCode-only.** The native runtime has no sandbox filesystem. The generated manifest does not carry a `files` config, so an agent loaded from `agents/<id>/` runs natively even if its `AGENT.md` opts into files. The native runner drops a `__files` input envelope (with a warning) before the input is persisted or sent to the model. Only an entry registered directly with `registerFileAgent` and `files.enabled` stays on OpenCode.
+
+**Timeout.** Native file-agent runs are bounded by `OM_AGENT_RUN_TIMEOUT_MS`, not `OM_OPENCODE_RUN_TIMEOUT_MS`. Both default to 5 minutes. If you raised the OpenCode value for slow file agents, raise `OM_AGENT_RUN_TIMEOUT_MS` too.
+
+**Run label.** New file-agent runs persist `agent_runs.runtime = 'native'` instead of `'opencode'`. Older rows keep their label. Reports or dashboards that select file-agent runs by `runtime = 'opencode'` must also count `'native'`, along with the legacy `'in-process'` label from earlier native runs.
+
+**Deprecated bridge.** `OM_AGENT_FILE_AGENT_RUNTIME=opencode` sends every file agent back to OpenCode and logs a deprecation warning once per process. Any other value, or no value, keeps the native default. The bridge lasts one minor version. It goes away with the OpenCode runtime in the decommission phase (Phase 6 of `.ai/specs/enterprise/agent-orchestrator/2026-07-07-lightweight-agent-runtime.md`), which also removes `submit_outcome`, the session store and the file plane.
+
+**Action:** for file agents with a `proposal` or `research` outcome, raise `OM_AGENT_RUN_TIMEOUT_MS` if they need more than 5 minutes. Nothing else is required. Set `OM_AGENT_FILE_AGENT_RUNTIME=opencode` only as a temporary fallback while you fix an agent that misbehaves on the native runtime.
+
+## File-defined agents declare governance in `GOVERNANCE.json` (#9648, B-3)
+
+**New (enterprise `agent_orchestrator`).** A file agent (`agents/<id>/`, also its sub-agents) can ship an optional `GOVERNANCE.json` with the `principal`, `integrity`, `untrustedInputs` and `modelSettings` keys `defineAgent` accepts. They are validated with the same parsers and enforced by the native runtime: principal provisioning and `toolAcl: 'intersect'`, output-integrity rules, untrusted-input screening and agent-level model settings. Agents without the file are unchanged, including their agent version.
+
+**Behaviour change.** Fail-closed cases: an agent whose `GOVERNANCE.json` does not validate is not registered (a warning names the agent and the rule). An agent that has to run on OpenCode — `artifact` outcome, `OM_AGENT_FILE_AGENT_RUNTIME=opencode`, or a failed native registration — and declares `untrustedInputs`, `modelSettings`, a principal in `intersect` mode (declared, or inherited from `OM_AGENT_TOOL_ACL_MODE=intersect`) or a `prepare_step` integrity rule is not registered either, because OpenCode cannot enforce them. Call-time `callSettings` sent to an agent on OpenCode used to be dropped silently; the run now refuses with `agent_call_settings_unsupported` before any run row is written, and `POST /api/ai_assistant/ai/run-object` answers `422 dispatch_option_unsupported`. `AiAgentDispatchDeniedCode` (and so the exported `AgentToolDenyCode`) gains the additive `agent_call_settings_unsupported` member; an exhaustive `switch` over it needs a new case.
+
+**Action:** none unless you run file agents on OpenCode and send `callSettings` to them — drop the settings or move the agent to the native runtime.
+
+## Agent traces stop reporting settings the provider dropped (#9648, B-10)
+
+**Behaviour change (enterprise `agent_orchestrator`, additive `ai-assistant` field).** A native agent trace used to record every requested call setting under `gen_ai.request.*`, even one the provider dropped with an `unsupported` warning. The OpenAI Responses API drops `seed`, and OpenAI reasoning models drop `temperature` and `topP`. Those settings are now left out of `gen_ai.request.*` and listed in the new span attribute `om.params.ignored`. The trace page shows them as "Ignored by the model", and OTLP exports the same key. `runAiAgentObject` exposes the toolless call's provider warnings as an optional `warnings` field. Traces recorded before this change are not rewritten.
+
+## Agent run doors accept call-time model settings (#9648, B-10)
+
+**Additive (enterprise `agent_orchestrator`, core `workflows`).** `POST /agents/{id}/run`, `POST /agent-api/agents/{id}/run`, `POST /runs/{id}/rerun` (optional body) and the workflow `INVOKE_AGENT` activity (`config.callSettings`) accept `callSettings`, using the same contract as `POST /api/ai_assistant/ai/run-object`: strict keys, capped values, no `providerOptions`. The Playground gains a **Model settings** section. Before this change these doors ignored a `callSettings` key without a word. They now validate it (422 on a bad value) and apply it.
+
+**Behaviour change:** when a caller sends non-empty `callSettings` to an agent that runs on OpenCode (an `artifact` file agent, any file agent under `OM_AGENT_FILE_AGENT_RUNTIME=opencode`, or one that fell back from native registration) through these doors, it now gets `422 agent_call_settings_unsupported` instead of a run on the agent's defaults. A workflow step with `callSettings` on such an agent fails. Calls without `callSettings` are unchanged. The ai-assistant dispatcher path (`run-object`, MCP agent tools) preserves the B-3 refusal for OpenCode agents. A stored workflow definition whose `INVOKE_AGENT` config already carried a `callSettings` key (ignored until now) is validated when the step runs. Out-of-range values, unknown keys and `{{context.*}}` tokens (they interpolate to strings) fail the step. A rerun does not reuse the original run's call settings: pass them again in the body. `modelSettings.maxOutputTokens` is a default, not a ceiling. Callers allowed to run an agent can raise it up to 32768, as they already could through `run-object`.
+
+## Refused MCP calls are audited on the HTTP and dev servers (#9648, B-2)
+
+**Behaviour change (`ai_assistant`).** `mcp:serve-http` and `mcp:dev` now write the `ai_assistant.mcp_tool_call` access-log row for calls the MCP SDK refuses before the tool handler runs, as the stdio server already did. A call for an unknown tool, or for a tool hidden by the exposure config, the mutation mode or the caller's ACL, records `outcome: 'denied'` / `errorCode: 'NOT_FOUND'`; arguments rejected by the input schema record `outcome: 'invalid_input'` / `errorCode: 'VALIDATION_ERROR'`. The result returned to the client is unchanged apart from an added `_meta.correlationId`. On all MCP servers and `/tools/execute`, `argKeys` in the audit row is now capped at 64 argument names of at most 128 characters. On `mcp:serve-http` the row is attributed to the request's verified principal (the `x-om-session-token` header user, else the API key), never to a `_sessionToken` argument.
+
+**Action:** none. Expect more audit rows from clients that probe for tools; dashboards that read `outcome: 'denied'` as "permission denied" should also check `errorCode`.
+
+## Agent trace artifacts are never stored unencrypted while encryption is on (#9648, B-6)
+
+**Behaviour change (enterprise `agent_orchestrator`).** Offloads to `storage_s3` used to upload the payload as plaintext JSON whenever encryption did not take effect, even with tenant data encryption on. This covered full-content trace capture (LLM request/response and context payload), full run output, tool request/response, integrity evidence and agent-produced file artifacts. With `TENANT_DATA_ENCRYPTION` on, these writes now fail closed when the `tenantEncryptionService` is not registered, the KMS is unhealthy, or no DEK can be resolved. Nothing is uploaded and the caller degrades as it does when storage is unavailable. Trace steps record the new `om.content.status = encryption_unavailable` value (the trace UI says so), the context bundle keeps `payloadRef = null`, and file artifacts are reported as failed captures. Runs never fail because of this.
+
+**Where you see it.** The run's **Files** card on the trace page says how many agent-produced files were not stored and why, for example "2 file(s) produced by the agent were not stored: tenant data encryption was unavailable" (or "file storage was unavailable"). The count and reason are stored on an `artifact.capture` system span of the run (no migration) and returned as the additive `captureFailure` field of `GET /api/agent_orchestrator/runs/:id/artifacts`. A run output or tool request/response that was too large to keep inline and could not be offloaded shows the same reason under its preview; the truncated summary carries the additive `offloadStatus` key. Run compare labels such a step `encryption_unavailable` instead of `not_captured`. The warning log `agent artifact capture did not store files` carries `runId`, `tenantId`, `organizationId`, `count` and `reason`, never file names or content.
+
+With `TENANT_DATA_ENCRYPTION=false` nothing changes: artifacts are stored unencrypted, like every other encrypted column in that mode.
+
+**Action:** none for deployments with a healthy KMS. With encryption on, a KMS outage now pauses content and file-artifact capture instead of writing plaintext. Blobs stored as plaintext by earlier versions stay readable; to remove them, delete them from the `agent-trace-content`, `agent-trace-artifacts` and `agent-run-artifacts` namespaces. Content retention expires only the `agent-trace-content` blobs (LLM request/response and context payload).
 ## Catalog price-kind seed keeps existing price kinds (#8104)
 
 `seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
@@ -1736,6 +1810,22 @@ Specs: the [agent platform roadmap](.ai/specs/2026-10-21-agent-platform-capabili
 **OCR runs on a durable queue.** LLM OCR is enqueued as an idempotent `attachments-ocr` job (worker `attachments/workers/ocr.ts`, coalesced per attachment) instead of `setImmediate` in the web process, so a restart no longer drops pending OCR. `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` (default `2`) now sets the worker concurrency, capped at 20; the in-process scheduler remains only as a fallback when enqueueing fails. Failed OCR jobs are not retried. **Action:** run a worker that consumes `attachments-ocr` (the default `yarn dev` / worker processes auto-discover it); size `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` per worker, not per web replica.
 
 **Search: `filterResults` visibility hook and caller-filtered section hits.** `SearchEntityConfig.filterResults(ctx)` (optional, `@open-mercato/shared`) and `SearchOptions.viewer` (`{ auth, container }`) are additive. For an entity that declares the hook, `SearchService` drops all of its results when no `viewer` is passed or the hook throws (fail closed). `/api/search/search` and `/api/search/search/global` pass the viewer. `attachments:attachment_document_section` declares the hook: section hits are filtered by the same rule as opening the file (including owner resolvers). **Behaviour change:** `searchService.search()` callers without a `viewer` (AI search tools, CLI, agent retrieval, catalog merchandising) no longer receive section hits — use `attachments.get_document_sections`. Filtering runs after the strategy limit, so a page can come back shorter than requested. **Action for custom code:** pass `viewer` when searching on behalf of a user.
+
+### MCP: an invalid `OM_MCP_MUTATION_MODE` now refuses to start
+
+Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Exposure, audit and mutation modes".
+
+Until now, a value other than `direct`, `deny` or `approval` fell back to `direct` with a startup warning. A typo such as `OM_MCP_MUTATION_MODE=aproval` therefore turned approval off and let MCP write tools run with no human in the loop. Now `mcp:serve`, `mcp:serve-http`, `mcp:dev` and `mcp:list-tools --effective` exit with an error naming the bad value, the same way an invalid `--mutation-mode` already did. A valid `--mutation-mode` flag still overrides the env var. Code that reads the setting without starting a server (the `/api/ai_assistant/tools` view, the pending-action re-check) treats an invalid value as `deny`. `collectMcpExposureWarnings` is deprecated in favour of `findMcpExposureConfigError` / `assertValidMcpExposureConfig`.
+
+**Action:** before upgrading, check that `OM_MCP_MUTATION_MODE` is unset or one of `direct`, `deny`, `approval` on every host that runs an MCP server.
+
+### MCP: agent tools are rate-limited
+
+Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Agent tools" → "Rate limit".
+
+Calls to agent tools (`defineAgentTool` / `mcpTool`) over `mcp:serve-http`, `mcp:serve`, `mcp:dev` and `POST /api/ai_assistant/tools/execute` now consume a rate-limit bucket per tenant and API key (per user for session-token callers): 30 calls per 60 seconds by default, tunable with `RATE_LIMIT_AI_AGENT_TOOL_POINTS` / `_DURATION` / `_BLOCK_DURATION`. Over the limit the call returns `RATE_LIMITED` without running the agent (`429` + `Retry-After` on `/tools/execute`). When the registered limiter cannot decide (e.g. Redis unreachable) the call returns `RATE_LIMIT_UNAVAILABLE` (`503`). Plain tools, agent tools called inside an agent loop, and workers are not affected; with `RATE_LIMIT_ENABLED=false` nothing is limited. The new `errorCode` values are additive.
+
+**Action:** if an MCP client runs agent tools in bulk with one API key, raise `RATE_LIMIT_AI_AGENT_TOOL_POINTS` for that deployment.
 
 ### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
 

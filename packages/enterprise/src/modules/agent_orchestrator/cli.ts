@@ -1,3 +1,4 @@
+import { parseEvalCliModelFixtureFlags } from './lib/eval/modelFixtures'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -20,6 +21,7 @@ import { recomputeProcessInstance } from './lib/processes/processProjection'
 import { EVAL_SET_EXPORT_CURRENT, EVAL_SET_SNAPSHOT_LATEST, evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
 import { parseEvalCliCallSettings, readEvalRunToolSummary } from './lib/eval/evalRunSettings'
+import { formatMockSummaryLine, readEvalRunMockSummary } from './lib/eval/toolMocks'
 import {
   EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING,
   buildToolFixtureFile,
@@ -57,8 +59,10 @@ import { loadRunExportBundle } from './lib/trace/otel/loadRunExportBundle'
 import {
   createPrincipalSyncDeps,
   formatPrincipalSyncSummary,
+  listPrincipalSyncScopes,
   runPrincipalSync,
 } from './lib/identity/principalSyncCommand'
+import { registerTraceContentRetentionSchedules } from './lib/trace/contentRetentionSchedule'
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {}
@@ -580,7 +584,7 @@ const EVAL_REPORT_FILE_NAMES: Record<EvalReportFormat, string> = {
   junit: 'junit.xml',
 }
 const EVAL_GATE_USAGE =
-  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]\n' +
+  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] [--offline true] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]\n' +
   '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
 
 function isEvalReportFormat(value: string): value is EvalReportFormat {
@@ -644,7 +648,7 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  *     [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] \
  *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] \
  *     [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] \
- *     [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]
+ *     [--offline true] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]
  *
  * A thin wrapper over the SAME library the workbench uses — one scorer registry,
  * one replay engine, no second implementation to drift. With `--gate true` the
@@ -676,8 +680,15 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  * and exits without running the suite. Native agents only: OpenCode agents run
  * live and report `unsupported_runtime`.
  *
- * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, or narrowed
- * by `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
+ * Cases that declare `fixtures.model` replay the model from that file; without
+ * `--offline true` the remaining cases call the live model and the suite reports
+ * `modelMode: 'mixed'`, while `--offline true` requires a fixture for every case.
+ * `fixtures.model` holds one trial, so `--repeat` above 1 exits 2 unless
+ * `--record`/`--replay <dir>` supplies per-trial files.
+ *
+ * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, an errored
+ * case run under fixture replay that errors on a miss, narrowed by
+ * `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
  * 2 usage/environment error, advisory run refused, label pin refused under
  * `--require-snapshot true`, invalid eval-set file, or report not writable.
  * Report files are written BEFORE the exit code is set; when the run throws, a
@@ -795,12 +806,22 @@ const evalGate: ModuleCli = {
       record: args.record,
       replay: args.replay,
       onFixtureMiss: args['on-fixture-miss'],
+      perTrial: args.record !== undefined || args.offline === 'true' || Boolean(casesFile?.cases.some((entry) => entry.fixtures?.model)),
       fixturesFromRun: args['fixtures-from-run'],
       casesFile: casesFile ?? null,
       evalSetDir,
     })
     if (!toolFixtures.ok) {
       console.error(toolFixtures.message)
+      process.exitCode = 2
+      return
+    }
+    const modelFixtures = parseEvalCliModelFixtureFlags({
+      offline: args.offline, record: args.record, replay: args.replay,
+      onFixtureMiss: args['on-fixture-miss'], evalSetDir, casesFile: casesFile ?? null, repeatCount,
+    })
+    if (!modelFixtures.ok) {
+      console.error(modelFixtures.message)
       process.exitCode = 2
       return
     }
@@ -815,7 +836,7 @@ const evalGate: ModuleCli = {
       return
     }
     if (toolFixtures.recordDir) {
-      console.warn(`Warning: recording tool fixtures into ${toolFixtures.recordDir}. ${EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING}`)
+      console.warn(`Warning: recording model and tool fixtures into ${toolFixtures.recordDir}. ${EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING} Model fixtures also contain prompts and responses.`)
     }
     if (requireSnapshot && !snapshot && !casesFile) {
       console.error(
@@ -843,6 +864,7 @@ const evalGate: ModuleCli = {
         triggeredBy: 'ci',
         ...(callSettings.value ? { callSettings: callSettings.value } : {}),
         ...(toolFixtures.options ? { toolFixtures: toolFixtures.options } : {}),
+        ...(modelFixtures.options ? { modelFixtures: modelFixtures.options } : {}),
       })
     } catch (error) {
       const message = errorMessageOf(error)
@@ -868,6 +890,8 @@ const evalGate: ModuleCli = {
           console.warn(`Warning: ${tools.summaryFidelityCases} case(s) replayed summary-fidelity fixtures (redacted or truncated tool outputs).`)
         }
       }
+      const mocks = casesFile?.cases.some((entry) => entry.mocks) ? readEvalRunMockSummary(suiteRun?.summary) : null
+      if (mocks) console.log(formatMockSummaryLine(mocks.totals))
     }
 
     if (result.safetyRegressions.length) {
@@ -914,6 +938,21 @@ const evalGate: ModuleCli = {
       return
     }
     if (result.outcome === 'failed') {
+      process.exitCode = 1
+      return
+    }
+    // The stored outcome drops errored case runs from `passScore`, which suits live
+    // runs where an error is provider noise. Under fixture replay that errors on a
+    // miss, an error is a deterministic hole in the fixtures or mocks: the case was
+    // never measured, so a fail-closed gate must not read it as a pass.
+    const replayFailsOnMiss =
+      (toolFixtures.options?.mode === 'replay' && toolFixtures.options.onMiss === 'error') ||
+      modelFixtures.options?.mode === 'replay'
+    if (replayFailsOnMiss && result.errorCount > 0) {
+      console.error('')
+      console.error(
+        `${result.errorCount} case run(s) errored under fixture replay: a model or tool fixture, or a mock, is missing or does not match. Re-record or complete the fixtures.`,
+      )
       process.exitCode = 1
       return
     }
@@ -1326,6 +1365,54 @@ const principalsSync: ModuleCli = {
   },
 }
 
-const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, evalSet, tokenUsage, otelExport, principalsSync]
+/**
+ * Registers the daily trace content retention schedule for organizations that
+ * existed before the schedule shipped (setup registers it only for new tenants
+ * and organizations). Without flags every live organization of every tenant is
+ * covered; `--tenant` / `--org` narrow the set. Idempotent upsert.
+ *
+ *   yarn mercato agent_orchestrator trace-retention:schedule [--tenant <tenantId>] [--org <organizationId>]
+ */
+const traceRetentionSchedule: ModuleCli = {
+  command: 'trace-retention:schedule',
+  async run(rest: string[]) {
+    const args = parseArgs(rest ?? [])
+    const container = await createRequestContainer()
+    const scopes = await listPrincipalSyncScopes((container.resolve('em') as EntityManager).fork(), {
+      tenantId: args.tenant,
+      organizationId: args.org,
+    })
+    if (scopes.length === 0) {
+      console.error('No organization found for the given --tenant/--org.')
+      process.exitCode = 1
+      return
+    }
+    const summary = await registerTraceContentRetentionSchedules(container, scopes)
+    if (summary.status === 'scheduler_unavailable') {
+      console.error('The scheduler module is not enabled; no retention schedule was registered.')
+      process.exitCode = 1
+      return
+    }
+    let failed = 0
+    for (const outcome of summary.outcomes) {
+      const label = `tenant=${outcome.scope.tenantId} org=${outcome.scope.organizationId}`
+      if (outcome.status === 'failed') failed += 1
+      console.log(outcome.status === 'failed' ? `${label}: failed (${outcome.error ?? 'unknown error'})` : `${label}: registered`)
+    }
+    console.log(`Done. ${summary.outcomes.length} organization(s): ${summary.outcomes.length - failed} registered, ${failed} failed.`)
+    if (failed > 0) process.exitCode = 1
+  },
+}
+
+const agentOrchestratorCliCommands = [
+  rebuildProcesses,
+  seedDemo,
+  evalGate,
+  evalSet,
+  tokenUsage,
+  otelExport,
+  principalsSync,
+  traceRetentionSchedule,
+]
 
 export default agentOrchestratorCliCommands

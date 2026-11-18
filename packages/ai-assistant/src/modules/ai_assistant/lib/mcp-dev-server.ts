@@ -9,7 +9,7 @@ import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
 import {
-  collectMcpExposureWarnings,
+  assertValidMcpExposureConfig,
   buildDirectMutationModeWarning,
   describeMcpExposureConfig,
   filterToolsForCaller,
@@ -39,6 +39,7 @@ import {
   type McpAuditOutcome,
 } from './mcp-audit'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
+import { createMcpSdkRefusalAudit } from './mcp-sdk-refusal-audit'
 import type { McpToolContext, McpToolDefinition } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 
@@ -124,6 +125,30 @@ export function createDevMcpServer(
     log(`Registering ${accessibleTools.length}/${tools.length} tools (filtered by exposure config and API key permissions)`)
   }
 
+  const refusalAudit = createMcpSdkRefusalAudit(async (call) => {
+    const correlationId = resolveCorrelationId(null)
+    const registeredTool = registry.getTools().get(call.toolName)
+    await recordMcpToolCall(toolContext.container, {
+      ...auditIdentity,
+      ...resolveAgentToolAuditIds(registeredTool),
+      toolName: call.toolName,
+      tenantId: toolContext.tenantId,
+      organizationId: toolContext.organizationId,
+      channel: 'mcp',
+      mcpServer: 'dev',
+      sessionKeyId: null,
+      principal: 'api_key',
+      outcome: mapToolResultToAuditOutcome({ success: false, errorCode: call.errorCode }),
+      errorCode: call.errorCode,
+      durationMs: call.durationMs,
+      isMutation: isMutationTool(registeredTool),
+      pendingActionIds: null,
+      correlationId,
+      args: call.args,
+    })
+    return correlationId
+  })
+
   for (const tool of accessibleTools) {
     if (debug) {
       log(`Registering tool: ${tool.name}`)
@@ -157,7 +182,8 @@ export function createDevMcpServer(
           ...(outputSchema ? { outputSchema } : {}),
           annotations: buildMcpToolAnnotations(tool),
         },
-        async (args: unknown) => {
+        async (args: unknown, extra: unknown) => {
+          refusalAudit.markHandled(extra)
           const toolArgs = (args ?? {}) as Record<string, unknown>
           const correlationId = resolveCorrelationId(null)
           const startedAt = Date.now()
@@ -239,6 +265,7 @@ export function createDevMcpServer(
           return attachCorrelationMeta(buildToolSuccessResponse(tool, result.result), correlationId)
         }
       )
+      refusalAudit.markRegistered(tool.name)
     } catch (error) {
       if (debug) {
         log(`Skipping tool ${tool.name} - registration failed:`, error instanceof Error ? error.message : error)
@@ -247,6 +274,7 @@ export function createDevMcpServer(
     }
   }
 
+  refusalAudit.attach(server)
   return server
 }
 
@@ -267,6 +295,7 @@ export type McpDevServerOptions = {
 }
 
 export async function runMcpDevServer(options: McpDevServerOptions = {}): Promise<void> {
+  if (!options.exposureConfig) assertValidMcpExposureConfig(process.env, options.cliArgs ?? {})
   const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
   const apiKey = await getApiKeyFromMcpJson()
   const port = parseInt(process.env.MCP_DEV_PORT ?? '', 10) || DEFAULT_PORT
@@ -329,9 +358,6 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
     'MCP exposure config:',
     JSON.stringify(describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())))
   )
-  for (const warning of collectMcpExposureWarnings(process.env)) {
-    logger.warn(warning)
-  }
   const directMutationWarning = buildDirectMutationModeWarning(
     exposureConfig,
     Array.from(getToolRegistry().getTools().values()),

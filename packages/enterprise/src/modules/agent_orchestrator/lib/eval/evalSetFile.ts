@@ -12,11 +12,13 @@ import {
   type EvalSetManifest,
   type EvalSetManifestAssertion,
   type EvalSetManifestCase,
+  type EvalSetManifestToolMock,
   frozenJudgeRubric,
 } from './manifest'
 import { getScorerDefinition, parseScorerConfig } from './registry'
 import { collectRubricRefs, readRubricRef, resolveRubricRef } from './rubrics'
 import type { Json } from './types'
+import { EVAL_CASE_MAX_TOOL_MOCKS, normalizeCaseMocks } from './toolMocks'
 
 export const SUPPORTED_EVAL_SET_FORMAT_VERSIONS: ReadonlyArray<number> = [EVAL_SET_FORMAT_VERSION]
 export const EVAL_SET_FILE_MAX_CASES = 5000
@@ -89,6 +91,64 @@ export const evalSetFileCaseAssertionRefSchema = z
   })
   .strict()
 
+const toolMockMatchSchema = z.enum(['strict', 'ordered', 'any'])
+
+export const evalSetFileToolMockSchema = z
+  .object({
+    id: z
+      .string()
+      .min(1)
+      .max(100)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._#-]*$/, 'mock ids may contain letters, digits, ".", "_", "#" and "-"')
+      .optional(),
+    tool: z.string().min(1).max(200),
+    match: toolMockMatchSchema.optional(),
+    args: jsonSchema.optional(),
+    output: jsonSchema.optional(),
+    error: z.string().min(1).max(2000).optional(),
+    required: z.boolean().optional(),
+  })
+  .strict()
+
+export const evalSetFileCaseMocksSchema = z
+  .object({
+    match: toolMockMatchSchema.optional(),
+    tools: z.array(evalSetFileToolMockSchema).min(1).max(EVAL_CASE_MAX_TOOL_MOCKS),
+  })
+  .strict()
+  .superRefine((mocks, ctx) => {
+    const caseDefault = mocks.match ?? 'strict'
+    mocks.tools.forEach((mock, index) => {
+      const hasOutput = mock.output !== undefined
+      const hasError = mock.error !== undefined
+      if (hasOutput === hasError) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['tools', index, hasOutput ? 'error' : 'output'],
+          message: 'a mock must declare exactly one of output or error',
+        })
+      }
+      const effective = mock.match ?? caseDefault
+      if (effective === 'strict' && mock.args === undefined) {
+        ctx.addIssue({ code: 'custom', path: ['tools', index, 'args'], message: 'a strict mock must declare args' })
+      }
+      if (effective !== 'strict' && mock.args !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['tools', index, 'args'],
+          message: `args are ignored by "${effective}" matching and must be omitted`,
+        })
+      }
+    })
+    const seen = new Set<string>()
+    normalizeCaseMocks(mocks).forEach((mock, index) => {
+      if (seen.has(mock.id)) {
+        ctx.addIssue({ code: 'custom', path: ['tools', index, 'id'], message: `duplicate mock id "${mock.id}"` })
+      }
+      seen.add(mock.id)
+    })
+  })
+
 export const evalSetFileCaseSchema = z
   .object({
     key: z.string().min(1).max(200),
@@ -100,6 +160,7 @@ export const evalSetFileCaseSchema = z
       .object({ tools: fixturePathSchema.optional(), model: fixturePathSchema.optional() })
       .strict()
       .optional(),
+    mocks: evalSetFileCaseMocksSchema.optional(),
   })
   .strict()
 
@@ -118,6 +179,7 @@ export type EvalSetFile = z.infer<typeof evalSetFileSchema>
 export type EvalSetFileAssertion = z.infer<typeof evalSetFileAssertionSchema>
 export type EvalSetFileCase = z.infer<typeof evalSetFileCaseSchema>
 export type EvalSetFileCaseAssertionRef = z.infer<typeof evalSetFileCaseAssertionRefSchema>
+export type EvalSetFileCaseMocks = z.infer<typeof evalSetFileCaseMocksSchema>
 
 export type EvalSetFileValidation =
   | { ok: true; file: EvalSetFile }
@@ -380,6 +442,9 @@ function manifestCaseFromFile(agentId: string, entry: EvalSetFileCase): EvalSetM
             disabled: ref.disabled === true,
           })),
   }
+  if (entry.mocks) {
+    manifestCase.mocks = { tools: normalizeCaseMocks(entry.mocks) as EvalSetManifestToolMock[] }
+  }
   if (!entry.fixtures || (entry.fixtures.tools === undefined && entry.fixtures.model === undefined)) {
     return manifestCase
   }
@@ -434,6 +499,19 @@ export function fileFromManifest(manifest: EvalSetManifest): EvalSetFile {
     }
     if (entry.fixtures && (entry.fixtures.tools !== undefined || entry.fixtures.model !== undefined)) {
       fileCase.fixtures = { ...entry.fixtures }
+    }
+    if (entry.mocks) {
+      fileCase.mocks = {
+        tools: entry.mocks.tools.map((mock) => ({
+          id: mock.id,
+          tool: mock.tool,
+          match: mock.match,
+          ...(mock.args !== undefined ? { args: mock.args } : {}),
+          ...(mock.output !== undefined ? { output: mock.output } : {}),
+          ...(mock.error !== undefined ? { error: mock.error } : {}),
+          ...(mock.required ? { required: true } : {}),
+        })),
+      }
     }
     return fileCase
   })

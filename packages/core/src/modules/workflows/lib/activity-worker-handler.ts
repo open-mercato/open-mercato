@@ -5,6 +5,7 @@
  * Executes activities with timeout, logs events, and triggers workflow resume.
  */
 
+import type { InvokeAgentCallSettings } from '../data/activity-config-schemas'
 import { JobHandler } from '@open-mercato/queue'
 import {
   WorkflowActivityJob,
@@ -346,6 +347,7 @@ type AgentWorkflowBridgeLike = {
       // Optional already-resolved Review section (spec 7.5); see the identical
       // declaration in `lib/activity-executor.ts`.
       review?: AgentDispositionReview
+      callSettings?: InvokeAgentCallSettings
     }
   }) => Promise<
     | { kind: 'research'; data: unknown }
@@ -509,6 +511,7 @@ export async function handleInvokeAgentJob(
         invocationId: payload.stepInstanceId,
         ...(payload.subject ? { subject: payload.subject } : {}),
         ...(payload.review ? { review: payload.review } : {}),
+        ...(payload.callSettings ? { callSettings: payload.callSettings } : {}),
       },
     })
   } catch (agentError: unknown) {

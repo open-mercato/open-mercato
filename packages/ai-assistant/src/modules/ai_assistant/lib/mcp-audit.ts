@@ -9,6 +9,8 @@ export const MCP_AUDIT_RESOURCE_KIND = 'ai_assistant.mcp_tool_call'
 export const MCP_AUDIT_ACCESS_TYPE = 'call'
 export const MCP_AUDIT_WRITE_TIMEOUT_MS = 500
 export const CORRELATION_ID_HEADER = 'x-correlation-id'
+export const MAX_AUDIT_ARG_KEYS = 64
+export const MAX_AUDIT_ARG_KEY_LENGTH = 128
 
 const SESSION_TOKEN_ARG_KEY = '_sessionToken'
 const CORRELATION_ID_MAX_LENGTH = 128
@@ -95,11 +97,16 @@ const ERROR_CODE_OUTCOMES: Record<string, McpAuditOutcome> = {
   DISPATCHER_UNAVAILABLE: 'dispatcher_unavailable',
   AGENT_DISPATCHER_UNAVAILABLE: 'dispatcher_unavailable',
   AGENT_POLICY_DENIED: 'denied',
+  RATE_LIMITED: 'denied',
+  RATE_LIMIT_UNAVAILABLE: 'error',
 }
 
 export function extractArgKeys(input: unknown): string[] {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return []
-  return Object.keys(input).filter((key) => key !== SESSION_TOKEN_ARG_KEY)
+  return Object.keys(input)
+    .filter((key) => key !== SESSION_TOKEN_ARG_KEY)
+    .slice(0, MAX_AUDIT_ARG_KEYS)
+    .map((key) => key.slice(0, MAX_AUDIT_ARG_KEY_LENGTH))
 }
 
 export function resolveCorrelationId(headerValue: string | null | undefined): string {
