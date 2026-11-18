@@ -252,6 +252,68 @@ describe('AiPendingActionRepository', () => {
     expect(second.idempotencyKey).toBe('idem-1')
     expect(first.idempotencyKey).toBe(`idem-1:superseded:${first.id}`)
     expect(await repo.getById(first.id, ctx)).toBe(first)
+    // The superseded card must not stay executable: it is terminal and a
+    // later confirm of its id is rejected by the state machine.
+    expect(first.status).toBe('cancelled')
+    expect(first.resolvedAt).not.toBeNull()
+    await expect(
+      repo.setStatus(first.id, 'confirmed', ctx, { expectedStatus: 'pending' }),
+    ).rejects.toBeInstanceOf(AiPendingActionStateError)
+    expect((await repo.getById(first.id, ctx))?.status).toBe('cancelled')
+  })
+
+  it('supersedes a pending approval whose unchanged recordVersion hides a changed preview', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const { row: first } = await repo.create(
+      baseInput({
+        idempotencyKey: 'idem-null-version',
+        recordVersion: null,
+        fieldDiff: [{ field: 'name', before: 'old', after: 'new' }],
+      }),
+      ctx,
+    )
+
+    const { row: second, reused } = await repo.create(
+      baseInput({
+        idempotencyKey: 'idem-null-version',
+        recordVersion: null,
+        fieldDiff: [{ field: 'name', before: 'newer', after: 'new' }],
+      }),
+      ctx,
+    )
+
+    expect(reused).toBe(false)
+    expect(second.id).not.toBe(first.id)
+    expect(first.status).toBe('cancelled')
+    await expect(
+      repo.setStatus(first.id, 'confirmed', ctx, { expectedStatus: 'pending' }),
+    ).rejects.toBeInstanceOf(AiPendingActionStateError)
+  })
+
+  it('reuses the row when a confirm wins the race against a preview-changing create', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const { row: first } = await repo.create(baseInput({ idempotencyKey: 'idem-race' }), ctx)
+    await repo.setStatus(first.id, 'confirmed', ctx, {
+      expectedStatus: 'pending',
+      resolvedByUserId: userOne,
+    })
+
+    const { row: second, reused } = await repo.create(
+      baseInput({
+        idempotencyKey: 'idem-race',
+        fieldDiff: [{ field: 'name', before: 'other', after: 'new' }],
+      }),
+      ctx,
+    )
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(second.status).toBe('confirmed')
+    expect(em.__store).toHaveLength(1)
   })
 
   it('reuses equivalent previews after JSON storage and nested object key reordering', async () => {

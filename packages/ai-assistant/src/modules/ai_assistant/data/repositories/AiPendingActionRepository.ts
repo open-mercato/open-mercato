@@ -135,7 +135,14 @@ export class AiPendingActionRepository {
           organizationId: ctx.organizationId ?? null,
           idempotencyKey: input.idempotencyKey,
         } as any,
-        { orderBy: { createdAt: 'desc' } as any },
+        {
+          orderBy: { createdAt: 'desc' } as any,
+          // Serialize the supersede/confirm decision against a concurrent
+          // confirm of the same row: the confirm path locks the row through
+          // `setStatus`, so whoever gets the lock first wins and the other
+          // re-reads the resulting state instead of clobbering it.
+          lockMode: LockMode.PESSIMISTIC_WRITE,
+        },
         {
           tenantId: ctx.tenantId ?? null,
           organizationId: ctx.organizationId ?? null,
@@ -170,6 +177,14 @@ export class AiPendingActionRepository {
       ) {
         return { row: existing, reused: true }
       }
+      // A `pending` row that reached this point carries the same key but a
+      // DIFFERENT preview, so its approval card showed a diff that would no
+      // longer run. It must stop being executable before the replacement is
+      // inserted: leaving it `pending` would let the stale card confirm a
+      // mutation the operator never reviewed. Move it to the terminal
+      // `cancelled` state (the superseding entry is the replacement, not a
+      // second approval) while keeping the row readable for card history.
+      //
       // A terminal (`failed`/`cancelled`/`expired`) row, or a stale
       // `confirmed`/`executing` row past its dedupe window, would also
       // collide on the same unique index when we insert a fresh one with
@@ -180,6 +195,10 @@ export class AiPendingActionRepository {
       // row's own card keeps resolving to its terminal/prior state via a
       // GET by id, rather than 404ing.
       if (existing) {
+        if (existing.status === 'pending') {
+          existing.status = 'cancelled'
+          existing.resolvedAt = existing.resolvedAt ?? now
+        }
         existing.idempotencyKey = `${existing.idempotencyKey}:superseded:${existing.id}`
         await tx.persist(existing).flush()
       }

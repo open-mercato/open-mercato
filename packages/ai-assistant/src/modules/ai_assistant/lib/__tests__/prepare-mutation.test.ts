@@ -684,7 +684,11 @@ describe('prepareMutation', () => {
     expect(isBulk ? second.pendingAction.records?.[0].recordVersion : second.pendingAction.recordVersion).toBe('v-2')
     expect(retry.pendingAction.id).toBe(second.pendingAction.id)
     expect(em.__store).toHaveLength(2)
-    expect(first.pendingAction.status).toBe('pending')
+    // The superseded approval is no longer executable: its id can never be
+    // confirmed after the replacement took over the idempotency key.
+    expect(first.pendingAction.status).toBe('cancelled')
+    const firstRow = em.__store.find((row) => row.id === first.pendingAction.id)
+    expect(firstRow?.status).toBe('cancelled')
   })
 
   it.each([
