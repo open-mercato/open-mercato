@@ -170,6 +170,50 @@ describe('MetadataEditor', () => {
     expect(lastValueInput()).toHaveValue('')
   })
 
+  it('preserves a blank draft row across an unrelated rerender of an unchanged null-valued entry', () => {
+    const onChange = jest.fn()
+    const { rerender } = render(
+      <MetadataEditor value={{ note: null }} onChange={onChange} defaultCollapsed={false} />,
+    )
+    fireEvent.click(screen.getByText('Add entry'))
+    const lastKeyInput = () => screen.getAllByPlaceholderText('Key').at(-1)
+    const lastValueInput = () => screen.getAllByPlaceholderText('Value').at(-1)
+    expect(lastKeyInput()).toHaveValue('')
+    expect(lastValueInput()).toHaveValue('')
+
+    // `note` is unchanged — still null — but re-parsing its blank text-input
+    // representation ('') back to a value yields '' (an empty string), not
+    // null, so a naive re-parsed comparison would wrongly treat this as a
+    // real change and wipe the draft below.
+    rerender(<MetadataEditor value={{ note: null }} onChange={onChange} defaultCollapsed={false} />)
+
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
+    expect(lastKeyInput()).toHaveValue('')
+    expect(lastValueInput()).toHaveValue('')
+  })
+
+  it('preserves a blank draft row across an unrelated rerender of an unchanged numeric-looking string value', () => {
+    const onChange = jest.fn()
+    const { rerender } = render(
+      <MetadataEditor value={{ code: '42' }} onChange={onChange} defaultCollapsed={false} />,
+    )
+    fireEvent.click(screen.getByText('Add entry'))
+    const lastKeyInput = () => screen.getAllByPlaceholderText('Key').at(-1)
+    const lastValueInput = () => screen.getAllByPlaceholderText('Value').at(-1)
+    expect(lastKeyInput()).toHaveValue('')
+    expect(lastValueInput()).toHaveValue('')
+
+    // `code` is unchanged — still the string "42" — but re-parsing its text
+    // input ("42") back to a value yields the number 42, not the string
+    // "42", so a naive re-parsed comparison would wrongly treat this as a
+    // real change and wipe the draft below.
+    rerender(<MetadataEditor value={{ code: '42' }} onChange={onChange} defaultCollapsed={false} />)
+
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
+    expect(lastKeyInput()).toHaveValue('')
+    expect(lastValueInput()).toHaveValue('')
+  })
+
   it('renders without border in embedded mode', () => {
     const onChange = jest.fn()
     const { container } = render(

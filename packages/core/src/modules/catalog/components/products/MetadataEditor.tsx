@@ -79,21 +79,35 @@ const jsonValuesEqual = (a: unknown, b: unknown): boolean => {
   return false
 }
 
+const isPlainObjectOrArray = (value: unknown): boolean => value !== null && typeof value === 'object'
+
 const entriesMatchValue = (entries: MetadataEntry[], value?: Record<string, unknown> | null): boolean => {
-  const committed: Record<string, unknown> = {}
+  const committedRaw = new Map<string, string>()
   for (const entry of entries) {
     const key = entry.key.trim()
-    if (key) committed[key] = parseMetadataValue(entry.value)
+    if (key) committedRaw.set(key, entry.value)
   }
   const incoming = value && typeof value === 'object' ? value : {}
-  const committedKeys = Object.keys(committed)
   const incomingKeys = Object.keys(incoming)
-  if (committedKeys.length !== incomingKeys.length) return false
-  return committedKeys.every(
-    (key) =>
-      Object.prototype.hasOwnProperty.call(incoming, key) &&
-      jsonValuesEqual(committed[key], (incoming as Record<string, unknown>)[key]),
-  )
+  if (committedRaw.size !== incomingKeys.length) return false
+  return incomingKeys.every((key) => {
+    if (!committedRaw.has(key)) return false
+    const rawValue = committedRaw.get(key) as string
+    const incomingValue = (incoming as Record<string, unknown>)[key]
+    const parsedCommitted = parseMetadataValue(rawValue)
+    if (isPlainObjectOrArray(parsedCommitted) || isPlainObjectOrArray(incomingValue)) {
+      return jsonValuesEqual(parsedCommitted, incomingValue)
+    }
+    // Scalars (null, string, number, boolean) compare the literal string
+    // form rather than the re-parsed value: parsing is lossy and ambiguous
+    // for scalars — a `null` serializes to `''` and re-parses back to `''`
+    // rather than `null`, and a string "42" re-parses as the number 42 —
+    // so comparing re-parsed values spuriously flags an unrelated refetch
+    // of an unchanged null/string entry as a real change, wiping any blank
+    // draft row alongside it. Serializing the incoming value the same way
+    // the entry's own text input was serialized is lossless for this check.
+    return rawValue === serializeMetadataValue(incomingValue)
+  })
 }
 
 export function MetadataEditor({
