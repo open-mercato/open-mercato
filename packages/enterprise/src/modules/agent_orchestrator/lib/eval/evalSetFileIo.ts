@@ -83,9 +83,9 @@ export function formatEvalSetFileIssues(issues: ReadonlyArray<EvalSetFileIssue>)
 }
 
 /**
- * The file format refuses `gate` on `llm_judge` assertions (a judge verdict is
- * stochastic and must never block a release), but database rows created before
- * that invariant may still carry it. Export downgrades those assertions to
+ * The file format refuses `gate` on `llm_judge` assertions (files run in CI,
+ * where `judgeMayGate` is false), but database rows may carry it for manual
+ * workbench runs. Export downgrades those assertions to
  * `warn` and returns their keys so the caller can say so.
  */
 export function downgradeJudgeGateAssertions(file: EvalSetFile): { file: EvalSetFile; downgradedKeys: string[] } {

@@ -7,8 +7,8 @@ import {
   OM_LLM_ATTRIBUTES,
   readLlmSpanMetadata,
 } from '../genAiAttributes'
-import { redactAttributeValues, redactString } from '../redactStrings'
-import { toInferenceDetailsAttributes } from './genAiContent'
+import { redactAttributeValues, redactSecretStrings, redactString } from '../redactStrings'
+import { exportRedactsPii, toInferenceDetailsAttributes } from './genAiContent'
 import { agentSpanId, dispositionSpanId, runSpanId, traceIdFor, workflowSpanId } from './ids'
 import type {
   RunExportBundle,
@@ -87,6 +87,20 @@ function setAttribute(target: MutableAttributes, key: string, value: OtlpAttribu
 
 function finalizeAttributes(attributes: MutableAttributes): MutableAttributes {
   return redactAttributeValues(attributes)
+}
+
+/**
+ * Content attributes were already scrubbed by `genAiContent` under the run's
+ * captured `redactPii`; with it off they keep PII and only get the secret pass,
+ * otherwise they take the same backstop as every other attribute.
+ */
+function finalizeContentAttributes(attributes: MutableAttributes, redactPii: boolean): MutableAttributes {
+  if (redactPii) return finalizeAttributes(attributes)
+  const result: MutableAttributes = {}
+  for (const [key, value] of Object.entries(attributes)) {
+    result[key] = typeof value === 'string' ? redactSecretStrings(value) : value
+  }
+  return result
 }
 
 function endTimeFor(startedAt: Date, endedAt: Date | null, durationMs: number | null): Date {
@@ -273,16 +287,25 @@ function buildInferenceDetailsEvents(
   content: RunExportContent,
   attributes: MutableAttributes,
   time: Date,
+  redactPii: boolean,
 ): OtlpEventInput[] {
   const entry = content.bySpanId.get(span.id)
   setAttribute(attributes, OM_OTEL_CONTENT_ATTRIBUTES.exportStatus, entry?.status ?? 'not_captured')
   if (!entry || (entry.request === undefined && entry.response === undefined)) return []
-  const details = toInferenceDetailsAttributes(entry.request, entry.response)
+  const details = toInferenceDetailsAttributes(entry.request, entry.response, { redactPii })
   if (!details) return []
-  return [{ time, name: GEN_AI_EVENTS.inferenceOperationDetails, attributes: finalizeAttributes(details) }]
+  return [
+    { time, name: GEN_AI_EVENTS.inferenceOperationDetails, attributes: finalizeContentAttributes(details, redactPii) },
+  ]
 }
 
-function buildLlmSpan(span: RunExportSpan, bundle: MapAgentRunBundle, traceId: string, parentSpanId: string): OtlpSpanInput {
+function buildLlmSpan(
+  span: RunExportSpan,
+  bundle: MapAgentRunBundle,
+  traceId: string,
+  parentSpanId: string,
+  redactPii: boolean,
+): OtlpSpanInput {
   const metadata = readLlmSpanMetadata(span.attributes)
   const requestModel = metadata.requestModel ?? bundle.run.model ?? undefined
   const displayModel = metadata.responseModel ?? requestModel
@@ -325,7 +348,7 @@ function buildLlmSpan(span: RunExportSpan, bundle: MapAgentRunBundle, traceId: s
   const { status, errorType } = statusFor(span.status)
   setAttribute(attributes, OTEL_STANDARD_ATTRIBUTES.errorType, errorType)
   const endTime = endTimeFor(span.startedAt, span.endedAt, span.durationMs)
-  const events = bundle.content ? buildInferenceDetailsEvents(span, bundle.content, attributes, endTime) : []
+  const events = bundle.content ? buildInferenceDetailsEvents(span, bundle.content, attributes, endTime, redactPii) : []
   return {
     traceId,
     spanId: agentSpanId(span.id),
@@ -369,6 +392,7 @@ function buildToolSpan(
   traceId: string,
   parentSpanId: string,
   content: RunExportContent | undefined,
+  redactPii: boolean,
 ): OtlpSpanInput {
   const toolName = toolCall?.toolName ?? span.name
   const isError = span.status === 'error' || toolCall?.isError === true
@@ -378,7 +402,8 @@ function buildToolSpan(
   setAttribute(attributes, GEN_AI_ATTRIBUTES.toolType, OTEL_GEN_AI_TOOL_TYPE_FUNCTION)
   setAttribute(attributes, OM_OTEL_TOOL_ATTRIBUTES.status, toolCall?.status ?? span.status)
   setAttribute(attributes, OM_OTEL_TOOL_ATTRIBUTES.latencyMs, toolCall?.latencyMs ?? span.durationMs)
-  if (content) applyToolCallContent(attributes, span, content)
+  const contentAttributes: MutableAttributes = {}
+  if (content) applyToolCallContent(contentAttributes, span, content)
   const { status, errorType } = statusFor(isError ? 'error' : 'ok')
   setAttribute(attributes, OTEL_STANDARD_ATTRIBUTES.errorType, errorType)
   return {
@@ -389,7 +414,7 @@ function buildToolSpan(
     kind: 'internal',
     startTime: span.startedAt,
     endTime: endTimeFor(span.startedAt, span.endedAt, span.durationMs),
-    attributes: finalizeAttributes(attributes),
+    attributes: { ...finalizeAttributes(attributes), ...finalizeContentAttributes(contentAttributes, redactPii) },
     status,
   }
 }
@@ -461,13 +486,14 @@ function buildChildSpans(bundle: MapAgentRunBundle, traceId: string, runSpan: st
   for (const toolCall of bundle.toolCalls) {
     if (!toolCallBySpanId.has(toolCall.spanId)) toolCallBySpanId.set(toolCall.spanId, toolCall)
   }
+  const redactPii = exportRedactsPii(bundle.manifest?.['om.capture'])
   const spans: OtlpSpanInput[] = []
   for (const span of bundle.spans) {
     if (span.kind === 'llm') {
-      spans.push(buildLlmSpan(span, bundle, traceId, runSpan))
+      spans.push(buildLlmSpan(span, bundle, traceId, runSpan, redactPii))
     } else if (span.kind === 'tool') {
       const parent = span.parentSpanId && llmSpanRowIds.has(span.parentSpanId) ? agentSpanId(span.parentSpanId) : runSpan
-      spans.push(buildToolSpan(span, toolCallBySpanId.get(span.id), traceId, parent, bundle.content))
+      spans.push(buildToolSpan(span, toolCallBySpanId.get(span.id), traceId, parent, bundle.content, redactPii))
     } else {
       spans.push(buildSystemSpan(span, traceId, runSpan))
     }

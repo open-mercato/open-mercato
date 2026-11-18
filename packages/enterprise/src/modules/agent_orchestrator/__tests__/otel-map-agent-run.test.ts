@@ -945,6 +945,37 @@ describe('mapAgentRunToOtlp content', () => {
     expect(toolSpan.events).toBeUndefined()
   })
 
+  test('the inference details keep PII when the run was captured with redactPii off', () => {
+    const bundle = contentBundle(exported())
+    const output = mapAgentRunToOtlp(
+      { ...bundle, manifest: { ...bundle.manifest, 'om.capture': { level: 'full', redactPii: false } } },
+      OPTIONS,
+    )
+    const [event] = spanByName(output, 'chat gpt-test-2026').events ?? []
+    expect(String(event.attributes?.['gen_ai.input.messages'])).toContain(CONTENT_SECRET_EMAIL)
+  })
+
+  test('tool call content follows the captured redactPii and always loses secrets', () => {
+    const content: RunExportContent = {
+      bySpanId: new Map([[LLM_SPAN_ID, { status: 'exported' }]]),
+      toolCalls: new Map([
+        ['call-1', { arguments: { value: `{"to":"${CONTENT_SECRET_EMAIL}","auth":"Bearer abc.def.ghi"}`, truncated: false } }],
+      ]),
+    }
+    const bundle = contentBundle(content)
+    const withCapture = (redactPii: boolean): MapAgentRunBundle => ({
+      ...bundle,
+      manifest: { ...bundle.manifest, 'om.capture': { level: 'full', redactPii } },
+    })
+    const argumentsOf = (target: MapAgentRunBundle) =>
+      String(attr(spanByName(mapAgentRunToOtlp(target, OPTIONS), 'execute_tool catalog.search'), 'gen_ai.tool.call.arguments'))
+    const kept = argumentsOf(withCapture(false))
+    expect(kept).toContain(CONTENT_SECRET_EMAIL)
+    expect(kept).not.toContain('abc.def.ghi')
+    expect(argumentsOf(withCapture(true))).not.toContain(CONTENT_SECRET_EMAIL)
+    expect(argumentsOf(bundle)).not.toContain(CONTENT_SECRET_EMAIL)
+  })
+
   test('the encoded output with content matches the content golden', () => {
     const golden = readFileSync(path.join(__dirname, 'fixtures', 'otel', 'map-run-content.golden.json'), 'utf8')
     const encoded = encodeOtlpTraceRequest(mapAgentRunToOtlp(contentBundle(exported()), { ...OPTIONS, environment: 'staging' }))

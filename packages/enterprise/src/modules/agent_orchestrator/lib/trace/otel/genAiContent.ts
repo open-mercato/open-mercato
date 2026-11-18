@@ -1,7 +1,7 @@
 import { GEN_AI_ATTRIBUTES } from '../genAiAttributes'
 import { LLM_REQUEST_ARTIFACT_SCHEMA, LLM_RESPONSE_ARTIFACT_SCHEMA } from '../contentCapture'
 import { REDACTED_PLACEHOLDER } from '../redactToolSummary'
-import { redactPiiStrings, redactString } from '../redactStrings'
+import { redactPiiStrings, redactSecretStrings } from '../redactStrings'
 import { OM_OTEL_CONTENT_ATTRIBUTES } from './otelAttributes'
 
 export const OTEL_CONTENT_ATTRIBUTE_MAX_BYTES = 65_536
@@ -43,7 +43,11 @@ export type GenAiToolDefinition = { type: 'function'; name: string; description?
 
 export type ToolCallContent = { arguments?: GenAiContentAttribute; result?: GenAiContentAttribute }
 
-type MapState = { truncated: boolean }
+export type GenAiScrubOptions = { redactPii?: boolean }
+
+type ScrubPolicy = { redactPii: boolean }
+
+type MapState = ScrubPolicy & { truncated: boolean }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -57,12 +61,26 @@ function readArtifact(value: unknown, schema: string): Record<string, unknown> |
   return isRecord(value) && value.schema === schema ? value : null
 }
 
-function scrubString(text: string): string {
-  return redactString(redactPiiStrings(text).text)
+function newState(options?: GenAiScrubOptions): MapState {
+  return { truncated: false, redactPii: options?.redactPii !== false }
+}
+
+/**
+ * Whether exported content gets the PII pass: follows the run's captured
+ * `om.capture.redactPii`, and fails closed (redacts) unless it is explicitly
+ * `false`.
+ */
+export function exportRedactsPii(capture: unknown): boolean {
+  return !(isRecord(capture) && capture.redactPii === false)
+}
+
+function scrubString(text: string, policy: ScrubPolicy): string {
+  const secretFree = redactSecretStrings(text)
+  return policy.redactPii ? redactPiiStrings(secretFree).text : secretFree
 }
 
 function scrubValue(value: unknown, state: MapState, depth: number): unknown {
-  if (typeof value === 'string') return scrubString(value)
+  if (typeof value === 'string') return scrubString(value, state)
   if (value === null || typeof value === 'number' || typeof value === 'boolean') return value
   if (depth >= MAX_DEPTH) return REDACTED_PLACEHOLDER
   if (isTruncationMarker(value)) {
@@ -71,7 +89,7 @@ function scrubValue(value: unknown, state: MapState, depth: number): unknown {
   }
   if (Array.isArray(value)) return value.map((entry) => scrubValue(entry, state, depth + 1))
   if (!isRecord(value)) return null
-  if (typeof value.type === 'string' && BINARY_PART_TYPES.has(value.type)) return toFilePart(value)
+  if (typeof value.type === 'string' && BINARY_PART_TYPES.has(value.type)) return toFilePart(value, state)
   const result: Record<string, unknown> = {}
   for (const [key, entry] of Object.entries(value)) {
     if (entry === undefined) continue
@@ -80,10 +98,10 @@ function scrubValue(value: unknown, state: MapState, depth: number): unknown {
   return result
 }
 
-function readMediaType(part: Record<string, unknown>): string | null {
+function readMediaType(part: Record<string, unknown>, policy: ScrubPolicy): string | null {
   for (const key of ['mediaType', 'mimeType', 'mime_type']) {
     const candidate = part[key]
-    if (typeof candidate === 'string' && candidate !== '') return scrubString(candidate)
+    if (typeof candidate === 'string' && candidate !== '') return scrubString(candidate, policy)
   }
   return null
 }
@@ -94,8 +112,8 @@ function modalityOf(mimeType: string | null): GenAiFilePart['modality'] {
   return family === 'image' || family === 'video' || family === 'audio' ? family : undefined
 }
 
-function toFilePart(part: Record<string, unknown>): GenAiFilePart {
-  const mimeType = readMediaType(part)
+function toFilePart(part: Record<string, unknown>, policy: ScrubPolicy): GenAiFilePart {
+  const mimeType = readMediaType(part, policy)
   const modality = modalityOf(mimeType)
   const size = typeof part.bytes === 'number' && Number.isSafeInteger(part.bytes) && part.bytes >= 0 ? part.bytes : null
   const sha256 = typeof part.sha256 === 'string' && SHA256_HEX_RE.test(part.sha256) ? part.sha256 : null
@@ -123,7 +141,7 @@ function readToolResult(part: Record<string, unknown>): unknown {
 }
 
 function toPart(part: unknown, state: MapState): GenAiMessagePart | null {
-  if (typeof part === 'string') return { type: 'text', content: scrubString(part) }
+  if (typeof part === 'string') return { type: 'text', content: scrubString(part, state) }
   if (isTruncationMarker(part)) {
     state.truncated = true
     return null
@@ -131,14 +149,14 @@ function toPart(part: unknown, state: MapState): GenAiMessagePart | null {
   if (!isRecord(part) || typeof part.type !== 'string') return null
   switch (part.type) {
     case 'text':
-      return typeof part.text === 'string' ? { type: 'text', content: scrubString(part.text) } : null
+      return typeof part.text === 'string' ? { type: 'text', content: scrubString(part.text, state) } : null
     case 'reasoning':
-      return typeof part.text === 'string' ? { type: 'reasoning', content: scrubString(part.text) } : null
+      return typeof part.text === 'string' ? { type: 'reasoning', content: scrubString(part.text, state) } : null
     case 'tool-call':
       return {
         type: 'tool_call',
         id: readCallId(part),
-        name: typeof part.toolName === 'string' ? scrubString(part.toolName) : '',
+        name: typeof part.toolName === 'string' ? scrubString(part.toolName, state) : '',
         arguments: scrubValue(readToolArguments(part) ?? null, state, 1),
       }
     case 'tool-result':
@@ -148,12 +166,12 @@ function toPart(part: unknown, state: MapState): GenAiMessagePart | null {
         response: scrubValue(readToolResult(part) ?? null, state, 1),
       }
     default:
-      return BINARY_PART_TYPES.has(part.type) ? toFilePart(part) : null
+      return BINARY_PART_TYPES.has(part.type) ? toFilePart(part, state) : null
   }
 }
 
 function toParts(content: unknown, state: MapState): GenAiMessagePart[] {
-  if (typeof content === 'string') return [{ type: 'text', content: scrubString(content) }]
+  if (typeof content === 'string') return [{ type: 'text', content: scrubString(content, state) }]
   if (isTruncationMarker(content)) {
     state.truncated = true
     return []
@@ -176,9 +194,9 @@ function toInputMessage(message: unknown, state: MapState): GenAiInputMessage | 
   return { role: message.role, parts: toParts(message.content, state) }
 }
 
-function normalizeFinishReason(reason: unknown): string {
+function normalizeFinishReason(reason: unknown, policy: ScrubPolicy): string {
   if (typeof reason !== 'string' || reason === '') return 'unknown'
-  return FINISH_REASONS[reason] ?? scrubString(reason)
+  return FINISH_REASONS[reason] ?? scrubString(reason, policy)
 }
 
 function truncateString(text: string, maxChars: number): string {
@@ -246,19 +264,19 @@ export function capContentAttribute(
   return { value: typeof value === 'string' ? '""' : isRecord(value) ? '{}' : 'null', truncated: true }
 }
 
-export function toSystemInstructions(request: unknown): GenAiContentAttribute | null {
+export function toSystemInstructions(request: unknown, options?: GenAiScrubOptions): GenAiContentAttribute | null {
   const artifact = readArtifact(request, LLM_REQUEST_ARTIFACT_SCHEMA)
   if (!artifact) return null
   if (isTruncationMarker(artifact.system)) return capContentAttribute([], OTEL_CONTENT_ATTRIBUTE_MAX_BYTES, true)
   if (typeof artifact.system !== 'string' || artifact.system === '') return null
-  const parts: GenAiTextPart[] = [{ type: 'text', content: scrubString(artifact.system) }]
+  const parts: GenAiTextPart[] = [{ type: 'text', content: scrubString(artifact.system, newState(options)) }]
   return capContentAttribute(parts)
 }
 
-export function toInputMessages(request: unknown): GenAiContentAttribute | null {
+export function toInputMessages(request: unknown, options?: GenAiScrubOptions): GenAiContentAttribute | null {
   const artifact = readArtifact(request, LLM_REQUEST_ARTIFACT_SCHEMA)
   if (!artifact || !Array.isArray(artifact.messages)) return null
-  const state: MapState = { truncated: false }
+  const state = newState(options)
   const messages: GenAiInputMessage[] = []
   for (const entry of artifact.messages) {
     const mapped = toInputMessage(entry, state)
@@ -267,25 +285,25 @@ export function toInputMessages(request: unknown): GenAiContentAttribute | null 
   return capContentAttribute(messages, OTEL_CONTENT_ATTRIBUTE_MAX_BYTES, state.truncated)
 }
 
-export function toOutputMessages(response: unknown): GenAiContentAttribute | null {
+export function toOutputMessages(response: unknown, options?: GenAiScrubOptions): GenAiContentAttribute | null {
   const artifact = readArtifact(response, LLM_RESPONSE_ARTIFACT_SCHEMA)
   if (!artifact || !Array.isArray(artifact.content)) return null
-  const state: MapState = { truncated: false }
+  const state = newState(options)
   const parts = toParts(artifact.content, state)
   if (artifact.object !== undefined) {
     const scrubbed = scrubValue(artifact.object, state, 0)
     parts.push({ type: 'text', content: JSON.stringify(scrubbed) ?? 'null' })
   }
   const messages: GenAiOutputMessage[] = [
-    { role: 'assistant', parts, finish_reason: normalizeFinishReason(artifact.finishReason) },
+    { role: 'assistant', parts, finish_reason: normalizeFinishReason(artifact.finishReason, state) },
   ]
   return capContentAttribute(messages, OTEL_CONTENT_ATTRIBUTE_MAX_BYTES, state.truncated)
 }
 
-export function toToolDefinitions(request: unknown): GenAiContentAttribute | null {
+export function toToolDefinitions(request: unknown, options?: GenAiScrubOptions): GenAiContentAttribute | null {
   const artifact = readArtifact(request, LLM_REQUEST_ARTIFACT_SCHEMA)
   if (!artifact || !Array.isArray(artifact.tools) || artifact.tools.length === 0) return null
-  const state: MapState = { truncated: false }
+  const state = newState(options)
   const definitions: GenAiToolDefinition[] = []
   for (const tool of artifact.tools) {
     if (isTruncationMarker(tool)) {
@@ -293,8 +311,8 @@ export function toToolDefinitions(request: unknown): GenAiContentAttribute | nul
       continue
     }
     if (!isRecord(tool) || typeof tool.name !== 'string' || tool.name === '') continue
-    const definition: GenAiToolDefinition = { type: 'function', name: scrubString(tool.name) }
-    if (typeof tool.description === 'string') definition.description = scrubString(tool.description)
+    const definition: GenAiToolDefinition = { type: 'function', name: scrubString(tool.name, state) }
+    if (typeof tool.description === 'string') definition.description = scrubString(tool.description, state)
     if (tool.inputSchema !== undefined && tool.inputSchema !== null) {
       definition.parameters = scrubValue(tool.inputSchema, state, 1)
     }
@@ -317,6 +335,7 @@ function collectToolParts(content: unknown, target: Record<string, unknown>[]): 
 export function indexToolCallContent(
   requests: ReadonlyArray<unknown>,
   responses: ReadonlyArray<unknown>,
+  options?: GenAiScrubOptions,
 ): Map<string, ToolCallContent> {
   const parts: Record<string, unknown>[] = []
   for (const response of responses) {
@@ -335,7 +354,7 @@ export function indexToolCallContent(
     const callId = readCallId(part)
     if (callId === null) continue
     const entry = index.get(callId) ?? {}
-    const state: MapState = { truncated: false }
+    const state = newState(options)
     if (part.type === 'tool-call' && entry.arguments === undefined) {
       const value = scrubValue(readToolArguments(part) ?? null, state, 0)
       entry.arguments = capContentAttribute(value, OTEL_CONTENT_ATTRIBUTE_MAX_BYTES, state.truncated)
@@ -356,15 +375,16 @@ export function indexToolCallContent(
 export function toInferenceDetailsAttributes(
   request: unknown,
   response: unknown,
+  options?: GenAiScrubOptions,
 ): Record<string, string | boolean> | null {
   const knownRequest = readArtifact(request, LLM_REQUEST_ARTIFACT_SCHEMA) !== null
   const knownResponse = readArtifact(response, LLM_RESPONSE_ARTIFACT_SCHEMA) !== null
   if (!knownRequest && !knownResponse) return null
   const entries: Array<[string, GenAiContentAttribute | null]> = [
-    [GEN_AI_ATTRIBUTES.systemInstructions, toSystemInstructions(request)],
-    [GEN_AI_ATTRIBUTES.inputMessages, toInputMessages(request)],
-    [GEN_AI_ATTRIBUTES.outputMessages, toOutputMessages(response)],
-    [GEN_AI_ATTRIBUTES.toolDefinitions, toToolDefinitions(request)],
+    [GEN_AI_ATTRIBUTES.systemInstructions, toSystemInstructions(request, options)],
+    [GEN_AI_ATTRIBUTES.inputMessages, toInputMessages(request, options)],
+    [GEN_AI_ATTRIBUTES.outputMessages, toOutputMessages(response, options)],
+    [GEN_AI_ATTRIBUTES.toolDefinitions, toToolDefinitions(request, options)],
   ]
   const attributes: Record<string, string | boolean> = {}
   let truncated =
