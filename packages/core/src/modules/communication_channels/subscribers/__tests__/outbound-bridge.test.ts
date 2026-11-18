@@ -1,3 +1,15 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CommunicationChannel } from '../../data/entities'
+import { resolveOutboundRouting } from '../../lib/outbound-routing'
+
+jest.mock('../../lib/outbound-routing', () => ({
+  resolveOutboundRouting: jest.fn(async (em: EntityManager) => {
+    const channel = await findOneWithDecryption(em, CommunicationChannel, {})
+    return channel ? { mapping: {}, channel } : null
+  }),
+}))
+
 import handler, { metadata } from '../outbound-bridge'
 
 const enqueueMock = jest.fn(async () => 'job-id')
@@ -20,6 +32,7 @@ describe('outbound-bridge subscriber metadata', () => {
 describe('outbound-bridge subscriber behaviour', () => {
   beforeEach(() => {
     enqueueMock.mockClear()
+    jest.mocked(resolveOutboundRouting).mockClear()
   })
 
   function makeCtx(em: { findOne: jest.Mock }) {
@@ -69,6 +82,7 @@ describe('outbound-bridge subscriber behaviour', () => {
     expect(findOne).toHaveBeenCalledTimes(1)
   })
 
+<<<<<<< HEAD
   it('skips an external_conversation sourced message without enqueueing an outbound delivery', async () => {
     const findOne = jest.fn().mockResolvedValueOnce({
       id: messageId,
@@ -78,6 +92,21 @@ describe('outbound-bridge subscriber behaviour', () => {
     await handler({ messageId, tenantId }, makeCtx({ findOne }))
     expect(enqueueMock).not.toHaveBeenCalled()
     expect(findOne).toHaveBeenCalledTimes(1)
+=======
+  it('skips an ingested inbound external_conversation message without enqueueing an outbound delivery', async () => {
+    const findOne = jest.fn()
+      .mockResolvedValueOnce({
+        id: messageId,
+        threadId: 'thread-1',
+        sourceEntityType: 'communication_channels.external_conversation',
+        visibility: 'public',
+        idempotencyKey: 'cc:channel-1:external-message-1',
+      })
+      .mockResolvedValueOnce(null)
+    await handler({ messageId, tenantId }, makeCtx({ findOne }))
+    expect(enqueueMock).not.toHaveBeenCalled()
+    expect(findOne).toHaveBeenCalledTimes(2)
+>>>>>>> f7f8e5ab1a (fix(communication_channels): route native replies by conversation provenance (#9739) (#9752))
   })
 
   it('skips internal-only messages (no threadId)', async () => {
@@ -87,10 +116,10 @@ describe('outbound-bridge subscriber behaviour', () => {
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 
-  it('skips when no ChannelThreadMapping exists for the threadId', async () => {
+  it('skips when no safe outbound routing exists for the threadId', async () => {
     const findOne = jest.fn()
-    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' }) // Message
-    findOne.mockResolvedValueOnce(null) // ChannelThreadMapping
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public' }) // Message
+    jest.mocked(resolveOutboundRouting).mockResolvedValueOnce(null)
     await handler({ messageId, tenantId }, makeCtx({ findOne }))
     expect(enqueueMock).not.toHaveBeenCalled()
   })
@@ -98,7 +127,6 @@ describe('outbound-bridge subscriber behaviour', () => {
   it('enqueues an outbound job when channel-linked and not yet delivered', async () => {
     const findOne = jest.fn()
     findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public' }) // Message
-    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
     findOne.mockResolvedValueOnce(null) // existing link (none)
     findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // channel (tenant-wide → any sender)
     await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne }))
@@ -112,8 +140,7 @@ describe('outbound-bridge subscriber behaviour', () => {
 
   it('skips when an existing link is already in a delivered state', async () => {
     const findOne = jest.fn()
-    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' }) // Message
-    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public' }) // Message
     findOne.mockResolvedValueOnce({ id: 'link-1', deliveryStatus: 'sent' }) // existing link
     await handler({ messageId, tenantId }, makeCtx({ findOne }))
     expect(enqueueMock).not.toHaveBeenCalled()
@@ -126,8 +153,7 @@ describe('outbound-bridge subscriber behaviour', () => {
     'skips when an existing link is in-flight (deliveryStatus=%s)',
     async (deliveryStatus) => {
       const findOne = jest.fn()
-      findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' }) // Message
-      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
+      findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public' }) // Message
       findOne.mockResolvedValueOnce({ id: 'link-1', deliveryStatus }) // existing link
       await handler({ messageId, tenantId }, makeCtx({ findOne }))
       expect(enqueueMock).not.toHaveBeenCalled()
@@ -137,7 +163,6 @@ describe('outbound-bridge subscriber behaviour', () => {
   it('enqueues when an existing link is in a terminal-failure state (retry path)', async () => {
     const findOne = jest.fn()
     findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public' })
-    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' })
     findOne.mockResolvedValueOnce({ id: 'link-1', deliveryStatus: 'failed' })
     findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // channel (tenant-wide)
     await handler({ messageId, tenantId }, makeCtx({ findOne }))
@@ -149,8 +174,7 @@ describe('outbound-bridge subscriber behaviour', () => {
     // channel-linked thread must NOT enqueue a delivery that would send from that
     // user's connected account (the worker uses the channel owner's credentials).
     const findOne = jest.fn()
-    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', senderUserId: 'sender-a' }) // Message
-    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1', channelId: 'ch-owner' }) // mapping
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', senderUserId: 'sender-a', visibility: 'public' }) // Message
     findOne.mockResolvedValueOnce(null) // existing link (none)
     findOne.mockResolvedValueOnce({ id: 'ch-owner', userId: 'owner-b' }) // per-user channel owned by someone else
     await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne }))
@@ -173,7 +197,6 @@ describe('outbound-bridge subscriber behaviour', () => {
         senderUserId: 'assigned-operator',
         sourceEntityType: EXTERNAL,
       }) // Message
-      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
       findOne.mockResolvedValueOnce({ id: 'link-1', direction: 'inbound', deliveryStatus: 'received' })
       await handler({ messageId, tenantId }, makeCtx({ findOne }))
       expect(enqueueMock).not.toHaveBeenCalled()
@@ -188,7 +211,6 @@ describe('outbound-bridge subscriber behaviour', () => {
         sourceEntityType: EXTERNAL,
         idempotencyKey: 'cc:ch-1:external-42',
       }) // Message
-      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
       findOne.mockResolvedValueOnce(null) // link not flushed yet
       await handler({ messageId, tenantId }, makeCtx({ findOne }))
       expect(enqueueMock).not.toHaveBeenCalled()
@@ -202,7 +224,6 @@ describe('outbound-bridge subscriber behaviour', () => {
         senderUserId: SYSTEM_USER_ID,
         sourceEntityType: EXTERNAL,
       }) // Message
-      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
       findOne.mockResolvedValueOnce(null) // link not flushed yet
       await handler({ messageId, tenantId }, makeCtx({ findOne }))
       expect(enqueueMock).not.toHaveBeenCalled()
@@ -217,7 +238,6 @@ describe('outbound-bridge subscriber behaviour', () => {
         sourceEntityType: EXTERNAL,
         visibility: 'public',
       }) // Message
-      findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1', channelId: 'ch-1' })
       findOne.mockResolvedValueOnce(null) // no link yet — nothing was sent for this message
       findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // shared channel
       await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne }))
@@ -229,7 +249,6 @@ describe('outbound-bridge subscriber behaviour', () => {
   it('enqueues delivery when the message sender OWNS the per-user channel', async () => {
     const findOne = jest.fn()
     findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', senderUserId: 'owner-b', visibility: 'public' }) // Message
-    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1', channelId: 'ch-owner' }) // mapping
     findOne.mockResolvedValueOnce(null) // existing link (none)
     findOne.mockResolvedValueOnce({ id: 'ch-owner', userId: 'owner-b' }) // channel owned by the sender
     await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne }))
