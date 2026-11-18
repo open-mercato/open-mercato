@@ -87,7 +87,8 @@
     "openid-client": "^6.8.4",
     "otpauth": "9.5.1",
     "pg": "8.23.0",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "yaml": "2.9.0"
   },
   "peerDependencies": {
     "@mikro-orm/core": "^7.0.14",
