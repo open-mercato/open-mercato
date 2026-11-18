@@ -121,6 +121,42 @@ function PipelineDefaults({ pipelineId, pipelineStageId, pipelines, stages, stag
   return null
 }
 
+type StageProbabilityDefaultsProps = {
+  pipelineId: string
+  pipelineStageId: string
+  probability: string
+  pipelines: PipelineOption[]
+  stages: PipelineStageOption[]
+  setValue: (id: string, value: unknown) => void
+}
+
+/**
+ * Copies the selected stage's default win probability into Probability whenever the stage
+ * changes, whether the user picked it or PipelineDefaults selected the first stage of a new
+ * pipeline. A value the user typed is kept. A value filled here earlier is replaced, or cleared
+ * when the new stage has no default, so a default left over from another stage is never
+ * submitted as an explicit override that would skip the server's own stage default.
+ */
+function StageProbabilityDefaults({ pipelineId, pipelineStageId, probability, pipelines, stages, setValue }: StageProbabilityDefaultsProps) {
+  const appliedStageId = React.useRef<string | null>(null)
+  const autoFilledProbability = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (!pipelineStageId || pipelineStageId === appliedStageId.current) return
+    const pipeline = pipelines.find((entry) => entry.id === pipelineId)
+    const stage = stages.find((entry) => entry.id === pipelineStageId)
+    if (!pipeline || !stage) return
+    appliedStageId.current = pipelineStageId
+    if (probability !== '' && probability !== autoFilledProbability.current) return
+    const stageDefault = pipeline.stageProbabilitiesEnabled && typeof stage.defaultProbability === 'number'
+      ? String(stage.defaultProbability)
+      : null
+    autoFilledProbability.current = stageDefault
+    const nextProbability = stageDefault ?? ''
+    if (nextProbability !== probability) setValue('probability', nextProbability)
+  }, [pipelineId, pipelineStageId, pipelines, probability, setValue, stages])
+  return null
+}
+
 /**
  * Fields contributed by extensions (`crud-form:customers.deal:fields`) get a card of their
  * own after the section they target; CrudForm always hands over a grid wrapper, so the card
@@ -268,6 +304,14 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
               stages={currentStages}
               stagesPipelineId={stagesPipelineId}
               loadStages={loadStages}
+              setValue={setValue}
+            />
+            <StageProbabilityDefaults
+              pipelineId={current.pipelineId}
+              pipelineStageId={current.pipelineStageId}
+              probability={current.probability}
+              pipelines={pipelines}
+              stages={currentStages}
               setValue={setValue}
             />
             <DealDetailsFields

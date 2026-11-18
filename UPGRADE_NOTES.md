@@ -1,5 +1,36 @@
 # Upgrade Notes
 
+## Catalog price-kind seed keeps existing price kinds (#8104)
+
+`seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
+`seed:defaults` now only create a missing `regular` or `sale` price kind and no
+longer change existing price kinds. On tenants with several organizations,
+`regular`/`sale` keep their current `organization_id` instead of moving to the
+organization being seeded (relevant to `sales/api/price-kinds`, which filters by
+organization). A soft-deleted `regular` or `sale` is not restored, so restore it
+before `mercato catalog seed-examples` or `seed-examples-bundle`.
+
+A kind an admin deleted can be undone from the action log. Kinds soft-deleted by
+earlier seed runs have no action-log entry and cannot be recreated through the API
+(the `(tenant_id, code)` constraint covers deleted rows). Find them first, matching
+`deleted_at` to the times `seed:defaults` ran:
+
+```sql
+select id, code, title, is_active, deleted_at from catalog_price_kinds
+where tenant_id = '<tenant>' and deleted_at is not null;
+```
+
+Then restore each one:
+
+```sql
+update catalog_price_kinds set deleted_at = null, is_active = true, updated_at = now()
+where tenant_id = '<tenant>' and code = '<code>';
+```
+
+The earlier active state is unknown, so check `is_active` after restoring. The SQL
+bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
+afterwards. No migration is needed.
+
 ## Event-triggered workflow execution identity (#9137)
 
 Event payload `userId` and `actorUserId` remain data and no longer supply
@@ -228,6 +259,55 @@ Companion AI skills (one per upgrade window) live in
 most of the patterns listed below in a user's codebase.
 
 ---
+
+## 0.9.0 → 0.10.0 (Unreleased)
+
+### Outbound email attachments: the hub fills `attachments` with bytes; `assembleRfc2822` is deprecated (#7098)
+
+`send-as-user` accepts `attachments` (attachments-module ids with their owning record), and the
+delivery command now passes them to `ChannelAdapter.convertOutbound({ attachments })` for adapters
+whose capabilities advertise `fileSharing: true`. Each item carries the file bytes in the new optional
+`NormalizedAttachment.content` and an empty `url`. The IMAP/SMTP and Gmail adapters now advertise
+`fileSharing: true`; `baseEmailCapabilities` keeps `false`.
+
+`assembleRfc2822` from `communication_channels/lib/email-mime` is deprecated in favor of the async
+`composeEmailMessage` (nodemailer `MailComposer`), which the Gmail adapter now uses. Gmail messages
+therefore fold long encoded headers and quote a display name only when it needs quoting
+(`From: Alice <a@example.com>`).
+
+`channelMetadata.outboundAttachments` is now a hub-owned key: `send-as-user` drops any value a
+caller puts there. The integration helper `CapturedTestSeedEmail` (and `TestSeedCapturedMessage` in
+`communication_channels/lib/test-seed`) keeps `content.attachments` unchanged: it records the
+attachments handed to the adapter as before. The only items left out are the files the hub read from
+the attachments module, which carry bytes and no URL. The new `content.attachmentDigests` holds a
+version 1 digest (`version`, `fileName`, `mimeType`, `fileSize`, `sha256`) for every attachment
+whose bytes the adapter holds — those hub-read files and decodable `data:` URLs; a remote URL is never
+fetched or digested. Assert on the digests to check what was sent.
+
+A `send-as-user` request that carried an `attachments` field used to be accepted with the field
+silently dropped; the field is now validated, and the request is refused with 422 when it is malformed
+or the mailbox cannot send it. A refusal carries a stable `code` next to `error`. A display-name
+`filename` must keep the stored file's extension and follow the upload rules (no executable
+extension, no control or bidirectional characters). `baseEmailCapabilities.supportedMimeTypes` gains
+xlsx, docx, pptx, xls and doc. A channel connected before the upgrade keeps `fileSharing: false` in
+its stored capability snapshot until it is reconnected; the hub reads the live adapter, so sending
+works either way.
+
+Adapters called directly (not through the hub): IMAP/SMTP now sends `attachment.content` and `data:`
+URLs, and reports a server size rejection as `{ status: 'failed', error: '…message_too_large…' }`
+instead of throwing; Gmail refuses an attachment that only has a remote `url` instead of dropping it.
+
+`assembleRfc2822` is deprecated since 0.10.0 and kept unchanged; removal no earlier than 0.11.0.
+
+**Action for module authors:** a custom adapter that advertises `fileSharing: true` must send
+`attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from
+`communication_channels/lib/outbound-attachments`) and must not fetch `attachment.url`. Tests that
+assert the exact bytes of a Gmail outbound message may need the new header formatting. An
+`attachmentService` override does not need the new optional `describeManyScoped` or `describeScoped`:
+without them the hub validates attachments one by one through `describeScoped`, then `readScoped`.
+An adapter whose provider allows a different total per message declares it in the new optional
+`ChannelCapabilities.maxTotalBytes` (raw bytes; 25 MB when unset); `maxFileSize` stays the per-file
+limit.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
@@ -840,6 +920,18 @@ continue to omit the bundled Traefik overlay; their base-file port mappings
 are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
+
+### Search sources no longer receive the plaintext of encrypted custom fields (#7872)
+
+`SearchIndexer` and the exported opt-in `VectorIndexService` now leave custom fields whose definition is `encrypted` out of the records and custom fields they hand to search sources (`buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`), including records a source loads through `ctx.queryEngine`. Before, the customers Company and Person sources wrote such values into their search text, which the vector strategy sends to the embedding provider and stores with the vector document, and any source could copy them into the presenter or links stored in the fulltext and vector indexes. The record fields an index receives (`IndexableRecord.fields`) are unchanged so the hashed `search_tokens` index still covers encrypted custom fields. The `plaintextExcludedCustomFields` metadata added in #7894 separately keeps those values out of fulltext document fields and vector fallback text.
+
+A custom-field key declared `encrypted` by the record's tenant (or globally) is left out for every organization of that tenant, since a build context does not know which organization's definition applies. This follows the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: there is no deprecation window, because keeping the old context for a release would keep the plaintext flowing.
+
+**What stops working:** a search source that put an encrypted custom field into its text, presenter, URL or links no longer gets its value, so results stop matching or showing it. Either indexer constructed without the new `encryptedCustomFieldKeysResolver` option leaves out every custom field, encrypted or not; the `searchIndexer` resolved from DI is wired and keeps non-encrypted custom fields.
+
+**Action for module authors:** resolve `searchIndexer` from the container. If you construct `SearchIndexer` or `VectorIndexService` yourself, pass `encryptedCustomFieldKeysResolver: createEncryptedCustomFieldKeysResolver(em.getKysely())` (from `@open-mercato/search/di`). Do not read encrypted custom fields back into a source some other way.
+
+**Action for operators:** text, presenters and links indexed before the upgrade keep their values until their records are reindexed. If you declare encrypted custom fields on searchable entities, reindex those entities from the search settings page (or the vector and fulltext reindex routes) after upgrading. Values of such fields may already have been sent to the configured embedding provider and stored in the fulltext and vector indexes; treat them as disclosed to those services and apply your data-retention or deletion process to them.
 
 ### Canonical module origins and duplicate enabled IDs (#8309)
 
@@ -1581,6 +1673,34 @@ the same check, for at most three hops. Any other redirect fails with
 **Action for operators:** fix any workflow definition whose `CALL_API` endpoint hard-codes a
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
+
+### `staff` EP-40 capacity providers now drive the timesheet targets and may answer asynchronously (#6934)
+
+**Who is affected:** apps that register a capacity provider, or that replaced the
+`timeCapacityResolver` DI key. No change is required. The provider contract is additive.
+
+**What changed:**
+
+- The Timesheet footer, load bars, default expanded day and My Work KPIs now resolve their
+  target through `timeCapacityResolver.resolveCapacityAsync`, via the new
+  `GET /api/staff/timesheets/capacity` route. With no provider registered, every number
+  and the "Target (d × h)" caption are unchanged.
+- `CapacityProvider` gained an optional `resolveAsync`, for providers that read their own
+  data. `resolve` stays synchronous and required.
+- `CapacityResult` gained an optional `label` and `labelKey` for the footer caption.
+- Answers are now validated more strictly. Any of these falls back to the built-in:
+  negative minutes, a date key that is not a real calendar day, or a missing map. Days
+  outside the requested range are dropped. The total is recomputed as the sum of the
+  per-day targets, and a `null` total clears the per-day map.
+
+**Recommended:**
+
+- Move synchronous callers from `resolveTimesheetCapacity` /
+  `timeCapacityResolver.resolveCapacity` (both now `@deprecated`, and they never consult
+  `resolveAsync`) to `resolveTimesheetCapacityAsync` / `resolveCapacityAsync`.
+- A `timeCapacityResolver` override that implements, or replaces, only `resolveCapacity`
+  keeps working. Its answer is treated as contributed, so the footer shows a neutral
+  "Target". To report `isBuiltIn` yourself, also replace `resolveCapacityAsync`.
 
 ### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
 
@@ -2808,6 +2928,25 @@ index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now u
 new application version serves traffic. Until it has run, saving an encryption map in the admin UI
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
+
+### Saved views keep their legacy filter record; `maybeMigrateLegacyFilterValues` is deprecated (#7046)
+
+Every perspective read path (`GET /api/perspectives/<tableId>`, `loadPerspectivesState`, and the
+save responses) used to run `maybeMigrateLegacyFilterValues`, which dropped `settings.filters`
+unless it was a v2 advanced-filter tree (`v: 2` or a `root` key). Every `DataTable` page still on
+the legacy `FilterBar` (`filterValues` / `onFiltersApply`) saves a flat `FilterValues` record, so
+views saved from those pages came back without their filters. The read path now returns
+`settings.filters` exactly as stored. No data migration is needed, because the records were
+always persisted.
+
+**Action for module authors:** none for code that reads perspectives through the API or the
+service: flat records now come back where they were missing before, and `DataTable` already
+applies each shape only on pages that handle it. If you imported `maybeMigrateLegacyFilterValues`
+from `@open-mercato/core/modules/perspectives/services/perspectiveService`, it still behaves as
+before but is `@deprecated` and will be removed in a future minor release. Use the stored settings
+as-is, or keep `filters` only when it has `v === 2` or a `root` key if you really need the
+tree-only view. See "`maybeMigrateLegacyFilterValues` — deprecated" in
+[`.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md`](.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md).
 
 ### Timesheet undos respect the closed-report lock (#7507)
 
