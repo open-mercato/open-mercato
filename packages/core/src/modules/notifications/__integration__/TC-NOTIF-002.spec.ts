@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 type NotificationSettingsResponse = {
   settings?: Record<string, unknown>
@@ -16,7 +16,7 @@ test.describe('TC-NOTIF-002: Notification settings APIs', () => {
     const originalSettings = originalBody?.settings ?? {}
 
     const updatedSettings = {
-      appUrl: 'https://qa.example.test',
+      ...originalSettings,
       panelPath: '/backend/notifications',
       strategies: {
         database: { enabled: true },
@@ -38,6 +38,15 @@ test.describe('TC-NOTIF-002: Notification settings APIs', () => {
     }
 
     try {
+      const rejectedResponse = await apiRequest(request, 'POST', '/api/notifications/settings', {
+        token,
+        data: { ...updatedSettings, appUrl: 'https://refused-notifications.example.test' },
+      })
+      expect(rejectedResponse.status()).toBe(400)
+      const unchangedResponse = await apiRequest(request, 'GET', '/api/notifications/settings', { token })
+      expect(unchangedResponse.status()).toBe(200)
+      expect((await readJsonSafe<NotificationSettingsResponse>(unchangedResponse))?.settings).toEqual(originalSettings)
+
       const updateResponse = await apiRequest(request, 'POST', '/api/notifications/settings', {
         token,
         data: updatedSettings,

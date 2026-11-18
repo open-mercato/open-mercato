@@ -49,14 +49,24 @@ test('TC-NOTIF-9136: tenant notification settings cannot change another tenant o
     ))
     const response = await apiRequest(request, 'POST', '/api/notifications/settings', {
       token: fixtures[0].token!,
-      data: { panelPath: beforeA.panelPath, tenantId: fixtures[1].tenantId, strategies: { email: { enabled: !beforeA.strategies.email.enabled, from: 'tenant-a@example.com', replyTo: 'reply-a@example.com', subjectPrefix: '[A]' } } },
+      data: { panelPath: beforeA.panelPath, strategies: { email: { enabled: !beforeA.strategies.email.enabled, from: 'tenant-a@example.com', replyTo: 'reply-a@example.com', subjectPrefix: '[A]' } } },
     })
     expect(response.status()).toBe(200)
     expect((await read(0)).strategies.email).toMatchObject({ enabled: !beforeA.strategies.email.enabled, from: 'tenant-a@example.com', replyTo: 'reply-a@example.com', subjectPrefix: '[A]' })
     expect(await read(1)).toEqual(beforeB)
+    const savedA = await read(0)
+    const spoofed = await apiRequest(request, 'POST', '/api/notifications/settings', {
+      token: fixtures[0].token!,
+      data: { tenantId: fixtures[1].tenantId, panelPath: '/backend/alerts' },
+    })
+    expect(spoofed.status()).toBe(403)
+    expect(await read(0)).toEqual(savedA)
+    expect(await read(1)).toEqual(beforeB)
     for (const appUrl of ['https://attacker.example', 'https://operator.example@attacker.example']) {
       const rejected = await apiRequest(request, 'POST', '/api/notifications/settings', { token: fixtures[0].token!, data: { appUrl } })
       expect(rejected.status()).toBe(400)
+      expect(await read(0)).toEqual(savedA)
+      expect(await read(1)).toEqual(beforeB)
     }
     const globalAfter = await withClient((client) => client.query<{ value_json: unknown }>(
       "select value_json from module_configs where module_id = 'notifications' and name = 'delivery_strategies' and tenant_id is null",

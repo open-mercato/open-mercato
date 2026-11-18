@@ -26,7 +26,7 @@ Intentional security restrictions: HTTP settings writes affect the authenticated
 - Existing mutation-guard regressions continue to exercise settings writes and guard rejections.
 - Subscriber tests assert configuration uses the persisted notification tenant and is not read when the scoped notification is absent.
 - Checkout worker regression asserts sender/reply-to and the loaded transaction's tenant passed to configuration resolution.
-- Self-contained HTTP integration: `TC-NOTIF-9136.spec.ts` creates two tenants, organizations, notification-admin roles and users, proves GET/POST isolation, rejected phishing origins and unchanged instance row, then removes fixtures/configuration. Requires a running integration app/database; execution limits belong in validation evidence.
+- Self-contained HTTP integration: `TC-NOTIF-9136.spec.ts` creates two tenants, organizations, notification-admin roles and users, proves normal GET/POST isolation, a dispatcher-refused forged tenant payload (403), rejected phishing origins (400), unchanged tenant state after every refusal and an unchanged instance row, then removes fixtures/configuration. `TC-NOTIF-002` saves with the inherited approved origin and checks external-origin refusal before a successful retry. Requires a running integration app/database; execution limits belong in validation evidence.
 - No UI rendering changes. Existing settings form retains its payload/response shape; verify saving delivery settings in two tenant sessions in manual QA if live evidence is unavailable.
 
 ## Risks and validation
