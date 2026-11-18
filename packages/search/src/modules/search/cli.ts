@@ -802,12 +802,16 @@ async function workerCommand(rest: string[]): Promise<void> {
 
   if (queueName === VECTOR_INDEXING_QUEUE_NAME) {
     const { handleVectorIndexJob } = await import('./workers/vector-index.worker')
-    const container = await createRequestContainer()
 
     await runWorker<VectorIndexJobPayload>({
       queueName: VECTOR_INDEXING_QUEUE_NAME,
       handler: async (job: QueuedJob<VectorIndexJobPayload>, ctx: JobContext) => {
-        await handleVectorIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+        const container = await createRequestContainer()
+        try {
+          await handleVectorIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+        } finally {
+          await container.dispose()
+        }
       },
       connection: { url: redisUrl },
       concurrency,

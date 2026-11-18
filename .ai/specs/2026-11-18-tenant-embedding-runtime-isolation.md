@@ -10,7 +10,7 @@ A tenant settings save changed the process embedding singleton. Search routes lo
 
 ## Proposed Solution / Architecture
 
-Register a fresh `vectorEmbeddingService` value for every existing request/job container, preserving its token and public methods. Keep driver, pool and queue globals. The two search routes, embeddings reindex endpoint and vector worker resolve `scope: { tenantId }` from authenticated context/job payload using existing scoped→instance fallback. With no saved config the existing EmbeddingService default remains unchanged. POST persists settings without mutating any embedding service.
+Register a fresh `vectorEmbeddingService` value for every existing request/job container, preserving its token and public methods. Keep driver, pool and queue globals. The two search routes, embeddings reindex endpoint and vector worker resolve `scope: { tenantId }` from authenticated context/job payload using existing scoped→instance fallback. With no saved config the existing EmbeddingService default remains unchanged. POST persists settings without mutating any embedding service. The legacy search CLI vector worker creates and disposes a container per job, matching the general worker runner and isolating overlapping jobs.
 
 A supplied tenant Ollama URL must pass existing SSRF checks and either equal the normalized existing `OLLAMA_BASE_URL` (default localhost:11434) or match the existing `OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST` host/host:port rules. `OM_SEARCH_OLLAMA_ALLOW_PRIVATE` remains an SSRF policy setting and grants no tenant destination authorization by itself. Provider/model registries and custom Ollama model support are unchanged.
 
@@ -22,13 +22,13 @@ No schema or response shape changes. Existing API ACL metadata and tenant deriva
 
 1. Correct DI lifetime and scope config reads; remove POST runtime mutation.
 2. Reuse existing operator URL/allowlist configuration for tenant destination authorization.
-3. Route-to-DI-to-vector strategy integration regression tests in Jest exercise both GET search APIs, sequential and overlapping tenant A/B requests, tenant override, instance fallback and env/service default. Network SDK and infrastructure boundaries are faked; actual service and strategy are exercised. POST tests reject arbitrary public destinations before probing, accept operator and allowlisted URLs, retain metadata rejection and verify saves never mutate runtime state. Existing worker/reindex suites cover affected call sites; add explicit scope assertions.
+3. Route-to-DI-to-vector strategy integration regression tests in Jest exercise both GET search APIs, sequential and overlapping tenant A/B requests, tenant override, instance fallback and env/service default. Network SDK and infrastructure boundaries are faked; actual service and strategy are exercised. POST tests reject arbitrary public destinations before probing, accept operator and allowlisted URLs, retain metadata rejection and verify saves never mutate runtime state. Existing worker/reindex suites assert tenant scope. CLI boundary tests execute the real command and prove overlapping jobs use separate containers, including disposal on failure.
 
 ## Migration & Backward Compatibility
 
 Protected surfaces: STABLE API accepted URL behavior narrows; DI token and methods remain unchanged, while unsafe shared mutable lifetime is corrected. Clients that submit arbitrary public Ollama URLs now receive 400 and must select an operator-approved destination. Operators already using custom hosts can retain them through existing `OLLAMA_BASE_URL` or `OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST`; no new configuration is introduced. Review existing tenant rows and remove unexpected endpoints; restart existing web/worker processes to clear the previously mutable singleton. No data/index rebuild or migration is required.
 
-Keeping arbitrary tenant-controlled endpoints accepted preserves the reported query-disclosure route; no compatibility flag or partial bridge is provided. Emergency exception steps 1–3 require named human maintainer approval under BACKWARD_COMPATIBILITY.md before merge. Upgrade notes accompany the change. The required dated compatibility-ledger entry needs explicit scope authorization because this task is limited to search and issue-specific spec/upgrade notes.
+Keeping arbitrary tenant-controlled endpoints accepted preserves the reported query-disclosure route; no compatibility flag or partial bridge is provided. Emergency exception steps 1–3 require named human maintainer approval under BACKWARD_COMPATIBILITY.md before merge. Upgrade notes accompany the change. The dated compatibility-ledger entry records the pending human waiver; automation cannot approve it.
 
 ## Risks & Impact Review
 

@@ -670,3 +670,20 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+
+## Tenant embedding runtime isolation (2026-11-18, #9135)
+
+STABLE search configuration/API behavior: tenant-supplied Ollama destinations must
+match the operator's existing `OLLAMA_BASE_URL` or
+`OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST`. Arbitrary public destinations previously
+combined with process-global mutable embedding state to receive other tenants'
+queries; retaining that behavior as a compatibility bridge retains disclosure.
+Mutable embedding state now belongs to the existing request/job container, and
+configuration reads use the authenticated/job tenant with instance fallback.
+DI names, provider defaults, drivers, queues and schemas remain unchanged.
+Clients must select an approved destination; operators must review stored tenant
+endpoints and restart existing processes to clear unsafe in-memory state.
+See `.ai/specs/2026-11-18-tenant-embedding-runtime-isolation.md` and
+UPGRADE_NOTES.md for migration details. Emergency exception steps 1–3 require
+named human maintainer approval; that approval is pending and blocks merge.

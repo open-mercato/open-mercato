@@ -57,7 +57,7 @@ function requestContainer(configs: Map<string, EmbeddingProviderConfig>, instanc
 
 describe.each([['global', globalSearch], ['hybrid', hybridSearch]] as const)('%s search embedding tenant isolation', (_name, search) => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    jest.resetAllMocks()
     process.env = { ...originalEnv, OPENAI_API_KEY: 'test-placeholder' }
     delete process.env.SEARCH_DISABLE_SINGLETON_CACHE
     delete process.env.DATABASE_URL
@@ -77,7 +77,7 @@ describe.each([['global', globalSearch], ['hybrid', hybridSearch]] as const)('%s
       body: JSON.stringify({ embeddingConfig: tenantConfig }),
     }))
     expect(save.status).toBe(200)
-    expect(configs.get('tenant-a')).toMatchObject(tenantConfig)
+    expect(configs.get('tenant-a')).toMatchObject({ ...tenantConfig, updatedAt: expect.any(String) })
     expect(configs.has('tenant-b')).toBe(false)
     expect((await search(new Request('http://localhost/api/search/search?q=B-private-query&strategies=vector'))).status).toBe(200)
     expect(mockEmbed).toHaveBeenCalledWith(expect.objectContaining({ value: 'B-private-query', model: { provider: 'openai', model: expect.any(String) } }))
