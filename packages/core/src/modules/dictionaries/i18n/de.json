@@ -1,4 +1,5 @@
 {
+  "dictionaries.appearance.preview": "Vorschau",
   "dictionaries.config.delete.confirm": "Wörterbuch \"{{name}}\" löschen?",
   "dictionaries.config.dialog.cancel": "Abbrechen",
   "dictionaries.config.dialog.createTitle": "Wörterbuch erstellen",
