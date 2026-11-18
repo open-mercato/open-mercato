@@ -17,6 +17,15 @@ informational; no migration or configuration is required.
   (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
   or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
 
+## Invoice delete checks the expected version under the row lock
+
+`DELETE /api/sales/invoices` now locks the invoice row and compares the
+`x-om-ext-optimistic-lock-expected-updated-at` header with the `updated_at` of the
+locked row, as order delete already does. A delete whose invoice another request
+edited after the route's version check now answers 409 `optimistic_lock_conflict`
+instead of deleting the edited invoice. Deleting a missing or already deleted
+invoice answers 404 instead of 500.
+No migration or configuration change.
 ## Catalog price-kind seed keeps existing price kinds (#8104)
 
 `seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
