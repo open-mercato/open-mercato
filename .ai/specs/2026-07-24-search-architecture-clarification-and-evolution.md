@@ -62,7 +62,7 @@ There are two axes: **incremental** (on every record write) and **bulk / reindex
 |---|---|---|---|
 | **CLI** `yarn mercato search reindex` | `entity_indexes` projection + **`search_tokens`** + emits **vector** events | **NO** | `packages/search/src/modules/search/cli.ts` → `reindexEntity({ emitVectorizeEvents: true })` |
 | **Core API** `POST /api/query_index/reindex` (feature `query_index.reindex`) | Emits `query_index.reindex` persistent events → same `reindexEntity` path (projection + tokens + vector) | **NO** | `query_index/api/reindex.ts` |
-| **Search API** `POST /api/search/reindex` (feature `search.reindex`) | Recreates the **Meilisearch** index and re-indexes all records into it (via `batch-index` jobs or direct `bulkIndex`) | **YES — this is the only fulltext bulk path** | `search/api/reindex/route.ts` → `searchIndexer.reindexEntityToFulltext` / `reindexAllToFulltext` |
+| **Search API** `POST /api/search/reindex` (feature `search.reindex`) | Clears the reindexed scope in the **Meilisearch** index (the entity type, the organization's documents, or — for an unscoped full reindex — recreates the whole tenant index) and re-indexes its records (via `batch-index` jobs or direct `bulkIndex`) | **YES — this is the only fulltext bulk path** | `search/api/reindex/route.ts` → `searchIndexer.reindexEntityToFulltext` / `reindexAllToFulltext` |
 | **Vector API** `POST /api/search/embeddings/reindex` (feature `search.manage`) | Vector store only | NO | `search/api/embeddings/**` |
 
 Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + a running `yarn mercato search worker fulltext-indexing` (in `local` mode jobs process from `.mercato/queue/`).
@@ -76,6 +76,35 @@ Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + 
 - **Exact-match on encrypted PII** (`fieldPolicy.hashOnly`: email, phone, tax_id) — served by token-hash presence (list routes require **all** query tokens to match; `TokenSearchStrategy` uses a 50% `minMatchRatio`), plus a dedicated `emailHash` column for email exact lookups.
 
 ### A.4 Configuration surface
+
+#### Entity strategy restrictions on writes (#5930)
+
+`SearchService.index` and `bulkIndex` honor each entity's existing `strategies`
+restriction from the existing DI entity configuration map, including the
+per-record bulk fallback. An explicit empty list prevents all strategy writes;
+entities inherit module defaults when present, while configurations without either
+restriction retain all available writers. Disabled entities permit no writes. Mixed batches are
+filtered separately for each strategy. Delete and purge remain unrestricted so
+previously indexed content can still be removed.
+
+Migration & Backward Compatibility: the existing `SearchServiceOptions` gains
+only the optional `resolveEntityStrategies` callback. DI supplies its current
+entity map; legacy direct constructors fall back to registered module configs.
+Existing caller signatures, startup, operator configuration, APIs, schema, and
+default strategies are preserved. Modules already restricting an entity
+now receive the intended write isolation. Existing unwanted vectors require an
+operator purge after workers are upgraded; this fix does not delete stored data
+or undo embedding-provider retention. Fulltext content and null-source behavior
+remain as documented below; this addresses only part (c) of #5930.
+
+Reindex remediation (#8773): the same effective policy covers queued and
+synchronous fulltext/vector reindexing, general reindexing, and legacy vector
+writes. Queued references are checked again when consumed. Regression coverage
+exercises excluded and allowed backends, explicit empty strategies, module defaults,
+disabled entities, all-entity operations, and policy changes after enqueueing.
+This extends existing write isolation without changing startup, operator
+configuration, public signatures, routes, schema, or queue payloads. Existing
+stored data and provider retention still require operator remediation.
 
 #### Customer vector privacy invariant (#7826)
 
@@ -270,6 +299,7 @@ Memoization is per engine instance; engines are constructed per request (`create
 - **Phase 1**: strictly additive — new CLI flags/commands, a new orchestration service, a new admin action. The three existing reindex entry points and their feature IDs (`search.reindex`, `query_index.reindex`, `search.manage`) are preserved and delegated to. Any change to the bare `reindex` default must follow the deprecation protocol (help-text `@deprecated`, bridge ≥1 minor, `UPGRADE_NOTES.md`).
 - **Phase 2/3**: new drivers/packages are additive and env-gated; a Postgres-only profile is opt-in. `SearchStrategyId`, `SearchStrategy`, event IDs (`search.index_record`, `search.delete_record`, `query_index.*`), queue names (`fulltext-indexing`, `vector-indexing`), and DI keys (`searchService`, `searchIndexer`, `searchStrategies`) are FROZEN/STABLE surfaces — extend, never rename.
 - **Phase 4**: no contract surfaces touched — every deleted/moved member is `private` (`hasSearchTokens`, `searchSourcesHaveTokens`, `tableExists`, `applySearchTokens`) or a module-private type (`SearchRuntime`, `SearchTokenSource`); the new shared module is an additive export; no DB schema, API route, event ID, or DI key changes. The only behavior change (gating `BasicQueryEngine`'s probe) is observable solely as absent SQL statements on queries that carry no search filter.
+- **Scoped fulltext reindex**: `ReindexEntityParams.recreateIndex` / `ReindexAllParams.recreateIndex` on the `searchIndexer` DI service keep their signature and default. For an entity-scoped or organization-scoped reindex they now purge only the documents being rebuilt instead of dropping the tenant index and re-applying its settings; an unscoped full reindex still recreates the index. `FullTextSearchDriver.purge` stays optional: a driver without it is cleared through `listDocumentIds` + `delete`, and a driver with neither fails the scoped reindex with an error rather than keeping stale documents or recreating the tenant index. Bug fix, no deprecation bridge; operators get the upgrade note in the PR.
 
 ## Migration & Backward Compatibility — Plaintext Custom Fields (#7894)
 
@@ -314,6 +344,10 @@ writer inputs without external services.
 
 ## Changelog
 
+- 2026-11-05 — Extended effective entity strategy enforcement to queued and synchronous reindex writes, module defaults, and disabled entities (#8773).
+
+- 2026-11-05 — Enforced registered entity strategy restrictions on direct and mixed bulk writes (#5930 part c); preserved cleanup, unpinned writers, fulltext content, and null-source semantics.
+
 - 2026-10-31 — Integrated #7894 exclusions with shared single/bulk source preparation; source failures still skip vector writes, with by-ID/bulk/reindex boundary regressions preserving fulltext filtering and token inputs.
 
 - 2026-10-27 — Added #7894 plaintext custom-field exclusion metadata and driver/provider boundary protection; preserved token values and documented reindex requirements.
@@ -328,3 +362,4 @@ writer inputs without external services.
 - 2026-07-31 — Implemented Phase 4: `createSearchTokenAvailability` + `hasSearchFilter`/`isSearchFilterOp` in `packages/shared/src/lib/search/availability.ts`; both engines adopted it (private `hasSearchTokens`/`searchSourcesHaveTokens`, `BasicQueryEngine.tableExists`/`tableCache`, and both ad-hoc join memo maps deleted). Folds in #4723's gate and tests rather than waiting on that PR (its four probe-count cases are ported verbatim and pass unchanged). One deviation from the plan: implemented before #4723/#4685 merge at the maintainer's direction — #4685 was verified non-overlapping (its `engine.ts` hunks touch only the auto-reindex scheduling region). Deliverable 5 (moving `SearchRuntime`/`SearchTokenSource` types to shared) deferred as specced.
 - 2026-07-31 — Cheapened the probe itself (maintainer request on review): (1) tenant predicate reshaped from `IS NOT DISTINCT FROM` to `= / IS NULL` so `search_tokens_lookup_idx` stays usable as an access path; (2) process-level TTL cache for the presence answer (`OM_SEARCH_TOKEN_PRESENCE_CACHE_MS`, default 30 s, `0` disables; module-level on purpose — engines are per-request so instance memos never amortize; error-driven `false` never cached; size-capped at 10 k entries). Documented in both `.env.example` files (template-sync) and `packages/search/AGENTS.md`. Worst case is now one pathological probe per (entity, tenant, org) per process per TTL rather than per request; the guaranteed-O(1)-miss fix stays the schema-backed existence flag noted in Non-goals.
 - 2026-07-31 — Made the probe's worst case cheap via `.ai/specs/2026-07-31-search-token-probe-index.md` after the maintainer confirmed large `search_tokens` is steady state (drops the measure-first gate): a `search_tokens_presence_idx (entity_type, tenant_id, organization_id)` prefix index serves the reshaped probe as a B-tree seek for hit AND miss. A `search_token_presence` marker table was implemented first and then replaced by the index at the maintainer's direction — zero drift risk and zero maintenance code beat the table's smaller disk footprint; the comparison is recorded in that spec.
+- 2026-11-01 — A.2: `POST /api/search/reindex` no longer drops the shared per-tenant Meilisearch index for an entity-scoped or organization-scoped reindex; it purges only the documents it rebuilds.

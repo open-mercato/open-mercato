@@ -289,6 +289,10 @@ describe('messages.message.deleted event audience', () => {
     const emFork = {
       findOne: jest.fn(async () => ownRecipient),
       find: jest.fn(async () => [ownRecipient]),
+      nativeUpdate: jest.fn(async (_entity: unknown, _where: unknown, data: Partial<MessageRecipient>) => {
+        Object.assign(ownRecipient, data)
+        return 1
+      }),
       flush: jest.fn(async () => {}),
       nativeDelete: jest.fn(async () => {}),
       persist: jest.fn(),
@@ -313,6 +317,11 @@ describe('messages.message.deleted event audience', () => {
     } as never)
 
     expect(ownRecipient.status).toBe('deleted')
+    expect(emFork.nativeUpdate).toHaveBeenCalledWith(
+      MessageRecipient,
+      { id: 'rec-1', deletedAt: null, status: 'unread' },
+      { status: 'deleted', deletedAt: expect.any(Date) },
+    )
     expect(message.deletedAt).toBeNull()
     expect(emitMessagesEventMock).toHaveBeenCalledTimes(1)
     const [, payload] = emitMessagesEventMock.mock.calls[0]

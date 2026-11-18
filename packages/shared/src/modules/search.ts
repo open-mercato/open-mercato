@@ -259,6 +259,8 @@ export type SearchServiceOptions = {
   mergeConfig?: ResultMergeConfig
   /** Callback to enrich results with presenter data from database */
   presenterEnricher?: PresenterEnricherFn
+  /** Resolve entity write restrictions; omission uses the registered search configurations. */
+  resolveEntityStrategies?: (entityId: EntityId) => SearchStrategyId[] | undefined
   /** TTL (ms) for the per-strategy availability cache. Defaults to 2_000. */
   availabilityCacheTtlMs?: number
 }
@@ -269,6 +271,10 @@ export type SearchServiceOptions = {
 
 /**
  * Context passed to buildSource, formatResult, resolveUrl, and resolveLinks.
+ * `SearchIndexer` omits custom fields declared `encrypted` from `customFields`, from the record's
+ * `cf:` / `cf_` keys and from records loaded through `queryEngine`; when their definitions cannot be
+ * read, or the indexer was constructed without `encryptedCustomFieldKeysResolver`, it omits every
+ * custom field.
  */
 export type SearchBuildContext = {
   /** The record being indexed */

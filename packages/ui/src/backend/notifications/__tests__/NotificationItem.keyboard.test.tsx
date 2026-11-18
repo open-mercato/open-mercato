@@ -125,6 +125,38 @@ describe('NotificationItem keyboard activation', () => {
     expect(push).not.toHaveBeenCalled()
   })
 
+  it('keeps clicks and card keys from opening the card while an action is pending', async () => {
+    const { card, onMarkAsRead, onExecuteAction } = renderItem()
+    let completeAction = () => {}
+    onExecuteAction.mockImplementationOnce(() => new Promise((resolve) => {
+      completeAction = () => resolve({})
+    }))
+    const button = screen.getByRole('button', { name: 'Approve', exact: true })
+
+    fireEvent.click(button)
+    expect(button).toBeDisabled()
+    fireEvent.click(button.parentElement!)
+    fireEvent.keyDown(card, { key: 'Enter' })
+    fireEvent.keyDown(card, { key: ' ' })
+    fireEvent.click(card)
+
+    expect(onExecuteAction).toHaveBeenCalledTimes(1)
+    expect(onMarkAsRead).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+
+    completeAction()
+    await waitFor(() => expect(button).not.toBeDisabled())
+  })
+
+  it('still opens the card when its title is clicked', async () => {
+    const { onMarkAsRead } = renderItem()
+
+    fireEvent.click(screen.getByText('Leave request pending'))
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/backend/staff/leave-requests/request-1'))
+    expect(onMarkAsRead).toHaveBeenCalledTimes(1)
+  })
+
   it('shows an action error after a transport rejection and permits a retry', async () => {
     const { onExecuteAction, onMarkAsRead, onDismiss } = renderItem()
     const failure = new TypeError('Failed to fetch')
