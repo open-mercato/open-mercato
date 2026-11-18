@@ -10,6 +10,16 @@ feature to intended custom roles. Superadministrator access is preserved. Client
 that link to the backend page must allow for permission denial. No database
 migration, environment change, or startup-command change is required.
 
+## Invoice delete checks the expected version under the row lock
+
+`DELETE /api/sales/invoices` now locks the invoice row and compares the
+`x-om-ext-optimistic-lock-expected-updated-at` header with the `updated_at` of the
+locked row, as order delete already does. A delete whose invoice another request
+edited after the route's version check now answers 409 `optimistic_lock_conflict`
+instead of deleting the edited invoice. Deleting a missing or already deleted
+invoice answers 404 instead of 500.
+No migration or configuration change.
+
 ## Catalog price-kind seed keeps existing price kinds (#8104)
 
 `seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
@@ -269,6 +279,55 @@ Companion AI skills (one per upgrade window) live in
 most of the patterns listed below in a user's codebase.
 
 ---
+
+## 0.9.0 → 0.10.0 (Unreleased)
+
+### Outbound email attachments: the hub fills `attachments` with bytes; `assembleRfc2822` is deprecated (#7098)
+
+`send-as-user` accepts `attachments` (attachments-module ids with their owning record), and the
+delivery command now passes them to `ChannelAdapter.convertOutbound({ attachments })` for adapters
+whose capabilities advertise `fileSharing: true`. Each item carries the file bytes in the new optional
+`NormalizedAttachment.content` and an empty `url`. The IMAP/SMTP and Gmail adapters now advertise
+`fileSharing: true`; `baseEmailCapabilities` keeps `false`.
+
+`assembleRfc2822` from `communication_channels/lib/email-mime` is deprecated in favor of the async
+`composeEmailMessage` (nodemailer `MailComposer`), which the Gmail adapter now uses. Gmail messages
+therefore fold long encoded headers and quote a display name only when it needs quoting
+(`From: Alice <a@example.com>`).
+
+`channelMetadata.outboundAttachments` is now a hub-owned key: `send-as-user` drops any value a
+caller puts there. The integration helper `CapturedTestSeedEmail` (and `TestSeedCapturedMessage` in
+`communication_channels/lib/test-seed`) keeps `content.attachments` unchanged: it records the
+attachments handed to the adapter as before. The only items left out are the files the hub read from
+the attachments module, which carry bytes and no URL. The new `content.attachmentDigests` holds a
+version 1 digest (`version`, `fileName`, `mimeType`, `fileSize`, `sha256`) for every attachment
+whose bytes the adapter holds — those hub-read files and decodable `data:` URLs; a remote URL is never
+fetched or digested. Assert on the digests to check what was sent.
+
+A `send-as-user` request that carried an `attachments` field used to be accepted with the field
+silently dropped; the field is now validated, and the request is refused with 422 when it is malformed
+or the mailbox cannot send it. A refusal carries a stable `code` next to `error`. A display-name
+`filename` must keep the stored file's extension and follow the upload rules (no executable
+extension, no control or bidirectional characters). `baseEmailCapabilities.supportedMimeTypes` gains
+xlsx, docx, pptx, xls and doc. A channel connected before the upgrade keeps `fileSharing: false` in
+its stored capability snapshot until it is reconnected; the hub reads the live adapter, so sending
+works either way.
+
+Adapters called directly (not through the hub): IMAP/SMTP now sends `attachment.content` and `data:`
+URLs, and reports a server size rejection as `{ status: 'failed', error: '…message_too_large…' }`
+instead of throwing; Gmail refuses an attachment that only has a remote `url` instead of dropping it.
+
+`assembleRfc2822` is deprecated since 0.10.0 and kept unchanged; removal no earlier than 0.11.0.
+
+**Action for module authors:** a custom adapter that advertises `fileSharing: true` must send
+`attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from
+`communication_channels/lib/outbound-attachments`) and must not fetch `attachment.url`. Tests that
+assert the exact bytes of a Gmail outbound message may need the new header formatting. An
+`attachmentService` override does not need the new optional `describeManyScoped` or `describeScoped`:
+without them the hub validates attachments one by one through `describeScoped`, then `readScoped`.
+An adapter whose provider allows a different total per message declares it in the new optional
+`ChannelCapabilities.maxTotalBytes` (raw bytes; 25 MB when unset); `maxFileSize` stays the per-file
+limit.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
@@ -1635,6 +1694,34 @@ the same check, for at most three hops. Any other redirect fails with
 different scheme (for example `http://` while `APP_URL` is `https://`) or a non-`/api/` path. Use a
 relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
+### `staff` EP-40 capacity providers now drive the timesheet targets and may answer asynchronously (#6934)
+
+**Who is affected:** apps that register a capacity provider, or that replaced the
+`timeCapacityResolver` DI key. No change is required. The provider contract is additive.
+
+**What changed:**
+
+- The Timesheet footer, load bars, default expanded day and My Work KPIs now resolve their
+  target through `timeCapacityResolver.resolveCapacityAsync`, via the new
+  `GET /api/staff/timesheets/capacity` route. With no provider registered, every number
+  and the "Target (d × h)" caption are unchanged.
+- `CapacityProvider` gained an optional `resolveAsync`, for providers that read their own
+  data. `resolve` stays synchronous and required.
+- `CapacityResult` gained an optional `label` and `labelKey` for the footer caption.
+- Answers are now validated more strictly. Any of these falls back to the built-in:
+  negative minutes, a date key that is not a real calendar day, or a missing map. Days
+  outside the requested range are dropped. The total is recomputed as the sum of the
+  per-day targets, and a `null` total clears the per-day map.
+
+**Recommended:**
+
+- Move synchronous callers from `resolveTimesheetCapacity` /
+  `timeCapacityResolver.resolveCapacity` (both now `@deprecated`, and they never consult
+  `resolveAsync`) to `resolveTimesheetCapacityAsync` / `resolveCapacityAsync`.
+- A `timeCapacityResolver` override that implements, or replaces, only `resolveCapacity`
+  keeps working. Its answer is treated as contributed, so the footer shows a neutral
+  "Target". To report `isBuiltIn` yourself, also replace `resolveCapacityAsync`.
+
 ### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
 
 The staff time-tracking settings gain a new built-in key, `defaults.entryMode`
@@ -2861,6 +2948,25 @@ index `encryption_maps_entity_scope_live_unique`. Saving an encryption map now u
 new application version serves traffic. Until it has run, saving an encryption map in the admin UI
 or through `upsertCanonicalEncryptionMap` fails. Rolling deploys that start new pods before
 migrating must migrate first.
+
+### Saved views keep their legacy filter record; `maybeMigrateLegacyFilterValues` is deprecated (#7046)
+
+Every perspective read path (`GET /api/perspectives/<tableId>`, `loadPerspectivesState`, and the
+save responses) used to run `maybeMigrateLegacyFilterValues`, which dropped `settings.filters`
+unless it was a v2 advanced-filter tree (`v: 2` or a `root` key). Every `DataTable` page still on
+the legacy `FilterBar` (`filterValues` / `onFiltersApply`) saves a flat `FilterValues` record, so
+views saved from those pages came back without their filters. The read path now returns
+`settings.filters` exactly as stored. No data migration is needed, because the records were
+always persisted.
+
+**Action for module authors:** none for code that reads perspectives through the API or the
+service: flat records now come back where they were missing before, and `DataTable` already
+applies each shape only on pages that handle it. If you imported `maybeMigrateLegacyFilterValues`
+from `@open-mercato/core/modules/perspectives/services/perspectiveService`, it still behaves as
+before but is `@deprecated` and will be removed in a future minor release. Use the stored settings
+as-is, or keep `filters` only when it has `v === 2` or a `root` key if you really need the
+tree-only view. See "`maybeMigrateLegacyFilterValues` — deprecated" in
+[`.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md`](.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md).
 
 ### Timesheet undos respect the closed-report lock (#7507)
 
