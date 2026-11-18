@@ -101,7 +101,7 @@ test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
       expect((await undoByToken(request, actorToken, deleteOperation.undoToken)).status()).toBe(200)
       expect((await loadOrg(childId))?.parentId).toBe(allowedId)
       await setScope([siblingId])
-      expectDenied((await redoByLogId(request, actorToken, deleteOperation.logId)).status())
+      expect((await redoByLogId(request, actorToken, deleteOperation.logId)).status()).toBe(400)
       expect((await loadOrg(childId))?.parentId).toBe(allowedId)
       await setScope([allowedId])
       expect((await redoByLogId(request, actorToken, deleteOperation.logId)).status()).toBe(200)
