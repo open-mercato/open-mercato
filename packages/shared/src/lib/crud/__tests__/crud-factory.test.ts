@@ -1848,7 +1848,7 @@ describe('CRUD Factory', () => {
     )
 
     it('translates a .refine() issue that opted in via params.i18nKey/i18nFallback', async () => {
-      mockTranslate.mockImplementationOnce((key: string, fallback?: string) =>
+      mockTranslate.mockImplementation((key: string, fallback?: string) =>
         key === 'example.errors.amountNotWhole' ? 'Kwota musi być liczbą całkowitą.' : (fallback ?? key),
       )
 
@@ -1860,6 +1860,7 @@ describe('CRUD Factory', () => {
       expect(body.details).toEqual([
         expect.objectContaining({ path: [], message: 'Kwota musi być liczbą całkowitą.' }),
       ])
+      expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
       expect(mockTranslate).toHaveBeenCalledWith('example.errors.amountNotWhole', 'Amount must be a whole number.')
     })
 
@@ -1870,11 +1871,12 @@ describe('CRUD Factory', () => {
       const body = await res.json()
       // The schema's own base type check (a missing required `amount`) fails before the
       // `.refine()` even runs, and carries no `params.i18nKey` — `translateZodIssues` must
-      // pass it through untouched rather than calling translate() on it.
+      // pass it through untouched. Only the generic envelope message is translated.
       expect(body.details).toEqual([
         expect.objectContaining({ path: ['amount'], message: 'Invalid input: expected string, received undefined' }),
       ])
-      expect(mockTranslate).not.toHaveBeenCalled()
+      expect(mockTranslate).toHaveBeenCalledTimes(1)
+      expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
     })
   })
 
