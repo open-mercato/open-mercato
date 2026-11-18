@@ -232,9 +232,9 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
         COUNT(*) AS count,
         COALESCE(SUM(value_amount), 0) AS total
       FROM customer_deals
-      WHERE ${scopeWhere} AND (status = 'win' OR closure_outcome = 'won') AND updated_at >= ?
+      WHERE ${scopeWhere} AND (${wonDealsPredicate.clause}) AND updated_at >= ?
       GROUP BY 1, 2`,
-    [...scopeValues, input.seriesStart.toISOString()],
+    [...scopeValues, ...wonDealsPredicate.values, input.seriesStart.toISOString()],
   )
 
   const overdueDealsPredicate = buildOpenDealPredicate(['open'])

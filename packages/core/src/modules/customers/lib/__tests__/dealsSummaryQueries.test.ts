@@ -173,7 +173,13 @@ describe('loadDealsSummaryQueryRows', () => {
       expect(values).toEqual(expect.arrayContaining([tenantId, organizationId]))
     }
     expect(executeMock.mock.calls[0][1]).toEqual([tenantId, organizationId, 'open', 'in_progress'])
-    expect(executeMock.mock.calls[5][1]).toEqual([tenantId, organizationId, 'open'])
-    expect(executeMock.mock.calls[6][1]).toEqual([tenantId, organizationId, 'open', 'in_progress', stuckDealId])
+    expect(executeMock.mock.calls[5][1]).toEqual([tenantId, organizationId, '2025-09-01T00:00:00.000Z'])
+    expect(executeMock.mock.calls[6][1]).toEqual([
+      tenantId, organizationId, ...wonAliases, '2025-09-01T00:00:00.000Z',
+    ])
+    expect(normalizedSql(executeMock.mock.calls[6])).toContain("IN (?,?,?,?) OR closure_outcome = 'won'")
+    expect(normalizedSql(executeMock.mock.calls[6])).toContain("date_trunc('month', updated_at")
+    expect(executeMock.mock.calls[7][1]).toEqual([tenantId, organizationId, 'open'])
+    expect(executeMock.mock.calls[8][1]).toEqual([tenantId, organizationId, 'open', 'in_progress', stuckDealId])
   })
 })
