@@ -23,7 +23,8 @@ async function executeRule(
     },
   })
   expect(response.status()).toBe(200)
-  const body = await readJsonSafe<{ conditionResult?: boolean }>(response)
+  const body = await readJsonSafe<{ success?: boolean; conditionResult?: boolean }>(response)
+  expect(body?.success).toBe(true)
   return body?.conditionResult
 }
 
