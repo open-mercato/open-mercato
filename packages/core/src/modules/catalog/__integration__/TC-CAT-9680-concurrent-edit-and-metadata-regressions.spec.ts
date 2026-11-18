@@ -15,6 +15,7 @@ import {
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   expectConflictBanner,
+  expectConflictBody,
   expectNoConflictBanner,
   putWithLock,
   readUpdatedAt,
@@ -207,7 +208,11 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       // real write — and the admin tab's own stale edit stays in the DOM.
       const marker = `QA 9680 admin-stale ${stamp}`
       await fillControlledInput(titleInput, marker)
+      const conflictResponsePromise = adminPage.waitForResponse((res) =>
+        new URL(res.url()).pathname === PRODUCTS_API_BASE && res.request().method() === 'PUT',
+      )
       await adminPage.getByRole('button', { name: /^save changes$/i }).first().click()
+      const conflictBody = await expectConflictBody(await conflictResponsePromise)
       await expectConflictBanner(adminPage)
       await expect(titleInput).toHaveValue(marker)
 
@@ -219,17 +224,20 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       const linksAfterConflict = await listLinkedDocumentIds(request, adminToken, productId)
       expect(linksAfterConflict, 'the document link must survive the conflicting save').toContain(documentId)
 
-      // Reload/title-only retry: admin reloads (fresh lock) and recovers with
-      // a title-only save, which must succeed cleanly now that it carries the
-      // current `updated_at`.
-      const freshLock = await readUpdatedAt(request, adminToken, PRODUCTS_API_BASE, productId)
+      // Reload/title-only retry: admin recovers with a title-only save using
+      // the 409 body's own `currentUpdatedAt` as the fresh lock. A subsequent
+      // list GET (`readUpdatedAt`) can be served from the catalog products
+      // list cache and return a stale `updated_at`, making the retry 409
+      // again; the conflict response's `currentUpdatedAt` is authoritative.
+      const freshLock = conflictBody.currentUpdatedAt
+      expect(typeof freshLock, `conflict body should include currentUpdatedAt, got ${JSON.stringify(conflictBody)}`).toBe('string')
       const retryTitle = `QA 9680 title-only retry ${stamp}`
       const retryResponse = await putWithLock(
         request,
         adminToken,
         PRODUCTS_API_BASE,
         { id: productId, title: retryTitle },
-        freshLock,
+        freshLock as string,
       )
       expect(retryResponse.status(), 'the title-only retry should succeed').toBeLessThan(300)
       const afterRetry = await readProduct(request, adminToken, productId)
