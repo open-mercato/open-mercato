@@ -33,6 +33,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField, type PhoneCountry } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import type {
   CrudCustomFieldRenderProps,
   CrudField,
@@ -61,6 +62,8 @@ import {
 } from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import {
+  COMPANY_TAX_ID_MAX_LENGTH,
+  COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY,
   CUSTOMER_EMAIL_INVALID_MESSAGE_KEY,
   CUSTOMER_PHONE_INVALID_MESSAGE_KEY,
   CUSTOMER_URL_INVALID_MESSAGE_KEY,
@@ -89,6 +92,8 @@ export type CustomerFormFieldOptions = {
    * localizes its built-in list for the active locale.
    */
   phoneCountries?: PhoneCountry[]
+  /** Marks the VAT ID as required; off by default, since a company MAY have no tax ID (not VAT-registered, foreign, early-stage lead). */
+  requireTaxId?: boolean
 }
 
 export type PersonFormValues = {
@@ -120,6 +125,7 @@ export type CompanyFormValues = {
   industry?: string
   sizeBucket?: string
   annualRevenue?: string
+  taxId?: string
   description?: string
   addresses?: CustomerAddressValue[]
 } & Record<string, unknown>
@@ -860,9 +866,9 @@ export const createDisplayNameSection = (t: Translator) =>
     }
 
     return (
-      <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="min-w-0 overflow-hidden rounded-lg border bg-muted/30 p-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('customers.people.form.displayNamePreview')}
             </div>
@@ -876,7 +882,7 @@ export const createDisplayNameSection = (t: Translator) =>
                 {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
               </div>
             ) : (
-              <div className="mt-1 text-base font-medium">{previewValue || placeholder}</div>
+              <div className="mt-1 break-words text-base font-medium">{previewValue || placeholder}</div>
             )}
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={toggleEditing}>
@@ -904,6 +910,67 @@ export const createDisplayNameSection = (t: Translator) =>
     )
   }
 
+/**
+ * Display name input for the person detail form, where the header shows the name read-only.
+ * Follows the same rule as `createDisplayNameSection` and the update command: a name derived
+ * from first + last follows them, and a custom one stays until the user resets it.
+ */
+function PersonDisplayNameInput({
+  id,
+  value,
+  values,
+  error,
+  disabled,
+  setValue,
+  t,
+}: CrudCustomFieldRenderProps & { t: Translator }) {
+  const first = typeof values?.firstName === 'string' ? values.firstName : ''
+  const last = typeof values?.lastName === 'string' ? values.lastName : ''
+  const current = typeof value === 'string' ? value : ''
+  const previousNamesRef = React.useRef({ first, last })
+
+  React.useEffect(() => {
+    const previous = previousNamesRef.current
+    if (previous.first === first && previous.last === last) return
+    previousNamesRef.current = { first, last }
+    if (!isDerivedDisplayName(current, previous.first, previous.last)) return
+    const derived = deriveDisplayName(first, last)
+    if (derived !== current) setValue(derived)
+  }, [current, first, last, setValue])
+
+  return (
+    <div className="space-y-2">
+      <Input
+        id={id}
+        value={current}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder={t('customers.people.form.displayName.placeholder')}
+        aria-invalid={error ? true : undefined}
+        disabled={disabled}
+      />
+      {isDerivedDisplayName(current, first, last) ? null : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={disabled || !deriveDisplayName(first, last)}
+          onClick={() => setValue(deriveDisplayName(first, last))}
+        >
+          {t('customers.people.form.displayName.reset')}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+const createPersonDisplayNameField = (t: Translator): CrudField => ({
+  id: 'displayName',
+  label: t('customers.people.form.displayName.label'),
+  type: 'custom',
+  required: true,
+  component: (props: CrudCustomFieldRenderProps) => <PersonDisplayNameInput {...props} t={t} />,
+})
+
 export const createPersonFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const defaultCountryIso2 = options?.defaultCountryIso2
   const phoneCountries = options?.phoneCountries
@@ -922,7 +989,6 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
         onChange={(next) => setValue(next)}
         labels={buildDictionaryLabels(t, definition)}
         allowInlineCreate
-        allowAppearance
         showManage
       />
     ),
@@ -962,7 +1028,6 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
             manageTitle: t('customers.people.form.dictionary.manage'),
           }}
           allowInlineCreate
-          allowAppearance
           showManage
         />
       ),
@@ -1261,6 +1326,14 @@ export const createCompanyFormSchema = () =>
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
         .optional(),
+      taxId: z
+        .string()
+        .trim()
+        .max(COMPANY_TAX_ID_MAX_LENGTH, COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY)
+        .optional()
+        .or(z.literal(''))
+        .transform((val) => (val === '' ? undefined : val))
+        .optional(),
     })
     .passthrough()
 
@@ -1324,6 +1397,14 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
       label: t('customers.companies.detail.fields.legalName', 'Legal name'),
       type: 'text',
       layout: 'half',
+    },
+    {
+      id: 'taxId',
+      label: t('customers.companies.detail.fields.taxId', 'VAT ID'),
+      type: 'text',
+      layout: 'half',
+      required: options?.requireTaxId ?? false,
+      placeholder: t('customers.companies.detail.fields.taxIdPlaceholder', 'e.g. PL1234567890'),
     },
     {
       id: 'brandName',
@@ -1462,7 +1543,7 @@ export const createCompanyFormGroups = (t: Translator): CrudFormGroup[] => [
     id: 'profile',
     title: t('customers.companies.form.groups.profile'),
     column: 1,
-    fields: ['legalName', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
+    fields: ['legalName', 'taxId', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
   },
   {
     id: 'addresses',
@@ -1487,6 +1568,7 @@ export const createCompanyFormGroups = (t: Translator): CrudFormGroup[] => [
 export function buildCompanyPayload(
   values: CompanyFormValues | CompanyEditFormValues,
   organizationId?: string | null,
+  locale?: string,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
 
@@ -1509,6 +1591,7 @@ export function buildCompanyPayload(
   assign('lifecycleStage', typeof values.lifecycleStage === 'string' ? values.lifecycleStage : undefined)
   assign('source', typeof values.source === 'string' ? values.source : undefined)
   assign('legalName', typeof values.legalName === 'string' ? values.legalName : undefined)
+  assign('taxId', typeof values.taxId === 'string' ? values.taxId : undefined)
   assign('brandName', typeof values.brandName === 'string' ? values.brandName : undefined)
   assign('domain', typeof values.domain === 'string' ? values.domain?.toLowerCase() : undefined)
   assign('websiteUrl', typeof values.websiteUrl === 'string' ? values.websiteUrl : undefined)
@@ -1518,11 +1601,11 @@ export function buildCompanyPayload(
 
   const rawRevenue = typeof values.annualRevenue === 'string' ? values.annualRevenue.trim() : ''
   if (rawRevenue.length) {
-    const normalized = rawRevenue.replace(/,/g, '').replace(/\s+/g, '')
-    if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+    const parsedRevenue = parseLocaleNumber(rawRevenue, locale)
+    if (parsedRevenue === null || parsedRevenue < 0) {
       throw new Error('ANNUAL_REVENUE_INVALID')
     }
-    payload.annualRevenue = normalized
+    payload.annualRevenue = String(parsedRevenue)
   }
 
   const customFields = collectCustomFieldValues(values, {
@@ -1554,6 +1637,7 @@ export type CompanyEditFormValues = Omit<
   | 'brandName'
   | 'sizeBucket'
   | 'annualRevenue'
+  | 'taxId'
   | 'description'
 > & {
   id: string
@@ -1566,6 +1650,7 @@ export type CompanyEditFormValues = Omit<
   brandName?: string | null
   sizeBucket?: string | null
   annualRevenue?: string | null
+  taxId?: string | null
   description?: string | null
 }
 
@@ -1631,10 +1716,8 @@ const clearableDomainField = () =>
 // Plain optional string fields that map to nullable columns (legal name, brand name,
 // company size, annual revenue, description). On edit a blanked value must transmit null
 // so it actually clears — create-mode keeps the '' → undefined transform. See #3050.
-const clearableTextField = () =>
-  z
-    .string()
-    .trim()
+const clearableTextField = (limit?: { maxLength: number; tooLongMessage: string }) =>
+  (limit ? z.string().trim().max(limit.maxLength, limit.tooLongMessage) : z.string().trim())
     .optional()
     .or(z.literal(''))
     .transform((val) => (val === '' ? null : val))
@@ -1662,6 +1745,7 @@ export const createCompanyEditSchema = () =>
     brandName: clearableTextField(),
     sizeBucket: clearableTextField(),
     annualRevenue: clearableTextField(),
+    taxId: clearableTextField({ maxLength: COMPANY_TAX_ID_MAX_LENGTH, tooLongMessage: COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY }),
     description: clearableTextField(),
   })
 
@@ -1725,7 +1809,9 @@ export const createCompanyEditFields = (t: Translator, options?: CustomerFormFie
 }
 
 export const createPersonEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
-  const baseFields = createPersonFormFields(t, options)
+  const baseFields = createPersonFormFields(t, options).map((field) =>
+    field.id === 'displayName' ? createPersonDisplayNameField(t) : field,
+  )
   return [
     ...baseFields,
     {
@@ -1780,7 +1866,7 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
     id: 'profile',
     title: t('customers.companies.form.groups.profile'),
     column: 1,
-    fields: ['legalName', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
+    fields: ['legalName', 'taxId', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
   },
   {
     id: 'notes',
@@ -1806,7 +1892,7 @@ export const createCompanyDaneFiremyGroups = (t: Translator): CrudFormGroup[] =>
     id: 'identity',
     title: t('customers.companies.form.groups.identity', 'Tożsamość').toUpperCase(),
     column: 1,
-    fields: ['displayName', 'legalName', 'brandName'],
+    fields: ['displayName', 'legalName', 'taxId', 'brandName'],
   },
   {
     id: 'contact',
@@ -1912,13 +1998,13 @@ export const createPersonPersonalDataGroups = (
       title: t('customers.people.form.groups.displayName', 'Display name'),
       column: 1,
       bare: true,
-      component: createDisplayNameSection(t),
+      component: () => null,
     },
     {
       id: 'personalData',
       title: t('customers.people.form.groups.personalData', 'Personal data'),
       column: 1,
-      fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
+      fields: ['firstName', 'lastName', 'displayName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
     },
     {
       id: 'companyRole',
@@ -1967,8 +2053,12 @@ const assignClearable = (payload: Record<string, unknown>, key: string, raw: unk
   payload[key] = trimmed.length ? trimmed : null
 }
 
-export function buildCompanyEditPayload(values: CompanyEditFormValues, organizationId?: string | null): Record<string, unknown> {
-  const payload = buildCompanyPayload(values, organizationId)
+export function buildCompanyEditPayload(
+  values: CompanyEditFormValues,
+  organizationId?: string | null,
+  locale?: string,
+): Record<string, unknown> {
+  const payload = buildCompanyPayload(values, organizationId, locale)
   payload.id = values.id
 
   assignClearable(payload, 'primaryEmail', values.primaryEmail)
@@ -1978,6 +2068,7 @@ export function buildCompanyEditPayload(values: CompanyEditFormValues, organizat
 
   // Plain nullable string fields that must transmit null when blanked on edit (#3050).
   assignClearable(payload, 'legalName', values.legalName)
+  assignClearable(payload, 'taxId', values.taxId)
   assignClearable(payload, 'brandName', values.brandName)
   assignClearable(payload, 'sizeBucket', values.sizeBucket)
   assignClearable(payload, 'description', values.description)
@@ -2068,6 +2159,7 @@ export type CompanyOverview = {
     websiteUrl?: string | null
     industry?: string | null
     sizeBucket?: string | null
+    taxId?: string | null
     annualRevenue?: string | null
   } | null
   customFields: Record<string, unknown>
@@ -2206,6 +2298,7 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
     websiteUrl: overview.profile?.websiteUrl ?? '',
     industry: overview.profile?.industry ?? '',
     sizeBucket: overview.profile?.sizeBucket ?? '',
+    taxId: overview.profile?.taxId ?? '',
     annualRevenue: overview.profile?.annualRevenue ?? '',
     ...extractCustomFieldEntries({ customFields: overview.customFields }),
   }

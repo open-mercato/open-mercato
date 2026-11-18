@@ -41,10 +41,10 @@ function readBooleanEnv(env: NodeJS.ProcessEnv, keys: string[]): boolean | undef
 
 /**
  * Reads sandbox/production Autopay credentials from env. There is no
- * publicly-usable default here (unlike some providers) — the sandbox
- * worked-example values (ServiceID=2, sharedKey=2test2) authenticate the
- * hash math only, never an actual redirect, per the `paytalk/autopay-sandbox`
- * reference project's own findings.
+ * publicly-usable default here (unlike some providers) — the worked-example
+ * values in the official docs (ServiceID=2, sharedKey=2test2) only serve to
+ * reproduce the documented hash examples; a real session needs the
+ * credentials issued for the tenant's own Partner Service registration.
  */
 export function readAutopayEnvPreset(env: NodeJS.ProcessEnv = process.env): AutopayEnvPreset | null {
   const credentialKeys = {

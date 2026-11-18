@@ -449,7 +449,8 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     }
 
     const scheduleChanged = input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined
-    const nextRunAt = scheduleChanged
+    const reenabling = input.isEnabled === true && schedule.isEnabled !== true
+    const nextRunAt = scheduleChanged || reenabling
       ? calculateNextRunForWrite(
         input.scheduleType ?? schedule.scheduleType,
         input.scheduleValue ?? schedule.scheduleValue,
