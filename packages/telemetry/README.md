@@ -355,6 +355,13 @@ consumer.
   fields, span attributes, and metric labels.
 - Postgres parameter-value capture is locked off with
   `enhancedDatabaseReporting: false`.
+- Postgres statement text (`db.query.text` / `db.statement`) keeps the query
+  shape only. MikroORM inlines parameter values into the SQL before it reaches
+  `pg`, so a pg `requestHook` replaces every string, numeric and boolean
+  literal with `?` and drops comments. A statement that cannot be tokenized is
+  exported as `[redacted]` rather than as-is.
+- Not yet covered: the error message of a failed query (span status and
+  exception event) can still quote a value, e.g. a duplicate-key detail.
 - Metric labels must remain low-cardinality and must never contain tenant,
   organization, or user IDs.
 
