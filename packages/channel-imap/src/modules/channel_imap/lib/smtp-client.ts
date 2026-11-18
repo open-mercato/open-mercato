@@ -52,6 +52,10 @@ export interface SmtpSendResult {
   raw: Buffer
   /** Provider response string. */
   response?: string
+  /** Recipients the server accepted at RCPT TO. */
+  accepted?: string[]
+  /** Recipients the server refused at RCPT TO while still delivering to the others. */
+  rejected?: string[]
 }
 
 export interface SmtpClient {
@@ -182,10 +186,12 @@ class NodemailerClient implements SmtpClient {
         messageId?: string
         envelope?: { messageId?: string }
         response?: string
+        accepted?: string[]
+        rejected?: string[]
       }
       const id = info.messageId ?? composedMessageId ?? info.envelope?.messageId
       if (!id) throw new Error('[internal] SMTP server did not return a Message-ID')
-      return { messageId: id, raw, response: info.response }
+      return { messageId: id, raw, response: info.response, accepted: info.accepted, rejected: info.rejected }
     } finally {
       transporter.close()
     }
