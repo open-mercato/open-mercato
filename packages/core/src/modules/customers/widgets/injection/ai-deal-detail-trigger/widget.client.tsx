@@ -41,6 +41,7 @@ export const CUSTOMERS_AI_DEAL_DETAIL_AGENT_ID = 'customers.account_assistant'
 
 export interface CustomersAiDealDetailPageContext {
   view: 'customers.deal.detail'
+  entityType: 'customers.deal'
   recordType: 'deal'
   recordId: string
   extra: {
@@ -96,6 +97,7 @@ function buildPageContext(
   return {
     view: 'customers.deal.detail',
     recordType: 'deal',
+    entityType: 'customers.deal',
     recordId: dealId,
     extra: { stage, pipelineStageId },
   }

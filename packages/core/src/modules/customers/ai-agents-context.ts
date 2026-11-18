@@ -25,6 +25,8 @@ import type {
   CustomersToolContext,
 } from './ai-tools/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('customers')
 
@@ -40,20 +42,29 @@ function findTool(name: string): CustomersAiToolDefinition | null {
   )
 }
 
-function buildToolContext(
+async function buildToolContext(
   container: AwilixContainer,
   tenantId: string,
   organizationId: string | null,
-): CustomersToolContext {
-  return {
-    tenantId,
-    organizationId,
-    userId: null,
-    container,
-    userFeatures: [],
-    isSuperAdmin: true,
-    apiKeySecret: undefined,
-    sessionId: undefined,
+  userId: string,
+): Promise<CustomersToolContext | null> {
+  try {
+    const rbac = container.resolve<RbacService>('rbacService')
+    const acl = await rbac.loadAcl(userId, { tenantId, organizationId })
+    return {
+      tenantId,
+      organizationId,
+      userId,
+      container,
+      userFeatures: acl.features,
+      isSuperAdmin: acl.isSuperAdmin,
+      apiKeySecret: undefined,
+      sessionId: undefined,
+    }
+  } catch (error) {
+    logger.warn('resolvePageContext: caller ACL unavailable; skipping', { component: 'account_assistant', err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.ai_context.acl_unavailable' })
+    return null
   }
 }
 
@@ -67,6 +78,7 @@ export interface HydrateCustomersContextInput {
   container: AwilixContainer
   tenantId: string | null
   organizationId: string | null
+  userId?: string | null
 }
 
 const PERSON_ENTITY_TYPES = new Set([
@@ -96,7 +108,8 @@ async function hydrateWithTool(
     return null
   }
   try {
-    const result = await tool.handler(inputArgs as never, toolContext)
+    const toolCallContext = { ...toolContext, tool }
+    const result = await tool.handler(inputArgs as never, toolCallContext)
     if (!result || typeof result !== 'object') return null
     if ((result as { found?: boolean }).found === false) return null
     return result
@@ -114,7 +127,9 @@ export async function hydrateCustomersAccountContext(
   if (!isUuid(input.recordId)) return null
   const entityType = input.entityType.trim().toLowerCase()
   if (!entityType) return null
-  const toolContext = buildToolContext(input.container, tenantId, input.organizationId)
+  if (!input.userId) return null
+  const toolContext = await buildToolContext(input.container, tenantId, input.organizationId, input.userId)
+  if (!toolContext) return null
 
   if (PERSON_ENTITY_TYPES.has(entityType)) {
     const result = await hydrateWithTool(

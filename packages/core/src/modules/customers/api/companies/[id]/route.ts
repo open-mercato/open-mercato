@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { dropUnauthorizedDetailIncludes } from '../../../lib/detailIncludeAccess'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -432,17 +433,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   if (!parse.success) return NextResponse.json({ error: 'Invalid company id' }, { status: 400 })
 
   const includeTokens = parseIncludeParams(_req)
-  const includeActivities = includeTokens.has('activities')
-  const includeAddresses = includeTokens.has('addresses')
-  const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
-  const includeDeals = includeTokens.has('deals')
-  const includeInteractions = includeTokens.has('interactions')
-  const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
-  const includePeople = includeTokens.has('people')
-  const plannedPreviewLimit = 5
-
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
+  const plannedPreviewLimit = 5
+
   const em = (container.resolve('em') as EntityManager)
   const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
   const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
@@ -477,6 +471,15 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
     organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
   }
+
+  await dropUnauthorizedDetailIncludes({ includeTokens, container, auth, recordScope: companyScope })
+  const includeActivities = includeTokens.has('activities')
+  const includeAddresses = includeTokens.has('addresses')
+  const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
+  const includeDeals = includeTokens.has('deals')
+  const includeInteractions = includeTokens.has('interactions')
+  const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
+  const includePeople = includeTokens.has('people')
 
   // Per-user email privacy (CRM email integration): exclude private email
   // interactions owned by other users from every read path that returns

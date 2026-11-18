@@ -35,6 +35,9 @@ import type {
   CatalogToolContext,
 } from './ai-tools/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('catalog')
 
@@ -63,20 +66,33 @@ function findTool(name: string): CatalogAiToolDefinition | null {
   )
 }
 
-function buildToolContext(
+async function buildToolContext(
   container: AwilixContainer,
   tenantId: string,
   organizationId: string | null,
-): CatalogToolContext {
-  return {
-    tenantId,
-    organizationId,
-    userId: null,
-    container,
-    userFeatures: [],
-    isSuperAdmin: true,
-    apiKeySecret: undefined,
-    sessionId: undefined,
+  userId: string,
+): Promise<CatalogToolContext | null> {
+  try {
+    const rbac = container.resolve<RbacService>('rbacService')
+    const acl = await rbac.loadAcl(userId, { tenantId, organizationId })
+    const allowedOrganizationIds = acl.organizations?.includes('__all__') ? null : acl.organizations ?? null
+    if (!isOrganizationAccessAllowed({ isSuperAdmin: acl.isSuperAdmin, allowedOrganizationIds, targetOrganizationId: organizationId })) {
+      return null
+    }
+    return {
+      tenantId,
+      organizationId,
+      userId,
+      container,
+      userFeatures: acl.features,
+      isSuperAdmin: acl.isSuperAdmin,
+      apiKeySecret: undefined,
+      sessionId: undefined,
+    }
+  } catch (error) {
+    logger.warn('resolvePageContext caller ACL unavailable; skipping', { reason: 'acl_unavailable', err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'catalog', code: 'catalog.ai_context.acl_unavailable' })
+    return null
   }
 }
 
@@ -90,6 +106,7 @@ export interface HydrateCatalogContextInput {
   container: AwilixContainer
   tenantId: string | null
   organizationId: string | null
+  userId?: string | null
 }
 
 const SINGLE_PRODUCT_ENTITY_TYPES = new Set([
@@ -136,7 +153,9 @@ export async function hydrateCatalogAssistantContext(
   if (!tenantId) return null
   const entityType = input.entityType.trim().toLowerCase()
   if (!entityType) return null
-  const toolContext = buildToolContext(input.container, tenantId, input.organizationId)
+  if (!input.userId) return null
+  const toolContext = await buildToolContext(input.container, tenantId, input.organizationId, input.userId)
+  if (!toolContext) return null
 
   if (SINGLE_PRODUCT_ENTITY_TYPES.has(entityType)) {
     if (!isUuid(input.recordId)) return null
@@ -195,7 +214,9 @@ export async function hydrateMerchandisingAssistantContext(
   if (!tenantId) return null
   const entityType = input.entityType.trim().toLowerCase()
   if (!entityType) return null
-  const toolContext = buildToolContext(input.container, tenantId, input.organizationId)
+  if (!input.userId) return null
+  const toolContext = await buildToolContext(input.container, tenantId, input.organizationId, input.userId)
+  if (!toolContext) return null
 
   if (SINGLE_PRODUCT_ENTITY_TYPES.has(entityType)) {
     if (!isUuid(input.recordId)) return null

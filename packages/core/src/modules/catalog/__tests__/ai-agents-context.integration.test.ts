@@ -27,6 +27,11 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 const VALID_UUID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const VALID_UUID_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const VALID_UUID_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
@@ -37,11 +42,18 @@ type HydrateInput = {
   container: unknown
   tenantId: string | null
   organizationId: string | null
+  userId?: string | null
 }
 
-function buildFakeContainer() {
+const CALLER_ACL = { isSuperAdmin: false, features: ['catalog.products.view'], organizations: ['org-1'] }
+
+function buildFakeContainer(loadAcl: jest.Mock = jest.fn(async () => CALLER_ACL)) {
+  const services: Record<string, unknown> = {
+    em: { count: jest.fn() },
+    rbacService: { loadAcl },
+  }
   return {
-    resolve: (name: string) => (name === 'em' ? { count: jest.fn() } : null),
+    resolve: (name: string) => services[name] ?? null,
   }
 }
 
@@ -101,6 +113,7 @@ describe('Step 5.16 — catalog.catalog_assistant.resolvePageContext (integratio
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0]).toEqual({
@@ -137,6 +150,7 @@ describe('Step 5.16 — catalog.catalog_assistant.resolvePageContext (integratio
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0].productIds).toHaveLength(10)
@@ -170,6 +184,7 @@ describe('Step 5.16 — catalog.merchandising_assistant.resolvePageContext (inte
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toContain('Products selection bundles (2 of 2)')
     expect(result).toContain('bundle-aaaa')
@@ -200,6 +215,7 @@ describe('Step 5.16 — catalog.merchandising_assistant.resolvePageContext (inte
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0].productIds).toHaveLength(10)
@@ -228,12 +244,66 @@ describe('Step 5.16 — catalog.merchandising_assistant.resolvePageContext (inte
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).not.toBeNull()
     expect(result).toContain('Products selection bundles (1 of 3)')
     expect(result).toContain(VALID_UUID_B)
     expect(result).toContain(VALID_UUID_C)
     expect(result).toContain('kept')
+  })
+
+  it('hydrates with the caller ACL and skips hydration without a caller identity', async () => {
+    const handler = jest.fn(async () => ({ found: true, product: { id: VALID_UUID_A } }))
+    const loadAcl = jest.fn(async () => CALLER_ACL)
+    const { hydrateCatalogAssistantContext } = await loadHelpers('catalog.get_product', handler)
+    await hydrateCatalogAssistantContext({
+      entityType: 'catalog.product',
+      recordId: VALID_UUID_A,
+      container: buildFakeContainer(loadAcl) as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
+    expect(loadAcl).toHaveBeenCalledWith('user-1', { tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(handler).toHaveBeenCalledWith(
+      { productId: VALID_UUID_A },
+      expect.objectContaining({ userId: 'user-1', isSuperAdmin: false, userFeatures: ['catalog.products.view'] }),
+    )
+
+    handler.mockClear()
+    const anonymous = await hydrateCatalogAssistantContext({
+      entityType: 'catalog.product',
+      recordId: VALID_UUID_A,
+      container: buildFakeContainer(loadAcl) as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: null,
+    })
+    expect(anonymous).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('skips hydration and reports the error when the caller ACL cannot be loaded', async () => {
+    const handler = jest.fn(async () => ({ found: true, product: { id: VALID_UUID_A } }))
+    const loadAcl = jest.fn(async () => {
+      throw new Error('rbac down')
+    })
+    const { hydrateCatalogAssistantContext } = await loadHelpers('catalog.get_product', handler)
+    const result = await hydrateCatalogAssistantContext({
+      entityType: 'catalog.product',
+      recordId: VALID_UUID_A,
+      container: buildFakeContainer(loadAcl) as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
+    expect(result).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'catalog',
+      code: 'catalog.ai_context.acl_unavailable',
+    })
   })
 
   it('returns null when no UUIDs parse out of the recordId (unknown selection)', async () => {
@@ -248,6 +318,7 @@ describe('Step 5.16 — catalog.merchandising_assistant.resolvePageContext (inte
       container: buildFakeContainer() as never,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()

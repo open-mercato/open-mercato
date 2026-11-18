@@ -77,7 +77,7 @@ function sortItems(items: CompanyPersonItem[], sort: 'name-asc' | 'name-desc' | 
 }
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
+  GET: { requireAuth: true, requireFeatures: ['customers.companies.view', 'customers.people.view'] },
 }
 
 export async function GET(req: Request, ctx: { params?: { id?: string } }) {

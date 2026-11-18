@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { dropUnauthorizedDetailIncludes } from '../../../lib/detailIncludeAccess'
 import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -447,7 +448,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const includeActivities = includeTokens.has('activities')
   const includeAddresses = includeTokens.has('addresses')
   const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
-  const includeDeals = includeTokens.has('deals')
+  let includeDeals = includeTokens.has('deals')
   const includeInteractions = includeTokens.has('interactions')
   const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
   const plannedPreviewLimit = 5
@@ -551,6 +552,14 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       profileMeta = { reason: 'organization_not_in_scope' }
       return organizationReadDenied
     }
+
+    await dropUnauthorizedDetailIncludes({
+      includeTokens,
+      container,
+      auth,
+      recordScope: { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? null },
+    })
+    includeDeals = includeTokens.has('deals')
 
     // Gated get-then-set cache. Key on the resolved person plus the effective
     // RBAC scope (caller identity, selected/visible orgs) and the payload-shaping
