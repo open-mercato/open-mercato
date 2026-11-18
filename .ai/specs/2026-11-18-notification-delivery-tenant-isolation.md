@@ -18,7 +18,7 @@ Tenant `appUrl` must have the same HTTP(S) origin as the operator's existing ins
 
 Keep the config key, serialized shape, ACL IDs, routes, events, DI keys and import paths unchanged. `resolveNotificationDeliveryConfig` adds optional `tenantId` to its existing options; `saveNotificationDeliveryConfig` adds an optional trailing existing `ConfigScope`. Existing unscoped trusted server calls preserve global behavior. All first-party tenant-facing and delivery callers use tenant scope.
 
-Intentional security restrictions: HTTP settings writes affect the authenticated tenant only; arbitrary external tenant appUrl is rejected with the existing invalid-settings 400 response. Tenantless GET now returns 403. Retaining the old HTTP behavior as a bridge would retain the cross-tenant vulnerability. No automatic data migration is performed: existing global values remain read-only inherited defaults. See UPGRADE_NOTES.md for audit and client actions.
+Intentional security restrictions: HTTP settings writes affect the authenticated tenant only; arbitrary external tenant appUrl is rejected with the existing invalid-settings 400 response. Tenantless GET now returns 403. Retaining the old HTTP behavior as a bridge would retain the cross-tenant vulnerability. No automatic data migration is performed: existing global values remain read-only inherited defaults. See UPGRADE_NOTES.md for audit and client actions. The dated BACKWARD_COMPATIBILITY.md ledger entry records the emergency security exception; a named human maintainer must acknowledge the waiver of steps 1–3 before merge. Automation cannot grant it.
 
 ## Regression coverage
 

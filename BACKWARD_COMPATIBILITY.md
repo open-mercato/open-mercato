@@ -670,3 +670,19 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+
+## Notification delivery tenant isolation (2026-11-18, #9136)
+
+STABLE notification settings HTTP/configuration behavior: GET and POST use the
+authenticated tenant with read-only instance fallback; tenantless access returns
+403 and tenant appUrl values must use the configured operator origin. Accepting
+the former global-write or arbitrary-origin behavior as a bridge would preserve
+cross-tenant delivery tampering and phishing. Existing trusted unscoped server
+helpers retain their global behavior; optional tenant/scope arguments are additive.
+Clients must select a tenant and use the operator origin. Operators must audit
+the legacy global appUrl, sender, reply-to and switches before deployment; this
+change does not automatically repair potentially compromised stored defaults.
+See `.ai/specs/2026-11-18-notification-delivery-tenant-isolation.md` and
+UPGRADE_NOTES.md. Emergency exception steps 1–3 need a named human maintainer
+approval acknowledging the waiver; approval is pending and blocks merge.

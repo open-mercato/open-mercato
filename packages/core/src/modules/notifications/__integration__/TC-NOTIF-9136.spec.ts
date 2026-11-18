@@ -15,7 +15,6 @@ type Settings = {
 export const integrationMeta = { dependsOnModules: ['notifications', 'auth', 'directory', 'configs'] }
 
 test('TC-NOTIF-9136: tenant notification settings cannot change another tenant or instance defaults', async ({ request }) => {
-  test.setTimeout(90_000)
   const administrator = await getAuthToken(request, 'superadmin')
   const suffix = randomUUID()
   const fixtures: Array<{ tenantId: string; organizationId?: string; roleId?: string; userId?: string; token?: string }> = []
