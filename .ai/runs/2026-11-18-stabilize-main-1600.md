@@ -25,18 +25,24 @@ Non-goals: production routing changes unless reproduction proves a runtime defec
 2.2 Dispatch the required final independent review, validate its report, and resolve findings.
 2.3 Publish evidence, mark ready, and apply automerge only after current-head checks and workflows settle green.
 
+## Verification evidence
+
+Before repair: all seven attachment tests reproduce the exact main failure. After repair: attachment and real-routing suites pass 69 tests in both default America/New_York and Pacific/Auckland. No production code changed. Runner: local.
+
 ## Risks
 
 An incomplete fixture can return early and make attachment assertions meaningless; use real routing with coherent link, mapping, conversation and channel fixtures. Main may advance during this run, so record exact checked SHAs. No test failure or pending workflow counts as green. Runner: local unless the configured Docker probe finds a running app. GitHub full CI supplies the full integration environment.
 
 ## Progress
 
+PR: #9825
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Repair the confirmed regression
 
-- [ ] 1.1 Reproduce the attachment failures and align fixtures with verified routing provenance.
-- [ ] 1.2 Run focused routing and attachment tests in both default and Pacific/Auckland timezones.
+- [x] 1.1 Reproduce the attachment failures and align fixtures with verified routing provenance. — 5770cd00df
+- [x] 1.2 Run focused routing and attachment tests in both default and Pacific/Auckland timezones. — 5770cd00df
 
 ### Phase 2: Verify and review
 
