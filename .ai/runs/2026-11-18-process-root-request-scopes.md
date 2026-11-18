@@ -18,6 +18,8 @@ Captured mutable services, shared identity maps, subscriber duplication, incompl
 
 ## Progress
 
+PR: #9837
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Lifecycle primitives
@@ -31,7 +33,7 @@ Captured mutable services, shared identity maps, subscriber duplication, incompl
 
 ### Phase 3: Entry points and qualification
 - [x] 3.1 Wire startup, independent execution contexts and standalone parity.
-- [ ] 3.2 Add and run self-contained request, caller, tenant and worker integration coverage.
+- [x] 3.2 Add and run self-contained request, caller, tenant and worker integration coverage. — c01dd6e65a
 - [ ] 3.3 Complete validation, independent review, workload evidence and documented rollout decision.
 
 ### Validation evidence
@@ -43,3 +45,11 @@ Captured mutable services, shared identity maps, subscriber duplication, incompl
 - Real enabled-path integration: five cases pass (person/company partial edits, concurrent tenant/org reads, real PostgreSQL unit-of-work isolation, cold/warm DI workload). Twenty generation-cold callers initialize one root and run 63 registrars; the next 100 run none; all 120 EntityManagers are distinct. ORM/imports were already warm, so this is not a process-start benchmark.
 - Live qualification found and fixed the unmarked generated-value registrar used by CLI/workers. Focused dynamic-loader4, lifecycle16 and cache4 tests pass; full typecheck42/42 passes again.
 - Configured unit gate is not green. Exact base 4ee923350e independently reproduces all seven communication-channel attachment failures and the MDX focus loop. Other worker-crash/dependency/mock failures passed focused rechecks; 2,857 core suites and 1,251 create-app tests passed in the broad run.
+
+### Qualification status
+- Integration coverage committed in c01dd6e65a: real caller unit-of-work isolation, cross-tenant/org access, person/company partial edits, generation-cold/warm workloads and concurrent worker event ownership. Disabled mode passes all 13 selected CRM/cart/promotion/worker cases; strengthened same-event worker also passes its targeted recheck.
+- Disabled workload executes 7,560 registrars for 120 callers; enabled preliminary workload executes 63 once. Both keep 120 distinct EntityManagers. Warm generation timings are indicative only, with ORM/imports already loaded.
+- Forty sequential authenticated HTTP list requests after five warmups: enabled median 21.75ms / p95 32.12ms; disabled median 20.88ms / p95 26.97ms. A final enabled repeat measured median 17.71ms / p95 27.77ms, showing sample variability rather than a demonstrated general end-to-end improvement.
+- Final-source production build passes. Full configured gate remains blocked by the independently reproduced baseline failures above; step 3.3 stays pending and the PR stays draft/default-off. Resume qualification with om-auto-continue-pr 9837 once the baseline gate is repaired.
+- Final enabled run: all 13 CRM/cart/promotion/worker cases pass on c01dd6e65a with retries disabled, including the strengthened same-event worker assertions and deterministic failure cleanup. Both feature modes are covered.
+- Final enabled setup timing: 20 generation-cold callers 9.374ms, 100 warm callers median 0.316ms / p95 0.463ms; disabled 15.387ms, median 0.542ms / p95 0.639ms. These measure caller construction with warm imports/ORM, not full requests or process cold starts.
