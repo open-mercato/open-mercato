@@ -305,9 +305,7 @@ export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() =>
   const createScopedBus = createScopedEventBusFactory({
     queueStrategy: strategy === 'async' || strategy === 'redis' ? 'async' : 'local',
   })
-  const definitions = createScopedBus(() => {
-    throw new Error('[internal] Event subscriber execution requires a caller scope')
-  })
+  const definitions = createScopedBus.definitions
   const subscribers = modules.flatMap((module) => (module.subscribers ?? []).map((subscriber) => ({
     ...subscriber,
     moduleId: subscriber.moduleId ?? module.id,

@@ -39,3 +39,4 @@ Captured mutable services, shared identity maps, subscriber duplication, incompl
 - First package build: all 42 package tasks passed using worktree-local workspace links.
 - Phase 2: scoped event suites 179 tests, search focused suites 14, registrar isolation 2, module activation/preflight 8, channel validation 1, workspace capacity 2; all passed locally. Full unit suite remains in progress.
 - Build/generate/build, template parity, translation checks and full typecheck (42 tasks) passed.
+- Independent review fixed caller-local event listener leakage, unknown-domain query-index bridging and nested caller-singleton identity/disposal. Focused re-review reports no residual blockers; events180, bootstrap7, query-index20 and DI31 tests pass. Final typecheck42/42 passes.

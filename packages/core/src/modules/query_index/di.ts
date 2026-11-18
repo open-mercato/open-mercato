@@ -1,4 +1,6 @@
+import type { Kysely } from 'kysely'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EventBus } from '@open-mercato/events'
 import { asScopedService, defineProcessDiRegistrar, registerProcessEventSetup } from '@open-mercato/shared/lib/di/process-registrar'
 import type { VectorIndexService } from '@open-mercato/search/vector'
@@ -303,6 +305,41 @@ export function setupQueryIndexCrudBridge(bus: Pick<EventBus, 'on'>): void {
       const record = payload as Record<string, unknown>
       if (record[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
       if (!record.id && !record.recordId) return
+      const registered = Object.values(getEntityIds(false)[moduleId] ?? {}).includes(entityType)
+      if (!registered) {
+        const organization = readScopeValue(record, ['organizationId', 'orgId'])
+        const tenant = readScopeValue(record, ['tenantId'])
+        if (!organization.present || !tenant.present) return
+        if (organization.value === undefined || tenant.value === undefined) return
+        const em = context.resolve<EntityManager>('em')
+        const db = em.getKysely() as unknown as Kysely<{
+          custom_entities: { id: string; entity_id: string; organization_id: string | null; tenant_id: string | null }
+          entity_indexes: { id: string; entity_type: string; entity_id: string; organization_id: string | null; tenant_id: string | null }
+        }>
+        const customEntity = await db.selectFrom('custom_entities')
+          .select('id')
+          .where('entity_id', '=', entityType)
+          .where((expression) => expression.or([
+            expression('organization_id', 'is', null),
+            expression('organization_id', '=', organization.value ?? null),
+          ]))
+          .where((expression) => expression.or([
+            expression('tenant_id', 'is', null),
+            expression('tenant_id', '=', tenant.value ?? null),
+          ]))
+          .executeTakeFirst()
+        if (!customEntity) {
+          if (action !== 'deleted') return
+          const indexed = await db.selectFrom('entity_indexes')
+            .select('id')
+            .where('entity_type', '=', entityType)
+            .where('entity_id', '=', String(record.id || record.recordId))
+            .where('organization_id', organization.value === null ? 'is' : '=', organization.value)
+            .where('tenant_id', tenant.value === null ? 'is' : '=', tenant.value)
+            .executeTakeFirst()
+          if (!indexed) return
+        }
+      }
       const handler = action === 'deleted' ? makeDeleteHandler(entityType) : makeUpsertHandler(entityType)
       await handler(payload, context)
     }, { moduleId: 'query_index' })

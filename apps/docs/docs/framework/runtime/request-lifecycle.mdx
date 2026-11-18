@@ -34,7 +34,7 @@ export const register = defineProcessDiRegistrar((root: AppContainer) => {
 })
 ```
 
-A process registrar must not eagerly resolve request services or capture the root in a request-service factory. Use scoped factories for mutable/request state. Reserve singleton registrations and values for audited process resources or immutable definitions. Existing `register(container)` exports remain supported without opting in.
+A process registrar must not eagerly resolve request services or capture the root in a request-service factory. Use scoped factories for mutable/request state. Reserve singleton registrations and values for audited process resources or immutable definitions. Existing `register(container)` exports remain supported without opting in. When moving immediate setup into process-only hooks, use `defineProcessDiRegistrar(processRegister, { legacy: legacyRegister })` so the disabled/fallback path retains its original setup.
 
 `registerCallerSetup(root, setup)` supports per-caller setup such as an EntityManager subscriber. `registerProcessEventSetup(root, setup)` installs generation-owned event listeners. `registerProcessActivation(root, activate, validate?)` publishes synchronous process callbacks only after successful initialization. All supplied validators run before any callback is published; activation must not perform fallible asynchronous work.
 

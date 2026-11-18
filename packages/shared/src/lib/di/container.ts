@@ -290,12 +290,12 @@ function guardProcessRootRegistrations(root: AppContainer): void {
       return resolver.resolve(resolver.lifetime === Lifetime.SINGLETON ? root : caller)
     },
   })
-  root.register = ((nameOrRegistrations: string | Record<string, Resolver<unknown>>, resolver?: Resolver<unknown>) => {
-    if (typeof nameOrRegistrations === 'string') {
+  root.register = ((nameOrRegistrations: string | symbol | Record<string | symbol, Resolver<unknown>>, resolver?: Resolver<unknown>) => {
+    if (typeof nameOrRegistrations === 'string' || typeof nameOrRegistrations === 'symbol') {
       if (!resolver) throw new Error('[internal] Missing DI resolver')
       return register(nameOrRegistrations, wrap(resolver))
     }
-    return register(Object.fromEntries(Object.entries(nameOrRegistrations).map(([key, value]) => [key, wrap(value)])))
+    return register(Object.fromEntries(Reflect.ownKeys(nameOrRegistrations).map((key) => [key, wrap(nameOrRegistrations[key])])))
   }) as AppContainer['register']
 }
 
@@ -307,15 +307,26 @@ function isolateCallerRegistrations(caller: AppContainer): void {
     isolateCallerRegistrations(nested)
     return nested
   }) as AppContainer['createScope']
-  const local = (resolver: Resolver<unknown>): Resolver<unknown> => resolver.lifetime === Lifetime.SINGLETON
-    ? { ...resolver, lifetime: Lifetime.SCOPED }
-    : resolver
-  caller.register = ((nameOrRegistrations: string | Record<string, Resolver<unknown>>, resolver?: Resolver<unknown>) => {
-    if (typeof nameOrRegistrations === 'string') {
-      if (!resolver) throw new Error('[internal] Missing DI resolver')
-      return register(nameOrRegistrations, local(resolver))
+  const local = (name: string | symbol, resolver: Resolver<unknown>): Resolver<unknown> => {
+    if (resolver.lifetime !== Lifetime.SINGLETON) return resolver
+    return {
+      ...resolver,
+      lifetime: Lifetime.TRANSIENT,
+      resolve: (resolvingScope) => {
+        const cached = caller.cache.get(name)
+        if (cached) return cached.value
+        const value = resolver.resolve(resolvingScope)
+        caller.cache.set(name, { resolver, value })
+        return value
+      },
     }
-    return register(Object.fromEntries(Object.entries(nameOrRegistrations).map(([key, value]) => [key, local(value)])))
+  }
+  caller.register = ((nameOrRegistrations: string | symbol | Record<string | symbol, Resolver<unknown>>, resolver?: Resolver<unknown>) => {
+    if (typeof nameOrRegistrations === 'string' || typeof nameOrRegistrations === 'symbol') {
+      if (!resolver) throw new Error('[internal] Missing DI resolver')
+      return register(nameOrRegistrations, local(nameOrRegistrations, resolver))
+    }
+    return register(Object.fromEntries(Reflect.ownKeys(nameOrRegistrations).map((key) => [key, local(key, nameOrRegistrations[key])])))
   }) as AppContainer['register']
 }
 

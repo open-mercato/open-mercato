@@ -369,11 +369,23 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
 
 export function createScopedEventBusFactory(options: Omit<CreateBusOptions, 'resolve'> = {}) {
   const state = createEventBusGenerationState()
-  return (resolve: CreateBusOptions['resolve']): EventBus =>
-    createEventBusWithState({ ...options, resolve }, state)
+  return Object.assign(
+    (resolve: CreateBusOptions['resolve']): EventBus =>
+      createEventBusWithState({ ...options, resolve }, createEventBusGenerationState(), state),
+    {
+      definitions: createEventBusWithState({
+        ...options,
+        resolve: () => { throw new Error('[internal] Event definitions cannot resolve caller services') },
+      }, state),
+    },
+  )
 }
 
-function createEventBusWithState(opts: CreateBusOptions, state: EventBusGenerationState): EventBus {
+function createEventBusWithState(
+  opts: CreateBusOptions,
+  state: EventBusGenerationState,
+  definitions?: EventBusGenerationState,
+): EventBus {
   registerBroadcastCoalescerShutdownHook()
 
   // In-memory listeners for immediate event delivery
@@ -381,6 +393,13 @@ function createEventBusWithState(opts: CreateBusOptions, state: EventBusGenerati
   // Subscribers registered as persistent (worker-dispatched). Used by the
   // single-delivery path to skip them inline on a persistent emit.
   const persistentSubscribers = state.persistentSubscribers
+  const queueState = definitions ?? state
+  function* listenerEntries() {
+    if (definitions) yield* definitions.listeners
+    yield* listeners
+  }
+  const isPersistentSubscriber = (subscriber: RegisteredSubscriber) =>
+    persistentSubscribers.has(subscriber) || definitions?.persistentSubscribers.has(subscriber) === true
 
   // Determine queue strategy from options or environment
   const queueStrategy = opts.queueStrategy ??
@@ -396,14 +415,14 @@ function createEventBusWithState(opts: CreateBusOptions, state: EventBusGenerati
    */
   function getQueue(): Queue<EventJobData> {
     if (queueStrategy !== 'async' || !isSharedProducerEnabled()) {
-      if (!state.queue) {
-        state.queue = queueStrategy === 'async'
+      if (!queueState.queue) {
+        queueState.queue = queueStrategy === 'async'
           ? createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
               connection: { url: getRedisUrlOrThrow('QUEUE') },
             })
           : createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
       }
-      return state.queue
+      return queueState.queue
     }
 
     const redisUrl = getRedisUrlOrThrow('QUEUE')
@@ -438,14 +457,14 @@ function createEventBusWithState(opts: CreateBusOptions, state: EventBusGenerati
   ): Promise<{ persistentFailures: number }> {
     let persistentFailures = 0
     // Check all registered patterns (including wildcards)
-    for (const [pattern, handlers] of listeners) {
+    for (const [pattern, handlers] of listenerEntries()) {
       if (!matchEventPattern(event, pattern)) continue
       if (!handlers || handlers.size === 0) continue
 
       for (const subscriber of handlers) {
         // Single-delivery: persistent subscribers are dispatched by the worker,
         // so skip them inline to avoid double execution.
-        if (skipPersistent && persistentSubscribers.has(subscriber)) continue
+        if (skipPersistent && isPersistentSubscriber(subscriber)) continue
         try {
           // Pass eventName in context for wildcard handlers
           const moduleId = subscriber.moduleId ?? inferModuleIdFromResourceId(subscriber.id)
@@ -464,7 +483,7 @@ function createEventBusWithState(opts: CreateBusOptions, state: EventBusGenerati
             }),
           )
         } catch (error) {
-          if (persistentSubscribers.has(subscriber)) {
+          if (isPersistentSubscriber(subscriber)) {
             persistentFailures += 1
           }
           logger.error('Handler error', { event, pattern, err: error })
@@ -498,7 +517,7 @@ function createEventBusWithState(opts: CreateBusOptions, state: EventBusGenerati
    */
   function selectQueuedSubscribers(event: string): RegisteredSubscriber[] {
     const matched: RegisteredSubscriber[] = []
-    for (const [pattern, handlers] of listeners) {
+    for (const [pattern, handlers] of listenerEntries()) {
       if (!matchEventPattern(event, pattern)) {
         continue
       }

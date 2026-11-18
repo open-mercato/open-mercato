@@ -12,7 +12,7 @@ it('shares definitions while retaining the exact caller through interleaved deli
   let releaseFirst = () => {}
   const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
   const observed: string[] = []
-  first.on('probe.created', async (payload, context) => {
+  createBus.definitions.on('probe.created', async (payload, context) => {
     if (payload === 'first') await firstBlocked
     observed.push(`${context.resolve('em')}:${context.resolve('auth')}`)
   })
@@ -25,7 +25,7 @@ it('shares definitions while retaining the exact caller through interleaved deli
 
 it('does not multiply listeners when creating caller facades and respects an explicit worker resolver', async () => {
   const createBus = createScopedEventBusFactory()
-  const definitionBus = createBus(resolver({ em: 'definitions-must-not-resolve' }))
+  const definitionBus = createBus.definitions
   const seen: string[] = []
   definitionBus.on('probe.*', (_payload, context) => { seen.push(context.resolve('em')) }, { persistent: true })
   for (let index = 0; index < 20; index += 1) createBus(resolver({ em: `caller-${index}` }))
@@ -44,4 +44,21 @@ it('a replacement generation drops old subscribers including an empty replacemen
   expect(handler).not.toHaveBeenCalled()
   await oldBus.emit('probe.created', {})
   expect(handler).toHaveBeenCalledTimes(1)
+})
+
+
+it('keeps runtime subscriptions local while sharing generation definitions', async () => {
+  const createBus = createScopedEventBusFactory()
+  const shared = jest.fn()
+  createBus.definitions.on('probe.created', shared)
+  const first = createBus(resolver({ em: 'first' }))
+  const second = createBus(resolver({ em: 'second' }))
+  const firstOnly = jest.fn()
+  first.on('probe.created', firstOnly)
+  await second.emit('probe.created', {})
+  expect(shared).toHaveBeenCalledTimes(1)
+  expect(firstOnly).not.toHaveBeenCalled()
+  await first.emit('probe.created', {})
+  expect(shared).toHaveBeenCalledTimes(2)
+  expect(firstOnly).toHaveBeenCalledTimes(1)
 })

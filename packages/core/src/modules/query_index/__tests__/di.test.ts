@@ -61,6 +61,8 @@ function createBridgeHarness(input: {
   metadata?: MetadataShape
   sourceRow?: Record<string, string | null>
   hasCustomField?: boolean
+  customEntity?: boolean
+  indexed?: boolean
 }) {
   const handlers = new Map<string, (payload: unknown, ctx: unknown) => Promise<void>>()
   const emitEvent = jest.fn(async () => {})
@@ -77,6 +79,8 @@ function createBridgeHarness(input: {
   const sourceBuilder = makeBuilder([], input.sourceRow)
   const db = {
     selectFrom: jest.fn((table: string) => {
+      if (table === 'custom_entities') return makeBuilder([], input.customEntity ? { id: 'custom' } : undefined)
+      if (table === 'entity_indexes') return makeBuilder([], input.indexed ? { id: 'index' } : undefined)
       if (table === 'custom_field_defs') return customFieldBuilder
       if (table === input.metadata?.tableName) return sourceBuilder
       throw new Error(`Unexpected table: ${table}`)
@@ -424,6 +428,7 @@ describe('query_index DI CRUD bridge', () => {
 
 
 describe('query_index process registrations', () => {
+  beforeEach(() => mockRecordIndexerError.mockClear())
   it('registers without resolving services, polling for a bus, or querying custom fields', async () => {
     const root = createContainer()
     const resolve = jest.spyOn(root, 'resolve')
@@ -463,7 +468,7 @@ describe('query_index process registrations', () => {
 
   it('covers new custom-field entities after startup and resolves the emitting caller', async () => {
     const first = createBridgeHarness({ entityType: 'customers:customer_person', metadata: scopedMetadata })
-    const second = createBridgeHarness({ entityType: 'future:record' })
+    const second = createBridgeHarness({ entityType: 'future:record', customEntity: true })
     const subscriptions = new Map<string, (payload: unknown, context: unknown) => Promise<void>>()
     setupQueryIndexCrudBridge({
       on: (pattern: string, handler: SubscriberHandler) => { subscriptions.set(pattern, handler as never) },
@@ -478,11 +483,11 @@ describe('query_index process registrations', () => {
     expect(first.emitEvent).toHaveBeenCalledTimes(1)
     expect(second.emitEvent).toHaveBeenCalledTimes(1)
     expect(first.db.selectFrom).toHaveBeenCalledTimes(1)
-    expect(second.db.selectFrom).toHaveBeenCalledTimes(1)
+    expect(second.db.selectFrom).toHaveBeenCalledTimes(2)
   })
 
   it('deletes runtime custom-entity index rows even after their field definitions are removed', async () => {
-    const harness = createBridgeHarness({ entityType: 'custom:runtime_record' })
+    const harness = createBridgeHarness({ entityType: 'custom:runtime_record', indexed: true })
     const subscriptions = new Map<string, SubscriberHandler>()
     setupQueryIndexCrudBridge({
       on: (pattern: string, handler: SubscriberHandler) => { subscriptions.set(pattern, handler) },
@@ -493,7 +498,20 @@ describe('query_index process registrations', () => {
     expect(harness.emitEvent).toHaveBeenCalledWith('query_index.delete_one', {
       entityType: 'custom:runtime_record', recordId: 'custom-1', tenantId: 'tenant-1', organizationId: 'org-1',
     })
-    expect(harness.db.selectFrom).not.toHaveBeenCalled()
+    expect(harness.db.selectFrom).not.toHaveBeenCalledWith('custom_field_defs')
+  })
+
+  it('ignores domain event aliases that are neither registered nor runtime custom entities', async () => {
+    const harness = createBridgeHarness({ entityType: 'catalog:product' })
+    const subscriptions = new Map<string, SubscriberHandler>()
+    setupQueryIndexCrudBridge({
+      on: (pattern: string, handler: SubscriberHandler) => { subscriptions.set(pattern, handler) },
+    } as never)
+    await subscriptions.get('*.*.created')!({ id: 'product-1', tenantId: 'tenant-1', organizationId: 'org-1' }, {
+      resolve: harness.container.resolve, eventName: 'catalog.product.created',
+    } as never)
+    expect(harness.emitEvent).not.toHaveBeenCalled()
+    expect(mockRecordIndexerError).not.toHaveBeenCalled()
   })
 
   it('ignores non-entity CRUD events and already managed payloads without resolving services', async () => {
