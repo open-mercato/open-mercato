@@ -117,8 +117,8 @@ function buildCtx(em: ReturnType<typeof buildEm>) {
 
 const expectedDemotion = [
   SalesTaxRate,
-  { organizationId: ORG_ID, tenantId: TENANT_ID, deletedAt: null, id: { $ne: RATE_ID } },
-  { isDefault: false },
+  { organizationId: ORG_ID, tenantId: TENANT_ID, deletedAt: null, isDefault: true, id: { $ne: RATE_ID } },
+  { isDefault: false, updatedAt: expect.any(Date) },
 ]
 
 async function runUndo(commandId: string, payload: Record<string, unknown>, em: ReturnType<typeof buildEm>) {

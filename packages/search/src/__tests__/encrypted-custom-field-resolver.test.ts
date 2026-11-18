@@ -1,43 +1,91 @@
-import type { Kysely } from 'kysely'
-import { createEncryptedCustomFieldKeysResolver, type CustomFieldDefinitionsDatabase } from '../lib/encrypted-custom-field-resolver'
+import {
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+  type CompiledQuery,
+  type DatabaseConnection,
+  type Driver,
+} from 'kysely'
+import {
+  createEncryptedCustomFieldKeysResolver,
+  type CustomFieldDefinitionsDatabase,
+} from '../lib/encrypted-custom-field-resolver'
 
-type Definition = { key: string; config_json: unknown }
-
-function makeDatabase(definitions: Definition[]) {
-  const predicates: Array<[string, string, unknown]> = []
-  const query = {
-    select: () => query,
-    where: (field: string, operator: string, value: unknown) => { predicates.push([field, operator, value]); return query },
-    execute: async () => definitions,
+function createDatabase(rows: Array<Record<string, unknown>>) {
+  const queries: CompiledQuery[] = []
+  const connection: DatabaseConnection = {
+    executeQuery: async <R>(compiled: CompiledQuery) => {
+      queries.push(compiled)
+      return { rows: rows as R[] }
+    },
+    streamQuery: () => {
+      throw new Error('[internal] streaming is not supported in this test')
+    },
   }
-  const database = { selectFrom: (table: string) => { expect(table).toBe('custom_field_defs'); return query } } as unknown as Kysely<CustomFieldDefinitionsDatabase>
-  return { database, predicates }
+  const driver: Driver = {
+    init: async () => undefined,
+    acquireConnection: async () => connection,
+    beginTransaction: async () => undefined,
+    commitTransaction: async () => undefined,
+    rollbackTransaction: async () => undefined,
+    releaseConnection: async () => undefined,
+    destroy: async () => undefined,
+  }
+  const db = new Kysely<CustomFieldDefinitionsDatabase>({
+    dialect: {
+      createAdapter: () => new PostgresAdapter(),
+      createDriver: () => driver,
+      createIntrospector: (instance) => new PostgresIntrospector(instance),
+      createQueryCompiler: () => new PostgresQueryCompiler(),
+    },
+  })
+  return { db, queries }
 }
 
-describe('encrypted custom-field definitions', () => {
-  it('unions encrypted keys across scopes, including sanitized query-engine aliases and JSON config', async () => {
-    const { database, predicates } = makeDatabase([
-      { key: ' Tax-Number ', config_json: { encrypted: true } },
-      { key: 'private.code', config_json: '{"encrypted":true}' },
-      { key: 'plain', config_json: { encrypted: false } },
-      { key: '', config_json: { encrypted: true } },
+describe('encrypted custom-field keys resolver', () => {
+  it('returns the normalized keys of encrypted definitions', async () => {
+    const { db } = createDatabase([
+      { key: 'Tax_Number', config_json: { encrypted: true } },
+      { key: 'national_id', config_json: '{"encrypted":true,"label":"National ID"}' },
+      { key: 'tax_number', config_json: { encrypted: true } },
+      { key: 'industry_note', config_json: { encrypted: false } },
+      { key: 'priority', config_json: null },
+      { key: '  ', config_json: { encrypted: true } },
     ])
 
-    const keys = await createEncryptedCustomFieldKeysResolver(database)('example:todo')
+    const keys = await createEncryptedCustomFieldKeysResolver(db)('customers:customer_company_profile', 'tenant-1')
 
-    expect(keys).toEqual(new Set(['tax-number', 'tax_number', 'private.code', 'private_code']))
-    expect(predicates).toEqual([['entity_id', '=', 'example:todo'], ['deleted_at', 'is', null]])
+    expect(Array.from(keys).sort()).toEqual(['national_id', 'tax_number'])
   })
 
-  it('returns an explicit empty policy when the entity has no encrypted definitions', async () => {
-    const { database } = makeDatabase([{ key: 'plain', config_json: {} }])
+  it('also returns the query engine alias form of a key with characters outside snake_case', async () => {
+    const { db } = createDatabase([{ key: 'Order-Ref', config_json: { encrypted: true } }])
 
-    await expect(createEncryptedCustomFieldKeysResolver(database)('example:todo')).resolves.toEqual(new Set())
+    const keys = await createEncryptedCustomFieldKeysResolver(db)('customers:customer_company_profile', 'tenant-1')
+
+    expect(Array.from(keys).sort()).toEqual(['order-ref', 'order_ref'])
   })
 
-  it('propagates unreadable definitions so the indexer can deny all custom fields', async () => {
-    const database = { selectFrom: () => { throw new Error('[internal] Database unavailable') } } as unknown as Kysely<CustomFieldDefinitionsDatabase>
+  it('reads non-deleted encrypted-looking definitions of the entity for the tenant and global scope', async () => {
+    const { db, queries } = createDatabase([])
 
-    await expect(createEncryptedCustomFieldKeysResolver(database)('example:todo')).rejects.toThrow('Database unavailable')
+    await createEncryptedCustomFieldKeysResolver(db)('customers:customer_company_profile', 'tenant-1')
+
+    expect(queries).toHaveLength(1)
+    expect(queries[0].sql).toBe(
+      'select "key", "config_json" from "custom_field_defs" where "entity_id" = $1 and "deleted_at" is null'
+        + ' and config_json::text like $2 and ("tenant_id" = $3 or "tenant_id" is null)',
+    )
+    expect(queries[0].parameters).toEqual(['customers:customer_company_profile', '%encrypted%', 'tenant-1'])
+  })
+
+  it('reads every tenant when no tenant is given', async () => {
+    const { db, queries } = createDatabase([])
+
+    await createEncryptedCustomFieldKeysResolver(db)('customers:customer_company_profile', null)
+
+    expect(queries[0].sql).not.toContain('tenant_id')
+    expect(queries[0].parameters).toEqual(['customers:customer_company_profile', '%encrypted%'])
   })
 })

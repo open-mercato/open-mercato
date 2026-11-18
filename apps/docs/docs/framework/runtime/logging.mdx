@@ -101,7 +101,7 @@ Raw pino JSON is right for production aggregation but noisy to read in a termina
 12:05:21.004 ERROR [events:stream] Payload skipped tenantId=t-9 maxBytes=4096
 ```
 
-Timestamp, padded level (colored when the output is a TTY), `[namespace]` (a `component` binding folds into `[namespace:component]`), the message, and compact `key=value` fields; an `err` Error prints its stack on the following lines.
+Timestamp, padded level (colored when the output is a TTY), `[namespace]` (a `component` binding folds into `[namespace:component]`), the message, and compact `key=value` fields; an `err` Error prints its stack, indented by four spaces, on the following lines.
 
 | Source | Value | Effective mode |
 |---|---|---|
