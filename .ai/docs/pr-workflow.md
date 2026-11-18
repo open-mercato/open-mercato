@@ -3,13 +3,14 @@
 The authoritative, long-form version of the PR label policy. The root `AGENTS.md` keeps only
 the boundaries (which label groups exist, the hard merge blocks, the "exactly one priority +
 exactly one risk" rule); everything below is the detail that used to live there. The machine
-readable taxonomy lives in `.ai/agentic.config.json` (`labels.*`, `qaGate`).
+readable taxonomy lives in `.ai/agentic.config.json` (`labels.*`, `qaGate`, `qaGateLabel`,
+`qaReadyLabel`).
 
 ## Label groups
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
-- Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
+- Meta labels are additive: `needs-qa`, `needs-human-qa`, `ready-for-qa`, `qa-in-progress`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`.
 - Risk labels are mutually exclusive within their group (only one at a time): `risk-low`, `risk-medium`, `risk-high`.
 - Release-line labels are additive: `backport release/vX.Y.x` (cherry-pick into that line once merged), `backport main` (forward-port a line hotfix), `backport` (marks a PR the Backport workflow opened), `skip-changelog` (left out of generated release notes).
@@ -54,8 +55,8 @@ line with `git branch -r --list 'origin/release/v*'`.
   workflow. Auto-skills copy a `backport …` label from the issue to the PR, and label
   normalization MUST NOT strip it.
 - A backport PR is reviewed as a real PR: CI green *and* the change still fits the line's code.
-  Backport copies category, priority, risk, `needs-qa` and `skip-qa`; it never copies
-  `qa-approved`, so the QA gate applies to the line again.
+  Backport copies category, priority, risk, `needs-qa`, `needs-human-qa` and `skip-qa`; it never
+  copies `qa-approved` or `ready-for-qa`, so the QA gate applies to the line again.
 - Auto-skills never push to `release/v*`, never merge into it outside a reviewed PR, and never
   dispatch Release cut, Release or Release publish, and never create or delete `v*` tags (a tag
   starts a publish) — those are maintainer actions.
@@ -109,8 +110,8 @@ the higher risk and say why in the label comment. A `risk-high` PR strengthens t
 ## Pipeline transitions
 
 - A ready non-draft PR should carry `review` unless it is already in another pipeline state.
-- `auto-review-pr` MUST move approved PRs to `merge-queue`. For a PR that carries `needs-qa`
-  (without `skip-qa`) it keeps `needs-qa` in place, so the QA-approval gate holds the actual
+- `auto-review-pr` MUST move approved PRs to `merge-queue`. It keeps `needs-qa` and
+  `needs-human-qa` in place; for a `needs-human-qa` PR the QA-approval gate holds the actual
   merge until a QA reviewer adds `qa-approved`. Auto-skills MUST NOT set the `qa` pipeline
   label — see the `qa` rule below.
 - `auto-review-pr` MUST move review failures to `changes-requested`.
@@ -131,8 +132,25 @@ When QA passes, move it back and record approval (`gh pr edit <number> --remove-
 ## QA meta labels and the merge gate
 
 - `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing
-  behavior that needs manual exercise. It presumes there is a surface a QA reviewer can actually
-  exercise by hand; when there is not, see the automated-verification exemption below.
+  behavior that needs exercising. It asks for automatic QA (`om-auto-qa-pr`, run by the merge
+  queue) and puts the change into the weekly QA package; on its own it no longer blocks a merge.
+  It presumes there is a surface that can actually be exercised; when there is not, see the
+  automated-verification exemption below.
+- `needs-human-qa` marks a PR that a human tester MUST test before merge: protected areas
+  (migrations that rewrite or move data, money, widened permissions or cross-tenant access,
+  architecture, backward-incompatible changes), the `security` category, and the human-only
+  policy in `.ai/agentic.config.json` (`automerge.humanOnlyLabels`, today `feature`, and
+  `automerge.humanOnlyAuthors`, the UX owner). `om-auto-merge-buddy` and `om-auto-review-pr`
+  apply it (`qaGateLabel`); anyone may add it by hand, and automation never removes a
+  human-applied one.
+- `ready-for-qa` means a human tester can start now: the PR carries `needs-human-qa`, has an
+  approving review, green CI and no conflicts, and its current head has no human QA sign-off yet.
+  The `QA ready label` workflow (`.github/workflows/qa-ready-label.yml`) adds it on a schedule and
+  removes it on every push, so a verdict is never based on code that has since changed. Never set
+  it by hand. The daily QA queue is the filter
+  `is:pr is:open label:needs-human-qa label:ready-for-qa -label:qa-in-progress`.
+- `qa-in-progress` is set by the QA reviewer who picks the PR up (together with assigning
+  themselves) and removed when they post the verdict.
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, changes with no
   manually exercisable surface (see the exemption below), or similarly low-risk
   non-customer-facing changes.
@@ -155,24 +173,26 @@ When QA passes, move it back and record approval (`gh pr edit <number> --remove-
   PR is a reason to demand the integration test and a deeper review, not a reason to demand
   clicking that cannot happen. A reviewer may always override the exemption back to `needs-qa`
   with a stated reason (for example when the change alters a response the UI renders). It does not
-  touch the QA-approval merge gate below: a PR that carries `needs-qa` still MUST NOT merge
+  touch the QA-approval merge gate below: a PR that carries `needs-human-qa` still MUST NOT merge
   without `qa-approved`.
-- `qa-approved` records that manual QA passed for a `needs-qa` PR. It is the durable proof that
+- `qa-approved` records that manual QA passed, pinned to the tested head by a `QA head:` line. It is the durable proof that
   gates the merge; the `merge-queue` pipeline label is the routing state, while `qa-approved` is
   the evidence that QA actually happened. Set both when QA passes.
 - `screenshots` records that UI QA visual evidence was attached to the PR (posted by
   `om-auto-qa-pr`, which first runs `om-auto-review-pr` when the PR is still unreviewed); it is
   informational only — it does not gate merge and is orthogonal to `needs-qa`/`qa-approved`.
 
-**QA-approval merge gate (hard rule): a PR that carries `needs-qa` MUST NOT be merged unless it
-also carries `qa-approved`, even when every other check is green.** Moving such a PR to
+**QA-approval merge gate (hard rule): a PR that carries `needs-human-qa` MUST NOT be merged
+unless it also carries `qa-approved`, even when every other check is green.** The gate label is
+configured as `qaGateLabel`; a PR that carries only `needs-qa` is not held by this gate and goes
+through automatic QA and the weekly package instead. Moving such a PR to
 `merge-queue` without `qa-approved` is not sufficient — the QA-approval gate blocks it. This is
 a **label policy enforced by reviewers and the PR-automation tooling** (`om-merge-buddy`
 classifies it as not-mergeable; `om-approve-merge-pr` and the auto-review/continue skills refuse
 to merge it); there is no longer a dedicated `merge-gate` CI workflow, so the maintainer is
 responsible for upholding it (optionally via a branch-protection rule that requires the
 `qa-approved` label). `skip-qa` is the explicit opt-out: a PR with `skip-qa` does not require
-`qa-approved`. Never combine `skip-qa` with `needs-qa`/`qa-approved`.
+`qa-approved`. Never combine `skip-qa` with `needs-qa`, `needs-human-qa` or `qa-approved`.
 
 **Self-QA exception:** the manual QA is normally performed by the dedicated QA reviewers. When
 they have no capacity to test in time, any engineer may self-QA instead — but only by
@@ -190,7 +210,7 @@ For them it splits into two halves: the contributor posts the evidence comment o
 comment is the durable artifact, the labels only record it — and a maintainer applies the two
 labels on the strength of it. A maintainer doing so is upholding the gate, not bypassing it, as
 long as the linked evidence actually exists. Until the labels are on the PR it stays gated: an
-attached evidence comment alone does not make a `needs-qa` PR merge-ready, and an `om-auto-*`
+attached evidence comment alone does not make a `needs-human-qa` PR merge-ready, and an `om-auto-*`
 skill that cannot apply the labels MUST report that it stopped there rather than treat the
 self-QA as complete.
 

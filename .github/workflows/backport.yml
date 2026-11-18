@@ -53,7 +53,7 @@ jobs:
           # their titles, so a backport keeps both. Priority, risk and QA labels carry over so
           # the backport PR enters the pipeline like the original did; `qa-approved` does not —
           # it vouched for the change in main's code, not the line's.
-          copy_labels_pattern: '^(bug|feature|security|refactor|dependencies|documentation|enterprise|skip-changelog|priority-(low|medium|high|extreme)|risk-(low|medium|high)|needs-qa|skip-qa)$'
+          copy_labels_pattern: '^(bug|feature|security|refactor|dependencies|documentation|enterprise|skip-changelog|priority-(low|medium|high|extreme)|risk-(low|medium|high)|needs-qa|needs-human-qa|skip-qa)$'
           pull_title: '${pull_title}'
           add_labels: 'backport,review'
           experimental: '{"conflict_resolution": "draft_commit_conflicts"}'

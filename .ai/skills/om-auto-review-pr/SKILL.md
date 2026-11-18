@@ -42,4 +42,4 @@ Before posting the verdict, make the PR's release-note labels right — they are
 ## Repo conventions the shared workflow already parameterizes
 
 - Base branch: PRs target `main` (config `baseBranch`; backports target `release/vX.Y.x`); the PR's own `baseRefName` stays authoritative for diffs.
-- Labels, QA gate, and claim protocol: as defined in `.ai/agentic.config.json` and root `AGENTS.md` (QA-approval merge gate: `needs-qa` without `qa-approved` never merges; auto-skills never touch the `qa` pipeline label).
+- Labels, QA gate, and claim protocol: as defined in `.ai/agentic.config.json` and root `AGENTS.md` (QA-approval merge gate: `needs-human-qa` without `qa-approved` never merges, and the review applies `needs-human-qa` to protected, `security`, `feature` and UX-owner PRs; `needs-qa` alone asks for automatic QA; auto-skills never touch the `qa` pipeline label).

@@ -29,8 +29,9 @@ sets `qa` to indicate manual testing is underway.
 
 Every ready PR needs a category, one priority and one risk label, using the
 configuration's taxonomy. Priority measures urgency; risk measures blast radius.
-A `needs-qa` PR cannot merge without `qa-approved`. Never combine `skip-qa` with
-`needs-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
+A `needs-human-qa` PR cannot merge without `qa-approved`; `needs-qa` alone asks for
+automatic QA and the weekly package. Never combine `skip-qa` with `needs-qa`,
+`needs-human-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
 changed scope needs fresh verification. Self-QA follows the exception and evidence
 requirements in the PR workflow, including both approval and self-verification labels.
 
