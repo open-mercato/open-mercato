@@ -13,10 +13,12 @@ import { act, render } from '@testing-library/react'
 import { BrowserTelemetry, resetBrowserTelemetryBootstrap } from '../BrowserTelemetry'
 import { BROWSER_TRACES_PATH, type BrowserTelemetryConfig } from '../config'
 import { BACKUP_TRACEPARENT_HEADER, BACKUP_TRACESTATE_HEADER } from '../../trace-headers'
+import type { ReadableSpan, SpanProcessor } from '@opentelemetry/sdk-trace-base'
 import type { TextMapPropagator } from '@opentelemetry/api'
 
 /** Which SDK modules were dynamically imported — the "zero client cost while off" claim. */
 const mockLoadedModules: string[] = []
+const mockBatchOnEnd = jest.fn()
 const mockProviderInstances: Array<{
   options: Record<string, unknown>
   register: jest.Mock
@@ -53,7 +55,7 @@ jest.mock('@opentelemetry/sdk-trace-web', () =>
 
 jest.mock('@opentelemetry/sdk-trace-base', () =>
   record('@opentelemetry/sdk-trace-base', {
-    BatchSpanProcessor: class {},
+    BatchSpanProcessor: class { onEnd = mockBatchOnEnd },
     ParentBasedSampler: class {},
     TraceIdRatioBasedSampler: class {},
   }),
@@ -166,6 +168,7 @@ describe('BrowserTelemetry', () => {
     mockFetchInstrumentationConfigs.length = 0
     mockExporterConfigs.length = 0
     mockRegisterInstrumentations.mockClear()
+    mockBatchOnEnd.mockClear()
     mockFetchInstrumentationFailure.next = null
     window.fetch = nativeFetch
     delete (window as { __omOriginalFetch?: unknown }).__omOriginalFetch
@@ -205,6 +208,35 @@ describe('BrowserTelemetry', () => {
     // Without this the exporter's own POST produces a span, which produces the next batch, forever.
     expect(ignoreUrls.some((pattern) => pattern.test(`http://localhost${BROWSER_TRACES_PATH}`))).toBe(true)
     expect(ignoreUrls.some((pattern) => pattern.test('http://localhost/api/customers'))).toBe(false)
+  })
+
+  it('redacts browser page and fetch URLs before the batch processor sees a span', async () => {
+    await renderAndSettle(<BrowserTelemetry config={CONFIG} />)
+    const processors = mockProviderInstances[0].options.spanProcessors as SpanProcessor[]
+    const token = 'b'.repeat(64)
+    const original = Object.freeze({
+      name: `fetch GET https://example.com/reset/${token}?token=magic-link`,
+      attributes: Object.freeze({
+        'http.url': 'https://example.com/portal?token=invite',
+        'url.full': 'https://example.com/callback?code=oauth-code',
+        'url.path': `/reset/${token}`,
+        'url.query': 'search=private',
+      }),
+      spanContext: () => ({ traceId: '1'.repeat(32), spanId: '2'.repeat(16), traceFlags: 1 }),
+    }) as ReadableSpan
+    processors[0].onEnd(original)
+
+    const sanitized = mockBatchOnEnd.mock.calls[0][0] as ReadableSpan
+    expect(sanitized.name).toBe('fetch GET https://example.com/reset/[redacted]?token=[redacted]')
+    expect(sanitized.attributes).toEqual({
+      'http.url': 'https://example.com/portal?token=[redacted]',
+      'url.full': 'https://example.com/callback?code=[redacted]',
+      'url.path': '/reset/[redacted]',
+      'url.query': 'search=[redacted]',
+    })
+    expect(sanitized.spanContext()).toEqual(original.spanContext())
+    expect(original.name).toContain(token)
+    expect(original.attributes['url.query']).toBe('search=private')
   })
 
   it('never loads the user-interaction instrumentation — it cannot see a React click and would emit nothing', async () => {

@@ -27,6 +27,7 @@
 import * as React from 'react'
 import type { BrowserTelemetryConfig } from './config'
 import { createBackupHeaderPropagator } from './propagator'
+import { createRedactingSpanProcessor } from '../provider/redacting-span-processor'
 
 /** Module-level so React StrictMode's double-invoke (and any remount) cannot start a second SDK. */
 let bootstrapped = false
@@ -74,12 +75,12 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
       root: new TraceIdRatioBasedSampler(config.samplingRatio),
     }),
     spanProcessors: [
-      new BatchSpanProcessor(
+      createRedactingSpanProcessor(new BatchSpanProcessor(
         new OTLPTraceExporter({ url: config.endpoint }),
         // The interesting spans arrive in bursts around a navigation; a short delay keeps them
         // close together in the trace view without one request per span.
         { scheduledDelayMillis: 3_000, maxQueueSize: 512 },
-      ),
+      )),
     ],
   })
 

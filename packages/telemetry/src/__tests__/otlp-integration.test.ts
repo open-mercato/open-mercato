@@ -315,6 +315,36 @@ describe('OtlpProvider (in-memory exporters)', () => {
     expect(span?.attributes.token_count).toBe(12)
   })
 
+  it('redacts raw instrumentation spans before injected processors export them', () => {
+    const token = 'a'.repeat(64)
+    const rawSpan = trace.getTracer('next-js-regression').startSpan(
+      `fetch GET https://example.com/reset/${token}?code=one-time-code`,
+    )
+    rawSpan.setAttributes({
+      'http.target': `/reset/${token}?token=one-time-token`,
+      'http.url': 'https://example.com/portal?token=magic-link',
+      'url.full': 'https://example.com/callback?code=oauth-code',
+      'url.path': `/reset/${token}`,
+      'url.query': 'search=private&page=2',
+      'om.tenant_id': '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+    })
+    rawSpan.end()
+
+    const exported = spanExporter.getFinishedSpans()[0]
+    expect(exported.name).toBe('fetch GET https://example.com/reset/[redacted]?code=[redacted]')
+    expect(exported.attributes).toMatchObject({
+      'http.target': '/reset/[redacted]?token=[redacted]',
+      'http.url': 'https://example.com/portal?token=[redacted]',
+      'url.full': 'https://example.com/callback?code=[redacted]',
+      'url.path': '/reset/[redacted]',
+      'url.query': 'search=[redacted]&page=[redacted]',
+      'om.tenant_id': '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+    })
+    expect(exported.spanContext().traceId).toMatch(/^[0-9a-f]{32}$/)
+    expect(exported.ended).toBe(true)
+    expect(exported.duration).toHaveLength(2)
+  })
+
   it('emits structured logs and error exceptions through reportError', () => {
     logger.info('hello', { k: 1 })
     reportError(new Error('explode'), { module: 'orders' })

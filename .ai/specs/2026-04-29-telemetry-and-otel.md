@@ -649,6 +649,8 @@ Touched areas (cross-package wiring, for reviewer awareness):
 
 ## Changelog
 
+- **2026-11-18 (#9805, credential URLs)** — Redact every URL query value and token-shaped path segment of 32+ characters (preserving UUIDs), including URL-bearing span names and raw Next.js/OpenTelemetry spans. Wrap default and injected server processors and the browser batch processor before export; preserve processor lifecycle and source spans. Regression coverage includes raw API exports, browser processor wiring, encoded paths, reset tokens, OAuth codes, and search values. No startup, configuration, dependency, or provider-interface changes.
+
 - **2026-10-31 (review follow-up: pool metric catalog)** — Removed the obsolete planned `om.db.pool.in_use` / `om.db.pool.idle` row; the implemented ORM hook reports both states through `om.db.pool.connections`.
 
 - **2026-10-08 (runtime saturation metrics, review follow-up)** — Renamed the
