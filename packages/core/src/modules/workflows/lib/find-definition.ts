@@ -9,7 +9,13 @@
 import { createHash } from 'node:crypto'
 import { EntityManager } from '@mikro-orm/core'
 import { WorkflowDefinition, type WorkflowDefinitionData } from '../data/entities'
-import { getCodeWorkflow } from './code-registry'
+import { getCodeWorkflow, getCodeWorkflowVersion } from './code-registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
+
+const logger = createLogger('workflows')
+
+const warnedMissingCodeVersions = new Set<string>()
 
 /**
  * Generate a deterministic UUID for a code workflow definition.
@@ -76,8 +82,10 @@ export async function findWorkflowDefinition(
     if (dbDef) return dbDef
   }
 
-  // 2. Fall back to code registry (version filter not applicable to code defs)
-  const codeDef = getCodeWorkflow(workflowId)
+  // 2. Fall back to code registry: an explicit version resolves that retained
+  // code version (latest + warning when it is not registered), no version
+  // resolves the latest.
+  const codeDef = resolveCodeWorkflowVersion(workflowId, version)
   if (!codeDef) return null
 
   // When no version was requested, mirror the DB branch's `enabled = true` filter
@@ -87,8 +95,36 @@ export async function findWorkflowDefinition(
   return buildVirtualCodeDefinition(codeDef, tenantId, organizationId)
 }
 
+/**
+ * Resolve a code workflow version: the exact retained version when `version`
+ * is given and registered, otherwise the highest registered version. A pinned
+ * version that is not registered (removed from code, or never retained) falls
+ * back to the latest and logs one warning per `(workflowId, version)` per
+ * process.
+ */
+function resolveCodeWorkflowVersion(
+  workflowId: string,
+  version: number | null | undefined,
+): CodeWorkflowDefinition | undefined {
+  const latest = getCodeWorkflow(workflowId)
+  if (!latest) return undefined
+  if (typeof version !== 'number') return latest
+  const exact = getCodeWorkflowVersion(workflowId, version)
+  if (exact) return exact
+  const warningKey = `${workflowId}@${version}`
+  if (!warnedMissingCodeVersions.has(warningKey)) {
+    warnedMissingCodeVersions.add(warningKey)
+    logger.warn('Pinned code workflow version is not registered — falling back to the latest version', {
+      workflowId,
+      requestedVersion: version,
+      resolvedVersion: latest.version,
+    })
+  }
+  return latest
+}
+
 function buildVirtualCodeDefinition(
-  codeDef: NonNullable<ReturnType<typeof getCodeWorkflow>>,
+  codeDef: CodeWorkflowDefinition,
   tenantId: string,
   organizationId: string,
 ): WorkflowDefinition {
@@ -123,16 +159,22 @@ function buildVirtualCodeDefinition(
  * The UUID equality gate ensures the fallback never substitutes the code
  * definition for a hard-deleted persisted row: those rows have their own
  * random UUIDs that can never match the deterministic code UUID.
+ *
+ * Every version of a code workflow shares that UUID, so the instance's
+ * persisted `version` pins which retained code version it runs on. A missing
+ * `version` resolves the latest; a version no longer registered falls back to
+ * the latest with a once-per-process warning.
  */
 export function resolveCodeDefinitionForInstance(instance: {
   definitionId: string
   workflowId: string
   tenantId: string
   organizationId: string
+  version?: number | null
 }): WorkflowDefinition | null {
-  const codeDef = getCodeWorkflow(instance.workflowId)
-  if (!codeDef) return null
   if (codeWorkflowUuid(instance.workflowId) !== instance.definitionId) return null
+  const codeDef = resolveCodeWorkflowVersion(instance.workflowId, instance.version)
+  if (!codeDef) return null
   return buildVirtualCodeDefinition(codeDef, instance.tenantId, instance.organizationId)
 }
 
@@ -148,6 +190,7 @@ export async function findDefinitionForInstance(
     workflowId: string
     tenantId: string
     organizationId: string
+    version?: number | null
   },
 ): Promise<WorkflowDefinition | null> {
   const dbDef = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
