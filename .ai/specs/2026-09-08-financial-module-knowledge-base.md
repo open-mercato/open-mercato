@@ -906,9 +906,14 @@ this document and is not independently re-checkable by a future reader;
 treat every claim below as verified against the books themselves (§3),
 not against the memo. It was written when only
 Hay's 51-page free sample was available, so its Hay items were flagged as
-"unverified, check if we buy the book." We since obtained and read the full
-277-page Hay book (§3 above), so every item below was checked against real
-text, not just figure titles. Corrections matter here — two of the
+"unverified, check if we buy the book." We have since worked from a
+**277-page Hay PDF that is incomplete** — printed page 63, pages 136–137
+(including Figure 7.10 "Depreciation") and index pages 265–266 are
+missing (see the 2026-10-26 entry at the end of this document). Every Hay
+item below was therefore checked against **the text in the pages
+available**, not against the missing figures; the net-method reading of
+depreciation rests on the text of p.135. Read every "confirmed" below as
+"confirmed in the pages available". Corrections matter here — two of the
 Posting-Rules-Engine mappings and two of the Chart-of-Accounts mappings
 pointed at the wrong section.
 
@@ -939,7 +944,8 @@ pointed at the wrong section.
   `2026-09-06-journal-entry-line-dimension.md`'s own new Literature & Prior
   Art section as the strongest match found in either book.
 
-**Fixed Assets (Hay, now fully verified, not just a figure title):**
+**Fixed Assets (Hay, verified against the available text — see the
+partial-PDF note above — not just a figure title):**
 - 7.10 Depreciation (p.135) — confirmed for the DEBIT-expense/CREDIT-asset-
   side mechanic, **corrected 2026-09-15 on precision**: Hay's own
   illustration (`DEPRECIATION EXPENSE` = an EQUITY (EXPENSE) DEBIT plus an
@@ -1929,13 +1935,28 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   `referenceId`) rather than `postJournalEntry` with a `type:
   'REVERSAL'` override — an earlier Multi-Currency draft's Architecture
   section described the latter; corrected.
-- **Cross-module transaction pattern reconfirmed**: Cash & Bank
-  Management's `matchBankStatementLine` already establishes the
-  precedent this project uses for "one command needs to call another
-  module's command and write its own entity atomically" — the outer
-  command opens its own `em.transactional()` and the nested
-  `commandBus.execute()` call joins it, since `CommandBus.execute`
-  directly invokes the handler rather than queueing it. Multi-Currency's
+- **Cross-module transaction pattern reconfirmed — explicit-contract
+  wording corrected 2026-11-18**: Cash & Bank Management's
+  `matchBankStatementLine` establishes the precedent this project uses
+  for "one command needs to call another module's command and write its
+  own entity atomically". Direct invocation is **not** what makes that
+  atomic: `CommandBus.execute` forwards the caller's `ctx` to the
+  handler unchanged (`packages/shared/src/lib/commands/command-bus.ts`,
+  the `execute` method), so a nested handler that is not handed a
+  transaction opens its own EntityManager and transaction. The contract
+  is explicit — the outer command opens its transaction and passes its
+  EntityManager as `ctx.transactionalEm` (with the owning
+  `transactionLifetime` where the bus's atomic-replay path requires it;
+  `packages/shared/src/lib/commands/types.ts`,
+  `CommandRuntimeContext.transactionalEm`), the nested handler MUST run
+  its writes on that same manager rather than forking or opening its
+  own, and any "posted" event the child would emit is deferred until the
+  outer transaction commits (the composed-posting shape the GL core
+  engine's `postJournalEntry` adopts in PR #6340 —
+  `withPostingTransaction` / `isComposedPostingCall`). A consumer that
+  skips the propagation commits the child posting on its own and can
+  then roll back its own state — the partial-commit failure this
+  pattern exists to prevent. Multi-Currency's
   `revalueOpenBalances` reuses this same pattern for its
   reverse-then-repost sequence (Design decision 10), now also with an
   explicit `SELECT ... FOR UPDATE` row lock for the concurrency case
@@ -3047,3 +3068,7 @@ re-read in this pass.
 - **Fixed Assets — "a fixed asset is not a monetary item".** Art. 28 ust. 1 pkt 1 UoR: **Confirmed** (fixed assets at purchase price or production cost, or revalued value, less depreciation and impairment write-downs). Art. 30 ust. 1 pkt 1 does not settle whether an asset carried at cost is "wyrażone w walucie obcej"; "aktywa pieniężne" is defined in art. 3 ust. 1 pkt 25, but art. 30 ust. 1 does not use the term. **Unverified:** the provision does not decide it.
 - **Capitalising exchange differences into the purchase price.** Art. 30 ust. 4 allows it in justified cases; Phase 1 does not capitalise (`2026-09-17-multi-currency.md`, changelog 2026-10-12). Articles on infor.pl that describe this practice are a secondary source and are not a basis in any spec.
 
+### 2026-11-18 (cont. — re-review of this document, #6016: the transaction-composition contract, and the Hay partial PDF)
+
+- **Cross-module transaction composition is stated as a contract, not as a side effect of calling a command.** The 2026-09-21 (Deferred Revenue) entry said a nested `commandBus.execute()` "joins" the outer `em.transactional()` "since `CommandBus.execute` directly invokes the handler rather than queueing it". That is wrong as a general claim: `CommandBus.execute` forwards the caller's `ctx` unchanged (`packages/shared/src/lib/commands/command-bus.ts`, `execute`), so a handler that is not handed a transaction opens its own. The entry is corrected in place to the explicit contract — pass the outer EntityManager as `ctx.transactionalEm` (and the owning `transactionLifetime` where the bus requires it), require the child to write on that manager instead of forking, and defer posted events until the outer commit. The composed-posting shape is the one the GL core engine's `postJournalEntry` adopts in PR #6340 (`withPostingTransaction` / `isComposedPostingCall`), not yet merged, so treat the code reference as the target design until it lands.
+- **Section 4b now carries the Hay partial-PDF caveat, and no longer claims "fully verified".** The section said the full 277-page Hay book had been read and every item checked "against real text"; the 2026-10-26 entry records that printed pages 63, 136–137 (Figure 7.10 "Depreciation") and index pages 265–266 are missing from the PDF. The section now reads "confirmed in the pages available", names p.135's text as the basis of the net-method reading, and the Fixed Assets block is no longer headed "fully verified". No figure that is absent from the PDF is described as inspected.
