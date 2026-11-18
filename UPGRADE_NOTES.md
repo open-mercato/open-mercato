@@ -5662,3 +5662,11 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+### Notification delivery settings are tenant scoped (#9136)
+
+`GET`/`POST /api/notifications/settings` now use the authenticated tenant, including the existing actor-tenant fallback for scoped-away superadmins. A missing tenant returns `403 tenant_scope_required`. Saving changes affects only that tenant. Existing instance `notifications / delivery_strategies` values remain inherited defaults, and this endpoint no longer changes them, including for superadmins.
+
+Tenant `appUrl` must use the operator-configured HTTP(S) origin without URL credentials. Other origins return the existing invalid-settings `400`; unsafe previously stored tenant origins are ignored at delivery. Omit `appUrl` to inherit the operator URL. Custom clients must stop sending arbitrary external origins or depending on cross-tenant settings writes. Trusted server integrations may continue using unscoped config helpers for instance defaults; tenant integrations should pass `tenantId` in resolve options and `{ tenantId }` as the trailing save scope.
+
+No migration, new environment variable, startup command, or provider setup is required. Before deploying, operators should audit the existing global appUrl, from/replyTo, subject prefix and channel switches for changes made by tenant administrators; this fix preserves existing data and does not repair previously compromised values automatically. See `.ai/specs/2026-11-18-notification-delivery-tenant-isolation.md`.

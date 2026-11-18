@@ -1,4 +1,4 @@
-import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { ConfigScope, ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { notificationDeliveryConfigSchema, type NotificationDeliveryConfigInput } from '../data/validators'
@@ -151,7 +151,7 @@ type Resolver = {
 
 export async function resolveNotificationDeliveryConfig(
   resolver: Resolver,
-  options?: { defaultValue?: NotificationDeliveryConfig }
+  options?: { defaultValue?: NotificationDeliveryConfig; tenantId?: string | null }
 ): Promise<NotificationDeliveryConfig> {
   const fallback = options?.defaultValue ?? DEFAULT_NOTIFICATION_DELIVERY_CONFIG
   let service: ModuleConfigService
@@ -161,8 +161,18 @@ export async function resolveNotificationDeliveryConfig(
     return { ...fallback }
   }
   try {
-    const value = await service.getValue('notifications', NOTIFICATIONS_DELIVERY_CONFIG_KEY, { defaultValue: fallback })
-    return normalizeDeliveryConfig(value)
+    const value = await service.getValue('notifications', NOTIFICATIONS_DELIVERY_CONFIG_KEY, {
+      defaultValue: fallback,
+      ...(options?.tenantId ? { scope: { tenantId: options.tenantId } } : {}),
+    })
+    const config = normalizeDeliveryConfig(value)
+    if (options?.tenantId) {
+      const instanceConfig = await resolveNotificationDeliveryConfig(resolver, { defaultValue: fallback })
+      if (!config.appUrl || !isAllowedNotificationAppUrl(config.appUrl, instanceConfig)) {
+        config.appUrl = instanceConfig.appUrl
+      }
+    }
+    return config
   } catch {
     return { ...fallback }
   }
@@ -170,17 +180,24 @@ export async function resolveNotificationDeliveryConfig(
 
 export async function saveNotificationDeliveryConfig(
   resolver: Resolver,
-  config: NotificationDeliveryConfigInput
+  config: NotificationDeliveryConfigInput,
+  scope?: ConfigScope,
 ): Promise<void> {
   let service: ModuleConfigService
   try {
     service = resolver.resolve<ModuleConfigService>('moduleConfigService')
   } catch {
-    throw new Error('Configuration service unavailable')
+    throw new Error('[internal] Configuration service unavailable')
   }
 
+  if (scope?.tenantId) {
+    const instanceConfig = await resolveNotificationDeliveryConfig(resolver)
+    if (!isAllowedNotificationAppUrl(config.appUrl, instanceConfig)) {
+      throw new Error('[internal] Notification appUrl must use the instance origin')
+    }
+  }
   const normalized = normalizeDeliveryConfig(config)
-  await service.setValue('notifications', NOTIFICATIONS_DELIVERY_CONFIG_KEY, normalized)
+  await service.setValue('notifications', NOTIFICATIONS_DELIVERY_CONFIG_KEY, normalized, scope)
 }
 
 export function resolveNotificationPanelUrl(config: NotificationDeliveryConfig): string | null {
@@ -192,4 +209,22 @@ export function resolveNotificationPanelUrl(config: NotificationDeliveryConfig):
     return null
   }
   return `${base.replace(/\/$/, '')}${config.panelPath}`
+}
+
+export function isAllowedNotificationAppUrl(
+  appUrl: string | undefined,
+  instanceConfig: NotificationDeliveryConfig,
+): boolean {
+  if (appUrl === undefined) return true
+  const instanceUrl = resolveNotificationPanelUrl(instanceConfig)
+  if (!instanceUrl) return false
+  try {
+    const candidate = new URL(appUrl)
+    const instance = new URL(instanceUrl)
+    return (candidate.protocol === 'https:' || candidate.protocol === 'http:')
+      && !candidate.username && !candidate.password
+      && candidate.origin === instance.origin
+  } catch {
+    return false
+  }
 }

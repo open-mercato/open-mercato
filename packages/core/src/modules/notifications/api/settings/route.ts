@@ -12,10 +12,12 @@ import {
   DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
   resolveNotificationDeliveryConfig,
   saveNotificationDeliveryConfig,
+  isAllowedNotificationAppUrl,
 } from '../../lib/deliveryConfig'
 import {
   NOTIFICATION_SETTINGS_RESOURCE_KIND,
   runGuardedNotificationWrite,
+  requireResolvedNotificationTenantScope,
 } from '../../lib/routeHelpers'
 
 export const metadata = {
@@ -32,10 +34,15 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) return await unauthorized()
 
+  const tenantId = auth.tenantId ?? (typeof auth.actorTenantId === 'string' ? auth.actorTenantId : '')
+  const scopeError = await requireResolvedNotificationTenantScope({ tenantId })
+  if (scopeError) return scopeError
+
   const container = await createRequestContainer()
   try {
     const settings = await resolveNotificationDeliveryConfig(container, {
       defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+      tenantId,
     })
     return NextResponse.json({ settings })
   } finally {
@@ -69,19 +76,23 @@ export async function POST(req: Request) {
     )
   }
 
-  // Unlike the other write routes this one does not go through `resolveNotificationContext`, so it
-  // never sees the organization scope's `actorTenantId` fallback. A super-admin scoped away from
-  // their own tenant has `auth.tenantId === null` with the real tenant preserved in `actorTenantId`,
-  // and delivery settings are instance-global anyway — reading it here keeps that caller working
-  // while a genuinely tenant-less principal still fails the guard below.
-  const actorTenantId = (auth as { actorTenantId?: string | null }).actorTenantId ?? null
+  const tenantId = auth.tenantId ?? (typeof auth.actorTenantId === 'string' ? auth.actorTenantId : '')
+  const scopeError = await requireResolvedNotificationTenantScope({ tenantId })
+  if (scopeError) return scopeError
 
   const container = await createRequestContainer()
   try {
+    const instanceConfig = await resolveNotificationDeliveryConfig(container)
+    if (!isAllowedNotificationAppUrl(parsed.data.appUrl, instanceConfig)) {
+      return NextResponse.json(
+        { error: t('notifications.delivery.settings.invalid', 'Invalid delivery settings') },
+        { status: 400 },
+      )
+    }
     const guarded = await runGuardedNotificationWrite(
       container,
       {
-        tenantId: auth.tenantId ?? actorTenantId ?? '',
+        tenantId,
         organizationId: auth.orgId ?? null,
         userId: auth.sub ?? null,
       },
@@ -92,9 +103,10 @@ export async function POST(req: Request) {
         payload: parsed.data as Record<string, unknown>,
       },
       async () => {
-        await saveNotificationDeliveryConfig(container, parsed.data)
+        await saveNotificationDeliveryConfig(container, parsed.data, { tenantId })
         return resolveNotificationDeliveryConfig(container, {
           defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+          tenantId,
         })
       },
     )
@@ -125,6 +137,10 @@ export const openApi = {
             schema: notificationSettingsResponseSchema,
           },
         },
+      },
+      403: {
+        description: 'Tenant scope required',
+        content: { 'application/json': { schema: errorResponseSchema } },
       },
       401: {
         description: 'Unauthorized',
@@ -163,6 +179,10 @@ export const openApi = {
             schema: errorResponseSchema,
           },
         },
+      },
+      403: {
+        description: 'Tenant scope required',
+        content: { 'application/json': { schema: errorResponseSchema } },
       },
       401: {
         description: 'Unauthorized',

@@ -147,6 +147,7 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
   }
   const deliveryConfig = await resolveNotificationDeliveryConfig(ctx, {
     defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+    tenantId: transaction.tenantId,
   })
   const from = deliveryConfig.strategies.email.from
   const replyTo = deliveryConfig.strategies.email.replyTo
