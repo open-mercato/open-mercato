@@ -10,15 +10,10 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
-import { deleteGeneralEntityIfExists, expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createSalesQuoteFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 export const integrationMeta = { dependsOnModules: ['sales'] }
-
-async function createQuote(request: APIRequestContext, token: string): Promise<string> {
-  const response = await apiRequest(request, 'POST', '/api/sales/quotes', { token, data: { currencyCode: 'USD' } })
-  expect(response.status()).toBe(201)
-  return expectId((await readJsonSafe<{ id?: string }>(response))?.id, 'quote id')
-}
 
 async function resolveCanceledStatusId(request: APIRequestContext, token: string): Promise<string> {
   const response = await apiRequest(request, 'GET', '/api/sales/order-statuses?pageSize=100', { token })
@@ -51,16 +46,16 @@ test.describe('TC-SALES-056: converting a canceled quote', () => {
     let openQuoteId: string | null = null
 
     try {
-      canceledQuoteId = await createQuote(request, token)
-      openQuoteId = await createQuote(request, token)
+      canceledQuoteId = await createSalesQuoteFixture(request, token)
+      openQuoteId = await createSalesQuoteFixture(request, token)
       await cancelQuote(request, token, canceledQuoteId, await resolveCanceledStatusId(request, token))
 
       await login(page, 'admin')
       await expect(await openConvertAction(page, canceledQuoteId), 'a canceled quote cannot be converted from the UI').toBeDisabled()
       await expect(await openConvertAction(page, openQuoteId), 'other quotes keep the action').toBeEnabled()
     } finally {
-      await deleteGeneralEntityIfExists(request, token, '/api/sales/quotes', canceledQuoteId)
-      await deleteGeneralEntityIfExists(request, token, '/api/sales/quotes', openQuoteId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', canceledQuoteId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', openQuoteId)
     }
   })
 
@@ -70,7 +65,7 @@ test.describe('TC-SALES-056: converting a canceled quote', () => {
     let orderId: string | null = null
 
     try {
-      quoteId = await createQuote(request, token)
+      quoteId = await createSalesQuoteFixture(request, token)
       await cancelQuote(request, token, quoteId, await resolveCanceledStatusId(request, token))
 
       const convert = await apiRequest(request, 'POST', '/api/sales/quotes/convert', { token, data: { quoteId } })
@@ -79,8 +74,8 @@ test.describe('TC-SALES-056: converting a canceled quote', () => {
       expect(convert.status(), JSON.stringify(body)).toBe(200)
       expect(body?.orderId).toBe(quoteId)
     } finally {
-      await deleteGeneralEntityIfExists(request, token, '/api/sales/orders', orderId)
-      await deleteGeneralEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
     }
   })
 })
