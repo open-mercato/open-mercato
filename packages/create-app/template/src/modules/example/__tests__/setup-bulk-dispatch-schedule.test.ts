@@ -5,7 +5,7 @@
  * Two constraints shape this and both are asserted here rather than described:
  *
  * 1. `onTenantCreated` receives an `EntityManager` and NO container, so a
- *    scheduler target can only be registered from `seedDefaults`.
+ *    scheduler target is registered from the two container-backed hooks.
  * 2. `SchedulerService.register` enforces a per-tenant active-schedule cap and
  *    rejects with a 422 once it is reached. Tenant initialization must not fail
  *    because an optional recovery tick could not be registered, so the failure has
@@ -176,5 +176,25 @@ describe('setup.seedDefaults', () => {
     // …and the hook that DOES own it still does, so this cannot pass by nothing registering.
     await setup.seedDefaults!({ em, container, tenantId: TENANT_A, organizationId: ORG_A1 } as InitSetupContext)
     expect(register).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('setup.onOrganizationCreated', () => {
+  it('registers only the new organization schedule', async () => {
+    const { container, register } = createContainer()
+
+    await setup.onOrganizationCreated!({
+      em,
+      container,
+      tenantId: TENANT_A,
+      organizationId: ORG_A1,
+    } as InitSetupContext)
+
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT_A,
+      organizationId: ORG_A1,
+      targetQueue: EXAMPLE_TODO_BULK_DISPATCH_QUEUE,
+    }))
   })
 })

@@ -4,7 +4,7 @@
  * MikroORM entities for workflow engine.
  */
 
-import { OptionalProps } from '@mikro-orm/core'
+import { OptionalProps, raw, type EntityManager } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { WorkflowRunOutcome } from '../lib/run-outcome'
 
@@ -423,6 +423,28 @@ export class WorkflowDefinitionDraft {
 // Entity: WorkflowInstance
 // ============================================================================
 
+// Column references in an UPDATE's SET read the row as it was BEFORE the
+// statement. The unit of work writes only the properties that differ from the
+// snapshot it loaded, so a status or step this write leaves out keeps the row's
+// CURRENT value — the managed entity's copy may be stale (loaded before a park,
+// or on an earlier step) and must never stand in for it. A write that touches
+// neither leaves the occurrence alone.
+function waitVersionOnUpdate(instance: WorkflowInstance, em: EntityManager) {
+  const original = em.getUnitOfWork().getOriginalEntityData(instance) as Partial<Record<keyof WorkflowInstance, unknown>> | undefined
+  const writesStatus = !original || original.status !== instance.status
+  const writesStep = !original || (original.currentStepId ?? null) !== (instance.currentStepId ?? null)
+  if (!writesStatus && !writesStep) return raw('wait_version')
+  const nextStatus = writesStatus ? '?' : 'status'
+  const nextStep = writesStep ? '?' : 'current_step_id'
+  const params: unknown[] = []
+  if (writesStatus) params.push(instance.status)
+  if (writesStep) params.push(instance.currentStepId ?? null)
+  return raw(
+    `wait_version + case when status = 'PAUSED' and ${nextStatus} = 'PAUSED' and current_step_id is not distinct from ${nextStep} then 0 else 1 end`,
+    params,
+  )
+}
+
 /**
  * WorkflowInstance entity
  *
@@ -436,7 +458,7 @@ export class WorkflowDefinitionDraft {
 @Index({ name: 'workflow_instances_current_step_idx', properties: ['currentStepId', 'status'] })
 @Index({ name: 'workflow_instances_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 export class WorkflowInstance {
-  [OptionalProps]?: 'retryCount' | 'isDryRun' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'retryCount' | 'isDryRun' | 'waitVersion' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -522,6 +544,20 @@ export class WorkflowInstance {
    */
   @Property({ name: 'is_dry_run', type: 'boolean', default: false })
   isDryRun: boolean = false
+
+  /**
+   * Identifies one OCCURRENCE of a wait (#7185). A unit-of-work write increments
+   * it in SQL unless the row was PAUSED and stays PAUSED on the same step — a
+   * metadata, context or timestamp edit of a parked run is not a new occurrence
+   * and must not invalidate a delivery addressed to it. The signal claim
+   * compare-and-sets it, so a park, a claim and a re-park on the same step always
+   * carry distinct values — independent of the wall clock, which can stand
+   * still, roll back or skew between workers. The comparison runs in SQL against
+   * the row's current state, and only the status/step values this write actually
+   * sends count as its new state — never a possibly stale in-memory copy.
+   */
+  @Property({ name: 'wait_version', type: 'integer', default: 0, onUpdate: waitVersionOnUpdate })
+  waitVersion: number = 0
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
