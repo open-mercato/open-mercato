@@ -57,10 +57,14 @@ export function redactUrl(url: string): string {
   const queryIndex = withoutFragment.indexOf('?')
   const path = queryIndex < 0 ? withoutFragment : withoutFragment.slice(0, queryIndex)
   const authority = /^(?:[a-z][a-z0-9+.-]*:)?\/\/[^/]*/i.exec(path)?.[0] ?? ''
+  const userInfoEnd = authority.lastIndexOf('@')
+  const redactedAuthority = userInfoEnd < 0
+    ? authority
+    : `${authority.slice(0, authority.indexOf('//') + 2)}${authority.slice(userInfoEnd + 1)}`
   const redactedPath = path.slice(authority.length).split('/').map(redactPathSegment).join('/')
   const query = queryIndex < 0 ? '' : `?${redactQuery(withoutFragment.slice(queryIndex + 1))}`
   const fragment = fragmentIndex < 0 ? '' : '#[redacted]'
-  return `${authority}${redactedPath}${query}${fragment}`
+  return `${redactedAuthority}${redactedPath}${query}${fragment}`
 }
 
 export function redactSpanName(name: string): string {

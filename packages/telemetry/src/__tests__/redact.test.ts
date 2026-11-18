@@ -119,6 +119,22 @@ describe('URL redaction', () => {
     expect(redactUrl('')).toBe('')
   })
 
+  it.each([
+    ['https://synthetic-user:synthetic-password@example.com/reset?token=secret', 'https://example.com/reset?token=[redacted]'],
+    ['//synthetic-user:synthetic-password@example.com:8443/path', '//example.com:8443/path'],
+    ['https://synthetic-user@example.com/path', 'https://example.com/path'],
+    ['https://synthetic%40user:synthetic%3Apassword@example.com/path', 'https://example.com/path'],
+    ['https://synthetic@user:synthetic@password@example.com/path', 'https://example.com/path'],
+    ['https://synthetic-user:synthetic-password@[2001:db8::1]:8443/path', 'https://[2001:db8::1]:8443/path'],
+  ])('removes embedded credentials from URL authority %s', (url, expected) => {
+    expect(redactUrl(url)).toBe(expected)
+    expect(redactAttributes({ 'http.url': url, 'url.full': url })).toEqual({
+      'http.url': expected,
+      'url.full': expected,
+    })
+    expect(redactSpanName(`fetch GET ${url}`)).toBe(`fetch GET ${expected}`)
+  })
+
   it('cleans URL-bearing span names while preserving operation names', () => {
     expect(redactSpanName(`fetch GET https://example.com/reset/${token}?code=secret`)).toBe(
       'fetch GET https://example.com/reset/[redacted]?code=[redacted]',

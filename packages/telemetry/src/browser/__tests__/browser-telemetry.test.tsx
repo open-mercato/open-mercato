@@ -215,9 +215,9 @@ describe('BrowserTelemetry', () => {
     const processors = mockProviderInstances[0].options.spanProcessors as SpanProcessor[]
     const token = 'b'.repeat(64)
     const original = Object.freeze({
-      name: `fetch GET https://example.com/reset/${token}?token=magic-link`,
+      name: `fetch GET https://synthetic-user:synthetic-password@example.com/reset/${token}?token=magic-link`,
       attributes: Object.freeze({
-        'http.url': 'https://example.com/portal?token=invite',
+        'http.url': 'https://synthetic-user:synthetic-password@example.com/portal?token=invite',
         'url.full': 'https://example.com/callback?code=oauth-code',
         'url.path': `/reset/${token}`,
         'url.query': 'search=private',

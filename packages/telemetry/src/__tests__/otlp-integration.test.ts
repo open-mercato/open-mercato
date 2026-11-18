@@ -345,6 +345,18 @@ describe('OtlpProvider (in-memory exporters)', () => {
     expect(exported.duration).toHaveLength(2)
   })
 
+  it('removes embedded URL credentials before raw spans reach the exporter', () => {
+    const url = 'https://synthetic-user:synthetic-password@example.com/callback?code=synthetic-code'
+    const rawSpan = trace.getTracer('authority-regression').startSpan(`fetch GET ${url}`)
+    rawSpan.setAttributes({ 'http.url': url, 'url.full': url })
+    rawSpan.end()
+
+    const exported = spanExporter.getFinishedSpans()[0]
+    expect(exported.name).toBe('fetch GET https://example.com/callback?code=[redacted]')
+    expect(exported.attributes['http.url']).toBe('https://example.com/callback?code=[redacted]')
+    expect(exported.attributes['url.full']).toBe('https://example.com/callback?code=[redacted]')
+  })
+
   it('emits structured logs and error exceptions through reportError', () => {
     logger.info('hello', { k: 1 })
     reportError(new Error('explode'), { module: 'orders' })
