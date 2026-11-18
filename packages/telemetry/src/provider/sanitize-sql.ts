@@ -17,12 +17,34 @@ export const REDACTED_SQL_STATEMENT = '[redacted]'
 const LITERAL_PLACEHOLDER = '?'
 const STRING_PREFIXES = new Set(['e', 'b', 'x', 'n'])
 const BOOLEAN_LITERALS = new Set(['true', 'false'])
-const NUMBER_PATTERN = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/
-const DOLLAR_TAG_PATTERN = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/
-const WORD_PATTERN = /^[A-Za-z_][A-Za-z0-9_$]*/
+const NUMBER_PATTERN = /^(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?[\p{L}\p{N}_]*/u
+const DOLLAR_TAG_PATTERN = /^\$(?:[\p{L}_][\p{L}\p{N}_]*)?\$/u
+const WORD_PATTERN = /^[\p{L}_][\p{L}\p{N}_$]*/u
+const WORD_START_PATTERN = /[\p{L}_]/u
+const IDENTIFIER_CHAR_PATTERN = /[\p{L}\p{N}_$]/u
 
 function isIdentifierChar(char: string | undefined): boolean {
-  return char !== undefined && /[A-Za-z0-9_$]/.test(char)
+  return char !== undefined && IDENTIFIER_CHAR_PATTERN.test(char)
+}
+
+function skipBlockComment(text: string, start: number): number | undefined {
+  let depth = 0
+  let index = start
+  while (index < text.length) {
+    if (text[index] === '/' && text[index + 1] === '*') {
+      depth += 1
+      index += 2
+      continue
+    }
+    if (text[index] === '*' && text[index + 1] === '/') {
+      depth -= 1
+      index += 2
+      if (depth === 0) return index
+      continue
+    }
+    index += 1
+  }
+  return undefined
 }
 
 function skipQuotedString(text: string, start: number, backslashEscapes: boolean): number | undefined {
@@ -90,10 +112,10 @@ export function sanitizeSqlStatement(text: string): string | undefined {
     }
 
     if (char === '/' && text[index + 1] === '*') {
-      const end = text.indexOf('*/', index + 2)
-      if (end === -1) return undefined
+      const end = skipBlockComment(text, index)
+      if (end === undefined) return undefined
       output += ' '
-      index = end + 2
+      index = end
       continue
     }
 
@@ -123,8 +145,8 @@ export function sanitizeSqlStatement(text: string): string | undefined {
       }
     }
 
-    if (!isIdentifierChar(previous) && /[A-Za-z_]/.test(char)) {
-      const word = (WORD_PATTERN.exec(text.slice(index)) as RegExpExecArray)[0]
+    if (!isIdentifierChar(previous) && WORD_START_PATTERN.test(char)) {
+      const word = WORD_PATTERN.exec(text.slice(index))?.[0] ?? char
       const lowered = word.toLowerCase()
       const afterWord = index + word.length
       if (STRING_PREFIXES.has(lowered) && text[afterWord] === "'") {

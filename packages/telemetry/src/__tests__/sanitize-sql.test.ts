@@ -53,6 +53,18 @@ describe('sanitizeSqlStatement', () => {
     )
   })
 
+  it('strips non-decimal, underscored and suffixed numbers whole', () => {
+    expect(sanitizeSqlStatement('select 0x1F, 0o17, 0b101, 1_000_000, 123abc, 1.5e3')).toBe('select ?, ?, ?, ?, ?, ?')
+  })
+
+  it('strips dollar-quoted strings with non-ASCII tags and keeps non-ASCII identifiers whole', () => {
+    expect(sanitizeSqlStatement(`select $é$ ${SENTINEL} $é$ from zamówienia1`)).toBe('select ? from zamówienia1')
+  })
+
+  it('drops nested block comments in full', () => {
+    expect(sanitizeSqlStatement(`select 1 /* outer /* inner */ ${SENTINEL} */ from t`)).toBe('select ?   from t')
+  })
+
   it('drops comments, which can carry arbitrary text', () => {
     expect(sanitizeSqlStatement(`select 1 -- ${SENTINEL}\nfrom t /* ${SENTINEL} */ where a = b`)).toBe(
       'select ? \nfrom t   where a = b',
@@ -65,6 +77,7 @@ describe('sanitizeSqlStatement', () => {
     'select "unterminated',
     `select $$${SENTINEL}`,
     `select 1 /* ${SENTINEL}`,
+    `select 1 /* a /* b */ ${SENTINEL}`,
   ])('fails closed on %s', (text) => {
     expect(sanitizeSqlStatement(text)).toBeUndefined()
   })
