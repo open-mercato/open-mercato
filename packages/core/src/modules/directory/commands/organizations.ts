@@ -6,6 +6,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { organizationCreateSchema, organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import {
+  findOrganizationParentCycle,
   lockOrganizationHierarchyForTenant,
   rebuildHierarchyForTenant,
 } from '@open-mercato/core/modules/directory/lib/hierarchy'
@@ -21,7 +22,7 @@ import {
   buildCustomFieldResetMap,
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { extractUndoPayload, reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
@@ -32,6 +33,7 @@ import {
   requireId,
   buildChanges,
 } from '@open-mercato/shared/lib/commands/helpers'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { slugify } from '@open-mercato/shared/lib/slugify'
@@ -89,6 +91,7 @@ type ChildParentSnapshot = {
 type OrganizationUndoSnapshot = {
   id: string
   tenantId: string | null
+  createdAt?: string | null
   name: string
   slug?: string | null
   logoUrl?: string | null
@@ -227,6 +230,7 @@ function captureOrganizationSnapshots(
     undo: {
       id: String(entity.id),
       tenantId,
+      createdAt: entity.createdAt ? entity.createdAt.toISOString() : null,
       name: entity.name,
       slug: entity.slug ?? null,
       logoUrl: entity.logoUrl ?? null,
@@ -291,6 +295,32 @@ async function restoreChildParents(em: EntityManager, tenantId: string, snapshot
   if (toPersist.length) await em.persist(toPersist).flush()
 }
 
+const REPLAY_CYCLE_ERROR_KEY = 'directory.organizations.errors.replayCycle'
+
+async function assertReplayKeepsHierarchyAcyclic(
+  em: EntityManager,
+  tenantId: string,
+  organizationIds: Iterable<string>,
+): Promise<void> {
+  const filter: FilterQuery<Organization> = {
+    tenant: tenantId,
+    deletedAt: null,
+  } as unknown as FilterQuery<Organization>
+  const organizations = await findWithDecryption(em, Organization, filter, undefined, {
+    tenantId,
+    organizationId: null,
+  })
+  if (!findOrganizationParentCycle(organizations, organizationIds)) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      REPLAY_CYCLE_ERROR_KEY,
+      "The organization hierarchy changed since this action, so it can't be reverted without making an organization its own ancestor.",
+    ),
+    code: REPLAY_CYCLE_ERROR_KEY,
+  })
+}
+
 function normalizeChildIds(ids: readonly string[], exclude: string[]): string[] {
   const excludeSet = new Set(exclude)
   return Array.from(new Set(ids)).filter((id) => !excludeSet.has(id))
@@ -348,7 +378,6 @@ async function resolveUniqueSlug(em: EntityManager, tenantId: string, baseSlug: 
     const filter: FilterQuery<Organization> = {
       tenant: tenantId,
       slug: candidate,
-      deletedAt: null,
     } as unknown as FilterQuery<Organization>
     const existing = await em.findOne(Organization, filter)
     if (!existing || (excludeId && String(existing.id) === excludeId)) return candidate
@@ -478,6 +507,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     await assertOrganizationUndoTenantAccess(ctx, tenantId)
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    let organization: Organization | null = null
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
@@ -496,14 +526,33 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
             })
           }
         }
-        await de.deleteOrmEntity({
+        organization = await de.deleteOrmEntity({
           entity: Organization,
           where: buildOrganizationMutationFilter(after.id, tenantId),
-          soft: false,
+          soft: true,
+          softDeleteField: 'deletedAt',
         })
+        if (organization) {
+          organization.isActive = false
+          organization.parentId = null
+          await em.flush()
+        }
+        await assertReplayKeepsHierarchyAcyclic(
+          em,
+          tenantId,
+          childrenBefore.map((entry) => entry.childId).filter((childId) => childId !== after.id),
+        )
         await rebuildHierarchyForTenant(em, tenantId)
       },
     ], { transaction: true })
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: organization,
+      identifiers: { id: after.id, tenantId, organizationId: after.id },
+      events: organizationCrudEvents,
+      indexer: organizationCrudIndexer,
+    })
   },
   redo: async ({ logEntry, ctx }) => {
     const after = resolveRedoSnapshot<OrganizationUndoSnapshot>(logEntry)
@@ -529,10 +578,20 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
           await em.flush()
           organization = existing
         } else {
+          const snapshotAfter = logEntry.snapshotAfter
+          const createdAt = after.createdAt ?? (
+            snapshotAfter && typeof snapshotAfter === 'object' && 'createdAt' in snapshotAfter
+              ? snapshotAfter.createdAt
+              : undefined
+          )
+          const creationTime = typeof createdAt === 'string' || createdAt instanceof Date
+            ? reviveSnapshotDates({ createdAt }, ['createdAt'])
+            : {}
           organization = await de.createOrmEntity({
             entity: Organization,
             data: {
               id: after.id,
+              ...creationTime,
               name: after.name,
               slug: after.slug ?? null,
               logoUrl: after.logoUrl ?? null,
@@ -561,6 +620,10 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         }
 
         await assignChildren(em, tenantId, after.id, after.childParents.map((entry) => entry.childId))
+        await assertReplayKeepsHierarchyAcyclic(em, tenantId, [
+          after.id,
+          ...after.childParents.map((entry) => entry.childId),
+        ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
     ], { transaction: true })
@@ -797,6 +860,10 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         }
         const childSnapshots = before.childParents
         await restoreChildParents(em, tenantId, childSnapshots)
+        await assertReplayKeepsHierarchyAcyclic(em, tenantId, [
+          before.id,
+          ...(childSnapshots ?? []).map((entry) => entry.childId),
+        ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
     ], { transaction: true })
@@ -967,6 +1034,10 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
           }
         }
         await restoreChildParents(em, tenantId, before.childParents)
+        await assertReplayKeepsHierarchyAcyclic(em, tenantId, [
+          before.id,
+          ...(before.childParents ?? []).map((entry) => entry.childId),
+        ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
     ], { transaction: true })

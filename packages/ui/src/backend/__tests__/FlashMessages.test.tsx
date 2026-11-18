@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { act, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { FlashMessages, flash } from '../FlashMessages'
 
@@ -18,10 +18,46 @@ describe('FlashMessages', () => {
   })
 
   afterEach(() => {
-    jest.runOnlyPendingTimers()
+    act(() => {
+      jest.runOnlyPendingTimers()
+    })
     jest.useRealTimers()
     window.history.replaceState({}, '', 'http://localhost/backend')
     setReferrer('')
+  })
+
+  it.each([
+    ['en', 'Close'],
+    ['pl', 'Zamknij'],
+    ['de', 'Schließen'],
+    ['es', 'Cerrar'],
+    ['ko', '닫기'],
+  ])('localizes the close control in %s and dismisses the flash', (locale, closeLabel) => {
+    renderWithProviders(<FlashMessages />, { locale, dict: { 'common.close': closeLabel } })
+
+    act(() => {
+      flash('Dictionary conflict', 'error')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: closeLabel }))
+
+    expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
+    act(() => {
+      jest.advanceTimersByTime(3000)
+    })
+    expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
+  })
+
+  it('keeps the close control usable without an i18n provider', () => {
+    render(<FlashMessages />)
+
+    act(() => {
+      flash('Dictionary conflict', 'error')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
   })
 
   it('auto-dismisses URL-based flashes after stripping query params', () => {
@@ -126,49 +162,6 @@ describe('FlashMessages', () => {
   })
 
   /**
-   * Regression for #9514: the URL-driven path strips `?flash=`/`?type=` from
-   * history inside the reading host's own effect, so only the first host whose
-   * effect runs ever observes the param — every other mounted host must learn
-   * the message the same way the programmatic `flash()` path already does, or
-   * it has nothing to show if it becomes primary later. Splits the 3000ms
-   * dismiss window around the handover to prove the surviving host keeps the
-   * *original* expiry rather than restarting its own timer.
-   */
-  it('hands a displayed URL flash over when the primary host unmounts, preserving its original expiry', () => {
-    window.history.replaceState({}, '', 'http://localhost/backend/checkout/pay-links?flash=Saved&type=success')
-
-    function Hosts({ withPrimary }: { withPrimary: boolean }) {
-      return (
-        <>
-          {withPrimary ? <FlashMessages /> : null}
-          <FlashMessages />
-        </>
-      )
-    }
-
-    const { rerender } = renderWithProviders(<Hosts withPrimary />)
-
-    expect(screen.getAllByText('Saved')).toHaveLength(1)
-    expect(window.location.search).toBe('')
-
-    act(() => {
-      jest.advanceTimersByTime(1500)
-    })
-
-    act(() => {
-      rerender(<Hosts withPrimary={false} />)
-    })
-
-    expect(screen.getAllByText('Saved')).toHaveLength(1)
-
-    act(() => {
-      jest.advanceTimersByTime(1500)
-    })
-
-    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
-  })
-
-  /**
    * Regression for #6402: on a full page load a page's mount effect can commit
    * before any host attaches its listener, so the event used to be dropped and
    * the user saw nothing. Rendering the flasher first reproduces that ordering.
@@ -231,6 +224,84 @@ describe('FlashMessages', () => {
 
     renderWithProviders(<FlashMessages />)
     expect(screen.queryByText('Too old to show.')).not.toBeInTheDocument()
+  })
+
+  /**
+   * Regression for #8471: the URL-reading effect used to run in every mounted
+   * host regardless of primary status, so whichever host's effect fired
+   * first stripped `?flash=` from the URL and stored it in its own state.
+   * When that host was not primary, its render was suppressed and the
+   * message was lost. Mounting a second ("late") host after the primary one
+   * has already settled, with the flash param already present in the URL,
+   * reproduces the race deterministically: the late host would (pre-fix)
+   * consume the param before the primary host ever saw it.
+   */
+  it('shows a URL flash via the primary host even when a later-mounting host is not primary', async () => {
+    jest.useRealTimers()
+
+    function Hosts({ withSecondHost }: { withSecondHost: boolean }) {
+      return (
+        <>
+          <FlashMessages />
+          {withSecondHost ? <FlashMessages /> : null}
+        </>
+      )
+    }
+
+    const { rerender } = renderWithProviders(<Hosts withSecondHost={false} />)
+
+    window.history.replaceState({}, '', 'http://localhost/backend/checkout/pay-links?flash=Saved&type=success')
+    rerender(<Hosts withSecondHost />)
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+    expect(window.location.search).toBe('')
+
+    jest.useFakeTimers()
+  })
+
+  /**
+   * Regression for #8701: unlike a programmatic flash, a URL-sourced one used
+   * to be delivered only to the primary host's own local state. When that
+   * host unmounted mid-display, the survivor took over the primary role but
+   * had never received the message (and the URL params were already
+   * stripped), so the still-visible toast vanished instead of handing over.
+   */
+  it('hands a displayed URL flash over when the primary host unmounts, preserving its original expiry', () => {
+    window.history.replaceState({}, '', 'http://localhost/backend/checkout/pay-links?flash=Saved&type=success')
+
+    function Hosts({ withPrimary }: { withPrimary: boolean }) {
+      return (
+        <>
+          {withPrimary ? <FlashMessages /> : null}
+          <FlashMessages />
+        </>
+      )
+    }
+
+    const { rerender } = renderWithProviders(<Hosts withPrimary />)
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+    expect(window.location.search).toBe('')
+
+    act(() => {
+      jest.advanceTimersByTime(1500)
+    })
+
+    act(() => {
+      rerender(<Hosts withPrimary={false} />)
+    })
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+
+    act(() => {
+      jest.advanceTimersByTime(1500)
+    })
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
   })
 
   it('auto-dismisses programmatic flashes', () => {

@@ -1,32 +1,16 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment } from './data/entities'
 import type { StorageDriverFactory } from './lib/drivers'
+import { isAttachmentStorageConfigurationError } from './lib/drivers/storageValidation'
+import { removeAttachmentRecord } from './lib/storageReferences'
 
 type ParsedArgs = Record<string, string | boolean>
 
 function parseArgs(rest: string[]): ParsedArgs {
-  const args: ParsedArgs = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part || !part.startsWith('--')) continue
-    const [rawKey, rawValue] = part.replace(/^--/, '').split('=')
-    const key = rawKey.trim()
-    if (!key) continue
-    if (rawValue !== undefined) {
-      args[key] = rawValue
-      continue
-    }
-    const next = rest[i + 1]
-    if (next && !next.startsWith('--')) {
-      args[key] = next
-      i += 1
-    } else {
-      args[key] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { trimKeys: true, skipEmptyKeys: true })
 }
 
 function coerceIdList(value?: string | boolean): string[] {
@@ -81,17 +65,18 @@ const deleteAttachments: ModuleCli = {
           tenantId: entry.tenantId ?? '',
           organizationId: entry.organizationId ?? '',
         })
-        await driver.delete(entry.partitionCode, entry.storagePath)
-        em.remove(entry)
+        const removal = await removeAttachmentRecord(em, entry)
+        if (!removal.removed) continue
+        if (removal.releaseStorage) await driver.delete(entry.partitionCode, entry.storagePath)
         removedIds.add(entry.id)
         console.log(`Deleted attachment ${entry.id}${entry.fileName ? ` (${entry.fileName})` : ''}`)
       }
-      await em.flush()
       const missing = idList.filter((id) => !removedIds.has(id))
       if (missing.length > 0) {
         console.log(`Not found: ${missing.join(', ')}`)
       }
     } catch (err) {
+      if (isAttachmentStorageConfigurationError(err)) throw err
       console.error('[attachments] delete command failed:', err)
     }
   },

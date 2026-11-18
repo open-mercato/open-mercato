@@ -1,11 +1,14 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
+import { redactWebhookCustomHeaders, type WebhookCustomHeadersUpdate } from '../lib/custom-headers'
 
 export type WebhookRequestScope = {
   container: Awaited<ReturnType<typeof createRequestContainer>>
@@ -13,6 +16,7 @@ export type WebhookRequestScope = {
   tenantId: string
   organizationId: string | null
   allowedOrganizationIds: string[] | null
+  auth?: AuthContext
 }
 
 export function json(payload: unknown, init: ResponseInit = { status: 200 }): Response {
@@ -46,7 +50,21 @@ export async function resolveWebhookRequestScope(request: Request): Promise<Webh
     tenantId,
     organizationId,
     allowedOrganizationIds,
+    auth,
   }
+}
+
+export async function canRevealWebhookCredentialHeaders(
+  container: WebhookRequestScope['container'],
+  auth: AuthContext | undefined,
+  webhook: Pick<WebhookEntity, 'tenantId' | 'organizationId'>,
+): Promise<boolean> {
+  if (!auth?.sub) return false
+  const rbacService = container.resolve('rbacService') as RbacService
+  return rbacService.userHasAllFeatures(auth.sub, ['webhooks.secrets'], {
+    tenantId: webhook.tenantId,
+    organizationId: webhook.organizationId,
+  })
 }
 
 export async function findScopedWebhook(
@@ -91,6 +109,24 @@ export async function findScopedDelivery(
   return delivery
 }
 
+export async function translateWebhookCustomHeadersRejection(
+  rejection: Extract<WebhookCustomHeadersUpdate, { ok: false }>,
+): Promise<string> {
+  const { translate } = await resolveTranslations()
+  if (rejection.reason === 'credentialHeadersRequireReentry') {
+    return translate(
+      'webhooks.errors.credentialHeadersRequireReentry',
+      'Header "{header}" has a hidden value. Enter it again or remove it when you change the webhook URL.',
+      { header: rejection.header },
+    )
+  }
+  return translate(
+    'webhooks.errors.redactedHeaderWithoutValue',
+    'Header "{header}" has a hidden value but no saved value to keep. Enter the header value.',
+    { header: rejection.header },
+  )
+}
+
 export function serializeWebhookListItem(item: WebhookEntity) {
   return {
     id: item.id,
@@ -110,10 +146,15 @@ export function serializeWebhookListItem(item: WebhookEntity) {
   }
 }
 
-export function serializeWebhookDetail(item: WebhookEntity) {
+export function serializeWebhookDetail(
+  item: WebhookEntity,
+  options: { revealCredentialHeaders?: boolean } = {},
+) {
   return {
     ...serializeWebhookListItem(item),
-    customHeaders: item.customHeaders ?? null,
+    customHeaders: options.revealCredentialHeaders
+      ? item.customHeaders ?? null
+      : redactWebhookCustomHeaders(item.customHeaders),
     strategyConfig: item.strategyConfig ?? null,
     timeoutMs: item.timeoutMs,
     rateLimitPerMinute: item.rateLimitPerMinute,
