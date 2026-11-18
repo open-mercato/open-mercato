@@ -2,7 +2,7 @@
 title: "Check pending compatibility disclosures as a union"
 modules: ["create_app","attachments","agent_orchestrator"]
 areas: ["framework-context","spec-pr","testing"]
-topics: ["backward-compatibility","instruction-budget","testing"]
+topics: ["backward-compatibility","instruction-budget","testing","merge-conflicts"]
 ---
 
 # Check pending compatibility disclosures as a union
@@ -16,3 +16,5 @@ topics: ["backward-compatibility","instruction-budget","testing"]
 **Applies to**: `BACKWARD_COMPATIBILITY.md`, standalone compatibility-context budgets, and concurrent security-disclosure PRs. Passing the budget regression does not grant a security waiver or certify a changed harness contract.
 
 **Merge correction (#9127)**: Re-measure after synchronizing the real target: upstream compaction can make earlier unrelated compaction excessive. The regression also limits unused total budget to 4096 bytes. Restore unchanged upstream disclosures instead of weakening either bound or adding filler; the focused compatibility-context regression must pass with the required new disclosure retained.
+
+**Merge preservation**: Parse each Markdown conflict marker as one complete line and preserve the full left, right and common segments. A DOTALL wildcard in a marker match can consume the rest of a long document. Rebuild from Git's unmodified conflict tree and verify both original conflict blocks and the union of parent headings before committing; a one-file diff alone does not prove both sides survived.
