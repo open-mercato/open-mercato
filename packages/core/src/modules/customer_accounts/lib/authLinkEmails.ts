@@ -1,5 +1,5 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
+import { loadDictionary, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import type { Locale } from '@open-mercato/shared/lib/i18n/config'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -15,11 +15,13 @@ export type CustomerAuthLinkEmailInput = {
   // The locale captured from the original request (see lib/authLinkQueue.ts).
   // Delivery now runs inside a queue worker, outside any HTTP request, so
   // there is no cookie/Accept-Language header here to detect it from.
-  locale: Locale
+  locale?: Locale
 }
 
 export async function sendCustomerPasswordResetEmail(input: CustomerAuthLinkEmailInput): Promise<void> {
-  const translate = createFallbackTranslator(await loadDictionary(input.locale))
+  const translate = input.locale
+    ? createFallbackTranslator(await loadDictionary(input.locale))
+    : (await resolveTranslations()).translate
   const linkUrl = await urlForCustomerOrg(
     input.organizationId,
     `/reset-password?token=${encodeURIComponent(input.rawToken)}`,
@@ -51,7 +53,9 @@ export async function sendCustomerPasswordResetEmail(input: CustomerAuthLinkEmai
 }
 
 export async function sendCustomerMagicLinkEmail(input: CustomerAuthLinkEmailInput): Promise<void> {
-  const translate = createFallbackTranslator(await loadDictionary(input.locale))
+  const translate = input.locale
+    ? createFallbackTranslator(await loadDictionary(input.locale))
+    : (await resolveTranslations()).translate
   const linkUrl = await urlForCustomerOrg(
     input.organizationId,
     `/magic-link?token=${encodeURIComponent(input.rawToken)}`,

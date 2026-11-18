@@ -55,5 +55,8 @@ export default async function handle(
       userId: user.id,
       tenantId,
     })
-  ).catch(() => undefined)
+  ).catch((error) => {
+    logger.error('Password reset requested event failed', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.password_reset_event_failed' })
+  })
 }

@@ -94,6 +94,22 @@ describe('customer_accounts:password-reset-delivery worker (#8889)', () => {
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
+  it('reports lifecycle-event failure without retrying a delivered email', async () => {
+    const failure = new Error('event bus unavailable')
+    mockEmit.mockRejectedValue(failure)
+
+    await expect(handle(makeJob('buyer@example.com'), ctx)).resolves.toBeUndefined()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'customer_accounts',
+      code: 'customer_accounts.password_reset_event_failed',
+    })
+    expect(mockLoggerError).toHaveBeenCalledTimes(1)
+    expect(mockCreateToken).toHaveBeenCalledTimes(1)
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+  })
+
   it('rethrows on delivery failure so the queue retries, after reporting it', async () => {
     mockSendEmail.mockRejectedValue(new Error('smtp down'))
 

@@ -56,5 +56,8 @@ export default async function handle(
       tenantId,
       organizationId: user.organizationId,
     })
-  ).catch(() => undefined)
+  ).catch((error) => {
+    logger.error('Magic link requested event failed', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.magic_link_event_failed' })
+  })
 }
