@@ -10,10 +10,15 @@ import { requireResolvedTenantScope } from '../readScope'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 import { redactActionLogEntries } from '@open-mercato/core/modules/audit_logs/lib/actionLogRedaction'
+import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
+import { getEnrichersForEntity } from '@open-mercato/shared/lib/crud/enricher-registry'
+
+const AUDIT_ACTION_LOG_ENRICHER_ENTITY = 'audit_logs.action_log'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -28,6 +33,10 @@ const auditActionQuerySchema = z.object({
   actorUserId: z
     .string()
     .describe('Filter logs created by specific actor IDs (tenant administrators only). Accepts a single UUID or a comma-separated UUID list.')
+    .optional(),
+  ids: z
+    .string()
+    .describe('Restrict results to these action log IDs (comma-separated UUIDs, at most 100). Actor and organization scoping still apply.')
     .optional(),
   resourceKind: z.string().describe('Filter by resource kind (e.g., "order", "product")').optional(),
   resourceId: z.string().describe('Filter by resource ID (UUID of the specific record)').optional(),
@@ -166,6 +175,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
+  const ids = parseIdsParam(url.searchParams.get('ids'), 100)
   const resourceKind = url.searchParams.get('resourceKind') ?? undefined
   const resourceId = url.searchParams.get('resourceId') ?? undefined
   const actionTypes = parseActionTypes(url.searchParams.get('actionType'))
@@ -208,6 +218,7 @@ export async function GET(req: Request) {
     actorSubject,
     actorUserId,
     actorUserIds,
+    ids: ids.length > 0 ? ids : undefined,
     resourceKind,
     resourceId,
     actionTypes,
@@ -281,14 +292,63 @@ export async function GET(req: Request) {
     context: entry.contextJson,
   }))
 
+  const enrichedItems = await enrichActionItems(items, {
+    rbac,
+    em,
+    container,
+    userId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: organizationId ?? null,
+  })
+
   return NextResponse.json({
-    items,
+    items: enrichedItems,
     canViewTenant,
     page: list.page,
     pageSize: list.pageSize,
     total: list.total,
     totalPages: list.totalPages,
   })
+}
+
+/**
+ * Runs only the enrichers registered for `audit_logs.action_log` itself; wildcard
+ * enrichers are excluded so the audit list does not inherit unrelated per-entity work.
+ */
+async function enrichActionItems<T extends Record<string, unknown>>(
+  items: T[],
+  ctx: {
+    rbac: RbacService
+    em: EntityManager
+    container: unknown
+    userId: string
+    tenantId: string | null
+    organizationId: string | null
+  },
+): Promise<T[]> {
+  if (items.length === 0) return items
+  const entries = getEnrichersForEntity(AUDIT_ACTION_LOG_ENRICHER_ENTITY).filter(
+    (entry) => entry.enricher.targetEntity === AUDIT_ACTION_LOG_ENRICHER_ENTITY,
+  )
+  if (entries.length === 0) return items
+  let grantedFeatures: string[] | undefined
+  try {
+    grantedFeatures = await ctx.rbac.getGrantedFeatures(ctx.userId, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  } catch {
+    grantedFeatures = undefined
+  }
+  const enriched = await applyResponseEnrichers(items, AUDIT_ACTION_LOG_ENRICHER_ENTITY, {
+    tenantId: ctx.tenantId ?? '',
+    organizationId: ctx.organizationId ?? '',
+    userId: ctx.userId,
+    em: ctx.em,
+    container: ctx.container,
+    userFeatures: grantedFeatures,
+  }, entries)
+  return enriched.items
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -298,7 +358,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Fetch action logs',
       description:
-        'Returns recent action audit log entries. Tenant administrators can widen the scope to other actors or organizations, and callers can optionally restrict results to undoable actions.',
+        'Returns recent action audit log entries. Tenant administrators can widen the scope to other actors or organizations, and callers can optionally restrict results to undoable actions. Items may carry `_`-prefixed fields added by response enrichers that explicitly target `audit_logs.action_log` (wildcard enrichers do not run here).',
       query: auditActionQuerySchema,
       responses: [
         { status: 200, description: 'Action logs retrieved successfully', schema: auditActionResponseSchema },

@@ -60,6 +60,8 @@ try {
   await client.end()
   stage('query')
   await assert.rejects(client.query('SELECT $1::text', ['pii-sentinel-value']))
+  stage('inlined-query')
+  await assert.rejects(client.query('select "s0".* from "sessions" as "s0" where "s0"."id" = \\'pii-sentinel-value\\' limit 1'))
   stage('flush-spans')
   await processor.forceFlush()
   const spans = exporter.getFinishedSpans().map((span) => ({ name: span.name, attributes: span.attributes }))
@@ -109,9 +111,12 @@ describe('OTLP provider pg instrumentation', () => {
     (order) => {
       const spans = runChild(order)
       expect(spans.some((span) => span.name.startsWith('pg.query'))).toBe(true)
-      // enhancedDatabaseReporting must stay off in the provider's default wiring:
-      // the statement text may appear, bound values must not.
+      // enhancedDatabaseReporting must stay off in the provider's default wiring,
+      // and values inlined into the SQL text (as MikroORM sends every query) must
+      // be sanitized out: the statement shape may appear, the values must not.
       expect(JSON.stringify(spans)).not.toContain('pii-sentinel-value')
+      const statements = spans.flatMap((span) => [span.attributes['db.query.text'], span.attributes['db.statement']])
+      expect(statements).toContain('select "s0".* from "sessions" as "s0" where "s0"."id" = ? limit ?')
     },
     35_000,
   )
