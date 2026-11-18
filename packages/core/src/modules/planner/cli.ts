@@ -1,23 +1,12 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons, type PlannerSeedScope } from './lib/seeds'
+import { isDictionariesModuleEnabled } from './lib/optionalModules'
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string> = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part) continue
-    if (part.startsWith('--')) {
-      const [rawKey, rawValue] = part.slice(2).split('=')
-      if (rawValue !== undefined) args[rawKey] = rawValue
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) {
-        args[rawKey] = rest[i + 1]!
-        i += 1
-      }
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { flagValue: undefined })
 }
 
 const seedAvailabilityRuleSetsCommand: ModuleCli = {
@@ -55,6 +44,10 @@ const seedUnavailabilityReasonsCommand: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
       console.error('Usage: mercato planner seed-unavailability-reasons --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    if (!isDictionariesModuleEnabled()) {
+      console.log('Dictionaries module is disabled; nothing to seed for planner unavailability reasons.')
       return
     }
     const container = await createRequestContainer()
