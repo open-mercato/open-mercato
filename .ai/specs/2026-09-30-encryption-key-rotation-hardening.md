@@ -28,6 +28,11 @@ Offline confirmation is operator attestation, not proof that every external proc
 
 ## Changelog
 
+<<<<<<< HEAD
 - 2026-11-02: Resolve release backport CI conflicts; add CAS updates, accurate policy scope discovery, offline confirmation, protected final sweep, and explicit unsafe argv bridge. Document the selected offline-only contract and unsupported online coordination; validate eight real PostgreSQL maintenance scenarios, including a non-null lookup hash selected before CAS and safely cleared, and residual ciphertext beyond the first bounded final-sweep page.
 
 - 2026-11-05: Integrate the current release line while retaining custom-document rotation and async system-scope discovery. Restore and extend the independently prepared wrong-DEK correction; validate nine PostgreSQL maintenance cases and align the canonical offline-decryption example. The inherited CLI-transition/offline-contract approval remains unresolved and is not supplied by these repairs.
+=======
+- 2026-11-18: Extend compare-and-swap protection to auth email rotation and initial encryption (#9538). Pin the user ID, tenant, organization, original email and null-safe lookup hash in each update; abort on a conflict without overwriting that row. Earlier successful rows remain updated if a later row conflicts. Unit and isolated PostgreSQL regressions cover email/hash changes, moved scopes, deletion, null hashes and dry runs. Command flags, configuration and ciphertext formats remain unchanged.
+- 2026-11-02: Carry the reviewed maintenance safety fixes forward to main while preserving custom-document rotation; add CAS updates, accurate policy scope discovery, offline confirmation, protected final sweep, and explicit unsafe argv bridge. Document the selected offline-only contract and unsupported online coordination; validate eight real PostgreSQL maintenance scenarios, including a non-null lookup hash selected before CAS and safely cleared, and residual ciphertext beyond the first bounded final-sweep page.
+>>>>>>> eb901e39e3 (fix(auth): preserve concurrent email edits during key rotation (#9538) (#9842))
