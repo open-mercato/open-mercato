@@ -113,6 +113,29 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
     expect(mockSaveEmbeddingConfig).not.toHaveBeenCalled()
   })
 
+  it('rejects an arbitrary public host before probing or saving', async () => {
+    process.env.NODE_ENV = 'production'
+    const res = await POST(makeReq({ embeddingConfig: {
+      providerId: 'ollama', model: 'nomic-embed-text', dimension: 768,
+      baseUrl: 'https://attacker.example',
+    } }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).reason).toBe('operator_not_allowed')
+    expect(mockCheckAvailability).not.toHaveBeenCalled()
+    expect(mockSaveEmbeddingConfig).not.toHaveBeenCalled()
+  })
+
+  it('accepts the existing operator URL', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.OLLAMA_BASE_URL = 'https://operator.example/ollama'
+    const res = await POST(makeReq({ embeddingConfig: {
+      providerId: 'ollama', model: 'nomic-embed-text', dimension: 768,
+      baseUrl: 'https://operator.example/ollama/',
+    } }))
+    expect(res.status).toBe(200)
+    expect(mockSaveEmbeddingConfig).toHaveBeenCalledTimes(1)
+  })
+
   it('accepts an allowlisted host in production', async () => {
     process.env.NODE_ENV = 'production'
     process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.internal.example.com:11434'

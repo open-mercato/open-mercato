@@ -20,9 +20,9 @@ import { checkAllProviders } from '../../lib/provider-probe'
 import type { EmbeddingProviderProbe, ProviderAvailabilityEntry } from '../../lib/provider-probe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EmbeddingProviderConfig, EmbeddingProviderId, VectorDriver } from '../../../../vector'
-import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG, EmbeddingService } from '../../../../vector'
+import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '../../../../vector'
 import {
-  assertSafeOllamaBaseUrl,
+  assertTenantOllamaBaseUrl,
   UnsafeOllamaBaseUrlError,
 } from '../../../../vector/lib/ollama-url-safety'
 import { reportSearchError, searchError } from '../../../../lib/debug'
@@ -252,7 +252,7 @@ export async function POST(req: Request) {
       // Reject an unsafe user-supplied Ollama base URL before doing anything with it (SSRF guard).
       if (newConfig.providerId === 'ollama' && newConfig.baseUrl != null) {
         try {
-          assertSafeOllamaBaseUrl(newConfig.baseUrl)
+          assertTenantOllamaBaseUrl(newConfig.baseUrl)
         } catch (err) {
           if (err instanceof UnsafeOllamaBaseUrlError) {
             return NextResponse.json(
@@ -335,15 +335,6 @@ export async function POST(req: Request) {
       } catch (error) {
         await service.invalidate('vector', undefined, { tenantId: auth.tenantId })
         throw error
-      }
-    }
-
-    if (parsed.data.embeddingConfig && embeddingConfig) {
-      try {
-        const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
-        embeddingService.updateConfig(embeddingConfig)
-      } catch {
-        // Embedding service may not be available in all contexts
       }
     }
 

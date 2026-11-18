@@ -107,6 +107,7 @@ describe('tenant embedding updates preserve the shared index', () => {
     expect(configs.get(key('tenant-b', EMBEDDING_CONFIG_KEY))).toEqual(otherTenantConfig)
     expect([...rows]).toEqual([['tenant-a', ['vector-a']], ['tenant-b', ['vector-b']]])
     expect(recreateWithDimension).not.toHaveBeenCalled()
+    expect(updateConfig).not.toHaveBeenCalled()
     expect(dispose).toHaveBeenCalledTimes(1)
   })
 

@@ -49,6 +49,17 @@ export function assertSafeOllamaBaseUrl(rawUrl: string): void {
   })
 }
 
+export function assertTenantOllamaBaseUrl(rawUrl: string): void {
+  assertSafeOllamaBaseUrl(rawUrl)
+  const operatorUrl = new URL(process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434')
+  const candidate = new URL(rawUrl)
+  if (
+    candidate.href.replace(/\/$/, '') === operatorUrl.href.replace(/\/$/, '') ||
+    allowlistMatches(rawUrl, getOllamaBaseUrlAllowlist())
+  ) return
+  throw new UnsafeOllamaBaseUrlError('operator_not_allowed')
+}
+
 export type SafeOllamaFetchDeps = {
   lookupHost?: HostLookup
   fetchImpl?: SafeOutboundFetchOptions['fetchImpl']

@@ -225,7 +225,7 @@ export async function handleVectorIndexJob(
 
     // Load saved embedding config to use the correct provider/model
     try {
-      const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null })
+      const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null, scope: { tenantId: tenantId } })
       if (embeddingConfig) {
         const embeddingService = ctx.resolve<EmbeddingService>('vectorEmbeddingService')
         embeddingService.updateConfig(embeddingConfig)
@@ -341,7 +341,7 @@ export async function handleVectorIndexJob(
 
   // Load saved embedding config to use the correct provider/model
   try {
-    const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null })
+    const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null, scope: { tenantId: tenantId } })
     if (embeddingConfig) {
       const embeddingService = ctx.resolve<EmbeddingService>('vectorEmbeddingService')
       embeddingService.updateConfig(embeddingConfig)
