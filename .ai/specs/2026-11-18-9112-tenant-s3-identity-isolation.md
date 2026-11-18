@@ -2,7 +2,7 @@
 
 ## TLDR and status
 
-Proposed security fix; **blocked for merge pending a named human maintainer security exception**, migration documentation in root UPGRADE_NOTES.md and a dated BACKWARD_COMPATIBILITY.md entry. Automated review cannot grant the exception. Issue: https://github.com/open-mercato/open-mercato/issues/9112.
+Proposed security fix; **blocked for merge pending a named human maintainer security exception**. Root migration and contract records are included; no approval is assumed. Automated review cannot grant the exception. Issue: https://github.com/open-mercato/open-mercato/issues/9112.
 
 ## Overview and problem statement
 
@@ -28,7 +28,7 @@ The five /api/storage-providers/s3 operations (upload, download, delete, list, s
 
 STABLE credential/API behavior is intentionally narrowed: tenant ambient/default-chain auth, tenant environment-prefix lookup, and arbitrary credential injection stop working. These shapes are themselves the exploit: a bridge accepting them for tenant operations would retain platform-principal selection. No tenant opt-in/flag retains that branch. Removing only tenant use preserves trusted unscoped operator APIs and is narrower than deleting generic driver capabilities.
 
-**Required human action before merge:** named maintainer approval explicitly acknowledging the Emergency Security Exception in BACKWARD_COMPATIBILITY.md, steps 1–3. A bot approval or the issue's implementation notes do not supply the waiver. Add a dated root contract entry recording the STABLE credential/API removal, this qualification and migration. Root documentation is owned by the coordinating task, not this provider-scoped worktree.
+**Required human action before merge:** named maintainer approval explicitly acknowledging the Emergency Security Exception in BACKWARD_COMPATIBILITY.md, steps 1–3. A bot approval or the issue's implementation notes do not supply the waiver. The dated root contract entry records the STABLE credential/API removal, this qualification and migration. The coordinating task added root client/operator migration and dated contract records; the waiver is still pending.
 
 Client migration: replace ambient/prefix/empty credentials with explicit, nonblank tenant-specific accessKeyId and secretAccessKey (plus sessionToken for temporary credentials), select access_keys, remove undeclared fields and re-save. Existing stored unsafe credentials remain in the database but become unusable; no automatic credential copying occurs. For empty/partial configurations, enter the required bucket and region as well. Clearing the S3 credential object with PUT now fails validation; use supported integration state controls instead.
 
@@ -52,9 +52,13 @@ Initial reproduction: timeout 180 yarn workspace @open-mercato/storage-s3 test -
 
 ## Final Compliance Report
 
-Provider-local implementation only. Existing generic validator/types, DI names, URLs, event IDs, encryption, tenant scoping, optimistic-lock route checks and mutation guard call sites remain intact. No shared/core changes. Protected tenant credential behavior has an explicit merge blocker, not an assumed waiver. Root upgrade/contract entries remain coordination prerequisites.
+Provider-local implementation only. Existing generic validator/types, DI names, URLs, event IDs, encryption, tenant scoping, optimistic-lock route checks and mutation guard call sites remain intact. No shared/core production changes; the app route tests now use explicit tenant-key fixtures. Protected tenant credential behavior has an explicit merge blocker, not an assumed waiver. Root upgrade/contract entries are included; named human approval and validation/QA remain prerequisites.
 
 ## Changelog
 
 - 2026-11-18: Review expanded runtime coverage to signed-upload completion and quota recovery with reservation regressions.
 - 2026-11-18: Confirmed defect, captured failing regressions, prepared provider-local enforcement and passing provider suite (191 tests), provider build/typecheck and S3-enabled guard generation; full workspace test/app-build failures and the human contract exception remain blockers.
+
+- 2026-11-18: Parent review traced hosted CI failure to app-level S3 route fixtures; supplied explicit tenant keys and preserved app-boundary MIME/quota/download assertions. Added required root client/operator migration and contract records without assuming a human waiver.
+
+Parent independently reproduced all five app route-test failures with the original implicit-credential fixture, then passed all five after supplying explicit tenant keys. Hosted CI for the prior head also reported this exact app-suite regression; fixture correction preserves MIME, quota and download-header assertions.

@@ -670,3 +670,16 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+
+## Tenant S3 identity isolation (2026-11-18, #9112)
+
+STABLE credential/API behavior: tenant ambient/default-chain authentication,
+tenant environment-prefix credential lookup and undeclared credential injection
+are rejected. Those accepted shapes directly select the platform principal;
+retaining a tenant bridge keeps the vulnerability reachable. Trusted unscoped
+operator driver behavior remains supported. Clients/operators must provision
+explicit tenant keys and reconfigure scoped attachment partitions; stored unsafe
+configurations become unusable. See [migration](UPGRADE_NOTES.md#tenant-s3-credentials-require-explicit-keys-9112)
+and [spec](.ai/specs/2026-11-18-9112-tenant-s3-identity-isolation.md).
+**Named human maintainer waiver of steps 1–3 is pending; do not merge.**

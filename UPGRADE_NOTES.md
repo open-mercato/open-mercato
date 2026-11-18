@@ -5566,3 +5566,25 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+
+## Tenant S3 credentials require explicit keys (#9112)
+
+Tenant S3 integrations and scoped S3 attachment partitions can no longer use the
+server AWS default credential chain, `authMode: ambient`, `credentialsEnvPrefix`,
+or blank/partial keys. Tenant credentials PUT also rejects undeclared fields.
+Stored unsafe configurations become unusable until reconfigured; no credentials
+are automatically copied. Clients must select `access_keys`, enter dedicated
+nonblank `accessKeyId` and `secretAccessKey` (plus `sessionToken` for temporary
+credentials), provide bucket/region and remove undeclared fields before re-saving.
+An empty credential-object PUT is rejected; use integration state controls to
+disable the integration.
+
+Operators must provision a least-privilege tenant identity, reconfigure affected
+integrations/scoped attachment partitions before rollout, and review platform AWS
+logs, bucket writes and costs for prior misuse. Do not substitute the same broad
+platform keys. Trusted unscoped operator driver APIs retain their behavior.
+No startup command/new environment flag is required, but affected tenant
+configuration must change. Rolling back restores the vulnerability. See
+`.ai/specs/2026-11-18-9112-tenant-s3-identity-isolation.md`.
+A named human maintainer security exception remains required before merge.
