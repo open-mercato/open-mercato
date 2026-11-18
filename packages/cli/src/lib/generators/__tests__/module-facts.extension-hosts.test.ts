@@ -109,6 +109,7 @@ describe('module-facts extension host extraction', () => {
     const catalog = extractModuleFacts({ moduleId: 'catalog', coreSrcRoot })
     expect(catalog.hostTokens.tableIds).toEqual([
       'catalog.categories.list',
+      'catalog.prices.list',
       'catalog.products.list',
     ])
 

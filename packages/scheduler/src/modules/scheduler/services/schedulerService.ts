@@ -4,6 +4,7 @@ import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
 import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
 
 const logger = createLogger('scheduler')
 
@@ -53,15 +54,21 @@ export class SchedulerService {
     )
     
     if (!nextRunAt) {
-      throw new Error(`Failed to calculate next run time for schedule: ${registration.id}`)
+      throw createInvalidScheduleValueError(
+        registration.scheduleType,
+        registration.scheduleValue,
+        `Failed to calculate next run time for schedule: ${registration.id}`,
+      )
     }
     
     // Check if schedule already exists
     let schedule = await em.findOne(ScheduledJob, { id: registration.id })
     const nextTenantId = registration.tenantId || null
+    const nextSourceType = registration.sourceType ?? 'module'
     const nextIsEnabled = registration.isEnabled !== undefined ? registration.isEnabled : (schedule?.isEnabled ?? true)
     const tenantChanged = schedule ? (schedule.tenantId || null) !== nextTenantId : false
-    if (nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged)) {
+    const changedToUserSource = schedule?.sourceType !== 'user' && nextSourceType === 'user'
+    if (nextSourceType === 'user' && nextIsEnabled && (schedule?.isEnabled !== true || tenantChanged || changedToUserSource)) {
       await enforceTenantActiveScheduleLimit(em, nextTenantId)
     }
     
@@ -80,7 +87,7 @@ export class SchedulerService {
       schedule.targetCommand = registration.targetCommand || null
       schedule.targetPayload = registration.targetPayload as Record<string, unknown> || null
       schedule.requireFeature = registration.requireFeature || null
-      schedule.sourceType = registration.sourceType || 'user'
+      schedule.sourceType = nextSourceType
       schedule.sourceModule = registration.sourceModule || null
       schedule.isEnabled = registration.isEnabled !== undefined ? registration.isEnabled : schedule.isEnabled
       schedule.nextRunAt = nextRunAt
@@ -102,7 +109,7 @@ export class SchedulerService {
         targetCommand: registration.targetCommand || null,
         targetPayload: registration.targetPayload as Record<string, unknown> || null,
         requireFeature: registration.requireFeature || null,
-        sourceType: registration.sourceType || 'module',
+        sourceType: nextSourceType,
         sourceModule: registration.sourceModule || null,
         isEnabled: registration.isEnabled !== undefined ? registration.isEnabled : true,
         nextRunAt,
@@ -173,7 +180,7 @@ export class SchedulerService {
       throw new Error(`Schedule not found: ${scheduleId}`)
     }
 
-    if (changes.isEnabled === true && schedule.isEnabled !== true) {
+    if (schedule.sourceType === 'user' && changes.isEnabled === true && schedule.isEnabled !== true) {
       await enforceTenantActiveScheduleLimit(em, schedule.tenantId)
     }
 
@@ -186,7 +193,11 @@ export class SchedulerService {
       )
       : null
     if (scheduleChanged && !nextRunAt) {
-      throw new Error(`Failed to calculate next run time for schedule: ${scheduleId}`)
+      throw createInvalidScheduleValueError(
+        changes.scheduleType ?? schedule.scheduleType,
+        changes.scheduleValue ?? schedule.scheduleValue,
+        `Failed to calculate next run time for schedule: ${scheduleId}`,
+      )
     }
     
     // Apply changes

@@ -13,6 +13,10 @@
 # the app container's port and replicate the two routers + ForwardAuth
 # middleware in its own config. See docker/traefik/README.md.
 #
+# Requires Docker Compose 2.24.4+ for port-list reset support. Application
+# and collaboration traffic stays on the internal network; publish WSS
+# through a TLS proxy when enabling the documents-collab profile.
+#
 # This overlay defaults `TRAEFIK_CA_SERVER` to the LE **production** directory
 # so the prod invocation issues real certificates. Dev workflows layer the
 # dev-only `starters/docker/compose.fullapp.traefik.dev.yml` overlay on top to flip the
@@ -52,7 +56,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
       TRAEFIK_LOG_LEVEL: ${TRAEFIK_LOG_LEVEL:-INFO}
       TRAEFIK_CA_SERVER: ${TRAEFIK_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
-      TRAEFIK_DOCKER_NETWORK: mercato-network-${DEPLOY_ENV:-local}
+      TRAEFIK_DOCKER_NETWORK: mercato-network-${DEPLOY_ENV:-local}-v2
     depends_on:
       app:
         condition: service_healthy
@@ -60,9 +64,10 @@ services:
       - mercato-network-fullapp
 
   app:
+    ports: !reset []
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}"
+      - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}-v2"
       # Platform router — known operator hostnames bypass the domain-check
       # middleware. Configure PLATFORM_PRIMARY_HOST in the deployment env.
       - "traefik.http.routers.platform.rule=Host(`${PLATFORM_PRIMARY_HOST:-openmercato.com}`)"
@@ -97,6 +102,9 @@ services:
       # Service definition: route to the app on its container port.
       - "traefik.http.services.app-upstream.loadbalancer.server.port=${CONTAINER_PORT:-3000}"
       - "traefik.http.services.app-upstream.loadbalancer.passhostheader=true"
+
+  documents-collab:
+    ports: !reset []
 
 volumes:
   traefik_acme:

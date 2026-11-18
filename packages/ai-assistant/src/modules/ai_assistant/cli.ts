@@ -1,12 +1,21 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
+import { installNextSubpathResolveHook } from './lib/next-subpath-resolve-hook'
+import { resolveMcpHost } from './lib/mcp-host-resolution'
 /**
  * Ensure app bootstrap is called before creating DI container.
  * Uses the shared generated-bootstrap loader so the command works both from
  * the monorepo app and from standalone apps installed through npm packages.
  */
 async function ensureBootstrap(): Promise<void> {
+  // These commands run outside Next.js, but the API route modules the
+  // operation runner imports on a tool call say `from 'next/server'`, which
+  // plain Node cannot resolve (#6118). Install the retry-with-`.js` hook before
+  // anything below can pull a route module in.
+  installNextSubpathResolveHook()
+
   // First check if DI is already available
   try {
     const { getDiRegistrars } = await import('@open-mercato/shared/lib/di/container')
@@ -26,22 +35,7 @@ async function ensureBootstrap(): Promise<void> {
 }
 
 function parseArgs(rest: string[]): Record<string, string | boolean> {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i]
-    if (!arg?.startsWith('--')) continue
-
-    const [key, value] = arg.replace(/^--/, '').split('=')
-    if (value !== undefined) {
-      args[key] = value
-    } else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) {
-      args[key] = rest[i + 1]!
-      i++
-    } else {
-      args[key] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 const mcpServe: ModuleCli = {
@@ -134,6 +128,10 @@ const mcpServeHttp: ModuleCli = {
     const portArg = parseInt(String(args.port ?? ''), 10)
     const port = !portArg || isNaN(portArg) ? MCP_DEFAULT_PORT : portArg
     const debug = args.debug === true || args.debug === 'true'
+    const host = resolveMcpHost(
+      typeof args.host === 'string' ? args.host : undefined,
+      process.env.MCP_HTTP_HOST,
+    )
 
     await ensureBootstrap()
     const container = await createRequestContainer()
@@ -148,6 +146,7 @@ const mcpServeHttp: ModuleCli = {
       },
       container,
       port,
+      host,
     })
   },
 }
@@ -238,9 +237,9 @@ const listTools: ModuleCli = {
     // Sort modules alphabetically
     const sortedModules = Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
-    for (const module of sortedModules) {
-      const tools = byModule.get(module)!
-      console.log(`${module} (${tools.length} tools):`)
+    for (const moduleName of sortedModules) {
+      const tools = byModule.get(moduleName)!
+      console.log(`${moduleName} (${tools.length} tools):`)
 
       for (const name of tools.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
         const tool = registry.getTool(name)
@@ -267,7 +266,7 @@ const entityGraph: ModuleCli = {
     const args = parseArgs(rest)
     const format = String(args.format ?? 'triples') as 'json' | 'triples'
     const entity = args.entity ? String(args.entity) : undefined
-    const module = args.module ? String(args.module) : undefined
+    const moduleName = args.module ? String(args.module) : undefined
 
     await ensureBootstrap()
 
@@ -289,10 +288,10 @@ const entityGraph: ModuleCli = {
       console.log(`[Entity Graph] Filtered by entity: ${entity}`)
     }
 
-    if (module) {
+    if (moduleName) {
       const filteredGraph = { ...graph, edges }
-      edges = filterGraphByModule(filteredGraph, module)
-      console.log(`[Entity Graph] Filtered by module: ${module}`)
+      edges = filterGraphByModule(filteredGraph, moduleName)
+      console.log(`[Entity Graph] Filtered by module: ${moduleName}`)
     }
 
     const filteredGraph = { ...graph, edges }

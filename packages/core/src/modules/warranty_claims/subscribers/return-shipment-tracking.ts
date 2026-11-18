@@ -7,7 +7,6 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { TransitionClaimInput } from '../data/validators'
 
 const logger = createLogger('warranty_claims')
-const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
 
 export const metadata = {
   event: 'shipping_carriers.shipment.delivered',
@@ -182,12 +181,13 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
 
   const commandCtx: CommandRuntimeContext = {
     container: container as unknown as AwilixContainer,
-    auth: {
-      sub: SYSTEM_USER_ID,
+    auth: null,
+    organizationScope: {
+      selectedId: organizationId,
+      filterIds: null,
+      allowedIds: null,
       tenantId,
-      orgId: organizationId,
     },
-    organizationScope: null,
     selectedOrganizationId: organizationId,
     organizationIds: [organizationId],
     systemActor: true,

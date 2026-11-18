@@ -220,3 +220,38 @@ describe('CircularProgress', () => {
     }
   })
 })
+
+
+describe('CircularProgress measured sizes', () => {
+  it.each([48, 56, 64, 72, 80] as const)('fits the %ipx source ring without changing the displayed progress', (size) => {
+    const { getByRole } = render(<CircularProgress size={size} value={75} showValue ariaLabel="Upload" />)
+    const progress = getByRole('progressbar', { name: 'Upload' })
+    expect(progress).toHaveAttribute('aria-valuenow', '75')
+    expect(progress).toHaveTextContent('75%')
+    expect(progress.querySelector('svg')).toHaveAttribute('width', String(size))
+    const track = progress.querySelector('[data-slot="circular-progress-track"]') as SVGElement
+    const radius = Number(track.getAttribute('r'))
+    const stroke = Number(track.getAttribute('stroke-width'))
+    expect(radius * 2 + stroke).toBeCloseTo(size)
+    expect((radius * 2 - stroke) / size).toBeCloseTo(size === 48 ? 0.72 : 0.84)
+  })
+})
+
+describe('Progress source label positions', () => {
+  it('places one value beside the track and retains label and description', () => {
+    const { container } = render(<Progress value={80} size="md" valuePlacement="right" showValue label="Storage" description="Available capacity" />)
+    expect(container.querySelector('[data-slot="progress-value-row"] [role="progressbar"]')).toHaveClass('h-1.5')
+    expect(container.querySelectorAll('[data-slot="progress-value"]')).toHaveLength(1)
+    expect(container.querySelector('[data-slot="progress-value-row"] [data-slot="progress-value"]')).toHaveTextContent('80%')
+    expect(container.querySelector('[data-slot="progress-label"]')).toHaveTextContent('Storage')
+    expect(container.querySelector('[data-slot="progress-description"]')).toHaveTextContent('Available capacity')
+  })
+
+  it.each([0, 100])('renders the %i endpoint without an empty top label', value => {
+    const { container } = render(<Progress value={value} valuePlacement="right" showValue aria-label="Storage" />)
+    expect(container.querySelector('[data-slot="progress-label"]')).toBeNull()
+    expect(container.querySelector('[data-slot="progress-value"]')).toHaveTextContent(`${value}%`)
+    expect(container.querySelector('[role="progressbar"]')).toHaveAttribute('aria-valuenow', String(value))
+    expect(container.querySelector('[data-slot="progress-fill"]')).toHaveStyle({ width: `${value}%` })
+  })
+})

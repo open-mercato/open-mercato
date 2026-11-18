@@ -12,8 +12,10 @@ import {
   extractGhsaId,
   fetchAdvisories,
   loadAllowlist,
+  main,
   parseArgs,
   partitionAllowlisted,
+  partitionByBaseline,
   readLockPackages,
 } from '../audit-ci.mjs'
 
@@ -156,6 +158,129 @@ test('partitionAllowlisted suppresses only advisories matched by GHSA id', () =>
   assert.deepEqual(blocking.map((advisory) => advisory.name), ['lodash'])
   assert.deepEqual(suppressed.map((advisory) => advisory.name), ['image-size'])
   assert.equal(suppressed[0].reason, 'archived, unpatched, build-time only')
+})
+
+test('parses the baseline lockfile without mistaking it for the audited lockfile', () => {
+  assert.equal(parseArgs(['--severity', 'high']).baselinePath, null)
+  const separate = parseArgs(['--severity', 'high', '--baseline', '/tmp/base/yarn.lock'])
+  assert.equal(separate.baselinePath, path.resolve('/tmp/base/yarn.lock'))
+  assert.equal(separate.lockPath, path.resolve('yarn.lock'))
+  const inline = parseArgs(['--baseline=/tmp/base/yarn.lock', 'other/yarn.lock'])
+  assert.equal(inline.baselinePath, path.resolve('/tmp/base/yarn.lock'))
+  assert.equal(inline.lockPath, path.resolve('other/yarn.lock'))
+  assert.throws(() => parseArgs(['--baseline']), /--baseline requires a lockfile path/)
+  assert.throws(() => parseArgs(['--baseline', '--severity', 'high']), /--baseline requires a lockfile path/)
+})
+
+test('partitionByBaseline treats an advisory as pre-existing only for the same package and GHSA id', () => {
+  const braces = { name: 'braces', severity: 'high', range: '<=3.0.3', title: 'stack exhaustion', url: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm' }
+  const forge = { name: 'node-forge', severity: 'high', range: '<=1.4.0', title: 'signature bypass', url: 'https://github.com/advisories/GHSA-86w9-cpqp-85rv' }
+  const forgeOtherPackage = { ...forge, name: 'forge-fork' }
+  const { introduced, preexisting } = partitionByBaseline(
+    [braces, forge, forgeOtherPackage],
+    [{ ...braces, range: '<=3.0.2' }, { ...forge, url: forge.url.toLowerCase() }],
+  )
+  assert.deepEqual(preexisting.map((advisory) => advisory.name), ['braces', 'node-forge'])
+  assert.deepEqual(introduced.map((advisory) => advisory.name), ['forge-fork'])
+})
+
+function writeLock(directory, name, packages) {
+  const lockPath = path.join(directory, name, 'yarn.lock')
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true })
+  const blocks = Object.entries(packages).map(([pkg, version]) => [
+    `"${pkg}@npm:^${version}":`,
+    `  version: ${version}`,
+    `  resolution: "${pkg}@npm:${version}"`,
+  ].join('\n'))
+  fs.writeFileSync(lockPath, ['__metadata:', '  version: 8', '', ...blocks, ''].join('\n'))
+  return lockPath
+}
+
+function advisoryFetch(vulnerable) {
+  return async (_endpoint, init) => {
+    const requested = JSON.parse(init.body)
+    const body = {}
+    for (const [pkg, versions] of Object.entries(requested)) {
+      const advisory = vulnerable[pkg]
+      if (advisory && versions.some((version) => advisory.versions.includes(version))) {
+        body[pkg] = [{ severity: 'high', title: `${pkg} issue`, vulnerable_versions: advisory.range, url: advisory.url }]
+      }
+    }
+    return { ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify(body)) }
+  }
+}
+
+async function runMain(argv, fetchImpl, allowlistPath) {
+  const output = []
+  const original = { log: console.log, error: console.error }
+  console.log = (line) => output.push(line)
+  console.error = (line) => output.push(line)
+  try {
+    const exitCode = await main(argv, { fetchImpl, allowlistPath })
+    return { exitCode, output: output.join('\n') }
+  } finally {
+    console.log = original.log
+    console.error = original.error
+  }
+}
+
+test('main with a baseline fails only on advisories the change introduces', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-baseline-'))
+  try {
+    const allowlistPath = path.join(directory, 'allowlist.json')
+    fs.writeFileSync(allowlistPath, JSON.stringify({ advisories: {} }))
+    const vulnerable = {
+      braces: { versions: ['3.0.3'], range: '<=3.0.3', url: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm' },
+      'node-forge': { versions: ['1.4.0'], range: '<=1.4.0', url: 'https://github.com/advisories/GHSA-86w9-cpqp-85rv' },
+    }
+    const baseLock = writeLock(directory, 'base', { braces: '3.0.3', 'cross-env': '10.1.0' })
+    const cleanChange = writeLock(directory, 'clean', { braces: '3.0.3', 'cross-env': '10.1.0', 'left-pad': '1.3.0' })
+    const vulnerableChange = writeLock(directory, 'vulnerable', { braces: '3.0.3', 'node-forge': '1.4.0' })
+    const fetchImpl = advisoryFetch(vulnerable)
+
+    const strict = await runMain([cleanChange], fetchImpl, allowlistPath)
+    assert.equal(strict.exitCode, 1)
+
+    const clean = await runMain([cleanChange, '--baseline', baseLock], fetchImpl, allowlistPath)
+    assert.equal(clean.exitCode, 0)
+    assert.match(clean.output, /1 advisory\(ies\) already present in the baseline/)
+    assert.match(clean.output, /no new advisories/)
+
+    const introduced = await runMain([vulnerableChange, '--baseline', baseLock], fetchImpl, allowlistPath)
+    assert.equal(introduced.exitCode, 1)
+    assert.match(introduced.output, /1 new advisory\(ies\) at or above high/)
+    assert.match(introduced.output, /node-forge/)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('main fails closed when the baseline advisories cannot be retrieved', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-baseline-'))
+  try {
+    const allowlistPath = path.join(directory, 'allowlist.json')
+    fs.writeFileSync(allowlistPath, JSON.stringify({ advisories: {} }))
+    const changeLock = writeLock(directory, 'change', { 'left-pad': '1.3.0' })
+    const baseLock = writeLock(directory, 'base', { 'right-pad': '1.0.0' })
+    const healthy = advisoryFetch({})
+    const fetchImpl = async (endpoint, init) => {
+      if (JSON.parse(init.body)['right-pad']) return { ok: false, status: 503 }
+      return healthy(endpoint, init)
+    }
+    const result = await runMain([changeLock, '--baseline', baseLock], fetchImpl, allowlistPath)
+    assert.equal(result.exitCode, 2)
+    assert.match(result.output, /could not retrieve advisories for .*base/)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('the change-triggered audit job passes a baseline lockfile to the gate', () => {
+  const repoRoot = path.resolve(import.meta.dirname, '..', '..')
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8')
+  assert.match(workflow, /node scripts\/audit-ci\.mjs --severity high \$\{\{ steps\.audit-baseline\.outputs\.args \}\}/)
+  const scheduled = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'audit.yml'), 'utf8')
+  assert.doesNotMatch(scheduled, /node scripts\/audit-ci\.mjs[^\n]*--baseline/)
 })
 
 test('the change-triggered audit job has a hard workflow timeout', () => {

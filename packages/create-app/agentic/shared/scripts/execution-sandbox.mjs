@@ -69,16 +69,17 @@ export function collapseReadOnlyRoots(values) {
 
 export function linuxMergedUsrSymlinkArgs() {
   const aliases = [
-    ['/bin', 'usr/bin'],
-    ['/sbin', 'usr/sbin'],
-    ['/lib', 'usr/lib'],
-    ['/lib64', 'usr/lib64'],
+    ['/bin', ['usr/bin']],
+    ['/sbin', ['usr/sbin', 'usr/bin']],
+    ['/lib', ['usr/lib']],
+    ['/lib64', ['usr/lib64', 'usr/lib']],
   ]
-  return aliases.flatMap(([alias, expected]) => {
+  return aliases.flatMap(([alias, targets]) => {
     try {
       const stat = fs.lstatSync(alias)
-      return stat.isSymbolicLink() && fs.readlinkSync(alias) === expected
-        ? ['--symlink', expected, alias]
+      const target = stat.isSymbolicLink() ? fs.readlinkSync(alias) : null
+      return targets.includes(target)
+        ? ['--symlink', target, alias]
         : []
     } catch { return [] }
   })
@@ -306,6 +307,7 @@ function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, net
     sandboxArgs.push('--ro-bind', root, root)
   }
   for (const file of networkReadable) sandboxArgs.push('--ro-bind', file, file)
+  sandboxArgs.push('--remount-ro', '/', '--remount-ro', '/tmp')
   const realCwd = regularDirectory(cwd, 'sandbox cwd')
   sandboxArgs.push('--chdir', realCwd, '--', resolveExecutable(command, env), ...args)
   return { command: bubblewrap, args: sandboxArgs, cwd: realCwd, env }

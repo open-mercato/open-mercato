@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { ProgressJob } from '../../../data/entities'
+import type { AwilixContainer } from 'awilix'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { updateProgressSchema } from '../../../data/validators'
+import type { ProgressJob } from '../../../data/entities'
 import type { ProgressService } from '../../../lib/progressService'
+import {
+  hasReadableProgressScope,
+  hasWritableProgressScope,
+  resolveProgressRequestScope,
+} from '../../requestScope'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['progress.view'] },
@@ -14,6 +20,23 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
+async function canMutateProgressJob(
+  container: AwilixContainer,
+  auth: NonNullable<AuthContext>,
+  job: Pick<ProgressJob, 'startedByUserId' | 'organizationId'>,
+): Promise<boolean> {
+  if (job.startedByUserId === auth.sub) return true
+  const rbacService = container.resolve('rbacService') as RbacService
+  return rbacService.userHasAllFeatures(auth.sub, ['progress.manage'], {
+    tenantId: auth.tenantId ?? null,
+    organizationId: job.organizationId ?? null,
+  })
+}
+
+function cannotCancelJobResponse() {
+  return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
+}
+
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
@@ -21,12 +44,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-
-  const job = await em.findOne(ProgressJob, {
-    id: params.id,
-    tenantId: auth.tenantId,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
+  const scope = await resolveProgressRequestScope(container, auth, req)
+  if (!hasReadableProgressScope(scope)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const progressService = container.resolve('progressService') as ProgressService
+  const job = await progressService.getJob(params.id, {
+    tenantId: scope.tenantId,
+    organizationId: scope.selectedId,
+    organizationIds: scope.filterIds,
+    userId: auth.sub,
   })
 
   if (!job) {
@@ -74,23 +101,23 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const existing = await em.findOne(ProgressJob, {
-    id: params.id,
-    tenantId: auth.tenantId,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
-  })
-  if (!existing) {
+  const scope = await resolveProgressRequestScope(container, auth, req)
+  if (!hasWritableProgressScope(scope)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const progressService = container.resolve('progressService') as ProgressService
+  const progressContext = {
+    tenantId: scope.tenantId,
+    organizationId: scope.selectedId,
+    organizationIds: scope.filterIds,
+    userId: auth.sub,
+  }
+  const existing = await progressService.getJob(params.id, progressContext)
+  if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const progressService = container.resolve('progressService') as ProgressService
-
-  const job = await progressService.updateProgress(params.id, parsed.data, {
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-    userId: auth.sub,
-  })
+  const job = await progressService.updateProgress(params.id, parsed.data, progressContext)
 
   return NextResponse.json({ ok: true, progressPercent: job.progressPercent })
 }
@@ -103,16 +130,25 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   const container = await createRequestContainer()
   const progressService = container.resolve('progressService') as ProgressService
-
+  const scope = await resolveProgressRequestScope(container, auth, req)
+  if (!hasWritableProgressScope(scope)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const progressContext = {
+    tenantId: scope.tenantId,
+    organizationId: scope.selectedId,
+    organizationIds: scope.filterIds,
+    userId: auth.sub,
+  }
   try {
-    await progressService.cancelJob(params.id, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      userId: auth.sub,
-    })
+    const existing = await progressService.getJob(params.id, progressContext)
+    if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
+      return cannotCancelJobResponse()
+    }
+    await progressService.cancelJob(params.id, progressContext)
     return NextResponse.json({ ok: true })
   } catch {
-    return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
+    return cannotCancelJobResponse()
   }
 }
 
@@ -128,7 +164,7 @@ export const openApi = {
   },
   PUT: {
     summary: 'Update progress job',
-    description: 'Updates progress metrics and heartbeat for a running job.',
+    description: 'Updates progress metrics and heartbeat for a running job. Callers can update jobs they started; updating another user\'s job requires progress.manage.',
     tags: ['Progress'],
     responses: {
       200: { description: 'Progress updated' },
@@ -138,7 +174,7 @@ export const openApi = {
   },
   DELETE: {
     summary: 'Cancel progress job',
-    description: 'Requests cancellation of a running or pending job.',
+    description: 'Requests cancellation of a running or pending job. Callers can cancel jobs they started; cancelling another user\'s job requires progress.manage.',
     tags: ['Progress'],
     responses: {
       200: { description: 'Cancellation requested' },

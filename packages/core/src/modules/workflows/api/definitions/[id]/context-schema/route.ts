@@ -26,7 +26,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { type WorkflowDefinitionData } from '../../../../data/entities'
 import {
   computeDefinitionContextLedger,
@@ -40,6 +40,7 @@ import {
   workflowContextSchemaResponseSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -90,7 +91,7 @@ export async function GET(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
     if (!tenantId) {
       return NextResponse.json({ error: 'Missing tenant context' }, { status: 400 })
@@ -129,6 +130,7 @@ export async function GET(
 
     return respondWithLedger(definitionData, stepId)
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error computing workflow context schema', { err: error })
     return NextResponse.json(
       { error: 'Failed to compute workflow context schema' },

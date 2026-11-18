@@ -22,6 +22,7 @@ import type {
   ProductUnitConversionDraft,
 } from "./productForm";
 import { createProductUnitConversionDraft } from "./productForm";
+import { translateCatalogUnitLabel } from "../../lib/unitLabels";
 import { REFERENCE_UNIT_CODES } from "@open-mercato/shared/lib/units/unitCodes";
 import { toTrimmedOrNull } from "./productFormUtils";
 import { useUnitPriceDisplayEnabled } from "./hooks/useUnitPriceDisplayEnabled";
@@ -57,15 +58,6 @@ const REFERENCE_UNIT_OPTIONS = REFERENCE_UNIT_CODES.map((code) => ({
   fallback: REFERENCE_UNIT_DISPLAY[code] ?? code,
 }));
 
-// Keeps the field submit-ready (dot-decimal, no grouping characters) while the user is
-// still typing. Falls back to the raw value when it isn't parseable yet (empty, a lone
-// sign) so the field stays editable. Delegates to `parseLocaleNumber` instead of a
-// hard-coded `,` -> `.` swap, which broke on grouped input such as `1 234,56` (#5828).
-export function normalizeDecimalInput(value: string, locale?: string): string {
-  const parsed = parseLocaleNumber(value, locale);
-  return parsed === null ? value : String(parsed);
-}
-
 export function toPositiveNumber(value: unknown, locale?: string): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) && value > 0 ? value : null;
@@ -82,16 +74,15 @@ function toSortValue(value: string): number {
   return Number.isFinite(numeric) ? numeric : Number.MAX_SAFE_INTEGER;
 }
 
-function formatPreviewNumber(value: number): string {
+function formatPreviewNumber(value: number, locale?: string): string {
   if (!Number.isFinite(value)) return "0";
-  const rounded = Math.round(value * 1_000_000) / 1_000_000;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 6,
+    useGrouping: false,
+  }).format(value);
 }
 
-function normalizeConversions(
-  value: unknown,
-  locale?: string,
-): ProductUnitConversionDraft[] {
+function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
   if (!Array.isArray(value)) return [];
   const normalized = value
     .map((entry) => {
@@ -100,9 +91,9 @@ function normalizeConversions(
       return {
         id: toTrimmedOrNull(row.id) ?? null,
         unitCode: toTrimmedOrNull(row.unitCode) ?? "",
-        toBaseFactor: toTrimmedOrNull(row.toBaseFactor)
-          ? normalizeDecimalInput(toTrimmedOrNull(row.toBaseFactor) as string, locale)
-          : "",
+        // Stays raw while editing (issue #5828) — re-serializing on every render would drop
+        // an in-progress decimal separator the instant it's typed.
+        toBaseFactor: row.toBaseFactor ?? "",
         sortOrder: toTrimmedOrNull(row.sortOrder) ?? "",
         isActive: row.isActive !== false,
       } satisfies ProductUnitConversionDraft;
@@ -121,7 +112,9 @@ function normalizeConversions(
 }
 
 function buildUnitOptions(
-  entries: UnitDictionaryEntry[] | undefined,
+  entries: UnitDictionaryEntry[],
+  t: ReturnType<typeof useT>,
+  locale: string,
 ): UnitOption[] {
   const list = Array.isArray(entries) ? entries : [];
   const options = list
@@ -130,11 +123,11 @@ function buildUnitOptions(
       if (!value) return null;
       return {
         value,
-        label: toTrimmedOrNull(entry.label) ?? value,
+        label: translateCatalogUnitLabel(value, toTrimmedOrNull(entry.label) ?? value, t),
       } satisfies UnitOption;
     })
     .filter((entry): entry is UnitOption => Boolean(entry));
-  return options.sort((left, right) => left.label.localeCompare(right.label));
+  return options.sort((left, right) => left.label.localeCompare(right.label, locale));
 }
 
 export function ProductUomSection({
@@ -146,12 +139,16 @@ export function ProductUomSection({
   const t = useT();
   const locale = useLocale();
   const { enabled: unitPriceDisplayEnabled } = useUnitPriceDisplayEnabled();
-  const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
+  const [unitEntries, setUnitEntries] = React.useState<UnitDictionaryEntry[]>([]);
+  const unitOptions = React.useMemo(
+    () => buildUnitOptions(unitEntries, t, locale),
+    [unitEntries, t, locale],
+  );
   const [loadingUnits, setLoadingUnits] = React.useState(false);
   const [errorLoadingUnits, setErrorLoadingUnits] = React.useState(false);
   const conversions = React.useMemo(
-    () => normalizeConversions(values.unitConversions, locale),
-    [values.unitConversions, locale],
+    () => normalizeConversions(values.unitConversions),
+    [values.unitConversions],
   );
 
   React.useEffect(() => {
@@ -166,10 +163,10 @@ export function ProductUomSection({
           { fallback: { entries: [] } },
         );
         if (cancelled) return;
-        setUnitOptions(buildUnitOptions(response.result?.entries));
+        setUnitEntries(response.result?.entries ?? []);
       } catch {
         if (!cancelled) {
-          setUnitOptions([]);
+          setUnitEntries([]);
           setErrorLoadingUnits(true);
         }
       } finally {
@@ -246,15 +243,13 @@ export function ProductUomSection({
 
   const defaultUnit = toTrimmedOrNull(values.defaultUnit) ?? "";
   const defaultSalesUnit = toTrimmedOrNull(values.defaultSalesUnit) ?? "";
-  const defaultSalesQuantityRaw =
-    toTrimmedOrNull(values.defaultSalesUnitQuantity) ?? "1";
-  const defaultSalesQuantity = normalizeDecimalInput(defaultSalesQuantityRaw, locale);
+  const defaultSalesQuantity =
+    values.defaultSalesUnitQuantity ?? "1";
   const unitPriceEnabled = Boolean(values.unitPriceEnabled);
   const unitPriceReferenceUnit =
     toTrimmedOrNull(values.unitPriceReferenceUnit) ?? "";
-  const unitPriceBaseQuantityRaw =
-    toTrimmedOrNull(values.unitPriceBaseQuantity) ?? "";
-  const unitPriceBaseQuantity = normalizeDecimalInput(unitPriceBaseQuantityRaw, locale);
+  const unitPriceBaseQuantity =
+    values.unitPriceBaseQuantity ?? "";
 
   const baseUnitLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
   const salesUnitLabel =
@@ -282,23 +277,6 @@ export function ProductUomSection({
       ? defaultSalesQuantityNumber * defaultSalesFactor
       : null;
   const unitPriceBaseQuantityNumber = toPositiveNumber(unitPriceBaseQuantity, locale);
-
-  const validConversions = conversions.filter(
-    (entry) =>
-      toTrimmedOrNull(entry.unitCode) && toTrimmedOrNull(entry.toBaseFactor),
-  );
-  const conversionPreviewItems = validConversions
-    .slice(0, 3)
-    .map((entry) => {
-      const label = findUnitLabel(entry.unitCode) ?? entry.unitCode;
-      const baseLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
-      const factor = toTrimmedOrNull(entry.toBaseFactor) ?? "1";
-      return `1 ${label} = ${factor} ${baseLabel || t("catalog.products.uom.baseUnit", "base unit")}`;
-    });
-  const conversionPreview =
-    validConversions.length > 3
-      ? `${conversionPreviewItems.join(" • ")} (+${validConversions.length - 3})`
-      : conversionPreviewItems.join(" • ");
 
   return (
     <div
@@ -396,10 +374,7 @@ export function ProductUomSection({
             inputMode="decimal"
             value={defaultSalesQuantity}
             onChange={(event) =>
-              setValue(
-                "defaultSalesUnitQuantity",
-                normalizeDecimalInput(event.target.value, locale),
-              )
+              setValue("defaultSalesUnitQuantity", event.target.value)
             }
             placeholder="1"
           />
@@ -416,10 +391,11 @@ export function ProductUomSection({
                     "catalog.products.uom.defaultSalesQuantityPreviewWithNormalization",
                     "Default line: {{quantity}} {{salesUnit}} (= {{normalized}} {{baseUnit}}).",
                     {
-                      quantity: formatPreviewNumber(defaultSalesQuantityNumber),
+                      quantity: formatPreviewNumber(defaultSalesQuantityNumber, locale),
                       salesUnit: salesUnitLabel,
                       normalized: formatPreviewNumber(
                         defaultSalesQuantityNormalized,
+                        locale,
                       ),
                       baseUnit: baseUnitLabel,
                     },
@@ -428,7 +404,7 @@ export function ProductUomSection({
                     "catalog.products.uom.defaultSalesQuantityPreview",
                     "Default line: {{quantity}} {{salesUnit}}.",
                     {
-                      quantity: formatPreviewNumber(defaultSalesQuantityNumber),
+                      quantity: formatPreviewNumber(defaultSalesQuantityNumber, locale),
                       salesUnit: salesUnitLabel,
                     },
                   )}
@@ -549,10 +525,7 @@ export function ProductUomSection({
                 inputMode="decimal"
                 value={unitPriceBaseQuantity}
                 onChange={(event) =>
-                  setValue(
-                    "unitPriceBaseQuantity",
-                    normalizeDecimalInput(event.target.value, locale),
-                  )
+                  setValue("unitPriceBaseQuantity", event.target.value)
                 }
                 placeholder="1"
               />
@@ -566,7 +539,7 @@ export function ProductUomSection({
                   "catalog.products.unitPrice.hintWithPreview",
                   "Show calculated price per {{quantity}} {{unit}}. For most products use 1 (for example: 1 kg, 1 l, 1 m²).",
                   {
-                    quantity: formatPreviewNumber(unitPriceBaseQuantityNumber),
+                    quantity: formatPreviewNumber(unitPriceBaseQuantityNumber, locale),
                     unit: unitPriceReferenceUnit,
                   },
                 )
@@ -613,7 +586,7 @@ export function ProductUomSection({
                       "1 {{fromUnit}} = {{factor}} {{baseUnit}}",
                       {
                         fromUnit: findUnitLabel(entry.unitCode) ?? entry.unitCode,
-                        factor: formatPreviewNumber(conversionFactor),
+                        factor: formatPreviewNumber(conversionFactor, locale),
                         baseUnit:
                           findUnitLabel(defaultUnit) ??
                           defaultUnit ??
@@ -663,7 +636,7 @@ export function ProductUomSection({
                     value={entry.toBaseFactor}
                     onChange={(event) =>
                       updateConversion(index, {
-                        toBaseFactor: normalizeDecimalInput(event.target.value, locale),
+                        toBaseFactor: event.target.value,
                       })
                     }
                     placeholder="1"
@@ -750,10 +723,6 @@ export function ProductUomSection({
               "Use arrows to reorder conversion priority.",
             )}
           </p>
-        ) : null}
-
-        {conversionPreview ? (
-          <p className="text-xs text-muted-foreground">{conversionPreview}</p>
         ) : null}
       </div>
     </div>

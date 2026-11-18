@@ -81,12 +81,12 @@ export interface GatewayConnectionEntry {
  * Stable, non-reversible identity for a bot token, used to detect that two
  * channel rows are really the same Discord bot.
  *
- * The hub derives a channel's `externalIdentifier` by sniffing the credential
- * bag for email-shaped keys, which Discord has none of, so every reconnect
- * inserts a fresh row instead of healing the existing one. Until that is fixed
- * hub-side, two rows for one bot would each open a socket and IDENTIFY
- * independently, defeating the single-identify discipline `concurrency: 1`
- * exists to enforce. Hashing keeps the token out of the registry and the logs.
+ * A reconnect now heals the existing row (`validateCredentials` reports
+ * `discord:<applicationId>` as the channel identity), but deployments can still
+ * hold duplicate rows created before that, and two rows for one bot would each
+ * open a socket and IDENTIFY independently, defeating the single-identify
+ * discipline `concurrency: 1` exists to enforce. Hashing keeps the token out of
+ * the registry and the logs.
  */
 export function botTokenFingerprint(botToken: string): string {
   return createHash('sha256').update(botToken).digest('hex')

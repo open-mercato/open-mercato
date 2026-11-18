@@ -42,6 +42,20 @@ describe('interactionCreateSchema validation (#1806, #1808)', () => {
     }
   })
 
+  it('accepts date/time null for an undated backlog task (#5941)', () => {
+    const result = interactionCreateSchema.safeParse({
+      ...baseValid,
+      interactionType: 'task' as const,
+      date: null,
+      time: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.date).toBeNull()
+      expect(result.data.scheduledAt).toBeUndefined()
+    }
+  })
+
   it('rejects malformed phone on call activity (#1808)', () => {
     const result = interactionCreateSchema.safeParse({
       ...baseValid,
@@ -179,6 +193,30 @@ describe('interactionUpdateSchema scheduledAt derivation', () => {
     const result = interactionUpdateSchema.safeParse({
       ...baseUpdate,
       scheduledAt: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.scheduledAt).toBeNull()
+    }
+  })
+
+  it('accepts date/time null the same way scheduledAt null is accepted (#5941)', () => {
+    const result = interactionUpdateSchema.safeParse({
+      ...baseUpdate,
+      date: null,
+      time: null,
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.date).toBeNull()
+      expect(result.data.time).toBeNull()
+    }
+  })
+
+  it('clears scheduledAt when the caller drops the date with date: null (#5941)', () => {
+    const result = interactionUpdateSchema.safeParse({
+      ...baseUpdate,
+      date: null,
     })
     expect(result.success).toBe(true)
     if (result.success) {
@@ -412,5 +450,45 @@ describe('company clearable plain-text & revenue update fields (#3050)', () => {
       expect('annualRevenue' in result.data).toBe(false)
       expect('description' in result.data).toBe(false)
     }
+  })
+})
+
+
+describe('timezone-aware interaction scheduling', () => {
+  it.each([interactionCreateSchema, interactionUpdateSchema])('uses the first representable all-day instant across midnight DST and ignores the time', (schema) => {
+    const result = schema.parse({ organizationId: ORG_ID, tenantId: TENANT_ID, entityId: ENTITY_ID, id: ENTITY_ID, interactionType: 'meeting', date: '2026-09-06', time: '09:15', allDay: true, timezone: 'America/Santiago' })
+    expect(result.scheduledAt?.toISOString()).toBe('2026-09-06T04:00:00.000Z')
+  })
+
+  it('accepts omitted all-day time and rejects a skipped civil day', () => {
+    const base = { organizationId: ORG_ID, tenantId: TENANT_ID, entityId: ENTITY_ID, interactionType: 'meeting', allDay: true }
+    expect(interactionCreateSchema.parse({ ...base, date: '2026-09-06', timezone: 'America/Santiago' }).scheduledAt?.toISOString()).toBe('2026-09-06T04:00:00.000Z')
+    const result = interactionCreateSchema.safeParse({ ...base, date: '2011-12-30', timezone: 'Pacific/Apia' })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues).toContainEqual(expect.objectContaining({ message: 'customers.calendar.editor.validation.timezoneGap' }))
+  })
+
+  const createBase = { organizationId: ORG_ID, tenantId: TENANT_ID, entityId: ENTITY_ID, interactionType: 'meeting' }
+  const updateBase = { id: ENTITY_ID }
+
+  it.each([interactionCreateSchema, interactionUpdateSchema])('derives explicit-zone wall time independently of the server zone', (schema) => {
+    const result = schema.parse({ ...createBase, ...updateBase, date: '2026-09-29', time: '09:15', timezone: 'Europe/Warsaw' })
+    expect(result.scheduledAt?.toISOString()).toBe('2026-09-29T07:15:00.000Z')
+  })
+
+  it.each([interactionCreateSchema, interactionUpdateSchema])('rejects local times that do not exist during a DST transition', (schema) => {
+    const result = schema.safeParse({ ...createBase, ...updateBase, date: '2026-03-29', time: '02:30', timezone: 'Europe/Warsaw' })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues).toContainEqual(expect.objectContaining({ path: ['time'], message: 'customers.calendar.editor.validation.timezoneGap' }))
+  })
+
+  it.each([interactionCreateSchema, interactionUpdateSchema])('keeps an explicit instant authoritative even with gap wall fields', (schema) => {
+    const result = schema.parse({ ...createBase, ...updateBase, date: '2026-03-29', time: '02:30', timezone: 'Europe/Warsaw', scheduledAt: '2026-03-29T01:30:00Z' })
+    expect(result.scheduledAt?.toISOString()).toBe('2026-03-29T01:30:00.000Z')
+  })
+
+  it.each([undefined, null])('preserves legacy local derivation for timezone %s', (timezone) => {
+    const result = interactionCreateSchema.parse({ ...createBase, date: '2026-09-29', time: '09:15', timezone })
+    expect(result.scheduledAt?.getTime()).toBe(new Date('2026-09-29T09:15:00').getTime())
   })
 })

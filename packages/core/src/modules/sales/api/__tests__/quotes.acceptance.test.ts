@@ -8,6 +8,7 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
@@ -21,6 +22,7 @@ const mockEm: Record<string, jest.Mock> = {
   commit: jest.fn().mockResolvedValue(undefined),
   rollback: jest.fn().mockResolvedValue(undefined),
   transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)),
+  getKysely: jest.fn(() => createSalesDocumentLockKyselyFixture('quote-lock')),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -134,6 +136,40 @@ describe('quote send + accept flow', () => {
     // Send-state is now persisted inside em.transactional (committed before the email), not via a bare em.flush.
     expect(mockEm.transactional).toHaveBeenCalled()
     expect(mockEm.persist).toHaveBeenCalledWith(quote)
+  })
+
+  test('sends to the document\'s "Send to" address ahead of the snapshot contact (#8459)', async () => {
+    const quote = {
+      id: '22222222-2222-4222-8222-222222222223',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-2',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: {
+        contact: { email: 'contact@example.com' },
+        customer: { primaryEmail: 'primary@example.com' },
+      },
+      metadata: { customerEmail: 'accounting@example.com' },
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | null) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    expect(res.status).toBe(200)
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'accounting@example.com' }))
   })
 
   test('accept never matches a raw (unhashed) stored token — hashed lookup only (#2929)', async () => {
@@ -801,7 +837,14 @@ describe('quote editing invalidates sent token', () => {
     mockEm.flush.mockResolvedValue(undefined)
 
     const ctx: any = {
-      container: { resolve: (token: string) => (token === 'em' ? mockEm : null) },
+      container: {
+        resolve: (token: string) =>
+          token === 'dataEngine'
+            ? { markOrmEntityChange: jest.fn() }
+            : token === 'em'
+              ? mockEm
+              : null,
+      },
       auth: { sub: 'user-1', tenantId: quote.tenantId, orgId: quote.organizationId },
       organizationScope: null,
       selectedOrganizationId: quote.organizationId,

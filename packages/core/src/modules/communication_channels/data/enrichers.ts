@@ -40,6 +40,8 @@ import {
  *   - Enriched fields are namespaced with `_channel*` / `_reactions` prefixes.
  *   - Enrichers are read-only; no writes via the EntityManager.
  *   - Each enricher is feature-gated by `communication_channels.view`.
+ *   - Each enricher only enriches messages the caller sent or receives
+ *     (`loadParticipantMessageIds`); every other record gets the fallback shape.
  */
 
 type MessageRecord = Record<string, unknown> & {
@@ -99,6 +101,38 @@ function sanitizeEmailPayloadHtml(
   return sanitizeChannelHtml(html)
 }
 
+/**
+ * Return the subset of `messageIds` the authenticated user may see channel data
+ * for: messages they sent or are a non-deleted recipient of, scoped to the
+ * caller's tenant/organization. Every enricher on `messages.message` gates its
+ * output on this set so privacy does not depend on how the host route scopes its
+ * rows (#3872, #3834). Fails closed (empty set) without an authenticated user.
+ */
+async function loadParticipantMessageIds(
+  em: EntityManager,
+  messageIds: string[],
+  ctx: EnricherContext,
+): Promise<Set<string>> {
+  const userId = typeof ctx.userId === 'string' && ctx.userId.length > 0 ? ctx.userId : null
+  if (!userId || messageIds.length === 0) return new Set()
+  const organizationId = ctx.organizationId ?? null
+
+  const db = em.getKysely<MessagesParticipantScopeDatabase>()
+  let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId)
+    .select('m.id')
+    .distinct()
+    .where('m.id', 'in', messageIds)
+    .where('m.tenant_id', '=', ctx.tenantId as string)
+    .where('m.deleted_at', 'is', null)
+
+  participantQuery = organizationId !== null
+    ? participantQuery.where('m.organization_id', '=', organizationId)
+    : participantQuery.where('m.organization_id', 'is', null)
+
+  const participantRows = await participantQuery.execute()
+  return new Set(participantRows.map((row) => row.id))
+}
+
 // ── _channel + _channelPayload + _channelContact ──────────────────────────────
 
 const messageChannelEnricher: ResponseEnricher<
@@ -130,8 +164,8 @@ const messageChannelEnricher: ResponseEnricher<
     const organizationId = ctx.organizationId ?? null
     const dscope = { tenantId, organizationId }
 
-    const userId = typeof ctx.userId === 'string' ? ctx.userId : null
-    if (!userId) {
+    const participantMessageIdSet = await loadParticipantMessageIds(em, messageIds, ctx)
+    if (participantMessageIdSet.size === 0) {
       return records.map((record) => ({
         ...record,
         _channel: null,
@@ -139,22 +173,7 @@ const messageChannelEnricher: ResponseEnricher<
         _channelContact: null,
       }))
     }
-
-    const db = em.getKysely<MessagesParticipantScopeDatabase>()
-    let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId)
-      .select('m.id')
-      .distinct()
-      .where('m.id', 'in', messageIds)
-      .where('m.tenant_id', '=', tenantId)
-      .where('m.deleted_at', 'is', null)
-
-    participantQuery = organizationId !== null
-      ? participantQuery.where('m.organization_id', '=', organizationId)
-      : participantQuery.where('m.organization_id', 'is', null)
-
-    const participantRows = await participantQuery.execute()
-    const participantMessageIds = participantRows.map((row) => row.id)
-    const participantMessageIdSet = new Set(participantMessageIds)
+    const participantMessageIds = Array.from(participantMessageIdSet)
 
     // 1) MessageChannelLink — one bounded `$in` query for the whole page, shared by
     // all three enrichments (channel metadata, channel payload, conversation
@@ -301,12 +320,16 @@ const messageReactionsEnricher: ResponseEnricher<
     if (records.length === 0) return records
     const messageIds = records.map((r) => r.id)
     const em = ctxEm(ctx)
+    const participantMessageIdSet = await loadParticipantMessageIds(em, messageIds, ctx)
+    if (participantMessageIdSet.size === 0) {
+      return records.map((r) => ({ ...r, _reactions: [] }))
+    }
     const dscope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId ?? null }
     const reactions = await findWithDecryption(
       em,
       MessageReaction,
       {
-        messageId: { $in: messageIds },
+        messageId: { $in: Array.from(participantMessageIdSet) },
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
       },

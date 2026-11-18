@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { pipelineStageReorderSchema, type PipelineStageReorderInput } from '../../../data/validators'
 import { withScopedPayload } from '../../utils'
@@ -35,11 +36,11 @@ export async function POST(req: Request) {
       container,
       auth,
       organizationScope: scope,
-      selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+      selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
       organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
       request: req,
     }
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
     const tenantId = auth.tenantId ?? null
     if (!organizationId || !tenantId) {
       return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })

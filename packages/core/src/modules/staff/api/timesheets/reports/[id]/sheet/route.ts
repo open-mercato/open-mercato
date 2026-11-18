@@ -28,6 +28,7 @@ import { StaffTimeReport, StaffTimeReportEvent } from '../../../../../data/entit
 import { loadReportProjectIds } from '../../../../../commands/timesheets-reports'
 import { buildReportSheet } from '../../../../../lib/timesheets-reports/buildReportSheet'
 import { buildReportRows } from '../../../../../lib/timesheets-reports/reportRows'
+import { formatReportPeriodDate } from '../../../../../lib/timesheets-reports/reportPeriod'
 import { hasReportGrouping, type ReportGrouping } from '../../../../../lib/timesheets-reports/reportGroupings'
 import { resolveReportRequestContext, reportSheetLabels, MAX_SHEET_ROWS } from '../../shared'
 import {
@@ -111,8 +112,8 @@ export async function GET(req: Request) {
         customerId: report.customerId,
         customerSnapshot: report.customerSnapshot ?? null,
         periodKind: report.periodKind,
-        periodFrom: report.periodFrom instanceof Date ? report.periodFrom.toISOString().slice(0, 10) : null,
-        periodTo: report.periodTo instanceof Date ? report.periodTo.toISOString().slice(0, 10) : null,
+        periodFrom: formatReportPeriodDate(report.periodFrom),
+        periodTo: formatReportPeriodDate(report.periodTo),
         currencyCode: sheet.currencyCode,
         grouping: sheet.grouping,
         nonbillableMode: sheet.nonbillableMode,

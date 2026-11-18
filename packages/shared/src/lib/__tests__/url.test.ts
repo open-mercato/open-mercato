@@ -4,6 +4,8 @@ import {
   assertAllowedAppOrigin,
   getAppBaseUrl,
   getSecurityEmailBaseUrl,
+  isEquivalentLoopbackOrigin,
+  readConfiguredAppOrigins,
   resolveRequestOrigin,
   toAbsoluteUrl,
   toSecurityEmailUrl,
@@ -263,5 +265,44 @@ describe('toAbsoluteUrl', () => {
       'x-forwarded-host': 'app.example.com',
     })
     expect(toAbsoluteUrl(req, '/reset/token123')).toBe('https://app.example.com/reset/token123')
+  })
+})
+
+describe('isEquivalentLoopbackOrigin', () => {
+  it('treats mismatched loopback hostnames on the same scheme and port as equivalent by default', () => {
+    expect(isEquivalentLoopbackOrigin('http://127.0.0.1:3000', 'http://localhost:3000')).toBe(true)
+  })
+
+  it('ignores a scheme mismatch by default (TLS-terminating proxy tolerance)', () => {
+    expect(isEquivalentLoopbackOrigin('https://127.0.0.1:3000', 'http://127.0.0.1:3000')).toBe(true)
+  })
+
+  it('rejects a scheme mismatch when requireSameProtocol is set', () => {
+    expect(
+      isEquivalentLoopbackOrigin('https://127.0.0.1:3000', 'http://127.0.0.1:3000', { requireSameProtocol: true }),
+    ).toBe(false)
+  })
+
+  it('still allows matching schemes when requireSameProtocol is set', () => {
+    expect(
+      isEquivalentLoopbackOrigin('http://127.0.0.1:3000', 'http://localhost:3000', { requireSameProtocol: true }),
+    ).toBe(true)
+  })
+})
+
+describe('readConfiguredAppOrigins', () => {
+  it('collects APP_URL, NEXT_PUBLIC_APP_URL and APP_ALLOWED_ORIGINS as de-duplicated origins', () => {
+    expect(
+      readConfiguredAppOrigins({
+        APP_URL: 'https://quotes.example.com/base/',
+        NEXT_PUBLIC_APP_URL: 'https://app.example.com',
+        APP_ALLOWED_ORIGINS: 'https://shop.example.com, https://app.example.com',
+      }),
+    ).toEqual(['https://quotes.example.com', 'https://app.example.com', 'https://shop.example.com'])
+  })
+
+  it('skips malformed values and returns an empty list when nothing is configured', () => {
+    expect(readConfiguredAppOrigins({ APP_URL: 'not a url' })).toEqual([])
+    expect(readConfiguredAppOrigins({})).toEqual([])
   })
 })

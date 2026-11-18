@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { assertPublicUrl } from '@open-mercato/web-research'
+import { assertPublicUrl, type LookupFn } from '@open-mercato/web-research'
 import { SidecarError } from './protocol'
 
 /**
@@ -35,8 +35,14 @@ export type BrowserHandle = {
   close(): Promise<void>
 }
 
+export type LaunchOptions = {
+  headless?: boolean
+  args?: string[]
+  proxy?: { server: string; bypass?: string }
+}
+
 export type BrowserType = {
-  launch(options?: { headless?: boolean; args?: string[] }): Promise<BrowserHandle>
+  launch(options?: LaunchOptions): Promise<BrowserHandle>
 }
 
 function isModuleNotFound(message: string): boolean {
@@ -115,7 +121,7 @@ const defaultInstallRunner: InstallRunner = async (onProgress) =>
  */
 export async function launchChromium(
   browserType: BrowserType,
-  options: { headless?: boolean; args?: string[] },
+  options: LaunchOptions,
   deps: { install?: InstallRunner; onProgress?: (line: string) => void } = {},
 ): Promise<BrowserHandle> {
   try {
@@ -150,25 +156,34 @@ export async function launchChromium(
 
 const MAX_VERDICT_CACHE = 2048
 
+export type NavigationGuardOptions = {
+  /** @deprecated Every routed request is filtered now; this option is ignored. */
+  filterSubresources?: boolean
+  warn?: (message: string) => void
+  lookup?: LookupFn
+}
+
 /**
- * Blocks private-origin navigations for the life of the context.
+ * Aborts every routed request whose URL is not public, navigations and
+ * subresources alike, for the life of the context.
  *
- * The parent and the sidecar both vet the URL before a `goto`, but a page reached
- * through a legitimate public navigation can redirect or script-navigate itself
- * to a metadata endpoint, and those hops never pass through the RPC layer.
+ * This is an early-abort layer, not the egress boundary: `context.route()` never
+ * sees redirect hops, WebSockets, service workers or UDP, and it vets the name
+ * with `node:dns` while Chromium dials whatever its own resolver returns. The
+ * boundary is the pinned egress proxy every connection is forced through (see
+ * `egressProxy.ts`). Navigation verdicts are never cached; subresource verdicts
+ * are cached per host for the life of the context.
  *
- * Fails closed: Chromium resolves names with its own resolver, so a hostname
- * `node:dns` cannot vet must not be allowed through on the assumption it is dead.
+ * Fails closed: a context without request interception is refused, and a URL
+ * that cannot be parsed is aborted.
  */
 export async function installNavigationGuard(
   context: ContextHandle,
-  options: { filterSubresources?: boolean; warn?: (message: string) => void } = {},
+  options: NavigationGuardOptions = {},
 ): Promise<void> {
   if (typeof context.route !== 'function') {
-    options.warn?.('context.route() unavailable — in-page navigation SSRF guard NOT installed')
-    return
+    throw new SidecarError('context.route() is unavailable, so the request guard cannot be installed', 'init')
   }
-  const filterSubresources = options.filterSubresources ?? false
   const verdicts = new Map<string, boolean>()
   const remember = (host: string, blocked: boolean): void => {
     if (verdicts.size >= MAX_VERDICT_CACHE) {
@@ -181,14 +196,12 @@ export async function installNavigationGuard(
   await context.route('**/*', async (route) => {
     const request = route.request()
     const isNavigation = request.isNavigationRequest()
-    if (!isNavigation && !filterSubresources) return route.continue()
-
     const url = request.url()
     let host: string
     try {
       host = new URL(url).host
     } catch {
-      return isNavigation ? route.abort('blockedbyclient') : route.continue()
+      return route.abort('blockedbyclient')
     }
 
     const cached = isNavigation ? undefined : verdicts.get(host)
@@ -198,6 +211,7 @@ export async function installNavigationGuard(
     try {
       await assertPublicUrl(url, isNavigation ? 'browser navigation' : 'browser subresource', {
         failClosed: true,
+        ...(options.lookup ? { lookup: options.lookup } : {}),
       })
       remember(host, false)
     } catch {
@@ -209,18 +223,29 @@ export async function installNavigationGuard(
 }
 
 /**
+ * Denies Chromium its own DNS, so any path that bypasses the egress proxy by
+ * hostname fails instead of resolving. The proxy address is a literal, so it is
+ * unaffected. Only meaningful alongside the egress proxy, so it is kept out of
+ * {@link LAUNCH_ARGS}.
+ */
+export const RESOLVER_LOCKDOWN_ARGS = ['--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1']
+
+/**
  * Launch flags aimed at not announcing automation. Playwright's defaults set
  * `navigator.webdriver` and a headless UA, which the SERP endpoints this adapter
  * exists to reach specifically look for.
  *
  * `--disable-dev-shm-usage` is a sizing workaround, not a security control: it
  * makes Chromium write shared memory to /tmp instead of a container's small
- * /dev/shm. The sandbox is deliberately NOT disabled here — see
+ * /dev/shm. The WebRTC policy and `--disable-quic` keep UDP from leaving outside
+ * the egress proxy. The sandbox is deliberately NOT disabled here — see
  * {@link resolveLaunchArgs}.
  */
 export const LAUNCH_ARGS = [
   '--disable-blink-features=AutomationControlled',
   '--disable-dev-shm-usage',
+  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+  '--disable-quic',
 ]
 
 export const SANDBOX_OPT_OUT_ENV = 'OM_WEB_RESEARCH_BROWSER_NO_SANDBOX'

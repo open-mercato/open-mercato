@@ -71,6 +71,60 @@ function stablePollTickScheduleId(organizationId: string): string {
   return stableScheduleUuid(`communication_channels:poll-tick:${organizationId}`)
 }
 
+async function ensureCommunicationChannelSchedules(ctx: {
+  container: import('awilix').AwilixContainer
+  tenantId: string
+  organizationId: string
+}): Promise<void> {
+  const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
+  if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+
+  const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+  try {
+    await schedulerService.register({
+      id: stablePollTickScheduleId(ctx.organizationId),
+      name: 'Communication channels poll tick',
+      description:
+        `Enumerates active polling channels every ${POLL_TICK_INTERVAL_SECONDS}s and enqueues per-channel poll jobs.`,
+      scopeType: 'organization',
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      scheduleType: 'interval',
+      scheduleValue: `${POLL_TICK_INTERVAL_SECONDS}s`,
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: COMMUNICATION_CHANNELS_QUEUES.pollTick,
+      targetPayload: {
+        scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      },
+      sourceType: 'module',
+      sourceModule: 'communication_channels',
+      isEnabled: true,
+    })
+
+    await schedulerService.register({
+      id: stableScheduleUuid(`communication_channels:gmail-renew-watch:${ctx.organizationId}`),
+      name: 'Gmail watch renewal',
+      description:
+        'Daily 04:00 UTC. Re-issues gmail.users.watch for channels within OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS of expiry.',
+      scopeType: 'organization',
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      scheduleType: 'cron',
+      scheduleValue: '0 4 * * *',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: COMMUNICATION_CHANNELS_QUEUES.gmailRenewWatch,
+      targetPayload: { scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId } },
+      sourceType: 'module',
+      sourceModule: 'communication_channels',
+      isEnabled: true,
+    })
+  } catch (error) {
+    logger.warn('Failed to register module schedules', { err: error })
+  }
+}
+
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     superadmin: [
@@ -79,6 +133,7 @@ export const setup: ModuleSetupConfig = {
       'communication_channels.react',
       'communication_channels.assign',
       'communication_channels.connect_user_channel',
+      'communication_channels.share_own_channel',
       'communication_channels.connect_tenant_channel',
       'communication_channels.admin',
       'communication_channels.channel.import_history',
@@ -90,6 +145,7 @@ export const setup: ModuleSetupConfig = {
       'communication_channels.react',
       'communication_channels.assign',
       'communication_channels.connect_user_channel',
+      'communication_channels.share_own_channel',
       'communication_channels.connect_tenant_channel',
       'communication_channels.admin',
       'communication_channels.channel.import_history',
@@ -101,11 +157,13 @@ export const setup: ModuleSetupConfig = {
       'communication_channels.react',
       'communication_channels.assign',
       'communication_channels.connect_user_channel',
+      'communication_channels.share_own_channel',
     ],
     employee: [
       'communication_channels.view',
       'communication_channels.react',
       'communication_channels.connect_user_channel',
+      'communication_channels.share_own_channel',
     ],
   },
 
@@ -191,59 +249,11 @@ export const setup: ModuleSetupConfig = {
      * scheduler module isn't enabled — keeps the hub usable in scheduler-less
      * test harnesses.
      */
-    const cradle = container as { hasRegistration?: (name: string) => boolean }
-    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) {
-      return
-    }
-    const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
-    // Best-effort: a scheduler failure must not abort tenant initialization for
-    // every other module (mirrors the ai_assistant setup pattern). The schedule
-    // ids are deterministic uuids so re-runs upsert idempotently.
-    try {
-      await schedulerService.register({
-        id: stablePollTickScheduleId(organizationId),
-        name: 'Communication channels poll tick',
-        description:
-          `Enumerates active polling channels every ${POLL_TICK_INTERVAL_SECONDS}s and enqueues per-channel poll jobs.`,
-        scopeType: 'organization',
-        organizationId,
-        tenantId,
-        scheduleType: 'interval',
-        scheduleValue: `${POLL_TICK_INTERVAL_SECONDS}s`,
-        timezone: 'UTC',
-        targetType: 'queue',
-        targetQueue: COMMUNICATION_CHANNELS_QUEUES.pollTick,
-        targetPayload: {
-          scope: { tenantId, organizationId },
-        },
-        sourceType: 'module',
-        sourceModule: 'communication_channels',
-        isEnabled: true,
-      })
+    await ensureCommunicationChannelSchedules({ container, tenantId, organizationId })
+  },
 
-      // Spec C § Phase C4 — Gmail watch renewal cron, per-org so multi-tenant
-      // deploys schedule independently.
-      await schedulerService.register({
-        id: stableScheduleUuid(`communication_channels:gmail-renew-watch:${organizationId}`),
-        name: 'Gmail watch renewal',
-        description:
-          'Daily 04:00 UTC. Re-issues gmail.users.watch for channels within OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS of expiry.',
-        scopeType: 'organization',
-        organizationId,
-        tenantId,
-        scheduleType: 'cron',
-        scheduleValue: '0 4 * * *',
-        timezone: 'UTC',
-        targetType: 'queue',
-        targetQueue: COMMUNICATION_CHANNELS_QUEUES.gmailRenewWatch,
-        targetPayload: { scope: { tenantId, organizationId } },
-        sourceType: 'module',
-        sourceModule: 'communication_channels',
-        isEnabled: true,
-      })
-    } catch (error) {
-      logger.warn('Failed to register module schedules', { err: error })
-    }
+  async onOrganizationCreated({ container, tenantId, organizationId }) {
+    await ensureCommunicationChannelSchedules({ container, tenantId, organizationId })
   },
 }
 
