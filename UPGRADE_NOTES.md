@@ -35,11 +35,13 @@ An agent that falls back to OpenCode is not registered at all if it declares gov
 
 **Timeout.** Native file-agent runs are bounded by `OM_AGENT_RUN_TIMEOUT_MS`, not `OM_OPENCODE_RUN_TIMEOUT_MS`. Both default to 5 minutes. If you raised the OpenCode value for slow file agents, raise `OM_AGENT_RUN_TIMEOUT_MS` too.
 
+**No output repair.** On OpenCode, a file agent whose outcome failed validation got the errors back from `submit_outcome` and could resubmit, and an agent that stopped without an outcome got one reminder. On native, neither happens. An answer that the agent's OUTCOME schema rejects, or a tool loop that reaches its step limit without a final answer, fails the run as `AgentOutputInvalidError` with a `schema` guardrail check. Answers that the strict model schema rejected but the authored schema accepts still complete. A one-call repair is planned (see Risks in `.ai/specs/enterprise/agent-orchestrator/2026-07-07-lightweight-agent-runtime.md`).
+
 **Run label.** New file-agent runs persist `agent_runs.runtime = 'native'` instead of `'opencode'`. Older rows keep their label. Reports or dashboards that select file-agent runs by `runtime = 'opencode'` must also count `'native'`, along with the legacy `'in-process'` label from earlier native runs.
 
 **Deprecated bridge.** `OM_AGENT_FILE_AGENT_RUNTIME=opencode` sends every file agent back to OpenCode and logs a deprecation warning once per process. Any other value, or no value, keeps the native default. The bridge lasts one minor version. It goes away with the OpenCode runtime in the decommission phase (Phase 6 of `.ai/specs/enterprise/agent-orchestrator/2026-07-07-lightweight-agent-runtime.md`), which also removes `submit_outcome`, the session store and the file plane.
 
-**Action:** for file agents with a `proposal` or `research` outcome, raise `OM_AGENT_RUN_TIMEOUT_MS` if they need more than 5 minutes. Nothing else is required. Set `OM_AGENT_FILE_AGENT_RUNTIME=opencode` only as a temporary fallback while you fix an agent that misbehaves on the native runtime.
+**Action:** for file agents with a `proposal` or `research` outcome, raise `OM_AGENT_RUN_TIMEOUT_MS` if they need more than 5 minutes. If a file agent now fails because it runs out of steps before answering, raise `maxSteps` in its `AGENT.md` frontmatter and run `yarn generate`. Nothing else is required. Set `OM_AGENT_FILE_AGENT_RUNTIME=opencode` only as a temporary fallback while you fix an agent that misbehaves on the native runtime.
 
 ## File-defined agents declare governance in `GOVERNANCE.json` (#9648, B-3)
 
