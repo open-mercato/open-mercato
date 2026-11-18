@@ -48,9 +48,9 @@ describe('exchange rate form config', () => {
 
 describe('formatRateForDisplay', () => {
   it('shows at most 17 significant digits', () => {
-    expect(formatRateForDisplay('0.25188916876574307304785894206549118387909319899244')).toBe('0.25188916876574307')
-    expect(formatRateForDisplay('0.000056123456789012345678')).toBe('0.000056123456789012346')
-    expect(formatRateForDisplay('4.25')).toBe('4.25')
+    expect(formatRateForDisplay('0.25188916876574307304785894206549118387909319899244', 'en')).toBe('0.25188916876574307')
+    expect(formatRateForDisplay('0.000056123456789012345678', 'en')).toBe('0.000056123456789012346')
+    expect(formatRateForDisplay('4.25', 'en')).toBe('4.25')
   })
 
   it('uses the locale decimal separator', () => {
@@ -59,6 +59,6 @@ describe('formatRateForDisplay', () => {
   })
 
   it('returns a malformed rate unchanged instead of throwing', () => {
-    expect(formatRateForDisplay('NaN')).toBe('NaN')
+    expect(formatRateForDisplay('NaN', 'en')).toBe('NaN')
   })
 })

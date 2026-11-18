@@ -12,6 +12,7 @@ type ExchangeRateListResponse = {
 }
 
 const PRECISE_RATE = '0.000000123456789012345678901234567891'
+const LONG_METADATA_VALUE = `QA-${'0123456789'.repeat(30)}`
 
 /**
  * TC-CUR-019: the exchange-rate editor keeps every digit of a rate, shows the direction as
@@ -42,7 +43,7 @@ test.describe('TC-CUR-019: exchange-rate editor precision round trip', () => {
           rate: PRECISE_RATE,
           date: new Date().toISOString(),
           source: 'QA-Precision-UI',
-          metadata: { tableNo: '001/A/NBP/2026' },
+          metadata: { tableNo: '001/A/NBP/2026', reference: LONG_METADATA_VALUE },
         },
       })
       expect(created.status()).toBe(201)
@@ -71,7 +72,7 @@ test.describe('TC-CUR-019: exchange-rate editor precision round trip', () => {
       const item = (await readJsonSafe<ExchangeRateListResponse>(readBack))?.items?.[0]
       expect(item?.rate).toBe(PRECISE_RATE)
       expect(item?.source).toBe('QA-Precision-UI-Edited')
-      expect(item?.metadata).toEqual({ tableNo: '001/A/NBP/2026' })
+      expect(item?.metadata).toEqual({ tableNo: '001/A/NBP/2026', reference: LONG_METADATA_VALUE })
 
       await page.goto(`/backend/exchange-rates/${encodeURIComponent(rateId!)}`, { waitUntil: 'domcontentloaded' })
       await expect(rateInput).toHaveValue(PRECISE_RATE, { timeout: 30_000 })

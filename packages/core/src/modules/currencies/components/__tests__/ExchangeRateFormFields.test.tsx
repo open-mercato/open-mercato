@@ -38,11 +38,24 @@ describe('ExchangeRateInput', () => {
   })
 })
 
+it('submits the form with Ctrl/Cmd+Enter from the rate input', () => {
+  const onSubmit = jest.fn((event: React.FormEvent) => event.preventDefault())
+  renderWithProviders(
+    <form onSubmit={onSubmit}>
+      <ExchangeRateInput id="rate" label="Exchange Rate" value="1" values={{}} setValue={jest.fn()} />
+    </form>,
+  )
+  const input = screen.getByRole('textbox', { name: 'Exchange Rate' })
+  fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+  fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+  expect(onSubmit).toHaveBeenCalledTimes(2)
+})
+
 describe('ExchangeRateMetadataList', () => {
   it('lists each metadata key and value', () => {
     renderWithProviders(<ExchangeRateMetadataList metadata={{ tableNumber: '223/C/NBP/2026', page: 2 }} />)
     expect(screen.getByText('tableNumber')).toBeInTheDocument()
-    expect(screen.getByText('223/C/NBP/2026')).toHaveClass('break-words')
+    expect(screen.getByText('223/C/NBP/2026')).toHaveClass('wrap-anywhere')
     expect(screen.getByText('2')).toBeInTheDocument()
   })
 })

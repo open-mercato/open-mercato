@@ -39,6 +39,12 @@ export function ExchangeRateInput({ id, value, values, setValue, label }: CrudCu
         setText(next)
         setValue(parseLocaleDecimal(next, locale) ?? next)
       }}
+      onKeyDown={(event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          event.preventDefault()
+          event.currentTarget.form?.requestSubmit()
+        }
+      }}
     />
   )
 
@@ -62,12 +68,12 @@ function metadataValueText(value: unknown): string {
 
 export function ExchangeRateMetadataList({ metadata }: { metadata: Record<string, unknown> }) {
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+    <dl className="min-w-0 space-y-2 text-sm">
       {Object.entries(metadata).map(([key, value]) => (
-        <React.Fragment key={key}>
-          <dt className="text-muted-foreground">{key}</dt>
-          <dd className="break-words text-foreground">{metadataValueText(value)}</dd>
-        </React.Fragment>
+        <div key={key} className="min-w-0">
+          <dt className="wrap-anywhere text-muted-foreground">{key}</dt>
+          <dd className="wrap-anywhere text-foreground">{metadataValueText(value)}</dd>
+        </div>
       ))}
     </dl>
   )
