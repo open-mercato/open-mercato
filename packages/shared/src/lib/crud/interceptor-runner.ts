@@ -1,5 +1,6 @@
 import type {
   ApiInterceptorMethod,
+  ApiInterceptorScope,
   InterceptorContext,
   InterceptorRequest,
   InterceptorResponse,
@@ -78,6 +79,7 @@ export async function runApiInterceptorsBefore(args: {
   method: ApiInterceptorMethod
   request: InterceptorRequest
   context: Omit<InterceptorContext, 'metadata'>
+  scope?: ApiInterceptorScope
 }): Promise<RunInterceptorsBeforeResult> {
   const { routePath, method, context } = args
   let currentRequest: InterceptorRequest = {
@@ -88,7 +90,7 @@ export async function runApiInterceptorsBefore(args: {
   }
 
   const metadataByInterceptor: Record<string, Record<string, unknown> | undefined> = {}
-  const interceptors = getApiInterceptorsForRoute(routePath, method)
+  const interceptors = getApiInterceptorsForRoute(routePath, method, args.scope)
 
   for (const entry of interceptors) {
     const interceptor = entry.interceptor
@@ -105,6 +107,9 @@ export async function runApiInterceptorsBefore(args: {
       )
 
       const normalized: InterceptorBeforeResult = result ?? { ok: true }
+      if (args.scope === 'request' && (normalized.body || normalized.query || normalized.headers)) {
+        throw new TypeError('[internal] Request-scoped API interceptors only support admission decisions')
+      }
       if (!normalized.ok) {
         const rejectBody: Record<string, unknown> = {
           error: normalized.message ?? 'Request blocked by API interceptor',

@@ -2,7 +2,7 @@
 title: "Request-path work runs per call, not per request"
 modules: ["shared","core","query_index","customers","auth"]
 areas: ["architecture","module-data"]
-topics: ["performance","dependency-injection","auth-context"]
+topics: ["performance","dependency-injection","auth-context","request-admission"]
 ---
 
 # Request-path work runs per call, not per request
@@ -17,3 +17,5 @@ topics: ["performance","dependency-injection","auth-context"]
 - DI registrars run for every container: no database queries, timers or `bus.on` there (#2967).
 - Synchronous key derivation blocks the event loop: `pbkdf2Sync` with 310,000 iterations costs about 200 ms. Keep it off request paths and memoize deterministic results.
 - Check a change with a statement count: the `pg_stat_statements` delta over N sequential requests, or the ORM query log.
+
+**API admission follow-up (#9152)**: When an API dispatcher adds an authenticated admission phase, share the same lazily memoized container with feature/tenant authorization. Preserve existing helper callers with an optional trailing provider, and prove one container for authorization plus admission and zero extra containers for routes needing neither. Keep body inspection on clones and do not repeat canonical authentication in the interceptor.
