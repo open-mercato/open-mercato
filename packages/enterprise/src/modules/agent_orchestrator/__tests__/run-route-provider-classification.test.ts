@@ -139,3 +139,60 @@ describe('POST /api/agent_orchestrator/agents/:id/run — a deployment that cann
     expect(body.reason).toContain('column "nope" does not exist')
   })
 })
+
+/** An `AI_APICallError` as it reaches the route: name, status, message, body. */
+function apiCallError(statusCode: number, message: string, responseBody = '{"error":{"message":"echo of the request"}}') {
+  const error = new Error(message)
+  error.name = 'AI_APICallError'
+  Object.assign(error, { statusCode, responseBody })
+  return error
+}
+
+function retryError(lastError: unknown) {
+  const error = new Error('Failed after 3 attempts. Last error: quota exceeded')
+  error.name = 'AI_RetryError'
+  Object.assign(error, { lastError, errors: [lastError, lastError, lastError] })
+  return error
+}
+
+describe('POST /api/agent_orchestrator/agents/:id/run — structured output and retries (A-2)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('answers 503 provider_rejected when the SDK exhausted its retries on a quota refusal', async () => {
+    await mockAuthAndScope()
+    await setupContainerThrowing(retryError(apiCallError(429, 'You exceeded your current quota')))
+
+    const res = await POST(makeRequest(), { params })
+    expect(res.status).toBe(503)
+    expect(await res.json()).toMatchObject({ code: 'provider_rejected' })
+  })
+
+  it('names a provider that rejected the output schema, without echoing its response body', async () => {
+    await mockAuthAndScope()
+    await setupContainerThrowing(
+      apiCallError(
+        400,
+        "Invalid schema for response_format 'support_resolution_advisor': In context=('properties', 'payload'), 'required' is required",
+        '{"secret":"request echo"}',
+      ),
+    )
+
+    const res = await POST(makeRequest(), { params })
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('outcome_schema_rejected')
+    expect(body.reason).toContain('Invalid schema for response_format')
+    expect(JSON.stringify(body)).not.toContain('request echo')
+  })
+
+  it('keeps an ordinary provider 400 unclassified', async () => {
+    await mockAuthAndScope()
+    await setupContainerThrowing(apiCallError(400, 'messages: text content blocks must be non-empty'))
+
+    const res = await POST(makeRequest(), { params })
+    expect(res.status).toBe(500)
+    expect((await res.json()).code).toBe('agent_run_failed')
+  })
+})
