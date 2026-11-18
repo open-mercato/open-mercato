@@ -23,6 +23,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { TagInput } from '@open-mercato/ui/primitives/tag-input'
+import { QUOTE_SEND_CC_LIMIT } from '../../../../data/validators'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { formatDisplayDate, formatDisplayDateTime, toDateInputValue, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -79,6 +82,7 @@ import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from
 import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { commitPendingCc, isQuoteCcAddress } from '@open-mercato/core/modules/sales/lib/quoteSendCc'
 import { documentEmailForCustomerChange, readDocumentEmail, resolveSavedContactEmail, syncDocumentEmailWithSnapshot } from '@open-mercato/core/modules/sales/lib/documentEmail'
 
 const logger = createLogger('sales')
@@ -1044,6 +1048,14 @@ function resolveCustomerName(snapshot: CustomerSnapshot | null | undefined, fall
   return fallback ?? null
 }
 
+function resolveStoredCc(metadata: unknown): string[] {
+  if (!metadata || typeof metadata !== 'object') return []
+  const recipients = (metadata as Record<string, unknown>).recipients
+  if (!recipients || typeof recipients !== 'object') return []
+  const cc = (recipients as Record<string, unknown>).cc
+  return Array.isArray(cc) ? cc.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
 function resolveCustomerEmail(snapshot: CustomerSnapshot | null | undefined) {
   if (!snapshot) return null
   const primary =
@@ -1965,6 +1977,10 @@ export default function SalesDocumentDetailPage({
   const [sending, setSending] = React.useState(false)
   const [sendOpen, setSendOpen] = React.useState(false)
   const [validForDays, setValidForDays] = React.useState(DEFAULT_QUOTE_VALID_FOR_DAYS)
+  const [sendCc, setSendCc] = React.useState<string[]>([])
+  const [sendCcDraft, setSendCcDraft] = React.useState('')
+  const [sendCcError, setSendCcError] = React.useState<string | null>(null)
+  const sendCcFieldId = React.useId()
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
@@ -3805,6 +3821,19 @@ export default function SalesDocumentDetailPage({
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
+    const committedCc = commitPendingCc(sendCc, sendCcDraft)
+    if (!committedCc.ok) {
+      setSendCcError(
+        committedCc.reason === 'limit'
+          ? t('sales.quotes.send.ccLimit', 'You can add up to {limit} CC addresses', { limit: QUOTE_SEND_CC_LIMIT })
+          : t('sales.quotes.send.ccInvalid', 'Enter a valid e-mail address'),
+      )
+      return
+    }
+    const cc = committedCc.cc
+    setSendCc(cc)
+    setSendCcDraft('')
+    setSendCcError(null)
     setSending(true)
     try {
       await runMutationWithContext(async () => {
@@ -3814,13 +3843,13 @@ export default function SalesDocumentDetailPage({
             'Content-Type': 'application/json',
             ...buildOptimisticLockHeader(record.updatedAt),
           },
-          body: JSON.stringify({ quoteId: record.id, validForDays }),
+          body: JSON.stringify({ quoteId: record.id, validForDays, cc }),
         }, { errorMessage: t('sales.quotes.send.failed', 'Failed to send quote.') })
         flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
         setSendOpen(false)
         const updated = await fetchDocumentByKind(record.id, 'quote')
         if (updated) setRecord(updated)
-      }, { quoteId: record.id, validForDays })
+      }, { quoteId: record.id, validForDays, cc })
     } catch (err) {
       logger.error('sales.quotes.send', { err })
       handleQuoteActionError(err, t, () => setReloadKey((prev) => prev + 1),
@@ -3828,7 +3857,7 @@ export default function SalesDocumentDetailPage({
     } finally {
       setSending(false)
     }
-  }, [fetchDocumentByKind, kind, record, runMutationWithContext, t, validForDays])
+  }, [fetchDocumentByKind, kind, record, runMutationWithContext, sendCc, sendCcDraft, t, validForDays])
 
   const handleSwitchToComputedAmounts = React.useCallback(async () => {
     if (!record || kind !== 'order') return
@@ -4804,7 +4833,7 @@ export default function SalesDocumentDetailPage({
           ) : undefined}
           menuActions={kind === 'quote' ? ([
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
-            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => { setValidForDays(resolveDefaultValidForDays(record.validUntil)); setSendOpen(true) }, disabled: !contactEmail || sending, loading: sending },
+            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => { setValidForDays(resolveDefaultValidForDays(record.validUntil)); setSendCc(resolveStoredCc(record.metadata)); setSendCcDraft(''); setSendCcError(null); setSendOpen(true) }, disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : undefined}
           onDelete={() => void handleDelete()}
           isDeleting={deleting}
@@ -5091,15 +5120,17 @@ export default function SalesDocumentDetailPage({
 
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent
+          onKeyDownCapture={(event) => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              event.stopPropagation()
+              if (!sending) void handleSendQuote()
+            }
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
               setSendOpen(false)
-              return
-            }
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault()
-              if (!sending) void handleSendQuote()
             }
           }}
         >
@@ -5109,6 +5140,33 @@ export default function SalesDocumentDetailPage({
               {t('sales.quotes.send.description', 'Email will be sent to:')} {contactEmail ?? t('sales.quotes.send.noEmail', 'No email')}
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor={sendCcFieldId}>{t('sales.quotes.send.cc', 'CC')}</Label>
+            <TagInput
+              id={sendCcFieldId}
+              value={sendCc}
+              onChange={(next) => {
+                setSendCc(next)
+                setSendCcError(null)
+              }}
+              inputValue={sendCcDraft}
+              onInputValueChange={(text) => {
+                setSendCcDraft(text)
+                setSendCcError(null)
+              }}
+              maxTags={QUOTE_SEND_CC_LIMIT}
+              disabled={sending}
+              aria-invalid={sendCcError ? true : undefined}
+              placeholder={t('sales.quotes.send.ccPlaceholder', 'Add an e-mail and press Enter')}
+              validate={(tag) => (isQuoteCcAddress(tag) ? true : t('sales.quotes.send.ccInvalid', 'Enter a valid e-mail address'))}
+              removeTagLabel={(tag) => t('sales.quotes.send.ccRemove', 'Remove {email}', { email: tag })}
+            />
+            {sendCcError ? (
+              <p className="text-xs text-status-error-text" role="alert">
+                {sendCcError}
+              </p>
+            ) : null}
+          </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">{t('sales.quotes.send.validForDays', 'Valid for (days)')}</label>
             <Input
