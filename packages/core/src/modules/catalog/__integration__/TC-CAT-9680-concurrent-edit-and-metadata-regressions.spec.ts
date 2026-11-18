@@ -15,7 +15,6 @@ import {
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   expectConflictBanner,
-  expectConflictBody,
   expectNoConflictBanner,
   putWithLock,
   readUpdatedAt,
@@ -200,19 +199,31 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       await expect(writerBSkuInput).toBeVisible({ timeout: 15_000 })
       const newSku = `qa-9680-writerb-${stamp}`
       await fillControlledInput(writerBSkuInput, newSku)
+      const writerBSavePromise = writerBPage.waitForResponse((res) =>
+        new URL(res.url()).pathname === PRODUCTS_API_BASE && res.request().method() === 'PUT',
+      )
       await writerBPage.getByRole('button', { name: /^save changes$/i }).first().click()
+      const writerBSaveBody = (await (await writerBSavePromise).json()) as { updatedAt?: string }
       await expectNoConflictBanner(writerBPage)
+
+      // Release writer B's edit-page presence before admin's conflicting save.
+      // With the enterprise `record_locks` module enabled (CI), two real
+      // browser sessions on the same record both register as active lock
+      // participants; a still-present second participant turns admin's save
+      // into a `record_lock_conflict` that a raw-API retry can never resolve
+      // (it requires the UI's own accept/override flow), instead of the plain
+      // version-mismatch `optimistic_lock_conflict` this test exercises.
+      // Navigating away unmounts the record-locking widget, which releases
+      // writer B's participant lock, leaving a single-participant conflict
+      // record_locks defers to the OSS conflict bar for.
+      await writerBPage.goto('/backend/catalog/products')
 
       // First user's tab still holds the pre-writer-B-save token. Editing a
       // DIFFERENT field (title) and saving now must 409 against writer B's
       // real write — and the admin tab's own stale edit stays in the DOM.
       const marker = `QA 9680 admin-stale ${stamp}`
       await fillControlledInput(titleInput, marker)
-      const conflictResponsePromise = adminPage.waitForResponse((res) =>
-        new URL(res.url()).pathname === PRODUCTS_API_BASE && res.request().method() === 'PUT',
-      )
       await adminPage.getByRole('button', { name: /^save changes$/i }).first().click()
-      const conflictBody = await expectConflictBody(await conflictResponsePromise)
       await expectConflictBanner(adminPage)
       await expect(titleInput).toHaveValue(marker)
 
@@ -224,21 +235,45 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       const linksAfterConflict = await listLinkedDocumentIds(request, adminToken, productId)
       expect(linksAfterConflict, 'the document link must survive the conflicting save').toContain(documentId)
 
-      // Reload/title-only retry: admin recovers with a title-only save using
-      // the 409 body's own `currentUpdatedAt` as the fresh lock. A subsequent
-      // list GET (`readUpdatedAt`) can be served from the catalog products
-      // list cache and return a stale `updated_at`, making the retry 409
-      // again; the conflict response's `currentUpdatedAt` is authoritative.
-      const freshLock = conflictBody.currentUpdatedAt
-      expect(typeof freshLock, `conflict body should include currentUpdatedAt, got ${JSON.stringify(conflictBody)}`).toBe('string')
+      // Release admin's own edit-page presence too: with the enterprise
+      // `record_locks` module enabled, ANY active lock on the record — even
+      // one held by the same user — makes its mutation guard reject a raw
+      // API write with a token-less `record_lock_conflict`, regardless of
+      // `updated_at`. The retry below is a plain out-of-band API call (not a
+      // UI save carrying a lock token), so it only succeeds once no lock is
+      // active at all.
+      await adminPage.goto('/backend/catalog/products')
+
+      // Title-only retry: admin recovers using writer B's own successful save
+      // response as the fresh lock — it already carries the record's current
+      // `updatedAt` (every `catalog.products.update` response does), so no
+      // extra read is needed. A subsequent list GET (`readUpdatedAt`) can be
+      // served from the catalog products list cache and return a stale
+      // `updated_at`, making this retry 409 again nondeterministically.
+      const freshLock = writerBSaveBody.updatedAt
+      expect(typeof freshLock, `writer B's save response should include updatedAt, got ${JSON.stringify(writerBSaveBody)}`).toBe('string')
       const retryTitle = `QA 9680 title-only retry ${stamp}`
-      const retryResponse = await putWithLock(
+      // The two navigations above release each tab's record-lock participant
+      // state via a fire-and-forget beacon/unmount call (not awaited here),
+      // so the server can take a moment to catch up; poll briefly instead of
+      // asserting on the very first attempt.
+      let retryResponse = await putWithLock(
         request,
         adminToken,
         PRODUCTS_API_BASE,
         { id: productId, title: retryTitle },
         freshLock as string,
       )
+      for (let attempt = 0; attempt < 10 && retryResponse.status() === 409; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        retryResponse = await putWithLock(
+          request,
+          adminToken,
+          PRODUCTS_API_BASE,
+          { id: productId, title: retryTitle },
+          freshLock as string,
+        )
+      }
       expect(retryResponse.status(), 'the title-only retry should succeed').toBeLessThan(300)
       const afterRetry = await readProduct(request, adminToken, productId)
       expect(afterRetry.title).toBe(retryTitle)
