@@ -43,7 +43,12 @@ module.exports = {
   ],
   testMatch: [
     '<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)',
-    '<rootDir>/__integration__/**/*.spec.(ts|tsx)',
+    // `.spec.tsx` is a jsdom/RTL integration test run by Jest (see
+    // TC-AI-UI-003's doc comment — `packages/ui` has no runnable Next.js
+    // route, so these dress up as integration specs under jsdom). A plain
+    // `.spec.ts` is a genuine Playwright browser spec, discovered and run by
+    // `.ai/qa/tests/playwright.config.ts` instead — Jest must not import it.
+    '<rootDir>/__integration__/**/*.spec.tsx',
   ],
   passWithNoTests: true,
 }

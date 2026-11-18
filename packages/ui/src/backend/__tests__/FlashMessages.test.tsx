@@ -126,6 +126,49 @@ describe('FlashMessages', () => {
   })
 
   /**
+   * Regression for #9514: the URL-driven path strips `?flash=`/`?type=` from
+   * history inside the reading host's own effect, so only the first host whose
+   * effect runs ever observes the param — every other mounted host must learn
+   * the message the same way the programmatic `flash()` path already does, or
+   * it has nothing to show if it becomes primary later. Splits the 3000ms
+   * dismiss window around the handover to prove the surviving host keeps the
+   * *original* expiry rather than restarting its own timer.
+   */
+  it('hands a displayed URL flash over when the primary host unmounts, preserving its original expiry', () => {
+    window.history.replaceState({}, '', 'http://localhost/backend/checkout/pay-links?flash=Saved&type=success')
+
+    function Hosts({ withPrimary }: { withPrimary: boolean }) {
+      return (
+        <>
+          {withPrimary ? <FlashMessages /> : null}
+          <FlashMessages />
+        </>
+      )
+    }
+
+    const { rerender } = renderWithProviders(<Hosts withPrimary />)
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+    expect(window.location.search).toBe('')
+
+    act(() => {
+      jest.advanceTimersByTime(1500)
+    })
+
+    act(() => {
+      rerender(<Hosts withPrimary={false} />)
+    })
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+
+    act(() => {
+      jest.advanceTimersByTime(1500)
+    })
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+  })
+
+  /**
    * Regression for #6402: on a full page load a page's mount effect can commit
    * before any host attaches its listener, so the event used to be dropped and
    * the user saw nothing. Rendering the flasher first reproduces that ordering.

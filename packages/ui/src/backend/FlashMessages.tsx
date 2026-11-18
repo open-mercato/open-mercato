@@ -234,7 +234,12 @@ function FlashMessagesInner() {
       url.searchParams.delete('type')
       window.history.replaceState({}, '', url.toString())
       if (trusted) {
-        showFlash(message, type)
+        // Broadcast rather than calling showFlash locally: the stripped URL means
+        // only the host whose effect runs first ever observes the param, so every
+        // other mounted host must learn the message the same way the programmatic
+        // flash() path already does, or it has no state to show if it later
+        // becomes primary (e.g. the host that read the URL unmounts).
+        flash(message, type)
       }
     }
   }, [locationKey, showFlash])
