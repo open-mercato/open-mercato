@@ -291,8 +291,12 @@ existing territory in `sales`, unaffected by this document.
     `taxEngineRegistry.resolve(taxCode)`, then calls
     `.calculate({ periodId, tenantId, organizationId })`. It validates
     the returned lines: each declares exactly one of `debit`/`credit`,
-    the debit and credit totals are equal, and the debit total equals
-    `amount`. It then stores an **immutable snapshot** of those lines on
+    the debit and credit totals are equal, and — when `lines` is
+    non-empty — the debit total equals `amount`. An empty `lines` is
+    allowed with a non-zero `amount` only for the already-booked case
+    (PIT-4, Edge Cases), where the amount records a liability recognized
+    elsewhere and nothing new is posted. It then stores an **immutable
+    snapshot** of those lines on
     the new `TaxLiabilityRecord` (the M3 fix) with
     `status: 'calculated'` and, when supplied, `correctsRecordId`
     (which must name an existing `'posted'`/`'paid'` record of the same
@@ -314,8 +318,9 @@ existing territory in `sales`, unaffected by this document.
     (`SELECT ... FOR UPDATE`), requires `status === 'calculated'`, and
     resolves the **stored snapshot's** `accountRole`s against
     `TaxCodeAccountMapping.accountRoles`; it never re-runs the engine
-    (the M3 fix). It re-verifies the snapshot balances and that its
-    debit total still equals the stored `amount`. **Correction flow (the
+    (the M3 fix). It re-verifies the snapshot balances and, for a
+    non-empty snapshot, that its debit total still equals the stored
+    `amount`. **Correction flow (the
     M4 fix):** when the record carries `correctsRecordId`, the same
     transaction first calls `ledger.reverseJournalEntry` for the
     original record's `journalEntryId`, moves the original to
@@ -490,9 +495,12 @@ as paid" button) lives in that document now (`#7524`).
   unique index rejected and which, without the index, would have booked
   the full liability twice.
 - **`ITaxEngine.calculate()` returns an empty `lines: []`.** Valid
-  (PIT-4's own case, `#7524`) — `postTaxLiability` sets
-  `status: 'posted'`, `journalEntryId: null`, and skips the
-  `ledger.postJournalEntry` call.
+  (PIT-4's own case, `#7524`) and may carry a non-zero `amount`: the
+  liability was recognized at payroll time, so nothing is posted again.
+  `postTaxLiability` sets `status: 'posted'`,
+  `journalEntryId: null`, and skips the `ledger.postJournalEntry` call;
+  the `lines`-total-vs-`amount` check applies only to a non-empty
+  snapshot.
 - **`ITaxEngine.calculate()` returns unbalanced lines, or a debit total
   that differs from `amount`.** Rejected at `calculateTaxLiability`
   (before the record exists) and re-checked at `postTaxLiability`
@@ -562,8 +570,8 @@ entry.
 **Affected area:** `tax_management` posting path, GL balances.
 **Mitigation:** the M3 fix stores an immutable `lines` snapshot on
 `TaxLiabilityRecord` at calculation time and posts exactly that
-snapshot; the post re-validates the snapshot's balance and its total
-against the stored `amount` and refuses on mismatch.
+snapshot; the post re-validates the snapshot's balance and, when it is
+non-empty, its total against the stored `amount`, refusing on mismatch.
 **Residual risk:** Low — the engine is never invoked again after
 calculation.
 
