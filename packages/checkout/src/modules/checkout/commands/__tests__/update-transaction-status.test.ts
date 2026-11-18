@@ -426,6 +426,23 @@ describe('updateTransactionStatusCommand — session-backed transactions (no lin
   })
 })
 
+describe('updateTransactionStatusCommand — unknown transaction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('fails with 404 Transaction not found when the id is not a checkout transaction', async () => {
+    const em = makeMockEm(makeTransaction('processing'), 1)
+    em.findOne.mockResolvedValue(null)
+
+    await expect(runUpdateStatus(em, 'completed')).rejects.toMatchObject({
+      status: 404,
+      body: { error: 'Transaction not found' },
+    })
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+})
+
 describe('updateTransactionStatusCommand — recorded gateway payment marker (#8268 finding 3)', () => {
   const GATEWAY_TX_ID = '123e4567-e89b-12d3-a456-426614174030'
 

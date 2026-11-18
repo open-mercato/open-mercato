@@ -104,6 +104,43 @@ describe('checkout-gateway-payment-captured subscriber', () => {
     expect(mockResumeSession).not.toHaveBeenCalled()
   })
 
+  // Superseded `gateway-payment-status-sync.test.ts` (an unrelated main-branch fix,
+  // #9596/#9597) asserted the OPPOSITE of this file's own BLOCKER-regression fix above —
+  // that every subscriber swallows and reports EVERY failure, never rethrowing. Reinstating
+  // that design here would reintroduce the exact silent-drop bug this file's header comment
+  // documents, so these two cases (a transient failure, and a non-terminal 409) replace it
+  // across all four subscribers instead, reusing this file's own real-command/mock harness.
+  it.each([
+    ['gateway-payment-authorized', 'checkout.gateway_payment_authorized_update_status_failed'],
+    ['gateway-payment-cancelled', 'checkout.gateway_payment_cancelled_update_status_failed'],
+    ['gateway-payment-failed', 'checkout.gateway_payment_failed_update_status_failed'],
+  ])('%s propagates a transient failure and reports it under its own code — never acks the event', async (name, code) => {
+    const { default: subscriber } = await import(`../${name}`)
+    mockExecute.mockRejectedValueOnce(new Error('db unavailable'))
+
+    await expect(subscriber(PAYLOAD)).rejects.toThrow('db unavailable')
+
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ module: 'checkout', code }))
+    expect(mockResumeSession).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['gateway-payment-authorized', 'completed'],
+    ['gateway-payment-cancelled', 'cancelled'],
+    ['gateway-payment-failed', 'failed'],
+  ])('%s propagates a non-terminal 409 (a genuine race, not a proven dead end)', async (name, requestedStatus) => {
+    const { default: subscriber } = await import(`../${name}`)
+    mockExecute.mockRejectedValueOnce(new CrudHttpError(409, {
+      code: 'concurrent_status_update',
+      currentStatus: 'processing',
+      requestedStatus,
+    }))
+
+    await expect(subscriber(PAYLOAD)).rejects.toMatchObject({ status: 409 })
+    expect(mockReportError).toHaveBeenCalled()
+    expect(mockResumeSession).not.toHaveBeenCalled()
+  })
+
   // #8268 review finding 3: a session-backed payment authorized at submit already has its
   // authorized-only `SalesPayment` recorded (`paymentRecordedAt` set). The later capture
   // webhook must clear that marker in the same status write, or `repair-gateway-payments`
