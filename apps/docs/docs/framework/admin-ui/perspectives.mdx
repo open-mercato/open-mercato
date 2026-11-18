@@ -119,14 +119,14 @@ const [dirty, setDirty] = React.useState<DataTableViewDirtyState | null>(null)
 
 “Dirty” is measured against the settings the view was last applied or saved from, so restoring a view on page load never flags changes the user did not make. `pageSize` is not compared: the live settings never carry one.
 
-`saveCurrentView()` returns a result instead of throwing: `{ ok: true, perspectiveId }`, or `{ ok: false, reason: 'perspectives-disabled' | 'not-ready' | 'name-required' | 'failed' }`. `not-ready` means the perspectives permission check has not resolved yet — nothing was saved and nothing is wrong, so retry rather than telling the user views are disabled. Conflicts (HTTP 409) are surfaced by the shared conflict bar exactly as in the sidebar flow.
+`saveCurrentView()` returns a result instead of throwing: `{ ok: true, perspectiveId }`, or `{ ok: false, reason: 'perspectives-disabled' | 'not-ready' | 'name-required' | 'failed' }`. `not-ready` means the perspectives permission check has not resolved yet — nothing was saved and nothing is wrong, so retry rather than telling the user views are disabled. Edit conflicts (HTTP 409 `optimistic_lock_conflict` or `record_lock_conflict`) are surfaced by the shared conflict bar exactly as in the sidebar flow. Creating a view (no target view) never overwrites: a name another personal view already uses resolves `{ ok: false, reason: 'failed' }` with the 409 `duplicate_name` in `error`, so pass that view's `perspectiveId` to save over it.
 
 `openViewsSidebar()` is a no-op for a user without the `perspectives.use` feature (the sidebar closes again on the next render), so gate a host-rendered “Manage views” action on the same permission instead of expecting an error. The dirty state and the imperative handle are only computed for tables that pass at least one of these three props — a table that opts out pays nothing.
 
 ## API surface
 
 `/api/perspectives/{tableId}`
-: `GET` fetches personal and role perspectives for the current user. `POST` creates or updates the personal entry and optionally pushes a copy to roles.
+: `GET` fetches personal and role perspectives for the current user. `POST` creates or updates the personal entry and optionally pushes a copy to roles. Without `perspectiveId` it updates the personal view of the same name, if any; send `createOnly: true` to get a 409 `duplicate_name` instead.
 
 `/api/perspectives/{tableId}/{perspectiveId}`
 : `DELETE` soft-deletes the personal perspective.
