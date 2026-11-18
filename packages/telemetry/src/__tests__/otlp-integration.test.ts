@@ -357,6 +357,35 @@ describe('OtlpProvider (in-memory exporters)', () => {
     expect(exported.attributes['url.full']).toBe('https://example.com/callback?code=[redacted]')
   })
 
+  it('cleans the original fetch name mirrored by the Next.js tracer', () => {
+    const token = 's'.repeat(64)
+    const url = `https://synthetic-user:synthetic-password@example.com/reset/${token}?code=synthetic-code`
+    const name = `fetch GET ${url}`
+    const rawSpan = trace.getTracer('next-js-metadata-regression').startSpan(name)
+    rawSpan.setAttributes({
+      'next.span_category': 'nextjs',
+      'next.span_name': name,
+      'next.span_type': 'AppRender.fetch',
+      'http.method': 'GET',
+      'http.url': url,
+    })
+    rawSpan.end()
+
+    const exported = spanExporter.getFinishedSpans()[0]
+    expect(exported.name).toBe('fetch GET https://example.com/reset/[redacted]?code=[redacted]')
+    expect(exported.attributes).toEqual({
+      'next.span_category': 'nextjs',
+      'next.span_name': exported.name,
+      'next.span_type': 'AppRender.fetch',
+      'http.method': 'GET',
+      'http.url': 'https://example.com/reset/[redacted]?code=[redacted]',
+    })
+    const payload = JSON.stringify({ name: exported.name, attributes: exported.attributes })
+    for (const secret of [token, 'synthetic-user', 'synthetic-password', 'synthetic-code']) {
+      expect(payload).not.toContain(secret)
+    }
+  })
+
   it('emits structured logs and error exceptions through reportError', () => {
     logger.info('hello', { k: 1 })
     reportError(new Error('explode'), { module: 'orders' })

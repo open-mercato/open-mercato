@@ -90,7 +90,9 @@ export function redactAttributes(attributes: Attributes): Attributes {
   for (const [key, value] of Object.entries(attributes)) {
     if (SECRET_KEY_RE.test(key)) result[key] = '[redacted]'
     else if (typeof value === 'string') {
-      const cleaned = key === 'url.query' ? redactQuery(value) : URL_ATTRIBUTE_KEYS.has(key) ? redactUrl(value) : value
+      const cleaned = key === 'next.span_name'
+        ? redactSpanName(value)
+        : key === 'url.query' ? redactQuery(value) : URL_ATTRIBUTE_KEYS.has(key) ? redactUrl(value) : value
       result[key] = redactPii(cleaned)
     }
     else result[key] = value

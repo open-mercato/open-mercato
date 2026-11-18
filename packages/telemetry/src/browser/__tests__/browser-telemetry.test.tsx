@@ -221,6 +221,7 @@ describe('BrowserTelemetry', () => {
         'url.full': 'https://example.com/callback?code=oauth-code',
         'url.path': `/reset/${token}`,
         'url.query': 'search=private',
+        'next.span_name': `fetch GET https://synthetic-user:synthetic-password@example.com/reset/${token}?token=magic-link`,
       }),
       spanContext: () => ({ traceId: '1'.repeat(32), spanId: '2'.repeat(16), traceFlags: 1 }),
     }) as ReadableSpan
@@ -233,6 +234,7 @@ describe('BrowserTelemetry', () => {
       'url.full': 'https://example.com/callback?code=[redacted]',
       'url.path': '/reset/[redacted]',
       'url.query': 'search=[redacted]',
+      'next.span_name': 'fetch GET https://example.com/reset/[redacted]?token=[redacted]',
     })
     expect(sanitized.spanContext()).toEqual(original.spanContext())
     expect(original.name).toContain(token)
