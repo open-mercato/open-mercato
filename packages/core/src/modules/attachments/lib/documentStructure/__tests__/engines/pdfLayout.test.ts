@@ -374,6 +374,27 @@ describe('layoutPdfPage', () => {
   it('returns no blocks for a page without text', () => {
     expect(layoutPdfPage(page([run('   ', 72, 100)]))).toEqual([])
   })
+
+  const twoColumnRuns = () =>
+    [0, 1, 2].flatMap((index) => [
+      run(`Left ${index}`, 72, 100 + BODY_LEADING * index),
+      run(`Right ${index}`, 360, 100 + BODY_LEADING * index),
+    ])
+
+  it('detects side-by-side columns on a regular page width', () => {
+    const blocks = layoutPdfPage(page(twoColumnRuns()))
+    expect(blocks.map((block) => block.text)).toEqual(['Left 0\nLeft 1\nLeft 2', 'Right 0\nRight 1\nRight 2'])
+  })
+
+  it.each([1e9, 1e12, 1e17, Number.POSITIVE_INFINITY, Number.NaN, 14_401])(
+    'skips column detection without scanning when the page width is out of range (%p)',
+    (width) => {
+      const startedAt = Date.now()
+      const blocks = layoutPdfPage({ ...page(twoColumnRuns()), width })
+      expect(Date.now() - startedAt).toBeLessThan(1000)
+      expect(blocks.map((block) => block.text)).toEqual(['Left 0 Right 0\nLeft 1 Right 1\nLeft 2 Right 2'])
+    },
+  )
 })
 
 describe('pdf layout engine', () => {

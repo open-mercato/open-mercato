@@ -32,6 +32,7 @@ const MIN_FRAGMENT_GAP = 12
 const GUTTER_SCAN_START = 0.3
 const GUTTER_SCAN_END = 0.7
 const GUTTER_SCAN_STEP = 1
+const MAX_PDF_PAGE_DIMENSION = 14_400
 const MIN_COLUMN_LINES = 3
 const MAX_GUTTER_CROSSING_RATIO = 0.25
 const PARAGRAPH_GAP_RATIO = 1.4
@@ -242,7 +243,8 @@ function isSideBySide(fragments: readonly LayoutFragment[], gutter: number): boo
 }
 
 function detectColumnGutter(fragments: readonly LayoutFragment[], pageWidth: number): number | null {
-  if (fragments.length < MIN_COLUMN_LINES * 2 || pageWidth <= 0) return null
+  if (fragments.length < MIN_COLUMN_LINES * 2) return null
+  if (!Number.isFinite(pageWidth) || pageWidth <= 0 || pageWidth > MAX_PDF_PAGE_DIMENSION) return null
   type GutterRun = { start: number; end: number; crossing: number }
   const runs: GutterRun[] = []
   let current: GutterRun | null = null
