@@ -357,19 +357,25 @@ it posts — after the same-day re-check below). The invoice entry's snapshot (`
 name and tax id, no account) is written by `postVendorInvoice` in the
 sibling document.
 
-**`markPaymentBatchSent` repeats the eligibility check when the last
-one is from an earlier calendar day (Europe/Warsaw).** The legal test
-is the list "na dzień zlecenia przelewu" (art. 15d ust. 1 pkt 2 CIT,
+**`markPaymentBatchSent` always revalidates eligibility before posting
+(corrected 2026-11-18, review round; previously it only repeated the
+check when the stored one was from an earlier calendar day).** The legal
+test is the list "na dzień zlecenia przelewu" (art. 15d ust. 1 pkt 2 CIT,
 art. 22p ust. 1 pkt 2 PIT, art. 117ba Ordynacji podatkowej — see
 #5955's Legal context), and a batch confirmed on Monday can be sent on
 Wednesday; the Monday check then proves nothing about Wednesday.
-- **When.** For each line, before anything is posted, the command
-  compares the calendar date of `whitelistCheckResult.checkedAt` with
-  today's date, both in `Europe/Warsaw` (the Ministry's list is
-  published per Polish business day). An earlier date, or a `null`
-  `checkedAt` (a `NOT_APPLICABLE` line, for which only the local reasons
-  can change), triggers a new `contractorBankWhitelistCheck` call for
-  that line. A check from today is reused. "Today" is the moment the
+- **When.** For every line, before anything is posted, the command calls
+  `contractorBankWhitelistCheck` again. The registry reuses the
+  Ministry's evidence for the same Polish business day
+  (`Europe/Warsaw`, the list's publication granularity) but **always
+  re-reads the local half** — contractor approval, bank-account status,
+  account `purpose`/`currencyCode` and the service's own availability.
+  A contractor or bank account deactivated after a morning confirmation
+  therefore blocks the afternoon send, and a disabled `contractors`
+  module still fails closed (`CONTRACTORS_UNAVAILABLE`). Caching today's
+  entire verdict — remote and local — is explicitly rejected: local
+  state can change within the day, and a cached verdict would let the
+  module send to a deactivated account. "Today" is the moment the
   command runs, not `sentOn`: `sentOn` is the accounting date of the
   entry and may lie in the past, while the transfer is ordered now.
 - **Result replaces the stored one.** An eligible result overwrites the
@@ -381,10 +387,12 @@ Wednesday; the Monday check then proves nothing about Wednesday.
   returns `422 PAYMENT_BATCH_NOT_ELIGIBLE` with the same body and the
   same reason-to-code mapping as `confirmPaymentBatch`. The clerk can
   cancel the batch or fix the cause and send again.
-- **Order inside the command.** Re-check first, then the idempotency
-  guard on `postedJournalEntryId` and the posting; a repeated call on an
-  already `SENT` batch stays a no-op and does not query the Ministry
-  again.
+- **Order inside the command.** The status/idempotency guard comes first:
+  a repeated call on an already `SENT` batch returns the stored result
+  without a re-check and never rewrites the evidence after posting. For a
+  `CONFIRMED` batch the command then revalidates every line, takes the
+  row locks described in Risks & Impact Review ("Double posting of the
+  same payment batch"), and only then posts.
 
 ### Alternatives considered
 
@@ -591,11 +599,14 @@ async seedDefaults({ em, tenantId, organizationId }) {
   between the batch and the account's `currencyCode` produces a
   `CURRENCY_MISMATCH` warning, not a block.
 - `markPaymentBatchSent` — `CONFIRMED` → `SENT`. **First (added
-  2026-10-20)** it repeats `contractorBankWhitelistCheck` for every line
-  whose stored check is from an earlier calendar day in `Europe/Warsaw`
-  (or has no `checkedAt`), stores the new result on the line, and stops
-  with `422 PAYMENT_BATCH_NOT_ELIGIBLE` if any line is not eligible (see
-  Design decisions, 2026-10-20). Then it resolves `commandBus`
+  2026-10-20; corrected 2026-11-18, review round)** it calls
+  `contractorBankWhitelistCheck` again for **every** line — today's
+  Ministry evidence is reused by the registry, but local eligibility and
+  service availability are always re-read (see Design decisions,
+  2026-10-20) — stores the new result on the line, and stops
+  with `422 PAYMENT_BATCH_NOT_ELIGIBLE` if any line is not eligible. A
+  repeated call on an already `SENT` batch returns the stored result
+  first, before any check. Then it resolves `commandBus`
   from the container and calls `ledger.postJournalEntry` with one DR
   line **per invoice in the batch** (resolved 2026-09-08, maintainer
   review — an earlier draft left this as an unresolved "per
@@ -654,10 +665,19 @@ async seedDefaults({ em, tenantId, organizationId }) {
   batch.id`, `operationDate: sentOn`), only when some invoice has
   `paymentRate` ≠ `invoiceRateBooked`: one line per such invoice on the
   liability account in the batch's currency with `amountCurrency = 0` (exempt
-  from GL's consistency rule), rate `paymentRate`, base amount `amount` ×
-  (`paymentRate` − `invoiceRateBooked`) rounded, a credit when `paymentRate`
-  is higher (the payment entry debited the liability by more than it was
-  booked at) and a debit when lower, and on the opposite side the realized
+  from GL's consistency rule), rate `paymentRate`, and a base amount
+  **derived from the two rounded base amounts the entries actually posted,
+  not from the unrounded product (corrected 2026-11-18, review round):**
+
+  ```text
+  bookedLiability   = round(amountCurrency × invoiceRateBooked)   // base
+  settledLiability  = round(amountCurrency × paymentRate)         // base
+  adjustmentBase    = settledLiability − bookedLiability
+  ```
+
+  a credit on the liability line when `settledLiability` is higher (the
+  payment entry debited the liability by more than it was booked at) and a
+  debit when lower, and on the opposite side the realized
   accounts: the losses (the payment cost more złoty than the invoice was
   booked at) summed in one debit line on `realizedFxLossAccountId`, the gains summed in one credit
   line on `realizedFxGainAccountId`, never netted against each other (⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)). This is the
@@ -669,7 +689,12 @@ async seedDefaults({ em, tenantId, organizationId }) {
   not at all. Worked check: invoice EUR 1,000 booked at 4.30 (4,300 PLN), sent
   with `paymentRate` 4.35: payment entry DR liability EUR 1,000 = 4,350, CR
   cash EUR 1,000 = 4,350; difference entry: credit liability 50
-  (`amountCurrency` 0), debit `realizedFxLossAccountId` 50. **Cash account in another currency (decided by the team 2026-10-23 on the controller's e-mail of the same day, which describes a payment from an account in another currency as one entry with lines in different currencies balancing in the base currency; not yet reviewed by a maintainer).** The cash account (`defaultCashAccountId`) may carry its own currency (`LedgerAccount.currencyId`); the cash line is then posted in that currency, never in the batch's: `amountCurrency` = `cashAmount`, rate `cashRate`, base = `cashAmount` x `cashRate` rounded half up. `cashRate` is the cash currency's rate to the base currency (optional override on send; else the NBP Table A rate of the last day published before `sentOn`; `1` for a base-currency account; equal to `paymentRate` when the cash currency is the batch's currency). `cashAmount` is the amount the bank debits in the cash account's currency (optional input, for when the clerk knows it from the bank's confirmation of the conversion; else the batch total x `paymentRate` / `cashRate`, rounded to the currency's decimals; equal to the batch total when the currencies are the same). The entry balances in the base currency only; when the base total of the liability debits and the base amount of the cash line differ (rounding, or an explicit `cashAmount`), one ordinary base-currency line (rate `1`) takes the difference on the side that balances: on `realizedFxGainAccountId` when it is a credit, on `realizedFxLossAccountId` when it is a debit, the conversion difference of two currencies, as in the Cash & Bank spec. Worked check: EUR 1,000 invoice booked at 4.30, sent with `paymentRate` 4.35 from a PLN account (`cashRate` 1, `cashAmount` 4,350): DR liability EUR 1,000 = 4,350, CR cash PLN 4,350, no conversion line; difference entry as above. If the bank in fact debits another amount, the statement line shows `amountMismatch` when matched in Cash & Bank; posting the correction for a cross-currency payment is not done here (a named Phase 1 gap, no posting is invented for it). **Until the lots of the Cash & Bank spec exist, a foreign-currency cash account is credited at `cashRate` (outflow at the rate of the day), so realized differences of the outflow appear only at the next valuation; with the lots, matching the statement line posts a cost adjustment entry there and this module's entry stays as it is.** The valuation read contract above is unchanged: the difference entry's lines carry `amountCurrency = 0`, so they change no open currency amount. The
+  (`amountCurrency` 0), debit `realizedFxLossAccountId` 50. **Fractional-unit
+  worked check (the reason for the rounded derivation):** invoice EUR 100.08
+  booked at 4.30 → `bookedLiability` = round(430.344) = 430.34; sent at 4.35
+  → `settledLiability` = round(435.348) = 435.35; `adjustmentBase` = 5.01,
+  not the 5.00 an unrounded `100.08 × 0.05` gives — with 5.00 the liability
+  would keep PLN 0.01 open after a full settlement. **Cash account in another currency (decided by the team 2026-10-23 on the controller's e-mail of the same day, which describes a payment from an account in another currency as one entry with lines in different currencies balancing in the base currency; not yet reviewed by a maintainer).** The cash account (`defaultCashAccountId`) may carry its own currency (`LedgerAccount.currencyId`); the cash line is then posted in that currency, never in the batch's: `amountCurrency` = `cashAmount`, rate `cashRate`, base = `cashAmount` x `cashRate` rounded half up. `cashRate` is the cash currency's rate to the base currency (optional override on send; else the NBP Table A rate of the last day published before `sentOn`; `1` for a base-currency account; equal to `paymentRate` when the cash currency is the batch's currency). `cashAmount` is the amount the bank debits in the cash account's currency (optional input, for when the clerk knows it from the bank's confirmation of the conversion; else the batch total x `paymentRate` / `cashRate`, rounded to the currency's decimals; equal to the batch total when the currencies are the same). The entry balances in the base currency only; when the base total of the liability debits and the base amount of the cash line differ (rounding, or an explicit `cashAmount`), one ordinary base-currency line (rate `1`) takes the difference on the side that balances: on `realizedFxGainAccountId` when it is a credit, on `realizedFxLossAccountId` when it is a debit, the conversion difference of two currencies, as in the Cash & Bank spec. Worked check: EUR 1,000 invoice booked at 4.30, sent with `paymentRate` 4.35 from a PLN account (`cashRate` 1, `cashAmount` 4,350): DR liability EUR 1,000 = 4,350, CR cash PLN 4,350, no conversion line; difference entry as above. If the bank in fact debits another amount, the statement line shows `amountMismatch` when matched in Cash & Bank; posting the correction for a cross-currency payment is not done here (a named Phase 1 gap, no posting is invented for it). **Until the lots of the Cash & Bank spec exist, a foreign-currency cash account is credited at `cashRate` (outflow at the rate of the day), so realized differences of the outflow appear only at the next valuation; with the lots, matching the statement line posts a cost adjustment entry there and this module's entry stays as it is.** The valuation read contract above is unchanged: the difference entry's lines carry `amountCurrency = 0`, so they change no open currency amount. The
   valuation read contract above is unchanged: the difference entry's lines
   carry `amountCurrency = 0`, so they change no open currency amount.
 - `cancelPaymentBatch` — `DRAFT`/`CONFIRMED` → `CANCELLED` (soft
@@ -828,10 +853,22 @@ column).
 - `whitelist_check_result`: json, nullable
 - `tenant_id`, `organization_id`: uuid (own)
 
-Supporting index: `(payment_batch_id)` for loading batch lines;
-`(vendor_invoice_id)` so `createPaymentBatch`/`updatePaymentBatch` can
-quickly exclude invoices attached to any batch whose status isn't
-`CANCELLED`.
+Supporting index: `(payment_batch_id)` for loading batch lines. **One
+invoice may sit on at most one surviving line (corrected 2026-11-18,
+review round; previously a plain nonunique `(vendor_invoice_id)` index,
+which let two concurrent additions to different `DRAFT` batches both
+pass the eligibility read).** Unique constraint on
+`(tenant_id, organization_id, vendor_invoice_id)`. It is safe because
+`cancelPaymentBatch` removes the lines, so a cancelled batch frees its
+invoices without leaving a row behind to collide with; soft-deleted
+lines are excluded by the same rule (lines are hard-deleted when a
+batch is cancelled, and no other path deletes a line). A violation of
+the constraint — two requests attaching the same invoice to different
+batches at the same time — is reported as `409 VENDOR_INVOICE_ALREADY_BATCHED`
+by the line route, exactly as an eligibility rejection is, so the
+loser of a race sees the same answer as a sequentially late caller
+instead of a 500. The eligibility read stays as the friendly,
+explanatory path; the constraint is what actually guarantees it.
 
 ### Module Config (`ModuleConfigService`, tenant scope)
 
@@ -900,7 +937,11 @@ no corresponding route — the `DELETE` route above closes that gap.
 - **Response 409 (POST)**: `PaymentBatch.status !== 'DRAFT'`, or the invoice
   isn't `POSTED` (in `accounts_payable`), or the invoice is attached
   to another batch whose status isn't `CANCELLED` (`DRAFT`/`CONFIRMED`/
-  `SENT` all count).
+  `SENT` all count). Two concurrent attachments of the same invoice both
+  passing the read are settled by the unique
+  `(tenant_id, organization_id, vendor_invoice_id)` constraint: the loser
+  gets `409 VENDOR_INVOICE_ALREADY_BATCHED`, the same status the
+  sequential case returns.
 - **Response 409 (DELETE)**: `PaymentBatch.status !== 'DRAFT'`.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.manage`.
 
@@ -972,10 +1013,10 @@ through the module configuration screen.
 2. `acl.ts` + `setup.ts` (roles, `defaultRoleFeatures`,
    `onTenantCreated` writing an empty `defaultCashAccountId` value).
 3. `createPaymentBatch` / `updatePaymentBatch` / `cancelPaymentBatch`
-   (querying for approved, unattached invoices from
-   `accounts_payable` — see Cross-module integration, an
-   implementation decision to be confirmed at code review: direct
-   query vs. a thin query command).
+   (the direct, tenant/org-scoped `entityManager` read of
+   `accounts_payable.VendorInvoice` — see Design decisions and
+   Cross-module integration; the thin-query alternative is closed, not
+   re-opened here).
 4. `confirmPaymentBatch` (the `contractorBankWhitelistCheck`
    integration through `tryResolve`, fail-closed) + `events.ts`.
 5. `markPaymentBatchSent` (the `commandBus` call →
@@ -1082,16 +1123,24 @@ through the module configuration screen.
   `exchangeRate` is `422 INVOICE_EXCHANGE_RATE_MISSING`; a PLN cash account
   paying the EUR batch posts a cash line in PLN (`cashAmount` 4,350 at `cashRate` 1) and no conversion line, and an explicit `cashAmount` 4,360 adds a base-currency debit line of 10 on `realizedFxLossAccountId`; a repeated send is a
   no-op and posts neither entry again.
-- Same-day re-check at send (added 2026-10-20), acceptance:
-  - confirmed and sent on the same Warsaw calendar day → no second
-    `contractorBankWhitelistCheck` call; the snapshot's `whitelistCheck`
-    equals the confirmation's;
-  - confirmed on day D, sent on D+1 → one new call per line; the line's
-    `whitelistCheckResult` and the snapshot's `whitelistCheck` carry the
-    new `requestId`/`checkedAt`;
+- Revalidation at send (added 2026-10-20; corrected 2026-11-18, review
+  round), acceptance:
+  - confirmed and sent on the same Warsaw calendar day → the registry is
+    called again; the reused Ministry evidence keeps the same
+    `requestId`/`checkedAt` while the local half is re-read, so with no
+    local change the snapshot's `whitelistCheck` equals the
+    confirmation's;
+  - confirmed on day D, sent on D+1 → one new call per line and fresh
+    Ministry evidence; the line's `whitelistCheckResult` and the
+    snapshot's `whitelistCheck` carry the new `requestId`/`checkedAt`;
   - confirmed at 23:30 Europe/Warsaw (22:30 UTC in winter) and sent at
-    00:10 Europe/Warsaw → re-checked, although both instants fall on the
-    same UTC date;
+    00:10 Europe/Warsaw → fresh evidence, although both instants fall on
+    the same UTC date;
+  - **same day, contractor deactivated after the confirmation → the send
+    is blocked with `VENDOR_ACCOUNT_INACTIVE`** (the cached-verdict
+    design would have sent it);
+  - **same day, bank account deactivated after the confirmation → blocked
+    with `VENDOR_ACCOUNT_INACTIVE`**;
   - the re-check returns `WHITELIST_NEGATIVE` for one line → `422
     PAYMENT_BATCH_NOT_ELIGIBLE` with `VENDOR_ACCOUNT_NOT_WHITELISTED`,
     no journal entry, batch stays `CONFIRMED`, `sentOn` and
@@ -1103,9 +1152,23 @@ through the module configuration screen.
   - a `NOT_APPLICABLE` line (no `checkedAt`) → re-evaluated on every
     send, no Ministry call made by the registry;
   - `sentOn` set to yesterday, sent today after a confirmation from
-    yesterday → re-checked (the comparison uses the time the command
+    yesterday → fresh evidence (the comparison uses the time the command
     runs, not `sentOn`);
   - a repeated send of an already `SENT` batch → no-op, no re-check.
+- Concurrent attachment of one invoice (added 2026-11-18, review round):
+  two simultaneous `POST .../lines` calls adding the same
+  `vendorInvoiceId` to two different `DRAFT` batches → exactly one
+  succeeds; the other gets `409 VENDOR_INVOICE_ALREADY_BATCHED`; the
+  invoice ends up on exactly one surviving line.
+- Simultaneous send of one batch (added 2026-11-18, review round): two
+  concurrent `markPaymentBatchSent` calls → exactly one payment entry and
+  one difference entry, both callers see `SENT` with the same
+  `postedJournalEntryId`; a forced rollback after the ledger call leaves
+  the batch `CONFIRMED` and posts no difference entry.
+- Fractional-unit FX settlement (added 2026-11-18, review round): EUR
+  100.08 booked at 4.30 and paid at 4.35 posts a difference liability
+  credit of 5.01 (rounded 430.34 → 435.35), not 5.00, leaving no open
+  base amount on the liability account after full settlement.
 
 ## Edge Cases & Failure Scenarios
 
@@ -1153,17 +1216,34 @@ Added 2026-10-20, for the same-day re-check at `markPaymentBatchSent`
 - **Severity**: High
 - **Affected area**: `accounts_payable_payments`, `ledger` (a
   duplicate, unbalanced entry on the liability/bank account)
-- **Mitigation**: `postedJournalEntryId` is checked and set in the
-  same transaction as the `commandBus` call
-  (`withAtomicFlush`/transaction wrapping); a second, concurrent
-  attempt on the same batch must see `postedJournalEntryId` already
-  set and return a no-op instead of calling `postJournalEntry` again —
-  mirroring `postVendorInvoice`'s mitigation in the sibling document.
-- **Residual risk**: a theoretical race window between reading and
-  writing `postedJournalEntryId` under two simultaneous requests —
-  requires a unique constraint or a select-for-update on
-  `PaymentBatch.id` inside the command; to be confirmed at
-  implementation time.
+- **Mitigation** (**made mandatory 2026-11-18, review round**; an
+  earlier draft left the lock "to be confirmed at implementation time",
+  which is not good enough for a money path): the command opens one
+  transaction on its forked `EntityManager` and, as its first statement
+  inside it, takes a row lock on the batch —
+  `select ... from accounts_payable_payments_payment_batches where id = $1
+  and tenant_id = $2 and organization_id = $3 for update` — and re-reads
+  `status`/`postedJournalEntryId` under that lock. Only the caller that
+  observes `CONFIRMED` and a null `postedJournalEntryId` posts; every
+  concurrent caller waits, then observes `SENT` and returns the stored
+  result. A transaction **alone** is not the mitigation: under
+  `READ COMMITTED` both callers read the null id before either writes.
+  The same transaction is propagated into the nested ledger command —
+  `commandBus.execute('ledger.postJournalEntry', ..., { entityManager: em })`
+  — because `withAtomicFlush` joins an ambient transaction only when the
+  supplied `EntityManager` is already inside one
+  (`packages/shared/src/lib/commands/flush.ts`); passing a fresh em would
+  commit the ledger entry separately from `postedJournalEntryId`. The
+  batch status, `postedJournalEntryId`, `paymentRate`/`sentOn` and the
+  difference entry's id all commit in that one transaction, so the
+  ledger entry, the FX difference entry and the batch row can never
+  disagree.
+- **Residual risk**: none on the same batch — the row lock serializes
+  concurrent sends, and a retry observes `SENT` and returns the stored
+  result. Covering this with a test is mandatory: two simultaneous
+  `markPaymentBatchSent` calls produce exactly one journal entry and one
+  difference entry, and a rollback after the ledger call leaves the batch
+  `CONFIRMED` with no entry.
 
 ### Cascading failures & side effects
 
@@ -1648,3 +1728,28 @@ change to behaviour or schema. Not yet reviewed by a maintainer.
 
 - `accounts_payable_payments.gainLossAccountId` is replaced by `realizedFxGainAccountId` (gain, financial income) and `realizedFxLossAccountId` (loss, financial costs). The difference entry posts the losses in one debit line on the loss account and the gains in one credit line on the gain account, never netted; the conversion line of a cash account in another currency goes to the gain account when it is a credit and to the loss account when it is a debit. Updated: `markPaymentBatchSent` (difference entry, worked check, cash account in another currency), configuration, Edge Cases and Testing. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).
 - Basis: art. 30 ust. 4 UoR (differences, also on payment of receivables and payables, go respectively to financial income or financial costs; checked against the consolidated text, `2026-09-17-multi-currency.md`, changelog 2026-10-12); the controller's answer of 2026-10-23 (separate sub-accounts). Same split as Cash & Bank's realized accounts and `fx_revaluation`'s `unrealizedGainAccountId`/`unrealizedLossAccountId`.
+
+### 2026-11-18 — review-round corrections (payments)
+
+- **Always revalidate eligibility at send.** `markPaymentBatchSent` now calls
+  `contractorBankWhitelistCheck` for every line on a `CONFIRMED` batch instead
+  of only when the stored check is from an earlier Warsaw day; the registry
+  reuses the Ministry evidence for the same business day but always re-reads
+  local eligibility, account status and service availability. A same-day
+  deactivation now blocks the send. Design decisions, Commands, Edge Cases and
+  Testing Strategy updated; replaces the "a check from today is reused" rule.
+- **Unique invoice claim.** Replaced the nonunique `(vendor_invoice_id)` index
+  on `PaymentBatchLine` with a unique `(tenant_id, organization_id,
+  vendor_invoice_id)` constraint, mapped to `409
+  VENDOR_INVOICE_ALREADY_BATCHED`; concurrent attachments have exactly one
+  winner. Data Models, API Contracts and Testing Strategy updated.
+- **Mandatory posting serialization.** The send locks the batch row
+  (`for update`) before reading `status`/`postedJournalEntryId`, propagates the
+  same `EntityManager` into `ledger.postJournalEntry`, and commits the status,
+  ids and both entries together; the "to be confirmed at implementation time"
+  residual risk is removed.
+- **Rounded FX settlement.** The difference entry's base amount is derived from
+  the rounded booked liability and the rounded settlement debit; the EUR 100.08
+  example (5.01, not 5.00) is documented and covered by a test.
+- **Plan alignment.** The Phase 1 implementation plan no longer re-opens the
+  closed thin-query alternative.

@@ -817,10 +817,19 @@ async seedDefaults({ em, tenantId, organizationId }) {
   readable domain message (`FISCAL_PERIOD_LOCKED`, with the name/range
   of the locked period) — the invoice stays in `APPROVED` (it doesn't
   lose its approval, doesn't revert to `DRAFT`), ready for a retry once
-  the period is unlocked or for a manual change of `invoiceDate` to the
-  currently open period by the chief accountant. This closes a design
-  decision that was still open in the skeleton ("handling not yet
-  designed").
+  the period is unlocked. **The only supported recovery is unlocking the
+  original period (corrected 2026-11-18, review round).** An earlier
+  draft also offered "a manual change of `invoiceDate` to the currently
+  open period by the chief accountant" — that path does not exist:
+  `updateVendorInvoice` accepts edits only in `DRAFT` (see Commands) and
+  no `APPROVED → DRAFT` or guarded correction transition is defined, so
+  the promise was unreachable. An invoice whose date is genuinely wrong
+  needs the Phase 2 reversal/void flow (an accepted Phase 1 gap, see
+  Risks & Impact Review, "No reversal path for a wrongly-posted
+  invoice"); until then the correcting entry is made in `ledger` outside
+  this module, and this spec does not pretend otherwise. This closes a
+  design decision that was still open in the skeleton ("handling not
+  yet designed").
 
   **Foreign-currency invoice (added 2026-10-23).** #5663 now stores a
   currency, a rate and an original-currency amount on every
@@ -842,10 +851,12 @@ async seedDefaults({ em, tenantId, organizationId }) {
   `postVendorInvoice` adds one ordinary base-currency line (rate `1`,
   `amountCurrency` equal to its base amount) on the module-config account
   `roundingAccountId` for the difference, on the side that balances the entry.
-  It refuses to post (422) when the difference exceeds half the smallest base
-  unit times the number of converted lines, so a wrong rate cannot disappear
-  into the rounding account, and also when a difference exists but
-  `roundingAccountId` is not set. The VAT line is not adjusted to absorb the
+  It refuses to post with `422 ROUNDING_REMAINDER_TOO_LARGE` when the
+  difference exceeds half the smallest base unit times the number of
+  converted lines, so a wrong rate cannot disappear into the rounding
+  account, and with `422 ROUNDING_ACCOUNT_REQUIRED` when a difference
+  exists but `roundingAccountId` is not set (see Data Models → Module
+  Config for the setting's scope and validation). The VAT line is not adjusted to absorb the
   remainder. The VAT amount for the VAT register uses the rate of art. 31a
   ustawy o VAT (last business day before the tax obligation arises) and
   belongs to `financial_pl`; Phase 1 books one rate per invoice, so the two can
@@ -1066,6 +1077,16 @@ belongs in Phase 1 or stays Phase 2; no Phase 1 consumer exists.
 - `invoice_number`: text
 - `invoice_date`, `due_date`: date
 - `currency_id`: uuid (FK-id → `currencies.Currency`, no ORM relation)
+- `exchange_rate`: numeric(18,8), nullable — the booking rate to the
+  tenant's base currency, frozen together with `currency_id`/`invoice_date`
+  while the invoice leaves `DRAFT` (see Commands); `null` until resolved
+  or backfilled, and `null` is never silently treated as `1`. **Added to
+  this schema listing 2026-11-18, review round** — the column was already
+  specified in the entity section above and used by
+  `postVendorInvoice`/`backfillVendorInvoiceExchangeRate`, but was
+  missing from the Data Models table an implementer codes from. It ships
+  as a nullable additive column in the same migration, with no backfill
+  in the migration itself (the backfill command owns that).
 - `status`: text (`DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`REJECTED`/`POSTED`/`CANCELLED`)
 - `goods_receipt_reference`: uuid, nullable (FK-id → `wms.InventoryMovement`)
 - `total_net`, `total_tax`, `total_gross`: numeric(19,4)
@@ -1105,9 +1126,11 @@ Supporting index: `(vendor_invoice_id)` for loading invoice lines.
 ### Module Config (`ModuleConfigService`, tenant scope)
 
 Instead of building its own vendor/category-to-account mapping engine
-(rejected, see Alternatives considered), AP stores exactly two
+(rejected, see Alternatives considered), AP stores exactly three
 tenant-scoped configuration values through
-`src/modules/configs/lib/module-config-service.ts`:
+`src/modules/configs/lib/module-config-service.ts` (two until
+2026-11-18, review round — the rounding account was used by
+`postVendorInvoice` but missing from this list):
 
 - `accounts_payable.liabilityAccountId` — the `LedgerAccount.id` of the
   vendor liability account (e.g. "202"), used as the CR in
@@ -1120,6 +1143,22 @@ tenant-scoped configuration values through
   input-VAT account (e.g. "223"), used as the aggregated DR in
   `postVendorInvoice` (see Design decisions, "Input VAT gets its own
   account"). Used exclusively in this document.
+- `accounts_payable.roundingAccountId` — the `LedgerAccount.id` of the
+  account that absorbs the base-currency rounding remainder of a
+  foreign-currency invoice (see `postVendorInvoice`, "Rounding
+  remainder"). Optional: an unset value is allowed and means "refuse
+  to absorb a remainder" — `postVendorInvoice` rejects a
+  foreign-currency invoice whose converted lines do not balance (422
+  `ROUNDING_ACCOUNT_REQUIRED`) rather than posting an unbalanced entry,
+  while invoices whose lines balance post normally with the setting
+  unset. The value must reference a `ledger.LedgerAccount` of the same
+  tenant/organization that is active and not a settlement account with
+  its own `currencyId`; validation runs on save and again on use, and a
+  deactivated or deleted account is reported as
+  `422 ROUNDING_ACCOUNT_INVALID`. Its scope is the tenant/organization
+  pair only — no per-vendor or per-currency override in Phase 1. Owned
+  and read exclusively by this document.
+
 
 ## API Contracts
 
@@ -1176,6 +1215,8 @@ Custom write route (mapped to `update`).
 
 - **Response 200**: `{ id, status: 'POSTED', postedJournalEntryId }`.
 - **Response 409**: `status !== 'APPROVED'`.
+- **Response 422 `ROUNDING_ACCOUNT_REQUIRED` / `ROUNDING_REMAINDER_TOO_LARGE` / `ROUNDING_ACCOUNT_INVALID`** (added 2026-11-18, review round): a foreign-currency invoice's converted lines do not balance and the rounding account is unset, the remainder exceeds the allowed bound, or the configured account is unusable. Nothing is posted; the invoice stays `APPROVED`.
+- **Response 422 `EXCHANGE_RATE_MISSING`**: a foreign-currency invoice whose `exchangeRate` is still `null`; nothing is posted.
 - **Response 422 `FISCAL_PERIOD_LOCKED`**: `{ code:
   'FISCAL_PERIOD_LOCKED', periodStart, periodEnd }` — the period
   covering `invoiceDate` is locked; the invoice stays `APPROVED`.
@@ -1327,6 +1368,23 @@ report and resolve pre-existing duplicates.
   409 `EXCHANGE_RATE_ALREADY_SET`; with no rate available it returns 422
   `EXCHANGE_RATE_UNAVAILABLE`. Editing the `invoiceDate` or `currencyId`
   of a draft re-resolves the rate.
+- Foreign-currency posting (added 2026-11-18, review round — the storage
+  field and the rounding setting were previously untested):
+  - a foreign-currency invoice whose converted net/VAT lines do not
+    balance and whose remainder is within the allowed bound posts one
+    base-currency rounding line on `roundingAccountId`; the entry balances;
+  - the same invoice with `roundingAccountId` unset returns `422
+    ROUNDING_ACCOUNT_REQUIRED` and posts nothing;
+  - a stored remainder larger than half the smallest base unit times the
+    number of converted lines returns 422 and posts nothing (a wrong rate
+    cannot disappear into the rounding account);
+  - a configured `roundingAccountId` that is deactivated or belongs to
+    another organization returns `422 ROUNDING_ACCOUNT_INVALID` and posts
+    nothing;
+  - `exchange_rate` persists as `numeric(18,8)` and stays `null` on a
+    base-currency invoice, never silently `1`;
+  - two simultaneous `postVendorInvoice` calls produce exactly one
+    `JournalEntry` (the row-lock mitigation above).
 
 ## Risks & Impact Review
 
@@ -1339,16 +1397,25 @@ report and resolve pre-existing duplicates.
 - **Severity**: High
 - **Affected area**: `accounts_payable`, `ledger` (a duplicate,
   unbalanced entry on the liability account)
-- **Mitigation**: `postedJournalEntryId` is checked and set in the
-  same transaction as the `commandBus` call
-  (`withAtomicFlush`/transaction wrapping); a second, concurrent
-  attempt on the same invoice must see `postedJournalEntryId` already
-  set and return a no-op instead of calling `postJournalEntry` again.
-- **Residual risk**: a theoretical race window between reading and
-  writing `postedJournalEntryId` under two simultaneous requests —
-  requires a unique constraint or a select-for-update on
-  `VendorInvoice.id` inside the command; to be confirmed at
-  implementation time (not resolved by the data design alone).
+- **Mitigation** (**made mandatory 2026-11-18, review round**; the
+  previous "to be confirmed at implementation time" left a money path
+  unprotected): `postVendorInvoice` opens one transaction on its forked
+  `EntityManager` and, as its first statement inside it, takes a row lock
+  on the invoice —
+  `select ... from accounts_payable_vendor_invoices where id = $1 and
+  tenant_id = $2 and organization_id = $3 for update` — re-reading
+  `status`/`postedJournalEntryId` under that lock; only the caller that
+  observes `APPROVED` and a null id posts. The same transaction is passed
+  into the nested ledger command
+  (`entityManager: em`), because `withAtomicFlush` joins an ambient
+  transaction only when the supplied `EntityManager` is already inside
+  one (`packages/shared/src/lib/commands/flush.ts`). `status`,
+  `postedJournalEntryId` and the ledger entry commit together.
+- **Residual risk**: none on the same invoice — the row lock serializes
+  concurrent posts, and a retry observes `POSTED` and returns the stored
+  result. Mandatory coverage: two simultaneous `postVendorInvoice` calls
+  produce exactly one `JournalEntry`, and a rollback after the ledger
+  call leaves the invoice `APPROVED` with no entry.
 
 #### Account 300 never zeroes out in Phase 1
 - **Scenario**: Every invoice posted with a line on account 300
@@ -1990,3 +2057,21 @@ changes what `postVendorInvoice` sends downstream.
   (see the foreign-currency paragraph under `postVendorInvoice`); the rate is
   the booking-day rate (Multi-Currency Design decisions 9f/9g); settlement
   accounts carry no `currencyId`. Not yet reviewed by a maintainer.
+
+### 2026-11-18 — review-round corrections (invoices)
+
+- **`exchange_rate` in the Data Models table.** Added the nullable
+  `numeric(18,8)` column to the schema listing an implementer codes from; it
+  was already specified in the entity section and used by
+  `postVendorInvoice`/the backfill command.
+- **Rounding account is a third module setting.** `accounts_payable.roundingAccountId`
+  is documented with its tenant scope, validation and unset behaviour
+  (`ROUNDING_ACCOUNT_REQUIRED` / `ROUNDING_ACCOUNT_INVALID` /
+  `ROUNDING_REMAINDER_TOO_LARGE`), and foreign-currency posting tests were added.
+- **Locked-period recovery made reachable.** Removed the unreachable "change
+  `invoiceDate` while `APPROVED`" promise; unlocking the original period is the
+  only supported recovery, and a wrong date needs the Phase 2 reversal flow.
+- **Mandatory posting serialization.** `postVendorInvoice` locks the invoice row
+  before reading `status`/`postedJournalEntryId`, propagates the same
+  `EntityManager` into the ledger command, and commits status, id and entry
+  together; concurrent-post coverage is mandatory.
