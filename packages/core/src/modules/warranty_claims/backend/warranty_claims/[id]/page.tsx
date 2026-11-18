@@ -783,6 +783,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [lineDialog, setLineDialog] = React.useState<{ mode: 'create' } | { mode: 'edit'; line: ClaimLine } | null>(null)
   const [defaultWarrantyMonths, setDefaultWarrantyMonths] = React.useState<number | null>(null)
   const [featureAccess, setFeatureAccess] = React.useState({
+    attachmentsView: false,
     claimManage: false,
     claimDelete: false,
     receivingManage: false,
@@ -814,6 +815,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           features: [
+            'attachments.view',
             'warranty_claims.claim.manage',
             'warranty_claims.claim.delete',
             'warranty_claims.receiving.manage',
@@ -830,6 +832,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         const granted = Array.isArray(call.result?.granted) ? call.result.granted : []
         const allGranted = call.result?.ok === true
         setFeatureAccess({
+          attachmentsView: allGranted || hasFeature(granted, 'attachments.view'),
           claimManage: allGranted || hasFeature(granted, 'warranty_claims.claim.manage'),
           claimDelete: allGranted || hasFeature(granted, 'warranty_claims.claim.delete'),
           receivingManage: allGranted || hasFeature(granted, 'warranty_claims.receiving.manage'),
@@ -841,6 +844,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       .catch(() => {
         if (!cancelled) {
           setFeatureAccess({
+            attachmentsView: false,
             claimManage: false,
             claimDelete: false,
             receivingManage: false,
@@ -925,7 +929,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     setError(null)
     setNotFound(false)
     try {
-      const [claimPayload, linesPayload, eventsPayload, riskPayload, statsPayload, attachmentsPayload] = await Promise.all([
+      const [claimPayload, linesPayload, eventsPayload, riskPayload, statsPayload] = await Promise.all([
         readApiResultOrThrow<{ items?: unknown[] }>(
           `/api/warranty_claims?ids=${encodeURIComponent(id)}&page=1&pageSize=1`,
           undefined,
@@ -950,11 +954,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           undefined,
           { fallback: { ok: true, result: {} } },
         ),
-        readApiResultOrThrow<{ items?: unknown[] }>(
-          `/api/attachments?entityId=${encodeURIComponent('warranty_claims:warranty_claim')}&recordId=${encodeURIComponent(id)}`,
-          undefined,
-          { fallback: { items: [] } },
-        ),
       ])
       const nextClaim = (claimPayload.items ?? []).map(normalizeClaim).find((item): item is ClaimRecord => item !== null) ?? null
       if (!nextClaim) {
@@ -969,7 +968,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       setClaim(nextClaim)
       setLines((linesPayload.items ?? []).map(normalizeLine).filter((item): item is ClaimLine => item !== null))
       setEvents((eventsPayload.items ?? []).map(normalizeEvent).filter((item): item is ClaimEvent => item !== null))
-      setAttachmentCount(Array.isArray(attachmentsPayload.items) ? attachmentsPayload.items.length : 0)
       setRiskAssessment(normalizeRiskResponse(riskPayload))
       const nextThreshold = statsPayload?.result?.slaAtRiskThresholdPct
       setSlaAtRiskThresholdPct(typeof nextThreshold === 'number' ? nextThreshold : undefined)
@@ -983,6 +981,30 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   React.useEffect(() => {
     void loadData()
   }, [loadData])
+
+  React.useEffect(() => {
+    let cancelled = false
+    setAttachmentCount(0)
+    if (!claim || claim.id !== id || !featureAccess.attachmentsView) return
+    void apiCall<{ items?: unknown[] }>(
+      `/api/attachments?entityId=${encodeURIComponent('warranty_claims:warranty_claim')}&recordId=${encodeURIComponent(claim.id)}`,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
+      { fallback: { items: [] } },
+    )
+      .then((call) => {
+        if (cancelled || !call.ok) return
+        setAttachmentCount(Array.isArray(call.result?.items) ? call.result.items.length : 0)
+      })
+      .catch((error) => {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'warranty_claims',
+          code: 'warranty_claims.attachment_count_failed',
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [claim, featureAccess.attachmentsView, id, scopeVersion])
 
   useAppEvent('warranty_claims.claim.*', (event) => {
     const eventClaimId = toStringOrNull(event.payload.claimId)
@@ -1908,7 +1930,9 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const tabs: Array<{ id: TabId; label: string; count?: number }> = [
     { id: 'lines', label: t('warranty_claims.detail.tabs.lines'), count: lines.length },
     { id: 'timeline', label: t('warranty_claims.detail.tabs.timeline'), count: events.length },
-    { id: 'attachments', label: t('warranty_claims.detail.tabs.attachments'), count: attachmentCount },
+    ...(featureAccess.attachmentsView
+      ? [{ id: 'attachments' as const, label: t('warranty_claims.detail.tabs.attachments'), count: attachmentCount }]
+      : []),
     { id: 'ai', label: t('warranty_claims.detail.tabs.ai') },
   ]
   const approvedLineCount = lines.filter((line) => line.lineStatus === 'approved').length
@@ -2046,7 +2070,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
             </div>
             <ClaimStageProgress status={claim.status} />
           <Tabs
-            value={activeTab}
+            value={activeTab === 'attachments' && !featureAccess.attachmentsView ? 'lines' : activeTab}
             onValueChange={(value) => setActiveTab(value as TabId)}
             variant="underline"
           >
@@ -2249,25 +2273,27 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               </div>
             </TabsContent>
 
-            <TabsContent value="attachments" className="mt-0">
-              <div className="px-8 pb-8 pt-6">
-                <AttachmentInput
-                  entityId="warranty_claims:warranty_claim"
-                  recordId={claim.id}
-                  allowDelete={featureAccess.claimManage}
-                  allowReplace={featureAccess.claimManage}
-                  disabled={!featureAccess.claimManage}
-                  onCountChange={setAttachmentCount}
-                  renderItemMeta={(item) => (
-                    isCustomerVisibleAttachment(item.tags) ? (
-                      <StatusBadge variant="info">
-                        {t('warranty_claims.detail.attachments.customerVisible', 'Visible to customer')}
-                      </StatusBadge>
-                    ) : null
-                  )}
-                />
-              </div>
-            </TabsContent>
+            {featureAccess.attachmentsView ? (
+              <TabsContent value="attachments" className="mt-0">
+                <div className="px-8 pb-8 pt-6">
+                  <AttachmentInput
+                    entityId="warranty_claims:warranty_claim"
+                    recordId={claim.id}
+                    allowDelete={featureAccess.claimManage}
+                    allowReplace={featureAccess.claimManage}
+                    disabled={!featureAccess.claimManage}
+                    onCountChange={setAttachmentCount}
+                    renderItemMeta={(item) => (
+                      isCustomerVisibleAttachment(item.tags) ? (
+                        <StatusBadge variant="info">
+                          {t('warranty_claims.detail.attachments.customerVisible', 'Visible to customer')}
+                        </StatusBadge>
+                      ) : null
+                    )}
+                  />
+                </div>
+              </TabsContent>
+            ) : null}
 
             <TabsContent value="ai" className="mt-0">
               <div className="grid gap-4 px-8 pb-8 pt-6 xl:grid-cols-2">

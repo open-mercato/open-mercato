@@ -1864,6 +1864,12 @@ When implemented, release notes must call out:
 
 ## Changelog
 
+### 2026-11-05 — Exclusive pending-action confirmation
+
+- Serialize status transitions with a refreshed tenant/organization/owner-scoped database row lock. Confirmation adds an optional expected-status precondition so only the request changing `pending` to `confirmed` may proceed to execution. Duplicate requests return the current in-flight or stored result. The handler runs after the claim transaction releases its lock.
+- Preserve status values, API and event shapes, required signatures, and same-status idempotency for callers without the optional precondition. A process crash after a claim does not authorize a retry to repeat the mutation.
+- Coverage: repository expected-state denial, concurrent executor snapshots, and self-contained `TC-AI-ACTIONS-CLAIM-011` concurrent POST confirmations proving exactly one persisted comment.
+
 ### 2026-10-14 — Bulk confirm runs only the previewed, fresh rows (#7221)
 - §9.8 described an all-or-nothing batch with a `partialSuccess` opt-in; the shipped contract is partial success: stale rows are reported in `failedRecords` and the rest commit. The executor now enforces it: the handler receives only the `records[]` entries that match a previewed row exactly (first entry per id) and passed the recheck; unpreviewed entries are reported as `record_not_previewed`; input that cannot be narrowed, or a batch with nothing approved left to run, answers `412 stale_version` before any status change.
 - The handler context carries `expectedRecordVersions`; catalog AI writes send them as the optimistic-lock header (`expectedUpdatedAt`), so a product whose `updated_at` moved after the preview fails with `optimistic_lock_conflict` instead of being overwritten.

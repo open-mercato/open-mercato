@@ -9,6 +9,7 @@ import {
 } from '@open-mercato/shared/lib/security/contentSecurityPolicy'
 import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
 import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
+import { openMercatoServerExternalPackages } from '@open-mercato/shared/lib/nextjs/server-external-packages'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
@@ -150,6 +151,7 @@ const nextConfig: NextConfig & { agentRules?: boolean } = {
     // @open-mercato/telemetry so it can never drift into a partial (silently
     // "emits nothing") copy.
     ...telemetryServerExternalPackages,
+    ...openMercatoServerExternalPackages,
   ],
   // Mirror server-only env vars that client components must observe. Keep this
   // list minimal — anything added here is inlined into the client bundle.
