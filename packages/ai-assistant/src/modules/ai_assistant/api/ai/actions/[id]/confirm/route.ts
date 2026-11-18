@@ -110,6 +110,13 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
   if (!auth) {
     return jsonError(401, 'Unauthorized', 'unauthenticated')
   }
+  if (auth.isApiKey) {
+    return jsonError(
+      403,
+      'Pending actions are decided by a signed-in user, not an API key.',
+      'api_key_cannot_decide',
+    )
+  }
 
   const rawParams = await context.params
   const paramResult = idParamSchema.safeParse(rawParams)

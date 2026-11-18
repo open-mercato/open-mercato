@@ -153,9 +153,10 @@ test.describe('TC-AI-RUN-TRACE-016: run-object run id and call settings', () => 
     });
     const body = await readJson(response);
     test.skip(
-      response.status() !== 200,
-      `run-object did not complete (status ${response.status()}, code ${String(body.code ?? '')}); no LLM provider in this environment`,
+      response.status() === 503,
+      `run-object reported no usable LLM provider (code ${String(body.code ?? '')}); this case needs a real model run`,
     );
+    expect(response.status(), `run-object failed: ${JSON.stringify(body)}`).toBe(200);
     expect(typeof body.runId).toBe('string');
     expect(String(body.runId)).toMatch(UUID_PATTERN);
   });

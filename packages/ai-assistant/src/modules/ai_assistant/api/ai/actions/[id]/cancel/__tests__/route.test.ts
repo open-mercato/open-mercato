@@ -140,6 +140,16 @@ describe('POST /api/ai/actions/:id/cancel route (Step 5.9)', () => {
     consoleWarnSpy.mockRestore()
   })
 
+  it('refuses an API-key principal even when its role may approve', async () => {
+    authMock.mockResolvedValueOnce({ sub: 'api_key:key-1', tenantId: 'tenant-1', orgId: 'org-1', isApiKey: true, keyId: 'key-1' })
+
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe('api_key_cannot_decide')
+    expect(repoGetByIdMock).not.toHaveBeenCalled()
+  })
+
   it('returns 401 when unauthenticated', async () => {
     authMock.mockResolvedValueOnce(null)
     const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))

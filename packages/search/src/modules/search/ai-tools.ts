@@ -178,6 +178,47 @@ function buildSearchViewer(ctx: ToolContext, organizationId: string | undefined)
 }
 
 /**
+ * Apply an entity's per-record `filterResults` hook to records a data-returning
+ * tool reads directly through the query engine. Entities without the hook keep
+ * every record; with the hook, a missing viewer or a throw keeps none.
+ */
+async function filterRecordsByVisibility<TRecord extends Record<string, unknown>>(
+  entityType: string,
+  records: TRecord[],
+  config: SearchEntityConfig,
+  ctx: ToolContext,
+  organizationId: string | undefined,
+  organizationIds: string[] | null | undefined,
+): Promise<TRecord[]> {
+  const filterResults = config.filterResults
+  if (!filterResults || records.length === 0) return records
+  const viewer = buildSearchViewer(ctx, organizationId)
+  if (!viewer || !ctx.tenantId) return []
+  const candidates: Array<{ record: TRecord; result: SearchResult }> = []
+  for (const record of records) {
+    const recordId = typeof record.id === 'string' ? record.id : null
+    if (!recordId) continue
+    candidates.push({ record, result: { entityId: entityType, recordId, score: 1, source: 'tokens' } })
+  }
+  if (!candidates.length) return []
+  try {
+    const visible = new Set(
+      await filterResults({
+        entityId: entityType,
+        results: candidates.map((candidate) => candidate.result),
+        tenantId: ctx.tenantId,
+        organizationId: organizationId ?? null,
+        organizationIds: organizationIds ?? null,
+        viewer,
+      }),
+    )
+    return candidates.filter((candidate) => visible.has(candidate.result)).map((candidate) => candidate.record)
+  } catch {
+    return []
+  }
+}
+
+/**
  * Strip fields that the entity's field policy marks as sensitive
  * (`hashOnly` exact-match PII or fully `excluded`) from a query-engine record.
  * Defense-in-depth so even an authorized caller never receives decrypted PII or
@@ -383,7 +424,14 @@ const searchGetTool: AiToolDefinition = {
       page: { page: 1, pageSize: 1 },
     })
 
-    const rawRecord = result.items[0] as Record<string, unknown> | undefined
+    const [rawRecord] = await filterRecordsByVisibility(
+      input.entityType,
+      result.items.slice(0, 1) as Record<string, unknown>[],
+      entityConfig,
+      ctx,
+      orgScope.organizationId,
+      orgScope.organizationIds,
+    )
     if (!rawRecord) {
       return {
         found: false,
@@ -564,14 +612,22 @@ const searchAggregateTool: AiToolDefinition = {
       page: { page: 1, pageSize: 100 },
     })
 
+    const items = await filterRecordsByVisibility(
+      input.entityType,
+      result.items as Record<string, unknown>[],
+      entityConfig,
+      ctx,
+      orgScope.organizationId,
+      orgScope.organizationIds,
+    )
     const counts = new Map<string | null, number>()
-    for (const item of result.items as Record<string, unknown>[]) {
+    for (const item of items) {
       const value = item[input.groupBy]
       const key = value === null || value === undefined ? null : String(value)
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
 
-    const total = result.items.length
+    const total = items.length
     const buckets = Array.from(counts.entries())
       .map(([value, count]) => ({
         value,

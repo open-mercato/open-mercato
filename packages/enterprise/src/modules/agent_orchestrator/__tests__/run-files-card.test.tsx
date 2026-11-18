@@ -6,6 +6,7 @@ import * as React from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
 import en from '../i18n/en.json'
 import { RunFilesCard } from '../components/trace/RunFilesCard'
 import { OffloadStatusNote, readOffloadFailureStatus } from '../components/trace/OffloadStatusNote'
@@ -76,6 +77,23 @@ describe('RunFilesCard', () => {
 })
 
 describe('OffloadStatusNote', () => {
+  it('hides the card instead of loading forever when the request is refused', async () => {
+    mockedApiCall.mockResolvedValueOnce({ ok: false, status: 500, result: { items: [], captureFailure: null } } as Awaited<ReturnType<typeof apiCall>>)
+
+    const { container } = renderWithProviders(<RunFilesCard runId={RUN_ID} />, { dict })
+
+    await waitFor(() => expect(container.textContent).toBe(''))
+  })
+
+  it('hides the card when apiFetch throws ForbiddenError', async () => {
+    mockedApiCall.mockRejectedValueOnce(new ForbiddenError('Forbidden'))
+
+    const { container } = renderWithProviders(<RunFilesCard runId={RUN_ID} />, { dict })
+
+    await waitFor(() => expect(container.textContent).toBe(''))
+    expect(screen.queryByText(dict['agent_orchestrator.artifacts.loading'])).toBeNull()
+  })
+
   it('explains a truncated summary whose full payload was not stored', () => {
     renderWithProviders(
       <OffloadStatusNote summary={{ _truncated: true, offloaded: false, offloadStatus: 'encryption_unavailable', preview: '{' }} />,

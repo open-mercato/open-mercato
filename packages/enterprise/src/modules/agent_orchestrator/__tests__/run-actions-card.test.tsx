@@ -6,6 +6,7 @@ import * as React from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
 import en from '../i18n/en.json'
 import { RunActionsCard } from '../components/trace/RunActionsCard'
 
@@ -89,6 +90,23 @@ describe('RunActionsCard', () => {
     renderWithProviders(<RunActionsCard runId={RUN_ID} />, { dict })
 
     expect(await screen.findByText(dict['agent_orchestrator.traces.actions.empty'])).toBeTruthy()
+  })
+
+  it('hides the card when apiFetch throws ForbiddenError for a caller without the audit permission', async () => {
+    mockedApiCall.mockRejectedValue(new ForbiddenError('Forbidden', { requiredFeatures: ['audit_logs.view'], requiredRoles: null }))
+
+    const { container } = renderWithProviders(<RunActionsCard runId={RUN_ID} />, { dict })
+
+    await waitFor(() => expect(container.textContent).toBe(''))
+    expect(screen.queryByText(dict['agent_orchestrator.traces.actions.loading'])).toBeNull()
+  })
+
+  it('hides the card when the actions request fails', async () => {
+    mockedApiCall.mockRejectedValue(new Error('network down'))
+
+    const { container } = renderWithProviders(<RunActionsCard runId={RUN_ID} />, { dict })
+
+    await waitFor(() => expect(container.textContent).toBe(''))
   })
 
   it('hides the card when the caller lacks the audit permission', async () => {

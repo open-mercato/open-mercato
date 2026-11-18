@@ -592,7 +592,7 @@ describe('ActionLogService.backfillProjections - correlation keys', () => {
     expect(updates[0].values.correlation_keys).toEqual(['agentRunId:run-1'])
   })
 
-  it('skips rows whose correlation keys already match and keeps null for uncorrelated rows', async () => {
+  it('skips rows whose correlation keys already match and marks uncorrelated rows as computed', async () => {
     const { service, updates } = buildBackfillService([
       {
         ...baseRow,
@@ -610,7 +610,25 @@ describe('ActionLogService.backfillProjections - correlation keys', () => {
 
     const result = await service.backfillProjections({ batchSize: 10 })
 
-    expect(result).toEqual({ errors: 0, scanned: 2, skipped: 2, updated: 0 })
+    expect(result).toEqual({ errors: 0, scanned: 2, skipped: 1, updated: 1 })
+    expect(updates).toHaveLength(1)
+    expect(updates[0].id).toBe('log-3')
+    expect(updates[0].values.correlation_keys).toEqual([])
+  })
+
+  it('leaves an uncorrelated row alone once its empty projection is stored', async () => {
+    const { service, updates } = buildBackfillService([
+      {
+        ...baseRow,
+        id: 'log-4',
+        correlation_keys: [],
+        context_json: { source: 'agent' },
+      },
+    ])
+
+    const result = await service.backfillProjections()
+
+    expect(result).toEqual({ errors: 0, scanned: 1, skipped: 1, updated: 0 })
     expect(updates).toHaveLength(0)
   })
 })

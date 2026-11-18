@@ -373,6 +373,55 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     expect(json.code).toBe('execution_mode_not_supported')
   })
 
+  it('maps a missing LLM provider to 503 with the model-factory code', async () => {
+    const { AiModelFactoryError } = await import('../../../../lib/model-factory')
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+    runAiAgentObjectMock.mockRejectedValueOnce(
+      new AiModelFactoryError('api_key_missing', 'OPENAI_API_KEY is not set'),
+    )
+
+    const response = await POST(
+      buildRequest({
+        agent: 'catalog.extract',
+        messages: [{ role: 'user', content: 'hi' }],
+      }) as any,
+    )
+
+    expect(response.status).toBe(503)
+    const json = await response.json()
+    expect(json.code).toBe('api_key_missing')
+    expect(json.error).not.toContain('OPENAI_API_KEY')
+  })
+
+  it('keeps an unclassified runtime failure a 500', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+    runAiAgentObjectMock.mockRejectedValueOnce(new Error('boom'))
+
+    const response = await POST(
+      buildRequest({
+        agent: 'catalog.extract',
+        messages: [{ role: 'user', content: 'hi' }],
+      }) as any,
+    )
+
+    expect(response.status).toBe(500)
+    expect((await response.json()).code).toBe('internal_error')
+  })
+
   it('maps AgentPolicyError thrown by the runtime to the canonical HTTP status', async () => {
     const { AgentPolicyError } = await import('../../../../lib/agent-tools')
     seedAgentRegistryForTests([

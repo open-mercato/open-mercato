@@ -555,6 +555,11 @@ export async function runPendingActionRechecks(
   const toolFeaturesCheck = await checkToolFeatures(tool!, ctx)
   if (!toolFeaturesCheck.ok) return toolFeaturesCheck
 
+  if ((action.channel ?? 'agent') !== 'agent') {
+    const requesterCheck = await checkRawToolRequester(action, tool!, ctx, { now })
+    if (!requesterCheck.ok) return requesterCheck
+  }
+
   const attachmentCheck = await checkAttachmentScope(action, ctx)
   if (!attachmentCheck.ok) return attachmentCheck
 

@@ -35,6 +35,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../components/types'
+import { describeOtelDeliveryError, destinationErrorMessage } from '../../../components/otelExportErrorMessage'
 import {
   parseAgentOptions,
   withMissingAgentOptions,
@@ -76,39 +77,6 @@ type TestOutcome =
   | { kind: 'disabled' }
   | { kind: 'rateLimited' }
   | { kind: 'error' }
-
-function destinationErrorMessage(
-  code: OtelExportDestinationErrorCode,
-  t: ReturnType<typeof useT>,
-): string {
-  switch (code) {
-    case 'integration_unconfigured':
-      return t(
-        'agent_orchestrator.settings.otelExport.test.destination.integrationUnconfigured',
-        'The integration has no valid endpoint for this organization. Configure it first.',
-      )
-    case 'integration_disabled':
-      return t(
-        'agent_orchestrator.settings.otelExport.test.destination.integrationDisabled',
-        'The integration is disabled for this organization. Enable it first.',
-      )
-    case 'tenant_endpoints_denied':
-      return t(
-        'agent_orchestrator.settings.otelExport.test.destination.tenantEndpointsDenied',
-        'This installation does not allow sending traces to tenant endpoints.',
-      )
-    case 'endpoint_blocked':
-      return t(
-        'agent_orchestrator.settings.otelExport.test.destination.endpointBlocked',
-        'The integration endpoint is not allowed: it must be a public HTTPS address.',
-      )
-    case 'deployment_unconfigured':
-      return t(
-        'agent_orchestrator.settings.otelExport.test.destination.deploymentUnconfigured',
-        'The operator has not configured a usable endpoint for this installation.',
-      )
-  }
-}
 
 function FactBadge({ label, value, variant }: { label: string; value: string; variant: StatusBadgeVariant }) {
   return (
@@ -704,7 +672,7 @@ export default function OtelExportSettingsPage() {
                   value={
                     lastError
                       ? health.lastErrorCode
-                        ? `${lastError} · ${health.lastErrorCode}`
+                        ? `${lastError} · ${describeOtelDeliveryError(health.lastErrorCode, t)}`
                         : lastError
                       : neverLabel
                   }
@@ -740,7 +708,7 @@ export default function OtelExportSettingsPage() {
                           ? t(
                               'agent_orchestrator.settings.otelExport.test.failed',
                               'The backend did not accept the test span: {code}.',
-                              { code: testOutcome.errorCode },
+                              { code: describeOtelDeliveryError(testOutcome.errorCode, t) },
                             )
                           : testOutcome.kind === 'destination'
                             ? destinationErrorMessage(testOutcome.errorCode, t)

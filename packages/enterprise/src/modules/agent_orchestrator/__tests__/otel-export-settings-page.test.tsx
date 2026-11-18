@@ -81,7 +81,8 @@ describe('OTel export settings page', () => {
     expect(screen.queryByRole('button', { name: 'Send test span' })).toBeNull()
     expect(screen.getByText('Assess claims')).toBeTruthy()
     expect(screen.getByText('http/json')).toBeTruthy()
-    expect(screen.getByText(/http_503/)).toBeTruthy()
+    expect(screen.getByText(/the backend answered HTTP 503/)).toBeTruthy()
+    expect(screen.queryByText(/http_503/)).toBeNull()
     expect(screen.queryByText(/Prompts, responses and tool data are sent/)).toBeNull()
   })
 
@@ -109,7 +110,15 @@ describe('OTel export settings page', () => {
     grant(['agent_orchestrator.*'])
     renderWithProviders(<OtelExportSettingsPage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Send test span' }))
-    expect(await screen.findByText(/did not accept the test span: http_401/)).toBeTruthy()
+    expect(await screen.findByText(/did not accept the test span: the backend answered HTTP 401/)).toBeTruthy()
+  })
+
+  it('translates a network failure of the test span instead of showing the raw code', async () => {
+    mockApi({ result: { ok: false, httpStatus: null, latencyMs: 9, errorCode: 'network_error' } })
+    grant(['agent_orchestrator.*'])
+    renderWithProviders(<OtelExportSettingsPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Send test span' }))
+    expect(await screen.findByText(/did not accept the test span: the backend could not be reached/)).toBeTruthy()
   })
 
   it('saves the edited settings with the optimistic-lock version from GET', async () => {

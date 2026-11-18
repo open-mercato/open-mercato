@@ -961,7 +961,7 @@ export class ActionLogService {
             || row.source_key !== projection.sourceKey
             || row.primary_changed_field !== projection.primaryChangedField
             || !stringArraysEqual(row.changed_fields, projection.changedFields)
-            || !stringArraysEqual(row.correlation_keys ?? [], projection.correlationKeys)
+            || !stringArraysEqual(row.correlation_keys, projection.correlationKeys)
 
           if (!needsUpdate) {
             result.skipped += 1
@@ -974,7 +974,7 @@ export class ActionLogService {
               action_type: projection.actionType,
               changed_fields: projection.changedFields,
               primary_changed_field: projection.primaryChangedField,
-              correlation_keys: projection.correlationKeys.length > 0 ? projection.correlationKeys : null,
+              correlation_keys: projection.correlationKeys,
               source_key: projection.sourceKey,
             })
             .where('id', '=', row.id)

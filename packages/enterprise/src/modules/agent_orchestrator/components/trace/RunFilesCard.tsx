@@ -41,13 +41,20 @@ export function RunFilesCard({ runId }: { runId: string }) {
   React.useEffect(() => {
     let active = true
     void (async () => {
-      const call = await apiCall<RunArtifactsResponse>(
-        `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/artifacts`,
-        undefined,
-        { fallback: { items: [], captureFailure: null } },
-      )
-      if (active && call.ok) {
+      try {
+        const call = await apiCall<RunArtifactsResponse>(
+          `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/artifacts`,
+          undefined,
+          { fallback: { items: [], captureFailure: null } },
+        )
+        if (!active) return
+        if (!call.ok) {
+          setState({ rows: [], captureFailure: null })
+          return
+        }
         setState({ rows: call.result?.items ?? [], captureFailure: call.result?.captureFailure ?? null })
+      } catch {
+        if (active) setState({ rows: [], captureFailure: null })
       }
     })()
     return () => {

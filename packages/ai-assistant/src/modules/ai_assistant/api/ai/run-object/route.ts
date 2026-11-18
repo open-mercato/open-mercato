@@ -10,6 +10,7 @@ import { getAgent, loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import { runAiAgentObject } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { AiModelFactoryError } from '../../../lib/model-factory'
 import { aiAgentHttpCallSettingsSchema } from '../../../lib/agent-call-contract'
 import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
 import {
@@ -112,6 +113,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 409, description: 'Agent/tool/execution-mode policy violation, or no principal to run a dispatched agent as.' },
         { status: 422, description: 'Agent does not support object-mode execution, or a dispatched agent received an unsupported option (`dispatch_option_unsupported`).' },
         { status: 500, description: 'Internal runtime failure.' },
+        { status: 503, description: 'No usable LLM provider is configured for this deployment (`no_provider_configured` / `api_key_missing`).' },
       ],
     },
   },
@@ -345,6 +347,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (error) {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
+    }
+    if (error instanceof AiModelFactoryError) {
+      return jsonError(503, 'No LLM provider is configured for this deployment.', error.code)
     }
     logger.error('AI Run Object — Dispatch failure', { err: error })
     return jsonError(

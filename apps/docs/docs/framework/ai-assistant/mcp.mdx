@@ -244,7 +244,7 @@ export const aiAgents = [
 | `inputSchema` | `z.object({ input: z.string() })` | Zod input schema. With the default schema the `input` string is the prompt. A custom schema without `toPrompt` is sent to the agent as JSON. |
 | `toPrompt` | the `input` string | Turns validated input into the agent prompt. |
 | `requiredFeatures` | the agent's `requiredFeatures` | Must cover every feature the agent requires (superset rule); a narrower list is rejected. An agent with no required features accepts any list. |
-| `expose` | `true` | `false` keeps the tool out of `tools/list` and rejects it on the `mcp` and `tools-api` channels. |
+| `expose` | `true` | `false` keeps the tool out of `tools/list` and rejects it on the MCP servers. `POST /api/ai_assistant/tools/execute` does not apply exposure (see [Exposure, audit and mutation modes](#exposure-audit-and-mutation-modes)). |
 
 The result schema advertised to clients is built from the agent's `output.schema`.
 

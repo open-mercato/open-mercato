@@ -1,4 +1,4 @@
-import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import type { InitSetupContext, ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { seedAgentOrchestratorExamples } from './lib/seeds'
 import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
@@ -74,6 +74,27 @@ async function ensureAgentSchedules(ctx: {
 }): Promise<void> {
   await ensureMetricRollupSchedule(ctx)
   await ensureTraceContentRetentionSchedule(ctx)
+}
+
+export async function syncDeclaredAgentPrincipals(ctx: InitSetupContext): Promise<void> {
+  try {
+    const { ensureAgentsLoaded, listAgentEntries } = await import('./lib/sdk/defineAgent')
+    const { syncAgentPrincipals } = await import('./lib/identity/syncAgentPrincipals')
+    await ensureAgentsLoaded()
+    await syncAgentPrincipals(
+      ctx.container,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      { agents: listAgentEntries() },
+    )
+  } catch (error) {
+    logger.warn('failed to sync declared agent principals', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'agent_orchestrator',
+      code: 'agent_orchestrator.principal_sync_failed',
+    })
+  }
 }
 
 export const setup: ModuleSetupConfig = {
@@ -197,24 +218,7 @@ export const setup: ModuleSetupConfig = {
       })
     }
 
-    try {
-      const { ensureAgentsLoaded, listAgentEntries } = await import('./lib/sdk/defineAgent')
-      const { syncAgentPrincipals } = await import('./lib/identity/syncAgentPrincipals')
-      await ensureAgentsLoaded()
-      await syncAgentPrincipals(
-        ctx.container,
-        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-        { agents: listAgentEntries() },
-      )
-    } catch (error) {
-      logger.warn('failed to sync declared agent principals', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-      getTelemetryRuntime()?.reportError(error, {
-        module: 'agent_orchestrator',
-        code: 'agent_orchestrator.principal_sync_failed',
-      })
-    }
+    await syncDeclaredAgentPrincipals(ctx)
 
     // F2: register the per-org metric-rollup interval job. Best-effort + guarded
     // — a deployment without the scheduler module is a safe no-op, and a
@@ -223,7 +227,10 @@ export const setup: ModuleSetupConfig = {
     await ensureAgentSchedules(ctx)
   },
 
-  onOrganizationCreated: ensureAgentSchedules,
+  onOrganizationCreated: async (ctx) => {
+    await syncDeclaredAgentPrincipals(ctx)
+    await ensureAgentSchedules(ctx)
+  },
 
   // Gated demo seed (skipped with --no-examples). Idempotent + tenant-scoped:
   // lands the demo workflow definition and 2 demo deals (via the audited

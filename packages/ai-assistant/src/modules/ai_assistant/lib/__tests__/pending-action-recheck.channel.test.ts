@@ -227,6 +227,34 @@ describe('pending-action-recheck channel branching', () => {
     expect(result).toMatchObject({ ok: false, status: 403, code: 'approver_features_denied' })
   })
 
+  it('agent-tool rows queued over MCP fail with requester_revoked once the API key is gone', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(null)
+    const result = await runPendingActionRechecks({
+      action: makeAction({ agentId: 'catalog.merchandising_assistant' }),
+      agent: makeAgent(),
+      tool: makeTool(),
+      ctx: makeCtx({ userFeatures: ['catalog.agent', 'catalog.manage', 'ai_assistant.pending_actions.approve'] }),
+      now: NOW,
+      exposureConfig: exposure(),
+      mutationPolicyOverride: 'confirm-required',
+    })
+    expect(result).toMatchObject({ ok: false, status: 403, code: 'requester_revoked' })
+  })
+
+  it('agent-tool rows queued in chat skip the requester re-check', async () => {
+    const result = await runPendingActionRechecks({
+      action: makeAction({ agentId: 'catalog.merchandising_assistant', channel: 'agent', apiKeyId: null }),
+      agent: makeAgent(),
+      tool: makeTool(),
+      ctx: makeCtx({ userFeatures: ['catalog.agent', 'catalog.manage'] }),
+      now: NOW,
+      exposureConfig: exposure(),
+      mutationPolicyOverride: 'confirm-required',
+    })
+    expect(result).toEqual({ ok: true })
+    expect(findOneWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
   it('raw rows fail with requester_revoked when the API key is deleted', async () => {
     findOneWithDecryptionMock.mockResolvedValueOnce(null)
     const result = await runPendingActionRechecks({

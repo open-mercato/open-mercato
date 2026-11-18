@@ -43,15 +43,19 @@ export function RunActionsCard({ runId }: { runId: string }) {
     let active = true
     setState({ status: 'loading' })
     void (async () => {
-      const call = await apiCall<RunActionsResponse>(
-        `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/actions?pageSize=${RUN_ACTIONS_PAGE_SIZE}`,
-      )
-      if (!active) return
-      if (!call.ok || !call.result) {
-        setState({ status: 'hidden' })
-        return
+      try {
+        const call = await apiCall<RunActionsResponse>(
+          `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/actions?pageSize=${RUN_ACTIONS_PAGE_SIZE}`,
+        )
+        if (!active) return
+        if (!call.ok || !call.result) {
+          setState({ status: 'hidden' })
+          return
+        }
+        setState({ status: 'ready', items: call.result.items ?? [], total: call.result.total ?? 0 })
+      } catch {
+        if (active) setState({ status: 'hidden' })
       }
-      setState({ status: 'ready', items: call.result.items ?? [], total: call.result.total ?? 0 })
     })()
     return () => {
       active = false
