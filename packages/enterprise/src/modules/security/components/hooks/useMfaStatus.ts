@@ -18,6 +18,7 @@ type RecoveryResponse = {
 
 type UseMfaStatusResult = {
   loading: boolean
+  loadError: boolean
   saving: boolean
   methods: MfaMethod[]
   providers: MfaProvider[]
@@ -30,6 +31,7 @@ type UseMfaStatusResult = {
 
 export function useMfaStatus(): UseMfaStatusResult {
   const [loading, setLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [methods, setMethods] = React.useState<MfaMethod[]>([])
   const [providers, setProviders] = React.useState<MfaProvider[]>([])
@@ -43,8 +45,18 @@ export function useMfaStatus(): UseMfaStatusResult {
         apiCall<MfaProvidersResponse>('/api/security/mfa/providers'),
       ])
 
-      setMethods(Array.isArray(methodsResult.result?.methods) ? methodsResult.result?.methods ?? [] : [])
-      setProviders(Array.isArray(providersResult.result?.providers) ? providersResult.result?.providers ?? [] : [])
+      if (!methodsResult.ok || !providersResult.ok
+        || !Array.isArray(methodsResult.result?.methods)
+        || !Array.isArray(providersResult.result?.providers)) {
+        setLoadError(true)
+        return
+      }
+
+      setMethods(methodsResult.result.methods)
+      setProviders(providersResult.result.providers)
+      setLoadError(false)
+    } catch {
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -87,6 +99,7 @@ export function useMfaStatus(): UseMfaStatusResult {
 
   return {
     loading,
+    loadError,
     saving,
     methods,
     providers,

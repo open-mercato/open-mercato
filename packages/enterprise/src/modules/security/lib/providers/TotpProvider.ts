@@ -108,12 +108,12 @@ export class TotpProvider implements MfaProviderInterface {
       throw new Error('TOTP setup session expired')
     }
     const valid = this.verifyTotpCode(setup.secret, parsed.code)
-    if (!valid) {
+    if (valid === null) {
       throw new Error('Invalid TOTP code')
     }
     this.pendingSetups.delete(setupId)
     return {
-      metadata: {},
+      metadata: { lastAcceptedTimeStep: valid },
       secret: setup.secret,
     }
   }
@@ -132,7 +132,12 @@ export class TotpProvider implements MfaProviderInterface {
     if (method.userId !== userId) return false
     const secretValue = this.readStoredSecret(method)
     if (!secretValue) return false
-    return this.verifyTotpCode(secretValue, parsed.code)
+    const timeStep = this.verifyTotpCode(secretValue, parsed.code)
+    if (timeStep === null) return false
+    const lastAcceptedTimeStep = method.providerMetadata?.lastAcceptedTimeStep
+    if (typeof lastAcceptedTimeStep === 'number' && timeStep <= lastAcceptedTimeStep) return false
+    method.providerMetadata = { ...method.providerMetadata, lastAcceptedTimeStep: timeStep }
+    return true
   }
 
   private generateSecret(): string {
@@ -150,7 +155,7 @@ export class TotpProvider implements MfaProviderInterface {
     }).toString()
   }
 
-  private verifyTotpCode(secret: string, code: string): boolean {
+  private verifyTotpCode(secret: string, code: string): number | null {
     try {
       const totp = new TOTP({
         secret: this.parseSecret(secret),
@@ -158,13 +163,17 @@ export class TotpProvider implements MfaProviderInterface {
         digits: this.securityConfig.totp.digits,
         period: this.securityConfig.totp.periodSeconds,
       })
-      return totp.validate({
+      const timestamp = Date.now()
+      const delta = totp.validate({
         token: code,
-        timestamp: Date.now(),
+        timestamp,
         window: this.securityConfig.totp.window,
-      }) !== null
+      })
+      return delta === null
+        ? null
+        : Math.floor(timestamp / (this.securityConfig.totp.periodSeconds * 1000)) + delta
     } catch {
-      return false
+      return null
     }
   }
 

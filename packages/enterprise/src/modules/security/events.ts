@@ -20,6 +20,7 @@ const events = [
   { id: 'security.mfa.method.removed', label: 'MFA Method Removed', category: 'lifecycle' },
   { id: 'security.mfa.enrolled', label: 'MFA Enrolled', category: 'lifecycle' },
   { id: 'security.mfa.removed', label: 'MFA Removed', category: 'lifecycle' },
+  { id: 'security.mfa.verification_locked', label: 'MFA Verification Temporarily Locked', category: 'system', excludeFromTriggers: true },
   { id: 'security.mfa.verified', label: 'MFA Verified', category: 'lifecycle' },
   { id: 'security.mfa.otp.sent', label: 'MFA OTP Sent', category: 'lifecycle' },
   { id: 'security.mfa.reset', label: 'MFA Reset', category: 'lifecycle' },

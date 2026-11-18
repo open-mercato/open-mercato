@@ -355,7 +355,7 @@ export async function verifyTotpChallenge(
       challengeId,
       methodType: 'totp',
       payload: {
-        code: generateTotpCode(secret),
+        code: generateTotpCode(secret, Date.now() + 30_000),
       },
     },
   })

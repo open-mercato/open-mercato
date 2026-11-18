@@ -24,7 +24,7 @@ export default function MfaProviderMethodsPage({ params }: MfaProviderMethodsPag
   const t = useT()
   const router = useRouter()
   const providerType = (params?.providername ?? '').trim()
-  const { loading, saving, providers, methods, removeMethod, reload } = useMfaStatus()
+  const { loading, loadError, saving, providers, methods, removeMethod, reload } = useMfaStatus()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const mutationContextId = React.useMemo(
@@ -82,6 +82,19 @@ export default function MfaProviderMethodsPage({ params }: MfaProviderMethodsPag
 
   if (loading) {
     return <LoadingMessage label={t('security.profile.mfa.loading', 'Loading MFA settings...')} />
+  }
+
+  if (loadError) {
+    return (
+      <ErrorMessage
+        label={t('security.profile.mfa.loadError')}
+        action={(
+          <Button type="button" variant="outline" onClick={() => void reload()}>
+            {t('ui.actions.retry', 'Retry')}
+          </Button>
+        )}
+      />
+    )
   }
 
   if (!providerType) {

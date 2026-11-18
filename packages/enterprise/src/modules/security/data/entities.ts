@@ -1,4 +1,4 @@
-import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import {
   ChallengeMethod,
   EnforcementScope,
@@ -240,4 +240,29 @@ export class MfaChallenge {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'mfa_verification_states' })
+@Unique({ properties: ['tenantId', 'userId'] })
+export class MfaVerificationState {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'integer', default: 0 })
+  attempts: number = 0
+
+  @Property({ name: 'reset_at', type: Date })
+  resetAt!: Date
+
+  @Property({ name: 'locked_until', type: Date, nullable: true })
+  lockedUntil?: Date | null
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
