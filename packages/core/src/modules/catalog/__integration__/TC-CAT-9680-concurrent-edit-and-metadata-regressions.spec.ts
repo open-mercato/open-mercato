@@ -20,7 +20,7 @@ import {
   readUpdatedAt,
 } from '@open-mercato/core/helpers/integration/optimisticLockUi'
 import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
-import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { OPTIMISTIC_LOCK_CONFLICT_CODE, OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 /**
  * TC-CAT-9680 (#9680) — follow-up from #9668/#9662: automates the manual QA
@@ -53,6 +53,8 @@ export const integrationMeta = {
 
 const PRODUCTS_API_BASE = '/api/catalog/products'
 const SKU_PLACEHOLDER = /PROD-001/i
+/** The enterprise `record_locks` module can surface its own conflict code instead of the OSS one. */
+const STALE_WRITE_CONFLICT_CODES = [OPTIMISTIC_LOCK_CONFLICT_CODE, 'record_lock_conflict']
 
 /** Locale-agnostic: the title field's placeholder text is translated, the `data-crud-field-id` wrapper is not. */
 function titleInputLocator(page: Page) {
@@ -217,6 +219,11 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       await adminPage.goto(`/backend/catalog/products/${productId}`)
       const titleInput = titleInputLocator(adminPage)
       await expect(titleInput).toBeVisible({ timeout: 15_000 })
+      // The exact version admin's form loaded — used below for a direct,
+      // out-of-band proof that the server itself 409s a stale write (see
+      // the comment at the raw retry for why the UI save alone cannot prove
+      // this deterministically).
+      const adminBaseUpdatedAt = await readUpdatedAt(request, adminToken, PRODUCTS_API_BASE, productId)
 
       // UI-link the owned document before the race below, so the link itself
       // is never touched by the conflicting saves that follow.
@@ -251,7 +258,9 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
         new URL(res.url()).pathname === PRODUCTS_API_BASE && res.request().method() === 'PUT',
       )
       await writerBPage.getByRole('button', { name: /^save changes$/i }).first().click()
-      const writerBSaveBody = (await (await writerBSavePromise).json()) as { updatedAt?: string }
+      const writerBSaveResponse = await writerBSavePromise
+      expect(writerBSaveResponse.status(), 'writer B\'s product save should succeed').toBeLessThan(300)
+      const writerBSaveBody = (await writerBSaveResponse.json()) as { updatedAt?: string }
       await expectNoConflictBanner(writerBPage)
 
       // Release writer B's edit-page presence before admin's conflicting save.
@@ -266,9 +275,28 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       // record_locks defers to the OSS conflict bar for.
       await writerBPage.goto('/backend/catalog/products')
 
+      // Direct, deterministic proof that the server itself refuses the stale
+      // write: with the enterprise `record_locks` module enabled, admin's
+      // long-open tab typically already received a live "conflict detected"
+      // push (over the already-connected DOM event bridge) for writer B's
+      // save by the time the UI click below happens, so the widget's own
+      // client-side preflight check (`validateBeforeSave`) shows its dialog
+      // *without ever sending the PUT* — a UI-only assertion in that case
+      // would pass without the server's 409 contract ever having been
+      // exercised. Firing the same stale write out-of-band, with the exact
+      // version admin's form loaded, proves the server contract regardless
+      // of that race.
+      const staleRetry = await putWithLock(request, adminToken, PRODUCTS_API_BASE, { id: productId, title: 'QA 9680 stale raw retry' }, adminBaseUpdatedAt)
+      expect(staleRetry.status(), 'a stale product PUT should 409 against the server').toBe(409)
+      const staleRetryBody = await readJsonSafe<{ code?: string }>(staleRetry)
+      expect(STALE_WRITE_CONFLICT_CODES, `unexpected conflict code ${JSON.stringify(staleRetryBody)}`).toContain(staleRetryBody?.code)
+
       // First user's tab still holds the pre-writer-B-save token. Editing a
       // DIFFERENT field (title) and saving now must 409 against writer B's
       // real write — and the admin tab's own stale edit stays in the DOM.
+      // Either conflict surface is valid here (OSS banner from a real PUT
+      // 409, or the enterprise dialog from the preflight above) — the raw
+      // retry above already proves the server-side contract independently.
       const marker = `QA 9680 admin-stale ${stamp}`
       await fillControlledInput(titleInput, marker)
       await adminPage.getByRole('button', { name: /^save changes$/i }).first().click()

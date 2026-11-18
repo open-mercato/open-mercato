@@ -149,6 +149,27 @@ describe('MetadataEditor', () => {
     expect(onChange).toHaveBeenCalledWith({ data: { nested: 'obj' } })
   })
 
+  it('preserves a blank draft row when an unrelated rerender reorders nested metadata keys', () => {
+    const onChange = jest.fn()
+    const { rerender } = render(
+      <MetadataEditor value={{ nested: { longKey: 1, a: 2 } }} onChange={onChange} defaultCollapsed={false} />,
+    )
+    fireEvent.click(screen.getByText('Add entry'))
+    const lastKeyInput = () => screen.getAllByPlaceholderText('Key').at(-1)
+    const lastValueInput = () => screen.getAllByPlaceholderText('Value').at(-1)
+    expect(lastKeyInput()).toHaveValue('')
+    expect(lastValueInput()).toHaveValue('')
+
+    // Same nested value, keys in a different order — e.g. a JSONB round-trip.
+    rerender(
+      <MetadataEditor value={{ nested: { a: 2, longKey: 1 } }} onChange={onChange} defaultCollapsed={false} />,
+    )
+
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
+    expect(lastKeyInput()).toHaveValue('')
+    expect(lastValueInput()).toHaveValue('')
+  })
+
   it('renders without border in embedded mode', () => {
     const onChange = jest.fn()
     const { container } = render(
