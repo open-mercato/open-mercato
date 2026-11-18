@@ -206,18 +206,18 @@ async function assertTaskBelongsToProject(
   task: StaffTimeTask | null,
   projectId: string | null,
 ): Promise<void> {
-  if (timeEntryTaskMatchesProject(task, projectId)) return
+  if (!task || task.timeProjectId === projectId) return
   const { translate } = await resolveTranslations()
   const message = translate('staff.timesheets.errors.taskNotFound', 'Task not found or not accessible.')
   throw new CrudHttpError(422, { error: message, fieldErrors: { taskId: message } })
 }
 
 /**
- * The rule the assertion above enforces, as a predicate: a task belongs to
- * exactly one project, so an entry naming both must name the same one. Exported
- * because the grid bulk save validates a whole batch at once and answers with a
- * per-row error list rather than a thrown 422 — it reuses the rule and only
- * differs in how it reports a violation.
+ * Bulk-save predicate for checking a task against an explicitly resolved project.
+ * A missing project is accepted so bulk save can derive it from the task. The
+ * single-entry assertion above is stricter: a task requires its own project,
+ * including when a caller explicitly clears the project. Bulk save uses this
+ * predicate to collect per-row errors instead of throwing a 422.
  */
 export function timeEntryTaskMatchesProject(
   task: { timeProjectId?: string | null } | null | undefined,
@@ -225,6 +225,21 @@ export function timeEntryTaskMatchesProject(
 ): boolean {
   if (!task || !projectId) return true
   return task.timeProjectId === projectId
+}
+
+/**
+ * A write that moves an entry to another project without naming a task must
+ * not keep a stored task that belongs to a different project: the hours would
+ * be billed on one project while the task rollups count them on another's card.
+ * `storedTask` is the entry's current task as read from the database (deleted
+ * or not); a task that no longer resolves is left alone, exactly as before.
+ * One rule for the single-entry update and the grid bulk save.
+ */
+export function timeEntryStoredTaskLeftBehind(
+  storedTask: { timeProjectId?: string | null } | null | undefined,
+  nextProjectId: string | null | undefined,
+): boolean {
+  return !timeEntryTaskMatchesProject(storedTask, nextProjectId)
 }
 
 /**
@@ -1958,7 +1973,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     await assertTaskBelongsToProject(task, nextProjectId)
     const storedTaskLeftBehind =
       parsed.taskId === undefined && project && entry.taskId
-        ? !timeEntryTaskMatchesProject(
+        ? timeEntryStoredTaskLeftBehind(
             await findOneWithDecryption(
               em,
               StaffTimeTask,
@@ -2036,7 +2051,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       entry.timeProjectId = nextProjectId
       entry.rateCurrencyCode = project?.currencyCode ?? null
     }
-    if (parsed.taskId !== undefined) entry.taskId = task?.id ?? null
+    if (parsed.taskId !== undefined || parsed.timeProjectId === null) entry.taskId = task?.id ?? null
     else if (storedTaskLeftBehind) entry.taskId = null
     if (parsed.customerId !== undefined) entry.customerId = parsed.customerId ?? null
     if (parsed.dealId !== undefined) entry.dealId = parsed.dealId ?? null
