@@ -8,7 +8,7 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "jest --config jest.config.cjs",
-    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/webhooks/lib/__tests__/delivery-claim\\.integration\\.test\\.ts$'",
+    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/webhooks/(lib/__tests__/delivery-claim|api/webhook-deliveries/__tests__/route-order)\\.integration\\.test\\.ts$'",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
@@ -93,7 +93,7 @@
     "@types/react-dom": "^19.2.5",
     "cross-env": "^10.1.0",
     "esbuild": "^0.28.2",
-    "glob": "^14.0.5",
+    "glob": "^14.0.6",
     "jest": "^30.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",

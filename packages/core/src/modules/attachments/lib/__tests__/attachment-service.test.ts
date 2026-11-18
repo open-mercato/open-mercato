@@ -1,5 +1,5 @@
 import type { AwilixContainer } from 'awilix'
-import { createAttachmentAccessContext } from '../access-runner'
+import { createAttachmentAccessContext, type AttachmentAccessContext } from '../access-runner'
 import { registerAttachmentAccessResolvers } from '../access-registry'
 import type { AttachmentAccessDecision, AttachmentAccessInput } from '../access-types'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -46,6 +46,8 @@ jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => unde
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
     em.findOne(...args),
+  findWithDecryption: async (em: { find: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
+    em.find(...args),
 }))
 
 const scopedAuth = {
@@ -106,9 +108,12 @@ function createHarness(options: {
   withoutScopedUpload?: boolean
   /** Ids of the attachment rows the storage-reference lock finds for the stored object. */
   storageReferenceIds?: string[]
+  /** Rows a batched lookup can find; defaults to the single `attachment`. */
+  attachments?: Attachment[]
 } = {}) {
   const selectedPartition = options.partition ?? partition()
   const selectedAttachment = options.attachment === undefined ? attachment() : options.attachment
+  const attachmentRows = options.attachments ?? (selectedAttachment ? [selectedAttachment] : [])
   const driver = {
     key: 'test',
     store: jest.fn(async () => {
@@ -142,6 +147,16 @@ function createHarness(options: {
       if (entity !== Attachment || !selectedAttachment) return null
       if (options.unscopedAttachmentLookup) return selectedAttachment
       return matchesScopedWhere(selectedAttachment, where) ? selectedAttachment : null
+    }),
+    find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+      if (entity === AttachmentPartition) {
+        const codes = (where.code as { $in: string[] }).$in
+        return codes.includes(selectedPartition.code) ? [selectedPartition] : []
+      }
+      if (entity !== Attachment) return []
+      const { id, ...scope } = where
+      const ids = (id as { $in: string[] }).$in
+      return attachmentRows.filter((row) => ids.includes(row.id) && matchesScopedWhere(row, scope))
     }),
     getKysely: () => db,
     create: jest.fn((_entity: unknown, data: unknown) => data),
@@ -489,6 +504,122 @@ describe('DefaultAttachmentService', () => {
     }), 404)
 
     expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('describes a readable attachment without reading its bytes', async () => {
+    const { service, factory } = createHarness()
+
+    await expect(service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    })).resolves.toEqual({
+      id: 'attachment-1',
+      fileName: 'file.txt',
+      mimeType: 'text/plain',
+      fileSize: 4,
+      partitionCode: 'privateAttachments',
+    })
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('applies the readScoped checks when describing an attachment', async () => {
+    const foreign = createHarness({ attachment: attachment({ tenantId: 'tenant-2', organizationId: 'org-2' }) })
+    await expectStatus(foreign.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    }), 404)
+
+    const otherOwner = createHarness()
+    await expectStatus(otherOwner.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-2' },
+    }), 404)
+
+    const publicPartition = createHarness({ partition: partition({ isPublic: true }) })
+    await expectStatus(publicPartition.service.describeScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      requirePrivatePartition: true,
+    }), 403)
+  })
+
+  it('describes several attachments with one query for the rows and one for their partitions', async () => {
+    const { service, em, factory } = createHarness({
+      attachments: [
+        attachment(),
+        attachment({ id: 'attachment-2', fileName: 'invoice.pdf', mimeType: 'application/pdf', fileSize: 9 }),
+      ],
+    })
+
+    await expect(service.describeManyScoped({
+      auth: scopedAuth,
+      items: [
+        { attachmentId: 'attachment-2', expectedOwner: { entityId: 'documents:document', recordId: 'document-1' } },
+        { attachmentId: 'attachment-1', expectedOwner: { entityId: 'documents:document', recordId: 'document-1' } },
+      ],
+    })).resolves.toEqual([
+      { id: 'attachment-2', fileName: 'invoice.pdf', mimeType: 'application/pdf', fileSize: 9, partitionCode: 'privateAttachments' },
+      { id: 'attachment-1', fileName: 'file.txt', mimeType: 'text/plain', fileSize: 4, partitionCode: 'privateAttachments' },
+    ])
+    expect(em.find).toHaveBeenCalledTimes(2)
+    expect(em.find).toHaveBeenCalledWith(
+      Attachment,
+      { id: { $in: ['attachment-2', 'attachment-1'] }, tenantId: 'tenant-1', organizationId: 'org-1' },
+      undefined,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('applies the describeScoped checks to every item of a batch', async () => {
+    const owner = { entityId: 'documents:document', recordId: 'document-1' }
+    const foreign = createHarness({
+      attachments: [attachment(), attachment({ id: 'attachment-2', tenantId: 'tenant-2', organizationId: 'org-2' })],
+    })
+    await expectStatus(foreign.service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner }, { attachmentId: 'attachment-2', expectedOwner: owner }],
+    }), 404)
+
+    const otherOwner = createHarness({ attachments: [attachment(), attachment({ id: 'attachment-2', recordId: 'document-2' })] })
+    await expectStatus(otherOwner.service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner }, { attachmentId: 'attachment-2', expectedOwner: owner }],
+    }), 404)
+
+    const publicPartition = createHarness({ partition: partition({ isPublic: true }) })
+    await expectStatus(publicPartition.service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner, requirePrivatePartition: true }],
+    }), 403)
+  })
+
+  it('resolves the access context once per batch', async () => {
+    const { em, factory } = createHarness({
+      attachments: [attachment(), attachment({ id: 'attachment-2' })],
+    })
+    const resolveAccessContext = jest.fn(() => undefined as unknown as AttachmentAccessContext)
+    const service = new DefaultAttachmentService(em, factory, () => null, resolveAccessContext)
+    const owner = { entityId: 'documents:document', recordId: 'document-1' }
+
+    await service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner }, { attachmentId: 'attachment-2', expectedOwner: owner }],
+    })
+
+    expect(resolveAccessContext).toHaveBeenCalledTimes(1)
+  })
+
+  it('describes an empty batch without querying', async () => {
+    const { service, em } = createHarness()
+
+    await expect(service.describeManyScoped({ auth: scopedAuth, items: [] })).resolves.toEqual([])
+    expect(em.find).not.toHaveBeenCalled()
   })
 
   it('maps storage read failures to a not-found response', async () => {
