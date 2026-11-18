@@ -5669,7 +5669,9 @@ Tenant embedding settings now affect only that tenant's request/job container.
 Clients sending an arbitrary public Ollama `baseUrl` to `POST /api/search/embeddings`
 receive `400` with `reason: operator_not_allowed`; use the operator-approved URL.
 Operators can retain approved destinations with the existing `OLLAMA_BASE_URL` or
-`OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST` host/host:port settings. No new startup or
+`OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST` host/host:port settings. Allowlist matches
+require HTTPS; an HTTP endpoint must exactly match `OLLAMA_BASE_URL`, including
+its scheme and path, and still satisfy the existing SSRF policy. No new startup or
 configuration mechanism, schema migration, provider default or index rebuild is
 required. Audit saved tenant endpoints and remove unexpected values, then restart
 web and worker processes to discard the previously shared mutable service.

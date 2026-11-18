@@ -136,7 +136,23 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
     expect(mockSaveEmbeddingConfig).toHaveBeenCalledTimes(1)
   })
 
-  it('accepts an allowlisted host in production', async () => {
+  it('rejects an allowlisted HTTP downgrade before probing or saving', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.OLLAMA_BASE_URL = 'https://operator.example/ollama'
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.example.com:11434'
+
+    const res = await POST(makeReq({ embeddingConfig: {
+      providerId: 'ollama', model: 'nomic-embed-text', dimension: 768,
+      baseUrl: 'http://ollama.example.com:11434',
+    } }))
+
+    expect(res.status).toBe(400)
+    expect((await res.json()).reason).toBe('operator_not_allowed')
+    expect(mockCheckAvailability).not.toHaveBeenCalled()
+    expect(mockSaveEmbeddingConfig).not.toHaveBeenCalled()
+  })
+
+  it('accepts an allowlisted HTTPS host in production', async () => {
     process.env.NODE_ENV = 'production'
     process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.internal.example.com:11434'
 
@@ -146,7 +162,7 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
           providerId: 'ollama',
           model: 'nomic-embed-text',
           dimension: 768,
-          baseUrl: 'http://ollama.internal.example.com:11434',
+          baseUrl: 'https://ollama.internal.example.com:11434',
         },
       }),
     )
@@ -155,10 +171,10 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
     expect(mockSaveEmbeddingConfig).toHaveBeenCalledTimes(1)
     expect(mockCheckAvailability).toHaveBeenCalledWith('ollama', {
       force: true,
-      baseUrl: 'http://ollama.internal.example.com:11434',
+      baseUrl: 'https://ollama.internal.example.com:11434',
     })
     const savedConfig = mockSaveEmbeddingConfig.mock.calls[0][1] as { baseUrl?: string }
-    expect(savedConfig.baseUrl).toBe('http://ollama.internal.example.com:11434')
+    expect(savedConfig.baseUrl).toBe('https://ollama.internal.example.com:11434')
   })
 
   it('accepts loopback baseUrl in development', async () => {

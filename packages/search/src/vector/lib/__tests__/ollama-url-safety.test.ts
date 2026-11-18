@@ -1,5 +1,6 @@
 import {
   assertSafeOllamaBaseUrl,
+  assertTenantOllamaBaseUrl,
   UnsafeOllamaBaseUrlError,
   getOllamaBaseUrlAllowlist,
   isAllowPrivateOllamaBaseUrlEnabled,
@@ -240,6 +241,40 @@ describe('assertSafeOllamaBaseUrl', () => {
       process.env.NODE_ENV = 'production'
       expect(() => assertSafeOllamaBaseUrl('https://ollama.example.com/')).not.toThrow()
     })
+  })
+})
+
+describe('assertTenantOllamaBaseUrl', () => {
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV, NODE_ENV: 'production', OLLAMA_BASE_URL: 'https://operator.example/ollama' }
+    delete process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST
+    delete process.env.OM_SEARCH_OLLAMA_ALLOW_PRIVATE
+  })
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV
+  })
+
+  it.each(['ollama.example.com', 'ollama.example.com:11434'])('rejects a plaintext downgrade for allowlist entry %s', (entry) => {
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = entry
+    expect(reasonOf(() => assertTenantOllamaBaseUrl('http://ollama.example.com:11434'))).toBe('operator_not_allowed')
+  })
+
+  it('accepts HTTPS for an operator-allowlisted host', () => {
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.example.com:11434'
+    expect(() => assertTenantOllamaBaseUrl('https://ollama.example.com:11434')).not.toThrow()
+  })
+
+  it('preserves the exact explicitly configured private HTTP endpoint', () => {
+    process.env.OLLAMA_BASE_URL = 'http://10.0.0.7:11434/ollama'
+    process.env.OM_SEARCH_OLLAMA_ALLOW_PRIVATE = 'true'
+    expect(() => assertTenantOllamaBaseUrl('http://10.0.0.7:11434/ollama/')).not.toThrow()
+  })
+
+  it('does not treat private-network permission as plaintext destination authorization', () => {
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = '10.0.0.7:11434'
+    process.env.OM_SEARCH_OLLAMA_ALLOW_PRIVATE = 'true'
+    expect(reasonOf(() => assertTenantOllamaBaseUrl('http://10.0.0.7:11434'))).toBe('operator_not_allowed')
   })
 })
 

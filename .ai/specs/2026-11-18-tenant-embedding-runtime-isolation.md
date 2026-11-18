@@ -12,7 +12,7 @@ A tenant settings save changed the process embedding singleton. Search routes lo
 
 Register a fresh `vectorEmbeddingService` value for every existing request/job container, preserving its token and public methods. Keep driver, pool and queue globals. The two search routes, embeddings reindex endpoint and vector worker resolve `scope: { tenantId }` from authenticated context/job payload using existing scoped→instance fallback. With no saved config the existing EmbeddingService default remains unchanged. POST persists settings without mutating any embedding service. The legacy search CLI vector worker creates and disposes a container per job, matching the general worker runner and isolating overlapping jobs.
 
-A supplied tenant Ollama URL must pass existing SSRF checks and either equal the normalized existing `OLLAMA_BASE_URL` (default localhost:11434) or match the existing `OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST` host/host:port rules. `OM_SEARCH_OLLAMA_ALLOW_PRIVATE` remains an SSRF policy setting and grants no tenant destination authorization by itself. Provider/model registries and custom Ollama model support are unchanged.
+A supplied tenant Ollama URL must pass existing SSRF checks and either equal the normalized existing `OLLAMA_BASE_URL` (default localhost:11434), including its scheme and path, or use HTTPS and match the existing `OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST` host/host:port rules. A host-only allowlist entry cannot authorize a plaintext downgrade. An explicitly configured HTTP operator URL remains supported subject to the existing SSRF policy. `OM_SEARCH_OLLAMA_ALLOW_PRIVATE` remains an SSRF policy setting and grants no tenant destination or plaintext authorization by itself. Provider/model registries and custom Ollama model support are unchanged.
 
 ## Data Models / API Contracts
 
@@ -45,4 +45,5 @@ Scope is search plus issue-specific documentation. No direct ORM relationships, 
 
 ## Changelog
 
+- 2026-11-18: Closed the reviewed allowlist HTTP downgrade; helper and POST regressions reject plaintext before probing or saving, accept HTTPS, and preserve the exact explicitly configured private HTTP endpoint.
 - 2026-11-18: Documented #9135 lifetime correction, tenant resolution, destination policy, regression coverage and security migration gate.
