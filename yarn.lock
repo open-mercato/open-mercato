@@ -9600,6 +9600,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/telemetry@workspace:packages/telemetry"
   dependencies:
+    "@mikro-orm/postgresql": "npm:^7.1.14"
     "@open-mercato/shared": "workspace:*"
     "@opentelemetry/api": "npm:~1.9.1"
     "@opentelemetry/api-logs": "npm:^0.220.0"
