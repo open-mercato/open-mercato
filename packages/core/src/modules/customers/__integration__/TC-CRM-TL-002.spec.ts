@@ -67,6 +67,7 @@ async function deleteTimelinePerspectives(request: APIRequestContext, token: str
 }
 
 async function switchOrganization(page: Page, name: string): Promise<void> {
+  await expect(page.locator('button[aria-label^="Organization:"]')).toBeAttached({ timeout: 30_000 });
   await page.evaluate(() => {
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Organization:"]');
     if (!trigger) throw new Error('[internal] organization switcher not found');
@@ -763,6 +764,7 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
       await expect(drawer).toBeVisible();
       await expect(drawer).toContainText(orgADealTitle);
 
+      await expect(page.locator('button[aria-label^="Organization:"]')).toBeAttached({ timeout: 30_000 });
       await page.evaluate(() => {
         const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Organization:"]');
         if (!trigger) throw new Error('[internal] organization switcher not found');

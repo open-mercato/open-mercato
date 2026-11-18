@@ -1,13 +1,10 @@
 /**
- * Defensive migration for legacy filterValues-shaped perspective records
- * (SPEC-048 / CRM filter Figma redesign Phase 3, Task 3.5).
+ * Deprecated `maybeMigrateLegacyFilterValues` helper, kept as a compatibility export.
  *
- * Production data is not known to use the legacy shape — `PerspectiveSettings.filters`
- * is `z.record(z.string(), z.unknown()).optional()` and existing CRM pages write only
- * advanced-filter URL params (tree shape). The helper is a safety net for old
- * imported saved-view JSON. It MUST:
+ * The perspectives read path no longer calls it (see perspectiveService.filters.test.ts),
+ * but its behaviour is unchanged for callers that still import it. It MUST:
  *   - pass through tree-shaped state unchanged (already a v2 advanced-filter tree)
- *   - drop legacy `FilterValues` records (we have no reliable mapping back to operators)
+ *   - drop legacy `FilterValues` records
  *   - pass through undefined / null filters unchanged
  */
 import { describe, it, expect, jest } from '@jest/globals'
@@ -60,33 +57,6 @@ describe('maybeMigrateLegacyFilterValues', () => {
     expect(out.columnVisibility).toEqual({ name: true })
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
-  })
-
-  it('passes through namespaced view payloads that opt in with the __namespaced marker', () => {
-    const s: any = {
-      filters: { __namespaced: true, timeline: { v: 1, groupBy: 'stage', bucket: 'month', status: [] } },
-      searchValue: 'acme',
-    }
-    expect(maybeMigrateLegacyFilterValues(s)).toEqual(s)
-  })
-
-  it('drops versioned-looking payloads that do not carry the __namespaced marker', () => {
-    const s: any = {
-      filters: { timeline: { v: 1, groupBy: 'stage', bucket: 'month', status: [] } },
-    }
-    expect(maybeMigrateLegacyFilterValues(s).filters).toBeUndefined()
-  })
-
-  it('drops marked payloads that mix versioned and plain values', () => {
-    const s: any = {
-      filters: { __namespaced: true, timeline: { v: 1 }, status: ['open'] },
-    }
-    expect(maybeMigrateLegacyFilterValues(s).filters).toBeUndefined()
-  })
-
-  it('drops a marker with no versioned entries', () => {
-    const s: any = { filters: { __namespaced: true } }
-    expect(maybeMigrateLegacyFilterValues(s).filters).toBeUndefined()
   })
 
   it('passes through undefined filters', () => {
