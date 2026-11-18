@@ -22,15 +22,19 @@ No merge into main, contract redesign, weakened assertions, skipped failing test
 ## Risks
 Main changes frequently; evidence belongs to exact SHAs. Existing stabilization PRs are independently owned and must not be modified. Further failures can expand the correction phase, but every fix stays on this branch. Hosted integration runs may take longer than a single session; retain resumable state. Do not infer success from skipped jobs or pending workflows.
 
+## Evidence
+Main run `44409579981`, shard 3: the EN/PL role-validation trace shows cancellation opens an alertdialog with `Discard changes` / `Odrzuć zmiany`; the test instead waits for `Confirm` / `Potwierdź` until the 20-second limit. Corrected the test locators while retaining duplicate-error, successful persistence, cancellation, tenant isolation and denied-write assertions. Existing workflow routing passed all 25 executable checks. Local runner selected (no compose app running).
+
 ## Progress
+PR: #9867
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence
-- [ ] 1.1 Verify full-suite routing and diagnose current main failures
+- [x] 1.1 Verify full-suite routing and diagnose current main failures
 
 ### Phase 2: Correct failures
-- [ ] 2.1 Implement minimal root-cause corrections and regression coverage
+- [x] 2.1 Implement minimal root-cause corrections and regression coverage — f7fdfd527c
 
 ### Phase 3: Validate and review
 - [ ] 3.1 Run the configured ordered validation gate and full PR CI
