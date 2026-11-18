@@ -174,8 +174,10 @@ Task events:
 | `wms.pick_wave.completed` | pick_wave_id, warehouse_id, pick_task_count, shipped_packing_task_count | 3 |
 | `wms.pick_wave.cancelled` | pick_wave_id, warehouse_id | 3 |
 | `wms.pick_task.created` | pick_task_id, pick_wave_id, reservation_id, sales_order_id, quantity | 3 |
+| `wms.pick_task.started` | pick_task_id, assigned_to | 3 |
 | `wms.pick_task.completed` | pick_task_id, movement_id, quantity | 3 |
 | `wms.pick_task.shorted` | pick_task_id, quantity_picked, quantity_short | 3 |
+| `wms.pick_task.cancelled` | pick_task_id | 3 |
 | `wms.packing.created` | packing_task_id, pick_wave_id, sales_order_id | 3 |
 | `wms.packing.completed` | packing_task_id, sales_order_id, lines | 3 |
 | `wms.packing.shipped` | packing_task_id, sales_shipment_id, movement_ids | 3 |
@@ -589,6 +591,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-18 (rev 12)
+- Added `wms.pick_task.started` and `wms.pick_task.cancelled` to the phase 3 task events. The phase 3 spec emits both.
 
 ### 2026-11-12 (rev 11)
 - Moved the phase 3 consumer note below the "Events Consumed by WMS" table so billing and finance rows stay in the table.
