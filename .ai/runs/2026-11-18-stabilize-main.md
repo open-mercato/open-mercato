@@ -31,6 +31,12 @@ Non-goals: speculative changes, weaker tests, package publication, production ch
 
 Two independent tasks maximum: a read-only audit of main's failed snapshot run, and one final independent review after implementation. Implementation and CI iteration stay together in this worktree because fixes and validation are coupled. Child reports are verified against logs, diffs, and tests; no unreviewed branch is merged.
 
+## Resume — 2026-11-18 07:05 UTC
+
+The previous driver `1d4370ec-a126-4a5b-81e7-83ef9ab4ea45` and its audit child were confirmed `done` by the cockpit. After the operator instructed autonomous continuation, run `be12e52a-1065-4a92-b06a-246763f05149` recovered the abandoned claim using the exact-SHA lease and acquired a fresh atomic lock; the recovery is documented on PR #9789. The earlier local autosave changed a generated registry incidentally; commit `15ce88baa0` restores the remote version, leaving no registry diff.
+
+This resume delegates a read-only compiler compatibility audit (`0960ad2e-e334-47f5-9962-bc1d19af81d5`) and reserves its second and final child for the mandatory independent final review. Sales test synchronization and CI iteration remain coupled in the parent.
+
 ## Risks
 
 - Release publication failures may depend on external services or permissions; never publish packages or modify credentials to test a hypothesis.
@@ -45,6 +51,8 @@ Two independent tasks maximum: a read-only audit of main's failed snapshot run, 
 - The regression extracts the actual two methods and compiles them with TypeScript 6.0.3 against both query-signature forms. Before the fix: legacy passes, modern fails with the two original TS2345 errors. After the fix: both pass. A separate isolated fixture with actual MikroORM 7.2.9 packages also reproduces the two errors before and zero after; this is compiler proof, not a claimed full standalone build or integration run.
 - Runner: local (no configured compose app running). Immutable install completed with native optional-dependency build warnings. Focused regression: two tests passed. The configured eight-command gate is running in order. Commit hooks passed translation sync and template parity after using a short temporary directory for the local Unix-socket path limit.
 - Standalone harness routing/knowledge contracts are unchanged; this implementation-only compatibility fix needs no new agent-harness knowledge case. Existing runtime coverage remains selected by the full PR suite.
+
+- PR CI [44202285231](https://github.com/open-mercato/open-mercato/actions/runs/44202285231) passed 14 integration shards, package/type/unit checks and Docker builds. Shard 12 failed twice in `TC-SALES-8459` when changing to a customer without email. The trace shows the new customer was clicked at monotonic 651884ms but the original customer ID and email were submitted at 652057ms, before the picker committed its selected summary. Commit `44052d8dba` waits for the search control to be replaced by the chosen customer summary before Save. Existing assertions that sending is disabled immediately after save and after reload remain unchanged.
 
 ## Progress
 
