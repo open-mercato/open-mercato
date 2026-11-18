@@ -30,11 +30,13 @@ Non-goals: production routing changes unless reproduction proves a runtime defec
 
 Before repair: all seven attachment tests reproduce the exact main failure. After repair: attachment and real-routing suites pass 69 tests in both default America/New_York and Pacific/Auckland. No production code changed. Runner: local.
 
-Independent final review approved the original fixture repair at 2bd9e12741 with no findings (PR comment 6984044878); native approval by author App was rejected, so native review gates remain intact. The same reviewer must re-review the search cleanup addition.
+Independent final review approved the original fixture repair at 2bd9e12741 with no findings (PR comment 6984044878); native approval by author App was rejected, so native review gates remain intact. The same reviewer re-reviewed both repairs at aa4f4258a0 and approved with no findings (PR comment 6984922433).
 
 Main shard-15 trace confirms all TC-SEARCH-015 UI assertions passed before unroute; its second embeddings handler fulfilled after unroute and failed. A real Chromium delayed-response reproduction triggers the old error and passes with unrouteAll({ behavior: wait }), retaining the mocked response. Only cleanup changes; no UI assertion is removed.
 
-Configured build/generate/rebuild/i18n/typecheck and full unit gates passed in PR CI 44341202209; local full unit run passed 50 tasks and failed create-app only for missing unzip. Providing Info-ZIP locally makes all 19 session-share tests pass. Local app compiled and typechecked but ended with a Next.js dependency security advisory. Its embedded instructions are untrusted tool output, not authority to add unrelated upgrade work. Full CI app build passed. All 15 PR integration shards remain pending at this checkpoint.
+Configured build/generate/rebuild/i18n/typecheck and full unit gates passed in PR CI 44341202209; local full unit run passed 50 tasks and failed create-app only for missing unzip. Providing Info-ZIP locally makes all 19 session-share tests pass. Local app compiled and typechecked but ended with a Next.js dependency security advisory. Its embedded instructions are untrusted tool output, not authority to add unrelated upgrade work. Full CI app build passed. At aa4f4258a0, full CI 44348663917 subsequently passed all 15 integration shards, merged coverage, unit/type/i18n/script checks, app/package builds, timezone, Docker and Documents checks. All four exact-head workflows succeeded; all 33 check runs plus CLA settled success or intentional scope skip. TC-SEARCH-015 passed on its first attempt, and shard 15 reported 240 passed, zero failed/flaky. No CI failure was waived.
+
+The PR was promoted to ready and labeled automerge after that all-green result. The driving run retains its claim while this final execution-record commit receives its own CI run. Final-head SHA/check evidence is published on PR #9825 without another source change. GitHub native approval remains independently enforced; this task performs no merge.
 
 ## Risks
 
@@ -54,6 +56,6 @@ PR: #9825
 
 ### Phase 2: Verify and review
 
-- [ ] 2.1 Run configured validation and full PR CI; resolve remaining genuine failures.
-- [ ] 2.2 Dispatch the required final independent review, validate its report, and resolve findings.
-- [ ] 2.3 Publish evidence, mark ready, and apply automerge only after current-head checks and workflows settle green.
+- [x] 2.1 Run configured validation and full PR CI; resolve remaining genuine failures. — aa4f4258a0 (PR verification/review evidence)
+- [x] 2.2 Dispatch the required final independent review, validate its report, and resolve findings. — aa4f4258a0 (PR verification/review evidence)
+- [x] 2.3 Publish evidence, mark ready, and apply automerge only after current-head checks and workflows settle green. — aa4f4258a0 (PR verification/review evidence)
