@@ -100,6 +100,32 @@ export function parseEvalCliCallSettings(args: { temperature?: string; seed?: st
 }
 
 /**
+ * The operator the CLI gate records when started without `--user`. Only this
+ * exact value makes an eval replay run its cases as the agent's principal; every
+ * other operator (a user, an API key) keeps its own identity.
+ */
+export const EVAL_CLI_SENTINEL_OPERATOR = 'ci'
+
+const evalOperatorUserIdSchema = z.string().uuid()
+
+function isEvalOperatorUserId(userId: string): boolean {
+  return evalOperatorUserIdSchema.safeParse(userId).success
+}
+
+export type EvalCliOperatorResult = { ok: true; value: string | null } | { ok: false; message: string }
+
+/** Parses the eval CLI `--user` flag (falling back to `OM_EVAL_USER_ID`) into the operator user id. */
+export function parseEvalCliOperator(flag: string | undefined, envValue: string | undefined): EvalCliOperatorResult {
+  const raw = flag ?? (envValue && envValue.trim() !== '' ? envValue : undefined)
+  if (raw === undefined) return { ok: true, value: null }
+  const trimmed = raw.trim()
+  if (!isEvalOperatorUserId(trimmed)) {
+    return { ok: false, message: '--user (or OM_EVAL_USER_ID) must be a user id (UUID)' }
+  }
+  return { ok: true, value: trimmed }
+}
+
+/**
  * Builds the `__evalRun.tools` entry a record/replay suite run stores: the
  * requested mode, the effective suite mode (`mixed` when any case fell back to
  * live tools) and per-mode case counts. Only counts, never tool names or args.

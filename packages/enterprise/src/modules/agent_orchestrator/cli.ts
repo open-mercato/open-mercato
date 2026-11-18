@@ -20,7 +20,12 @@ import {
 import { recomputeProcessInstance } from './lib/processes/processProjection'
 import { EVAL_SET_EXPORT_CURRENT, EVAL_SET_SNAPSHOT_LATEST, evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
-import { parseEvalCliCallSettings, readEvalRunToolSummary } from './lib/eval/evalRunSettings'
+import {
+  EVAL_CLI_SENTINEL_OPERATOR,
+  parseEvalCliCallSettings,
+  parseEvalCliOperator,
+  readEvalRunToolSummary,
+} from './lib/eval/evalRunSettings'
 import { formatMockSummaryLine, readEvalRunMockSummary } from './lib/eval/toolMocks'
 import {
   EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING,
@@ -584,8 +589,9 @@ const EVAL_REPORT_FILE_NAMES: Record<EvalReportFormat, string> = {
   junit: 'junit.xml',
 }
 const EVAL_GATE_USAGE =
-  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] [--offline true] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]\n' +
-  '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
+  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] [--offline true] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]] [--user <userId>]\n' +
+  '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.\n' +
+  '  --user (or OM_EVAL_USER_ID) runs the cases as that operator; without it they run as the agent\'s principal.'
 
 function isEvalReportFormat(value: string): value is EvalReportFormat {
   return (EVAL_REPORT_FORMATS as readonly string[]).includes(value)
@@ -648,7 +654,8 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  *     [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] \
  *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] \
  *     [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] \
- *     [--offline true] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]
+ *     [--offline true] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]] \
+ *     [--user <userId>]
  *
  * A thin wrapper over the SAME library the workbench uses — one scorer registry,
  * one replay engine, no second implementation to drift. With `--gate true` the
@@ -685,6 +692,12 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  * `modelMode: 'mixed'`, while `--offline true` requires a fixture for every case.
  * `fixtures.model` holds one trial, so `--repeat` above 1 exits 2 unless
  * `--record`/`--replay <dir>` supplies per-trial files.
+ *
+ * `--user <userId>` (fallback `OM_EVAL_USER_ID`) runs every case as that operator,
+ * with the agent's principal bound through `runAs`, like a workbench run. Without
+ * it the run is recorded as triggered by `'ci'` and each case acts as the agent's
+ * principal, so the invoke gate and tool ACL read the principal's grants. A value
+ * that is not a UUID exits 2.
  *
  * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, an errored
  * case run under fixture replay that errors on a miss, narrowed by
@@ -746,6 +759,13 @@ const evalGate: ModuleCli = {
     const callSettings = parseEvalCliCallSettings({ temperature: args.temperature, seed: args.seed })
     if (!callSettings.ok) {
       console.error(callSettings.message)
+      process.exitCode = 2
+      return
+    }
+
+    const operator = parseEvalCliOperator(args.user, process.env.OM_EVAL_USER_ID)
+    if (!operator.ok) {
+      console.error(operator.message)
       process.exitCode = 2
       return
     }
@@ -861,7 +881,7 @@ const evalGate: ModuleCli = {
         baselineSuiteRunId: args.baseline ?? null,
         repeatCount,
         scope,
-        triggeredBy: 'ci',
+        triggeredBy: operator.value ?? EVAL_CLI_SENTINEL_OPERATOR,
         ...(callSettings.value ? { callSettings: callSettings.value } : {}),
         ...(toolFixtures.options ? { toolFixtures: toolFixtures.options } : {}),
         ...(modelFixtures.options ? { modelFixtures: modelFixtures.options } : {}),

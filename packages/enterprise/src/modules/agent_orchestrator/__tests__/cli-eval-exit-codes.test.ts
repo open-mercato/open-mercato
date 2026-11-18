@@ -104,6 +104,7 @@ describe('agent_orchestrator eval CLI exit codes and reports', () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined)
     delete process.env.OM_EVAL_TENANT_ID
     delete process.env.OM_EVAL_ORG_ID
+    delete process.env.OM_EVAL_USER_ID
   })
 
   afterEach(() => {
@@ -347,6 +348,7 @@ describe('agent_orchestrator eval CLI exit codes and reports', () => {
     ['bad --require-snapshot', [...scopeArgs, '--require-snapshot', 'perhaps']],
     ['label pin under --require-snapshot', [...scopeArgs, '--eval-set-version', 'v1', '--require-snapshot', 'true', '--gate', 'true']],
     ['no pin under --require-snapshot', [...scopeArgs, '--require-snapshot', 'true']],
+    ['--user not a UUID', [...scopeArgs, '--user', 'admin@example.com', '--gate', 'true']],
   ])('exits 2 on a usage error: %s', async (_label, argv) => {
     expect(await runEval(argv)).toBe(2)
     expect(mockRunEvalGate).not.toHaveBeenCalled()
@@ -379,5 +381,29 @@ describe('agent_orchestrator eval CLI exit codes and reports', () => {
     const input = mockRunEvalGate.mock.calls[0]?.[1]
     expect(input?.evalSetVersion).toBe('v1')
     expect(input).not.toHaveProperty('snapshot')
+  })
+
+  it("defaults the gate identity to 'ci' so cases run as the agent's principal", async () => {
+    mockRunEvalGate.mockResolvedValue(gateResult())
+    await runEval([...scopeArgs, '--eval-set-version', 'v1', '--gate', 'true'])
+    expect(mockRunEvalGate.mock.calls[0]?.[1].triggeredBy).toBe('ci')
+  })
+
+  it('runs the gate as the --user operator, falling back to OM_EVAL_USER_ID', async () => {
+    const operator = '44444444-4444-4444-8444-444444444444'
+    const envOperator = '55555555-5555-4555-8555-555555555555'
+    mockRunEvalGate.mockResolvedValue(gateResult())
+    process.env.OM_EVAL_USER_ID = envOperator
+    await runEval([...scopeArgs, '--eval-set-version', 'v1', '--gate', 'true', '--user', operator])
+    expect(mockRunEvalGate.mock.calls[0]?.[1].triggeredBy).toBe(operator)
+    await runEval([...scopeArgs, '--eval-set-version', 'v1', '--gate', 'true'])
+    expect(mockRunEvalGate.mock.calls[1]?.[1].triggeredBy).toBe(envOperator)
+  })
+
+  it('rejects an invalid OM_EVAL_USER_ID with a clear message', async () => {
+    process.env.OM_EVAL_USER_ID = 'ci'
+    expect(await runEval([...scopeArgs, '--eval-set-version', 'v1', '--gate', 'true'])).toBe(2)
+    expect(mockRunEvalGate).not.toHaveBeenCalled()
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('--user (or OM_EVAL_USER_ID) must be a user id (UUID)'))
   })
 })

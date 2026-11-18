@@ -38,7 +38,12 @@ import {
   isAgentPrincipalMissingError,
 } from '../runtime/errors'
 import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
-import { buildEvalRunToolSummary, readEvalRunCallSettings, withEvalRunToolSummary } from './evalRunSettings'
+import {
+  buildEvalRunToolSummary,
+  EVAL_CLI_SENTINEL_OPERATOR,
+  readEvalRunCallSettings,
+  withEvalRunToolSummary,
+} from './evalRunSettings'
 import type { AiAgentCallSettings } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import {
   withToolReplayContext,
@@ -514,7 +519,7 @@ async function runCase(
         // bound through `runAs`, exactly as production does: writes are attributed to
         // the agent on behalf of the operator, and the tool ACL follows the agent's
         // mode (`caller` = the operator's grants, `intersect` = principal ∩ operator).
-        const runAs = await resolveRunAsForAgent(
+        const resolvedRunAs = await resolveRunAsForAgent(
           container,
           {
             agentId: agentDefinitionId,
@@ -522,11 +527,20 @@ async function runCase(
           },
           { em },
         )
+        // A CLI gate started without `--user` carries the `'ci'` sentinel, which is
+        // no user: the run then acts as the agent's principal for itself (invoke gate
+        // and tool ACL both read the principal's grants), else keeps the sentinel.
+        // Any other operator, an API key included, keeps its own identity.
+        const principalSelf = userId === EVAL_CLI_SENTINEL_OPERATOR ? resolvedRunAs : null
+        const actingUserId = principalSelf?.agentUserId ?? userId
+        const runAs = principalSelf
+          ? { agentUserId: principalSelf.agentUserId, onBehalfOfUserId: null }
+          : resolvedRunAs
         const callSettings = readEvalRunCallSettings(suiteRun?.summary)
         const invoke = () => runtime.run(agentDefinitionId, sourceInput(source), {
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-          userId,
+          userId: actingUserId,
           // No principal provisioned yet (legacy/playground agents): leave `runAs`
           // unset so nothing is misattributed to an agent that has none.
           ...(runAs ? { runAs } : {}),
@@ -541,7 +555,7 @@ async function runCase(
           // disposable proposal (delegation targets are researcher-only), so the
           // propose-only guarantee still holds; the labelling does not.
           source: 'eval',
-          invoker: { kind: 'user', userId },
+          invoker: { kind: 'user', userId: actingUserId },
           entryPoint: 'eval',
           onRunPersisted: (runId: string) => {
             if (!topLevelRunId) topLevelRunId = runId
