@@ -215,23 +215,51 @@ describe('purgeExpiredTraceContent', () => {
     expect(result).toMatchObject({ scannedRows: 0, deleted: 0 })
   })
 
-  it('holds the cursor before a row whose delete failed and retries it on the next run', async () => {
+  it('advances past a failing key, reports it, and still deletes a later expired row in the same run', async () => {
     const failing = contentKey(33, 'boom')
     const after = contentKey(32, 'after')
-    mockRows.set(AgentSpan, [llmSpan(SCOPE_A, 33, failing, null), llmSpan(SCOPE_A, 32, after, null)])
+    const failingRow = llmSpan(SCOPE_A, 33, failing, null)
+    const afterRow = llmSpan(SCOPE_A, 32, after, null)
+    mockRows.set(AgentSpan, [failingRow, afterRow])
+    const failure = new Error('access denied')
+    const { container, deletedKeys } = createContainer({
+      onDelete: async (key) => {
+        if (key === failing) throw failure
+      },
+    })
+
+    const result = await purge(container, SCOPE_A, { batchSize: 1 })
+
+    expect(result).toMatchObject({ status: 'completed', scannedRows: 2, deleted: 1, failed: 1 })
+    expect(deletedKeys.map((entry) => entry.key)).toEqual([after])
+    expect(cursors.positions.get('tenant-A/org-A/llm_span')).toEqual({
+      createdAt: afterRow.createdAt,
+      rowId: afterRow.id,
+    })
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'agent_orchestrator',
+      code: 'agent_orchestrator.trace_content_retention_delete_failed',
+      attributes: { tenantId: SCOPE_A.tenantId, organizationId: SCOPE_A.organizationId },
+    })
+  })
+
+  it('does not revisit a row whose delete failed on a later run', async () => {
+    const failing = contentKey(33, 'boom')
+    mockRows.set(AgentSpan, [llmSpan(SCOPE_A, 33, failing, null)])
     const { container: broken } = createContainer({
       onDelete: async (key) => {
         if (key === failing) throw new Error('access denied')
       },
     })
     const first = await purge(broken)
-    expect(first).toMatchObject({ deleted: 1, failed: 1 })
-    expect(cursors.store.write).not.toHaveBeenCalled()
+    expect(first).toMatchObject({ deleted: 0, failed: 1 })
 
-    const { container: healthy, deletedKeys } = createContainer()
-    await purge(healthy)
+    const { container: healthy, service } = createContainer()
+    const second = await purge(healthy)
 
-    expect(deletedKeys.map((entry) => entry.key)).toContain(failing)
+    expect(service.delete).not.toHaveBeenCalled()
+    expect(second).toMatchObject({ scannedRows: 0, deleted: 0, failed: 0 })
   })
 
   it('holds the cursor at a pre-cutoff row whose key has not expired yet', async () => {
@@ -293,6 +321,10 @@ describe('purgeExpiredTraceContent', () => {
     expect(result).toMatchObject({ status: 'storage_unavailable', deleted: 0, failed: 0 })
     expect(service.delete).not.toHaveBeenCalled()
     expect(cursors.store.write).not.toHaveBeenCalled()
+
+    const { container: restored, deletedKeys } = createContainer()
+    await purge(restored)
+    expect(deletedKeys).toHaveLength(2)
   })
 
   it('reports a per-key failure and keeps deleting the rest of the batch', async () => {

@@ -5,13 +5,15 @@
  * scoped to one tenant/organization. Each row family is walked in
  * `(created_at, id)` order from a persisted per-scope cursor up to the retention
  * cutoff (kept in module config until the next AO re-squash adds a table), so a missed run, a lowered `retentionDays` or a backlog larger than one
- * run's cap is caught up by later runs. The cursor only advances past a row once
- * every expired key it references is gone; a delete failure or a key that has
- * not expired yet holds it back for the next run. Spans and bundles are
+ * run's cap is caught up by later runs. The cursor advances past a row once
+ * every expired key it references has been attempted; only a key that has not
+ * expired yet holds it back for the next run. Spans and bundles are
  * append-only and are left untouched (the artifact route answers 410 by key
  * age). Deletion is strict: an already-absent object counts as deleted, an
- * unavailable storage service skips the whole scope, and a per-key failure is
- * reported and counted without aborting the batch.
+ * unavailable storage service skips the whole scope without moving the cursor,
+ * and a per-key failure is reported (scope only, no content) and counted
+ * without aborting the batch; the cursor moves past it and the key is not
+ * retried, so one undeletable object cannot stall retention for the scope.
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -270,10 +272,6 @@ export async function purgeExpiredTraceContent(
           if (outcome === 'unavailable') {
             storageUnavailable = true
             break
-          }
-          if (outcome === 'failed') {
-            rowDone = false
-            continue
           }
           processed.add(key)
         }
