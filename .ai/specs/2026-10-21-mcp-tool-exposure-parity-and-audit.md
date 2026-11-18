@@ -688,7 +688,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 - **Scenario**: An MCP client loops on an agent tool, incurring LLM cost.
 - **Severity**: Medium
 - **Affected area**: LLM spend, tenant quotas
-- **Mitigation**: Agent loop budgets (`loop.budget`) and `timeoutMs` apply; token usage is recorded per run (`ai_token_usage_events`); `executeTool` rate-limits agent tools on the `mcp` and `tools-api` channels per tenant and API key, or per session user (`lib/agent-tool-rate-limit.ts`, `RATE_LIMIT_AI_AGENT_TOOL_*`, default 30/min; fail closed when a registered limiter cannot decide).
+- **Mitigation**: Agent loop budgets (`loop.budget`) and `timeoutMs` apply; token usage is recorded per run (`ai_token_usage_events`); `executeTool` rate-limits agent tools on the `mcp` and `tools-api` channels per tenant and API key, or per session user (`lib/agent-tool-rate-limit.ts`, `RATE_LIMIT_AI_AGENT_TOOL_*`, default 30/min; fail closed when a registered limiter cannot decide). Fail closed is deliberate: each call runs a paid agent loop, callers are mostly API keys (a leaked key in a loop is the case the limit exists for), and under `OM_MCP_MUTATION_MODE=approval` the agent can queue writes, so the platform rule for endpoints that cost money or mutate state applies (`rate-limiting.mdx` → Choosing a Failure Posture, #5030). An absent limiter or `RATE_LIMIT_ENABLED=false` still allows the call, as in checkout. The AI chat limiter (`lib/rate-limit.ts`, #2975) stays fail open; it predates `failClosed` and is not the model here.
 - **Residual risk**: Per-key spend caps are out of scope.
 
 #### AO dispatcher absent or failing
@@ -808,9 +808,10 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 
 ### 2026-11-17
 
-- Agent-tool rate limit (roadmap-gaps item C-3; the risk register promised it, but no MCP path called a limiter). `executeTool` consumes one point from `ai_agent_tool` for every tool with `agentRef` on the `mcp` and `tools-api` channels, after the ACL and input checks and before the handler. The key is `tenant:key:<apiKeyId>` for API-key callers, `tenant:user:<userId>` for session-token callers. Over the limit it returns `RATE_LIMITED` with `retryAfterSeconds` (audit `denied`; `/tools/execute` answers `429` with `Retry-After`). A registered limiter that throws or reports `degraded` gives `RATE_LIMIT_UNAVAILABLE` (audit `error`; `503`). No registered limiter, or `RATE_LIMIT_ENABLED=false`, means no limit. The `agent` channel (in-loop calls), plain tools and workers are unchanged.
+- Agent-tool rate limit (roadmap-gaps item C-3; the risk register promised it, but no MCP path called a limiter). `executeTool` consumes one point from `ai_agent_tool` for every tool with `agentRef` on the `mcp` and `tools-api` channels, after the ACL and input checks and before the handler. The key is `tenant:key:<apiKeyId>` for API-key callers, `tenant:user:<userId>` for session-token callers. Over the limit it returns `RATE_LIMITED` with `retryAfterSeconds` (audit `denied`; `/tools/execute` answers `429` with `Retry-After`). A registered limiter that throws or reports `degraded` gives `RATE_LIMIT_UNAVAILABLE` (audit `error`; `503`); the reason for failing closed is in the risk entry "Agent tool cost/latency abuse". No registered limiter, or `RATE_LIMIT_ENABLED=false`, means no limit. The `agent` channel (in-loop calls), plain tools and workers are unchanged.
 - Not covered: per-key rate limiting of plain `tools/call` (the approval-queue risk entry above still claims it exists).
 
 ### 2026-11-18
 
 - Testing: recorded a waiver for `TC-AI-MCP-RATE-LIMIT-018`. It is an opt-in manual check that skips in CI; `tool-executor.agent-tool-rate-limit.test.ts` is the CI evidence. No CI profile is added. The spec's skip messages now name the required env vars and module and point to the unit test.
+- Recorded why the agent-tool rate limit fails closed (risk entry "Agent tool cost/latency abuse"): paid agent loop, API-key callers, queued writes in approval mode. Behaviour unchanged.
