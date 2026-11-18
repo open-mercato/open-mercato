@@ -37,6 +37,14 @@ The previous driver `1d4370ec-a126-4a5b-81e7-83ef9ab4ea45` and its audit child w
 
 This resume delegates a read-only compiler compatibility audit (`0960ad2e-e334-47f5-9962-bc1d19af81d5`) and reserves its second and final child for the mandatory independent final review. Sales test synchronization and CI iteration remain coupled in the parent.
 
+## Resume — 2026-11-18 11:48 UTC
+
+After the operator instructed autonomous continuation, run `00c0c78e-f0f2-462c-bb65-3f1ff05c9efa` verified predecessor `be12e52a` and its compiler-audit child were done, documented recovery on PR #9789, released only its exact abandoned ref, and acquired lock `beb79b3ec626510bb09957da45533d44dcdb1fe4` with claim comment `6977674758`.
+
+The latest main CI [44276181425](https://github.com/open-mercato/open-mercato/actions/runs/44276181425) passed all 15 shards, but the matching snapshot [44276181249](https://github.com/open-mercato/open-mercato/actions/runs/44276181249) still fails with the original TS2345 diagnostics at both engine lookups. Prior PR CI [44257204340](https://github.com/open-mercato/open-mercato/actions/runs/44257204340) passed all 15 shards and all applicable jobs at `28d27817bb`.
+
+Main advanced and conflicted with the sales synchronization change. Merge `8c0aceb60c` keeps main PR #9744’s stronger `pickCustomer` retry helper exactly; sales has no remaining diff against main. Remaining scope is the two shared-engine type assertions, compiler regression, and this plan. Local focused regression passed (2 tests), and commit hooks passed translation sync and template parity. Dependency install completed with optional native-build warnings. Full current-head CI must pass again before automerge; one final independent review is reserved for this resume.
+
 ## Risks
 
 - Release publication failures may depend on external services or permissions; never publish packages or modify credentials to test a hypothesis.
