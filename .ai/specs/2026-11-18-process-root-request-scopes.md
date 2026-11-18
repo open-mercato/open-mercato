@@ -60,6 +60,12 @@ Awilix scopes cache SCOPED instances separately, but inherit value registrations
 
 Rejected: one EM for every legacy caller (observed write corruption); dynamic latest-container proxies (interleaving ambiguity); automatic registrar probing (side effects and eager captures); only caching ORM/registrar inputs (does not remove the measured setup cost); replaying harvested bootstrap instances (retains request state).
 
+### Registration side effects and process capacity
+
+`registerCallerSetup(root, setup)` installs per-caller subscribers or decorators after caller services exist. `registerProcessEventSetup(root, setup)` installs generation-owned bus listeners. `registerProcessActivation(root, activate)` defers synchronous global adapter/enricher publication until a successful, current generation is ready. These callbacks must be audited synchronous setters; arbitrary external side effects cannot be rolled back transactionally. Legacy registrars retain their immediate publication order.
+
+The agent workspace manager owns process-wide concurrency capacity, so its active leases and waiters survive generation changes. Its first-resolved process configuration remains fixed until process restart. Existing module-import side effects and setter-only global registries retain their existing disabled-module behavior; this change removes captured caller state without introducing a general global-registry unregister protocol.
+
 ## Edge cases and risks
 | Failure | Severity | Mitigation and residual risk |
 | --- | --- | --- |
