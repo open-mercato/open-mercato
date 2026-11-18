@@ -27420,7 +27420,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"luxon@npm:3.7.2, luxon@npm:^3.2.1, luxon@npm:^3.5.0, luxon@npm:^3.7.2":
+"luxon@npm:3.7.2, luxon@npm:^3.5.0, luxon@npm:^3.7.2":
   version: 3.7.2
   resolution: "luxon@npm:3.7.2"
   checksum: 10/b24cd205ed306ce7415991687897dcc4027921ae413c9116590bc33a95f93b86ce52cf74ba72b4f5c5ab1c10090517f54ac8edfb127c049e0bf55b90dc2260be
