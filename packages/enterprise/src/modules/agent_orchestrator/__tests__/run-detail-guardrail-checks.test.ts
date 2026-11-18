@@ -97,6 +97,40 @@ describe('GET /api/agent_orchestrator/runs/:id — guardrail checks in run detai
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.guardrailChecks).toEqual([])
+    expect(body.integrity).toBeNull()
+    expect(body.rawOutputKey).toBeNull()
+  })
+
+  it('returns the integrity summary and the raw output key from the run\'s check rows', async () => {
+    await setup([
+      ...CHECKS,
+      {
+        id: '88888888-8888-4888-8888-888888888888',
+        agentRunId: RUN_ID,
+        phase: 'output',
+        kind: 'evidence_quote',
+        result: 'warn',
+        capability: 'deals.health_check',
+        guardrailSetVersion: 'int-v1',
+        evidence: {
+          ruleId: 'quotes',
+          items: 3,
+          violations: [{ itemPath: 'findings[1]', reason: 'quote_not_found' }],
+          dropped: 0,
+          repaired: 1,
+          ambiguous: 0,
+          holdsAutoApproval: true,
+          rawOutput: { key: 'raw-output-key', status: 'stored' },
+        },
+      },
+    ])
+    const res = await GET(makeRequest(), { params })
+    const body = await res.json()
+    expect(body.integrity).toEqual({
+      outcome: 'flagged',
+      checks: [{ ruleId: 'quotes', kind: 'evidence_quote', result: 'warn', dropped: 0, repaired: 1 }],
+    })
+    expect(body.rawOutputKey).toBe('raw-output-key')
   })
 })
 
