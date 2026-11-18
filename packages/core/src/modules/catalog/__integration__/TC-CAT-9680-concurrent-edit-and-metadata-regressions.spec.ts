@@ -93,6 +93,41 @@ async function listLinkedDocumentIds(
   return (body?.items ?? []).map((row) => String(row.id))
 }
 
+const RECORD_LOCK_RESOURCE_KIND = 'catalog.product'
+
+/**
+ * Deterministically release the caller's own enterprise `record_locks`
+ * participant lock (when the module/resource is enabled), instead of relying
+ * on a browser navigation's fire-and-forget unload beacon to do it
+ * eventually. `acquire` is idempotent — called by a user who already holds
+ * an active lock, it just renews and returns that SAME lock's token — so this
+ * recovers the token the UI widget acquired on page load without needing to
+ * read any client-side state, then releases it and awaits the response. A
+ * stale `ownedActiveLock` is exactly what makes `record_locks`' optimistic
+ * conflict check (`baseActionLogId` predating writer B's save) reject the
+ * title-only retry below with a 409 no amount of polling can out-wait if the
+ * unload beacon is slow or dropped. No-ops quietly when the module isn't
+ * installed or the resource isn't lock-enabled.
+ */
+async function releaseOwnRecordLockIfActive(
+  request: APIRequestContext,
+  token: string,
+  resourceId: string,
+): Promise<void> {
+  const acquireResponse = await apiRequest(request, 'POST', '/api/record_locks/acquire', {
+    token,
+    data: { resourceKind: RECORD_LOCK_RESOURCE_KIND, resourceId },
+  })
+  if (acquireResponse.status() !== 200) return
+  const acquireBody = await readJsonSafe<{ resourceEnabled?: boolean; lock?: { token?: string } }>(acquireResponse)
+  const lockToken = acquireBody?.lock?.token
+  if (!acquireBody?.resourceEnabled || !lockToken) return
+  await apiRequest(request, 'POST', '/api/record_locks/release', {
+    token,
+    data: { resourceKind: RECORD_LOCK_RESOURCE_KIND, resourceId, token: lockToken, reason: 'cancelled' },
+  })
+}
+
 async function createDocumentFixture(
   request: APIRequestContext,
   token: string,
@@ -160,6 +195,8 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
     let productId: string | null = null
     let documentId: string | null = null
     let documentUpdatedAt: string | null = null
+    let writerBRoleId: string | null = null
+    let writerBUserId: string | null = null
 
     const adminContext = await browser.newContext()
     const writerBContext = await browser.newContext()
@@ -190,10 +227,21 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       await documentRow.click()
       await expect(adminPage.getByRole('link', { name: docTitle })).toBeVisible({ timeout: 10_000 })
 
-      // Second, genuinely distinct real user (a seeded `employee` account,
-      // not a second tab of `admin`) loads and saves the SAME product's SKU
-      // through its own UI — not an out-of-band API bump.
-      await login(writerBPage, 'employee')
+      // Second, genuinely distinct real user — an owned, test-created fixture
+      // (not the shared seeded `employee` demo account, which carries no
+      // guarantee of catalog write access and is demo-data the suite
+      // shouldn't depend on) — loads and saves the SAME product's SKU
+      // through its own UI, not an out-of-band API bump.
+      const scope = getTokenContext(adminToken)
+      const writerBCredentials = { email: `qa-9680-writerb-${stamp}@example.com`, password: `Test-${stamp}!aA1` }
+      writerBRoleId = await createRoleFixture(request, adminToken, { name: `qa-9680-writerb-${stamp}`, tenantId: scope.tenantId })
+      await setRoleAclFeatures(request, adminToken, { roleId: writerBRoleId, features: ['catalog.products.view', 'catalog.products.manage'] })
+      writerBUserId = await createUserFixture(request, adminToken, {
+        ...writerBCredentials,
+        organizationId: scope.organizationId,
+        roles: [writerBRoleId],
+      })
+      await signIn(writerBPage, writerBCredentials, scope)
       await writerBPage.goto(`/backend/catalog/products/${productId}`)
       const writerBSkuInput = writerBPage.getByPlaceholder(SKU_PLACEHOLDER).first()
       await expect(writerBSkuInput).toBeVisible({ timeout: 15_000 })
@@ -236,13 +284,17 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       expect(linksAfterConflict, 'the document link must survive the conflicting save').toContain(documentId)
 
       // Release admin's own edit-page presence too: with the enterprise
-      // `record_locks` module enabled, ANY active lock on the record — even
-      // one held by the same user — makes its mutation guard reject a raw
-      // API write with a token-less `record_lock_conflict`, regardless of
-      // `updated_at`. The retry below is a plain out-of-band API call (not a
-      // UI save carrying a lock token), so it only succeeds once no lock is
-      // active at all.
+      // `record_locks` module enabled, admin's OWN active lock (acquired on
+      // page load, before writer B's save) makes the module's optimistic
+      // conflict check reject a later raw API write as a `record_lock_conflict`
+      // — its `baseActionLogId` still predates writer B's write — regardless
+      // of the OSS `updated_at` header. Navigating away unmounts the widget,
+      // which also tries to release the lock, but that release is a
+      // fire-and-forget unload beacon the test cannot await; release it
+      // directly and synchronously through the same acquire/release API the
+      // widget uses instead of racing its unload beacon.
       await adminPage.goto('/backend/catalog/products')
+      await releaseOwnRecordLockIfActive(request, adminToken, productId)
 
       // Title-only retry: admin recovers using writer B's own successful save
       // response as the fresh lock — it already carries the record's current
@@ -253,10 +305,10 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       const freshLock = writerBSaveBody.updatedAt
       expect(typeof freshLock, `writer B's save response should include updatedAt, got ${JSON.stringify(writerBSaveBody)}`).toBe('string')
       const retryTitle = `QA 9680 title-only retry ${stamp}`
-      // The two navigations above release each tab's record-lock participant
-      // state via a fire-and-forget beacon/unmount call (not awaited here),
-      // so the server can take a moment to catch up; poll briefly instead of
-      // asserting on the very first attempt.
+      // `releaseOwnRecordLockIfActive` above is awaited, so the retry should
+      // already be unblocked on the first attempt; keep a short defensive
+      // retry only for incidental infra lag, not as the mechanism that makes
+      // this deterministic.
       let retryResponse = await putWithLock(
         request,
         adminToken,
@@ -264,7 +316,7 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
         { id: productId, title: retryTitle },
         freshLock as string,
       )
-      for (let attempt = 0; attempt < 10 && retryResponse.status() === 409; attempt += 1) {
+      for (let attempt = 0; attempt < 3 && retryResponse.status() === 409; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 500))
         retryResponse = await putWithLock(
           request,
@@ -282,6 +334,8 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       await writerBContext.close()
       await deleteDocumentIfExists(request, adminToken, documentId, documentUpdatedAt)
       await deleteCatalogProductIfExists(request, adminToken, productId)
+      await deleteUserIfExists(request, adminToken, writerBUserId)
+      await deleteRoleIfExists(request, adminToken, writerBRoleId)
     }
   })
 
