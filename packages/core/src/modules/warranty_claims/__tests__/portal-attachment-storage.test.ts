@@ -51,9 +51,17 @@ const chain = {
   select: () => chain, where: () => chain, orderBy: () => chain, forUpdate: () => chain,
   execute: async () => mockReferenceIds.map((id) => ({ id })),
 }
+const sectionQuery = {
+  innerJoin: jest.fn(() => sectionQuery),
+  select: () => sectionQuery,
+  where: jest.fn(() => sectionQuery),
+  orderBy: () => sectionQuery,
+  execute: async () => [],
+}
 const mockEm = {
   findOne: jest.fn(async () => mockPartition),
-  getKysely: () => ({ selectFrom: () => chain }),
+  getKysely: () => ({ selectFrom: (table: string) => table === 'attachment_document_sections as section' ? sectionQuery : chain }),
+  nativeDelete: jest.fn(async () => 0),
   remove: jest.fn(() => { mockRetained = false }),
   flush: jest.fn(async () => undefined), begin: jest.fn(async () => undefined),
   commit: jest.fn(async () => undefined), rollback: jest.fn(async () => undefined),
@@ -157,6 +165,12 @@ it.each([['strict'], ['legacy']])('%s preserves shared bytes and commits before 
   mockReferenceIds = [attachmentId]
   expect((await DELETE(request('DELETE'))).status).toBe(200)
   expect(driver.delete).toHaveBeenCalledWith('privateAttachments', 'private/file')
+  expect(sectionQuery.innerJoin).toHaveBeenCalledWith('attachment_document_extractions as extraction', 'extraction.id', 'section.extraction_id')
+  for (const prefix of ['section', 'extraction']) {
+    expect(sectionQuery.where).toHaveBeenCalledWith(`${prefix}.attachment_id`, '=', attachmentId)
+    expect(sectionQuery.where).toHaveBeenCalledWith(`${prefix}.tenant_id`, '=', attachment.tenantId)
+    expect(sectionQuery.where).toHaveBeenCalledWith(`${prefix}.organization_id`, '=', attachment.organizationId)
+  }
   expect(mockEm.commit.mock.invocationCallOrder[1]).toBeLessThan(jest.mocked(driver.delete).mock.invocationCallOrder[0])
 })
 it('does not delete storage or thumbnails after a concurrent row removal', async () => {

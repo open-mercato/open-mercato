@@ -60,6 +60,9 @@ function harness(options: { ownerUserId?: string; attachmentScope?: typeof scope
   }
   const em = {
     fork: () => em,
+    create: jest.fn((_entity: unknown, values: Record<string, unknown>) => values),
+    persist: jest.fn(),
+    flush: jest.fn(async () => undefined),
     findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
       if (entity === AttachmentPartition) return partition
       if (where.tenantId !== scope.tenantId || where.organizationId !== scope.organizationId) throw new Error('unscoped query')
@@ -163,6 +166,10 @@ describe('attachment staging owner policy through the real service and Documents
   it('passes the invoking actor through the runner and dispatches only after an authorized file is staged', async () => {
     const test = harness({ ownerUserId: userId })
     await expect(test.runner.run(entry, { __files: files }, { ...scope, userId })).resolves.toEqual({ kind: 'research', data: {} })
+    expect(test.em.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      ...scope, agentRunId: 'run-access', phase: 'output', kind: 'schema', result: 'pass',
+    }))
+    expect(test.em.flush).toHaveBeenCalledTimes(1)
     expect(test.read).toHaveBeenCalledTimes(1)
     expect(writeFile).toHaveBeenCalledTimes(2)
     expect(test.client.sendMessage).toHaveBeenCalledTimes(1)
