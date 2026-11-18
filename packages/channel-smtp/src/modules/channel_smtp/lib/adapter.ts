@@ -1,3 +1,4 @@
+import { normalizeEnvString, resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import type {
   ChannelAdapter,
   ChannelNativeContent,
@@ -64,10 +65,21 @@ class SmtpChannelAdapter implements ChannelAdapter {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires a subject' }
     }
 
+    const operatorPassword = normalizeEnvString(process.env.SMTP_PASSWORD)
+    const usesOperatorCredentials = Boolean(operatorPassword && credentials.password === operatorPassword)
+    let from = stringOrUndefined(meta.from) ?? credentials.fromAddress
+    if (usesOperatorCredentials) {
+      const operatorFrom = smtpCredentialsSchema.shape.fromAddress.safeParse(resolveDefaultEmailFromAddress())
+      if (!operatorFrom.success) {
+        return { externalMessageId: '', status: 'failed', error: '[internal] Operator email sender is not configured or invalid' }
+      }
+      from = operatorFrom.data
+    }
+
     const attachments = attachmentsFromMeta(meta.attachments)
     try {
       const info = await getSmtpTransport().send(credentialsToConnection(credentials), {
-        from: stringOrUndefined(meta.from) ?? credentials.fromAddress,
+        from,
         to,
         subject,
         ...(input.content.text ? { text: input.content.text } : {}),
