@@ -7175,6 +7175,16 @@ const convertQuoteToOrderCommand: CommandHandler<
           ),
         });
       }
+      if (isCancelledOrderStatus(quote.status)) {
+        logger.warn(
+          "[deprecated] sales.quotes.convert_to_order converted a canceled quote; this will be refused with 409 in the next minor release",
+          {
+            quoteId: quote.id,
+            tenantId: quote.tenantId,
+            organizationId: quote.organizationId,
+          },
+        );
+      }
 
       const generator = ctx.container.resolve(
         "salesDocumentNumberGenerator",
