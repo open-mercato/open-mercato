@@ -29,7 +29,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   listShippingProviders,
@@ -110,9 +111,29 @@ type RateRule = {
   metric?: string
   min?: number | null
   max?: number | null
-  amountNet?: number | null
-  amountGross?: number | null
+  amountNet?: number | string | null
+  amountGross?: number | string | null
   currencyCode?: string | null
+}
+
+function rateAmountText(value: unknown): string {
+  if (typeof value === 'number') return isDecimalInput(value) ? decimalToString(value) : ''
+  return typeof value === 'string' ? value : ''
+}
+
+/** Flat-rate amounts are typed as text; send them as exact decimal strings with the locale separator resolved. */
+export function normalizeFlatRateAmounts(settings: Record<string, unknown>, locale?: string): Record<string, unknown> {
+  if (!Array.isArray(settings.rates)) return settings
+  const normalize = (value: unknown) =>
+    typeof value === 'string' && value.trim() ? parseLocaleDecimal(value, locale) ?? value : value
+  return {
+    ...settings,
+    rates: (settings.rates as RateRule[]).map((rate) => ({
+      ...rate,
+      amountNet: normalize(rate.amountNet),
+      amountGross: normalize(rate.amountGross),
+    })),
+  }
 }
 
 type FlatRateLabels = {
@@ -227,21 +248,19 @@ function FlatRateSettingsEditor(props: {
                 <div className="space-y-1">
                   <Label className="text-xs uppercase text-muted-foreground">{translations.amountNet}</Label>
                   <Input
-                    type="number"
-                    value={rate.amountNet ?? ''}
-                    onChange={(evt) =>
-                      updateRate(index, 'amountNet', evt.target.value === '' ? null : Number(evt.target.value))
-                    }
+                    type="text"
+                    inputMode="decimal"
+                    value={rateAmountText(rate.amountNet)}
+                    onChange={(evt) => updateRate(index, 'amountNet', evt.target.value === '' ? null : evt.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs uppercase text-muted-foreground">{translations.amountGross}</Label>
                   <Input
-                    type="number"
-                    value={rate.amountGross ?? ''}
-                    onChange={(evt) =>
-                      updateRate(index, 'amountGross', evt.target.value === '' ? null : Number(evt.target.value))
-                    }
+                    type="text"
+                    inputMode="decimal"
+                    value={rateAmountText(rate.amountGross)}
+                    onChange={(evt) => updateRate(index, 'amountGross', evt.target.value === '' ? null : evt.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
@@ -349,6 +368,7 @@ function createShippingProviderSettingsRenderer(params: {
 
 export function ShippingMethodsSettings() {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const providers = React.useMemo(() => listShippingProviders(), [])
@@ -645,7 +665,7 @@ export function ShippingMethodsSettings() {
       baseRateGross: readDecimalString(values.baseRateGross ?? values.baseRateNet),
       currencyCode: values.currencyCode?.trim().toUpperCase() || undefined,
       isActive: values.isActive ?? true,
-      providerSettings: isRecord(values.providerSettings) ? values.providerSettings : undefined,
+      providerSettings: isRecord(values.providerSettings) ? normalizeFlatRateAmounts(values.providerSettings, locale) : undefined,
     }
     const path = '/api/sales/shipping-methods'
     const method = dialog.mode === 'create' ? 'POST' : 'PUT'
@@ -672,7 +692,7 @@ export function ShippingMethodsSettings() {
     } finally {
       setSubmitting(false)
     }
-  }, [closeDialog, dialog, loadEntries, translations.errors.save, translations.messages.saved])
+  }, [closeDialog, dialog, loadEntries, locale, translations.errors.save, translations.messages.saved])
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: translations.form.name, type: 'text', required: true },
