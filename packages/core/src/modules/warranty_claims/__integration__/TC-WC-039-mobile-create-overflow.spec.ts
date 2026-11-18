@@ -3,7 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { createOrderLineFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 async function expectViewportContained(page: Page) {
   await expect
@@ -25,16 +25,12 @@ test.describe('TC-WC-039: warranty claim create form stays inside the phone view
         data: {
           customerEntityId: customerId,
           currencyCode: 'USD',
-          lines: [{ currencyCode: 'USD', name: `WC-039 order ${stamp}`, quantity: 1, unitPriceNet: 10, unitPriceGross: 10 }],
+          lines: [{ currencyCode: 'USD', name: `WC-039 imported line with a deliberately long product description ${stamp}`, quantity: 2, unitPriceNet: 10, unitPriceGross: 12 }],
         },
       })
       const orderBody = await readJsonSafe<{ id?: string; orderId?: string }>(orderResponse)
       expect(orderResponse.ok(), `order creation failed: ${JSON.stringify(orderBody)}`).toBeTruthy()
       orderId = expectId(orderBody?.id ?? orderBody?.orderId, 'sales order id')
-      await createOrderLineFixture(request, token, orderId, {
-        name: `WC-039 imported line with a deliberately long product description ${stamp}`,
-        quantity: 2,
-      })
 
       await page.setViewportSize({ width: 390, height: 844 })
       await login(page, 'admin')
@@ -47,7 +43,7 @@ test.describe('TC-WC-039: warranty claim create form stays inside the phone view
       await orderDialog.getByRole('checkbox').first().check()
       await orderDialog.getByRole('button', { name: 'Add selected lines', exact: true }).click()
 
-      await expect(page.getByText(`WC-039 imported line with a deliberately long product description ${stamp}`)).toBeVisible()
+      await expect(page.getByText(`WC-039 imported line with a deliberately long product description ${stamp}`).first()).toBeVisible()
       await expectViewportContained(page)
       await page.screenshot({ path: testInfo.outputPath('create-390.png'), fullPage: true })
 
