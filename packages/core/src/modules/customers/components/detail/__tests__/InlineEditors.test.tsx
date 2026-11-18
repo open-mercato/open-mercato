@@ -118,7 +118,7 @@ describe('Inline multiline editors', () => {
     fireEvent.click(link)
 
     expect(screen.getByRole('textbox')).toBeInTheDocument()
-    expect(screen.getByText('Save ⌘⏎ / Ctrl+Enter')).toBeInTheDocument()
+    expect(screen.getByText('Save Ctrl/⌘ + Enter')).toBeInTheDocument()
   })
 })
 
@@ -140,6 +140,6 @@ describe('Inline text editor', () => {
     fireEvent.click(screen.getByRole('link'))
 
     expect(screen.getByRole('textbox')).toBeInTheDocument()
-    expect(screen.getByText('Save ⌘⏎ / Ctrl+Enter')).toBeInTheDocument()
+    expect(screen.getByText('Save Ctrl/⌘ + Enter')).toBeInTheDocument()
   })
 })

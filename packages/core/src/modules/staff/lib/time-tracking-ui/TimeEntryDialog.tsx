@@ -15,7 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Kbd } from '@open-mercato/ui/primitives/kbd'
+import { Kbd, KbdShortcut, KbdSubmitShortcut, MOD_KEY } from '@open-mercato/ui/primitives/kbd'
 import { Label } from '@open-mercato/ui/primitives/label'
 import {
   Select,
@@ -2039,15 +2039,12 @@ function DefaultTimeEntryDialog({
             */}
           <span className="mr-auto hidden min-w-0 flex-wrap items-center gap-x-3 gap-y-1 whitespace-nowrap text-xs text-muted-foreground sm:flex">
             <span className="inline-flex items-center gap-1" data-testid="entry-dialog-shortcut">
-              <Kbd>⌘</Kbd>
-              <Kbd>↵</Kbd>
+              <KbdSubmitShortcut />
               {t('staff.time_tracking.entryDialog.shortcutSave', 'save')}
             </span>
             {locked ? null : (
               <span className="inline-flex items-center gap-1" data-testid="entry-dialog-shortcut">
-                <Kbd>⌘</Kbd>
-                <Kbd>⇧</Kbd>
-                <Kbd>↵</Kbd>
+                <KbdShortcut keys={[MOD_KEY, 'Shift', 'Enter']} />
                 {t('staff.time_tracking.entryDialog.shortcutSaveAgain', 'save and add another')}
               </span>
             )}

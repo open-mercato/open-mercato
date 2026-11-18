@@ -15,7 +15,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
-import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { Kbd, KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import {
   Select,
   SelectContent,
@@ -381,7 +381,7 @@ export function CreateDistributionDialog({
             <DialogFooter className="items-center">
               <span className="mr-auto hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1">
                 {t('forms.distribution.create.hint', { fallback: 'Press' })}{' '}
-                <KbdShortcut keys={['⌘', 'Enter']} />{' '}
+                <KbdSubmitShortcut />{' '}
                 {t('forms.distribution.create.hint_save', { fallback: 'to save,' })}{' '}
                 <Kbd>Esc</Kbd>{' '}
                 {t('forms.distribution.create.hint_cancel', { fallback: 'to cancel' })}

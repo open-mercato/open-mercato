@@ -35,6 +35,7 @@ import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { CalendarDays, Copy, Lock, Pencil, Plus } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { Progress } from '@open-mercato/ui/primitives/progress'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -703,8 +704,9 @@ export default function TimeTrackingMyWorkPage() {
                         >
                           {t('staff.time_tracking.myWork.quickEntry.save', 'Save')}
                         </Button>
-                        <span className="self-center text-xs text-muted-foreground">
-                          {t('staff.time_tracking.entryDialog.shortcutSave', '⌘↵ to save')}
+                        <span className="inline-flex items-center gap-1 self-center text-xs text-muted-foreground">
+                          <KbdSubmitShortcut />
+                          {t('staff.time_tracking.entryDialog.shortcutSave', 'save')}
                         </span>
                         {/*
                           * The same block the task drawer offers, from the same

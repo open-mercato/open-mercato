@@ -771,6 +771,7 @@
   "wms.backend.inventory.reserve.fields.variantPlaceholder": "SKU oder Name suchen…",
   "wms.backend.inventory.reserve.fields.warehouse": "Lager",
   "wms.backend.inventory.reserve.fields.warehousePlaceholder": "Lager auswählen…",
+  "wms.backend.inventory.reserve.shortcutHint": "zum Reservieren",
   "wms.backend.inventory.reserve.sourceType.manual": "Manuelle Sperrung",
   "wms.backend.inventory.reserve.sourceType.order": "Auftrag",
   "wms.backend.inventory.reserve.sourceType.transfer": "Überweisen",

@@ -9,7 +9,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { normalizeProposalEnvelope } from '../data/proposalEnvelope'
@@ -513,7 +513,7 @@ export function ProposalCard({
                 {t('agent_orchestrator.proposal.actions.cancelEdit')}
               </Button>
               <span className="ml-auto text-xs text-muted-foreground">
-                <KbdShortcut keys={['⌘', 'Enter']} />
+                <KbdSubmitShortcut />
               </span>
             </div>
           </section>
@@ -547,7 +547,7 @@ export function ProposalCard({
                 {t('agent_orchestrator.proposal.actions.cancelEdit')}
               </Button>
               <span className="ml-auto text-xs text-muted-foreground">
-                <KbdShortcut keys={['⌘', 'Enter']} />
+                <KbdSubmitShortcut />
               </span>
             </div>
           </section>

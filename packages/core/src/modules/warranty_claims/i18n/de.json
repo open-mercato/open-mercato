@@ -682,7 +682,7 @@
   "warranty_claims.portal.new.reviewNotes": "Notizen",
   "warranty_claims.portal.new.reviewOrder": "Auftragsreferenz",
   "warranty_claims.portal.new.reviewTitle": "Notizen und Prüfung",
-  "warranty_claims.portal.new.submitHint": "Verwenden Sie Cmd/Strg+Enter, um den Claim aus diesem Formular einzureichen.",
+  "warranty_claims.portal.new.submitHint": "Verwenden Sie Ctrl/⌘ + Enter, um den Claim aus diesem Formular einzureichen.",
   "warranty_claims.portal.new.submitting": "Wird eingereicht...",
   "warranty_claims.portal.new.success": "Claim eingereicht.",
   "warranty_claims.portal.new.summaryTitle": "Prüfzusammenfassung",

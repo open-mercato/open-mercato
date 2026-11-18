@@ -682,7 +682,7 @@
   "warranty_claims.portal.new.reviewNotes": "Notes",
   "warranty_claims.portal.new.reviewOrder": "Order reference",
   "warranty_claims.portal.new.reviewTitle": "Notes and review",
-  "warranty_claims.portal.new.submitHint": "Use Cmd/Ctrl+Enter to submit the claim from this form.",
+  "warranty_claims.portal.new.submitHint": "Use Ctrl/⌘ + Enter to submit the claim from this form.",
   "warranty_claims.portal.new.submitting": "Submitting...",
   "warranty_claims.portal.new.success": "Claim submitted.",
   "warranty_claims.portal.new.summaryTitle": "Review summary",

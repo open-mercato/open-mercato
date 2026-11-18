@@ -1702,7 +1702,7 @@ export function ShipmentDialog({
           fields={fields}
           groups={groups}
           initialValues={initialValues}
-          submitLabel={t('sales.documents.shipments.saveShortcut', 'Save (⌘/Ctrl+Enter)')}
+          submitLabel={t('sales.documents.shipments.saveShortcut', 'Save (Ctrl/⌘ + Enter)')}
           onSubmit={handleSubmit}
           loadingMessage={t('sales.documents.shipments.loading', 'Loading shipments…')}
           customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}

@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import {
   Select,
   SelectContent,
@@ -982,9 +982,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
 
         <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
           <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
-            <KbdShortcut keys={['⌘', 'Enter']} />
-            <span>/</span>
-            <KbdShortcut keys={['Ctrl', 'Enter']} />
+            <KbdSubmitShortcut />
             <span>{shortcutHint}</span>
           </p>
           <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">

@@ -19,7 +19,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import {
   Select,
   SelectContent,
@@ -401,9 +401,7 @@ export function ReleaseReservationDialog({
               className="hidden text-xs text-muted-foreground sm:inline-flex sm:min-w-0 sm:flex-wrap sm:items-center sm:gap-1.5"
               data-testid="wms-inventory-release-shortcut-hint"
             >
-              <KbdShortcut keys={['⌘', 'Enter']} />
-              <span>/</span>
-              <KbdShortcut keys={['Ctrl', 'Enter']} />
+              <KbdSubmitShortcut />
               <span>{t('wms.backend.inventory.release.dialog.shortcutSave', 'to confirm')}</span>
             </p>
             <div

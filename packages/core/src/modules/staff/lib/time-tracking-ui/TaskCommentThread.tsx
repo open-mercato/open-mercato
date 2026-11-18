@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Kbd } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
@@ -188,8 +188,7 @@ export function TaskCommentThread({
                 {t('staff.time_tracking.taskComments.addInternalNote', 'Add internal note')}
               </Button>
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Kbd>⌘</Kbd>
-                <Kbd>↵</Kbd>
+                <KbdSubmitShortcut />
                 {t('staff.time_tracking.taskComments.shortcutInternal', 'adds an internal note')}
               </span>
             </div>
@@ -205,8 +204,7 @@ export function TaskCommentThread({
                 {t('staff.time_tracking.taskDrawer.comments.submit', 'Comment')}
               </Button>
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Kbd>⌘</Kbd>
-                <Kbd>↵</Kbd>
+                <KbdSubmitShortcut />
                 {t('staff.time_tracking.taskDrawer.comments.hint', 'posts')}
               </span>
             </div>

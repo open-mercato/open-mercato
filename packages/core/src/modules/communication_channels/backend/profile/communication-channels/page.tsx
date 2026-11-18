@@ -22,7 +22,7 @@ import {
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -926,7 +926,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
 
         <DialogFooter>
           <span className="mr-auto text-xs text-muted-foreground">
-            <KbdShortcut keys={['⌘', 'Enter']} />
+            <KbdSubmitShortcut />
           </span>
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
             {t('communication_channels.profile.importHistory.cancel', 'Cancel')}
@@ -1048,7 +1048,7 @@ function DisconnectChannelDialog({
 
         <DialogFooter>
           <span className="mr-auto text-xs text-muted-foreground">
-            <KbdShortcut keys={['⌘', 'Enter']} />
+            <KbdSubmitShortcut />
           </span>
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
             {t('communication_channels.profile.disconnect.cancel', 'Cancel')}

@@ -44,7 +44,7 @@
   "dictionaries.config.entries.dialog.labelPlaceholder": "Display name shown in UI",
   "dictionaries.config.entries.dialog.previewEmpty": "No appearance selected",
   "dictionaries.config.entries.dialog.save": "Save",
-  "dictionaries.config.entries.dialog.saveShortcut": "⌘/Ctrl + Enter",
+  "dictionaries.config.entries.dialog.saveShortcut": "Ctrl/⌘ + Enter",
   "dictionaries.config.entries.dialog.valueLabel": "Value",
   "dictionaries.config.entries.empty": "No entries yet.",
   "dictionaries.config.entries.error.delete": "Failed to delete dictionary entry.",

@@ -22,7 +22,7 @@ import {
 import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import {
   Select,
   SelectContent,
@@ -671,9 +671,7 @@ export function ReceiveInventoryDialog({
 
           <DialogFooter bordered={false} className="flex-row items-center justify-between border-t px-6 py-4">
             <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
-              <KbdShortcut keys={['⌘', 'Enter']} />
-              <span>/</span>
-              <KbdShortcut keys={['Ctrl', 'Enter']} />
+              <KbdSubmitShortcut />
               <span>{t('wms.backend.inventory.receive.form.shortcut', 'to receive')}</span>
             </p>
             <div className="flex gap-2">

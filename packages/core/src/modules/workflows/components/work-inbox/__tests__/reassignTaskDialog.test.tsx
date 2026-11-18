@@ -74,6 +74,7 @@ jest.mock('@open-mercato/ui/primitives/textarea', () => ({
 jest.mock('@open-mercato/ui/primitives/kbd', () => ({
   Kbd: ({ children }: { children?: React.ReactNode }) => <kbd>{children}</kbd>,
   KbdShortcut: ({ keys }: { keys: string[] }) => <kbd>{keys.join('+')}</kbd>,
+  KbdSubmitShortcut: () => <kbd>Ctrl+Enter</kbd>,
 }))
 
 import { ReassignTaskDialog } from '../ReassignTaskDialog'

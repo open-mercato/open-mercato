@@ -36,7 +36,7 @@ import {
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { Kbd, KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ReassignTaskTarget = {
@@ -178,7 +178,7 @@ export function ReassignTaskDialog({
         <DrawerFooter
           leading={(
             <span className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1">
-              <KbdShortcut keys={['⌘', 'Enter']} />
+              <KbdSubmitShortcut />
               <span>{t('workflows.tasks.detail.reassign.submitHint')}</span>
               <Kbd>Esc</Kbd>
               <span>{t('workflows.tasks.detail.reassign.cancelHint')}</span>

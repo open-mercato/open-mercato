@@ -193,7 +193,7 @@ export function PaymentDialog({
     [loadPaymentMethods, paymentMethods]
   )
 
-  const shortcutLabel = t('sales.documents.payments.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')
+  const shortcutLabel = t('sales.documents.payments.saveShortcut', 'Save Ctrl/⌘ + Enter')
   const renderStatusIcon = React.useCallback(
     (color?: string | null) => (
       <span

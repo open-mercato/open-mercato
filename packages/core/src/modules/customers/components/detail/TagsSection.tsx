@@ -146,7 +146,7 @@ export function TagsSection({
       createError: t('customers.people.detail.tags.createError', 'Failed to create tag.'),
       updateError: t('customers.people.detail.tags.error', 'Failed to update tags.'),
       labelRequired: t('customers.people.detail.tags.labelRequired', 'Tag name is required.'),
-      saveShortcut: t('customers.people.detail.tags.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter'),
+      saveShortcut: t('customers.people.detail.tags.saveShortcut', 'Save Ctrl/⌘ + Enter'),
       cancelShortcut: t('customers.people.detail.tags.cancelShortcut', 'Cancel (Esc)'),
       edit: t('ui.forms.actions.edit'),
       cancel: t('ui.forms.actions.cancel'),

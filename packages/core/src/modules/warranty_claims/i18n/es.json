@@ -682,7 +682,7 @@
   "warranty_claims.portal.new.reviewNotes": "Notas",
   "warranty_claims.portal.new.reviewOrder": "Referencia de pedido",
   "warranty_claims.portal.new.reviewTitle": "Notas y revisión",
-  "warranty_claims.portal.new.submitHint": "Usa Cmd/Ctrl+Enter para enviar el reclamo desde este formulario.",
+  "warranty_claims.portal.new.submitHint": "Usa Ctrl/⌘ + Enter para enviar el reclamo desde este formulario.",
   "warranty_claims.portal.new.submitting": "Enviando...",
   "warranty_claims.portal.new.success": "Reclamo enviado.",
   "warranty_claims.portal.new.summaryTitle": "Resumen de revisión",

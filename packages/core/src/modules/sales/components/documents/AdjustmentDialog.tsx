@@ -416,7 +416,7 @@ export function AdjustmentDialog({
               emptyError: t('sales.config.adjustmentKinds.errors.required', 'Code is required.'),
               cancelLabel: t('ui.actions.cancel', 'Cancel'),
               saveLabel: t('ui.actions.save', 'Save'),
-              saveShortcutHint: t('ui.actions.saveShortcut', 'Cmd/Ctrl + Enter'),
+              saveShortcutHint: t('ui.actions.saveShortcut', 'Ctrl/⌘ + Enter'),
               successCreateLabel: t('sales.config.adjustmentKinds.messages.created', 'Adjustment kind created.'),
               errorLoad: t('sales.config.adjustmentKinds.errors.load', 'Failed to load adjustment kinds.'),
               errorSave: t('sales.config.adjustmentKinds.errors.save', 'Failed to save adjustment kind.'),

@@ -630,7 +630,7 @@ export function InlineNextInteractionEditor({
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
+                  {t('customers.people.detail.inline.saveShortcut', 'Save Ctrl/⌘ + Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}

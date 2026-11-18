@@ -1036,8 +1036,8 @@ describe('TimeEntryDialog — keyboard loop', () => {
 
     const shortcuts = await screen.findAllByTestId('entry-dialog-shortcut')
     expect(shortcuts.map((shortcut) => shortcut.textContent)).toEqual([
-      '⌘↵save',
-      '⌘⇧↵save and add another',
+      'Ctrl+Entersave',
+      'Ctrl+Shift+Entersave and add another',
       'esccancel',
     ])
     const hint = shortcuts[0].parentElement as HTMLElement

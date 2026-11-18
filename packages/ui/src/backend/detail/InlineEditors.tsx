@@ -134,7 +134,7 @@ export function InlineTextEditor({
   const [draft, setDraft] = React.useState(value ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
-  const computedSaveLabel = saveLabel ?? t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')
+  const computedSaveLabel = saveLabel ?? t('ui.detail.inline.saveShortcut', 'Save Ctrl/⌘ + Enter')
   const fallbackError = React.useMemo(
     () => t('ui.detail.inline.error', 'Failed to save value.'),
     [t],
@@ -682,7 +682,7 @@ export function InlineMultilineEditor({
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
+                  {t('ui.detail.inline.saveShortcut', 'Save Ctrl/⌘ + Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('ui.detail.inline.cancel', 'Cancel')}
@@ -878,7 +878,7 @@ export function InlineSelectEditor({
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
+                  {t('ui.detail.inline.saveShortcut', 'Save Ctrl/⌘ + Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('ui.detail.inline.cancel', 'Cancel')}
