@@ -845,7 +845,7 @@ export function LineItemsEditor({
   const draftDialogId = 'warranty-claim-line-draft'
 
   return (
-    <div className="space-y-4" ref={editorRef}>
+    <div className="space-y-4 max-md:overflow-x-auto" ref={editorRef}>
       <DataTable<ClaimLineRow>
         embedded
         columns={columns}
