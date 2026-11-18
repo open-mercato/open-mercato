@@ -41,6 +41,7 @@ const mockRunStaffMutationGuardAfterSuccess = jest.fn()
 const mockEntityManagerFind = jest.fn()
 const mockTrxCreate = jest.fn()
 const mockTrxFlush = jest.fn()
+const mockTrxFind = jest.fn()
 
 const settingsStore: Record<string, unknown> = {}
 
@@ -50,6 +51,7 @@ const forkedEntityManager = {
     callback({
       create: (...args: unknown[]) => mockTrxCreate(...args),
       flush: (...args: unknown[]) => mockTrxFlush(...args),
+      find: (...args: unknown[]) => mockTrxFind(...args),
     }),
 }
 
@@ -233,6 +235,7 @@ describe('POST /api/staff/timesheets/time-entries/bulk honours every field its s
       ...data,
     }))
     mockTrxFlush.mockResolvedValue(undefined)
+    mockTrxFind.mockResolvedValue([])
     wireEntityManagerFind()
   })
 
@@ -411,6 +414,53 @@ describe('POST /api/staff/timesheets/time-entries/bulk honours every field its s
       wireStored([moved])
       await post([{ id: ENTRY_ID, date: DAY, timeProjectId: OTHER_PROJECT_ID, durationMinutes: 90 }])
       expect(moved.rateCurrencyCode).toBe('EUR')
+    })
+
+    it('drops the stored task of the previous project when a row moves the entry without naming a task (#9473)', async () => {
+      const existing = storedEntry({ taskId: TASK_ID })
+      wireStored([existing])
+      mockTrxFind.mockResolvedValue([{ id: TASK_ID, timeProjectId: PROJECT_ID }])
+
+      const response = await post([{ id: ENTRY_ID, date: DAY, timeProjectId: OTHER_PROJECT_ID, durationMinutes: 60 }])
+
+      expect(response.status).toBe(200)
+      expect(existing.timeProjectId).toBe(OTHER_PROJECT_ID)
+      expect(existing.taskId).toBeNull()
+      expect(mockTrxFind).toHaveBeenCalledWith(
+        expect.anything(),
+        { id: { $in: [TASK_ID] }, tenantId: TENANT_ID, organizationId: ORG_ID },
+        { fields: ['id', 'timeProjectId'] },
+      )
+    })
+
+    it('drops a soft-deleted stored task left on the previous project too', async () => {
+      const existing = storedEntry({ taskId: TASK_ID })
+      wireStored([existing])
+      mockTrxFind.mockResolvedValue([{ id: TASK_ID, timeProjectId: PROJECT_ID, deletedAt: AT('08:00') }])
+
+      await post([{ id: ENTRY_ID, date: DAY, timeProjectId: OTHER_PROJECT_ID, durationMinutes: 60 }])
+
+      expect(existing.taskId).toBeNull()
+    })
+
+    it('keeps the stored task when the move lands on the project the task belongs to', async () => {
+      const existing = storedEntry({ taskId: OTHER_PROJECT_TASK_ID })
+      wireStored([existing])
+      mockTrxFind.mockResolvedValue([{ id: OTHER_PROJECT_TASK_ID, timeProjectId: OTHER_PROJECT_ID }])
+
+      await post([{ id: ENTRY_ID, date: DAY, timeProjectId: OTHER_PROJECT_ID, durationMinutes: 60 }])
+
+      expect(existing.taskId).toBe(OTHER_PROJECT_TASK_ID)
+    })
+
+    it('keeps the stored task and skips the task lookup when the project does not change', async () => {
+      const existing = storedEntry({ taskId: TASK_ID })
+      wireStored([existing])
+
+      await post([{ id: ENTRY_ID, date: DAY, timeProjectId: PROJECT_ID, durationMinutes: 90 }])
+
+      expect(existing.taskId).toBe(TASK_ID)
+      expect(mockTrxFind).not.toHaveBeenCalled()
     })
 
     it('reconciles the interval exactly as before while writing the new fields (T4.10)', async () => {
