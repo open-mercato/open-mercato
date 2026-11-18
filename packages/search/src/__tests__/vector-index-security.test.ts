@@ -312,6 +312,7 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
   })
 
   it('removes every custom field from callbacks and callback queries when the resolver is absent', async () => {
+    mockReportError.mockClear()
     const contexts: Array<{ record: Record<string, unknown>; customFields: Record<string, unknown> }> = []
     const hydratedRecords: Record<string, unknown>[] = []
     const queryEngine = {
@@ -341,6 +342,12 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
       }] }],
     })
 
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] VectorIndexService has no encryptedCustomFieldKeysResolver; excluding every custom field from build contexts' }),
+      { module: 'search', code: 'search.encrypted_custom_fields_resolver_missing', attributes: undefined },
+    )
+
     await service.indexRecord({ entityId: 'demo:item', recordId: 'missing-resolver', tenantId: 'tenant-closed' })
 
     expect(contexts).toHaveLength(4)
@@ -349,6 +356,8 @@ describe('VectorIndexService encrypted custom-field callback boundaries (PR #841
       expect(context.customFields).toEqual({})
     }
     expect(hydratedRecords).toEqual([{ id: 'related' }])
+    await service.indexRecord({ entityId: 'demo:item', recordId: 'missing-resolver', tenantId: 'tenant-closed' })
+    expect(mockReportError).toHaveBeenCalledTimes(1)
   })
 
   it('memoizes normalized resolver failures for one reindex operation and retries on the next operation', async () => {

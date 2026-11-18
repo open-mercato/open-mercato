@@ -203,6 +203,14 @@ export class VectorIndexService {
   private readonly defaultDriverId: VectorDriverId
 
   constructor(private readonly opts: VectorIndexServiceOptions) {
+    if (!opts.encryptedCustomFieldKeysResolver) {
+      searchWarn('VectorIndexService', 'No encrypted custom-field resolver; excluding every custom field from build contexts')
+      reportSearchError(
+        'VectorIndexService',
+        new Error('[internal] VectorIndexService has no encryptedCustomFieldKeysResolver; excluding every custom field from build contexts'),
+        'search.encrypted_custom_fields_resolver_missing',
+      )
+    }
     for (const driver of opts.drivers) {
       this.driverMap.set(driver.id, driver)
     }
