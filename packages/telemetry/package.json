@@ -70,6 +70,7 @@
     "@opentelemetry/semantic-conventions": "^1.41.1"
   },
   "devDependencies": {
+    "@mikro-orm/postgresql": "^7.1.14",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.1",
     "@types/jest": "^30.0.0",
