@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
   Activity,
   AlarmClock,
@@ -487,6 +488,16 @@ type DictionaryValueProps = {
   map?: DictionaryMap | null
   fallback?: React.ReactNode
   className?: string
+  /**
+   * `plain` (default) renders the label alone. `dot` leads with a small disc
+   * in the entry's colour, meant for status-like dictionaries where the colour
+   * carries meaning; `icon` leads with the entry's icon, for pickers and
+   * settings where the icon helps recognition. `pill` wraps the label in a
+   * quiet secondary Badge for table cells, and `pill-dot` does the same with
+   * the colour disc inside the pill.
+   */
+  appearance?: 'plain' | 'dot' | 'icon' | 'pill' | 'pill-dot'
+  /** @deprecated The icon is rendered inline without a wrapper; kept for call-site compatibility. */
   iconWrapperClassName?: string
   iconClassName?: string
   colorClassName?: string
@@ -497,22 +508,34 @@ export function DictionaryValue({
   map,
   fallback = null,
   className,
-  iconWrapperClassName = 'inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card',
-  iconClassName = 'h-4 w-4',
-  colorClassName = 'h-3 w-3 rounded-full',
+  appearance = 'plain',
+  iconClassName = 'size-4 text-muted-foreground',
+  colorClassName = 'size-2 rounded-full',
 }: DictionaryValueProps): React.ReactNode {
   if (!value) return fallback ?? null
   const entry = map?.[value]
   if (!entry) {
     return <span className={className}>{value}</span>
   }
+  const showDot = (appearance === 'dot' || appearance === 'pill-dot') && Boolean(entry.color)
+  const leading = appearance === 'icon'
+    ? renderDictionaryIcon(entry.icon, iconClassName)
+    : showDot
+      ? <span className={`inline-block shrink-0 ${colorClassName}`} style={{ backgroundColor: entry.color ?? undefined }} aria-hidden />
+      : null
+  if (appearance === 'pill' || appearance === 'pill-dot') {
+    return (
+      <Badge variant={showDot ? 'outline' : 'secondary'} size={20} className={className}>
+        {leading}
+        {entry.label}
+      </Badge>
+    )
+  }
   const classes = ['inline-flex items-center gap-2', className].filter(Boolean).join(' ')
-  const renderedIcon = renderDictionaryIcon(entry.icon, iconClassName)
   return (
     <span className={classes}>
-      {renderedIcon ? <span className={[iconWrapperClassName].filter(Boolean).join(' ')}>{renderedIcon}</span> : null}
+      {leading}
       <span>{entry.label}</span>
-      {entry.color ? renderDictionaryColor(entry.color, colorClassName) : null}
     </span>
   )
 }
