@@ -152,6 +152,44 @@ describe('currency command tenant and organization scope', () => {
     jest.resetModules()
   })
 
+  it.each([
+    ['currencies', 'currencies.currencies.update'],
+    ['currencies', 'currencies.currencies.delete'],
+    ['exchange-rates', 'currencies.exchange_rates.update'],
+    ['exchange-rates', 'currencies.exchange_rates.delete'],
+  ] as const)('rejects a malformed ID before snapshot access for %s / %s', async (moduleName, commandId) => {
+    const command = loadCommand(moduleName, commandId)
+    const em = buildEm()
+    const { ctx } = buildCtx(em)
+
+    await expect(command.prepare?.({ id: 'zzz' }, ctx)).rejects.toMatchObject({
+      name: 'ZodError',
+      issues: [expect.objectContaining({ code: 'invalid_format', format: 'uuid' })],
+    })
+    expect(ctx.container.resolve).not.toHaveBeenCalled()
+    expect(em.findOne).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['currencies', 'currencies.currencies.update', foreignCurrency],
+    ['currencies', 'currencies.currencies.delete', foreignCurrency],
+    ['exchange-rates', 'currencies.exchange_rates.update', foreignExchangeRate],
+    ['exchange-rates', 'currencies.exchange_rates.delete', foreignExchangeRate],
+  ] as const)('captures a valid scoped snapshot for %s / %s', async (moduleName, commandId, record) => {
+    const command = loadCommand(moduleName, commandId)
+    const em = buildEm({ ...record, tenantId: ACTOR_TENANT, organizationId: ACTOR_ORG })
+    const { ctx } = buildCtx(em)
+
+    await expect(command.prepare?.({ id: RECORD_ID }, ctx)).resolves.toMatchObject({
+      before: { id: RECORD_ID, tenantId: ACTOR_TENANT, organizationId: ACTOR_ORG },
+    })
+    expect(em.findOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      id: RECORD_ID,
+      tenantId: ACTOR_TENANT,
+      organizationId: ACTOR_ORG,
+    }))
+  })
+
   it('rejects creating a currency in a foreign tenant before persistence', async () => {
     const command = loadCommand('currencies', 'currencies.currencies.create')
     const em = buildEm()
