@@ -61,6 +61,16 @@ describe('sanitizeSqlStatement', () => {
     expect(sanitizeSqlStatement(`select $é$ ${SENTINEL} $é$ from zamówienia1`)).toBe('select ? from zamówienia1')
   })
 
+  it.each(['$🔐$', '$e\u0301$', '$€$'])('strips Postgres high-bit dollar tags: %s', (tag) => {
+    expect(sanitizeSqlStatement(`select ${tag}${SENTINEL}${tag}`)).toBe('select ?')
+    expect(sanitizeSqlStatement(`select ${tag}${SENTINEL}`)).toBeUndefined()
+  })
+
+  it('keeps non-ASCII identifier characters adjacent to dollar signs whole', () => {
+    const statement = 'select 🔐$1, e\u0301$2 from t'
+    expect(sanitizeSqlStatement(statement)).toBe(statement)
+  })
+
   it('drops nested block comments in full', () => {
     expect(sanitizeSqlStatement(`select 1 /* outer /* inner */ ${SENTINEL} */ from t`)).toBe('select ?   from t')
   })

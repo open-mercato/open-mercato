@@ -17,11 +17,11 @@ export const REDACTED_SQL_STATEMENT = '[redacted]'
 const LITERAL_PLACEHOLDER = '?'
 const STRING_PREFIXES = new Set(['e', 'b', 'x', 'n'])
 const BOOLEAN_LITERALS = new Set(['true', 'false'])
-const NUMBER_PATTERN = /^(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?[\p{L}\p{N}_]*/u
-const DOLLAR_TAG_PATTERN = /^\$(?:[\p{L}_][\p{L}\p{N}_]*)?\$/u
-const WORD_PATTERN = /^[\p{L}_][\p{L}\p{N}_$]*/u
-const WORD_START_PATTERN = /[\p{L}_]/u
-const IDENTIFIER_CHAR_PATTERN = /[\p{L}\p{N}_$]/u
+const NUMBER_PATTERN = /^(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?[A-Za-z0-9_\u0080-\uFFFF]*/
+const DOLLAR_TAG_PATTERN = /^\$(?:[A-Za-z_\u0080-\uFFFF][A-Za-z0-9_\u0080-\uFFFF]*)?\$/
+const WORD_PATTERN = /^[A-Za-z_\u0080-\uFFFF][A-Za-z0-9_$\u0080-\uFFFF]*/
+const WORD_START_PATTERN = /[A-Za-z_\u0080-\uFFFF]/
+const IDENTIFIER_CHAR_PATTERN = /[A-Za-z0-9_$\u0080-\uFFFF]/
 
 function isIdentifierChar(char: string | undefined): boolean {
   return char !== undefined && IDENTIFIER_CHAR_PATTERN.test(char)
