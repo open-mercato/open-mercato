@@ -498,7 +498,12 @@ async function buildLegacyRequestContainer(): Promise<AppContainer> {
   // module's services would otherwise vanish with no trace until an unrelated
   // Awilix resolution error surfaces much later.
   for (const [registrarIndex, reg] of diRegistrars.entries()) {
-    try { reg?.(container) } catch (error) {
+    try {
+      if (reg) {
+        getProcessRootState().registrarExecutions += 1
+        reg(container)
+      }
+    } catch (error) {
       logger.error('Module DI registrar failed', { registrarIndex, err: error })
     }
   }
@@ -532,6 +537,7 @@ async function buildLegacyRequestContainer(): Promise<AppContainer> {
   const appDiRegistrar = getAppDiRegistrar()
   if (appDiRegistrar) {
     try {
+      getProcessRootState().registrarExecutions += 1
       await appDiRegistrar(container)
     } catch (error) {
       logger.error('App-level DI registrar failed', { err: error })
@@ -543,6 +549,7 @@ async function buildLegacyRequestContainer(): Promise<AppContainer> {
       const appDi = await import('@/di') as any
       if (appDi?.register) {
         try {
+          getProcessRootState().registrarExecutions += 1
           const maybe = appDi.register(container)
           if (maybe && typeof maybe.then === 'function') await maybe
         } catch (err) {

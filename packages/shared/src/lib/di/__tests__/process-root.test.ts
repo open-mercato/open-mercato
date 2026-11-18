@@ -219,10 +219,17 @@ it('does not publish an obsolete initialization and retains existing callers acr
   registerAppDiRegistrar(defineProcessDiRegistrar(async () => blocked))
   const pending = initializeProcessContainer()
   await new Promise((resolve) => setImmediate(resolve))
+  let releaseMiddle: () => void = () => {}
+  const middleBlocked = new Promise<void>((resolve) => { releaseMiddle = resolve })
+  registerAppDiRegistrar(defineProcessDiRegistrar(async () => middleBlocked))
+  const middle = initializeProcessContainer()
+  await new Promise((resolve) => setImmediate(resolve))
   registerAppDiRegistrar(defineProcessDiRegistrar(() => {}))
   const current = await initializeProcessContainer()
+  releaseMiddle()
   release()
   expect(await pending).toBe(current)
+  expect(await middle).toBe(current)
   expect(mockActivate).toHaveBeenCalledTimes(1)
   const oldCaller = await createRequestContainer()
   const oldEm = oldCaller.resolve('em')
@@ -296,4 +303,41 @@ it('cleans unpublished generation-owned instances when activation fails and retr
   expect(dispose).toHaveBeenCalledTimes(1)
   await expect(initializeProcessContainer()).resolves.toBeDefined()
   expect(dispose).toHaveBeenCalledTimes(1)
+})
+
+it('keeps a retired generation alive for a response stream until its owner cancels it', async () => {
+  const disposed = jest.fn()
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    root.register({
+      streamService: asScopedService((caller) => ({ auth: () => caller.resolve<string>('auth') })).disposer(disposed),
+    })
+  })])
+  const caller = await createRequestContainer()
+  caller.register('auth', asValue('original-caller'))
+  const service = caller.resolve<{ auth: () => string }>('streamService')
+  const response = new Response(new ReadableStream({
+    pull(controller) { controller.enqueue(new TextEncoder().encode(service.auth())) },
+    cancel: () => caller.dispose(),
+  }))
+  invalidateProcessContainer()
+  const replacement = await createRequestContainer()
+  replacement.register('auth', asValue('replacement-caller'))
+  const reader = response.body!.getReader()
+  expect(new TextDecoder().decode((await reader.read()).value)).toBe('original-caller')
+  expect(disposed).not.toHaveBeenCalled()
+  await reader.cancel()
+  expect(disposed).toHaveBeenCalledTimes(1)
+  expect(replacement.resolve('auth')).toBe('replacement-caller')
+  await replacement.dispose()
+  expect(disposed).toHaveBeenCalledTimes(1)
+})
+
+
+it('reports actual repeated registrar work on the disabled path', async () => {
+  process.env.OM_PROCESS_CONTAINER_ROOT = 'off'
+  registerDiRegistrars([defineProcessDiRegistrar(() => {})])
+  const before = getProcessContainerStats()
+  const callers = await Promise.all([createRequestContainer(), createRequestContainer()])
+  expect(getProcessContainerStats().registrarExecutions - before.registrarExecutions).toBe(4)
+  for (const caller of callers) await caller.dispose()
 })
