@@ -4008,6 +4008,13 @@ function buildTagChange(
   return { from: beforeIds, to: afterIds };
 }
 
+function documentGraphAuditValue(snapshot: OrderGraphSnapshot | QuoteGraphSnapshot) {
+  if ("order" in snapshot) {
+    return { ...snapshot, order: { ...snapshot.order, updatedAt: null } };
+  }
+  return { ...snapshot, quote: { ...snapshot.quote, updatedAt: null } };
+}
+
 function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentUpdateInput): string[] {
   const keys = new Set<string>();
   if (kind === "order") {
@@ -6241,6 +6248,9 @@ const updateQuoteCommand: CommandHandler<
     }
     return {
       actionLabel: translate("sales.audit.quotes.update", "Update sales quote"),
+      skipLog:
+        !!before &&
+        isDeepStrictEqual(documentGraphAuditValue(before), documentGraphAuditValue(after)),
       resourceKind: "sales.quote",
       resourceId: result.quote.id,
       tenantId: after.quote.tenantId,
@@ -6579,6 +6589,9 @@ const updateOrderCommand: CommandHandler<
     }
     return {
       actionLabel: translate("sales.audit.orders.update", "Update sales order"),
+      skipLog:
+        !!before &&
+        isDeepStrictEqual(documentGraphAuditValue(before), documentGraphAuditValue(after)),
       resourceKind: "sales.order",
       resourceId: result.order.id,
       tenantId: after.order.tenantId,

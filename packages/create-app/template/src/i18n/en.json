@@ -1034,7 +1034,7 @@
   "ui.inputs.websiteInput.placeholder": "www.example.com",
   "ui.lookupSelect.change": "Change",
   "ui.lookupSelect.clearSelection": "Clear selection",
-  "ui.lookupSelect.minQueryHint": "Type at least {minQuery} characters or paste an id to search.",
+  "ui.lookupSelect.minQueryHint": "Minimum characters to search: {minQuery}. You can also paste an id.",
   "ui.lookupSelect.noResults": "No results",
   "ui.lookupSelect.searchPlaceholder": "Search…",
   "ui.lookupSelect.searching": "Searching…",

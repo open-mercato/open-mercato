@@ -8818,12 +8818,14 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
+    cross-env: "npm:^10.1.0"
     esbuild: "npm:^0.28.2"
     glob: "npm:^14.0.6"
     jest: "npm:^30.4.2"
     react: "npm:19.2.8"
     react-dom: "npm:19.2.8"
     react-is: "npm:^19.2.8"
+    testcontainers: "npm:^12.0.3"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
   peerDependencies:
@@ -9419,7 +9421,6 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/marketing-automation@workspace:packages/marketing-automation"
   dependencies:
-    "@dagrejs/dagre": "npm:^3.0.0"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/events": "workspace:*"
@@ -9430,7 +9431,6 @@ __metadata:
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.4.0"
     "@types/react": "npm:^19.2.18"
-    "@xyflow/react": "npm:^12.11.5"
     ai: "npm:^7.0.83"
     jest: "npm:^30.4.2"
     jest-environment-jsdom: "npm:^30.4.1"

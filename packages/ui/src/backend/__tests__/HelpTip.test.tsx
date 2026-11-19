@@ -20,7 +20,7 @@ describe('HelpTip', () => {
   it('opens on click rather than hover, because long-press is not a discoverable affordance', () => {
     renderWithProviders(<HelpTip title="Segments" body="A saved audience." />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'What is this?' }))
+    fireEvent.click(screen.getByRole('button', { name: 'What is this?: Segments' }))
 
     expect(screen.getByText('A saved audience.')).toBeTruthy()
   })
@@ -28,7 +28,7 @@ describe('HelpTip', () => {
   it('names the card after the thing it explains, so a screen reader announces more than "dialog"', () => {
     renderWithProviders(<HelpTip title="Segments" body="A saved audience." />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'What is this?' }))
+    fireEvent.click(screen.getByRole('button', { name: 'What is this?: Segments' }))
 
     expect(screen.getByRole('dialog', { name: 'Segments' })).toBeTruthy()
   })
@@ -39,6 +39,6 @@ describe('HelpTip', () => {
       dict: plDict,
     })
 
-    expect(screen.getByRole('button', { name: 'Co to jest?' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Co to jest?: Segmenty' })).toBeTruthy()
   })
 })
