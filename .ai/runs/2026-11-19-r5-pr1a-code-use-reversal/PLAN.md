@@ -15,6 +15,7 @@
 | 1 | 1.2 | `useCode` replay + `orderId`; `revertCodeUse`, command `promotions.code.use.revert`, optional facade member; unit tests | inline | done | 70b03f4665 |
 | 1 | 1.3 | `TC-PROM-090` HTTP replay integration spec | inline | done | b38e3509d3 |
 | 1 | 1.4 | `UPGRADE_NOTES.md` entry; SPEC-055 changelog 2.5.1 | inline | done | 1b8b8fe45d |
+| 1 | 1.5-review-fix | Document that `revertCodeUse` with both keys matches their union (review Low #1) | inline | done | |
 
 ## Goal
 
@@ -61,6 +62,10 @@ From `.ai/analysis/pre-implement-SPEC-055-2026-02-23-promotions-module-release-5
 - Spec §Release 5 acceptance RA1 lists `TC-PROM-090` (HTTP replay) for PR1a; the card's gate lists only unit suites. Added `TC-PROM-090`.
 - Spec RA4 names `promotions-service.test.ts`; the card does not. Added facade dispatch and optional-member cases there. "Each caller's test" in RA4 belongs to PR1b (no caller yet).
 - Card gate: "UPGRADE_NOTES entry … (and `revertCodeUse` if kept required)" — it is optional, so the entry documents it as additive.
+
+## Follow-ups
+
+- Review Low #2: `promotion_code_usages.generated_code_id` (FK, on delete set null) has no index; add `promotion_code_usages_generated_code_idx` in a later migration. Not changed here so the SQL stays identical to the reference.
 
 ## Risks
 
