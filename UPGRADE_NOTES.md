@@ -1,5 +1,39 @@
 # Upgrade Notes
 
+## Promotions: `codes/use` is retry-safe and code uses are reversible (SPEC-055 Release 5, step PR1a)
+
+**Behaviour change (`POST /api/promotions/codes/use`).** The route is now idempotent per
+`(codeId, cartId, orderId ?? null)`. A repeat call while an unreverted `CodeUsage` row
+exists for that tuple returns `200 { ok: true }` without consuming the code again and
+without re-checking eligibility. Before, a repeat call consumed a multi-use code a second
+time, or failed with `422` for a single-use or exhausted code. The check runs again under
+the `Code` row lock, so two concurrent repeats write one usage row. Callers that omit
+`orderId` share one replay key per cart: a second, intentional use of the same code for the
+same cart without `orderId` is no longer consumed. The same applies to
+`promotionsService.useCode()` and the `promotions.code.use` command.
+
+**Additive.**
+
+- `codes/use` and `UseCodeInput` accept an optional, nullable `orderId`. Pass it when the
+  order already exists: reversal by order matches only rows written with it.
+- `promotion_code_usages` gains the nullable columns `cart_id`, `order_id`,
+  `generated_code_id` (FK to `promotion_generated_codes`, on delete set null) and
+  `reverted_at`, plus the indexes `promotion_code_usages_cart_idx` and
+  `promotion_code_usages_order_idx` (`Migration20261119224920_promotions`). Rows written
+  before the migration keep `cart_id`/`order_id` NULL and can never be reverted.
+- New command `promotions.code.use.revert` and `PromotionCodeService.revertCodeUse`: given a
+  `cartId` or an `orderId` (400 when neither), marks each unreverted `CodeUsage` row
+  `reverted_at`, decrements `Code.used` of a static code (reactivating it only when it was
+  exhausted) or reactivates the one `GeneratedCode` a dynamic use deactivated. Rows are never
+  deleted. There is no HTTP route; nothing calls it yet (the order-lifecycle subscribers
+  ship in step PR1b).
+- `PromotionsService` gains `revertCodeUse?` as an **optional** member, so a third-party
+  replacement of the DI-replaceable facade still type-checks. Callers must check that it
+  exists and fail closed when it does not.
+
+**Action:** run `yarn db:migrate`. A caller that relied on a repeat `codes/use` consuming
+the code again must send a distinct `orderId` per use.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
