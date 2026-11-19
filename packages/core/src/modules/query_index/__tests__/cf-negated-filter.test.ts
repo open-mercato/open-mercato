@@ -77,6 +77,15 @@ describe('HybridQueryEngine cf ne/nin on multi-value fields', () => {
   it.each([
     ['buildCfFilterExpression', viaExpression],
     ['applyCfFilterFromAlias', viaAlias],
+  ])('%s reads the array from the cf: key or the bare key', (_name, compile) => {
+    const compiled = compile('ne', 'a')
+    expect(compiled.sql).toMatch(/coalesce\("ei"\."doc" -> \$\d+, "ei"\."doc" -> \$\d+\) @> \$\d+::jsonb/)
+    expect(compiled.parameters).toEqual(expect.arrayContaining(['cf:labels', 'labels']))
+  })
+
+  it.each([
+    ['buildCfFilterExpression', viaExpression],
+    ['applyCfFilterFromAlias', viaAlias],
   ])('%s keeps ne null as is not null', (_name, compile) => {
     const compiled = compile('ne', null)
     expect(compiled.sql).toMatch(/where coalesce\(.+\) is not null$/)

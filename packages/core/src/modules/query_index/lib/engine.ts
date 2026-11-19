@@ -2026,7 +2026,7 @@ export class HybridQueryEngine implements QueryEngine {
     search?: SearchRuntime
   ): AnyBuilder {
     const textExpr = this.cfTextExprAlias(alias, key)
-    const arrExpr = sql<unknown>`(${sql.ref(alias + '.doc')} -> ${key})`
+    const arrExpr = this.jsonbSqlAlias(alias, key)
     const arrContains = (val: unknown) => sql<boolean>`${arrExpr} @> ${JSON.stringify([val])}::jsonb`
 
     if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {

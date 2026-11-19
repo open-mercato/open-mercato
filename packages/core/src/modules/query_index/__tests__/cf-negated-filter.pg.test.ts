@@ -34,6 +34,8 @@ const sources: IndexDocSource[] = [{ alias: 'ei', entityId: ENTITY, recordIdColu
 const DOCS: Record<string, unknown> = {
   array_a_b: { 'cf:labels': ['a', 'b'] },
   array_b: { 'cf:labels': ['b'] },
+  bare_array_a_b: { labels: ['a', 'b'] },
+  bare_scalar_c: { labels: 'c' },
   scalar_a: { 'cf:labels': 'a' },
   scalar_c: { 'cf:labels': 'c' },
   json_null: { 'cf:labels': null },
@@ -64,7 +66,7 @@ maybe('HybridQueryEngine cf ne/nin against PostgreSQL', () => {
 
   afterAll(async () => {
     if (schemaCreated) await sql`drop schema ${sql.id(SCHEMA)} cascade`.execute(db)
-    await db.destroy()
+    await db?.destroy()
   })
 
   const base = (): Builder => db.selectFrom('cf_docs as ei').select('ei.id').orderBy('ei.id')
@@ -78,15 +80,15 @@ maybe('HybridQueryEngine cf ne/nin against PostgreSQL', () => {
     ['buildCfFilterExpression', viaExpression],
     ['applyCfFilterFromAlias', viaAlias],
   ])('%s: ne excludes every row eq matches, arrays included', async (_name, run) => {
-    expect(await run('eq', 'a')).toEqual(['array_a_b', 'scalar_a'])
-    expect(await run('ne', 'a')).toEqual(['array_b', 'scalar_c'])
+    expect(await run('eq', 'a')).toEqual(['array_a_b', 'bare_array_a_b', 'scalar_a'])
+    expect(await run('ne', 'a')).toEqual(['array_b', 'bare_scalar_c', 'scalar_c'])
   })
 
   test.each([
     ['buildCfFilterExpression', viaExpression],
     ['applyCfFilterFromAlias', viaAlias],
   ])('%s: nin excludes every row in matches, arrays included', async (_name, run) => {
-    expect(await run('in', ['a', 'c'])).toEqual(['array_a_b', 'scalar_a', 'scalar_c'])
+    expect(await run('in', ['a', 'c'])).toEqual(['array_a_b', 'bare_array_a_b', 'bare_scalar_c', 'scalar_a', 'scalar_c'])
     expect(await run('nin', ['a', 'c'])).toEqual(['array_b'])
   })
 
@@ -94,13 +96,13 @@ maybe('HybridQueryEngine cf ne/nin against PostgreSQL', () => {
     ['buildCfFilterExpression', viaExpression],
     ['applyCfFilterFromAlias', viaAlias],
   ])('%s: ne null still means the field is set', async (_name, run) => {
-    expect(await run('ne', null)).toEqual(['array_a_b', 'array_b', 'scalar_a', 'scalar_c'])
+    expect(await run('ne', null)).toEqual(['array_a_b', 'array_b', 'bare_array_a_b', 'bare_scalar_c', 'scalar_a', 'scalar_c'])
   })
 
   test.each([
     ['buildCfFilterExpression', viaExpression],
     ['applyCfFilterFromAlias', viaAlias],
   ])('%s: an empty nin excludes nothing but unset fields', async (_name, run) => {
-    expect(await run('nin', [])).toEqual(['array_a_b', 'array_b', 'scalar_a', 'scalar_c'])
+    expect(await run('nin', [])).toEqual(['array_a_b', 'array_b', 'bare_array_a_b', 'bare_scalar_c', 'scalar_a', 'scalar_c'])
   })
 })
