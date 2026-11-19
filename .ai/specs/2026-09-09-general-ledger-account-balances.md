@@ -1974,8 +1974,8 @@ scope satisfies all of it.
 **Linked prerequisite designs.** The ledger core engine and posting
 schema are specified by #5663 (`2026-08-18-general-ledger-core-engine.md`,
 reviewed head `61bc044f43c7d8db963849fc16c1734a9795dacf`), specifically its
-`LedgerAccount` (nullable `parentAccountId`, `number`, `description`,
-`accountTypeId`, `accountGroupId`, `currencyId`), `JournalEntry` and
+`LedgerAccount` (`number`, `description`, `accountTypeId`,
+`accountGroupId`, `currencyId`), `JournalEntry` and
 `JournalEntryLine` (with `operation_date` and per-line `amountCurrency`)
 contracts; the multi-dimensional tag write is specified by
 `2026-09-06-journal-entry-line-dimension.md`. The fiscal-year authority,
@@ -1983,7 +1983,8 @@ the opening-policy authority and the report-revision store are
 coordinated prerequisites of the same scope authority; this document
 consumes them and does not ship them. The hierarchy column, its index
 and the effective-start field are this document's own additive schema,
-specified in Data Models.
+specified in Data Models. The pinned core design has no parent column;
+the nullable `parentAccountId` is introduced only by this feature.
 
 - **Data contract consumed from the prerequisites.** Per scope
   (tenant, organization) the authority exposes `authorityEpoch` (durable,
@@ -2033,13 +2034,24 @@ contracts, then a dual-version window fences and drains legacy writers as
 specified in Migration & deployment; (3) publish the attested baseline,
 `authorityEpoch`, `policyRevision` and `reportRevision` atomically in one
 transaction and only then enable the routes for the scope; (4)
-tighten constraints (for example making the parent column `NOT NULL`)
-only after every retained row is verified. A stage that cannot prove its
-evidence aborts activation and leaves reports disabled.
+tighten constraints (for example making `effectiveStart` `NOT NULL`)
+only after every retained row has a verified, backfilled value. The parent
+column remains nullable: `NULL` represents a root at every stage. A stage
+that cannot prove its evidence aborts activation and leaves reports disabled.
 
-**Legacy-client behavior.** Existing #5663 account, journal and
-period clients see only additive response fields; Phase 1 adds no
-required request field to them. On the report routes, `page`/`pageSize`
+**Legacy-client behavior.** Additive response fields and no new required
+request fields are goals for existing #5663 account, journal and period
+clients, not an established account-create compatibility contract. The
+pending-create protocol still lacks a reviewed bridge for a client that
+does not supply a stable operation identity. Before activation, link a
+reviewed bridge that resolves a lost response for those clients, or an
+explicitly approved client migration with its cutover gate. Until then,
+the new writer protocol and reports remain disabled for the scope. The
+acceptance suite must lose the first create response, retry through the
+approved legacy bridge or migrated client, and prove that the original
+terminal outcome is recovered without a duplicate account or edge; include
+an uncertain first commit and verify that no new identity is invented.
+On the report routes, `page`/`pageSize`
 stay optional (defaults unchanged), `reportVersion` is optional for the
 first page, and every new error is an explicit `4xx`/`5xx` body from API
 Contracts with no figures. A client that cannot carry `reportVersion`
@@ -2178,9 +2190,10 @@ designs are reviewed, reporting is disabled for every scope.
 The prerequisite authorities remain unimplemented: the fiscal-year
 authority, the opening-policy authority and the durable report-revision
 store are designs this document consumes, not ships. Their consumed data
-and writer contracts, mixed-version rollout, legacy-client behavior,
-rollback and pilot-scope eligibility are now specified (Prerequisite
-contracts and rollout), but the authorities themselves and the
+and writer contracts, mixed-version rollout, rollback and pilot-scope
+eligibility are specified (Prerequisite contracts and rollout), but the
+account-create compatibility bridge or approved client migration remains
+unresolved, and the authorities themselves and the
 accounting-owner sign-off on the continuous-ledger mode are still
 outstanding. The prior checklist cannot be treated as a compliance
 approval until those issues are resolved and independently reviewed.
@@ -2190,7 +2203,8 @@ approval until those issues are resolved and independently reviewed.
 **Blocked — not ready for implementation.** The report design, the
 hierarchy/accounting-date/revision corrections and the prerequisite
 contract shapes are specified; what remains is the prerequisite
-authorities' implementation, the accounting-owner approval of the
+authorities' implementation, the account-create compatibility bridge or
+approved client migration, the accounting-owner approval of the
 continuous-ledger mode and the annual-opening alternative, and a fresh
 independent and security review of the reconciled result with #5663.
 The existing accounting references and earlier checklist do not resolve
@@ -2544,3 +2558,12 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
 - The Verdict stays blocked: the prerequisite authorities are still
   unimplemented and the accounting-owner approval plus a fresh independent and
   security review remain outstanding.
+
+### 2026-11-19 — prerequisite schema and rollout corrections (#9722 review)
+
+- Attribute the nullable parent column to this feature, not the pinned core
+  design, and preserve nullable roots through every rollout stage. Use the
+  verified `effectiveStart` backfill as the constraint example.
+- Correct the legacy-client compatibility claim: a reviewed retry bridge or
+  explicitly approved client migration and lost-response coverage remain
+  prerequisites. The writer protocol and reports stay disabled until resolved.
