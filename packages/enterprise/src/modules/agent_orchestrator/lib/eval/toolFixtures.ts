@@ -19,6 +19,7 @@ export const EVAL_TOOL_FIXTURE_FILE_SUFFIX = '.tools.json'
 
 export const TOOL_FIXTURE_MISSING = 'tool_fixture_missing'
 export const TOOL_REPLAY_MUTATION_REFUSED = 'tool_replay_mutation_refused'
+export const TOOL_REPLAY_FORBIDDEN = 'tool_replay_forbidden'
 export const TOOL_FIXTURE_INVALID = 'tool_fixture_invalid'
 export const TOOL_FIXTURE_RECORD_FAILED = 'tool_fixture_record_failed'
 
@@ -287,6 +288,11 @@ export function createFileToolFixtureStore(options: {
 }
 
 export function describeToolReplayMisses(misses: ReadonlyArray<ToolReplayMiss>): string | null {
+  const forbidden = misses.filter((miss) => miss.reason === 'forbidden')
+  if (forbidden.length) {
+    const names = Array.from(new Set(forbidden.map((miss) => miss.toolName))).join(', ')
+    return `[internal] ${TOOL_REPLAY_FORBIDDEN}: insufficient permissions for tool(s) ${names}`
+  }
   const refused = misses.filter((miss) => miss.reason === 'mutation_refused')
   if (refused.length) {
     const names = Array.from(new Set(refused.map((miss) => miss.toolName))).join(', ')

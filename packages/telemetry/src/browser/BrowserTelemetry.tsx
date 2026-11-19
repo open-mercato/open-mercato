@@ -17,29 +17,33 @@
  *  - **It can never break the app.** Every failure is swallowed. No
  *    user-facing surface, no retry.
  *
- * This file, `config.ts`, and `propagator.ts` are the only parts of
- * `@open-mercato/telemetry` a client bundle may reach (via the `/browser` entry).
- * None of them may import the server facade (`node:async_hooks`) or the
+ * The `/browser` entry and its pure serialization/redaction helpers must not
+ * import the server facade (`node:async_hooks`) or the
  * env-reading `browser/server.ts`; the two wirings are independent and meet only
  * at the collector.
  */
 
 import * as React from 'react'
+import { registerTelemetryErrorReporter, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
 import type { BrowserTelemetryConfig } from './config'
 import { createBackupHeaderPropagator } from './propagator'
 
 /** Module-level so React StrictMode's double-invoke (and any remount) cannot start a second SDK. */
 let bootstrapped = false
+let disposeErrorReporter: (() => void) | undefined
 
 /**
  * Test seam. Production has exactly one bootstrap per page load, so nothing else
  * may call this — a second bootstrap would double every span.
  */
 export function resetBrowserTelemetryBootstrap(): void {
+  disposeErrorReporter?.()
+  disposeErrorReporter = undefined
   bootstrapped = false
 }
 
-async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<void> {
+async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<TelemetryRuntime['reportError']> {
   const [
     { WebTracerProvider },
     { BatchSpanProcessor, ParentBasedSampler, TraceIdRatioBasedSampler },
@@ -49,8 +53,10 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
     { DocumentLoadInstrumentation },
     { FetchInstrumentation },
     { W3CTraceContextPropagator },
-    { defaultTextMapSetter },
+    { defaultTextMapSetter, SpanStatusCode },
     { createRedactingSpanProcessor },
+    { serializeError },
+    { redactAttributes },
   ] = await Promise.all([
     import('@opentelemetry/sdk-trace-web'),
     import('@opentelemetry/sdk-trace-base'),
@@ -62,6 +68,8 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
     import('@opentelemetry/core'),
     import('@opentelemetry/api'),
     import('../provider/redacting-span-processor'),
+    import('../facade/serialize'),
+    import('../facade/redact'),
   ])
 
   const provider = new WebTracerProvider({
@@ -172,6 +180,22 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
     if (document.visibilityState === 'hidden') flush()
   })
   window.addEventListener('pagehide', flush)
+
+  const tracer = provider.getTracer('@open-mercato/telemetry/browser')
+  return (error, context) => {
+    const serialized = serializeError(error)
+    const attributes = redactAttributes({ ...context?.attributes, module: context?.module })
+    delete attributes['error.code']
+    const code = groupableCode(context?.code)
+    if (code) attributes['error.code'] = code
+    const span = tracer.startSpan('browser.error', { attributes })
+    try {
+      span.recordException(serialized)
+      span.setStatus({ code: SpanStatusCode.ERROR })
+    } finally {
+      span.end()
+    }
+  }
 }
 
 function escapeRegExp(value: string): string {
@@ -187,7 +211,13 @@ export function BrowserTelemetry({ config }: { config: BrowserTelemetryConfig | 
   React.useEffect(() => {
     if (!config || bootstrapped) return
     bootstrapped = true
-    void startBrowserTelemetry(config).catch(() => {
+    const reporter = startBrowserTelemetry(config)
+    const dispose = registerTelemetryErrorReporter((...args) => {
+      void reporter.then((reportError) => reportError(...args)).catch(() => {})
+    })
+    disposeErrorReporter = dispose
+    void reporter.catch(() => {
+      dispose()
       // Telemetry must never degrade the app it measures: stay silent and stay down (no retry).
     })
   }, [config])

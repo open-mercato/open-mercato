@@ -79,6 +79,7 @@ describe('default-unloaded host wiring', () => {
     expect(browserEntry).toBeDefined()
     expect(Object.keys(browserEntry!.inputs)).not.toContain(processorPath)
     expect(Object.keys(browserEntry!.inputs)).not.toContain(redactionPath)
-    expect(outputs.some((output) => processorPath in output.inputs && redactionPath in output.inputs)).toBe(true)
+    expect(outputs.some((output) => processorPath in output.inputs)).toBe(true)
+    expect(outputs.some((output) => redactionPath in output.inputs)).toBe(true)
   })
 })

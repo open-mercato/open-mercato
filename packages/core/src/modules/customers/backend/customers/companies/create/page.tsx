@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -25,7 +25,6 @@ const COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('custome
 export default function CreateCompanyPage() {
   const t = useT()
   const locale = useLocale()
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
 
@@ -130,11 +129,9 @@ export default function CreateCompanyPage() {
             flash(t('customers.companies.form.success'), 'success')
             return newId ? { resourceId: newId } : undefined
           }}
-          onSubmitSuccess={async (_values, result) => {
+          successRedirect={(_values, result) => {
             const newId = result?.resourceId
-            if (returnTo) router.push(returnTo)
-            else if (newId) router.push(`/backend/customers/companies-v2/${newId}`)
-            else router.push('/backend/customers/companies')
+            return returnTo || (newId ? `/backend/customers/companies-v2/${newId}` : '/backend/customers/companies')
           }}
         />
       </PageBody>

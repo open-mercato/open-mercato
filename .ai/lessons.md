@@ -42,6 +42,7 @@ This catalog indexes 190 focused lessons. Route the task first, then read only r
 
 ### architecture
 
+- [Browser error reporting requires client registration](lessons/browser-error-reporting-requires-client-registration.md) — area:architecture,backend-ui,testing; module:telemetry,ui; topic:error-reporting,runtime-startup,browser,testing
 - [Shutdown failure reporting must not block cleanup](lessons/shutdown-failure-reporting-must-not-block-cleanup.md) — area:architecture,testing; module:telemetry; topic:error-reporting,runtime-startup,shutdown
 
 - [Dev-session orphan recovery requires consent and full descendant cleanup](lessons/dev-session-orphan-recovery-requires-consent.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,shutdown,concurrency,template-sync
