@@ -1,10 +1,10 @@
 # Handoff — 2026-11-19-r5-f2-subscriber-real-container
 
-**Last updated:** 2026-11-19T22:30:14Z
+**Last updated:** 2026-11-19T22:32:20Z
 **Branch:** feat/r5-f2-subscriber-real-container
 **PR:** https://github.com/open-mercato/open-mercato/pull/10018
 **Current phase/step:** complete (all Tasks rows done)
-**Last commit:** 7ffdde24fe — docs(events): upgrade notes …
+**Last commit:** b73967ca05 — review fix (upgrade notes)
 
 ## What just happened
 - All 5 Steps landed; the final gate passed except the known local create-app agent-harness failures (see final-gate-checks.md).
