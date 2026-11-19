@@ -17,14 +17,22 @@ export function isCartLineMutationLockTimeoutError(error: unknown): error is Car
   return typeof error === 'object' && error !== null && Reflect.get(error, CART_LINE_LOCK_TIMEOUT) === true
 }
 
+export function resolveCartLineMutationLockKeys(cartIds: string | readonly string[]): string[] {
+  const ids = typeof cartIds === 'string' ? [cartIds] : cartIds
+  return Array.from(new Set(ids.map((cartId) => `cart:lines:${cartId}`))).sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  )
+}
+
 export async function withCartLineMutationLock(
   em: EntityManager,
-  cartId: string,
+  cartIds: string | readonly string[],
   phases: Array<() => void | Promise<void>>,
   label: string,
   waitDeadlineMs = 15_000,
 ): Promise<void> {
-  const key = `cart:lines:${cartId}`
+  const keys = resolveCartLineMutationLockKeys(cartIds)
+  if (keys.length === 0) throw new Error('[internal] Cart line mutation lock needs at least one cart id')
   const deadline = Date.now() + waitDeadlineMs
   const busy = new Error('[internal] Cart line mutation lock is busy')
   const joinsTransaction = em.isInTransaction()
@@ -33,15 +41,17 @@ export async function withCartLineMutationLock(
     try {
       await withAtomicFlush(em, [
         async () => {
-          if (joinsTransaction) {
-            await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [key])
-            return
+          for (const key of keys) {
+            if (joinsTransaction) {
+              await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [key])
+              continue
+            }
+            const rows = await em.execute<Array<{ locked: boolean }>>(
+              'select pg_try_advisory_xact_lock(hashtextextended(?::text, 0)) as locked',
+              [key],
+            )
+            if (!rows[0]?.locked) throw busy
           }
-          const rows = await em.execute<Array<{ locked: boolean }>>(
-            'select pg_try_advisory_xact_lock(hashtextextended(?::text, 0)) as locked',
-            [key],
-          )
-          if (!rows[0]?.locked) throw busy
         },
         ...phases,
       ], { transaction: true, label })

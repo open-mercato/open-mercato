@@ -14,7 +14,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Multi-key try-lock in withCartLineMutationLock | inline | todo | — |
+| 1 | 1.1 | Multi-key try-lock in withCartLineMutationLock | inline | done | (this commit) |
 | 1 | 1.2 | Line writes take the cart lock and re-check status under it | inline | todo | — |
 | 1 | 1.3 | cart.lock re-reads, recomputes and compare-and-sets under the cart lock | inline | todo | — |
 | 1 | 1.4 | Login merge and merge undo lock both carts and re-check under the locks | inline | todo | — |
