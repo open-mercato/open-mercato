@@ -316,7 +316,13 @@ export type CartProductFixture = {
 export async function createCartProductFixture(
   request: APIRequestContext,
   token: string,
-  input: { stamp: string; label: string; salesChannelId: string; categoryId?: string | null },
+  input: {
+    stamp: string;
+    label: string;
+    salesChannelId: string;
+    categoryId?: string | null;
+    grossPrice?: { unitPriceGross: number; taxRate: number };
+  },
 ): Promise<CartProductFixture> {
   const categoryId =
     input.categoryId ??
@@ -354,7 +360,13 @@ export async function createCartProductFixture(
     request,
     token,
     PRICES_PATH,
-    { productId, channelId: input.salesChannelId, priceKindId, currencyCode: 'EUR', unitPriceNet: 10, unitPriceGross: 12 },
+    {
+      productId,
+      channelId: input.salesChannelId,
+      priceKindId,
+      currencyCode: 'EUR',
+      ...(input.grossPrice ?? { unitPriceNet: 10, unitPriceGross: 12 }),
+    },
     'price fixture',
   );
 
