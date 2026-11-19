@@ -46,6 +46,7 @@ import { createMcpSdkRefusalAudit, type McpSdkRefusalAudit } from './mcp-sdk-ref
 import type { AiToolDefinition, McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
