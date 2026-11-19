@@ -85,6 +85,13 @@ PR: #9837
 ### Review 5979805899 plan (2026-11-19)
 - [x] Track generation ownership through caller and nested-scope lifetimes; retire invalidated roots and dispose their singletons once all callers finish. Preserve original failure behavior and observe cleanup failures.
 - [x] Add race, active-caller, nested-scope and failure-path regressions; independently review the lifecycle change.
-- [ ] Run the configured gate and enabled/disabled runtime coverage, publish evidence and request re-review.
+- [x] Run the configured gate and enabled/disabled runtime coverage, publish evidence and request re-review. — d5cab8599d
 
-- Retirement focused validation: all62 DI tests across7 suites and shared typecheck pass. Independent review found no remaining major finding under the explicit scope-disposal contract. Full-gate evidence follows after completion.
+- Retirement focused validation: all 62 DI tests across 7 suites and shared typecheck pass. Independent review found no remaining major finding under the explicit scope-disposal contract. Full-gate evidence follows after completion.
+
+### Review 5979805899 results (2026-11-19)
+- d5cab8599d retires invalidated published generations and retains their singletons until all caller, background and nested scopes finish disposal. Cleanup is idempotent and awaits all resource disposers before releasing ownership, even when one rejects. Failed initialization and acquisition/activation races preserve the original error and safely select a replacement generation.
+- Independent review found no remaining major issue. All 62 focused DI tests across 7 suites and shared typecheck pass. Runtime documentation explicitly requires each scope owner to dispose its scope; abandoned scopes do not provide deterministic cleanup. Public signatures and the legacy builder remain unchanged.
+- Full configured gate passes on the local Node 24.22.3 runner: package build → generate → package build → translation sync/usage → workspace typecheck → unit tests → production app build. Unit totals: 50,769 passed, zero failed, 456 existing skips; 51/51 tasks. Five build dependencies were cached, with no cached test jobs. Original 1 GiB unit heap and Turbo concurrency 2 retained. Production build passed without retry.
+- Native runtime integration passes 13/13 enabled and 13/13 disabled, zero retries/flakes/skips in the tests. Both modes retain 120 distinct EntityManagers; enabled generation setup executes 63 registrars versus 7,560 disabled. No general HTTP speedup claim. Owned test app/database resources were stopped and verified absent.
+- Translation/template hooks, lessons catalog, CLASSIC DI bundling and diff checks pass. Base 4ee923350e remains unchanged. The feature stays default-off; re-review is requested and external review/QA approval remain outstanding. No merge performed.
