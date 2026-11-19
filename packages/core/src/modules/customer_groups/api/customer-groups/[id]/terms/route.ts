@@ -18,6 +18,7 @@ import { isPriceKindInTenant } from '../../../../lib/priceKindScope'
 import { announceCustomerGroupTermsUpdated } from '../../../../lib/groupEvents'
 import {
   assortmentScopeSchema,
+  customerGroupApprovalPolicySchema,
   customerGroupTermsCreateSchema,
   customerGroupTermsUpdateSchema,
   type CustomerGroupTermsCreateInput,
@@ -356,7 +357,7 @@ const termsItemSchema = z.object({
   minOrderValue: z.number().nullable(),
   minOrderValueExact: z.string().nullable(),
   termsCurrencyCode: z.string().nullable(),
-  approvalPolicy: z.string().nullable(),
+  approvalPolicy: customerGroupApprovalPolicySchema.nullable(),
   allowQuoteRequests: z.boolean().nullable(),
   requiresPoNumber: z.boolean().nullable(),
   assortmentScope: assortmentScopeSchema,

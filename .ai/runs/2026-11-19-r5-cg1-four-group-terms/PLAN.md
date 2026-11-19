@@ -19,6 +19,7 @@
 | 1 | 1.4 | Explain-terms rows for the four fields and the base-currency sentinel | inline | done | bc56d5d8f9 |
 | 2 | 2.1 | Terms form fields with default-group and missing-currency warnings | inline | done | 997441cd0a |
 | 2 | 2.2 | UPGRADE_NOTES override note for ResolvedTerms | inline | done | 6f30f3020d |
+| 2 | 2.2-review-fix | Type approvalPolicy in the terms response schema as the enum | inline | done | (this commit) |
 
 ## Goal
 
@@ -85,6 +86,7 @@ All paths relative to `packages/core/src/modules/customer_groups/`:
 
 - **2.1 Terms form fields with default-group and missing-currency warnings** — four CrudForm fields, warnings per §7.3, i18n en/de/es/pl/ko; component test.
 - **2.2 UPGRADE_NOTES override note for ResolvedTerms** — per §8.4.
+- **2.2-review-fix Type approvalPolicy in the terms response schema as the enum** — review nit 2.
 
 ## Risks
 
