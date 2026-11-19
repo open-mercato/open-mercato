@@ -135,6 +135,12 @@ describeWithPostgres('cart promotion evaluation with no spare PostgreSQL connect
       em: database().em.fork(),
       auth: { tenantId: scope.tenantId, orgId: scope.organizationId },
       salesCalculationService: {},
+      // `promotions-service.ts#isCatalogAvailable` gates category-rule resolution on this
+      // DI key being resolvable at all ("evaluate promotions without the catalog module") —
+      // an unregistered name here is read as "catalog disabled", so the category rule below
+      // would always fail to match without it. Presence is all that is checked (same
+      // `catalogEnabled` stub shape as `promotions-service.test.ts`'s own container).
+      catalogScopedProductService: {},
     }
     const container = {
       resolve<T = unknown>(name: string): T {
