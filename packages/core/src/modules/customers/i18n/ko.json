@@ -1407,6 +1407,7 @@
   "customers.deals.kanban.filter.clear": "지우기",
   "customers.deals.kanban.filter.close": "닫기",
   "customers.deals.kanban.filter.close.title": "필터 · 예상 마감일",
+  "customers.deals.kanban.filter.closeDate": "마감일",
   "customers.deals.kanban.filter.companies": "회사",
   "customers.deals.kanban.filter.from": "{date}부터",
   "customers.deals.kanban.filter.label": "필터",

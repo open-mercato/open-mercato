@@ -1407,6 +1407,7 @@
   "customers.deals.kanban.filter.clear": "Clear",
   "customers.deals.kanban.filter.close": "Close",
   "customers.deals.kanban.filter.close.title": "Filter · Expected close",
+  "customers.deals.kanban.filter.closeDate": "Close",
   "customers.deals.kanban.filter.companies": "Companies",
   "customers.deals.kanban.filter.from": "From {date}",
   "customers.deals.kanban.filter.label": "Filter",
