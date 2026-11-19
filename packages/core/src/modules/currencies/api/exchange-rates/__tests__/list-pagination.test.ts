@@ -33,7 +33,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   })),
 }))
 
-import { GET } from '../route'
+import { GET, openApi } from '../route'
 
 const makeRate = (i: number) => ({
   id: `00000000-0000-4000-8000-${i.toString().padStart(12, '0')}`,
@@ -59,6 +59,15 @@ describe('GET /api/currencies/exchange-rates pagination', () => {
       return ids.map((id) => ({ id, descendantIds: [] }))
     })
     rbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, organizations: [orgId, otherOrgId] })
+  })
+
+  it('retains arbitrary legacy rate types in responses and their documented schema', async () => {
+    em.findAndCount.mockResolvedValue([[{ ...makeRate(1), type: 'legacy-custom-type' }], 1])
+    const response = await GET(new Request('http://localhost/api/currencies/exchange-rates'))
+    const body = await response.json() as { items: Array<{ type: string | null }> }
+    expect(body.items[0].type).toBe('legacy-custom-type')
+    const schema = openApi.methods?.GET?.responses?.find((item) => item.status === 200)?.schema
+    expect(schema?.safeParse(body).success).toBe(true)
   })
 
   it('pushes limit and offset to findAndCount instead of slicing in memory', async () => {

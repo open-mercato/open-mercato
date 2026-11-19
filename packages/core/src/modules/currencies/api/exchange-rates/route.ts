@@ -210,7 +210,7 @@ const exchangeRateListItemSchema = z.object({
   rate: z.string(),
   date: z.string(),
   source: z.string(),
-  type: z.enum(['buy', 'sell', 'average']).nullable(),
+  type: z.string().nullable(),
   externalReference: z.string().nullable(),
   isActive: z.boolean(),
   createdAt: z.string().nullable(),

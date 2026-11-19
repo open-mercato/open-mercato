@@ -341,7 +341,7 @@ No new client boundary is allowed. The only client files in scope already declar
 - The existing admin list remains page-size 50 (hard API maximum 100) and keeps its existing pagination model. This feature does not create rows unless explicitly enabled, so changing that established API to keyset pagination is outside the MVP.
 - One provider attempt performs two bounded HTTP calls concurrently. Persistence performs one active-currency query, one set-based existing-rate query, and one flush per provider; there is no per-rate query/N+1 loop.
 - NBP tables contain a bounded currency list far below 1,000 rows. Foreground transaction and set-based upsert remain appropriate; no worker or progress job is needed for one provider/date.
-- Service fallback performs at most one scoped rate query and, when enabled and empty, one selected provider attempt per UTC day, bounded by `maxDaysBack <= 366`, and stops at the first matching date.
+- Service fallback performs at most one scoped rate query and, when enabled and empty, one selected provider attempt per UTC day, and stops at the first matching date. Explicit provider or rate-type selection is bounded by `maxDaysBack <= 366`; calls without either selector retain the legacy lookback behavior.
 - No cache is introduced: the expected point lookups are index-supported, writes must be immediately visible, and current APIs have no cache contract. Cold reads fall directly through to the database; therefore there are no cache keys, invalidations, or cross-tenant cache surfaces.
 
 ## Data Models
@@ -967,6 +967,10 @@ None identified. The provider-ingestion command exception is an existing interna
 - **Verdict**: Approved
 
 ### 2026-08-25 (skeleton)
+
+### Repair — 2026-11-19
+
+- Preserved arbitrary legacy rate types in the entity and list contract, retained unfiltered legacy lookback behavior, and reported fetch failures through telemetry.
 
 ### Repair — 2026-11-13
 

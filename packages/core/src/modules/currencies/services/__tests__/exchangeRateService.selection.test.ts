@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals'
 import { ExchangeRateService } from '../exchangeRateService'
 import { RateFetchingService } from '../rateFetchingService'
+import { ExchangeRate } from '../../data/entities'
 import {
   createMockEntityManager,
   createMockProvider,
@@ -9,6 +10,44 @@ import {
 } from './rateFetchingService.setup'
 
 describe('ExchangeRateService explicit rate selection', () => {
+  it('keeps arbitrary legacy entity rate types assignable', () => {
+    const customType: string = 'legacy-custom-type'
+    const rate = new ExchangeRate()
+    rate.type = customType
+    expect(rate.type).toBe(customType)
+  })
+
+  it('accepts legacy lookback values above one year for unfiltered reads', async () => {
+    const date = new Date('2024-03-31T00:00:00.000Z')
+    const existingRate = createTestExchangeRate({ date, source: 'default' })
+    const { em } = createMockEntityManager({ existingRates: [existingRate] })
+    const service = new ExchangeRateService(em, new RateFetchingService(em))
+
+    const result = await service.getRate({
+      fromCurrencyCode: 'USD',
+      toCurrencyCode: 'EUR',
+      date,
+      scope: TEST_SCOPE,
+      options: { autoFetch: false, maxDaysBack: 730 },
+    })
+
+    expect(result.rates).toHaveLength(1)
+    expect(result.rates[0].source).toBe('default')
+  })
+
+  it('bounds the lookback for explicit rate selection', async () => {
+    const { em } = createMockEntityManager({})
+    const service = new ExchangeRateService(em, new RateFetchingService(em))
+    await expect(service.getRate({
+      fromCurrencyCode: 'USD',
+      toCurrencyCode: 'EUR',
+      date: new Date('2024-03-31T00:00:00.000Z'),
+      scope: TEST_SCOPE,
+      options: { autoFetch: false, rateType: 'average', maxDaysBack: 730 },
+    })).rejects.toThrow('maxDaysBack')
+    expect(em.find).not.toHaveBeenCalled()
+  })
+
   it('excludes registered explicit sources from unfiltered reads', async () => {
     const date = new Date('2024-03-31T00:00:00.000Z')
     const { em } = createMockEntityManager({

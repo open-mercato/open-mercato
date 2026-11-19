@@ -9,6 +9,7 @@ const flush = jest.fn()
 const dispose = jest.fn()
 const runAfterSuccess = jest.fn()
 const runRouteMutationGuards = jest.fn()
+const reportError = jest.fn()
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -33,6 +34,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
   runRouteMutationGuards: (...args: unknown[]) => runRouteMutationGuards(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError }),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -79,6 +84,15 @@ describe('POST /api/currencies/fetch-rates', () => {
       ok: true,
       runAfterSuccess,
     })
+  })
+
+  it('reports an unexpected fetch failure while preserving the error response', async () => {
+    const error = new Error('[internal] provider failure')
+    fetchRatesForDate.mockRejectedValueOnce(error)
+    const response = await POST(request({}) as never)
+    expect(response.status).toBe(500)
+    expect(reportError).toHaveBeenCalledWith(error, { module: 'currencies', code: 'currencies.fetch_rates_failed' })
+    await expect(response.json()).resolves.toMatchObject({ error: 'Failed to fetch currency rates', totalFetched: 0 })
   })
 
   it('uses per-method manage metadata', () => {

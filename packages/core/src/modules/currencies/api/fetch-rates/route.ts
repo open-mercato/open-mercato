@@ -7,6 +7,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { CurrencyFetchConfig } from '../../data/entities'
 
@@ -135,6 +136,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result)
   } catch (err) {
     logger.error('Fetch rates request failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'currencies', code: 'currencies.fetch_rates_failed' })
     const failureMessage = translate(
       'currencies.fetch.error_fetch_rates',
       'Failed to fetch currency rates'

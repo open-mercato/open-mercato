@@ -1,5 +1,4 @@
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
-import type { RateType } from './validators'
 
 @Entity({ tableName: 'currencies' })
 @Index({
@@ -102,7 +101,7 @@ export class ExchangeRate {
 
   // Rate type from bank's perspective (nullable for backward compatibility)
   @Property({ type: 'text', nullable: true })
-  type?: RateType | null
+  type?: string | null
 
   @Property({ name: 'external_reference', type: 'text', nullable: true })
   externalReference?: string | null

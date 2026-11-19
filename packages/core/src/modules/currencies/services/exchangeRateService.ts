@@ -272,7 +272,8 @@ export class ExchangeRateService {
     options: RateSelectionOptions | undefined,
   ): Required<Pick<RateSelectionOptions, 'maxDaysBack' | 'autoFetch'>> & Pick<RateSelectionOptions, 'provider' | 'rateType'> {
     const maxDaysBack = options?.maxDaysBack ?? 30
-    if (!Number.isInteger(maxDaysBack) || maxDaysBack < 0 || maxDaysBack > 366) {
+    if ((options?.provider !== undefined || options?.rateType !== undefined)
+      && (!Number.isInteger(maxDaysBack) || maxDaysBack < 0 || maxDaysBack > 366)) {
       throw new Error('[internal] maxDaysBack must be an integer from 0 through 366')
     }
     const autoFetch = options?.autoFetch ?? true
