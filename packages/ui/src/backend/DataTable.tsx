@@ -1817,7 +1817,9 @@ function DataTableImpl<T extends RowData>({
     return result
   }, [columns, injectedColumnDefs])
   const resolvedRowActions = React.useCallback((row: T) => {
-    const injectedItems: (RowActionItem & { placement?: InjectionRowActionDefinition['placement'] })[] = injectedRowActions.map((action) => ({
+    const injectedItems: (RowActionItem & { placement?: InjectionRowActionDefinition['placement'] })[] = injectedRowActions
+      .filter((action) => !action.isVisible || action.isVisible(row))
+      .map((action) => ({
       id: action.id,
       label: t(action.label, action.label),
       onSelect: () => action.onSelect(row, { navigate: (href: string) => router.push(href) }),

@@ -39,6 +39,8 @@ const INITIAL_SCROLL_HOUR = 8
 const BLOCK_VERTICAL_GAP_PX = 1
 const MIN_BLOCK_HEIGHT_PX = 32
 const BLOCK_INSET_PX = 8
+const SLOT_MINUTES = 30
+const LAST_SLOT_START_MINUTES = HOURS_PER_DAY * 60 - SLOT_MINUTES
 const COMPACT_SLOT_MAX_WIDTH_PX = 110
 
 const NON_WORKING_HATCH_BACKGROUND =
@@ -71,7 +73,13 @@ type DayColumnData = {
   overflows: PositionedOverflow[]
 }
 
-type DragState = { dayMs: number; startMin: number; endMin: number; moved: boolean }
+type DragState = { dayMs: number; startMin: number; endMin: number; pressSlotStartMin: number; moved: boolean }
+
+type HoverSlot = { dayMs: number; startMin: number }
+
+function slotStartFor(minute: number): number {
+  return Math.min(LAST_SLOT_START_MINUTES, Math.floor(minute / SLOT_MINUTES) * SLOT_MINUTES)
+}
 
 function wallMinutes(instant: Date, timeZone: string): number {
   const wall = new TZDate(instant.getTime(), timeZone)
@@ -213,7 +221,9 @@ export function TimeGrid({
   aiSummaries,
   canManage = true,
   highlightItemId,
+  typeIcons,
   onItemClick,
+  onCancelItem,
   onJoin,
   onNavigate,
   onCreateRange,
@@ -232,6 +242,7 @@ export function TimeGrid({
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [openOverflowKey, setOpenOverflowKey] = React.useState<string | null>(null)
   const [drag, setDrag] = React.useState<DragState | null>(null)
+  const [hoverSlot, setHoverSlot] = React.useState<HoverSlot | null>(null)
   const floatingScrollOriginRef = React.useRef<{ top: number; left: number } | null>(null)
   const measureRef = React.useRef<HTMLDivElement | null>(null)
   const [columnWidthPx, setColumnWidthPx] = React.useState<number | null>(null)
@@ -326,7 +337,7 @@ export function TimeGrid({
 
   const headerLabelFor = (dayStart: Date): string => {
     const dayNumber = formatters.dayNumber.format(dayStart)
-    if (days === 1) return `${formatters.weekdayLong.format(dayStart).toUpperCase()} · ${dayNumber}`
+    if (days === 1) return `${dayNumber} ${formatters.weekdayLong.format(dayStart).toUpperCase()}`
     return `${dayNumber} ${formatters.weekdayShort.format(dayStart).toUpperCase()}`
   }
 
@@ -334,22 +345,43 @@ export function TimeGrid({
 
   const beginDrag = (event: React.PointerEvent<HTMLDivElement>, dayStart: Date) => {
     if (!canCreateRange || event.button !== 0) return
+    // A click beside an open peek or overflow list only dismisses it; it must
+    // not double as "create an event in this slot".
+    if (selectedId !== null || openOverflowKey !== null) {
+      closeFloating()
+      return
+    }
     const layer = event.currentTarget
     const rect = layer.getBoundingClientRect()
-    const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
+    const offsetY = event.clientY - rect.top
+    const minute = offsetYToMinutes(offsetY, HOUR_HEIGHT_PX)
     try {
       layer.setPointerCapture(event.pointerId)
     } catch {
       // Pointer capture is best-effort; ignore environments that reject it.
     }
     setSelectedId(null)
-    updateDrag({ dayMs: dayStart.getTime(), startMin: minute, endMin: minute, moved: false })
+    updateDrag({
+      dayMs: dayStart.getTime(),
+      startMin: minute,
+      endMin: minute,
+      pressSlotStartMin: slotStartFor(offsetYToMinutes(offsetY, HOUR_HEIGHT_PX, 1)),
+      moved: false,
+    })
   }
 
-  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const moveDrag = (event: React.PointerEvent<HTMLDivElement>, dayStart: Date) => {
     const previous = dragRef.current
-    if (!previous) return
     const rect = event.currentTarget.getBoundingClientRect()
+    if (!previous) {
+      const slotStart = slotStartFor(offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX, 1))
+      setHoverSlot((current) =>
+        current && current.dayMs === dayStart.getTime() && current.startMin === slotStart
+          ? current
+          : { dayMs: dayStart.getTime(), startMin: slotStart },
+      )
+      return
+    }
     const minute = offsetYToMinutes(event.clientY - rect.top, HOUR_HEIGHT_PX)
     if (minute === previous.endMin) return
     updateDrag({
@@ -379,10 +411,16 @@ export function TimeGrid({
   const endDrag = (dayStart: Date) => {
     const previous = dragRef.current
     updateDrag(null)
-    if (previous && previous.moved && onCreateRange) {
+    if (!previous || !onCreateRange) return
+    if (previous.moved) {
       const range = buildDragRange(dayStart, previous.startMin, previous.endMin)
       onCreateRange(range.start, range.end)
+      return
     }
+    // A plain click creates the half-hour slot under the pointer, so the user
+    // never has to discover drag-to-create first.
+    const range = buildDragRange(dayStart, previous.pressSlotStartMin, previous.pressSlotStartMin + SLOT_MINUTES)
+    onCreateRange(range.start, range.end)
   }
 
   return (
@@ -453,9 +491,11 @@ export function TimeGrid({
                       joinUrl={resolveJoinUrl(item.location)}
                       aiSummaries={aiSummaries}
                       canManage={canManage}
+                      typeIcon={typeIcons?.[item.interactionType]}
                       onOpenChange={(open) => setSelectedId(open ? item.id : null)}
                       onJoin={onJoin}
                       onEdit={onItemClick}
+                      onCancel={onCancelItem}
                     >
                       <AllDayChip
                         item={item}
@@ -529,13 +569,22 @@ export function TimeGrid({
                     style={{ backgroundImage: NON_WORKING_HATCH_BACKGROUND }}
                   />
                 ) : null}
+                {canCreateRange && !dragActive && hoverSlot && hoverSlot.dayMs === dayStart.getTime() ? (
+                  <div
+                    aria-hidden
+                    data-calendar-hover-slot={hoverSlot.startMin}
+                    className="pointer-events-none absolute inset-x-0 rounded-sm bg-muted/50"
+                    style={{ top: (hoverSlot.startMin / 60) * HOUR_HEIGHT_PX, height: HOUR_HEIGHT_PX / 2 }}
+                  />
+                ) : null}
                 {canCreateRange ? (
                   <div
                     className="absolute inset-0 cursor-cell"
                     onPointerDown={(event) => beginDrag(event, dayStart)}
-                    onPointerMove={moveDrag}
+                    onPointerMove={(event) => moveDrag(event, dayStart)}
                     onPointerUp={() => endDrag(dayStart)}
                     onPointerCancel={() => updateDrag(null)}
+                    onPointerLeave={() => setHoverSlot(null)}
                     aria-hidden
                   />
                 ) : null}
@@ -574,9 +623,11 @@ export function TimeGrid({
                       joinUrl={resolveJoinUrl(block.item.location)}
                       aiSummaries={aiSummaries}
                       canManage={canManage}
+                      typeIcon={typeIcons?.[block.item.interactionType]}
                       onOpenChange={(open) => setSelectedId(open ? block.item.id : null)}
                       onJoin={onJoin}
                       onEdit={onItemClick}
+                      onCancel={onCancelItem}
                     >
                       <EventBlock
                         item={block.item}
@@ -606,6 +657,7 @@ export function TimeGrid({
                       conflictIds={conflictIds}
                       showConflicts={showConflicts}
                       highlightItemId={highlightItemId}
+                      typeIcons={typeIcons}
                       canManage={canManage}
                       aiSummaries={aiSummaries}
                       nowMs={nowMs}

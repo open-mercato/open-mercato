@@ -80,6 +80,8 @@ type DiscoveredAgent = {
   tools: string[]
   skills: string[]
   subAgents: string[]
+  /** Invoker ACL features from AGENT.md `requiredFeatures` (deduped; empty when undeclared). */
+  requiredFeatures: string[]
   openCodeAgentName: string
   /** Resolved agent-local skill content (Phase 3). */
   skillsContent: DiscoveredSkill[]
@@ -98,6 +100,8 @@ type DiscoveredAgent = {
   sampleInput?: unknown
   /** Optional `FACTS.json` declarations driving the Caseload facts panel. */
   facts?: DiscoveredFact[]
+  /** Optional `GOVERNANCE.json` declarations, validated in full when the agent loads. */
+  governance?: DiscoveredGovernance
   /** Baked token-usage breakdown of the agent's construction files (Phase: token accounting). */
   tokenUsage: FileAgentTokenUsage
   /** Baked raw content of every construction file, for the read-only Files tab (#12 files). */
@@ -138,6 +142,13 @@ type FileAgentTokenUsage = {
   subAgents: SubAgentTokenUsage[]
 }
 
+type DiscoveredGovernance = {
+  principal?: Record<string, unknown>
+  integrity?: unknown[]
+  untrustedInputs?: unknown[]
+  modelSettings?: Record<string, unknown>
+}
+
 type DiscoveredFact = {
   label: string
   source: 'input' | 'payload' | 'output'
@@ -147,7 +158,8 @@ type DiscoveredFact = {
 
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/
 const JSON_FENCE_RE = /```json\s*\n([\s\S]*?)\n```/
-const LIST_KEYS = ['tools', 'skills', 'subAgents'] as const
+const LIST_KEYS = ['tools', 'skills', 'subAgents', 'requiredFeatures'] as const
+const REQUIRED_FEATURE_RE = /^[A-Za-z0-9_][A-Za-z0-9_.*:-]*$/
 
 function stripQuotes(value: string): string {
   return value.trim().replace(/^['"]/, '').replace(/['"]$/, '').trim()
@@ -171,6 +183,7 @@ type AgentFrontmatter = {
   tools: string[]
   skills: string[]
   subAgents: string[]
+  requiredFeatures: string[]
   maxSteps?: number
   instructions: string
 }
@@ -179,7 +192,13 @@ function parseAgentMarkdown(raw: string): AgentFrontmatter | null {
   const match = FRONTMATTER_RE.exec(raw)
   if (!match) return null
   const [, frontmatterBlock, body] = match
-  const meta: AgentFrontmatter = { tools: [], skills: [], subAgents: [], instructions: body.trim() }
+  const meta: AgentFrontmatter = {
+    tools: [],
+    skills: [],
+    subAgents: [],
+    requiredFeatures: [],
+    instructions: body.trim(),
+  }
   const lines = frontmatterBlock.split('\n')
   let index = 0
   while (index < lines.length) {
@@ -223,7 +242,18 @@ function parseAgentMarkdown(raw: string): AgentFrontmatter | null {
     index += 1
   }
   if (!meta.id || !meta.label || !meta.description) return null
+  meta.requiredFeatures = Array.from(new Set(meta.requiredFeatures))
   return meta
+}
+
+function assertRequiredFeaturesValid(features: string[], dir: string): void {
+  const invalid = features.find((feature) => feature.length > 200 || !REQUIRED_FEATURE_RE.test(feature))
+  if (invalid !== undefined) {
+    throw new Error(`[internal] invalid requiredFeatures entry "${invalid}" in AGENT.md at ${dir}`)
+  }
+  if (features.length > 50) {
+    throw new Error(`[internal] too many requiredFeatures (max 50) in AGENT.md at ${dir}`)
+  }
 }
 
 function parseOutcomeKind(frontmatterBlock: string): 'research' | 'proposal' | 'artifact' | null {
@@ -308,6 +338,37 @@ function assertOutcomeSchemaSupported(node: unknown, where: string, path = '$'):
   }
 }
 
+/**
+ * JSON paths of the objects in an OUTCOME schema that declare no properties.
+ * The runtime compiles such an object to an empty, stripping one, so whatever the
+ * model puts in it is dropped on every runtime — an author almost certainly meant
+ * to list its properties. Generation warns rather than fails: the schema is valid.
+ */
+function findOpenOutcomeObjects(node: unknown, path = '$'): string[] {
+  if (typeof node !== 'object' || node === null || Array.isArray(node)) return []
+  const schema = node as Record<string, unknown>
+  if (schema.type === 'object') {
+    const properties =
+      typeof schema.properties === 'object' && schema.properties !== null && !Array.isArray(schema.properties)
+        ? (schema.properties as Record<string, unknown>)
+        : {}
+    const keys = Object.keys(properties)
+    if (keys.length === 0) return [path]
+    return keys.flatMap((key) => findOpenOutcomeObjects(properties[key], `${path}.${key}`))
+  }
+  if (schema.type === 'array') return findOpenOutcomeObjects(schema.items, `${path}[]`)
+  return []
+}
+
+function warnOpenOutcomeObjects(schema: Record<string, unknown> | undefined, where: string): void {
+  if (!schema) return
+  for (const openPath of findOpenOutcomeObjects(schema)) {
+    console.warn(
+      `[internal] OUTCOME.md at ${where}: the object at ${openPath} declares no properties, so it always validates to {} and any content the agent returns there is dropped. List its properties.`,
+    )
+  }
+}
+
 function sanitizeAgentName(id: string): string {
   return id.replace(/[^a-z0-9_-]/gi, '_')
 }
@@ -385,6 +446,62 @@ function discoverFacts(dir: string): DiscoveredFact[] | undefined {
       ...(fact.format !== undefined ? { format: fact.format as DiscoveredFact['format'] } : {}),
     }
   })
+}
+
+const GOVERNANCE_FILE = 'GOVERNANCE.json'
+const GOVERNANCE_OBJECT_KEYS = ['principal', 'modelSettings'] as const
+const GOVERNANCE_LIST_KEYS = ['integrity', 'untrustedInputs'] as const
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Read the optional `agents/<id>/GOVERNANCE.json`: the same `principal`,
+ * `integrity`, `untrustedInputs` and `modelSettings` declarations `defineAgent`
+ * accepts. Only the top-level shape is checked here — an unknown key, a key of
+ * the wrong type, or invalid JSON fails generation LOUDLY. The agent loader
+ * validates every declaration with the `defineAgent` parsers and refuses to
+ * register an agent whose declaration does not parse.
+ */
+function discoverGovernance(dir: string): DiscoveredGovernance | undefined {
+  const governancePath = path.join(dir, GOVERNANCE_FILE)
+  if (!fs.existsSync(governancePath)) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fs.readFileSync(governancePath, 'utf8'))
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`[internal] malformed ${GOVERNANCE_FILE} at ${dir}: ${detail}`)
+  }
+  if (!isPlainObject(parsed)) {
+    throw new Error(`[internal] malformed ${GOVERNANCE_FILE} at ${dir}: expected a JSON object`)
+  }
+  const allowed = [...GOVERNANCE_OBJECT_KEYS, ...GOVERNANCE_LIST_KEYS] as readonly string[]
+  const unknownKey = Object.keys(parsed).find((key) => !allowed.includes(key))
+  if (unknownKey) {
+    throw new Error(
+      `[internal] malformed ${GOVERNANCE_FILE} at ${dir}: unknown key "${unknownKey}" (allowed: ${allowed.join(', ')})`,
+    )
+  }
+  const governance: DiscoveredGovernance = {}
+  for (const key of GOVERNANCE_OBJECT_KEYS) {
+    const value = parsed[key]
+    if (value === undefined) continue
+    if (!isPlainObject(value)) {
+      throw new Error(`[internal] malformed ${GOVERNANCE_FILE} at ${dir}: "${key}" must be an object`)
+    }
+    governance[key] = value
+  }
+  for (const key of GOVERNANCE_LIST_KEYS) {
+    const value = parsed[key]
+    if (value === undefined) continue
+    if (!Array.isArray(value)) {
+      throw new Error(`[internal] malformed ${GOVERNANCE_FILE} at ${dir}: "${key}" must be an array`)
+    }
+    governance[key] = value
+  }
+  return Object.keys(governance).length > 0 ? governance : undefined
 }
 
 /**
@@ -615,11 +732,13 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
     if (!agent) {
       throw new Error(`[internal] malformed AGENT.md at ${dir}: missing id/label/description`)
     }
+    assertRequiredFeaturesValid(agent.requiredFeatures, dir)
     const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
     if (!outcome) {
       throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
     }
     if (outcome.schema) assertOutcomeSchemaSupported(outcome.schema, dir)
+    warnOpenOutcomeObjects(outcome.schema, dir)
     if (outcome.kind !== 'research') {
       throw new Error(
         `[internal] sub-agent at ${dir} must be research (kind: research); only the primary proposes`,
@@ -664,6 +783,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       tools: effectiveTools,
       skills: agent.skills,
       subAgents: [],
+      requiredFeatures: agent.requiredFeatures,
       openCodeAgentName: sanitizeAgentName(agent.id!),
       skillsContent: effectiveSkillsContent,
       subAgentsContent: [],
@@ -673,6 +793,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       model: agent.model,
       sampleInput: discoverSampleInput(dir),
       facts: discoverFacts(dir),
+      governance: discoverGovernance(dir),
       tokenUsage: discoverAgentTokenUsage(dir),
       sourceFiles: collectAgentFiles(dir),
     })
@@ -777,7 +898,7 @@ function discoverAgentTokenUsage(agentDir: string, depth = 0): FileAgentTokenUsa
 // --- Raw source-file collection (feeds the read-only Files tab, #12 files) ---
 
 /** Files present at the agent root but NOT part of the constructed prompt. */
-const AGENT_AUX_FILES = ['SAMPLE.json', 'FACTS.json']
+const AGENT_AUX_FILES = ['SAMPLE.json', 'FACTS.json', GOVERNANCE_FILE]
 
 /**
  * Walks every construction file of a file-defined agent and returns its raw
@@ -1056,6 +1177,9 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
       .join('\n')
     optional.push(`${indent}  subAgentDescriptors: [\n${nested}\n${indent}  ],`)
   }
+  if (agent.requiredFeatures.length > 0) {
+    optional.push(`${indent}  requiredFeatures: ${JSON.stringify(agent.requiredFeatures)},`)
+  }
   if (agent.maxSteps != null) optional.push(`${indent}  maxSteps: ${agent.maxSteps},`)
   if (agent.provider != null) optional.push(`${indent}  provider: ${JSON.stringify(agent.provider)},`)
   if (agent.model != null) optional.push(`${indent}  model: ${JSON.stringify(agent.model)},`)
@@ -1064,6 +1188,9 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
   }
   if (agent.facts !== undefined) {
     optional.push(`${indent}  facts: ${JSON.stringify(agent.facts)},`)
+  }
+  if (agent.governance !== undefined) {
+    optional.push(`${indent}  governance: ${JSON.stringify(agent.governance)},`)
   }
   const skillsContent = agent.skillsContent.map((skill) => ({
     id: skill.id,
@@ -1163,6 +1290,13 @@ export type FileAgentFact = {
   format?: 'text' | 'number' | 'boolean' | 'percent'
 }
 
+export type FileAgentGovernance = {
+  principal?: Record<string, unknown>
+  integrity?: unknown[]
+  untrustedInputs?: unknown[]
+  modelSettings?: Record<string, unknown>
+}
+
 export type FileAgentDescriptor = {
   id: string
   moduleId: string
@@ -1185,7 +1319,7 @@ export type FileAgentDescriptor = {
   tokenUsage?: AgentTokenUsage
   /**
    * Baked raw content of every construction file (AGENT.md, OUTCOME.md, skills,
-   * tools, sub-agents, and auxiliary SAMPLE.json/FACTS.json), for the read-only
+   * tools, sub-agents, and auxiliary SAMPLE.json/FACTS.json/GOVERNANCE.json), for the read-only
    * Files tab. Each carries its \`o200k_base\` token count; paths are relative to
    * the agent root (sub-agent files prefixed \`sub-agents/<id>/\`). Baked so the
    * runtime never reads agent dirs from disk.
@@ -1197,6 +1331,11 @@ export type FileAgentDescriptor = {
    * 1). Absent for agents without sub-agents and for sub-agents themselves.
    */
   subAgentDescriptors?: FileAgentDescriptor[]
+  /**
+   * ACL features the invoker must hold to run this agent, from AGENT.md
+   * \`requiredFeatures\`. Absent when the agent declares none.
+   */
+  requiredFeatures?: string[]
   maxSteps?: number
   provider?: string
   model?: string
@@ -1211,6 +1350,13 @@ export type FileAgentDescriptor = {
    * input / proposal payload / run output.
    */
   facts?: FileAgentFact[]
+  /**
+   * Optional governance declarations read from \`agents/<id>/GOVERNANCE.json\`:
+   * the same \`principal\`, \`integrity\`, \`untrustedInputs\` and
+   * \`modelSettings\` keys \`defineAgent\` accepts, as plain JSON. The loader
+   * validates them with the \`defineAgent\` parsers.
+   */
+  governance?: FileAgentGovernance
 }
 
 export const fileAgentDescriptors: FileAgentDescriptor[] = [${
@@ -1242,11 +1388,13 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
       if (!agent) {
         throw new Error(`[internal] malformed AGENT.md at ${dir}: missing id/label/description`)
       }
+      assertRequiredFeaturesValid(agent.requiredFeatures, dir)
       const outcome = parseOutcomeMarkdown(fs.readFileSync(outcomePath, 'utf8'))
       if (!outcome) {
         throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
       }
       if (outcome.schema) assertOutcomeSchemaSupported(outcome.schema, dir)
+      warnOpenOutcomeObjects(outcome.schema, dir)
       // The id is the registry/dup key AND the OpenCode `agent` message field —
       // constrain it to a safe charset (module.entity-style: lowercase alnum + . _ -).
       if (!/^[a-z0-9][a-z0-9._-]*$/.test(agent.id!)) {
@@ -1302,6 +1450,7 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
         tools: effectiveTools,
         skills: agent.skills,
         subAgents: agent.subAgents,
+        requiredFeatures: agent.requiredFeatures,
         openCodeAgentName: sanitizeAgentName(agent.id!),
         skillsContent: effectiveSkillsContent,
         subAgentsContent,
@@ -1311,6 +1460,7 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
         model: agent.model,
         sampleInput: discoverSampleInput(dir),
         facts: discoverFacts(dir),
+        governance: discoverGovernance(dir),
         tokenUsage: discoverAgentTokenUsage(dir),
         sourceFiles: collectAgentFiles(dir),
       })
