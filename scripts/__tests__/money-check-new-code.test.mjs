@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 
 import {
   RULE_EXACT_DECIMAL_KEY,
@@ -397,4 +398,95 @@ test('run exits 2 on usage errors', () => {
   assert.equal(run(['--base'], sink), 2)
   assert.equal(run(['--diff-file', path.join(os.tmpdir(), 'does-not-exist-money.diff')], sink), 2)
   assert.equal(run(['--base', 'refs/heads/definitely-not-a-branch-money-check'], sink), 2)
+})
+
+const REPO_ENTITY = 'src/modules/foo/data/entities.ts'
+
+function createTempRepo(initialBranch) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'money-check-repo-'))
+  const git = (...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  const commitFile = (relativePath, content, message) => {
+    fs.mkdirSync(path.dirname(path.join(dir, relativePath)), { recursive: true })
+    fs.writeFileSync(path.join(dir, relativePath), content)
+    git('add', relativePath)
+    git('commit', '--quiet', '-m', message)
+    return git('rev-parse', 'HEAD')
+  }
+  git('init', '--quiet', '-b', initialBranch)
+  git('config', 'user.name', 'Money Check Test')
+  git('config', 'user.email', 'money-check@example.com')
+  return { dir, git, commitFile }
+}
+
+function runInRepo(dir, extraArgs = []) {
+  let stdout = ''
+  let stderr = ''
+  const code = run(extraArgs, {
+    root: dir,
+    stdout: (text) => {
+      stdout += text
+    },
+    stderr: (text) => {
+      stderr += text
+    },
+  })
+  return { code, stdout, stderr }
+}
+
+const VIOLATING_ENTITY = [
+  'export class Foo {',
+  "  @Property({ name: 'total_amount', type: ExactDecimalType, columnType: 'numeric' })",
+  '  totalAmount!: string',
+  '}',
+  '',
+].join('\n')
+
+test('the default base reaches the default branch, catching findings from earlier feature commits', () => {
+  const repo = createTempRepo('main')
+  try {
+    repo.commitFile('README.md', 'baseline\n', 'baseline')
+    repo.git('checkout', '--quiet', '-b', 'feature')
+    repo.commitFile(REPO_ENTITY, VIOLATING_ENTITY, 'add foo entity')
+    repo.commitFile('notes.txt', 'unrelated\n', 'unrelated change')
+
+    const result = runInRepo(repo.dir, ['--json'])
+    assert.equal(result.code, 0, result.stderr)
+    const payload = JSON.parse(result.stdout)
+    assert.match(payload.source, /^main\.\.\.HEAD/)
+    assert.deepEqual(
+      payload.findings.map(({ path: filePath, line, rule, name }) => ({ path: filePath, line, rule, name })),
+      [{ path: REPO_ENTITY, line: 2, rule: RULE_NUMERIC_MONEY_COLUMN, name: 'total_amount' }],
+    )
+
+    const previousCommitOnly = JSON.parse(runInRepo(repo.dir, ['--json', '--base', 'HEAD~1']).stdout)
+    assert.equal(previousCommitOnly.totalFindings, 0)
+
+    const text = runInRepo(repo.dir)
+    assert.match(text.stdout, /^\[money-check-new-code\] Added lines in main\.\.\.HEAD \+ working tree \(default base\)\n/)
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true })
+  }
+})
+
+test('the default base prefers the remote default branch advertised by refs/remotes/origin/HEAD', () => {
+  const repo = createTempRepo('feature')
+  try {
+    const baseline = repo.commitFile('README.md', 'baseline\n', 'baseline')
+    repo.git('update-ref', 'refs/remotes/origin/trunk', baseline)
+    repo.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk')
+    repo.commitFile(REPO_ENTITY, VIOLATING_ENTITY, 'add foo entity')
+    repo.git('branch', 'main')
+    repo.commitFile('notes.txt', 'unrelated\n', 'unrelated change')
+
+    const result = runInRepo(repo.dir)
+    assert.equal(result.code, 0, result.stderr)
+    assert.match(result.stdout, /^\[money-check-new-code\] Added lines in origin\/trunk\.\.\.HEAD \+ working tree \(default base from refs\/remotes\/origin\/HEAD\)\n/)
+    assert.match(result.stdout, new RegExp(`${REPO_ENTITY.replace(/[.]/g, '\\.')}:2  ${RULE_NUMERIC_MONEY_COLUMN}`))
+
+    const strict = runInRepo(repo.dir, ['--strict', '--json'])
+    assert.equal(strict.code, 1)
+    assert.equal(JSON.parse(strict.stdout).totalFindings, 1)
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true })
+  }
 })

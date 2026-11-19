@@ -53,8 +53,14 @@
  * misses.
  *
  * Usage:
- *   node scripts/money-check-new-code.mjs                     # diff vs merge-base with origin/develop (or develop, or HEAD~1) + working tree + untracked files
- *   node scripts/money-check-new-code.mjs --base <ref>        # compare against another ref
+ *   node scripts/money-check-new-code.mjs                     # diff vs merge-base with the default base + working tree + untracked files
+ *   node scripts/money-check-new-code.mjs --base <ref>        # compare against another ref (overrides the default base)
+ *
+ * Default base (first that exists): the remote default branch advertised by
+ * refs/remotes/upstream/HEAD, then refs/remotes/origin/HEAD; then upstream/main,
+ * origin/main, main, upstream/develop, origin/develop, develop, upstream/master,
+ * origin/master, master; and only then HEAD~1 (last commit only). The header
+ * line names the resolved base.
  *   node scripts/money-check-new-code.mjs --diff-file <path>  # read a unified diff from a file
  *   node scripts/money-check-new-code.mjs --json              # machine output
  *   node scripts/money-check-new-code.mjs --strict            # exit 1 on any finding
@@ -73,7 +79,13 @@ import { fileURLToPath } from 'node:url'
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, '..')
 const ALLOWLIST_RELATIVE_PATH = '.ai/money-allowlist.json'
-const DEFAULT_BASE_CANDIDATES = ['origin/develop', 'develop', 'HEAD~1']
+const DEFAULT_REMOTE_HEADS = ['refs/remotes/upstream/HEAD', 'refs/remotes/origin/HEAD']
+const DEFAULT_BASE_CANDIDATES = [
+  'upstream/main', 'origin/main', 'main',
+  'upstream/develop', 'origin/develop', 'develop',
+  'upstream/master', 'origin/master', 'master',
+]
+const PREVIOUS_COMMIT_BASE = 'HEAD~1'
 const SNIPPET_MAX = 160
 
 export const RULE_NUMERIC_MONEY_COLUMN = 'numeric-money-column'
@@ -395,14 +407,31 @@ function refExists(root, ref) {
   }
 }
 
+function remoteDefaultBranch(root, symbolicRef) {
+  try {
+    const target = git(root, ['symbolic-ref', '--quiet', symbolicRef]).trim()
+    return target && refExists(root, target) ? target : null
+  } catch {
+    return null
+  }
+}
+
 function resolveBase(root, requested) {
   if (requested) {
     if (!refExists(root, requested)) throw new Error(`Cannot resolve --base ref "${requested}"`)
-    return requested
+    return { ref: requested, label: requested, note: '' }
+  }
+  for (const symbolicRef of DEFAULT_REMOTE_HEADS) {
+    const target = remoteDefaultBranch(root, symbolicRef)
+    if (target) return { ref: target, label: target.replace(/^refs\/remotes\//, ''), note: ` (default base from ${symbolicRef})` }
   }
   const found = DEFAULT_BASE_CANDIDATES.find((candidate) => refExists(root, candidate))
-  if (!found) throw new Error(`Cannot resolve a base ref (tried ${DEFAULT_BASE_CANDIDATES.join(', ')}); pass --base <ref>`)
-  return found
+  if (found) return { ref: found, label: found, note: ' (default base)' }
+  if (refExists(root, PREVIOUS_COMMIT_BASE)) {
+    return { ref: PREVIOUS_COMMIT_BASE, label: PREVIOUS_COMMIT_BASE, note: ' (default base: no upstream branch found, checking the last commit only)' }
+  }
+  const tried = [...DEFAULT_REMOTE_HEADS, ...DEFAULT_BASE_CANDIDATES, PREVIOUS_COMMIT_BASE]
+  throw new Error(`Cannot resolve a base ref (tried ${tried.join(', ')}); pass --base <ref>`)
 }
 
 function collectGitFiles(root, base) {
@@ -450,8 +479,8 @@ export function run(argv, io = {}) {
       source = `diff file ${options.diffFile}`
     } else {
       const base = resolveBase(root, options.base)
-      files = collectGitFiles(root, base)
-      source = `${base}...HEAD + working tree`
+      files = collectGitFiles(root, base.ref)
+      source = `${base.label}...HEAD + working tree${base.note}`
     }
   } catch (error) {
     err(`[money-check-new-code] ${error instanceof Error ? error.message : String(error)}\n${USAGE}\n`)
