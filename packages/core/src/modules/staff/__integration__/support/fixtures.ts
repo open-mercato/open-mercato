@@ -276,6 +276,17 @@ export async function ensureFallback(
   return { ruleId: body.ruleId, timeProjectId: body.timeProjectId, created: body.created === true }
 }
 
+export async function createCustomerFreeProject(
+  request: APIRequestContext,
+  admin: string,
+  cleanup: Cleanup,
+): Promise<TestTimeProjectFixture> {
+  const project = await createProject(request, admin, cleanup, 'no-customer')
+  const response = await setProjectFields(request, admin, project.id, { customerId: null, customerSnapshot: null })
+  expect(response.ok(), `clear fixture project customer failed: ${response.status()}`).toBeTruthy()
+  return project
+}
+
 /**
  * Points the organization fallback rule at `timeProjectId` for the duration of a spec
  * and registers a cleanup step that restores the previous target.
