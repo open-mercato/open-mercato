@@ -105,7 +105,8 @@ export interface UseCodeInput { codeId: string; codeString: string; cartId: stri
 export interface CodeUseResult { ok: true }
 
 // Reversal (Release 5 C5/SPEC-055 amendment, additive). At least one of `cartId`/
-// `orderId` must be given; either locates the `CodeUsage` row(s) `useCode` wrote.
+// `orderId` must be given; either locates the `CodeUsage` row(s) `useCode` wrote. Both
+// together match the union of the two keys, not their intersection; prefer `orderId` alone.
 export interface RevertCodeUseInput { cartId?: string; orderId?: string }
 export interface RevertCodeUseResult { ok: true; revertedCount: number }
 

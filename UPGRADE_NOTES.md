@@ -22,7 +22,8 @@ same cart without `orderId` is no longer consumed. The same applies to
   `promotion_code_usages_order_idx` (`Migration20261119224920_promotions`). Rows written
   before the migration keep `cart_id`/`order_id` NULL and can never be reverted.
 - New command `promotions.code.use.revert` and `PromotionCodeService.revertCodeUse`: given a
-  `cartId` or an `orderId` (400 when neither), marks each unreverted `CodeUsage` row
+  `cartId` or an `orderId` (400 when neither; both together match the union of the two
+  keys, so prefer `orderId` alone), marks each unreverted `CodeUsage` row
   `reverted_at`, decrements `Code.used` of a static code (reactivating it only when it was
   exhausted) or reactivates the one `GeneratedCode` a dynamic use deactivated. Rows are never
   deleted. There is no HTTP route; nothing calls it yet (the order-lifecycle subscribers

@@ -15,3 +15,6 @@
 ## 2026-11-19T23:41:45Z — final gate
 - `validation.commands` green except the known local-only `create-mercato-app` agent-harness live-adapter suites (unrelated). TC-PROM integration suite: 39 passed. See `final-gate-checks.md`.
 - Draft PR: https://github.com/open-mercato/open-mercato/pull/10034
+
+## 2026-11-19T23:55:00Z — code review
+- Fresh-reviewer pass on `7e41bb84f1..HEAD`: approve, no Critical/High/Medium. Low #1 (union of `cartId`/`orderId` undocumented) fixed in Step 1.5-review-fix; Low #2 (no index on `generated_code_id`) recorded as a follow-up; two nits left as inherited from the reference.
