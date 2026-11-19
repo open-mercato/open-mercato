@@ -2,13 +2,24 @@
 import type { CacheStrategy } from '../types'
 import { createRedisStrategy, pickRedisConstructor } from '../strategies/redis'
 
-type PipelineOp = () => void
+type PipelineOp = () => unknown | Promise<unknown>
+type RedisArgument = string | number | Buffer
 
 class FakeRedis {
   values = new Map<string, string | Buffer>()
   sets = new Map<string, Set<string>>()
+  scanCalls: { cursor: string; pattern: string; count: number }[] = []
+  scriptedScanPages = new Map<string, [string, string[]][]>()
+  private scanSnapshots = new Map<string, string[]>()
+
+  private matches(key: string, pattern: string): boolean {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    const expression = escaped.replace(/\*/g, '.*').replace(/\?/g, '.')
+    return new RegExp(`^${expression}$`).test(key)
+  }
   /** Records the shape of each reap script call so tests can assert its cost. */
-  evalCalls: { numKeys: number; memberCount: number }[] = []
+  evalCalls: { kind: 'orphan' | 'stale'; tagKey: string; numKeys: number; memberCount: number }[] = []
+  multiExecCalls = 0
 
   async ping(): Promise<string> {
     return 'PONG'
@@ -36,34 +47,117 @@ class FakeRedis {
     return 'OK'
   }
 
-  async del(key: string): Promise<unknown> {
-    return this.values.delete(key) ? 1 : 0
+  async del(...keys: string[]): Promise<number> {
+    let deleted = 0
+    for (const key of keys) {
+      const existed = this.values.delete(key)
+      const setExisted = this.sets.delete(key)
+      if (existed || setExisted) deleted++
+    }
+    return deleted
   }
 
   async exists(key: string): Promise<number> {
-    return this.values.has(key) ? 1 : 0
+    return this.values.has(key) || this.sets.has(key) ? 1 : 0
   }
 
   async keys(pattern: string): Promise<string[]> {
-    const prefix = pattern.endsWith('*') ? pattern.slice(0, -1) : pattern
-    return [...this.values.keys()].filter((key) => key.startsWith(prefix))
+    return [...new Set([...this.values.keys(), ...this.sets.keys()])].filter((key) => this.matches(key, pattern))
+  }
+
+  async scan(cursor: string, ...args: (string | number)[]): Promise<[string, string[]]> {
+    const matchIndex = args.findIndex((value) => String(value).toUpperCase() === 'MATCH')
+    const countIndex = args.findIndex((value) => String(value).toUpperCase() === 'COUNT')
+    const pattern = matchIndex < 0 ? '*' : String(args[matchIndex + 1])
+    const count = countIndex < 0 ? 10 : Number(args[countIndex + 1])
+    this.scanCalls.push({ cursor: String(cursor), pattern, count })
+    const scripted = this.scriptedScanPages.get(pattern)
+    if (scripted) {
+      const next = scripted.shift()
+      if (!next) throw new Error(`Unexpected extra SCAN for ${pattern}`)
+      return next
+    }
+
+    // Stable keys model a cursor walk while clear/cleanup delete earlier pages.
+    if (String(cursor) === '0') {
+      const allKeys = [...new Set([...this.values.keys(), ...this.sets.keys()])]
+      this.scanSnapshots.set(pattern, allKeys.filter((key) => this.matches(key, pattern)))
+    }
+    const snapshot = this.scanSnapshots.get(pattern) ?? []
+    const offset = Number(cursor)
+    // COUNT is a hint. Small pages force callers to visit the complete cursor.
+    const end = Math.min(offset + Math.min(count, 2), snapshot.length)
+    return [end >= snapshot.length ? '0' : String(end), snapshot.slice(offset, end)]
+  }
+
+  async mgetBuffer(...keys: string[]): Promise<(Buffer | null)[]> {
+    // Preserve getBuffer hooks used to land concurrent writes in a read window.
+    return Promise.all(keys.map((key) => this.getBuffer(key)))
   }
 
   async smembers(key: string): Promise<string[]> {
     return [...(this.sets.get(key) ?? [])]
   }
 
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    const existing = this.sets.get(key) ?? new Set<string>()
+    const oldSize = existing.size
+    for (const member of members) existing.add(member)
+    if (existing.size) this.sets.set(key, existing)
+    return existing.size - oldSize
+  }
+
+  async srem(key: string, ...members: string[]): Promise<number> {
+    const existing = this.sets.get(key)
+    if (!existing) return 0
+    let removed = 0
+    for (const member of members) if (existing.delete(member)) removed++
+    if (!existing.size) this.sets.delete(key)
+    return removed
+  }
+
+  async eval(script: string, numKeys: number, ...args: RedisArgument[]): Promise<unknown> {
+    const stale = args.slice(numKeys).some(Buffer.isBuffer)
+    this.evalCalls.push({
+      kind: stale ? 'stale' : 'orphan', tagKey: String(args[0]), numKeys,
+      memberCount: (args.length - numKeys) / (stale ? 2 : 1),
+    })
+    return this.runEval(script, numKeys, ...args)
+  }
+
   /**
-   * Mirrors the reap script's KEYS/ARGV contract rather than interpreting Lua —
+   * Mirrors the reap scripts' KEYS/ARGV contracts rather than interpreting Lua —
    * there is no Lua runtime here, and pulling one in for a single script is not
    * worth the dependency. What this pins down is the strategy's side of the
    * contract (key ordering, member alignment, chunking) and the exists-guarded
-   * semantics. The script *body* is not covered; verify it against a real Redis
+   * semantics and byte-guarded stale-member removal. The script bodies are not
+   * covered; verify them against a real Redis
    * when changing it.
    */
-  runEval(_script: string, numKeys: number, ...args: (string | number)[]): number {
-    const [tagKey, ...valueKeys] = args.slice(0, numKeys) as string[]
-    const members = args.slice(numKeys).map(String)
+  async runEval(script: string, numKeys: number, ...args: RedisArgument[]): Promise<unknown> {
+    const keys = args.slice(0, numKeys).map(String)
+    const [tagKey, ...valueKeys] = keys
+    const argv = args.slice(numKeys)
+    const stale = argv.some(Buffer.isBuffer)
+    if (stale) {
+      if (argv.length !== valueKeys.length * 2) throw new Error('[internal] stale eval argument alignment')
+      let removed = 0
+      for (let index = 0; index < valueKeys.length; index++) {
+        const member = String(argv[index * 2])
+        const observed = argv[index * 2 + 1]
+        if (!Buffer.isBuffer(observed) || valueKeys[index] !== `cache:${member}`) {
+          throw new Error('[internal] stale eval member/value/buffer alignment')
+        }
+        // Model Redis's byte comparison without routing the atomic script read
+        // through a client-side hook used to inject concurrent set() calls.
+        const stored = this.values.get(valueKeys[index])
+        const current = stored === undefined ? null : Buffer.isBuffer(stored) ? stored : Buffer.from(stored)
+        if (current !== null && !current.equals(observed)) continue
+        removed += await this.srem(tagKey, member)
+      }
+      return removed
+    }
+    const members = argv.map(String)
 
     if (valueKeys.length !== members.length) {
       throw new Error(`[internal] eval contract: ${valueKeys.length} value keys vs ${members.length} members`)
@@ -84,47 +178,63 @@ class FakeRedis {
     const ops: PipelineOp[] = []
     const chain = {
       set: (key: string, value: string | Buffer) => {
-        ops.push(() => void this.values.set(key, value))
+        ops.push(() => this.set(key, value))
         return chain
       },
-      setex: (key: string, _ttlSeconds: number, value: string | Buffer) => {
-        ops.push(() => void this.values.set(key, value))
+      setex: (key: string, ttlSeconds: number, value: string | Buffer) => {
+        ops.push(() => this.setex(key, ttlSeconds, value))
         return chain
       },
-      sadd: (key: string, member: string) => {
-        ops.push(() => {
-          const members = this.sets.get(key) ?? new Set<string>()
-          members.add(member)
-          this.sets.set(key, members)
-        })
+      getBuffer: (key: string) => {
+        ops.push(() => this.getBuffer(key))
         return chain
       },
-      srem: (key: string, member: string) => {
-        ops.push(() => {
-          const members = this.sets.get(key)
-          if (!members) return
-          members.delete(member)
-          // Redis drops a set once its last member is removed.
-          if (members.size === 0) this.sets.delete(key)
-        })
+      smembers: (key: string) => {
+        ops.push(() => this.smembers(key))
         return chain
       },
-      del: (key: string) => {
-        ops.push(() => void this.values.delete(key))
+      sadd: (key: string, ...members: string[]) => {
+        ops.push(() => this.sadd(key, ...members))
         return chain
       },
-      eval: (script: string, numKeys: number, ...args: (string | number)[]) => {
-        this.evalCalls.push({ numKeys, memberCount: args.length - numKeys })
-        ops.push(() => void this.runEval(script, numKeys, ...args))
+      srem: (key: string, ...members: string[]) => {
+        ops.push(() => this.srem(key, ...members))
         return chain
       },
-      exec: async () => {
-        for (const op of ops) op()
+      del: (...keys: string[]) => {
+        ops.push(() => this.del(...keys))
+        return chain
+      },
+      eval: (script: string, numKeys: number, ...args: RedisArgument[]) => {
+        ops.push(() => this.eval(script, numKeys, ...args))
+        return chain
+      },
+      exec: async (): Promise<[Error | null, unknown][]> => {
+        const results: [Error | null, unknown][] = []
+        for (const op of ops) {
+          try {
+            results.push([null, await op()])
+          } catch (error) {
+            results.push([error instanceof Error ? error : new Error(String(error)), null])
+          }
+        }
         ops.length = 0
-        return []
+        return results
       },
     }
     return chain
+  }
+
+  multi() {
+    // Shares the command-result model with pipeline. This fake does not prove
+    // server transaction isolation; the live Redis suite covers the wire path.
+    const transaction = this.pipeline()
+    const execute = transaction.exec
+    transaction.exec = async () => {
+      this.multiExecCalls++
+      return execute()
+    }
+    return transaction
   }
 
   async quit(): Promise<void> {}
@@ -285,6 +395,449 @@ describe('redis strategy tag index', () => {
   })
 })
 
+describe('redis strategy transaction writes and lazy tag memberships', () => {
+  let strategy: CacheStrategy
+  let urlCounter = 0
+
+  beforeEach(() => {
+    currentRedis = new FakeRedis()
+    urlCounter += 1
+    strategy = createRedisStrategy(`redis://cache-lazy-tags-${urlCounter}`)
+  })
+
+  afterEach(async () => {
+    await strategy.close?.()
+  })
+
+  it.each([
+    { name: 'new TTL entry', overwrite: false, ttl: 1501, tags: ['products'] },
+    { name: 'overwritten TTL entry', overwrite: true, ttl: 60_000, tags: ['new-products'] },
+    { name: 'tagless overwrite without TTL', overwrite: true, ttl: 0, tags: [] },
+    { name: 'new tagless entry without TTL', overwrite: false, ttl: 0, tags: [] },
+  ])('writes $name in one checked transaction without reading the previous value', async ({ overwrite, ttl, tags }) => {
+    if (overwrite) await strategy.set('product', 'old', { tags: ['old-products'] })
+    const read = jest.spyOn(currentRedis, 'getBuffer').mockRejectedValue(new Error('set must not read'))
+    const readText = jest.spyOn(currentRedis, 'get').mockRejectedValue(new Error('set must not read'))
+    const transaction = jest.spyOn(currentRedis, 'multi')
+    const set = jest.spyOn(currentRedis, 'set')
+    const setex = jest.spyOn(currentRedis, 'setex')
+    currentRedis.multiExecCalls = 0
+
+    await strategy.set('product', 'fresh', { ttl, tags })
+
+    expect(read).not.toHaveBeenCalled()
+    expect(readText).not.toHaveBeenCalled()
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(currentRedis.multiExecCalls).toBe(1)
+    const stored = JSON.parse(String(currentRedis.values.get('cache:product')))
+    expect(stored).toMatchObject({ key: 'product', value: 'fresh', tags })
+    if (ttl) {
+      expect(setex).toHaveBeenCalledWith('cache:product', Math.ceil(ttl / 1000), expect.any(String))
+      expect(set).not.toHaveBeenCalled()
+      expect(stored.expiresAt).toBeGreaterThan(stored.createdAt)
+    } else {
+      expect(set).toHaveBeenCalledTimes(1)
+      expect(setex).not.toHaveBeenCalled()
+      expect(stored.expiresAt).toBeNull()
+    }
+    for (const tag of tags) expect(await currentRedis.smembers(`tag:${tag}`)).toEqual(['product'])
+  })
+
+  it('keeps the live retagged entry when invalidating its previous tag', async () => {
+    await strategy.set('product', 'old', { tags: ['old-products'] })
+    await strategy.set('product', 'fresh', { tags: ['new-products'] })
+    expect(await currentRedis.smembers('tag:old-products')).toEqual(['product'])
+
+    expect(await strategy.deleteByTags(['old-products'])).toBe(0)
+    expect(await strategy.get('product')).toBe('fresh')
+    expect(await currentRedis.smembers('tag:old-products')).toEqual([])
+    expect(await currentRedis.smembers('tag:new-products')).toEqual(['product'])
+    expect(await strategy.deleteByTags(['new-products'])).toBe(1)
+    expect(await strategy.get('product')).toBeNull()
+  })
+
+  it('deduplicates overlapping requested old and current tags and cleans both memberships', async () => {
+    await strategy.set('product', 'old', { tags: ['old-products'] })
+    await strategy.set('product', 'fresh', { tags: ['new-products'] })
+
+    expect(await strategy.deleteByTags(['old-products', 'new-products', 'old-products'])).toBe(1)
+    expect(await strategy.get('product')).toBeNull()
+    expect(await currentRedis.smembers('tag:old-products')).toEqual([])
+    expect(await currentRedis.smembers('tag:new-products')).toEqual([])
+    expect(await strategy.deleteByTags(['old-products', 'new-products'])).toBe(0)
+  })
+
+  it('retains an entry rewritten with no tags when invalidating its previous tag', async () => {
+    await strategy.set('product', 'old', { tags: ['products'] })
+    await strategy.set('product', 'fresh', { tags: [] })
+
+    expect(await strategy.deleteByTags(['products'])).toBe(0)
+    expect(await strategy.get('product')).toBe('fresh')
+    expect(await currentRedis.smembers('tag:products')).toEqual([])
+    expect(await strategy.delete('product')).toBe(true)
+  })
+
+  it('does not reap a tag reintroduced after the invalidation snapshot', async () => {
+    await strategy.set('product', 'old', { tags: ['products'] })
+    await strategy.set('product', 'retagged', { tags: ['other-products'] })
+    const read = currentRedis.getBuffer.bind(currentRedis)
+    let rewritten = false
+    currentRedis.getBuffer = async (key) => {
+      const observed = await read(key)
+      if (!rewritten && key === 'cache:product' && observed !== null) {
+        rewritten = true
+        await strategy.set('product', 'reintroduced', { tags: ['products'] })
+      }
+      return observed
+    }
+
+    expect(await strategy.deleteByTags(['products'])).toBe(0)
+    expect(rewritten).toBe(true)
+    expect(await strategy.get('product')).toBe('reintroduced')
+    expect(await currentRedis.smembers('tag:products')).toEqual(['product'])
+    expect(await strategy.deleteByTags(['products'])).toBe(1)
+  })
+
+  it('passes compressed snapshots to stale reaping as exact binary bytes', async () => {
+    const compressed = createRedisStrategy(`redis://cache-lazy-binary-${++urlCounter}`, { compression: 'gzip' })
+    const value = { detail: 'Agram frozen vegetables and fruit '.repeat(300) }
+    try {
+      await compressed.set('product', value, { tags: ['old-products'] })
+      await compressed.set('product', value, { tags: ['new-products'] })
+      const observed = currentRedis.values.get('cache:product')
+      expect(Buffer.isBuffer(observed)).toBe(true)
+      const evaluate = jest.spyOn(currentRedis, 'eval')
+
+      expect(await compressed.deleteByTags(['old-products'])).toBe(0)
+      const binaryArguments = evaluate.mock.calls.flatMap((call) => call.slice(2)).filter(Buffer.isBuffer)
+      expect(binaryArguments).toHaveLength(1)
+      expect(binaryArguments[0]).toEqual(observed)
+      expect(await compressed.get('product')).toEqual(value)
+      expect(await currentRedis.smembers('tag:old-products')).toEqual([])
+      expect(await currentRedis.smembers('tag:new-products')).toEqual(['product'])
+    } finally {
+      await compressed.close?.()
+    }
+  })
+
+  it('keeps stale reaping linear in actual memberships and bounded across disjoint tags', async () => {
+    const perTag = 300
+    for (let tag = 0; tag < 2; tag++) {
+      for (let index = 0; index < perTag; index++) {
+        const key = `group-${tag}-product-${index}`
+        await strategy.set(key, 'old', { tags: [`old-group-${tag}`] })
+        await strategy.set(key, 'fresh', { tags: [`new-group-${tag}`] })
+      }
+    }
+    currentRedis.evalCalls = []
+
+    expect(await strategy.deleteByTags(['old-group-0', 'old-group-1'])).toBe(0)
+    const staleCalls = currentRedis.evalCalls.filter(({ kind }) => kind === 'stale')
+    expect(staleCalls.reduce((sum, call) => sum + call.memberCount, 0)).toBe(perTag * 2)
+    for (const call of staleCalls) {
+      expect(call.memberCount).toBeGreaterThan(0)
+      expect(call.memberCount).toBeLessThanOrEqual(256)
+      expect(call.numKeys).toBe(call.memberCount + 1)
+    }
+    for (let tag = 0; tag < 2; tag++) {
+      expect(staleCalls.filter(({ tagKey }) => tagKey === `tag:old-group-${tag}`)
+        .reduce((sum, call) => sum + call.memberCount, 0)).toBe(perTag)
+      expect(await currentRedis.smembers(`tag:old-group-${tag}`)).toEqual([])
+      expect(await currentRedis.smembers(`tag:new-group-${tag}`)).toHaveLength(perTag)
+      expect(await strategy.get(`group-${tag}-product-${perTag - 1}`)).toBe('fresh')
+    }
+  })
+
+  it('still deletes corrupt values reachable through a requested tag', async () => {
+    await strategy.set('product', 'old', { tags: ['products'] })
+    currentRedis.values.set('cache:product', '{invalid JSON')
+
+    expect(await strategy.deleteByTags(['products'])).toBe(1)
+    expect(currentRedis.values.has('cache:product')).toBe(false)
+  })
+
+  it.each(['setex', 'sadd'] as const)('propagates a %s error from the write transaction', async (command) => {
+    jest.spyOn(currentRedis, command).mockRejectedValueOnce(new Error(`injected ${command} failure`))
+
+    await expect(strategy.set('product', 'fresh', { ttl: 60_000, tags: ['products'] }))
+      .rejects.toThrow(`injected ${command} failure`)
+    expect(currentRedis.multiExecCalls).toBe(1)
+  })
+
+  it('propagates a stale-reaping pipeline error', async () => {
+    await strategy.set('product', 'old', { tags: ['old-products'] })
+    await strategy.set('product', 'fresh', { tags: ['new-products'] })
+    jest.spyOn(currentRedis, 'eval').mockRejectedValueOnce(new Error('injected stale reap failure'))
+
+    await expect(strategy.deleteByTags(['old-products'])).rejects.toThrow('injected stale reap failure')
+    expect(await strategy.get('product')).toBe('fresh')
+    expect(await currentRedis.smembers('tag:new-products')).toEqual(['product'])
+  })
+})
+
+describe('redis strategy concurrent deletion compatibility', () => {
+  let strategy: CacheStrategy
+  let urlCounter = 0
+
+  beforeEach(() => {
+    currentRedis = new FakeRedis()
+    urlCounter += 1
+    strategy = createRedisStrategy(`redis://cache-deletion-compatibility-${urlCounter}`)
+  })
+
+  afterEach(async () => {
+    await strategy.close?.()
+  })
+
+  function makeExpired(key: string): void {
+    const physicalKey = `cache:${key}`
+    const entry = JSON.parse(String(currentRedis.values.get(physicalKey)))
+    currentRedis.values.set(physicalKey, JSON.stringify({ ...entry, expiresAt: Date.now() - 100 }))
+  }
+
+  it('counts an invalidated value found before a concurrent deletion even when DEL returns zero', async () => {
+    await strategy.set('race', 'old', { tags: ['products'] })
+    const read = currentRedis.getBuffer.bind(currentRedis)
+    let removed = false
+    currentRedis.getBuffer = async (key) => {
+      const snapshot = await read(key)
+      if (!removed && key === 'cache:race' && snapshot !== null) {
+        removed = true
+        currentRedis.expire(key)
+      }
+      return snapshot
+    }
+    const remove = jest.spyOn(currentRedis, 'del')
+
+    expect(await strategy.deleteByTags(['products'])).toBe(1)
+    expect(removed).toBe(true)
+    expect(remove).toHaveReturned()
+    expect(await remove.mock.results[0].value).toBe(0)
+    expect(currentRedis.values.has('cache:race')).toBe(false)
+    expect(await currentRedis.smembers('tag:products')).toEqual([])
+  })
+
+  it('counts an expired entry recognized by cleanup even when the deletion read finds it missing', async () => {
+    await strategy.set('race', 'old', { tags: ['products'] })
+    makeExpired('race')
+    const read = currentRedis.getBuffer.bind(currentRedis)
+    let removed = false
+    currentRedis.getBuffer = async (key) => {
+      const snapshot = await read(key)
+      if (!removed && key === 'cache:race' && snapshot !== null) {
+        removed = true
+        currentRedis.expire(key)
+      }
+      return snapshot
+    }
+
+    expect(await strategy.cleanup?.()).toBe(1)
+    expect(removed).toBe(true)
+    expect(currentRedis.values.has('cache:race')).toBe(false)
+    // The previous implementation's second read returns a miss, so it leaves
+    // the expired value's membership for the existing orphan reaper.
+    expect(await currentRedis.smembers('tag:products')).toEqual(['race'])
+    expect(await strategy.deleteByTags(['products'])).toBe(0)
+    expect(await currentRedis.smembers('tag:products')).toEqual([])
+  })
+
+  it('uses the deletion read tag snapshot after an expired entry is rewritten with new tags', async () => {
+    await strategy.set('race', 'old', { tags: ['old-products'] })
+    makeExpired('race')
+    const read = currentRedis.getBuffer.bind(currentRedis)
+    let rewritten = false
+    currentRedis.getBuffer = async (key) => {
+      const snapshot = await read(key)
+      if (!rewritten && key === 'cache:race' && snapshot !== null) {
+        rewritten = true
+        await strategy.set('race', 'fresh', { tags: ['new-products'] })
+      }
+      return snapshot
+    }
+
+    expect(await strategy.cleanup?.()).toBe(1)
+    expect(rewritten).toBe(true)
+    // Preserve the previous implementation's behavior: cleanup still deletes
+    // the fresh value, but deleteKey reads and removes its current tags.
+    expect(currentRedis.values.has('cache:race')).toBe(false)
+    expect(await currentRedis.smembers('tag:new-products')).toEqual([])
+    // Lazy set retains the old membership; the existing orphan reaper removes
+    // it on the next invalidation after cleanup has deleted the current value.
+    expect(await currentRedis.smembers('tag:old-products')).toEqual(['race'])
+    expect(await strategy.deleteByTags(['old-products'])).toBe(0)
+    expect(await currentRedis.smembers('tag:old-products')).toEqual([])
+  })
+
+  it('keeps the raw-delete behavior when a corrupt snapshot is rewritten before cleanup deletes it', async () => {
+    await strategy.set('race', 'old', { tags: ['old-products'] })
+    currentRedis.values.set('cache:race', '{invalid JSON')
+    const read = currentRedis.getBuffer.bind(currentRedis)
+    let rewritten = false
+    currentRedis.getBuffer = async (key) => {
+      const snapshot = await read(key)
+      if (!rewritten && key === 'cache:race' && snapshot !== null) {
+        rewritten = true
+        await strategy.set('race', 'fresh', { tags: ['new-products'] })
+      }
+      return snapshot
+    }
+
+    expect(await strategy.cleanup?.()).toBe(1)
+    expect(rewritten).toBe(true)
+    expect(currentRedis.values.has('cache:race')).toBe(false)
+    // A corrupt initial snapshot takes raw DEL, without a second tag read.
+    // Repairing these inherited orphan memberships is outside this change.
+    expect(await currentRedis.smembers('tag:new-products')).toEqual(['race'])
+  })
+
+  it('counts a corrupt cleanup candidate even if it disappears before raw DEL', async () => {
+    currentRedis.values.set('cache:race', '{invalid JSON')
+    const read = currentRedis.getBuffer.bind(currentRedis)
+    let removed = false
+    currentRedis.getBuffer = async (key) => {
+      const snapshot = await read(key)
+      if (!removed && key === 'cache:race' && snapshot !== null) {
+        removed = true
+        currentRedis.expire(key)
+      }
+      return snapshot
+    }
+    const remove = jest.spyOn(currentRedis, 'del')
+
+    expect(await strategy.cleanup?.()).toBe(1)
+    expect(removed).toBe(true)
+    expect(await remove.mock.results[0].value).toBe(0)
+    expect(currentRedis.values.has('cache:race')).toBe(false)
+  })
+
+  it('preserves cleanup raw-delete fallback when the second read rejects', async () => {
+    await strategy.set('race', 'old', { tags: ['products'] })
+    makeExpired('race')
+    const read = currentRedis.getBuffer.bind(currentRedis)
+    let reads = 0
+    currentRedis.getBuffer = async (key) => {
+      if (key === 'cache:race' && ++reads === 2) {
+        throw new Error('WRONGTYPE Operation against a key holding the wrong kind of value')
+      }
+      return read(key)
+    }
+
+    expect(await strategy.cleanup?.()).toBe(1)
+    expect(reads).toBe(2)
+    expect(currentRedis.values.has('cache:race')).toBe(false)
+    expect(await currentRedis.smembers('tag:products')).toEqual(['race'])
+  })
+})
+
+describe('redis strategy cursor walks', () => {
+  let strategy: CacheStrategy
+  let urlCounter = 0
+
+  beforeEach(() => {
+    currentRedis = new FakeRedis()
+    urlCounter += 1
+    strategy = createRedisStrategy(`redis://cache-scan-test-${urlCounter}`)
+    // A regression to a blocking KEYS call must fail, even for tiny fixtures.
+    jest.spyOn(currentRedis, 'keys').mockRejectedValue(new Error('Use SCAN, not KEYS'))
+  })
+
+  afterEach(async () => {
+    await strategy.close?.()
+  })
+
+  it('continues after an empty page and returns duplicate scan keys only once', async () => {
+    currentRedis.scriptedScanPages.set('cache:*', [
+      ['17', []],
+      ['23', ['cache:alpha', 'cache:beta']],
+      ['0', ['cache:beta', 'cache:gamma']],
+    ])
+
+    expect(await strategy.keys()).toEqual(['alpha', 'beta', 'gamma'])
+    expect(currentRedis.scanCalls.map(({ cursor }) => cursor)).toEqual(['0', '17', '23'])
+    expect(currentRedis.scanCalls.every(({ count }) => count > 0)).toBe(true)
+  })
+
+  it('walks every page when filtering by a wildcard pattern', async () => {
+    for (const key of ['item:a', 'item:b', 'item:c', 'item:d', 'item:e', 'other:x']) {
+      await strategy.set(key, key)
+    }
+
+    expect(await strategy.keys('item:?')).toEqual(['item:a', 'item:b', 'item:c', 'item:d', 'item:e'])
+    expect(currentRedis.scanCalls).toHaveLength(3)
+    expect(currentRedis.scanCalls.every(({ pattern }) => pattern === 'cache:item:?')).toBe(true)
+  })
+
+  it('counts each scanned entry once in stats, including expired entries', async () => {
+    await strategy.set('live', { value: 1 }, { tags: ['shared'] })
+    await strategy.set('expired', { value: 2 }, { tags: ['shared'] })
+    const stored = JSON.parse(String(currentRedis.values.get('cache:expired')))
+    currentRedis.values.set('cache:expired', JSON.stringify({ ...stored, expiresAt: Date.now() - 1 }))
+    currentRedis.scriptedScanPages.set('cache:*', [
+      ['8', []],
+      ['11', ['cache:expired']],
+      ['0', ['cache:live', 'cache:expired']],
+    ])
+    const read = jest.spyOn(currentRedis, 'getBuffer')
+
+    expect(await strategy.stats()).toEqual({ size: 2, expired: 1 })
+    expect(read.mock.calls.filter(([key]) => key === 'cache:expired')).toHaveLength(1)
+    expect(currentRedis.scanCalls.map(({ cursor }) => cursor)).toEqual(['0', '8', '11'])
+  })
+
+  it('cleans expired and corrupt values across pages without losing live tag memberships', async () => {
+    await strategy.set('expired', { value: 1 }, { tags: ['shared'] })
+    await strategy.set('live', { value: 2 }, { tags: ['shared'] })
+    const stored = JSON.parse(String(currentRedis.values.get('cache:expired')))
+    currentRedis.values.set('cache:expired', JSON.stringify({ ...stored, expiresAt: Date.now() - 1 }))
+    currentRedis.values.set('cache:broken', '{invalid JSON')
+    currentRedis.values.set('unrelated:value', 'keep')
+    currentRedis.scriptedScanPages.set('cache:*', [
+      ['9', []],
+      ['21', ['cache:expired', 'cache:broken']],
+      ['0', ['cache:live', 'cache:broken']],
+    ])
+    const read = jest.spyOn(currentRedis, 'getBuffer')
+
+    expect(await strategy.cleanup?.()).toBe(2)
+    expect(await strategy.get('live')).toEqual({ value: 2 })
+    expect(currentRedis.values.has('cache:expired')).toBe(false)
+    expect(currentRedis.values.has('cache:broken')).toBe(false)
+    expect(currentRedis.values.get('unrelated:value')).toBe('keep')
+    expect(await currentRedis.smembers('tag:shared')).toEqual(['live'])
+    expect(read.mock.calls.filter(([key]) => key === 'cache:broken')).toHaveLength(1)
+    expect(currentRedis.scanCalls.map(({ cursor }) => cursor)).toEqual(['0', '9', '21'])
+  })
+
+  it('clears every cache and tag page, deduplicating keys and preserving other namespaces', async () => {
+    for (const key of ['one', 'two', 'three']) {
+      await strategy.set(key, key, { tags: [`group-${key}`] })
+    }
+    currentRedis.values.set('unrelated:value', 'keep')
+    currentRedis.sets.set('unrelated:set', new Set(['keep']))
+    currentRedis.scriptedScanPages.set('cache:*', [
+      ['7', []],
+      ['16', ['cache:one', 'cache:two']],
+      ['0', ['cache:two', 'cache:three']],
+    ])
+    currentRedis.scriptedScanPages.set('tag:*', [
+      ['2', ['tag:group-one']],
+      ['4', []],
+      ['0', ['tag:group-two', 'tag:group-three', 'tag:group-one']],
+    ])
+    const remove = jest.spyOn(currentRedis, 'del')
+
+    expect(await strategy.clear()).toBe(3)
+    expect([...currentRedis.values.keys()]).toEqual(['unrelated:value'])
+    expect([...currentRedis.sets.keys()]).toEqual(['unrelated:set'])
+    expect(remove.mock.calls.flat().filter((key) => key === 'cache:two')).toHaveLength(1)
+    expect(remove.mock.calls.flat().filter((key) => key === 'tag:group-one')).toHaveLength(1)
+    expect(currentRedis.scanCalls.filter(({ pattern }) => pattern === 'cache:*').map(({ cursor }) => cursor))
+      .toEqual(['0', '7', '16'])
+    expect(currentRedis.scanCalls.filter(({ pattern }) => pattern === 'tag:*').map(({ cursor }) => cursor))
+      .toEqual(['0', '2', '4'])
+  })
+})
+
 describe('redis strategy value compression', () => {
   let urlCounter = 0
   const largeValue = {
@@ -339,14 +892,17 @@ describe('redis strategy value compression', () => {
     await compressed.close?.()
   })
 
-  it('moves tag memberships when a compressed entry is overwritten', async () => {
+  it('lazily removes old tag memberships without invalidating a compressed overwrite', async () => {
     const strategy = createStrategy('zstd')
 
     await strategy.set('list', largeValue, { tags: ['old-tag'] })
     await strategy.set('list', largeValue, { tags: ['new-tag'] })
 
-    expect(await currentRedis.smembers('tag:old-tag')).toEqual([])
+    expect(await currentRedis.smembers('tag:old-tag')).toEqual(['list'])
     expect(await currentRedis.smembers('tag:new-tag')).toEqual(['list'])
+    expect(await strategy.deleteByTags(['old-tag'])).toBe(0)
+    expect(await strategy.get('list')).toEqual(largeValue)
+    expect(await currentRedis.smembers('tag:old-tag')).toEqual([])
     expect(await strategy.deleteByTags(['new-tag'])).toBe(1)
     expect(currentRedis.values.has('cache:list')).toBe(false)
     expect(await currentRedis.smembers('tag:new-tag')).toEqual([])

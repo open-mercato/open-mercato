@@ -16,6 +16,19 @@ export type SeedAddressField =
   | { address: string; name?: string }
   | Array<string | { address: string; name?: string }>;
 
+/**
+ * Version 1 of the attachment digest the test-seed adapter records for every
+ * attachment whose bytes it holds (read by the hub, or a `data:` URL). A later
+ * shape gets a new `version`.
+ */
+export type CapturedTestSeedAttachmentDigest = {
+  version: 1;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  sha256: string;
+};
+
 export type CapturedTestSeedEmail = {
   capturedAt: string;
   externalMessageId: string;
@@ -24,7 +37,9 @@ export type CapturedTestSeedEmail = {
     text?: string;
     html?: string;
     bodyFormat?: 'text' | 'markdown' | 'html';
+    /** The attachments handed to the adapter, recorded as before. Files the hub read from the attachments module carry bytes and no URL, so they appear only in `attachmentDigests`. */
     attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>;
+    attachmentDigests?: CapturedTestSeedAttachmentDigest[];
     raw?: Record<string, unknown>;
   };
   credentials: Record<string, unknown>;
@@ -109,6 +124,25 @@ export async function seedConnectedChannel(
   ).toBe(201);
   const body = await readJsonSafe<{ channelId?: string }>(response);
   return expectId(body?.channelId, 'connect-channel response should include channelId');
+}
+
+/**
+ * Disconnect a channel the caller owns through the real disconnect command. The
+ * row stays listed with `status: 'disconnected'` (a UI disconnect deletes it).
+ */
+export async function disconnectSeededChannel(
+  request: APIRequestContext,
+  token: string,
+  channelId: string,
+): Promise<void> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'disconnect-channel', channelId },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (disconnect-channel) should return 200',
+  ).toBe(200);
 }
 
 export async function seedSystemEmailChannel(

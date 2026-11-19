@@ -203,7 +203,7 @@ const startCommand: ModuleCli = {
         writeLine('')
         writeLine('BullMQ is managing all schedules.')
         writeLine('Start workers to process jobs:')
-        writeLine('  yarn mercato worker:start')
+        writeLine('  yarn mercato queue worker --all')
         writeLine('')
       } catch (error: unknown) {
         writeErrorLine(`❌ Failed to sync schedules: ${error instanceof Error ? error.message : String(error)}`)

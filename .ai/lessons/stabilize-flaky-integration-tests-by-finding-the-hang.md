@@ -2,7 +2,7 @@
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
 modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","data_sync","communication_channels","forms","security","documents","cart","catalog"]
 areas: ["integration","testing","backend-ui","module-data","debugging"]
-topics: ["events","testing","workers","hydration","component-overrides","timers"]
+topics: ["test-timeouts","testing","workers","hydration","component-overrides","timers"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
@@ -12,6 +12,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 **Queue observations**: Before recording a no-write baseline for a denied action, wait for the exact preceding authorized message to finish its asynchronous interaction projection; retain the full equality check after denial so legitimate earlier work cannot be mistaken for a forbidden write. The channel-reply trace also spent 31 seconds bootstrapping a redundant drain before a required 30-second negative observation in a 60-second test; reusing the configured workers preserves that entire observation window.
 
 **Negative queue assertions**: A 404 followed immediately by an unchanged footprint is insufficient when workers run asynchronously. Wait for the existing read-only pending probe to show the affected queues settled, including active handlers and delayed retries, before reading the full footprint. Resolve the probe against the actual app queue root and strategy, and fail on missing storage or probe errors; an empty directory under the test runner can otherwise make the barrier vacuous. A regression control should hold a real handler open and demonstrate that a late forbidden write still fails footprint equality.
+
+**Whole-test budget**: Playwright `beforeEach` and the test body share the configured timeout; relocating work into that hook does not reset the deadline. In `TC-CRM-recently-created-preset`, the trace charged ~5 seconds to the login helper’s redundant dashboard navigation before opening companies. Reuse the existing API-session/browser-cookie helper and navigate directly to the target page; retain the clock, boundary fixtures, screenshot, reload/editability assertions and global timeout. Verify saved work from the trace or actual navigation sequence, not a green retry alone.
 
 **Session and form readiness**: Give each authenticated role a separate browser context and establish its API session before opening a page; replacing cookies in a live admin document can race its session-refresh navigation. For the first controlled field, prove the application received an edit and blur through its required-validation state before filling the submitted values. A bounded local-state probe can repeat harmless edits while hydration is incomplete; keep one submit and every persistence assertion.
 
@@ -24,6 +26,10 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 `TC-LOCK-SALES-quote-session` used an order-only `surchargeTotalAmount` field to verify a quote fixture. The real adjustment command/calculator persisted the surcharge and advanced totals, but the quote DTO returned that field as null. Check the saved adjustment's surcharge kind and net/gross amounts together with the parent quote's net/gross total delta. A regression through the real REST mapping, command, calculator and DTO transform must reject negative, zero and wrong-kind fixtures; do not change a correct payload or relax the five-unit precondition.
 
 `TC-WC-023` failed after successfully receiving and quarantining a claim line because it required the emitted event to remain in the local queue file. The ephemeral harness runs queue workers concurrently, and the local strategy removes completed jobs, so queue residency was a race rather than durable evidence of emission. The stable assertion accepts either a still-queued job or the command's durable `line_received` quarantine timeline record.
+
+`TC-CHANNEL-REPLY-001` exhausted its 60-second budget by polling for an extra outbound delivery that the final assertion expected never to happen. After the reply command completes, draining the events queue and then the outbound queue provides the completion barrier: the event worker awaits enqueueing delivery, and the drain helper awaits handlers until no runnable jobs remain. Read the delivery total after that barrier and assert it stayed unchanged; retain positive-delivery polling to prove the real outbound path works.
+
+`TC-WF-006` found two Delete actions after scrolling and hovering opened multiple portaled row menus. A page-wide action locator does not identify the intended record. Scope the menu using the Edit link for the newly created definition's exact ID, then select Delete inside that menu; choosing the first matching Delete can remove another record.
 
 `TC-WC-040` inspected and received the last line of 101/200-line claims, then timed out opening vendor recovery. The failure screenshot showed the Actions menu closed. `ActionsDropdown` opens on hover and toggles on click, so a pointer click can immediately close the menu it just opened. Check `aria-expanded` before keyboard activation, assert the target menu item is visible, and activate it with the keyboard to avoid hover-driven toggles.
 
