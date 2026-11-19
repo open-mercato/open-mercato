@@ -198,9 +198,8 @@ export default async function handle(payload: MessageSentPayload, ctx: ResolverC
   const externalEmail = payload.externalEmail?.trim()
   if (externalEmail && !(await isChannelRoutedMessage(payload, ctx))) {
     await emailQueue.enqueue({
-      type: 'external',
+      type: 'external_participants',
       messageId: payload.messageId,
-      email: externalEmail,
       tenantId: payload.tenantId,
       organizationId: payload.organizationId ?? null,
     })

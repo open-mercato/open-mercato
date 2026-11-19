@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { sendEmail, type EmailSendResult } from '@open-mercato/shared/lib/email/send'
 import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
@@ -194,12 +194,13 @@ export async function sendMessageEmailToRecipient(params: {
 
 export async function sendMessageEmailToExternal(params: {
   message: Message
-  email: string
+  email: string | string[]
+  sendSeparately?: boolean
   sender: SenderIdentity
   objects: MessageObject[]
   attachments: MessageEmailAttachment[]
-}): Promise<void> {
-  const { message, email, sender, objects, attachments } = params
+}): Promise<EmailSendResult> {
+  const { message, email, sendSeparately, sender, objects, attachments } = params
   const copy = await buildEmailCopy(message.sentAt ?? new Date())
   const bodyHtml = await buildEmailBodyHtml(message)
   const emailAttachments = await mapAttachmentsForEmail(message.id, attachments)
@@ -210,8 +211,9 @@ export async function sendMessageEmailToExternal(params: {
     from: resolveDefaultEmailFromAddress() ?? null,
   })
 
-  await sendEmail({
+  const result = await sendEmail({
     to: email,
+    sendSeparately,
     subject: message.subject,
     react: MessageEmail({
       subject: message.subject,
@@ -232,4 +234,5 @@ export async function sendMessageEmailToExternal(params: {
     messageId: message.id,
     email,
   })
+  return result
 }

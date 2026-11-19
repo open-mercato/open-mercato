@@ -495,6 +495,56 @@ describe('sendSystemEmail', () => {
     })
   })
 
+  describe('multiple recipients', () => {
+    const payload = {
+      to: 'a@example.com',
+      recipients: ['a@example.com', 'b@example.com'],
+      subject: 'Hello',
+      from: 'from@example.com',
+      text: 'Hello',
+    }
+
+    it('passes every recipient to the adapter and reports all accepted', async () => {
+      const convertOutbound = jest.fn().mockResolvedValue({ content: { text: 'Hello', bodyFormat: 'text' }, metadata: {} })
+      const sendMessage = jest.fn().mockResolvedValue({ externalMessageId: 'email-1', status: 'sent' })
+      const container = buildContainer({ fork: {}, sendMessage, credentials: null, convertOutbound })
+
+      await expect(sendSystemEmail(container as never, payload)).resolves.toEqual({
+        accepted: ['a@example.com', 'b@example.com'],
+        rejected: [],
+      })
+      expect(convertOutbound).toHaveBeenCalledWith(expect.objectContaining({
+        channelMetadata: expect.objectContaining({ to: ['a@example.com', 'b@example.com'] }),
+      }))
+    })
+
+    it('returns the accepted and rejected split on a partial rejection', async () => {
+      const sendMessage = jest.fn().mockResolvedValue({
+        externalMessageId: 'email-1',
+        status: 'failed',
+        error: 'SMTP_SEND_PARTIALLY_REJECTED: relay rejected B@example.com',
+        metadata: { accepted: ['a@example.com'], rejected: ['B@example.com'] },
+      })
+      const container = buildContainer({ fork: {}, sendMessage, credentials: null })
+
+      await expect(sendSystemEmail(container as never, payload)).resolves.toEqual({
+        accepted: ['a@example.com'],
+        rejected: [{ address: 'b@example.com', error: 'SMTP_SEND_PARTIALLY_REJECTED: relay rejected B@example.com' }],
+      })
+    })
+
+    it('still throws when the adapter accepted nobody', async () => {
+      const sendMessage = jest.fn().mockResolvedValue({
+        externalMessageId: '',
+        status: 'failed',
+        error: 'SMTP_SEND_FAILED: down',
+      })
+      const container = buildContainer({ fork: {}, sendMessage, credentials: null })
+
+      await expect(sendSystemEmail(container as never, payload)).rejects.toThrow('SMTP_SEND_FAILED: down')
+    })
+  })
+
   it('reports unknown and disabled providers as unconfigured', () => {
     process.env.SYSTEM_EMAIL_PROVIDER = 'unknown-email-provider'
     expect(isSystemEmailTransportConfigured()).toBe(false)

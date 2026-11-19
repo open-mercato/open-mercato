@@ -117,6 +117,8 @@ const composeMessageBaseSchema = z.object({
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
   externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  /** Deliver one email per external address so recipients do not see each other. */
+  sendSeparately: z.boolean().optional(),
   /**
    * Additional external addressees with their role. Server-only: set by
    * channel ingest (extra inbound To/CC) and mailbox sends; the HTTP route

@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import type { ResolvedEmailPayload } from '@open-mercato/shared/lib/email/send'
+import type { EmailSendResult, ResolvedEmailPayload } from '@open-mercato/shared/lib/email/send'
 import { normalizeEnvString } from '@open-mercato/shared/lib/email/config'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -269,10 +269,16 @@ function resolveOutboundFromAddress(
   return typeof configured === 'string' && configured.trim().length > 0 ? configured : payload.from
 }
 
+function readRejectedAddresses(metadata: Record<string, unknown> | undefined): string[] {
+  const rejected = metadata?.rejected
+  if (!Array.isArray(rejected)) return []
+  return rejected.filter((entry): entry is string => typeof entry === 'string')
+}
+
 export async function sendSystemEmail(
   container: AppContainer,
   payload: ResolvedEmailPayload,
-): Promise<void> {
+): Promise<EmailSendResult> {
   const em = (container.resolve('em') as EntityManager).fork()
   const { channel, hasTenantChannel } = await resolveSystemEmailChannel(em, payload)
   const registry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
@@ -292,7 +298,7 @@ export async function sendSystemEmail(
     body: body.body,
     bodyFormat: body.bodyFormat,
     channelMetadata: {
-      to: payload.to,
+      to: payload.recipients ?? payload.to,
       subject: payload.subject,
       from: resolveOutboundFromAddress(payload, credentials),
       replyTo: payload.replyTo,
@@ -310,7 +316,17 @@ export async function sendSystemEmail(
     metadata: converted.metadata,
   })
 
-  if (sendResult.status === 'failed') {
-    throw new Error(sendResult.error ?? `SYSTEM_EMAIL_SEND_FAILED: ${channel.providerKey}`)
+  const recipients = payload.recipients ?? [payload.to]
+  if (sendResult.status !== 'failed') return { accepted: recipients, rejected: [] }
+
+  const error = sendResult.error ?? `SYSTEM_EMAIL_SEND_FAILED: ${channel.providerKey}`
+  const rejectedKeys = new Set(readRejectedAddresses(sendResult.metadata).map((address) => address.toLowerCase()))
+  const accepted = recipients.filter((address) => !rejectedKeys.has(address.toLowerCase()))
+  if (rejectedKeys.size === 0 || accepted.length === 0) throw new Error(error)
+  return {
+    accepted,
+    rejected: recipients
+      .filter((address) => rejectedKeys.has(address.toLowerCase()))
+      .map((address) => ({ address, error })),
   }
 }

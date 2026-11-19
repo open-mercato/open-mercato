@@ -25,6 +25,8 @@ function buildParams(overrides: Partial<Parameters<typeof useComposeSendOperatio
     priority: 'normal' as const,
     visibility: 'internal' as const,
     externalEmail: '',
+    externalEmails: [] as string[],
+    sendSeparately: false,
     recipientIds: ['user-1'],
     subject: 'Subject',
     body: 'Body',
@@ -71,5 +73,34 @@ describe('useComposeSendOperation payload sendViaEmail', () => {
 
     const request = result.current.buildRequest({ attachmentIds: [] })
     expect(request.payload.sendViaEmail).toBe(false)
+  })
+})
+
+describe('useComposeSendOperation external addresses', () => {
+  it('sends every external address and the send-separately flag for a public message', () => {
+    const { result } = renderHook(() =>
+      useComposeSendOperation(
+        buildParams({
+          visibility: 'public',
+          externalEmail: 'a@example.com',
+          externalEmails: ['a@example.com', 'b@example.com'],
+          sendSeparately: true,
+        }),
+      ),
+    )
+
+    expect(result.current.validate()).toBeNull()
+    const { payload } = result.current.buildRequest({ attachmentIds: [] })
+    expect(payload.externalEmails).toEqual(['a@example.com', 'b@example.com'])
+    expect(payload.sendSeparately).toBe(true)
+    expect(payload).not.toHaveProperty('externalEmail')
+  })
+
+  it('rejects a public message without any valid external address', () => {
+    const { result } = renderHook(() =>
+      useComposeSendOperation(buildParams({ visibility: 'public', externalEmails: [] })),
+    )
+
+    expect(result.current.validate()).toBe('Please enter a valid external email.')
   })
 })

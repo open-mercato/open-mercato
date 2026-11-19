@@ -1,9 +1,12 @@
-import type { ResolvedEmailPayload } from './send'
+import type { EmailSendResult, ResolvedEmailPayload } from './send'
 
 export type EmailTransport = {
   id: string
-  send: (payload: ResolvedEmailPayload) => Promise<void>
+  /** Resolving with `void` means every recipient was accepted. */
+  send: (payload: ResolvedEmailPayload) => Promise<void | EmailSendResult>
   isConfigured?: () => boolean
+  /** When true, a joint multi-recipient send arrives as one call carrying `payload.recipients`. */
+  supportsMultipleRecipients?: boolean
 }
 
 const EMAIL_TRANSPORT_REGISTRY = Symbol.for('open-mercato.email.transport')

@@ -104,6 +104,10 @@ export type UseMessageComposeResult = {
   setVisibility: React.Dispatch<React.SetStateAction<'public' | 'internal'>>
   externalEmail: string
   setExternalEmail: React.Dispatch<React.SetStateAction<string>>
+  externalEmails: string[]
+  setExternalEmails: React.Dispatch<React.SetStateAction<string[]>>
+  sendSeparately: boolean
+  setSendSeparately: React.Dispatch<React.SetStateAction<boolean>>
   senderOptions: MessageSenderOption[]
   senderChannelId: string
   setSenderChannelId: React.Dispatch<React.SetStateAction<string>>
@@ -168,7 +172,15 @@ export function useMessageCompose({
   const [bodyFormat, setBodyFormat] = React.useState<'text' | 'markdown'>('text')
   const [priority, setPriority] = React.useState<MessagePriority>('normal')
   const [visibility, setVisibility] = React.useState<'public' | 'internal'>('internal')
-  const [externalEmail, setExternalEmail] = React.useState('')
+  const [externalEmails, setExternalEmails] = React.useState<string[]>([])
+  const [sendSeparately, setSendSeparately] = React.useState(false)
+  const externalEmail = externalEmails[0] ?? ''
+  const setExternalEmail = React.useCallback<React.Dispatch<React.SetStateAction<string>>>((value) => {
+    setExternalEmails((current) => {
+      const next = (typeof value === 'function' ? value(current[0] ?? '') : value).trim()
+      return next ? [next] : []
+    })
+  }, [])
   const [attachmentIds, setAttachmentIds] = React.useState<string[]>([])
   const [sendViaEmail, setSendViaEmail] = React.useState(false)
   const [contextActionRequired, setContextActionRequired] = React.useState(false)
@@ -301,7 +313,8 @@ export function useMessageCompose({
     setBodyFormat(defaultValues?.bodyFormat ?? 'text')
     setPriority(defaultValues?.priority ?? 'normal')
     setVisibility(defaultValues?.visibility ?? 'internal')
-    setExternalEmail(defaultValues?.externalEmail ?? '')
+    setExternalEmails(defaultValues?.externalEmail ? [defaultValues.externalEmail] : [])
+    setSendSeparately(false)
     setAttachmentIds(
       Array.isArray(defaultValues?.attachmentIds)
         ? defaultValues.attachmentIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
@@ -536,6 +549,8 @@ export function useMessageCompose({
     priority,
     visibility,
     externalEmail,
+    externalEmails,
+    sendSeparately,
     recipientIds,
     subject,
     body,
@@ -850,6 +865,10 @@ export function useMessageCompose({
     setVisibility,
     externalEmail,
     setExternalEmail,
+    externalEmails,
+    setExternalEmails,
+    sendSeparately,
+    setSendSeparately,
     senderOptions: resolvedSenderOptions,
     senderChannelId: effectiveSenderChannelId,
     setSenderChannelId,

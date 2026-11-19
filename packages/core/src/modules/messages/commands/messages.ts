@@ -339,6 +339,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         sourceEntityId: input.sourceEntityId,
         externalEmail: externalAddressing.externalEmail,
         externalName: input.externalName,
+        emailSendSeparately: input.sendSeparately ?? false,
         threadId: threadId ?? undefined,
         parentMessageId: input.parentMessageId,
         senderUserId: input.userId,

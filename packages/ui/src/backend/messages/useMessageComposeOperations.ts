@@ -34,6 +34,8 @@ type ComposeOperationParams = {
   priority: MessagePriority
   visibility: 'public' | 'internal'
   externalEmail: string
+  externalEmails: string[]
+  sendSeparately: boolean
   recipientIds: string[]
   subject: string
   body: string
@@ -72,10 +74,10 @@ type ForwardOperationParams = {
   sendViaEmail: boolean
 }
 
-type DraftOperationParams = Omit<ComposeOperationParams, 'createableMessageTypes'>
+type DraftOperationParams = Omit<ComposeOperationParams, 'createableMessageTypes' | 'externalEmails' | 'sendSeparately'>
   & { messageId?: string }
 
-function isValidEmailAddress(value: string): boolean {
+export function isValidEmailAddress(value: string): boolean {
   const email = value.trim()
   if (!email || email.length > 254) return false
 
@@ -161,7 +163,10 @@ export function useComposeSendOperation(params: ComposeOperationParams): BaseOpe
       if (params.visibility !== 'public' && params.recipientIds.length === 0) {
         return params.t('messages.errors.noRecipients', 'Please add at least one recipient.')
       }
-      if (params.visibility === 'public' && !isValidEmailAddress(params.externalEmail.trim())) {
+      if (
+        params.visibility === 'public'
+        && (params.externalEmails.length === 0 || !params.externalEmails.every(isValidEmailAddress))
+      ) {
         return params.t('messages.errors.noExternalEmail', 'Please enter a valid external email.')
       }
       if (!params.subject.trim()) {
@@ -190,11 +195,16 @@ export function useComposeSendOperation(params: ComposeOperationParams): BaseOpe
       }
       return null
     },
-    buildRequest: ({ attachmentIds }) => ({
-      endpoint: '/api/messages',
-      method: 'POST',
-      payload: buildComposePayload(params, { attachmentIds, isDraft: false }),
-    }),
+    buildRequest: ({ attachmentIds }) => {
+      const { externalEmail: _singleAddress, ...payload } = buildComposePayload(params, { attachmentIds, isDraft: false })
+      return {
+        endpoint: '/api/messages',
+        method: 'POST',
+        payload: params.visibility === 'public'
+          ? { ...payload, externalEmails: params.externalEmails, sendSeparately: params.sendSeparately }
+          : payload,
+      }
+    },
     successMessage: params.t('messages.flash.sentSuccess', 'Message sent.'),
     requiresAttachmentRefresh: true,
   }), [params])

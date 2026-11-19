@@ -1,8 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { EmailSendResult } from '@open-mercato/shared/lib/email/send'
 import { User } from '../../auth/data/entities'
-import { Message, MessageObject, MessageRecipient } from '../data/entities'
+import {
+  Message,
+  MessageExternalParticipant,
+  MessageObject,
+  MessageRecipient,
+  type ExternalParticipantRole,
+} from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import { getMessageEmailAttachments } from '../lib/attachments'
 import {
@@ -31,7 +38,19 @@ export type SendMessageEmailToExternalJob = {
   organizationId?: string | null
 }
 
-export type SendMessageEmailJob = SendMessageEmailToRecipientJob | SendMessageEmailToExternalJob
+export type SendMessageEmailToExternalParticipantsJob = {
+  type: 'external_participants'
+  messageId: string
+  tenantId: string
+  organizationId?: string | null
+}
+
+export type SendMessageEmailJob =
+  | SendMessageEmailToRecipientJob
+  | SendMessageEmailToExternalJob
+  | SendMessageEmailToExternalParticipantsJob
+
+const EXTERNAL_PARTICIPANT_CLAIM_LOCK_MS = 15 * 60 * 1000
 
 export const metadata: WorkerMeta = {
   queue: MESSAGES_EMAIL_QUEUE_NAME,
@@ -51,6 +70,8 @@ async function emitEmailDeliveryEvent(
     target: 'recipient' | 'external'
     recipientUserId?: string
     email?: string
+    participantId?: string
+    role?: ExternalParticipantRole
     error?: string
     tenantId: string
     organizationId?: string | null
@@ -185,6 +206,227 @@ export async function releaseExternalClaim(
   )
 }
 
+function participantClaimScope(payload: SendMessageEmailToExternalParticipantsJob) {
+  return {
+    messageId: payload.messageId,
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId ?? null,
+    role: 'to' as const,
+    deliveryStatus: 'pending' as const,
+  }
+}
+
+/**
+ * Claims the message's due `pending` "to" participants by pushing their `next_attempt_at`
+ * past a lock window; the returned timestamp identifies the rows this worker owns.
+ */
+export async function claimExternalParticipants(
+  em: EntityManager,
+  payload: SendMessageEmailToExternalParticipantsJob,
+): Promise<Date | null> {
+  const now = new Date()
+  const claimUntil = new Date(now.getTime() + EXTERNAL_PARTICIPANT_CLAIM_LOCK_MS)
+  const updatedRows = await em.nativeUpdate(
+    MessageExternalParticipant,
+    {
+      ...participantClaimScope(payload),
+      $or: [{ nextAttemptAt: null }, { nextAttemptAt: { $lte: now } }],
+    },
+    { nextAttemptAt: claimUntil },
+  )
+  return updatedRows > 0 ? claimUntil : null
+}
+
+export async function releaseExternalParticipantsClaim(
+  em: EntityManager,
+  payload: SendMessageEmailToExternalParticipantsJob,
+  claimUntil: Date,
+  errorMessage: string,
+): Promise<void> {
+  await em.nativeUpdate(
+    MessageExternalParticipant,
+    { ...participantClaimScope(payload), nextAttemptAt: claimUntil },
+    { nextAttemptAt: null, deliveryError: errorMessage },
+  )
+}
+
+export async function recordExternalParticipantResults(
+  em: EntityManager,
+  payload: SendMessageEmailToExternalParticipantsJob,
+  claimUntil: Date,
+  participants: MessageExternalParticipant[],
+  result: EmailSendResult,
+): Promise<{ sent: MessageExternalParticipant[]; failed: Array<{ participant: MessageExternalParticipant; error: string }> }> {
+  const owned = { ...participantClaimScope(payload), nextAttemptAt: claimUntil }
+  const acceptedKeys = new Set(result.accepted.map((address) => address.toLowerCase()))
+  const rejectedErrors = new Map(result.rejected.map((entry) => [entry.address.toLowerCase(), entry.error]))
+  const sent = participants.filter((participant) => acceptedKeys.has(participant.email.toLowerCase()))
+  const failed = participants.flatMap((participant) => {
+    const error = rejectedErrors.get(participant.email.toLowerCase())
+    return error !== undefined && !acceptedKeys.has(participant.email.toLowerCase()) ? [{ participant, error }] : []
+  })
+
+  if (sent.length > 0) {
+    await em.nativeUpdate(
+      MessageExternalParticipant,
+      { ...owned, id: { $in: sent.map((participant) => participant.id) } },
+      { deliveryStatus: 'sent', sentAt: new Date(), nextAttemptAt: null, deliveryError: null },
+    )
+  }
+  for (const { participant, error } of failed) {
+    await em.nativeUpdate(
+      MessageExternalParticipant,
+      { ...owned, id: participant.id },
+      { deliveryStatus: 'failed', deliveryError: error, nextAttemptAt: null },
+    )
+  }
+  await em.nativeUpdate(MessageExternalParticipant, owned, { nextAttemptAt: null })
+  return { sent, failed }
+}
+
+async function updateExternalDeliverySummary(
+  em: EntityManager,
+  payload: SendMessageEmailToExternalParticipantsJob,
+  outcome: { sentAt: Date } | { error: string },
+): Promise<void> {
+  await em.nativeUpdate(
+    Message,
+    {
+      id: payload.messageId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+      externalEmailSentAt: null,
+    },
+    'sentAt' in outcome
+      ? { externalEmailSentAt: outcome.sentAt, externalEmailFailedAt: null, externalEmailError: null }
+      : { externalEmailFailedAt: new Date(), externalEmailError: outcome.error },
+  )
+}
+
+type ExternalDeliveryContext = {
+  sender: { name: string | null; email: string | null }
+  objects: MessageObject[]
+  attachments: Awaited<ReturnType<typeof getMessageEmailAttachments>>
+}
+
+async function deliverToExternalEmail(
+  em: EntityManager,
+  ctx: HandlerContext,
+  message: Message,
+  payload: SendMessageEmailToExternalJob,
+  delivery: ExternalDeliveryContext,
+): Promise<void> {
+  const externalClaimTimestamp = await claimExternalDelivery(em, payload)
+  if (!externalClaimTimestamp) {
+    return
+  }
+
+  try {
+    await sendMessageEmailToExternal({
+      message,
+      email: payload.email,
+      ...delivery,
+    })
+    await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', {
+      messageId: message.id,
+      target: 'external',
+      email: payload.email,
+      recipientUserId: message.senderUserId,
+      tenantId: message.tenantId,
+      organizationId: message.organizationId ?? null,
+    })
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    await releaseExternalClaim(
+      em,
+      payload,
+      externalClaimTimestamp,
+      errorMessage,
+    )
+    await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', {
+      messageId: message.id,
+      target: 'external',
+      email: payload.email,
+      error: errorMessage,
+      recipientUserId: message.senderUserId,
+      tenantId: message.tenantId,
+      organizationId: message.organizationId ?? null,
+    })
+    logger.error('External email send failed', { err: error })
+  }
+}
+
+async function deliverToExternalParticipants(
+  em: EntityManager,
+  ctx: HandlerContext,
+  message: Message,
+  payload: SendMessageEmailToExternalParticipantsJob,
+  delivery: ExternalDeliveryContext,
+): Promise<void> {
+  const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null }
+  const claimUntil = await claimExternalParticipants(em, payload)
+  if (!claimUntil) {
+    // Messages without participant rows (drafts sent later, replies, pre-upgrade rows) keep the single-address path.
+    const participantCount = await em.count(MessageExternalParticipant, { messageId: message.id, ...scope })
+    const externalEmail = message.externalEmail?.trim()
+    if (participantCount === 0 && externalEmail) {
+      await deliverToExternalEmail(em, ctx, message, { ...payload, type: 'external', email: externalEmail }, delivery)
+    }
+    return
+  }
+
+  const participants = await findWithDecryption(
+    em,
+    MessageExternalParticipant,
+    { ...participantClaimScope(payload), nextAttemptAt: claimUntil },
+    { orderBy: { createdAt: 'asc' } },
+    scope,
+  )
+  if (participants.length === 0) return
+
+  const eventBase = {
+    messageId: message.id,
+    target: 'external' as const,
+    recipientUserId: message.senderUserId,
+    tenantId: message.tenantId,
+    organizationId: message.organizationId ?? null,
+  }
+  const participantEventFields = (participant: MessageExternalParticipant) => ({
+    participantId: participant.id,
+    email: participant.email,
+    role: participant.role,
+  })
+
+  try {
+    const result = await sendMessageEmailToExternal({
+      message,
+      email: participants.map((participant) => participant.email),
+      sendSeparately: message.emailSendSeparately,
+      ...delivery,
+    })
+    const { sent, failed } = await recordExternalParticipantResults(em, payload, claimUntil, participants, result)
+    if (sent.length > 0) await updateExternalDeliverySummary(em, payload, { sentAt: new Date() })
+    for (const participant of sent) {
+      await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', { ...eventBase, ...participantEventFields(participant) })
+    }
+    for (const { participant, error } of failed) {
+      await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', { ...eventBase, ...participantEventFields(participant), error })
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    await releaseExternalParticipantsClaim(em, payload, claimUntil, errorMessage)
+    await updateExternalDeliverySummary(em, payload, { error: errorMessage })
+    for (const participant of participants) {
+      await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', {
+        ...eventBase,
+        ...participantEventFields(participant),
+        error: errorMessage,
+      })
+    }
+    logger.error('External participants email send failed', { err: error })
+  }
+}
+
 export default async function handle(
   job: QueuedJob<SendMessageEmailJob>,
   ctx: JobContext & HandlerContext
@@ -207,47 +449,13 @@ export default async function handle(
   )
   const sender = await resolveSender(em, message)
 
+  const delivery = { sender, objects, attachments }
   if (payload.type === 'external') {
-    const externalClaimTimestamp = await claimExternalDelivery(em, payload)
-    if (!externalClaimTimestamp) {
-      return
-    }
-
-    try {
-      await sendMessageEmailToExternal({
-        message,
-        email: payload.email,
-        sender,
-        objects,
-        attachments,
-      })
-      await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', {
-        messageId: message.id,
-        target: 'external',
-        email: payload.email,
-        recipientUserId: message.senderUserId,
-        tenantId: message.tenantId,
-        organizationId: message.organizationId ?? null,
-      })
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      await releaseExternalClaim(
-        em,
-        payload,
-        externalClaimTimestamp,
-        errorMessage,
-      )
-      await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', {
-        messageId: message.id,
-        target: 'external',
-        email: payload.email,
-        error: errorMessage,
-        recipientUserId: message.senderUserId,
-        tenantId: message.tenantId,
-        organizationId: message.organizationId ?? null,
-      })
-      logger.error('External email send failed', { err: error })
-    }
+    await deliverToExternalEmail(em, ctx, message, payload, delivery)
+    return
+  }
+  if (payload.type === 'external_participants') {
+    await deliverToExternalParticipants(em, ctx, message, payload, delivery)
     return
   }
 

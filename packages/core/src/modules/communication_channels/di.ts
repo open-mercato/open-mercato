@@ -26,6 +26,7 @@ export function register(container: AppContainer) {
     id: 'communication_channels',
     send: (payload) => sendSystemEmail(container, payload),
     isConfigured: isSystemEmailTransportConfigured,
+    supportsMultipleRecipients: true,
   })
 
   container.register({

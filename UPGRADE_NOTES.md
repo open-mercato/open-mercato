@@ -103,6 +103,20 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### `sendEmail` accepts multiple recipients and returns a delivery result
+
+`sendEmail()` from `@open-mercato/shared/lib/email/send` now accepts `to: string | string[]` and
+`sendSeparately?: boolean`, and resolves with `EmailSendResult` (`{ accepted, rejected, retryAt? }`)
+instead of `void`. Existing callers that pass one address and ignore the result are unaffected; it
+still throws when no address was accepted.
+
+**Custom `EmailTransport` authors:** nothing is required. `ResolvedEmailPayload.to` stays a single
+string, and `sendSeparately` makes one `send()` call per address. A joint send to more than one
+address throws `EMAIL_TRANSPORT_MULTI_RECIPIENT_UNSUPPORTED` unless the transport sets
+`supportsMultipleRecipients: true`; such a transport receives every address in
+`payload.recipients` (`payload.to` is the first). `send()` may now return an `EmailSendResult` to
+report a partial rejection; returning `void` still means every address was accepted.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

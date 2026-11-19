@@ -8,6 +8,8 @@ export type IntegrationRole = 'admin' | 'employee' | 'superadmin';
 export type ComposeMessagePayload = {
   visibility?: 'public' | 'internal';
   externalEmail?: string;
+  externalEmails?: string[];
+  sendSeparately?: boolean;
   externalName?: string;
   recipients: Array<{ userId: string; type?: 'to' | 'cc' | 'bcc' }>;
   subject: string;
