@@ -290,7 +290,9 @@ An MCP agent tool call returns:
 
 #### Read-only by default
 
-On the `mcp` and `tools-api` channels the agent runs read-only: its mutation tools are stripped, whatever the agent's own `mutationPolicy` says. The exception is `OM_MCP_MUTATION_MODE=approval`: the agent keeps its own `mutationPolicy`, and its writes are queued as pending actions exactly like other [mutation tools](#mutation-modes) (the result lists the `pendingActionIds`). `direct` and `deny` never enable agent writes.
+On the `mcp` and `tools-api` channels the agent runs read-only: its mutation tools are stripped, whatever the agent's own `mutationPolicy` says. The exception is `OM_MCP_MUTATION_MODE=approval`: the agent keeps its own `mutationPolicy`, and every write it makes is queued as a pending action exactly like other [mutation tools](#mutation-modes) (the result lists the `pendingActionIds`). That includes the non-destructive writes of a `destructive-confirm-required` agent, which run directly only in chat. `direct` and `deny` never enable agent writes.
+
+Tools the agent calls see the caller's channel, mutation mode, API key id and correlation id. An agent tool nested inside another agent therefore follows the same channel rule, and tools that resolve their own principal (`search.*`, the document-section tools) run as the API key when the call came in with one, the same as a direct call to that tool.
 
 #### Availability and errors
 
@@ -474,7 +476,7 @@ In `approval` mode:
 - Repeating an identical call while its row is still `pending` returns the same row. Once the row was approved, rejected, failed or expired, the same call queues a new row.
 - Pending rows expire after `OM_MCP_PENDING_ACTION_TTL_SECONDS` (default `86400`, 24 hours). Chat-created rows keep `AI_PENDING_ACTION_TTL_SECONDS`.
 - The Code Mode `execute` tool is **not available** in `approval` mode. Its code runs arbitrary `api.request()` calls with the caller's credentials, which an approved execution does not have, so it cannot be queued meaningfully. It is hidden from `tools/list`, and a call on MCP or `/tools/execute` returns `MUTATION_REQUIRES_APPROVAL` with the message that `execute` is not available in approval mode. Tool authors mark such tools with `mcp: { approvalMode: 'refuse' }`. Use typed module tools (which queue normally) for writes, or `search` plus a read-only flow.
-- Agent tools on MCP keep their agent's own `mutationPolicy` in `approval` mode (their writes are queued the same way and the tool result lists the `pendingActionIds`). In `direct` and `deny` modes agent tools are downgraded to read-only.
+- Agent tools on MCP keep their agent's own `mutationPolicy` in `approval` mode, but every write is queued, including the non-destructive writes of a `destructive-confirm-required` agent (the tool result lists the `pendingActionIds`). In `direct` and `deny` modes agent tools are downgraded to read-only.
 
 ### Approving pending actions
 
