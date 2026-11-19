@@ -1681,7 +1681,7 @@ const createProductCommand: CommandHandler<
       requiresShipping: parsed.requiresShipping ?? true,
       isQuoteOnly: parsed.isQuoteOnly ?? false,
       omnibusExempt: parsed.omnibusExempt ?? false,
-      firstListedAt: parsed.firstListedAt ?? now,
+      firstListedAt: parsed.firstListedAt === undefined ? now : parsed.firstListedAt,
       seoTitle: parsed.seoTitle ?? null,
       seoDescription: parsed.seoDescription ?? null,
       canonicalUrl: parsed.canonicalUrl ?? null,

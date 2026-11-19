@@ -408,6 +408,8 @@ async function runCampaignGroup(
         SELECT h.id, h.recorded_at FROM catalog_price_history_entries h
         WHERE h.tenant_id = w.tenant_id
           AND h.organization_id = w.organization_id
+          AND ${scopeRef} = w.scope_id
+          ${scopeLevelClause}
           AND h.offer_id = w.offer_id
           ${channelClause}
           AND h.price_kind_id = w.price_kind_id

@@ -18,6 +18,34 @@ describe('catalog.products.create', () => {
     jest.resetModules()
   })
 
+  it.each([null, undefined])('preserves firstListedAt %s during creation', async (firstListedAt) => {
+    let createCommand: unknown
+    jest.isolateModules(() => {
+      require('../products')
+      createCommand = registerCommand.mock.calls.find(([command]) => command.id === 'catalog.products.create')?.[0]
+    })
+    const stopAfterCreate = new Error('stop after create')
+    const create = jest.fn((_entity: unknown, _payload: Record<string, unknown>) => {
+      throw stopAfterCreate
+    })
+    const em = { create, fork: jest.fn() }
+    em.fork.mockReturnValue(em)
+    const organizationId = '22222222-2222-4222-8222-222222222222'
+    const tenantId = '33333333-3333-4333-8333-333333333333'
+    const context = {
+      container: { resolve: jest.fn(() => em) },
+      auth: { tenantId, orgId: organizationId },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+    const command = createCommand as { execute: (input: Record<string, unknown>, ctx: unknown) => Promise<unknown> }
+
+    await expect(command.execute({ title: 'Product', organizationId, tenantId, firstListedAt }, context)).rejects.toBe(stopAfterCreate)
+    const payload = create.mock.calls[0][1]
+    expect(payload.firstListedAt).toEqual(firstListedAt === undefined ? payload.createdAt : null)
+  })
+
   it('invalidates the offers list cache alias on create so a stale offers list is not served after the write (#7721)', async () => {
     let createCommand: any
     jest.isolateModules(() => {

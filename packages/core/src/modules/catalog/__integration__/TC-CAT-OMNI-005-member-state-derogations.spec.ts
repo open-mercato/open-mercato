@@ -69,6 +69,8 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
     let productId: string | null = null;
     let priceKindId: string | null = null;
     let priceId: string | null = null;
+    let unlistedProductId: string | null = null;
+    let unlistedPriceId: string | null = null;
     try {
       actor = await createOmnibusTenantActor(request, superadminToken, stamp, ACTOR_FEATURES);
       const token = actor.token;
@@ -194,8 +196,47 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
         lookbackDays: 30,
         lowestPriceGross: '95.0000',
       });
+
+      unlistedProductId = await createOmnibusProductFixture(request, token, `${stamp}-unlisted`, null);
+      expect((await readProduct(request, token, unlistedProductId))?.first_listed_at).toBeNull();
+      unlistedPriceId = await createPriceFixture(request, token, {
+        productId: unlistedProductId,
+        priceKindId,
+        channelId,
+        unitPriceNet: 97.561,
+        unitPriceGross: 120,
+      });
+      const unlistedRow = { ...baseRow, productId: unlistedProductId, priceId: unlistedPriceId };
+      await insertPriceHistoryRows([
+        { ...unlistedRow, unitPriceNet: '89.4309', unitPriceGross: '110.0000', recordedAt: new Date(now - 40 * DAY_MS), changeType: 'create' },
+        { ...unlistedRow, unitPriceNet: '77.2358', unitPriceGross: '95.0000', recordedAt: new Date(now - 20 * DAY_MS), changeType: 'update' },
+        { ...unlistedRow, unitPriceNet: '97.5610', unitPriceGross: '120.0000', recordedAt: new Date(now - 10 * DAY_MS), changeType: 'update' },
+      ]);
+      const unlistedPromotion = await apiRequest(request, 'PUT', PRICES_PATH, {
+        token,
+        data: {
+          id: unlistedPriceId,
+          productId: unlistedProductId,
+          priceKindId,
+          currencyCode: 'EUR',
+          channelId,
+          unitPriceNet: 65.0407,
+          unitPriceGross: 80,
+          startsAt: promotionStartsAt,
+        },
+      });
+      expect(unlistedPromotion.status(), await unlistedPromotion.text()).toBe(200);
+      const unlistedPreview = await fetchOmnibusPreview(request, token, { ...previewQuery, productId: unlistedProductId });
+      expect(unlistedPreview.status, unlistedPreview.text).toBe(200);
+      expect(unlistedPreview.body).toMatchObject({
+        applicabilityReason: 'announced_promotion',
+        lookbackDays: 30,
+        lowestPriceGross: '95.0000',
+      });
     } finally {
       if (actor) {
+        await deleteEntityIfExists(request, actor.token, PRICES_PATH, unlistedPriceId);
+        await deleteEntityIfExists(request, actor.token, PRODUCTS_PATH, unlistedProductId);
         await deleteEntityIfExists(request, actor.token, PRICES_PATH, priceId);
         await deleteEntityIfExists(request, actor.token, PRODUCTS_PATH, productId);
         await deleteEntityIfExists(request, actor.token, '/api/catalog/price-kinds', priceKindId);
@@ -214,6 +255,10 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
     let priceKindId: string | null = null;
     let priceId: string | null = null;
     let offerId: string | null = null;
+    let firstVariantId: string | null = null;
+    let secondVariantId: string | null = null;
+    let firstVariantPriceId: string | null = null;
+    let secondVariantPriceId: string | null = null;
     try {
       actor = await createOmnibusTenantActor(request, superadminToken, stamp, ACTOR_FEATURES);
       const token = actor.token;
@@ -284,6 +329,58 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
         previousPriceGross: '70.0000',
       });
 
+      const createVariant = async (suffix: string): Promise<string> => {
+        const response = await apiRequest(request, 'POST', '/api/catalog/variants', {
+          token,
+          data: { productId, name: `QA OMNI variant ${suffix} ${stamp}`, sku: `QA-OMNI-${suffix}-${stamp}` },
+        });
+        expect(response.status(), await response.text()).toBe(201);
+        const body = await readJsonSafe<{ id?: string }>(response);
+        expect(body?.id).toBeTruthy();
+        return body!.id as string;
+      };
+      firstVariantId = await createVariant('first');
+      secondVariantId = await createVariant('second');
+      firstVariantPriceId = await createPriceFixture(request, token, {
+        productId, variantId: firstVariantId, priceKindId, channelId, unitPriceNet: 65.0407, unitPriceGross: 80,
+      });
+      secondVariantPriceId = await createPriceFixture(request, token, {
+        productId, variantId: secondVariantId, priceKindId, channelId, unitPriceNet: 77.2358, unitPriceGross: 95,
+      });
+      const firstVariantRow = { ...baseRow, variantId: firstVariantId, priceId: firstVariantPriceId };
+      const secondVariantRow = { ...baseRow, variantId: secondVariantId, priceId: secondVariantPriceId };
+      await insertPriceHistoryRows([
+        { ...firstVariantRow, offerId: null, unitPriceNet: '81.3008', unitPriceGross: '100.0000', recordedAt: new Date(now - 40 * DAY_MS), changeType: 'create' },
+        { ...firstVariantRow, offerId, unitPriceNet: '73.1707', unitPriceGross: '90.0000', recordedAt: new Date(now - 20 * DAY_MS), changeType: 'update' },
+        { ...firstVariantRow, offerId, unitPriceNet: '65.0407', unitPriceGross: '80.0000', recordedAt: new Date(now - 16 * DAY_MS), changeType: 'update' },
+        { ...secondVariantRow, offerId, unitPriceNet: '77.2358', unitPriceGross: '95.0000', recordedAt: new Date(now - 12 * DAY_MS), changeType: 'update' },
+      ]);
+      const firstVariantQuery = { ...previewQuery, variantId: firstVariantId };
+      const firstVariantPreview = await fetchOmnibusPreview(request, token, firstVariantQuery);
+      expect(firstVariantPreview.status, firstVariantPreview.text).toBe(200);
+      expect(firstVariantPreview.body).toMatchObject({
+        applicabilityReason: 'progressive_reduction_frozen',
+        lowestPriceGross: '100.0000',
+        previousPriceGross: '80.0000',
+      });
+      await insertPriceHistoryRows([
+        { ...secondVariantRow, offerId, unitPriceNet: '56.9106', unitPriceGross: '70.0000', recordedAt: new Date(now - 8 * DAY_MS), changeType: 'update' },
+      ]);
+      const firstVariantAfterOtherReduction = await fetchOmnibusPreview(request, token, firstVariantQuery);
+      expect(firstVariantAfterOtherReduction.status, firstVariantAfterOtherReduction.text).toBe(200);
+      expect(firstVariantAfterOtherReduction.body).toMatchObject({
+        applicabilityReason: 'progressive_reduction_frozen',
+        lowestPriceGross: '100.0000',
+        previousPriceGross: '80.0000',
+      });
+      const productAfterVariantReductions = await fetchOmnibusPreview(request, token, previewQuery);
+      expect(productAfterVariantReductions.status, productAfterVariantReductions.text).toBe(200);
+      expect(productAfterVariantReductions.body).toMatchObject({
+        applicabilityReason: 'progressive_reduction_frozen',
+        lowestPriceGross: '100.0000',
+        previousPriceGross: '70.0000',
+      });
+
       const overflowRows = Array.from({ length: OMNIBUS_IN_WINDOW_LIMIT + 1 }, (_, index) => ({
         ...baseRow,
         offerId,
@@ -302,6 +399,10 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
       ).not.toBe('progressive_reduction_frozen');
     } finally {
       if (actor) {
+        await deleteEntityIfExists(request, actor.token, PRICES_PATH, firstVariantPriceId);
+        await deleteEntityIfExists(request, actor.token, PRICES_PATH, secondVariantPriceId);
+        await deleteEntityIfExists(request, actor.token, '/api/catalog/variants', firstVariantId);
+        await deleteEntityIfExists(request, actor.token, '/api/catalog/variants', secondVariantId);
         await deleteEntityIfExists(request, actor.token, '/api/catalog/offers', offerId);
         await deleteEntityIfExists(request, actor.token, PRICES_PATH, priceId);
         await deleteEntityIfExists(request, actor.token, PRODUCTS_PATH, productId);

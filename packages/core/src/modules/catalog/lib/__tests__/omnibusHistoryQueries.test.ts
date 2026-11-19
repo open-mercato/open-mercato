@@ -175,6 +175,7 @@ describe('fetchOmnibusCampaignIds SQL', () => {
     const sql = queries[0].sql
     const [campaignPart, baselinePart] = sql.split('UNION ALL')
     expect(campaignPart).toMatch(/h\.offer_id = w\.offer_id/)
+    expect(campaignPart).toContain('"h"."variant_id" = w.scope_id')
     expect(campaignPart).toMatch(/ORDER BY h\.recorded_at ASC, h\.id ASC/)
     expect(baselinePart).toMatch(/AND h\.offer_id IS NULL/)
     expect(baselinePart).toMatch(/h\.recorded_at < cs\.started_at/)
@@ -192,14 +193,15 @@ describe('fetchOmnibusCampaignIds SQL', () => {
     expect(queries[0].parameters).toContain(OMNIBUS_IN_WINDOW_LIMIT + 1)
   })
 
-  it('keeps variant rows out of a product-level baseline and splits lookups by scope', async () => {
+  it('keeps variant rows out of a product-level campaign and baseline and splits lookups by scope', async () => {
     const { em, queries } = recordingEm()
     await fetchOmnibusCampaignIds(em, [
       campaignLookup({ baselineScopeColumn: 'product_id', baselineScopeId: '20000000-0000-4000-8000-000000000001' }),
       campaignLookup(),
     ])
     expect(queries).toHaveLength(2)
-    expect(queries[0].sql).toMatch(/AND h\.variant_id IS NULL/)
+    expect(queries[0].sql.match(/AND h\.variant_id IS NULL/g)).toHaveLength(2)
+    expect(queries[0].sql.match(/"h"\."product_id" = w\.scope_id/g)).toHaveLength(2)
     expect(queries[1].sql).not.toContain('h.variant_id IS NULL')
   })
 })
