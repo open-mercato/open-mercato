@@ -388,11 +388,11 @@ describe('findInvalidVariantPriceKinds', () => {
     expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['promo'])
   })
 
-  it('flags localized decimal strings with commas', () => {
+  it('accepts localized decimal strings with commas', () => {
     const drafts = {
       promo: { priceKindId: 'promo', amount: '99,9999', displayMode: 'including-tax' as const },
     }
-    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual(['promo'])
+    expect(findInvalidVariantPriceKinds(priceKinds, drafts)).toEqual([])
   })
 
   it('accepts values beyond 12 integer digits', () => {
@@ -417,6 +417,38 @@ describe('resolveVariantPriceAmount', () => {
     expect(resolveVariantPriceAmount(draft(' 19.90 '))).toBe('19.9')
     expect(resolveVariantPriceAmount(draft('0.123456789012345678'))).toBe('0.123456789012345678')
   })
+
+  it.each([
+    ['149,99', '149.99'],
+    ['149.99', '149.99'],
+    ['246.0000', '246'],
+    ['0', '0'],
+    ['0,0000', '0'],
+    ['149', '149'],
+    [' 1\u00a0234,5678 ', '1234.5678'],
+    ['1 234.5678', '1234.5678'],
+    ['12345678901234,123456789', '12345678901234.123456789'],
+    ['0,123456789012345678', '0.123456789012345678'],
+    ['0,000000000000000001', '0.000000000000000001'],
+  ])('validates and resolves %s consistently without losing precision', (amount, exact) => {
+    const priceDraft = draft(amount)
+    const priceKinds: PriceKindSummary[] = [
+      { id: 'kind-1', code: 'regular', title: 'Regular', displayMode: 'excluding-tax', currencyCode: 'USD' },
+    ]
+    expect(findInvalidVariantPriceKinds(priceKinds, { 'kind-1': priceDraft })).toEqual([])
+    expect(resolveVariantPriceAmount(priceDraft)).toBe(exact)
+    expect(priceDraft.amount).toBe(amount)
+  })
+
+  it.each(['-1,50', '12,3,4', '1.234,56', '1,234.56', 'abc', 'NaN', 'Infinity', '1e2', '.5', ',5', '12,', '12.'])(
+    'rejects %s consistently during validation and payload resolution', (amount) => {
+      const priceKinds: PriceKindSummary[] = [
+        { id: 'kind-1', code: 'regular', title: 'Regular', displayMode: 'excluding-tax', currencyCode: 'USD' },
+      ]
+      expect(findInvalidVariantPriceKinds(priceKinds, { 'kind-1': draft(amount) })).toEqual(['kind-1'])
+      expect(resolveVariantPriceAmount(draft(amount))).toBeNull()
+    },
+  )
 
   it('returns null for blank, invalid or negative amounts', () => {
     expect(resolveVariantPriceAmount(undefined)).toBeNull()
