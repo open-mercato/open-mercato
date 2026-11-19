@@ -889,7 +889,7 @@ This spec changes no behaviour itself. Each carrier that changes behaviour owns 
 | Integrations and portal cleanup jobs are unscheduled | Scheduled with bounded batches and the history bridge | D1 |
 | Forms retention is unscheduled | Scheduled anonymization, with R3-5 guard handling | `forms-retention-scheduling` |
 | Sudo cleanup has no caller | Scheduled; MFA challenges and SCIM history get their own enterprise workers | `operational-retention-enterprise` |
-| Access logs are deleted inline, unbounded, after a write | Scheduled and batched; same windows; `0` keeps | D4 |
+| Access logs are deleted inline, unbounded, after a write | Scheduled and batched; same windows; `keep` preserves rows indefinitely; `0` selects the existing default window | D4 |
 | `/privacy` and `/terms` name the vendor | Tenant-owned content | E1 |
 | Cookie notice "Accept" and "Dismiss" are equivalent | Notice matches behaviour | E5 |
 | Maps load OSM tiles by default | Opt-in | F3 |
@@ -1587,3 +1587,7 @@ These distinguish current owner designs from remaining reconciliation and implem
 - Aligned with the child specs: R4-3 is retitled "Tenant-export evidence always carries its tenant" and the installation-scope run, its setting and its closure step are removed; R5-4 keeps unlimited plaintext SCIM equality, reaches its 400 only after a warning minor, raises the doctor error only with encryption on, and records the doctor's single exception consistently with DEC-12; A1's release gate names B1 Phase A item 7, Phase D items 2–3 and B4's reseal, and the token rebuild adds `mercato search reindex-tokens`.
 - C8 readers ship per owning carrier and edition; A9 is the sole delivery owner of the credential methods; DEC-13 covers the email-change narrowings, listing every identity-recovery refusal (session creation and password change under the exception, the profile write's 409 under the ordinary one-minor bridge); E3 Phase 2 alone owns the suppression declarations; R5-8 also rejects `directory.tenants` and checks the declared rationale. Known limits add the Recital 67 caveat, unverified search-store cleanup, unbounded retained erasure records, the captured-run expiry hold, process-linked agent records and C5's two named limits; the roll-out table adds `planner`, `packages/tillio`, the commerce Phase 1/5 split and commerce Phase 6 as a closure dependency; search-settings' inventory replaces the fixed call-site count.
 - Known limits list every bridged secure default with its opt-in or remedy: A2's `warn` policy, DEC-12's lookup-secret warnings and B4's one-minor Meilisearch default join A3 and F1. `privacy.subject.erased` is stated as never reaching webhooks or workflow triggers (`excludeFromTriggers: true`). The A1 gate restatements add `backfill-encryption`. The carrier gates name the cross-carrier prerequisites: A9 before communication Phase 1 and people-ops Phase 2, and communication Phase 1 step 5's notification source seam before commerce Phases 1 and 4, people-ops Phase 2 and content-ai Phase 5. R5-4 cites the encryption toggle's full rule, `displayName` filters and the single null-hash 503.
+
+### Spec review corrections — 2026-11-19
+
+- Correct D4 access-log zero/default versus explicit keep semantics (F40).

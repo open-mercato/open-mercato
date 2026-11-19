@@ -414,24 +414,41 @@ export type PrivacyExportSection = {
 
 export type PrivacySubjectAliases = Readonly<Record<string, readonly string[]>>
 
+```
+
+```ts
+export type PrivacyReadBudget = {
+  deadlineMonotonicMs: number
+  signal: AbortSignal
+}
+```
+
+The budget is an in-process capability, never serialized or accepted from a client. `deadlineMonotonicMs` uses the same process monotonic clock as the orchestrator; the owner derives each statement timeout from its remaining time. The caller subtracts its terminal-audit/publication reserve before creating it. An owner declares `supportsReadBudget?: true` on its handler only when resolution, aliases, discovery, export and delegated reads all honor cancellation and the deadline. A supplied budget with an absent capability refuses with `READ_BUDGET_UNSUPPORTED` before calling that owner; it never silently runs an unbounded query. Abort/timeout ends iteration, cancels outstanding database/provider work and prevents partial publication. Calls omitting the optional budget keep existing behavior. Planned `privacyExportBudget.test.ts` and portal export integration inject a slow delegated query, cancellation before dispatch and during streaming, and verify bounded termination with terminal audit reserve and no artifact publication.
+
+```ts
+
 export type PrivacyDataClassHandler = {
+  supportsReadBudget?: true
   resolveSubjects?: (input: {
     scope: PrivacyScope
     identifier: PrivacySubjectIdentifier
+    budget?: PrivacyReadBudget
     limit: number
   }) => Promise<{ subjects: PrivacyResolvedSubject[]; truncated: boolean; method: 'hash' | 'scan' }>
-  resolveAliases?: (input: { scope: PrivacyScope; subject: PrivacySubjectReference }) =>
+  resolveAliases?: (input: { scope: PrivacyScope; subject: PrivacySubjectReference; budget?: PrivacyReadBudget }) =>
     Promise<PrivacySubjectAliases>
   discoverSubject?: (input: {
     scope: PrivacyScope
     subject: PrivacySubjectReference
     aliases?: PrivacySubjectAliases
+    budget?: PrivacyReadBudget
   }) => Promise<{ found: boolean; recordCount: number }>
   exportSubject?: (input: {
     scope: PrivacyScope
     subject: PrivacySubjectReference
     aliases?: PrivacySubjectAliases
     maxRecordsPerSection: number
+    budget?: PrivacyReadBudget
   }) => Promise<{ recordCount: number; sections: PrivacyExportSection[]; relatedSubjects?: PrivacySubjectReference[] }>
 }
 ```
@@ -442,7 +459,7 @@ export type PrivacyDataClassHandler = {
 - **Downstream cleanup.** The R3-2 registry carries the optional `downstreamCleanup` member unchanged until C4 adds its member validator. The [C4 API contract](2026-11-16-privacy-subject-erasure.md#-api-contracts) is the sole definition of `PrivacyDownstreamCleanup`, its shared types and guarded call shape. Only C4 defines and validates the member. Its first consumer, `form_to_deals.deal_projections`, declares `sourceEntity: 'forms:form_submission'` and requires C4’s guarded contract before registration. An installation without a copier has no downstream cleanup to run.
 
 - **Scope.** `organizationId` absent means every organization in the tenant. Present, it means that organization plus rows that have no organization. There is no `null`: elsewhere in the codebase a null organization means "global rows only", and the contract avoids that ambiguity.
-- **Actions and methods.** A class is called for an action only if it lists the action and its handler has the method. A listed action with no method is reported as failed with `ACTION_NOT_IMPLEMENTED`.
+- **Actions and methods.** A class is called for an action only if it lists the action and its handler has the method. A listed action with no method is reported as failed with `ACTION_NOT_IMPLEMENTED`. A non-empty `subjectIdentifierKinds` additionally requires `resolveSubjects` at runtime, independently of action dispatch. Static collection validates the kinds; runtime binding validates the method without instantiating handlers during discovery. A missing/disabled/throwing resolver is `IDENTIFIER_RESOLVER_UNAVAILABLE`, never an empty answer, and prevents verified-absence exit 3. Registry and export tests include an identifier-only class with a missing resolver, a disabled owner and a valid empty resolver.
 - **Growth.** Later specs add optional methods (erase, anonymize, retention), new members to the `subjectActions` enum, and optional fields on the input objects (an actor, a dry-run flag). All are additive.
 - **Export shape — R3-2: The registry carries the whole `privacy.ts` default export.** `PrivacyModuleDeclaration` requires `dataClasses` (use `[]` for checks-only modules). All five generated registries expose its whole validated default object as optional `Module.privacy`. Keep optional `Module.privacyDataClasses`, derived from `privacy.dataClasses`. Today the generator imports namespaces and supports fallback members for other conventions (`module-registry.ts:2818-2823, 4098-4106, 4720-4728`); default-only is this new convention's deliberate rule, not a generator limitation. Named exports are not read; a named class array may remain for tests.
 - **Collectors — R3-2.** `getPrivacyDataClasses`, `getPrivacyDoctorChecks`, `getTableExports`, `getRetentionSets` and `getPrivacyTables` read the corresponding members from `module.privacy`. Shared validation runs once per member per declaration and collectors reuse its result. Invalid data is never silently empty; each collector keeps its domain error contract, including the doctor's rejected-check list (DEC-I — The doctor's extension point). The envelope preserves optional members instead of stripping unknown keys. Later specs add member types and schemas without changing generators; this includes `recipients` for the register spec and `downstreamCleanup` for C4’s erasure run. Inactive-subject retention owns the strict schemas and shared `getSubjectRetentionSets` and `getPrivacyActivitySources` collectors, including validation of ownership, uniqueness and runtime registration. The generic envelope requires no generator change.
@@ -587,7 +604,7 @@ Before a settings mutation, require a writable audit service and a durable confi
 
 Declare C1's `retention.privacy.settingsEvidenceAgeDays` (integer days, minimum 30, default 365) and `privacy.settings_evidence` (`targets: ['records']`, `minimumDays: 30`, `excludableSubjectKinds: []`, `unmatchedHoldsOptOut: 'forbidden'`, `handlerService: 'privacySettingsEvidenceRetentionHandler'`, `runEvidence: 'aggregate'`). The DSR engine's policy validation refuses `allowUnmatchedHolds` for this set; the handler keeps refusing an opt-out that reaches it. Use the sole record-retention runner and its fixed cutoff under DEC-C — Retention sets and holds, selecting its existing “Aggregate evidence for expiry runs” path for the counts-only summary below. Resolve the effective age through `privacySettingsService.get(scope, name)` and refuse a caller window shorter than that age; invalid/unavailable settings refuse. The bound starts at the successful terminal `completed` timestamp, not the request's start. Preserve failed/conflicting operations, groups without valid terminal completion and unresolved audit/config outcomes until explicitly reconciled; malformed or unavailable completion evidence refuses deletion. Any explicit subject exclusion or Enterprise hold skips the whole set with `hold_not_honourable`; a failed registered guard refuses. The handler itself refuses non-empty `excludeSubjects`, so an engine unmatched-hold opt-out cannot discard evidence. Hold release does not restart its age. OSS operators schedule the command; until configured or while unresolved, the finite target is reported as unenforced.
 
-The audit owner adds `actionLogService.expirePrivacySettingsEvidence({ scope, olderThan, limit, after?, dryRun })`, returning `{ matched, changed, skipped, next?, done }`. It uses bounded keyset pages of at most 100 operation groups and atomically rechecks each group under its own audit transaction before deleting it whole. Here `matched`, `changed` and `skipped` count operation groups, the logical retention records; examine at most `limit` and never split a group between commits. Match only tenant-scoped `resource_kind = 'configs.module_config' AND related_resource_kind = 'privacy.settings_command' AND related_resource_id = 'privacy.settings.set'`, grouped by the operation UUID; `command_id` is encrypted (`audit_logs/encryption.ts:7`) and cannot be selected in SQL, while the clear-text pair is served by the existing `action_logs_related_resource_idx`. Never delete other configuration commands or infer settings evidence from a `privacy.` prefix. A scope with `organizationId` refuses. The method never returns context, setting values, actors or row ids. Privacy calls it through DI, maps `changed` to `deleted` and reports zero pending files; it never queries audit tables or extends DEC-B's selector signature. General age-based history stripping/deletion must leave these exact groups, identified by the same related pair, to this expiry so it cannot destroy their completion/recovery evidence early; this is not an exemption for unrelated config history or explicit subject-history stripping. Delete actor, reference, context and every started/terminal entry of the eligible group together. Retention summaries contain only dates, set id and counts. The audit-owned method and generic-age safeguard must land with this Phase 7 set; absence cannot be treated as successful expiry.
+The audit owner adds `actionLogService.expirePrivacySettingsEvidence({ scope, olderThan, limit, after?, dryRun }, { em, writeContext? })`, returning `{ matched, changed, skipped, next?, done }`. It uses bounded keyset pages of at most 100 operation groups and atomically rechecks each group on the caller’s active fenced transaction manager before deleting it whole. Apply requires `writeContext` and that exact manager, validated by D3’s `assertWriteContext`; preview omits the context; the audit owner never forks, begins, commits or releases another transaction. The coordinator owns commit/rollback. Preview receives its read-only manager and cannot write. Planned database tests prove outer rollback also restores the entire audit group, loss of the owner connection commits no deletion, and both hold-publication orderings honor the tenant fence. Here `matched`, `changed` and `skipped` count operation groups, the logical retention records; examine at most `limit` and never split a group between commits. Match only tenant-scoped `resource_kind = 'configs.module_config' AND related_resource_kind = 'privacy.settings_command' AND related_resource_id = 'privacy.settings.set'`, grouped by the operation UUID; `command_id` is encrypted (`audit_logs/encryption.ts:7`) and cannot be selected in SQL, while the clear-text pair is served by the existing `action_logs_related_resource_idx`. Never delete other configuration commands or infer settings evidence from a `privacy.` prefix. A scope with `organizationId` refuses. The method never returns context, setting values, actors or row ids. Privacy calls it through DI, maps `changed` to `deleted` and reports zero pending files; it never queries audit tables or extends DEC-B's selector signature. General age-based history stripping/deletion must leave these exact groups, identified by the same related pair, to this expiry so it cannot destroy their completion/recovery evidence early; this is not an exemption for unrelated config history or explicit subject-history stripping. Delete actor, reference, context and every started/terminal entry of the eligible group together. Retention summaries contain only dates, set id and counts. The audit-owned method and generic-age safeguard must land with this Phase 7 set; absence cannot be treated as successful expiry.
 
 ### Bootstrap-free settings reads — R3-3
 
@@ -973,6 +990,11 @@ One stated naming deviation: module id `privacy`, decided by DEC-10. The propose
 
 ## Changelog
 
+
+### 2026-11-19 — Confirmed specification review corrections
+
+- Define propagated read budgets, missing identifier-resolver refusal and transaction-bound settings-evidence expiry, with timeout, registry and rollback acceptance cases.
+- Specification-only revision; implementation and planned acceptance tests remain future work.
 ### 2026-11-18
 
 - Linked baseline evidence to the program and added the inactive-subject registry collectors to R3-2.

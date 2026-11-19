@@ -581,7 +581,7 @@ The existing Docker-based `scripts/__tests__/fullapp-compose-encryption.test.mjs
 |---|---|---|---|
 | root AGENTS.md | Ask before changing public contracts | Compliant | Behaviour changes classified; exception conditions listed |
 | root AGENTS.md | Ask before changing pipeline automation | Process gate | Two workflow files and one script change; the Phase 2 PR carries the maintainer's agreement |
-| root AGENTS.md | No code under `apps/mercato/src/` except registries | Accepted deviation | One call added to the existing `instrumentation.ts`, beside the JWT assertion already there; the PR carries the maintainer sign-off |
+| root AGENTS.md | No code under `apps/mercato/src/` except registries | Blocked prerequisite | Proposed instrumentation/health edits require a separately authorized, merged root-rule exception naming these paths before implementation; spec approval or implementation-PR sign-off alone cannot waive Never |
 | root AGENTS.md | Mirror `.env.example` and app files into the template | Compliant | Named in Phases 3 and 4 |
 | root AGENTS.md | Never commit credentials | Compliant | The module holds hashes of already-published values |
 | root AGENTS.md | A catch that records an error must also report it | Compliant | Rethrow sites do not record; warnings go through the structured logger |
@@ -603,12 +603,12 @@ The existing Docker-based `scripts/__tests__/fullapp-compose-encryption.test.mjs
 | Every step leaves the app working | Pass | The rethrow lands before anything throws; test environments are fixed before the refusal |
 
 ### Non-Compliant Items
-- **Rule**: no code under `apps/mercato/src/` except generated registries. **Gap**: `instrumentation.ts` gains one call. **Decision**: accept the deviation. The file already exists and holds the JWT assertion this call sits beside, and no package-only path reaches a direct `next start`. The template copy is mirrored; the CLI assertion also checks `mercato server start` before spawn. The existing app and template health routes consume the same-process proof, with the same named approval required for the app exception.
+- **Rule**: no code under `apps/mercato/src/` except generated registries. **Gap**: `instrumentation.ts` gains one call. **Decision**: no exception is granted by this spec. Before touching these app paths, land an explicitly authorized root `AGENTS.md` exception naming `apps/mercato/src/instrumentation.ts` and the existing health-route path, with template-sync and bounded-bootstrap requirements. Until that governance change is merged, this implementation slice is blocked; package/CLI-only work may proceed only within its approved scope and cannot claim direct `next start` coverage. The file already exists and holds the JWT assertion this call sits beside, and no package-only path reaches a direct `next start`. The template copy is mirrored; the CLI assertion also checks `mercato server start` before spawn. The existing app and template health routes consume the same-process proof, with the same named approval required for the app exception.
 
-Process gates at merge time: the A1 PR carries the named maintainer approval for its Emergency Security Exception; the Phase 2 PR carries the maintainer's agreement for the CI workflow edits; the PR that edits `apps/mercato/src/instrumentation.ts` carries the maintainer sign-off for that deviation. The later published-lookup refusal PR carries its own named approval (DEC-12). Every design decision is settled, including the Vault bridge default (assumption 1).
+Process gates at merge time: the A1 PR carries the named maintainer approval for its Emergency Security Exception; the Phase 2 PR carries the maintainer's agreement for the CI workflow edits; the app bootstrap/health slice starts only after the separately authorized root-rule exception is merged; a sign-off on the implementation PR alone is insufficient. The later published-lookup refusal PR carries its own named approval (DEC-12). The Vault bridge default is settled (assumption 1); the root-rule exception remains a prerequisite, not an accepted deviation.
 
 ### Verdict
-**Design ready.** Each PR carries the process gates listed above. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
+**Conditionally specified; app-boundary slice blocked pending the root-rule prerequisite.** Each PR carries the process gates listed above. This spec does not edit or override repository governance. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
 
 ## Changelog
 
@@ -659,3 +659,7 @@ Process gates at merge time: the A1 PR carries the named maintainer approval for
 - **Risks**: Fail-open, incomplete migration and non-production bypass added
 - **Verdict**: Two review rounds, both followed by revision. The second revision has not been independently re-read
 - Fix verification follow-up: the refusal exits, the rotation note and the upgrade note now name the module fill commands next to `rehash-lookups`. `rehash-lookups` covers only mapped hash fields, so module-written hashes such as the CRM, SSO and inbound-sender ones would otherwise stay stale after a key rotation.
+
+### Spec review corrections — 2026-11-19
+
+- Replace the self-granted app-boundary deviation with an explicit authorized root-rule prerequisite; do not claim that ordinary PR sign-off overrides Never (F21).

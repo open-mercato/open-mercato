@@ -96,6 +96,8 @@ Neither entry point calls `createRequestContainer()` for `verify`, `restore`, `e
 
 ### Backup engine (out)
 
+**Complete source visibility.** Before planning, verify the backup credential has whole-database SELECT/large-object/catalogue visibility and a role that bypasses every applicable RLS policy, including `FORCE ROW LEVEL SECURITY` tables. Set `row_security=off` on the control session and every extraction/reconnected worker before any read, independently of pg_dump's own defaults. This setting raises on filtering; it does not grant bypass. Probe the exact planned relations under the imported snapshot and refuse unavailable/filtered visibility before sealing. Bind the source role identity, privilege/policy catalogue digest, forced-RLS inventory and successful fail-on-filter checks to the encrypted index/epoch evidence, revalidating on resume. Never treat visible row counts as proof of whole-database coverage. B01/B05 add restrictive-role and forced-RLS hidden-tenant fixtures: refuse with the restricted credential; with the approved backup role restore every tenant's rows.
+
 1. **Plan.** Open a read-only `REPEATABLE READ` control session, `pg_export_snapshot()`, record the full `pg_current_snapshot()` descriptor (`xmin`, `xmax`, `xip_list`, using full-width transaction IDs) and a cluster-incarnation identity as the epoch evidence. Enumerate user tables (skipping the engine's own journal schema), estimate rows (`reltuples`) and bytes (`pg_relation_size`), and choose a chunk strategy per entity:
    - **keyset** — tables with a primary key or a non-null unique key: `COPY (SELECT * FROM t WHERE (key) > $last ORDER BY key LIMIT n) TO STDOUT (FORMAT binary)`. Chunk boundaries are key values, so they survive a resume.
    - **ctid-range** — tables without a usable key: page ranges, valid only within one snapshot epoch.
@@ -270,7 +272,7 @@ For the unprotected path, refuse the first invocation with a red **ERROR**, non-
 
 `--acknowledge-unprotected-key-rotation` is an exact, explicit boolean CLI option on the mutating invocation, required on **every** rerun, including scripts and retries. No saved preference, environment variable, `--yes`, generic `--force`, license-enablement variable or interactive answer substitutes for it. Reject false/invalid values. On the acknowledged invocation, repeat the red risk warning, record only the acknowledgment and protection status in sanitized operator output, and allow the existing Core rotation path. The flag grants neither Enterprise functionality nor a claim of recoverability or verified correctness. It cannot bypass existing key, tenancy, concurrency or destructive-action guards. Read-only help, dry-run and status stay non-mutating, show protection availability, and do not require the flag; any “dry-run” path that can provision a key is not read-only and must be fixed before this exemption applies.
 
-For protected Enterprise rotation, the planned coordinator must finish and verify a **quiesced encrypted, resumable backup** bound to the exact database, rotation scope and retained key custody before the first mutation. A merely `multi-snapshot` artifact is insufficient for this safety claim. Backup failure, inability to establish quiescence, missing retained keys or verification-service failure blocks the protected operation; there is no automatic fallback. To choose unprotected operation, the operator must explicitly select the Core path in a fresh invocation with the acknowledgment above. Enterprise rotation then consumes the separate [fast post-rotation data verification specification](2026-11-12-key-rotation-data-verification.md) (companion design to PR #8910); it cannot report verified completion or recommend retiring previous keys until that verifier passes. This does not change Core's licensing or move existing rotation into Enterprise.
+For protected Enterprise rotation, the planned coordinator must finish and verify an **encrypted, resumable backup with consistency `single-snapshot` or `quiesced`, independently bound to the protected maintenance fence** bound to the exact database, rotation scope and retained key custody before the first mutation. A merely `multi-snapshot` artifact is insufficient for this safety claim. Backup failure, inability to establish quiescence, missing retained keys or verification-service failure blocks the protected operation; there is no automatic fallback. To choose unprotected operation, the operator must explicitly select the Core path in a fresh invocation with the acknowledgment above. Enterprise rotation then consumes the separate [fast post-rotation data verification specification](2026-11-12-key-rotation-data-verification.md) (companion design to PR #8910); it cannot report verified completion or recommend retiring previous keys until that verifier passes. This does not change Core's licensing or move existing rotation into Enterprise.
 
 Compatibility: adding a mandatory acknowledgment changes existing CLI automation behavior. Implementation must document it in `UPGRADE_NOTES.md`, obtain the protected-CLI compatibility decision required by `BACKWARD_COMPATIBILITY.md` (normal deprecation/bridge or an explicitly approved safety exception), and cover every real rotation entry point. This spec alone grants no compatibility waiver. Existing command names, scopes and crypto formats remain intact.
 
@@ -360,6 +362,11 @@ This PR changes specifications only. Later implementation adds enterprise CLI co
 Verdict: **design review only; not approved for implementation** until Q2/Q3 security decisions and harness placement are confirmed.
 
 ## Changelog
+
+### 2026-11-19 — Confirmed spec review corrections
+
+- Resolve the confirmed recovery, fencing and lifecycle contract findings; add the corresponding failure and acceptance cases. This is a design revision only.
+
 
 ### 2026-11-18
 

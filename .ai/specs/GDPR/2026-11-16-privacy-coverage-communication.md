@@ -116,15 +116,21 @@ Each handler blanks through an internal function of its module. Internal blankin
 
 Files are released through the erasure spec's attachments seam inside the clearing transaction, passing its exact trailing `{ em }` options with the current transaction manager, with that subject run's `attachmentOrigin` as the seam's `origin`; only the durable pending-deletion drain runs after commit. Cleared inbound and derived messages release their attachments; retained outbound and staff messages keep theirs. Inbox `attachment_ids` use `releaseByIds` with the expected inbox owner, verified by the attachments service; foreign ownership is skipped and reported as incomplete file cleanup, never silently called erased. For this path `messages` uses the seam, not its existing direct deletes.
 
+### Lookup-key readiness
+
+Before any address-hash discovery, export or erasure, consume the shared encryption owner’s `lookupKeyReadiness.verify({ tenantId, purpose }): Promise<{ verified: true; epoch: string }>` proof from completed B1 hash maintenance. The service loads the authoritative persisted epoch itself, never trusts a caller epoch, and compares current-process key material through the existing purpose-key derivation/check seam against the trusted persisted writer epoch; it returns no key or identifier hash. Purposes cover every participating email/phone hash owner. A missing proof, mismatch, pending rotation or incomplete module fill refuses with `LOOKUP_KEY_UNVERIFIED` before any write; record-id matches cannot hide an unverified alias path. First installation establishes the proof only through trusted owner initialization; a read-only privacy process cannot establish its own baseline. B1 rotation advances it only after all relevant fills verify. A two-process integration fixture writes with key A and discovers/erases with key B, and must refuse rather than report zero matches; verified same-epoch empty data remains a valid empty answer.
+
 ### Forwards
 
 A forward copies the whole thread's text into a new message in the same thread, and keeps the outside address unless it sits on a channel thread (Problem Statement). Its direction is therefore no guide: a forward filed outbound or internal still carries inbound text. `messagePrivacyService.clearForErasure` traverses forwards for every message it clears under the inbound rule, derived and inbox copies included:
 
-- **Forward rows.** The forward command gains a nullable `forwarded_from_message_id` (the forwarded message's id), written on every new forward. Rows written before it are recognised, in the read-only plan, as rows with `parent_message_id` set whose decrypted subject is exactly `Fwd: ` followed by their parent's decrypted subject, the only subject the forward command writes; the plan reads both before anything is cleared. A staff reply given exactly that subject by hand is treated as a forward and cleared, which removes more than was asked, never less.
+- **Forward rows.** The forward command gains a nullable `forwarded_from_message_id` (the forwarded message's id), written on every new forward. For rows written before it, an exact `Fwd: ` plus parent-subject match is only a candidate, not proof of lineage. The read-only plan classifies subject-only matches as `legacy_forward_ambiguous`, preserves their text/files and refuses affected erasure completion pending an authorized owner review. That review records a scoped, audited lineage decision under the same thread lock: either confirmed forward with the source id or independently authored reply. It must establish ownership from controller/source evidence; absence of evidence cannot approve deletion. Reviewed classifications survive retries and enter the approved write digest.
 - **Selection.** Within the cleared message's thread (`thread_id`, or its own id for a root), every forward created at or after the cleared message's `created_at` is selected, because its body was built from every live thread message at that time. A forward of a forward stays in the same thread, so one pass reaches it. Selection is bounded by the thread index and keyset pages of at most 100 rows.
 - **Outcome.** A selected forward is cleared under the inbound rule whatever its own direction: subject, body, action data, error text, `message_objects.entity_snapshot`, outside address, name and hash. Its own attachment rows are released through the seam like any cleared message's. Its notification copies are cleared through Source notification copies. It counts as a derived message in history records, export and the run report.
 - **Shared file bytes.** A forward's attachment rows are new rows sharing the source rows' `storage_path`. Under C4's attachments contract, bytes still referenced by a surviving row are kept and reported as `shared_record` (`shared_files`), never deleted. An inbound file therefore survives through any row outside this traversal that shares it, and the run reports it as such.
 - **Export.** A subject's export lists the selected forwards as copies of the messages they sent, flagged `freeText`.
+
+**Derivative admission.** The messages owner maintains a durable tenant/thread privacy generation and a cleared-source tombstone, including for deleted sources. Forward creation and every source-derived message/proposal producer (Discord AI replies and inbox-to-messages copies included) read generation with their source snapshot. In the insertion transaction they acquire the same scoped thread lock used by erasure, verify the captured generation and reread the current source. A changed generation or cleared/missing source refuses the captured derivative; it may only start a new operation from independently safe current content. Erasure advances the generation and marks the source before traversing dependants, under that lock; each bounded page reuses it. Provider/model work may run outside the lock, but its result never commits without this final check. Cross-module producers call the messages-owned DI admission service and do not read its tables. Generation/tombstone cleanup cannot precede expiry of every producer retry capable of referring to that source; unknown retry lifetime preserves the tombstone. Planned `derivativeErasureRace.test.ts` pauses forward and AI producers after source read, completes erasure, resumes them and proves no text, snapshot or file reference is recreated. The reverse ordering proves erasure traverses an already committed derivative. Legacy exact-subject independent replies remain unchanged and incomplete until reviewed.
 
 Quotations a colleague typed into their own reply are not forwards and stay a known limit.
 
@@ -388,13 +394,13 @@ Additive migrations and snapshots. Internal lookup rows and marks have no edit f
 | A recording stored as an attachment | Released through the seam |
 | A call still in progress | `retained` / `open_case`, `retainedUntil: null`; retry after completion |
 | Tables with no tenant column | Reached only through their message, whose tenant is checked first |
-| The run's process has a different lookup secret from the app | Nothing is found by address; the dry run prints how many records were matched by address |
+| The run's process has a different lookup secret from the app | Refuse address-based discovery/apply with `LOOKUP_KEY_UNVERIFIED`; no zero-match or complete result |
 | `erase --email` or `--phone` with no lookup secret configured | Refused with exit 1, as the erasure spec says |
 | A records class fails after disconnection | Credentials remain; deletion belongs only to the later credentials group |
 | Pending/rejected proposal | Found through typed extraction-time match without executing an action |
 | Unmatched original sender | Found by parsed address hash as identifier subject; redelivery stays duplicate |
 | Staff address-only forwarding or call details | Reported as unresolved staff coverage, not called erased |
-| A forward written before `forwarded_from_message_id` | Recognised by the exact `Fwd: ` + parent-subject rule in the read-only plan, before any subject is cleared |
+| A forward written before `forwarded_from_message_id` | Subject-only match is ambiguous and preserved; affected completion waits for an audited owner lineage decision |
 | A forward on a channel thread | Filed internal with no outside address, still cleared because it copies the inbound text |
 | A forward of a forward | Same thread, so the one traversal reaches it |
 | A staff user with a personal channel and no `integrations.user_credentials` class enabled | Pre-flight refuses before any write |
@@ -501,7 +507,7 @@ Every test creates its own tenants, users, records and files with fixtures/APIs,
 - **Severity**: High
 - **Affected area**: messages to and from outside addresses
 - **Mitigation**: `messages` writes the hash itself whether or not encryption is on, a fill command covers existing rows, and the fallback scan runs until it has. The dry run says when the scan was used.
-- **Residual risk**: A process with a different lookup secret from the app, as for every address lookup.
+- **Residual risk**: Missing or mismatched persisted lookup readiness blocks the operation until the owner completes verified hash maintenance; it never produces a clean zero-match result.
 
 #### An inbound email survives in `messages`
 - **Scenario**: A customer matched in inbox_ops is erased, and the email's copy in `messages` keeps the whole thread, because its outside address is the forwarder's and nothing marks it inbound.
@@ -551,6 +557,11 @@ Every test creates its own tenants, users, records and files with fixtures/APIs,
 
 ## Changelog
 
+
+### 2026-11-19 — Confirmed specification review corrections
+
+- Fence forward/AI derivative publication, require reviewed legacy lineage, and refuse address-based coverage without verified shared lookup-key readiness.
+- Specification-only revision; implementation and planned acceptance tests remain future work.
 ### 2026-11-18
 
 - Extended direction pre-flight and the apply-time recheck to all direction-dependent matches. Required controller review for alias-only portal communication records.

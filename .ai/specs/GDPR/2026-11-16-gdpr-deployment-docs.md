@@ -169,6 +169,8 @@ Documentation only.
 
 ## 📋 Implementation Plan
 
+Content checks must reject the unqualified phrases “absent provider holds nothing” and “holds only through registered providers” in generated operator guidance. Fixtures cover required-owner removal, unknown posture and the sole verified never-activated/no-evidence absence case.
+
 ### Stage 1
 1. Add `index`, `sub-processors`, `hardening`, `restriction-and-objection`, `breach-response` and `impact-assessment-notes`, with only existing controls and each code claim cited as of the release; publish the procedure (DEC-8) with its factual current-release restriction limits and the Recital 67 caveat. Register them in the sidebar. Include **What the assistant sends to a model** with every route above, OpenCode/MCP included. `hardening` says when to run the Readiness Scanner and when to run the privacy doctor, and states each bridged secure default present in the release with its opt-in or remedy (`TENANT_DATA_ENCRYPTION_UNAVAILABLE_WRITES=fail`, `TENANT_DATA_ENCRYPTION_KEY_POLICY=enforce`, `SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true` with the per-tenant fulltext rebuild, `enforceForCalls`, and for DEC-12 lookup secrets the B1 Phase D rotation runbook, with no earlier opt-in); the `index` known limits list them too. The first breach runbook covers audit/access logs, retention, evidence preservation, the 72-hour clock and notification structure; it does not wait for Enterprise.
 2. Add the package-coverage test and its list of packages that send nothing out, and the model-input inventory test with its route list. The recipient-parity case is added in G3 Phase 2's change, when declarations exist.
@@ -208,7 +210,7 @@ The docs build and internal-link check must pass. A self-contained docs smoke te
 - **Severity**: Medium
 - **Affected area**: operators
 - **Mitigation**: The index states the controller's own duties and the known limits first.
-- **Residual risk**: Readers who skip the index. R4-3: tenant-export evidence always carries its tenant; evidence about a soft-deleted tenant expires only while its tenant run stays scheduled; R4-4’s absent provider holds nothing; its owners specify run correlation (C3) and file-only pending rows (C9). Suppression export cannot rebuild opt-outs or hand over suppression state (R4-9).
+- **Residual risk**: Readers who skip the index. R4-3: tenant-export evidence always carries its tenant; evidence about a soft-deleted tenant expires only while its tenant run stays scheduled; R4-4 permits absence only after positively verified never-activated posture with no captured evidence; required, unknown or previously activated owner absence holds evidence as `held_by_owner` until reconciled; its owners specify run correlation (C3) and file-only pending rows (C9). Suppression export cannot rebuild opt-outs or hand over suppression state (R4-9).
 
 #### A page describes something that is not there
 - **Scenario**: A page ships ahead of its feature.
@@ -226,12 +228,17 @@ The docs build and internal-link check must pass. A self-contained docs smoke te
 | No enterprise-only scope in the OSS directory | Compliant | Cross-edition deployment guidance ships for OSS in Stage 1; enterprise feature instructions are added only when those features ship. The restriction procedure is specified here, so OSS documentation is not sourced from an enterprise spec |
 | Ask before changing review automation | Process gate | One rule added to the review checklist's cards; the PR that adds it asks a maintainer first, as root `AGENTS.md` Ask First requires |
 | Integration coverage | Scoped | Package/content unit fixtures and docs navigation smoke coverage above; no application API added |
-| Honest preservation and verification limits | Compliant | Index repeats program Known limits; the procedure page names R3-5 and does not promise universal holds; R4-3: tenant-export evidence always carries its tenant, and evidence about a soft-deleted tenant expires only while its tenant run stays scheduled; R4-4 holds only through registered true/throwing providers and R4-9 exports no usable suppression state |
+| Honest preservation and verification limits | Compliant | Index repeats program Known limits; the procedure page names R3-5 and does not promise universal holds; R4-3: tenant-export evidence always carries its tenant, and evidence about a soft-deleted tenant expires only while its tenant run stays scheduled; R4-4 holds through registered true/throwing providers and required/unknown/previously activated missing owners; only positively verified never-activated posture with no captured evidence permits provider absence and R4-9 exports no usable suppression state |
 | R4/R5 owner decisions | Scoped | Operator guidance and release-bound content checks follow the named owner designs, including portal recovery, process modes, SCIM, rotation/commerce hashes, queue readiness and module-specific retention/hold limits; no new runtime contract or approval is supplied here |
 
 **Documentation disposition:** Stage 1 proposes the restriction and objection procedure (DEC-8, C10 option A) with factual current-release limits and the Recital 67 caveat, processor/hardening material, base breach guidance and the model-input disclosure (DEC-11). Stage 3 adds only shipped controls. Evidence-expiry, consent-gate and restore claims follow their owners' delivery and approvals. G5 can document the restriction procedure and model-input disclosure. Under program DEC-14 neither document closes #8593's technical restriction/objection or field masking/exclusion requirement. Those requirements remain open pending a written named maintainer disposition in #8593 or shipped technical acceptance evidence.
 
 ## Changelog
+
+### 2026-11-19 — Confirmed spec review corrections
+
+- Aligned risk/compliance summaries and content assertions with the fail-closed durable evidence-owner rule (F42).
+
 
 ### 2026-11-18 — Review remediation
 
