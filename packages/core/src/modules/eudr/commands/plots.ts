@@ -483,7 +483,8 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
       })
 
       const result = { entityId: record.id, updatedAt: record.updatedAt }
-      const after = structuredClone(await buildPlotSnapshot(entityManager, record))
+      const persisted = (await lockForUndo(entityManager, EudrPlot, record)) ?? record
+      const after = structuredClone(await buildPlotSnapshot(entityManager, persisted))
       updatePlotSnapshots.set(result, { before, after })
       return result
     })

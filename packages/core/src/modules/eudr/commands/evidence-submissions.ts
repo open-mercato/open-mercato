@@ -559,7 +559,8 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
       })
 
       const result = { entityId: record.id, updatedAt: record.updatedAt }
-      const after = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, record))
+      const persisted = (await lockForUndo(entityManager, EudrEvidenceSubmission, record)) ?? record
+      const after = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, persisted))
       updateEvidenceSubmissionSnapshots.set(result, { before, after })
       return result
     })
