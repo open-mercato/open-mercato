@@ -1,25 +1,25 @@
 # Handoff — 2026-11-19-r5-ca0-cart-lock-hardening
 
-**Last updated:** 2026-11-19T19:14:28Z
+**Last updated:** 2026-11-19T20:19:06Z
 **Branch:** fix/r5-ca0-cart-lock-hardening
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** run-folder commit
+**PR:** https://github.com/open-mercato/open-mercato/pull/10008
+**Current phase/step:** all Steps done; final gate recorded
+**Last commit:** 733ffc83e5 — Step 2.2
 
 ## What just happened
-- Run folder and plan written; base is pr/9999 (6c596fe157).
+- Steps 1.1–2.2 landed; final gate green apart from the known local create-app harness failure (final-gate-checks.md).
 
 ## Next concrete action
-- Step 1.1 — multi-key try-lock in withCartLineMutationLock.
+- Review pass (om-auto-review-pr) and merge after #9999/#9988, then rebase onto main.
 
 ## Blockers / open questions
-- The re-landing plan file is missing; proceeding on the spec + brief (see PLAN.md Risks).
+- Re-landing plan file was unavailable (PLAN.md Risks).
 
 ## Environment caveats
-- Dev runtime runnable: unknown
+- Dev runtime runnable: yes (ephemeral harness)
 - Browser / UI checks: skipped — no UI touched
-- Database/migration state: clean (no migration in this step)
+- Database/migration state: clean (no migration)
 
 ## Worktree
 - Path: cezar worktree 987a8000
-- Created this run: no (cezar-managed)
+- Created this run: no

@@ -17,3 +17,6 @@
 
 ## 2026-11-19T19:42:44Z — Playwright
 - TC-CART-CONC-01-05 + TC-CART-PRICE-01-02 via `yarn test:integration:ephemeral`: 10 passed (4.7m). First attempt failed at initialize because dist predated `yarn generate`; rebuilt and reran.
+
+## 2026-11-19T20:19:06Z — final gate
+- Gate green except create-mercato-app#test (known local harness failure; package untouched). pg-integration 297 passed; Playwright 10 passed. Full Playwright suite skipped (brief names the two cart specs).

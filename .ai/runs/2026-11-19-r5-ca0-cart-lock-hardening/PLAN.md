@@ -19,7 +19,7 @@
 | 1 | 1.3 | cart.lock re-reads, recomputes and compare-and-sets under the cart lock | inline | done | f2096eac2b |
 | 1 | 1.4 | Login merge and merge undo lock both carts and re-check under the locks | inline | done | 2eee8ae23a |
 | 2 | 2.1 | Real-PostgreSQL status-transition races and cart in test:pg-integration | inline | done | f2f4631ba5 |
-| 2 | 2.2 | TC-CART-PRICE-01-02 assertion hunks | inline | done | (this commit) |
+| 2 | 2.2 | TC-CART-PRICE-01-02 assertion hunks | inline | done | 733ffc83e5 |
 
 ## Goal
 
