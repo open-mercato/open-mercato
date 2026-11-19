@@ -723,12 +723,11 @@ Matrix from an earlier independent review pass. No gaps found.
 
 - `sales_invoices_gl_posting.invoices.post` — required by
   `postSalesInvoiceToLedger` and by the posting-status GET route.
-- `sales_invoices_gl_posting.settings.manage` — required by the settings PUT
-  route. Kept separate from `invoices.post` so an accountant can post without
-  being able to repoint the account configuration, which is the control that
-  keeps revenue out of a wrong account (Risks). The settings GET reuses
-  `invoices.post` — anyone allowed to post must be able to see which accounts
-  the posting will use.
+- `sales_invoices_gl_posting.settings.manage` — required by both settings
+  routes (`GET` and `PUT`). Kept separate from `invoices.post` so an
+  accountant can post without being able to repoint the account
+  configuration, which is the control that keeps revenue out of a wrong
+  account (Risks); the posting-status `GET` keeps `invoices.post`.
 
 No *separate* feature gates reading `SalesInvoiceGlPosting` in Phase 1
 — the one read route (see API Contracts) reuses
@@ -1063,8 +1062,10 @@ module's private storage detail rather than a shared contract.
 - `GET /api/sales_invoices_gl_posting/settings` — the settings read route.
   A module-owned custom route, the exact shape
   `catalog/api/settings/route.ts` establishes: `metadata` with
-  `GET: { requireAuth: true, requireFeatures: ['sales_invoices_gl_posting.invoices.post'] }`
-  (no top-level `export const requireAuth`). Returns
+  `GET: { requireAuth: true, requireFeatures: ['sales_invoices_gl_posting.settings.manage'] }`
+  (no top-level `export const requireAuth`) — the same feature as the PUT, so
+  the settings surface is one permission and an admin cannot write a
+  configuration they are not allowed to read back. Returns
   `{ receivableAccountId: string | null, vatOutputAccountId: string | null,
   roundingAccountId: string | null, updatedAt: string | null }` for the
   active organization, read through `lib/moduleConfig.ts`; `updatedAt` is the
@@ -1236,7 +1237,7 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 
 - Assert `GET /api/sales_invoices_gl_posting/settings` returns the active
   organization's three account ids and `updatedAt`, `403` without
-  `sales_invoices_gl_posting.invoices.post`, and never another organization's
+  `sales_invoices_gl_posting.settings.manage`, and never another organization's
   values in a two-organization tenant.
 - Assert `PUT /api/sales_invoices_gl_posting/settings` requires
   `sales_invoices_gl_posting.settings.manage` (403 without it), validates the
@@ -1480,7 +1481,7 @@ review above hasn't already covered.
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | `SalesInvoiceGlPosting.salesInvoiceId`/`journalEntryId`/`contractorId` and `SalesInvoiceLineRevenueAccount.salesInvoiceLineId`/`accountId` are all plain FK-ids, explicitly "no ORM relation" (Architecture → Entities) |
 | root AGENTS.md | Filter by `organization_id` | Compliant | Both new entities are tenant/org-scoped (Data Models); the command scopes every `sales`/`ledger`/`currencies` read by `tenantId`/`organizationId`, and the module config uses organization-qualified keys so one organization's accounts never configure another's (Module Config, Commands) |
 | packages/core/AGENTS.md → API Routes | API routes MUST export `openApi` | Compliant | All four routes — `GET`/`POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId[/post]` and `GET`/`PUT /api/sales_invoices_gl_posting/settings` — are `openApi`-documented per File Manifest and Implementation Plan step 5 |
-| packages/core/AGENTS.md → API Routes | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | Each route exports `metadata` with `requireAuth: true` and a feature on its method: `invoices.post` for both posting routes and the settings `GET`, `settings.manage` for the settings `PUT`; no top-level `export const requireAuth` |
+| packages/core/AGENTS.md → API Routes | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | Each route exports `metadata` with `requireAuth: true` and a feature on its method: `invoices.post` for the two posting routes, `settings.manage` for both settings routes; no top-level `export const requireAuth` |
 | packages/core/AGENTS.md → CRUD Factory | CRUD APIs use `makeCrudRoute` | N/A | No CRUD collection in Phase 1 — the mutation is a custom write route (`POST .../post`, mapped to `update` in the mutation guard registry, mirroring Accounts Payable's own `.../post` route) dispatching `postSalesInvoiceToLedger` via `commandBus`, not a `makeCrudRoute` list/detail surface; the other route is a bespoke single-record GET |
 | packages/core/AGENTS.md | All user input validated with zod before persistence | Compliant | `postSalesInvoiceToLedger`'s input shape and the settings `PUT` body are validated via `data/validators.ts` before any business-rule check or write (Commands, API Contracts) |
 | packages/core/AGENTS.md → Encryption | Encryption maps for PII/GDPR columns | N/A | Neither new entity carries a free-text or PII field (FK-ids + timestamps only); the one PII value in this flow (`contractorSnapshot`: name, NIP) is written onto `ledger.JournalEntryLine.contractorSnapshot` — that module's own column and encryption surface, not this module's, mirroring Accounts Payable's established precedent exactly |
