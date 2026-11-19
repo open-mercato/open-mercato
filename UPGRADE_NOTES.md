@@ -12,6 +12,40 @@ preserves a typed 404 if the transaction disappears after its first read.
 No schema, configuration, route or successful-payment migration is required.
 The separate capture/cancel concurrency decision and protected QA remain open.
 
+## CRM preset enables the scheduler (#8804)
+
+New apps scaffolded with `create-mercato-app --preset crm` now enable the
+`scheduler` module. Without it, `communication_channels` registers no polling
+schedules, so connected IMAP and Gmail mailboxes received new mail only after a
+manual "Poll now", and Gmail push watches were never renewed. With the default
+`QUEUE_STRATEGY=local`, `mercato server dev` and `mercato server start` start the
+scheduler automatically once the module is enabled (`AUTO_SPAWN_SCHEDULER`
+defaults to on), so new apps need no extra step.
+
+**Existing `crm` apps:** add `{ id: 'scheduler', from: '@open-mercato/scheduler' }`
+to `src/modules.ts` (the package is already a template dependency), then run
+`yarn generate` and `yarn db:migrate` for the scheduler tables. The schedules are
+registered when defaults are seeded or an organization is created, so
+organizations that already exist need them seeded once:
+
+```bash
+yarn mercato seed:defaults --module communication_channels
+yarn mercato seed:defaults --module integrations
+yarn mercato seed:defaults --module ai_assistant
+yarn mercato auth sync-role-acls
+```
+
+Each command is idempotent. The `integrations` and `ai_assistant` runs register
+the integration health probes and the AI assistant cleanup jobs, which those
+modules also skip without a scheduler. `auth sync-role-acls` grants the
+scheduler's default role features (`scheduler.*` for admins,
+`scheduler.jobs.view` for employees) to existing tenants, which `seed:defaults`
+does not do for the built-in roles. The profile page "My communication channels"
+now warns when a connected channel relies on polling but no scheduler is enabled
+or the organization's poll schedule is missing or disabled, and
+`GET /api/communication_channels/me/channels` returns an additive
+`automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
@@ -1817,7 +1851,7 @@ relative `/api/...` path or `{{env.APP_URL}}/api/...` instead.
 
 Spec: [`.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md`](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md). Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Exposure, audit and mutation modes".
 
-**`tools/list` on `mercato ai_assistant mcp:serve-http` is ACL-filtered.** It used to list every registered tool and check ACL only on `tools/call`. It now lists only the tools that pass the new exposure config (`OM_MCP_TOOL_ALLOWLIST`, `OM_MCP_TOOL_DENYLIST`, `OM_MCP_AGENT_TOOLS`, `--tools`, `--exclude-tools`, `--no-agent-tools`) **and** the list principal's ACL: the session user when the request carries `x-om-session-token`, otherwise the server API key's ACL. A server key with no features now lists only `context_whoami`. **Action:** clients that discover tools with a featureless server key should send `x-om-session-token: <sess_…>` (the same token they pass as `_sessionToken`), or grant the key the roles they need. Check the effective set with `yarn mercato ai_assistant mcp:list-tools --as-api-key <secret>`.
+**`tools/list` on `mercato ai_assistant mcp:serve-http` is ACL-filtered.** It used to list every registered tool and check ACL only on `tools/call`. It now lists only the tools that pass the new exposure config (`OM_MCP_TOOL_ALLOWLIST`, `OM_MCP_TOOL_DENYLIST`, `OM_MCP_AGENT_TOOLS`, `--tools`, `--exclude-tools`, `--no-agent-tools`) **and** the list principal's ACL: the session user when the request carries `x-om-session-token`, otherwise the server API key's ACL. A server key with no features now lists only `context_whoami`. **Action:** OpenCode does not send `x-om-session-token` (its MCP config carries only `x-api-key`), so the web chat relies on the server key's roles: the key must carry roles. The key provisioned by `mercato ai_assistant mcp:ensure-api-key` copies its owner's roles and needs no change; if you set `MCP_SERVER_API_KEY` by hand to a key with no roles, grant it the roles the chat needs. Custom clients that discover tools with a featureless server key can instead send `x-om-session-token: <sess_…>` (the same token they pass as `_sessionToken`). Check the effective set with `yarn mercato ai_assistant mcp:list-tools --as-api-key <secret>`.
 
 **Pending AI actions are scoped to their owner.** Before this release `GET /api/ai_assistant/ai/actions/:id`, `/confirm` and `/cancel` checked only `ai_assistant.view` plus tenant/organization, so any user in the same tenant and organization with that feature could read, confirm, or cancel another user's pending action. Now chat rows (`channel = 'agent'`) are reachable only by the user who created them, and MCP / `/tools/execute` rows (`channel = 'mcp' | 'tools-api'`) by their creator or a user holding the new `ai_assistant.pending_actions.approve` feature. Everyone else gets `404 pending_action_not_found`. **Action:** none for the chat UI (users only ever act on their own rows); custom integrations that confirmed other users' actions through these routes must act as the creator.
 
