@@ -115,24 +115,33 @@ test.describe('TC-UI-FLASH-001: FlashMessages late-secondary URL flash race (bro
       expect(currentUrl.endsWith(`#frag-${keep}`)).toBe(true)
 
       // Unmount the secondary before the next iteration so the following
-      // race exercises a genuinely fresh "late" mount, not a no-op update.
-      await page.evaluate(() => window.__flashRaceHarness!.unmountSecondary())
+      // race exercises a genuinely fresh "late" mount, not a no-op update
+      // — except after the last one, where there is no next iteration and
+      // every extra round trip here only delays the expiry check below
+      // under CI load, eating into its margin against the real 3s timer.
+      if (attempt < attempts) {
+        await page.evaluate(() => window.__flashRaceHarness!.unmountSecondary())
+      }
     }
 
-    // Deterministic 3-second auto-dismiss boundary, anchored to the exact
-    // instant the last toast appeared (captured via the `flash` event
-    // listener above) rather than to "now" at this point in the test — the
-    // preceding toast/URL assertions and the unmount round trip already
-    // consumed an unknown amount of real time, so computing the remaining
-    // wait relative to the actual anchor (instead of a fixed offset from
-    // here) keeps the two checks pinned to "just before" and "just after"
-    // the real 3s boundary regardless of how long those steps took.
+    // Auto-dismiss boundary, anchored to the exact instant the last toast
+    // appeared (captured via the `flash` event listener above) rather than
+    // to "now" at this point in the test — the preceding toast/URL
+    // assertions already consumed an unknown amount of real time, so
+    // computing the remaining wait relative to the actual anchor (instead
+    // of a fixed offset from here) keeps both checks pinned to the real 3s
+    // boundary regardless of how long those steps took. The margins are
+    // ±1s rather than ±1ms: CDP round trips under CI's parallel-shard load
+    // can occasionally stall for over a second on their own (confirmed via
+    // a CI failure with ~1ms margins), so a tight boundary chases
+    // precision the environment can't reliably deliver; ±1s still clearly
+    // distinguishes "dismissed at ~3s" from "immediately" or "never".
     const toastShownAt = await page.evaluate(() => window.__lastFlashShownAt!)
     const elapsedBeforeFirstCheck = (await page.evaluate(() => Date.now())) - toastShownAt
-    await page.waitForTimeout(Math.max(0, 2_999 - elapsedBeforeFirstCheck))
+    await page.waitForTimeout(Math.max(0, 2_000 - elapsedBeforeFirstCheck))
     await expect(page.getByText(lastMessage)).toBeVisible()
     const elapsedBeforeSecondCheck = (await page.evaluate(() => Date.now())) - toastShownAt
-    await page.waitForTimeout(Math.max(0, 3_001 - elapsedBeforeSecondCheck))
+    await page.waitForTimeout(Math.max(0, 4_000 - elapsedBeforeSecondCheck))
     await expect(page.getByText(lastMessage)).toHaveCount(0)
   })
 })
