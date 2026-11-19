@@ -10,6 +10,13 @@ import { AddressTiles, type AddressValue } from '../AddressTiles'
 import { AddressesSection, type AddressDataAdapter, type AddressSummary } from '../AddressesSection'
 import type { AddressTypeOption, AddressTypesAdapter } from '../AddressEditor'
 
+const mockReportError = jest.fn()
+let mockTelemetryRuntime: { reportError: typeof mockReportError } | undefined
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => mockTelemetryRuntime,
+}))
+
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/staff/team-members/member-1',
   useSearchParams: () => new URLSearchParams(),
@@ -61,6 +68,12 @@ function section(prefix: string, adapter = emptyAdapter) {
 }
 
 describe('localized shared addresses', () => {
+  beforeEach(() => {
+    jest.mocked(flash).mockClear()
+    mockReportError.mockReset()
+    mockTelemetryRuntime = { reportError: mockReportError }
+  })
+
   it('shows dictionary labels on cards and preserves unknown type values', async () => {
     const list = jest.fn(async () => [{ value: 'office', label: 'Biuro' }])
     renderWithProviders(tiles({ list }, 'organization-1'))
@@ -69,6 +82,7 @@ describe('localized shared addresses', () => {
     expect(screen.queryByText('office')).not.toBeInTheDocument()
     expect(screen.getByText('legacy-type')).toBeInTheDocument()
     expect(list).toHaveBeenCalledWith('organization-1')
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 
   it('keeps addresses readable without a dictionary adapter', () => {
@@ -76,9 +90,23 @@ describe('localized shared addresses', () => {
     expect(screen.getByText('office')).toBeInTheDocument()
   })
 
-  it('keeps addresses readable and localizes a dictionary load failure', async () => {
-    renderWithProviders(tiles({ list: async () => { throw new Error('[internal] dictionary unavailable') } }))
+  it.each(['active', 'disabled', 'throwing'] as const)('keeps addresses readable and localizes a dictionary load failure with %s telemetry', async (telemetry) => {
+    const error = new Error('[internal] dictionary unavailable')
+    if (telemetry === 'disabled') mockTelemetryRuntime = undefined
+    if (telemetry === 'throwing') {
+      mockReportError.mockImplementation(() => { throw new Error('[internal] telemetry unavailable') })
+    }
+    renderWithProviders(tiles({ list: async () => { throw error } }))
     await waitFor(() => expect(flash).toHaveBeenCalledWith('Nie udało się wczytać typów adresów', 'error'))
+    if (telemetry === 'disabled') {
+      expect(mockReportError).not.toHaveBeenCalled()
+    } else {
+      expect(mockReportError).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(error, {
+        module: 'ui',
+        code: 'ui.address_types_load_failed',
+      })
+    }
     expect(screen.getByText('Biuro W47')).toBeInTheDocument()
     expect(screen.getByText('office')).toBeInTheDocument()
   })

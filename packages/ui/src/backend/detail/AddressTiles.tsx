@@ -6,6 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { normalizeCoordinateInput, validateCoordinateInput } from '@open-mercato/shared/lib/location/coordinates'
 import { AddressView, type AddressFormatStrategy } from './addressFormat'
 import AddressEditor, { type AddressTypeOption, type AddressTypesAdapter } from './AddressEditor'
@@ -214,7 +215,13 @@ export function AddressTiles<C = unknown>({
       try {
         const options = await adapter.list(addressTypesContext)
         if (!cancelled) setAddressTypes(Array.isArray(options) ? options : [])
-      } catch {
+      } catch (error) {
+        try {
+          getTelemetryRuntime()?.reportError(error, {
+            module: 'ui',
+            code: 'ui.address_types_load_failed',
+          })
+        } catch {}
         if (!cancelled) flash(label('types.loadError', 'Failed to load address types'), 'error')
       }
     }
