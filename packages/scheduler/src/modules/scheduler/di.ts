@@ -1,5 +1,6 @@
 import { asClass } from 'awilix'
-import { asScopedService, defineProcessDiRegistrar, registerCallerSetup } from '@open-mercato/shared/lib/di/process-registrar'
+import { asScopedService, defineProcessDiRegistrar, registerCallerSetup, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
+import { runInRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -14,6 +15,21 @@ const logger = createLogger('scheduler')
 
 // Process-level guard: ensures BullMQ sync runs at most once per process lifetime.
 let schedulerSynced = false
+
+async function reconcileScheduler(): Promise<void> {
+  const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+  const scope = await createRequestContainer()
+  try {
+    await runWithRequestScopeContainer(scope, () => scope.resolve<BullMQSchedulerService>('bullmqSchedulerService').syncAll())
+    logger.info('BullMQ cold start sync complete')
+  } finally {
+    try {
+      scope.resolve<EntityManager>('em').clear()
+    } finally {
+      await scope.dispose()
+    }
+  }
+}
 
 /**
  * Scheduler module DI registration
@@ -101,21 +117,21 @@ export const register = defineProcessDiRegistrar((container: AppContainer) => {
         new BullMQSchedulerService(() => scope.resolve<EntityManager>('em')),
       ).disposer((service) => service.destroy()),
     })
-    registerCallerSetup(container, async (scope) => {
+    registerCallerSetup(container, (scope) => {
       const em = scope.resolve<EntityManager>('em')
       const subscriber = new ScheduledJobSubscriber()
       subscriber.setContainer(scope)
       em.getEventManager().registerSubscriber(subscriber)
-      if (!schedulerSynced) {
-        schedulerSynced = true
-        try {
-          await scope.resolve<BullMQSchedulerService>('bullmqSchedulerService').syncAll()
-          logger.info('BullMQ cold start sync complete')
-        } catch (error) {
+    })
+    registerProcessActivation(container, () => {
+      if (schedulerSynced) return
+      schedulerSynced = true
+      setImmediate(() => {
+        void runInRequestScope(reconcileScheduler).catch((error: unknown) => {
           logger.error('BullMQ cold start sync failed', { err: error })
           getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.cold_start_failed' })
-        }
-      }
+        })
+      })
     })
   } else {
     container.register({

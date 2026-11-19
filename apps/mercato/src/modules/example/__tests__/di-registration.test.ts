@@ -7,12 +7,16 @@
  * it one request's tenant — for the life of the process.
  */
 import { createCalendarEventTypeRegistry, resetCalendarEventTypeRegistryForTests, resolveCalendarEventType } from '@open-mercato/core/modules/customers/calendar-event-types'
-import { getProcessDiRegistrar, runCallerSetups } from '@open-mercato/shared/lib/di/process-registrar'
+import { getProcessDiRegistrar, runCallerSetups, runProcessActivations } from '@open-mercato/shared/lib/di/process-registrar'
 import { InjectionMode, asValue, createContainer } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { EXAMPLE_TODO_SUMMARY_SERVICE, register } from '../di'
 import type { TodoSummaryService } from '../lib/todoSummaryCache'
+import * as gatewayRegistry from '@open-mercato/shared/modules/payment_gateways/types'
+import * as shippingRegistry from '@open-mercato/core/modules/shipping_carriers/lib/adapter-registry'
+import * as webhookRegistry from '@open-mercato/webhooks/modules/webhooks/lib/adapter-registry'
+import * as currencyRegistry from '@open-mercato/core/modules/currencies/services/providers/registry'
 
 const TENANT_A = '00000000-0000-4000-8000-00000000000a'
 const ORG_A1 = '00000000-0000-4000-8000-0000000000a1'
@@ -138,4 +142,58 @@ it('decorates each process-root caller command bus without resolving it during r
   expect(executeFirst).toHaveBeenCalledTimes(1)
   expect(executeSecond).not.toHaveBeenCalled()
   expect(first.resolve('commandBus')).not.toBe(second.resolve('commandBus'))
+})
+
+
+describe('example process activation', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+    resetCalendarEventTypeRegistryForTests()
+  })
+
+  function watchProviderRegistrations() {
+    return [
+      { register: jest.spyOn(gatewayRegistry, 'registerGatewayAdapter').mockImplementation(() => () => {}), count: 4 },
+      { register: jest.spyOn(gatewayRegistry, 'registerWebhookHandler').mockImplementation(() => () => {}), count: 4 },
+      { register: jest.spyOn(gatewayRegistry, 'registerPaymentGatewayDescriptor').mockImplementation(() => () => {}), count: 4 },
+      { register: jest.spyOn(shippingRegistry, 'registerShippingAdapter').mockImplementation(() => () => {}), count: 1 },
+      { register: jest.spyOn(webhookRegistry, 'registerWebhookEndpointAdapter').mockImplementation(() => () => {}), count: 1 },
+      { register: jest.spyOn(currencyRegistry, 'registerCurrencyRateProvider').mockImplementation(() => () => {}), count: 1 },
+    ]
+  }
+
+  it('publishes calendar and providers only for an activated generation', async () => {
+    resetCalendarEventTypeRegistryForTests()
+    const providers = watchProviderRegistrations()
+    const calendarRegistry = createCalendarEventTypeRegistry()
+    const upsert = jest.spyOn(calendarRegistry, 'upsert')
+    const replace = jest.spyOn(calendarRegistry, 'replace')
+    const patch = jest.spyOn(calendarRegistry, 'patch')
+    const discarded = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    const current = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    for (const root of [discarded, current]) {
+      root.register({ calendarEventTypeRegistry: asValue(calendarRegistry) })
+      await getProcessDiRegistrar(register)!(root)
+      expect(root.hasRegistration(EXAMPLE_TODO_SUMMARY_SERVICE)).toBe(true)
+    }
+    await discarded.dispose()
+    expect(upsert).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+    expect(patch).not.toHaveBeenCalled()
+    expect(resolveCalendarEventType('visit')).toBeUndefined()
+    for (const provider of providers) expect(provider.register).not.toHaveBeenCalled()
+
+    runProcessActivations(current)
+    expect(upsert).toHaveBeenCalled()
+    expect(resolveCalendarEventType('visit')).toMatchObject({ key: 'visit', adminConfigurable: false })
+    for (const provider of providers) expect(provider.register).toHaveBeenCalledTimes(provider.count)
+    await current.dispose()
+  })
+
+  it('publishes legacy providers immediately without an activation step', () => {
+    const providers = watchProviderRegistrations()
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    register(container)
+    for (const provider of providers) expect(provider.register).toHaveBeenCalledTimes(provider.count)
+  })
 })

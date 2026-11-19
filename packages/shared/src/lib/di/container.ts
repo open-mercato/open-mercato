@@ -213,7 +213,7 @@ const PROCESS_ROOT_STATE_KEY = Symbol.for('@open-mercato/shared/di/process-root'
 type InitializedProcessRoot = { container: AppContainer; activate: () => void }
 type ProcessRootState = {
   generation: number
-  pending: Promise<AppContainer> | null
+  pending: Promise<AppContainer | null> | null
   rootInitializations: number
   registrarExecutions: number
   callerScopes: number
@@ -333,7 +333,7 @@ function isolateCallerRegistrations(caller: AppContainer): void {
 async function buildProcessContainer(
   registrars: DiRegistrar[],
   appRegistrar: AppDiRegistrar | null,
-): Promise<InitializedProcessRoot> {
+): Promise<InitializedProcessRoot | null> {
   const orm = await getOrm()
   const root = createContainer<DynamicCradle>({ injectionMode: InjectionMode.CLASSIC })
   guardProcessRootRegistrations(root)
@@ -361,16 +361,22 @@ async function buildProcessContainer(
       getProcessRootState().registrarExecutions += 1
       await processRegistrar(root)
     }
-    let activate = () => {}
-    if (!root.hasRegistration('eventBus')) {
-      const { bootstrapProcessRoot } = await import('@open-mercato/core/bootstrap')
-      activate = await bootstrapProcessRoot(root)
+    if (root.hasRegistration('eventBus')) {
+      await root.dispose()
+      return null
     }
+    const { bootstrapProcessRoot } = await import('@open-mercato/core/bootstrap')
+    const activate = await bootstrapProcessRoot(root)
+    const generationEventBus = root.registrations.eventBus
     if (appRegistrar) {
       const processRegistrar = getProcessDiRegistrar(appRegistrar)
       if (!processRegistrar) throw new Error('[internal] Process app registrar lost its safety declaration')
       getProcessRootState().registrarExecutions += 1
       await processRegistrar(root)
+    }
+    if (root.registrations.eventBus !== generationEventBus) {
+      await root.dispose()
+      return null
     }
     return { container: root, activate }
   } catch (error) {
@@ -399,7 +405,9 @@ export async function initializeProcessContainer(): Promise<AppContainer | null>
     const generation = state.generation
     if (!state.pending) {
       state.rootInitializations += 1
-      const pending = buildProcessContainer(registrars, appRegistrar).then(async ({ container, activate }) => {
+      const pending = buildProcessContainer(registrars, appRegistrar).then(async (initialized) => {
+        if (!initialized) return null
+        const { container, activate } = initialized
         if (state.generation !== generation) {
           await container.dispose()
           return container
@@ -420,7 +428,10 @@ export async function initializeProcessContainer(): Promise<AppContainer | null>
     }
     try {
       const root = await state.pending
-      if (state.generation === generation) return root
+      if (state.generation === generation) {
+        state.compatibilityReason = root ? null : 'custom event buses require legacy registration ordering'
+        return root
+      }
     } catch (error) {
       if (state.generation === generation) throw error
     }

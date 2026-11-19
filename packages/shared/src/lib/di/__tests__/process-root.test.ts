@@ -1,6 +1,6 @@
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '../container'
-import { asScopedService, defineProcessDiRegistrar, registerCallerSetup } from '../process-registrar'
+import { asScopedService, defineProcessDiRegistrar, registerCallerSetup, registerProcessActivation } from '../process-registrar'
 
 let forkCount = 0
 const mockOrm = { em: { fork: jest.fn(() => ({ forkNumber: ++forkCount })) } }
@@ -35,6 +35,9 @@ jest.mock('@open-mercato/shared/modules/overrides', () => ({
     container.register(Object.fromEntries(Object.entries(mockOverrides).map(([key, value]) => [key, asValue(value)])))
   },
 }))
+jest.mock('@open-mercato/core/modules/query_index/lib/engine', () => ({ HybridQueryEngine: class {} }))
+jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({ recordIndexerError: jest.fn() }))
+
 jest.mock('@open-mercato/shared/lib/encryption/subscriber', () => ({ registerTenantEncryptionSubscriber: jest.fn() }))
 
 import {
@@ -340,4 +343,73 @@ it('reports actual repeated registrar work on the disabled path', async () => {
   const callers = await Promise.all([createRequestContainer(), createRequestContainer()])
   expect(getProcessContainerStats().registrarExecutions - before.registrarExecutions).toBe(4)
   for (const caller of callers) await caller.dispose()
+})
+
+
+it('falls back for a module custom bus and preserves its real query-index CRUD bridge', async () => {
+  const { register: registerQueryIndex } = await import('@open-mercato/core/modules/query_index/di')
+  const subscriptions = new Map<string, (payload: unknown, context: unknown) => Promise<void>>()
+  const customBus = {
+    on: jest.fn((name: string, handler: (payload: unknown, context: unknown) => Promise<void>) => {
+      subscriptions.set(name, handler)
+    }),
+    emitEvent: jest.fn(async () => {}),
+  }
+  const builder = {
+    select: jest.fn(() => builder),
+    distinct: jest.fn(() => builder),
+    where: jest.fn(() => builder),
+    execute: jest.fn(async () => [{ entity_id: 'customers:customer_person' }]),
+    executeTakeFirst: jest.fn(async () => ({ id: 'custom-field' })),
+  }
+  const fork = mockOrm.em.fork.mockImplementation(() => ({
+    forkNumber: ++forkCount,
+    getKysely: () => ({ selectFrom: () => builder }),
+  }))
+  const activate = jest.fn()
+  const customRegistrar = defineProcessDiRegistrar((root) => {
+    root.register({ eventBus: asValue(customBus) })
+    registerProcessActivation(root, activate)
+  })
+  registerDiRegistrars([customRegistrar, registerQueryIndex])
+  try {
+    const caller = await createRequestContainer()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(getProcessContainerStats().compatibilityReason).toContain('custom event buses')
+    expect(mockProcessBootstrap).not.toHaveBeenCalled()
+    expect(activate).not.toHaveBeenCalled()
+    expect(caller.resolve('eventBus')).toBe(customBus)
+    const created = subscriptions.get('customers.customer_person.created')
+    expect(created).toBeDefined()
+    await created!({ id: 'person', tenantId: 'tenant', organizationId: 'org' }, {
+      resolve: caller.resolve.bind(caller),
+    })
+    expect(customBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', {
+      entityType: 'customers:customer_person', recordId: 'person', tenantId: 'tenant', organizationId: 'org',
+    })
+    const initializations = getProcessContainerStats().rootInitializations
+    await createRequestContainer()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(getProcessContainerStats().rootInitializations).toBe(initializations)
+    registerDiRegistrars([])
+    expect(await initializeProcessContainer()).not.toBeNull()
+    expect(getProcessContainerStats().compatibilityReason).toBeNull()
+    expect(mockProcessBootstrap).toHaveBeenCalledTimes(1)
+  } finally {
+    fork.mockImplementation(() => ({ forkNumber: ++forkCount }))
+  }
+})
+
+it('falls back when the app replaces the generation bus without publishing that generation', async () => {
+  const customBus = { emit: jest.fn() }
+  const activate = jest.fn()
+  registerAppDiRegistrar(defineProcessDiRegistrar((root) => {
+    root.register({ eventBus: asValue(customBus) })
+    registerProcessActivation(root, activate)
+  }))
+  const caller = await createRequestContainer()
+  expect(caller.resolve('eventBus')).toBe(customBus)
+  expect(getProcessContainerStats().compatibilityReason).toContain('custom event buses')
+  expect(mockActivate).not.toHaveBeenCalled()
+  expect(activate).not.toHaveBeenCalled()
 })

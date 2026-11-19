@@ -53,3 +53,10 @@ PR: #9837
 - Final-source production build passes. Full configured gate remains blocked by the independently reproduced baseline failures above; step 3.3 stays pending and the PR stays draft/default-off. Resume qualification with om-auto-continue-pr 9837 once the baseline gate is repaired.
 - Final enabled run: all 13 CRM/cart/promotion/worker cases pass on c01dd6e65a with retries disabled, including the strengthened same-event worker assertions and deterministic failure cleanup. Both feature modes are covered.
 - Final enabled setup timing: 20 generation-cold callers 9.374ms, 100 warm callers median 0.316ms / p95 0.463ms; disabled 15.387ms, median 0.542ms / p95 0.639ms. These measure caller construction with warm imports/ORM, not full requests or process cold starts.
+
+### Review 5965672633 follow-up (2026-11-19)
+- Scheduler reconciliation is deferred until activation and runs in an independently owned background caller; caller setup only attaches its EM subscriber.
+- Fulltext drivers reuse generation-owned initialization when encrypted-field filtering is off, without retaining caller SQL/config accessors.
+- Module/app custom event buses select the full legacy builder, preserving their query-index CRUD bridge; fallback is cached per generation and invalidated with registrations.
+- Example calendar/provider/webhook publication is deferred to activation in app and template; discarded roots publish nothing.
+- Focused regression validation: shared lifecycle18, example9, search700 and scheduler562 tests pass. Independent review reports no new blocker. Exact-successor configured gate and enabled/disabled integration rerun are in progress.

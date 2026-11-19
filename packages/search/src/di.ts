@@ -51,6 +51,10 @@ type SearchModuleGlobals = {
   [FULLTEXT_DRIVER_KEY]?: FullTextSearchDriver
 }
 
+type GenerationFulltextDriverCache = SearchModuleGlobals & {
+  fieldPolicyResolver: (entityId: EntityId) => SearchFieldPolicy | undefined
+}
+
 function getSearchModuleGlobals(): SearchModuleGlobals {
   return globalThis as unknown as SearchModuleGlobals
 }
@@ -126,11 +130,20 @@ export function registerSearchModule(
 }
 
 export function registerScopedSearchModule(root: AwilixContainer, options?: SearchModuleOptions): void {
+  const fieldPolicies = new Map<EntityId, SearchFieldPolicy | undefined>()
+  for (const moduleConfig of options?.moduleConfigs ?? []) {
+    for (const entityConfig of moduleConfig.entities) {
+      if (entityConfig.enabled !== false) fieldPolicies.set(entityConfig.entityId as EntityId, entityConfig.fieldPolicy)
+    }
+  }
+  const fulltextDriverCache: GenerationFulltextDriverCache = {
+    fieldPolicyResolver: (entityId) => fieldPolicies.get(entityId),
+  }
   const instances = new WeakMap<AwilixContainer, ReturnType<typeof createSearchServices>>()
   const resolveServices = (caller: AwilixContainer) => {
     let services = instances.get(caller)
     if (!services) {
-      services = createSearchServices(caller, options, false)
+      services = createSearchServices(caller, options, false, fulltextDriverCache)
       instances.set(caller, services)
     }
     return services
@@ -142,7 +155,12 @@ export function registerScopedSearchModule(root: AwilixContainer, options?: Sear
   })
 }
 
-function createSearchServices(container: SearchContainer, options?: SearchModuleOptions, cacheFulltextDriver = true) {
+function createSearchServices(
+  container: SearchContainer,
+  options?: SearchModuleOptions,
+  cacheFulltextDriver = true,
+  generationFulltextDriverCache?: GenerationFulltextDriverCache,
+) {
   const moduleConfigs = (options?.moduleConfigs ?? []).map((moduleConfig) => ({
     ...moduleConfig,
     entities: moduleConfig.entities.map((entityConfig) => {
@@ -195,9 +213,9 @@ function createSearchServices(container: SearchContainer, options?: SearchModule
   // Fulltext strategy (requires driver configuration, e.g., MEILISEARCH_HOST)
   if (!options?.skipFulltext) {
     const excludeEncrypted = shouldExcludeEncryptedFields()
-    const singletonCacheEnabled = cacheFulltextDriver
+    const singletonCacheEnabled = (cacheFulltextDriver || !!generationFulltextDriverCache)
       && process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
-    const g = getSearchModuleGlobals()
+    const g = generationFulltextDriverCache ?? getSearchModuleGlobals()
 
     // The fulltext driver is safe to memoize only when SEARCH_EXCLUDE_ENCRYPTED_FIELDS is
     // OFF — in that case the driver holds no request-scoped Kysely reference. When the flag
@@ -222,10 +240,10 @@ function createSearchServices(container: SearchContainer, options?: SearchModule
       }
 
       fulltextDriver = createFulltextDriver({
-        fieldPolicyResolver: (entityId: EntityId): SearchFieldPolicy | undefined => {
+        fieldPolicyResolver: generationFulltextDriverCache?.fieldPolicyResolver ?? ((entityId: EntityId): SearchFieldPolicy | undefined => {
           const config = entityConfigMap.get(entityId)
           return config?.fieldPolicy
-        },
+        }),
         encryptionMapResolver,
       })
 

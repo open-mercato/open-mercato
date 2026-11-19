@@ -2,7 +2,7 @@ import type { CalendarEventTypeRegistry } from '@open-mercato/core/modules/custo
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import calendarVisitWidget from './widgets/injection/calendar-visit/widget'
 import { asFunction, asValue } from 'awilix'
-import { defineProcessDiRegistrar, registerCallerSetup } from '@open-mercato/shared/lib/di/process-registrar'
+import { defineProcessDiRegistrar, registerCallerSetup, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   registerGatewayAdapter,
@@ -48,7 +48,7 @@ function registerCalendar(container: AppContainer): void {
 
 }
 
-function registerDefinitions(container: AppContainer) {
+function registerServices(container: AppContainer) {
   // The module's own service registration, as opposed to the adapter-registry calls
   // below (which register into module-external registries, not into this container).
   //
@@ -60,6 +60,9 @@ function registerDefinitions(container: AppContainer) {
     [EXAMPLE_CURRENCY_RATE_PROVIDER]: asValue(exampleCurrencyRateProvider),
   })
 
+}
+
+function registerProviders(): void {
   // Register mock gateway adapter for payment testing (no real credentials needed)
   registerGatewayAdapter(mockGatewayAdapter)
   registerGatewayAdapter({
@@ -190,13 +193,17 @@ function decorateCommandBus(container: AppContainer): void {
 function registerLegacy(container: AppContainer): void {
   registerCalendar(container)
   decorateCommandBus(container)
-  registerDefinitions(container)
+  registerServices(container)
+  registerProviders()
   syncQaCapacityProbeRegistration()
 }
 
 export const register = defineProcessDiRegistrar((container: AppContainer) => {
-  registerCalendar(container)
-  registerDefinitions(container)
+  registerServices(container)
+  registerProcessActivation(container, () => {
+    registerCalendar(container)
+    registerProviders()
+  })
   registerCallerSetup(container, (scope) => {
     decorateCommandBus(scope)
     syncQaCapacityProbeRegistration()
