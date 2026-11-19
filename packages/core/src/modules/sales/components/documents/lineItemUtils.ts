@@ -1,5 +1,38 @@
 "use client"
 
+type TranslateWithFallback = (key: string, fallback?: string) => string
+
+export function translateLineItemServerError(
+  message: string,
+  t: TranslateWithFallback,
+): string {
+  const translations: Record<string, { key: string; fallback: string }> = {
+    "uom.unit_not_found": {
+      key: "sales.documents.items.errors.uom.unitNotFound",
+      fallback: "The specified unit code was not found.",
+    },
+    "uom.conversion_not_found": {
+      key: "sales.documents.items.errors.uom.conversionNotFound",
+      fallback: "No unit conversion found for this product.",
+    },
+    "uom.default_unit_missing": {
+      key: "sales.documents.items.errors.uom.defaultUnitMissing",
+      fallback: "Product is missing a default base unit.",
+    },
+    "uom.invalid_factor": {
+      key: "sales.documents.items.errors.uom.invalidFactor",
+      fallback: "Conversion factor must be a positive number.",
+    },
+    "uom.precision_overflow": {
+      key: "sales.documents.items.errors.uom.precisionOverflow",
+      fallback: "Result exceeds the allowed decimal precision.",
+    },
+  }
+  const translation = translations[message]
+  if (translation) return t(translation.key, translation.fallback)
+  return message
+}
+
 export function normalizeNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim().length) {

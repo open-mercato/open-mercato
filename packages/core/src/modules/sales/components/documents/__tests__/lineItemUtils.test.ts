@@ -1,4 +1,32 @@
-import { resolveCatalogPriceAmount, resolveLineDiscountDisplay } from '../lineItemUtils'
+import {
+  resolveCatalogPriceAmount,
+  resolveLineDiscountDisplay,
+  translateLineItemServerError,
+} from '../lineItemUtils'
+
+describe('translateLineItemServerError', () => {
+  it.each([
+    ['uom.unit_not_found', 'unitNotFound'],
+    ['uom.conversion_not_found', 'conversionNotFound'],
+    ['uom.default_unit_missing', 'defaultUnitMissing'],
+    ['uom.invalid_factor', 'invalidFactor'],
+    ['uom.precision_overflow', 'precisionOverflow'],
+  ])('translates %s using its sales UOM error copy', (message, errorKey) => {
+    const t = (key: string, fallback?: string) => `${key}:${fallback ?? ''}`
+
+    expect(translateLineItemServerError(message, t)).toContain(
+      `sales.documents.items.errors.uom.${errorKey}:`,
+    )
+  })
+
+  it('preserves other server messages', () => {
+    const t = (key: string, fallback?: string) => fallback ?? key
+
+    expect(translateLineItemServerError('Something went wrong.', t)).toBe(
+      'Something went wrong.',
+    )
+  })
+})
 
 describe('resolveLineDiscountDisplay', () => {
   it('returns null when neither a discount amount nor a percentage is recorded', () => {
