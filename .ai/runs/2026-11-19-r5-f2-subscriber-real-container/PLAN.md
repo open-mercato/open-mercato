@@ -10,7 +10,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add `buildScopedContainerFromResolve` shim + unit test | inline | todo | — |
+| 1 | 1.1 | Add `buildScopedContainerFromResolve` shim + unit test | inline | done | (this commit) |
 | 1 | 1.2 | Hand the real container to subscribers and worker jobs (events, cli, bootstrap) | inline | todo | — |
 | 1 | 1.3 | Promotions DI container-scope test | inline | todo | — |
 | 2 | 2.1 | RL-11: no reminder e-mail for the create-time `forms.invitation.sent` | inline | todo | — |
