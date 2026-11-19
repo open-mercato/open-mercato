@@ -5,7 +5,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LookupSelect } from '../LookupSelect'
 
 function getInput(container: HTMLElement): HTMLInputElement {
@@ -445,6 +445,12 @@ describe('LookupSelect closes on pick (#6196)', () => {
 // the list whenever the record fell outside that arbitrary first page — the form
 // still held the id, but nothing on screen was marked as chosen.
 describe('LookupSelect keeps the selection across browse fetches', () => {
+  beforeEach(() => { jest.useFakeTimers() })
+  afterEach(async () => {
+    await act(async () => { await jest.runOnlyPendingTimersAsync() })
+    jest.useRealTimers()
+  })
+
   const STORED = { id: 'contractor-99', title: 'Stored Contractor' }
   const FIRST_PAGE = [
     { id: 'contractor-1', title: 'Alpha' },
@@ -509,7 +515,9 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
     await screen.findByText('Beta')
 
     fireEvent.change(getInput(container), { target: { value: 'Alp' } })
-    await waitFor(() => expect(screen.queryByText('Beta')).toBeNull())
+    await act(async () => { await jest.runOnlyPendingTimersAsync() })
+    expect(fetchItems).toHaveBeenLastCalledWith('Alp')
+    expect(screen.queryByText('Beta')).toBeNull()
 
     expect(screen.getAllByRole('option')).toHaveLength(1)
     expect(screen.getByRole('option')).toHaveTextContent('Alpha')
@@ -530,7 +538,9 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
     await screen.findByText('Beta')
 
     fireEvent.change(input, { target: { value: 'Alp' } })
-    await waitFor(() => expect(screen.queryByText('Beta')).toBeNull())
+    await act(async () => { await jest.runOnlyPendingTimersAsync() })
+    expect(fetchItems).toHaveBeenLastCalledWith('Alp')
+    expect(screen.queryByText('Beta')).toBeNull()
     fireEvent.change(input, { target: { value: '' } })
 
     await screen.findByText('Beta')
@@ -597,7 +607,9 @@ describe('LookupSelect keeps the selection across browse fetches', () => {
     )
     const input = getInput(view.container)
     fireEvent.change(input, { target: { value: 'Alp' } })
-    await waitFor(() => expect(screen.queryByText('Beta')).toBeNull())
+    await act(async () => { await jest.runOnlyPendingTimersAsync() })
+    expect(fetchItems).toHaveBeenLastCalledWith('Alp')
+    expect(screen.queryByText('Beta')).toBeNull()
     fireEvent.change(input, { target: { value: '' } })
 
     await screen.findByText('Beta')
