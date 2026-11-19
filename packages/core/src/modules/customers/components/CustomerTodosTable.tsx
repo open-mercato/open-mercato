@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
@@ -13,9 +13,10 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tag } from '@open-mercato/ui/primitives/tag'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { resolveTodoHref } from './detail/utils'
+import { CUSTOMER_TASKS_CUSTOMER_PARAM, resolveTodoHref } from './detail/utils'
 
 type CustomerTodoItem = {
   id: string
@@ -52,6 +53,13 @@ type CustomerTodosResponse = {
 
 const TASKS_TAB_QUERY = 'tab=tasks'
 const CUSTOMER_TASKS_API_PATH = '/api/customers/interactions/tasks'
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function readCustomerIdParam(searchParams: URLSearchParams | null): string | null {
+  const raw = searchParams?.get(CUSTOMER_TASKS_CUSTOMER_PARAM)?.trim()
+  if (!raw || !UUID_PATTERN.test(raw)) return null
+  return raw
+}
 
 function buildCustomerHref(item: CustomerTodoItem): string | null {
   const customerId = item.customer?.id
@@ -68,6 +76,7 @@ function buildCustomerTasksQueryString(input: {
   page: number
   pageSize: number
   search: string
+  customerId?: string | null
   all?: boolean
 }): string {
   const usp = new URLSearchParams({
@@ -75,6 +84,7 @@ function buildCustomerTasksQueryString(input: {
     pageSize: String(input.pageSize),
   })
   if (input.search.trim().length > 0) usp.set('search', input.search.trim())
+  if (input.customerId) usp.set('entityId', input.customerId)
   if (input.all) usp.set('all', 'true')
   return usp.toString()
 }
@@ -92,17 +102,25 @@ function readValueAtPath(record: Record<string, unknown>, path: string): unknown
 export function CustomerTodosTable(): React.JSX.Element {
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
+  const customerId = readCustomerIdParam(searchParams)
 
   const [search, setSearch] = React.useState('')
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(50)
 
+  React.useEffect(() => {
+    setPage(1)
+  }, [customerId])
+
   const params = React.useMemo(() => buildCustomerTasksQueryString({
     page,
     pageSize,
     search,
-  }), [page, pageSize, search])
+    customerId,
+  }), [customerId, page, pageSize, search])
 
   const columns = React.useMemo<ColumnDef<CustomerTodoItem>[]>(() => [
     {
@@ -187,6 +205,24 @@ export function CustomerTodosTable(): React.JSX.Element {
 
   const rows = data?.items ?? []
 
+  // The chip names the customer from its task rows; remember the name so the chip
+  // keeps it while a search narrows the list down to no rows.
+  const rowCustomerName = customerId
+    ? rows.find((row) => row.customer?.id === customerId)?.customer?.displayName ?? null
+    : null
+  const [knownCustomer, setKnownCustomer] = React.useState<{ id: string; name: string } | null>(null)
+  React.useEffect(() => {
+    if (customerId && rowCustomerName) setKnownCustomer({ id: customerId, name: rowCustomerName })
+  }, [customerId, rowCustomerName])
+  const customerName = rowCustomerName ?? (knownCustomer && knownCustomer.id === customerId ? knownCustomer.name : null)
+
+  const clearCustomerFilter = React.useCallback(() => {
+    const next = new URLSearchParams(searchParams?.toString() ?? '')
+    next.delete(CUSTOMER_TASKS_CUSTOMER_PARAM)
+    const query = next.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [pathname, router, searchParams])
+
   const exportConfig = React.useMemo(() => ({
     view: {
       description: t('customers.workPlan.customerTodos.table.export.view'),
@@ -204,6 +240,7 @@ export function CustomerTodosTable(): React.JSX.Element {
           page: 1,
           pageSize,
           search,
+          customerId,
           all: true,
         }))
         return {
@@ -212,7 +249,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         }
       },
     },
-  }), [buildPreparedExport, fetchTasks, pageSize, rows, search, t, viewExportColumns])
+  }), [buildPreparedExport, customerId, fetchTasks, pageSize, rows, search, t, viewExportColumns])
 
   const handleRefresh = React.useCallback(async () => {
     try {
@@ -232,8 +269,25 @@ export function CustomerTodosTable(): React.JSX.Element {
 
   const errorMessage = error ? (error instanceof Error ? error.message : t('customers.workPlan.customerTodos.table.error.load')) : null
   const emptyStateMessage = !isLoading && !errorMessage && rows.length === 0
-    ? (search ? t('customers.workPlan.customerTodos.table.state.noMatches') : t('customers.workPlan.customerTodos.table.state.empty'))
+    ? (search || customerId ? t('customers.workPlan.customerTodos.table.state.noMatches') : t('customers.workPlan.customerTodos.table.state.empty'))
     : undefined
+
+  const customerFilterChip = customerId ? (
+    <div
+      className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2"
+      data-testid="customer-tasks-customer-filter"
+    >
+      <Tag
+        variant="neutral"
+        onRemove={clearCustomerFilter}
+        removeAriaLabel={t('customers.workPlan.customerTodos.table.filters.customer.remove', 'Remove customer filter')}
+      >
+        {t('customers.workPlan.customerTodos.table.filters.customer', 'Customer: {name}', {
+          name: customerName ?? t('customers.workPlan.customerTodos.table.filters.customer.unknown', 'Selected customer'),
+        })}
+      </Tag>
+    </div>
+  ) : null
 
   return (
     <DataTable
@@ -257,6 +311,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         setPage(1)
       }}
       perspective={{ tableId: extensionPoints.hosts.todosTable.tableId }}
+      activeFilterChips={customerFilterChip}
       rowActions={(row) => {
         const customerLink = buildCustomerHref(row)
         const todoHref = row.externalHref ?? resolveTodoHref(row.todoSource, row.todoId)
