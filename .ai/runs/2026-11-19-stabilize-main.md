@@ -1,32 +1,37 @@
 # Stabilize main CI — 2026-11-19
 
 ## Goal
-Restore a green full-suite CI run in a draft PR from `stabilize/main-2026-11-19` into `main`, then request automerge only after independent review and exact-head CI pass.
+Restore a green full-suite CI run in a PR from `stabilize/main-2026-11-19` into `main`, then request automerge after independent review and exact-head CI pass.
 
 ## Scope
-Diagnose current main failures, fix their root causes with regression coverage, and verify all 15 integration shards plus other applicable checks. Existing `ci-full` and same-repository `stabilize/` selection are already present; preserve their guardrails. Base: `7313a0fe67b41d9029d8700529a23f0f76b4ce03`.
+Diagnose main failures, correct their root causes without weakening assertions or increasing timeouts, and verify all 15 integration shards plus the full hosted validation gate. Existing same-repository `stabilize/` and `ci-full` routing already selects full coverage. Initial base: `7313a0fe67b41d9029d8700529a23f0f76b4ce03`; merged reviewed main `b7b5309cccd7b2b292ab49bfb1e52b7e84c9e43d` to resolve the newly added payment test's add/add conflict.
 
 ## Non-goals
-No merge into main, contract redesign, weakened assertions, skipped failing tests, production changes, new dependencies or external submodule pointer updates.
+No merge into main, production behavior change, contract redesign, weakened assertions, skipped failing tests, increased timeouts, new dependencies or external submodule pointer updates.
 
 ## Implementation Plan
 ### Phase 1: Establish evidence
-1.1 Verify full-suite routing and diagnose current main failures. Delegate read-only CI failure inventory independently; keep coupled fixes with the parent.
+1.1 Verify full-suite routing and diagnose current main failures. Keep coupled fixes with the parent and use independent read-only analysis.
 ### Phase 2: Correct failures
 2.1 Implement minimal root-cause corrections and regression coverage; validate and commit incrementally.
 ### Phase 3: Validate and review
 3.1 Run the configured ordered validation gate and full PR CI; correct failures until green.
-3.2 Dispatch one final independent review using `cez task create --kind review --review-of stabilize/main-2026-11-19`; resolve findings and wait for approval before reporting completion.
-3.3 Publish evidence, promote the draft, and add `automerge` only with green exact-head checks and approval.
+3.2 Complete the one final independent review and address findings; resume that same reviewer for follow-up changes.
+3.3 Publish evidence, promote the draft, and request automerge only after green reviewed-head CI.
 
-## Risks
-Main changes frequently; evidence belongs to exact SHAs. Existing stabilization PRs are independently owned and must not be modified. Further failures can expand the correction phase, but every fix stays on this branch. Hosted integration runs may take longer than a single session; retain resumable state. Do not infer success from skipped jobs or pending workflows.
+## Evidence and outcomes
+- **Role cancellation:** main run `44409579981` showed EN/PL tests waiting for nonexistent Confirm/Potwierdź. Corrected to shipped Discard changes/Odrzuć zmiany, retaining duplicate refusal, save, persistence, cancellation, tenant-isolation and denied-write assertions. The identical correction independently reached main via #9715 and is absent from the final diff.
+- **CRM setup budget:** trace showed redundant login/dashboard navigation consuming approximately five seconds before companies navigation. The first hook-only relocation was rejected because Playwright hooks share the test timeout. Replaced duplicate authentication/dashboard navigation with existing `authenticateCrm` API-session/browser-cookie setup. Preserved Warsaw clock, exact DST boundary fixtures, inclusion/exclusion, serialized filters, editor/operator/date, screenshot, reload and cleanup assertions and the global 20-second budget.
+- **Payment edit:** main added `TC-SALES-PRECISION-003` in #7324 while this run was active. Full run `44483474581` at `8137cfb737` failed only shard 12: both attempts timed out after the Edit payment menu detached before interaction. Replaced the two transient menu clicks with the existing row-click edit action; both invoke the same `openEditPayment` callback. Strict 18-decimal amount equality, UI reference edit, successful PUT, persisted reference and fixture cleanup remain unchanged. The sole main merge conflict was add/add of that test; resolution preserves only this correction.
+- **Independent review:** the ONE final reviewer task `749eae35` approved `d8b748da66ed4724932628949c6a1a7b41e59f13` after inspecting the full five-file diff, retry trace, callback equivalence and merge resolution. No findings remain. The parent independently verified the report, diff and routing checks. The author App cannot submit native self-approval; the independent report is published on the PR and does not bypass branch policy.
+- **Full execution:** hosted run `44488699387` passed all 15 integration shards, coverage merge, full unit/type checks, package builds, generation, app build, i18n sync/usage, lint, Docker, timezone and multi-instance gates. All other exact-head workflows/checks passed or were conditionally skipped by scope. Corrected payment case passed first attempt in 6.8 seconds; shard 12 reports 261 passed, zero failed/flaky.
+- **Validation source:** GitHub checks under the repo-local checks-first override, with per-command evidence on the PR. An earlier local gate passed its first five commands and was interrupted at typecheck; no complete local gate is claimed. Narrow local routing checks passed 25/25 and diff whitespace checks passed. No production, schema, API, dependency, workflow or generated-file changes are authored by this task.
 
 ## Ownership recovery
-The operator instructed run `9f3dec20-230d-4276-9dcb-1204507921dd` to continue autonomously after the claim blocker was reported. The original run `c982e976` and both workers were confirmed stopped. The abandoned atomic lock `43f51884` was released with its exact-SHA lease and replaced with a fresh create-only claim `95845bf8`, with the prior owner and authorization recorded on PR #9867. No human assignees were changed.
+Run `9f3dec20-230d-4276-9dcb-1204507921dd` continued under the operator's explicit autonomous continuation instruction after the prior ownership blocker was reported. Prior run `c982e976` and both workers were confirmed stopped. Its abandoned lock `43f51884` was released with its exact-SHA lease and replaced by create-only claim `95845bf8`; authorization, prior owner and claims are recorded on PR #9867. No human assignees changed.
 
-## Evidence
-Main run `44409579981`, shard 3: the EN/PL role-validation trace shows cancellation opens an alertdialog with `Discard changes` / `Odrzuć zmiany`; the test instead waits for `Confirm` / `Potwierdź` until the 20-second limit. Corrected the test locators while retaining duplicate-error, successful persistence, cancellation, tenant isolation and denied-write assertions. The independent inventory also confirmed shard 7 exhausts its whole-test budget after ~5s login navigation and ~8s companies navigation before screenshot/reload assertions. The final independent review rejected hook-only relocation (dd04253468): Playwright beforeEach shares the same test timeout. Replaced it with existing `authenticateCrm`, which obtains the API session and installs scoped browser cookies without navigating to `/backend`; the test navigates directly to companies. This removes the measured ~5s redundant dashboard navigation and duplicate login while retaining the 20-second limit and all assertions. The corrected code at `6c2ddd77d8e192a6c1540d6c1fb8766887cd6312` passed full hosted CI run `44429737286`, including all 15 shards. Independent final review task `749eae35` approved the complete diff at `1c212131fa`; the prior timeout finding is resolved. Full hosted run `44477354876` passed all 15 shards and every reported gate at that reviewed head. Changed EN/PL role cases passed first attempt in 4.6s/4.3s and CRM in 3.4s. GitHub rejects native self-approval by the author App; the independent report and per-gate evidence are published on the PR without bypassing branch policy. The identical role correction also reached main via #9715; the CRM change remains unique. Existing workflow routing passed all 25 executable checks. Full hosted run `44418908173` passed all 15 integration shards, unfiltered unit/type checks, Docker build, multi-instance and timezone jobs before the additional CRM correction; the corrected head also passed the later full run above. Validation source: GitHub checks under the repo-local `om-auto-review-pr` checks-first override. Hosted prepare/test jobs cover both package builds, generation, i18n sync and usage, full typechecking, the full unit suite, and the app build. The prior local attempt completed its first five commands, then was interrupted at typecheck; it is not claimed as a complete local gate. Local runner selected for standalone routing checks (25/25 passed).
+## Risks and handoff
+Main changes frequently; evidence belongs to exact SHAs. New failures reopened completion and removed `automerge` until corrected and re-reviewed. No existing skip or unrelated retry is claimed repaired. The completion-tracking commit receives its own full CI run; publish that final exact-head result in the PR evidence without another source commit, then release this run's claim. The PR is ready and `automerge` requested after reviewed-head CI passed; actual merging remains subject to CI and review policy. This task performs no merge into main.
 
 ## Progress
 PR: #9867
@@ -34,18 +39,12 @@ PR: #9867
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence
-- [x] 1.1 Verify full-suite routing and diagnose current main failures
+- [x] 1.1 Verify full-suite routing and diagnose current main failures — 855f5ab405
 
 ### Phase 2: Correct failures
-- [x] 2.1 Implement minimal root-cause corrections and regression coverage — f7fdfd527c
+- [x] 2.1 Implement minimal root-cause corrections and regression coverage — f7fdfd527c, e6dfa25d17, 7a59ef3220
 
 ### Phase 3: Validate and review
-- [ ] 3.1 Run the configured ordered validation gate and full PR CI — 6c2ddd77d8 (hosted run 44429737286; checks-first override)
-- [ ] 3.2 Complete final independent review and address findings — 1c212131fa (independent task 749eae35 APPROVE)
-- [ ] 3.3 Publish evidence, promote the draft, and request automerge — 1c212131fa (green reviewed head; tracker actions verified)
-
-## Handoff
-PR #9867 is ready with `automerge` requested after independent approval and a full green run. No merge was performed. This final tracking-only commit must pass its own full CI before run `9f3dec20` releases its ownership claim and reports completion; current exact-head evidence belongs in the PR verification comment so it can be updated without another commit. Existing conditional skips and an unrelated invalid-login retry are disclosed in the review.
-
-## Final-head follow-up
-Full run `44483474581` at `8137cfb737` failed only shard 12. Main had added `TC-SALES-PRECISION-003` through reviewed upstream commit `2066fc61cd` (#7324); GitHub tests the synthetic merge, so the new test ran although it was absent from the old task branch. Both attempts exhausted 60 seconds while selecting Edit payment from a menu detached after opening. The trace identifies that exact blocked action, not amount rounding or a failed API write. Use the existing payment row-click edit affordance instead: both row click and menu call the same `openEditPayment` callback. This removes the transient two-step menu interaction while retaining the dialog value, PUT response, reference readback, exact 18-decimal amount and fixture cleanup checks, without changing production behavior or increasing timeouts. Adding the upstream test initially produced an add/add conflict against main. Merged the already-reviewed main history at `b7b5309ccc` and resolved that one conflict with the same row-click correction. The resulting diff against main remains limited to CRM/payment integration tests and focused run/lesson documentation; upstream production changes are not task-authored edits. `automerge` was removed, completion reopened, and the same final reviewer must re-review the fix before final green CI handoff.
+- [x] 3.1 Run the configured ordered validation gate and full PR CI — d8b748da66 (hosted full run 44488699387)
+- [x] 3.2 Complete final independent review and address findings — d8b748da66 (same final reviewer 749eae35 APPROVE)
+- [x] 3.3 Publish evidence, promote the draft, and request automerge — d8b748da66 (green reviewed head; tracker actions verified)
