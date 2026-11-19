@@ -3,6 +3,7 @@
   "integrations.bundle.integrationToggles": "통합",
   "integrations.bundle.sharedCredentials": "공유 자격 증명",
   "integrations.bundle.title": "번들",
+  "integrations.credentials.errors.destinationChanged": "연결 대상을 변경한 후 저장된 비밀 정보를 다시 입력하세요.",
   "integrations.detail.analytics.errorRate": "오류율 (30일): {rate}",
   "integrations.detail.analytics.lastActivity": "마지막 활동",
   "integrations.detail.analytics.never": "지난 30일간 활동 없음",
