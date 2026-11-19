@@ -1409,7 +1409,7 @@
   "customers.deals.kanban.filter.close.title": "Filtr · Planowane zamknięcie",
   "customers.deals.kanban.filter.companies": "Firmy",
   "customers.deals.kanban.filter.from": "Od {date}",
-  "customers.deals.kanban.filter.label": "FILTR:",
+  "customers.deals.kanban.filter.label": "Filtr",
   "customers.deals.kanban.filter.more": "Więcej filtrów",
   "customers.deals.kanban.filter.multipleSelected": "Zaznaczono: {count}",
   "customers.deals.kanban.filter.noResults": "Brak dopasowań",
