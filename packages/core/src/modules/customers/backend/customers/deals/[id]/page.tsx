@@ -419,6 +419,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             typeof data.deal.valueAmount === 'string' && data.deal.valueAmount.trim().length
               ? Number(data.deal.valueAmount)
               : null,
+          valueAmountExact:
+            typeof data.deal.valueAmount === 'string' && data.deal.valueAmount.trim().length
+              ? data.deal.valueAmount.trim()
+              : null,
           personIds: data.linkedPersonIds,
           companyIds: data.linkedCompanyIds,
           customFields: data.customFields,

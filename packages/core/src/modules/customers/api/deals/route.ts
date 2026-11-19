@@ -28,6 +28,7 @@ import { expandDealStatusAliases, isClosedDealStatus } from '../../lib/dealStatu
 import { resolveDealStatusFilterVocabulary, restoreDealStatusFilterVariants } from '../../lib/dealStatusFilters'
 import { resolveDealStatusVocabulary } from '../../lib/dealStatusVocabulary'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('customers')
 
@@ -499,6 +500,8 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
   return filters
 }
 
+const DEAL_MONEY_FIELDS = ['valueAmount'] as const
+
 const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
   metadata: routeMetadata,
   orm: {
@@ -556,7 +559,11 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(dealCreateSchema, raw ?? {}, ctx, translate)
+        return withExactAmounts(
+          parseScopedCommandInput(dealCreateSchema, raw ?? {}, ctx, translate),
+          raw,
+          DEAL_MONEY_FIELDS,
+        )
       },
       response: ({ result }) => ({ id: result?.dealId ?? result?.id ?? null }),
       status: 201,
@@ -566,7 +573,11 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(dealUpdateSchema, raw ?? {}, ctx, translate)
+        return withExactAmounts(
+          parseScopedCommandInput(dealUpdateSchema, raw ?? {}, ctx, translate),
+          raw,
+          DEAL_MONEY_FIELDS,
+        )
       },
       response: () => ({ ok: true }),
     },
