@@ -340,7 +340,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   formId?: string
   customFieldsLoadingMessage?: string
   cancelHref?: string
-  successRedirect?: string
+  successRedirect?: string | ((values: TValues, result: void | CrudFormSubmitResult) => string | undefined)
   deleteRedirect?: string
   onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void | CrudFormSubmitResult> | void | CrudFormSubmitResult
   onSubmitSuccess?: (values: TValues, result: void | CrudFormSubmitResult) => Promise<void> | void
@@ -3385,7 +3385,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         logger.error('Error in onSubmitSuccess', { err })
         getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
       }
-      if (successRedirect) redirectNavigationStarted = await navigateWithGuard(successRedirect)
+      const successRedirectTarget = typeof successRedirect === 'function'
+        ? successRedirect(coreSubmitValues, submitResult)
+        : successRedirect
+      if (successRedirectTarget) redirectNavigationStarted = await navigateWithGuard(successRedirectTarget)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
       try {
