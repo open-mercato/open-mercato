@@ -206,6 +206,7 @@ const createInvitationCommand: CommandHandler<FormInvitationCreateCommandInput, 
         await emitForms('forms.invitation.sent', {
           invitationId: entry.invitation.id,
           distributionId: distribution.id,
+          source: 'create',
         })
       }
     }
@@ -304,6 +305,7 @@ const sendInvitationCommand: CommandHandler<FormInvitationSendCommandInput, { in
     await emitForms('forms.invitation.sent', {
       invitationId: invitation.id,
       distributionId: invitation.distributionId,
+      source: 'send',
     })
 
     await invalidateFormsCacheTags(ctx, [

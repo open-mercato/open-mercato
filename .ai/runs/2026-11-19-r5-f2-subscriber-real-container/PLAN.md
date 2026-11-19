@@ -12,8 +12,8 @@
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Add `buildScopedContainerFromResolve` shim + unit test | inline | done | e5ea1a394d |
 | 1 | 1.2 | Hand the real container to subscribers and worker jobs (events, cli, bootstrap) | inline | done | f1814e2330 |
-| 1 | 1.3 | Promotions DI container-scope test | inline | done | (this commit) |
-| 2 | 2.1 | RL-11: no reminder e-mail for the create-time `forms.invitation.sent` | inline | todo | — |
+| 1 | 1.3 | Promotions DI container-scope test | inline | done | 9beaba826e |
+| 2 | 2.1 | RL-11: no reminder e-mail for the create-time `forms.invitation.sent` | inline | done | (this commit) |
 | 2 | 2.2 | TC-FORMS-EXP-010 snapshot filter, example comment, UPGRADE_NOTES | inline | todo | — |
 
 ## Goal
