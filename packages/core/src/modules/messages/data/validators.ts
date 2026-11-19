@@ -100,12 +100,29 @@ export const messageActionDataSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 })
 
+export const MAX_COMPOSE_EXTERNAL_EMAILS = 50
+// Inbound mail may carry long To/CC headers; ingest must never fail on them.
+export const MAX_COMPOSE_EXTERNAL_PARTICIPANTS = 500
+
+export const externalParticipantSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1).max(255).optional(),
+  role: z.enum(['to', 'cc', 'bcc']),
+})
+
 const composeMessageBaseSchema = z.object({
   type: z.string().optional().default('default'),
   visibility: z.enum(['public', 'internal']).nullable().optional(),
   sourceEntityType: z.string().min(1).optional(),
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
+  externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  /**
+   * Additional external addressees with their role. Server-only: set by
+   * channel ingest (extra inbound To/CC) and mailbox sends; the HTTP route
+   * strips any client-sent value.
+   */
+  externalParticipants: z.array(externalParticipantSchema).max(MAX_COMPOSE_EXTERNAL_PARTICIPANTS).optional(),
   externalName: z.string().min(1).max(255).optional(),
   /**
    * Channel type the message originates from, when the caller knows it (#4975).
@@ -159,14 +176,14 @@ const composeMessageBaseSchema = z.object({
 
 type ComposeMessageRefinementValue = Omit<
   z.infer<typeof composeMessageBaseSchema>,
-  'sourceChannelType' | 'sentAt'
+  'sourceChannelType' | 'sentAt' | 'externalParticipants'
 > & { sourceChannelType?: string; sentAt?: Date | null }
 
 function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.RefinementCtx): void {
   const isDraft = value.isDraft ?? false
   const visibility = value.visibility ?? 'internal'
   const recipientCount = value.recipients.length
-  const hasExternalEmail = Boolean(value.externalEmail?.trim())
+  const hasExternalEmail = Boolean(value.externalEmail?.trim()) || (value.externalEmails?.length ?? 0) > 0
   const hasSubject = value.subject.trim().length > 0
   const hasBody = value.body.trim().length > 0
 
@@ -217,6 +234,14 @@ function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.Refin
     }
   }
 
+  if (value.externalEmail !== undefined && value.externalEmails !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['externalEmails'],
+      message: 'externalEmails cannot be combined with externalEmail',
+    })
+  }
+
   const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
   if (duplicateRecipientIds.length > 0) {
     ctx.addIssue({
@@ -247,7 +272,7 @@ export const composeMessageSchema = composeMessageBaseSchema.superRefine(refineC
  * then validates against {@link composeMessageSchema}.
  */
 export const composeMessageRequestSchema = composeMessageBaseSchema
-  .omit({ sourceChannelType: true, inboundFromChannel: true, sentAt: true })
+  .omit({ sourceChannelType: true, inboundFromChannel: true, sentAt: true, externalParticipants: true })
   .superRefine(refineComposeMessage)
 
 export const updateDraftSchema = z.object({
@@ -369,6 +394,7 @@ export const unlinkAttachmentPayloadSchema = z.object({
 )
 
 export type ComposeMessageInput = z.infer<typeof composeMessageSchema>
+export type ExternalParticipantInput = z.infer<typeof externalParticipantSchema>
 export type UpdateDraftInput = z.infer<typeof updateDraftSchema>
 export type ListMessagesInput = z.infer<typeof listMessagesSchema>
 export type ForwardMessageInput = z.infer<typeof forwardMessageSchema>

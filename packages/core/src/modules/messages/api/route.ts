@@ -247,7 +247,20 @@ export async function GET(req: Request) {
     if (input.visibility) q = q.where('m.visibility', '=', input.visibility)
     if (input.sourceEntityType) q = q.where('m.source_entity_type', '=', input.sourceEntityType)
     if (input.sourceEntityId) q = q.where('m.source_entity_id', '=', input.sourceEntityId)
-    if (input.externalEmail) q = q.where('m.external_email_hash', 'in', lookupHashCandidates(input.externalEmail))
+    if (input.externalEmail) {
+      const hashCandidates = lookupHashCandidates(input.externalEmail)
+      q = q.where((eb: any) => eb.or([
+        eb('m.external_email_hash', 'in', hashCandidates),
+        eb.exists(
+          eb.selectFrom('message_external_participants as mep')
+            .select(sql<number>`1`.as('one'))
+            .whereRef('mep.message_id', '=', 'm.id')
+            .where('mep.tenant_id', '=', scope.tenantId)
+            .where('mep.organization_id', scope.organizationId ? '=' : 'is', scope.organizationId ?? null)
+            .where('mep.email_hash', 'in', hashCandidates),
+        ),
+      ]))
+    }
     if (input.senderId) q = q.where('m.sender_user_id', '=', input.senderId)
 
     if (input.search) {
@@ -497,7 +510,7 @@ export async function POST(req: Request) {
         sourceHint.data,
       )
     : undefined
-  // `inboundFromChannel` and `sentAt` are likewise server-only (#6093, #6095):
+  // `inboundFromChannel`, `sentAt` and `externalParticipants` are likewise server-only (#6093, #6095):
   // channel ingest sets them so an inbound message can be addressed to the
   // conversation's assignee and stamped with the provider's receive time, but
   // a request body must not be able to waive the recipients rule or backdate
@@ -506,6 +519,7 @@ export async function POST(req: Request) {
     sourceChannelType: _clientSuppliedChannelType,
     inboundFromChannel: _clientSuppliedInboundFlag,
     sentAt: _clientSuppliedSentAt,
+    externalParticipants: _clientSuppliedParticipants,
     ...clientBody
   } = (body ?? {}) as Record<string, unknown>
   let input: ComposeMessageInput

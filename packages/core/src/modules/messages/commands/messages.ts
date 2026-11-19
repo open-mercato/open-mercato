@@ -4,7 +4,7 @@ import { registerCommand, type CommandHandler, type CommandRuntimeContext } from
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
+import { Message, MessageExternalParticipant, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import {
   composeMessageSchema,
@@ -22,6 +22,7 @@ import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID 
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
+import { planComposeExternalParticipants } from '../lib/externalParticipants'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
@@ -303,6 +304,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     let messageId = ''
     let responseThreadId: string | null = null
     let responseExternalEmail: string | null = null
+    const externalAddressing = planComposeExternalParticipants(input)
 
     const composeTx = em.transactional(async (trx) => {
       const threadId = input.parentMessageId
@@ -335,7 +337,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         visibility: input.visibility ?? null,
         sourceEntityType: input.sourceEntityType,
         sourceEntityId: input.sourceEntityId,
-        externalEmail: input.externalEmail,
+        externalEmail: externalAddressing.externalEmail,
         externalName: input.externalName,
         threadId: threadId ?? undefined,
         parentMessageId: input.parentMessageId,
@@ -383,6 +385,19 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
             actionLabel: obj.actionLabel,
           }))
         }
+      }
+
+      for (const participant of externalAddressing.participants) {
+        trx.persist(trx.create(MessageExternalParticipant, {
+          messageId: message.id,
+          role: participant.role,
+          email: participant.email,
+          emailHash: participant.emailHash,
+          name: participant.name,
+          deliveryStatus: participant.deliveryStatus,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        }))
       }
 
       await trx.flush()

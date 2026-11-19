@@ -69,6 +69,16 @@ export const messageThreadItemSchema = z.object({
   sentAt: z.string().nullable().optional(),
 })
 
+export const messageExternalParticipantSchema = z.object({
+  id: z.string().uuid(),
+  role: z.enum(['to', 'cc', 'bcc']),
+  email: z.string(),
+  name: z.string().nullable(),
+  deliveryStatus: z.enum(['pending', 'sent', 'failed']).nullable(),
+  deliveryError: z.string().nullable(),
+  sentAt: z.string().nullable(),
+})
+
 export const messageDetailResponseSchema = z.object({
   id: z.string().uuid(),
   updatedAt: z.string().nullable().optional(),
@@ -82,6 +92,8 @@ export const messageDetailResponseSchema = z.object({
   sourceEntityId: z.string().uuid().nullable().optional(),
   externalEmail: z.string().nullable().optional(),
   externalName: z.string().nullable().optional(),
+  emailSendSeparately: z.boolean().optional(),
+  externalParticipants: z.array(messageExternalParticipantSchema).optional(),
   typeDefinition: z.object({
     labelKey: z.string(),
     icon: z.string(),

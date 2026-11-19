@@ -36,6 +36,7 @@ export function composeRequiresChannelTypeResolution(body: unknown): boolean {
   if (raw.visibility !== 'public') return false
   if (raw.isDraft === true) return false
   const externalEmail = raw.externalEmail
+  if (Array.isArray(raw.externalEmails) && raw.externalEmails.length > 0) return false
   return !(typeof externalEmail === 'string' && externalEmail.trim().length > 0)
 }
 

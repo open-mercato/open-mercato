@@ -7,7 +7,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { User } from '../../../auth/data/entities'
-import { Message, MessageObject, MessageRecipient } from '../../data/entities'
+import { Message, MessageExternalParticipant, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
 import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
@@ -267,6 +267,18 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     })
   }
 
+  const externalParticipants = await findWithDecryption(
+    em,
+    MessageExternalParticipant,
+    {
+      messageId: message.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+    },
+    { orderBy: { createdAt: 'asc' } },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+
   const detail: Record<string, unknown> = {
     id: message.id,
     updatedAt: message.updatedAt ?? null,
@@ -280,6 +292,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     sourceEntityId: message.sourceEntityId,
     externalEmail: message.externalEmail,
     externalName: message.externalName,
+    emailSendSeparately: message.emailSendSeparately ?? false,
+    externalParticipants: externalParticipants.map((participant) => ({
+      id: participant.id,
+      role: participant.role,
+      email: participant.email,
+      name: participant.name ?? null,
+      deliveryStatus: participant.deliveryStatus ?? null,
+      deliveryError: participant.deliveryError ?? null,
+      sentAt: participant.sentAt ? participant.sentAt.toISOString() : null,
+    })),
     typeDefinition: {
       labelKey: messageType.labelKey,
       icon: messageType.icon,

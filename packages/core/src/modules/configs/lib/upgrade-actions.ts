@@ -239,6 +239,24 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       await registerCodeReservationSweepSchedule(container, { tenantId, organizationId })
     },
   },
+  {
+    id: 'messages.backfill-external-participants',
+    version: '0.10.0',
+    messageKey: 'messages.upgradeActions.backfillExternalParticipants.message',
+    ctaKey: 'messages.upgradeActions.backfillExternalParticipants.cta',
+    successKey: 'messages.upgradeActions.backfillExternalParticipants.success',
+    loadingKey: 'messages.upgradeActions.backfillExternalParticipants.loading',
+    requiredModules: ['messages'],
+    // Batches commit on a forked EntityManager so a long backfill is resumable; rows already
+    // present are skipped, so re-running after a partial failure is safe.
+    run: async ({ container, tenantId, organizationId }) => {
+      const { backfillExternalParticipants } = await import(
+        '@open-mercato/core/modules/messages/lib/externalParticipantsBackfill'
+      )
+      const report = await backfillExternalParticipants(container.resolve<EntityManager>('em'), { tenantId, organizationId })
+      logger.info('messages external participants backfill completed', { tenantId, organizationId, ...report })
+    },
+  },
 ]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {

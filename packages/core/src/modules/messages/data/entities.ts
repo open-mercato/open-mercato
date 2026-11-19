@@ -1,5 +1,5 @@
 import { OptionalProps } from '@mikro-orm/core'
-import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 export type MessageStatus = 'draft' | 'sent'
 export type MessagePriority = 'low' | 'normal' | 'high' | 'urgent'
@@ -36,7 +36,7 @@ export type MessageActionData = {
     'create unique index "messages_idempotency_key_uq" on "messages" ("tenant_id", "idempotency_key") where "idempotency_key" is not null',
 })
 export class Message {
-  [OptionalProps]?: 'type' | 'status' | 'priority' | 'bodyFormat' | 'isDraft' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'type' | 'status' | 'priority' | 'bodyFormat' | 'isDraft' | 'emailSendSeparately' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -91,6 +91,9 @@ export class Message {
 
   @Property({ name: 'send_via_email', type: 'boolean', default: false })
   sendViaEmail: boolean = false
+
+  @Property({ name: 'email_send_separately', type: 'boolean', default: false })
+  emailSendSeparately: boolean = false
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
@@ -297,4 +300,62 @@ export class MessageConfirmation {
   updatedAt: Date = new Date()
 }
 
-export default [Message, MessageRecipient, MessageObject, MessageAccessToken, MessageConfirmation]
+export type ExternalParticipantRole = 'to' | 'cc' | 'bcc'
+export type ExternalParticipantDeliveryStatus = 'pending' | 'sent' | 'failed'
+
+@Entity({ tableName: 'message_external_participants' })
+@Index({ name: 'message_external_participants_message_idx', properties: ['messageId'] })
+@Index({ name: 'message_external_participants_email_hash_idx', properties: ['tenantId', 'organizationId', 'emailHash'] })
+@Index({
+  name: 'message_external_participants_pending_idx',
+  expression:
+    'create index "message_external_participants_pending_idx" on "message_external_participants" ("next_attempt_at") where "delivery_status" = \'pending\'',
+})
+@Unique({ name: 'message_external_participants_message_role_email_unique', properties: ['messageId', 'role', 'emailHash'] })
+export class MessageExternalParticipant {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => Message, { fieldName: 'message_id', mapToPk: true, deleteRule: 'cascade' })
+  messageId!: string
+
+  @Property({ name: 'role', type: 'text' })
+  role!: ExternalParticipantRole
+
+  @Property({ name: 'email', type: 'text' })
+  email!: string
+
+  @Property({ name: 'email_hash', type: 'text' })
+  emailHash!: string
+
+  @Property({ name: 'name', type: 'text', nullable: true })
+  name?: string | null
+
+  @Property({ name: 'delivery_status', type: 'text', nullable: true })
+  deliveryStatus?: ExternalParticipantDeliveryStatus | null
+
+  @Property({ name: 'delivery_error', type: 'text', nullable: true })
+  deliveryError?: string | null
+
+  @Property({ name: 'next_attempt_at', type: Date, nullable: true })
+  nextAttemptAt?: Date | null
+
+  @Property({ name: 'sent_at', type: Date, nullable: true })
+  sentAt?: Date | null
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+export default [Message, MessageRecipient, MessageObject, MessageAccessToken, MessageConfirmation, MessageExternalParticipant]
