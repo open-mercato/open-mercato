@@ -14,7 +14,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const dict = require('../../../../i18n/en.json') as Record<string, string>
   const translate = (key: string, fallback?: string) => dict[key] ?? fallback ?? key
-  return { useT: () => translate }
+  return { useT: () => translate, useLocale: () => 'en' }
 })
 
 jest.mock('next/navigation', () => ({
