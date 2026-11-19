@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { BaseCurrencyService } from '../baseCurrencyService'
 
 function createService(rowsOrError: Array<Record<string, unknown>> | Error) {
@@ -9,10 +9,11 @@ function createService(rowsOrError: Array<Record<string, unknown>> | Error) {
     if (rowsOrError instanceof Error) throw rowsOrError
     return rowsOrError
   })
-  const em = {
-    getConnection: () => ({ execute }),
-  } as unknown as EntityManager
-  return { service: new BaseCurrencyService(em), execute }
+  const getConnection = jest.fn(() => {
+    throw new Error('getConnection must not be used: it bypasses the ambient transaction')
+  })
+  const em = { execute, getConnection } as unknown as EntityManager
+  return { service: new BaseCurrencyService(em), execute, getConnection }
 }
 
 describe('BaseCurrencyService', () => {
@@ -30,6 +31,19 @@ describe('BaseCurrencyService', () => {
       'tenant-1',
       '{org-1,org-2}',
     ])
+  })
+
+  test('queries through the entity manager so an ambient transaction connection is reused', async () => {
+    const { service, execute, getConnection } = createService([
+      { organization_id: 'org-1', code: 'EUR' },
+    ])
+
+    await expect(service.resolveBaseCurrency({
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1'],
+    })).resolves.toEqual({ status: 'resolved', code: 'EUR' })
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(getConnection).not.toHaveBeenCalled()
   })
 
   test('represents differing organization currencies as ambiguous', async () => {

@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('currencies').child({ component: 'base-currency-service' })
@@ -23,7 +23,7 @@ export class BaseCurrencyService {
 
     let rows: Array<Record<string, unknown>>
     try {
-      const result = await this.em.getConnection().execute(
+      const result = await this.em.execute(
         'SELECT organization_id, code FROM currencies WHERE tenant_id = ? AND organization_id = ANY(?::uuid[]) AND is_base = true AND deleted_at IS NULL',
         [scope.tenantId, `{${organizationIds.join(',')}}`],
       )
