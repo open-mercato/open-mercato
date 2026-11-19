@@ -1,4 +1,4 @@
-import { apiCall, withScopedApiRequestHeaders } from '../apiCall'
+import { apiCall, readScopedApiRequestHeaders, withScopedApiRequestHeaders } from '../apiCall'
 
 describe('withScopedApiRequestHeaders', () => {
   const originalFetch = (globalThis as { fetch?: typeof fetch }).fetch
@@ -43,10 +43,12 @@ describe('withScopedApiRequestHeaders', () => {
     releaseFirst()
     await firstScope
 
+    expect(readScopedApiRequestHeaders()).toEqual({ 'x-second-scope': 'second' })
     await apiCall('/api/test')
 
     releaseSecond()
     await secondScope
+    expect(readScopedApiRequestHeaders()).toEqual({})
 
     const call = ((globalThis as { fetch?: jest.Mock }).fetch as jest.Mock).mock.calls[0]
     expect(call).toBeDefined()

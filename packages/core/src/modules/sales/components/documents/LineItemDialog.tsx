@@ -12,8 +12,12 @@ import {
   type CrudCustomFieldRenderProps,
 } from "@open-mercato/ui/backend/CrudForm";
 import { collectCustomFieldValues } from "@open-mercato/ui/backend/utils/customFieldValues";
-import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
-import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
+import {
+  apiCall,
+  readScopedApiRequestHeaders,
+  withScopedApiRequestHeaders,
+} from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { createCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { createCrudFormError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { handleSectionMutationError } from "./optimisticLock";
@@ -1735,22 +1739,30 @@ export function LineItemDialog({
           return;
         }
         const action = editingId ? updateCrud : createCrud;
-        const result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(documentUpdatedAt),
-          () =>
-            action(
-              resourcePath,
-              editingId
-                ? { id: editingId, ...submittedPayload }
-                : submittedPayload,
-              {
-                errorMessage: t(
-                  "sales.documents.items.errorSave",
-                  "Failed to save line.",
-                ),
-              },
-            ),
-        );
+        const requestBody = editingId ? { id: editingId, ...submittedPayload } : submittedPayload;
+        const errorMessage = t("sales.documents.items.errorSave", "Failed to save line.");
+        const save = (expectedUpdatedAt: string | null | undefined) =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(expectedUpdatedAt),
+            () => action(resourcePath, requestBody, { errorMessage }),
+          );
+
+        const resolutionHeaders = readScopedApiRequestHeaders();
+        const isKeepMine =
+          Boolean(documentId) &&
+          resolutionHeaders["x-om-record-lock-resolution"] === "accept_mine" &&
+          resolutionHeaders["x-om-record-lock-kind"] === `sales.${kind}` &&
+          resolutionHeaders["x-om-record-lock-resource-id"] === documentId;
+        const result = await save(documentUpdatedAt).catch((err: unknown) => {
+          const conflict = isKeepMine ? extractOptimisticLockConflict(err) : null;
+          if (
+            !conflict ||
+            Date.parse(conflict.expectedUpdatedAt) !== Date.parse(documentUpdatedAt ?? "") ||
+            conflict.currentUpdatedAt === conflict.expectedUpdatedAt ||
+            !Number.isFinite(Date.parse(conflict.currentUpdatedAt))
+          ) throw err;
+          return save(conflict.currentUpdatedAt);
+        });
         if (result.ok) {
           if (onSaved) await onSaved();
           closeDialog();
@@ -1770,6 +1782,7 @@ export function LineItemDialog({
       editingId,
       initialLine,
       isShippedOrderLine,
+      kind,
       onDraftSaved,
       priceOptions,
       productOption,

@@ -23,6 +23,7 @@ jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
+  readScopedApiRequestHeaders: () => ({ ...mockRequestHeaders }),
   withScopedApiRequestHeaders: (headers: Record<string, string>, operation: () => Promise<unknown>) =>
     mockWithHeaders(headers, operation),
 }))
@@ -191,35 +192,53 @@ describe('LineItemDialog conflict recovery', () => {
     expect(payloads[2]).toEqual(payloads[0])
   })
 
-  it('consumes Keep Mine once and sends its resolution through the form to exactly one API write', async () => {
+  it.each(['order', 'quote'] as const)('retries one rejected %s write with the authoritative parent version after Keep Mine', async (kind) => {
+    const staleVersion = '2026-11-04T06:00:00.000Z'
+    const currentVersion = '2026-11-04T06:01:00.000Z'
     let resolutionArmed = true
     mockTriggerEvent.mockImplementation(async (event: string) => {
       if (event !== 'onBeforeSave') return { ok: true }
       if (!resolutionArmed) return { ok: false, message: 'Record conflict detected' }
       resolutionArmed = false
-      return { ok: true, requestHeaders: { 'x-om-record-lock-resolution': 'accept_mine' } }
+      return { ok: true, requestHeaders: { 'x-om-record-lock-resolution': 'accept_mine',
+        'x-om-record-lock-kind': `sales.${kind}`, 'x-om-record-lock-resource-id': 'doc-1' } }
     })
     const observedHeaders: Record<string, string>[] = []
     mockCreateCrud.mockImplementation(async () => {
       observedHeaders.push({ ...mockRequestHeaders })
+      if (mockRequestHeaders['x-om-ext-optimistic-lock-expected-updated-at'] === staleVersion) {
+        throw Object.assign(new Error('record_modified'), {
+          status: 409,
+          body: {
+            error: 'record_modified', code: 'optimistic_lock_conflict',
+            currentUpdatedAt: currentVersion, expectedUpdatedAt: staleVersion,
+          },
+        })
+      }
       return { ok: true }
     })
     const onOpenChange = jest.fn()
-    render(<LineItemDialog open kind="order" documentId="doc-1" currencyCode="PLN"
-      documentUpdatedAt="2026-11-04T06:00:00.000Z"
+    render(<LineItemDialog open kind={kind} documentId="doc-1" currencyCode="PLN"
+      documentUpdatedAt={staleVersion}
       organizationId="org-1" tenantId="tenant-1" onOpenChange={onOpenChange} />)
     fireEvent.change(screen.getByRole('textbox', { name: 'Line name' }), { target: { value: 'Karta B' } })
-    const form = document.getElementById('record-lock:sales.order:doc-1') as HTMLFormElement
+    const form = document.getElementById(`record-lock:sales.${kind}:doc-1`) as HTMLFormElement
     await act(async () => { form.requestSubmit() })
-    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalledTimes(2))
     expect(mockTriggerEvent).toHaveBeenCalledTimes(1)
     expect(mockTriggerEvent).toHaveBeenCalledWith('onBeforeSave', expect.any(Object), {
-      formId: 'record-lock:sales.order:doc-1', resourceKind: 'sales.order', resourceId: 'doc-1',
+      formId: `record-lock:sales.${kind}:doc-1`, resourceKind: `sales.${kind}`, resourceId: 'doc-1',
     })
-    expect(observedHeaders).toEqual([{
+    const resolutionHeaders = {
       'x-om-record-lock-resolution': 'accept_mine',
-      'x-om-ext-optimistic-lock-expected-updated-at': '2026-11-04T06:00:00.000Z',
-    }])
+      'x-om-record-lock-kind': `sales.${kind}`,
+      'x-om-record-lock-resource-id': 'doc-1',
+    }
+    expect(observedHeaders).toEqual([staleVersion, currentVersion].map((version) => ({
+      ...resolutionHeaders,
+      'x-om-ext-optimistic-lock-expected-updated-at': version,
+    })))
+    expect(mockCreateCrud.mock.calls[1]?.[1]).toEqual(mockCreateCrud.mock.calls[0]?.[1])
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
