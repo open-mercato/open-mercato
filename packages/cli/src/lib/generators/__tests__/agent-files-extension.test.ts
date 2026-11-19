@@ -660,7 +660,7 @@ describe('createAgentFilesExtension', () => {
     expect(manifest).toContain('export const fileAgentDescriptors: FileAgentDescriptor[] = []')
   })
 
-  it('re-exports the committed manifest from the app .mercato/generated dir in a monorepo', () => {
+  it('emits a re-export of the committed manifest as a registry output in a monorepo', () => {
     const fixture = makeRepoFixture()
     repoRoot = fixture.repoRoot
     const outputDir = path.join(repoRoot, 'apps', 'mercato', '.mercato', 'generated')
@@ -672,13 +672,13 @@ describe('createAgentFilesExtension', () => {
       getOutputDir: () => outputDir,
     })
     extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
-    extension.generateOutput()
+    const outputs = extension.generateOutput()
 
-    const stubPath = path.join(outputDir, 'file-agents.generated.ts')
-    expect(fs.existsSync(stubPath)).toBe(true)
-    expect(fs.readFileSync(stubPath, 'utf8')).toContain(
+    expect([...outputs.keys()]).toEqual(['file-agents.generated.ts'])
+    expect(outputs.get('file-agents.generated.ts')).toContain(
       "export * from '@open-mercato/enterprise/modules/agent_orchestrator/generated/file-agents.generated'",
     )
+    expect(fs.existsSync(path.join(outputDir, 'file-agents.generated.ts'))).toBe(false)
     expect(
       fs.existsSync(
         path.join(

@@ -993,7 +993,6 @@ function findRepoRoot(start: string): string | null {
 type AgentFilesTargets = {
   layout: 'monorepo' | 'standalone'
   manifestPath: string
-  aliasStubPath: string | null
   dockerAgentsDir: string
   dockerSkillsDir: string
 }
@@ -1007,7 +1006,6 @@ function resolveAgentFilesTargets(
     return {
       layout: 'standalone',
       manifestPath: path.join(resolver.getOutputDir(), 'file-agents.generated.ts'),
-      aliasStubPath: null,
       dockerAgentsDir: path.join(appDir, 'docker', 'opencode', 'agents'),
       dockerSkillsDir: path.join(appDir, 'docker', 'opencode', 'skills'),
     }
@@ -1028,7 +1026,6 @@ function resolveAgentFilesTargets(
       'generated',
       'file-agents.generated.ts',
     ),
-    aliasStubPath: resolver ? path.join(resolver.getOutputDir(), 'file-agents.generated.ts') : null,
     dockerAgentsDir: path.join(repoRoot, 'docker', 'opencode', 'agents'),
     dockerSkillsDir: path.join(repoRoot, 'docker', 'opencode', 'skills'),
   }
@@ -1523,14 +1520,9 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
         return new Map<string, string>()
       }
 
-      const { layout, manifestPath, aliasStubPath, dockerAgentsDir, dockerSkillsDir } = targets
+      const { layout, manifestPath, dockerAgentsDir, dockerSkillsDir } = targets
       fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
       fs.writeFileSync(manifestPath, renderManifest(sorted, { layout }), 'utf8')
-
-      if (aliasStubPath && path.resolve(aliasStubPath) !== path.resolve(manifestPath)) {
-        fs.mkdirSync(path.dirname(aliasStubPath), { recursive: true })
-        fs.writeFileSync(aliasStubPath, renderManifestAliasStub(), 'utf8')
-      }
 
       fs.mkdirSync(dockerAgentsDir, { recursive: true })
       const desiredFiles = new Map<string, string>()
@@ -1590,7 +1582,9 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
         }
       }
 
-      return new Map<string, string>()
+      return resolver && layout === 'monorepo'
+        ? new Map([['file-agents.generated.ts', renderManifestAliasStub()]])
+        : new Map<string, string>()
     },
   }
 }
