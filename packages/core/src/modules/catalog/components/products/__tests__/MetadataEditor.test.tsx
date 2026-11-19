@@ -325,6 +325,26 @@ describe('MetadataEditor', () => {
     expect(lastPlaceholderInput('Value')).toHaveValue('')
   })
 
+  it('preserves a blank draft row across an unrelated rerender when a stored key is the exact same empty string a new draft defaults to', () => {
+    const onChange = jest.fn()
+    const baseValue = { '': 'legacy' }
+    const { rerender } = render(
+      <MetadataEditor value={baseValue} onChange={onChange} defaultCollapsed={false} />,
+    )
+    // A new draft row also defaults to key `''` — the exact same raw key as
+    // the stored row above. Reconstructing "committed" state by keying a map
+    // on entry.key would collapse both rows into one, silently discarding
+    // whichever is written last; comparing the incoming value directly never
+    // builds any such map, so the collision cannot happen.
+    addBlankDraftRowAndConsumeSkip(rerender, onChange, baseValue)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
+
+    rerender(<MetadataEditor value={{ '': 'legacy' }} onChange={onChange} defaultCollapsed={false} />)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+  })
+
   it('renders without border in embedded mode', () => {
     const onChange = jest.fn()
     const { container } = render(

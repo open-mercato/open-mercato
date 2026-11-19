@@ -516,6 +516,13 @@ test.describe('TC-CAT-9680: catalog concurrent-edit and metadata browser regress
       )
       await page.getByRole('button', { name: /^save changes$/i }).first().click()
       expect((await savePromise).status(), 'the unrelated rename should succeed').toBeLessThan(400)
+      // A 200 PUT response alone proves nothing about the regression: every
+      // assertion below could already be true before the client applies the
+      // response and reruns MetadataEditor's sync effect with the refetched
+      // `value`. The success flash only fires after that update lands, so
+      // waiting for it is the deterministic "the rerender under test has
+      // actually happened" signal.
+      await expect(page.getByText('Product updated.')).toBeVisible({ timeout: 10_000 })
 
       // The still-empty draft row must not have been wiped by the re-render.
       await expect(keyInput).toBeVisible()

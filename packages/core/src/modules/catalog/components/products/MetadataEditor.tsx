@@ -79,48 +79,8 @@ const jsonValuesEqual = (a: unknown, b: unknown): boolean => {
   return false
 }
 
-const isPlainObjectOrArray = (value: unknown): boolean => value !== null && typeof value === 'object'
-
-const entriesMatchValue = (entries: MetadataEntry[], value?: Record<string, unknown> | null): boolean => {
-  const incoming = value && typeof value === 'object' ? value : {}
-  // A blank (whitespace-only) key is excluded as a draft-in-progress only
-  // when the incoming side has nothing stored under that exact key — the
-  // metadata schema allows a legitimate whitespace-only key (e.g. `{" ":
-  // "legacy"}`), and that row must stay counted as committed, not dropped
-  // as a draft, or an equivalent rerender would wrongly wipe a real blank
-  // draft row alongside it. The key used for lookup stays untrimmed, so a
-  // stored key with surrounding whitespace still matches the incoming
-  // value's verbatim key instead of silently failing to look it up.
-  const committedRaw = new Map<string, string>()
-  for (const entry of entries) {
-    if (entry.key.trim().length === 0 && !Object.prototype.hasOwnProperty.call(incoming, entry.key)) continue
-    committedRaw.set(entry.key, entry.value)
-  }
-  const incomingKeys = Object.keys(incoming)
-  if (committedRaw.size !== incomingKeys.length) return false
-  return incomingKeys.every((key) => {
-    if (!committedRaw.has(key)) return false
-    const rawValue = committedRaw.get(key) as string
-    const incomingValue = (incoming as Record<string, unknown>)[key]
-    // Branch on the incoming value's own type — the authoritative source —
-    // never on re-parsing the local text input: a string that merely LOOKS
-    // like JSON (e.g. the literal string '{"enabled":true}') re-parses to
-    // an object, which would wrongly select the structural branch below
-    // against an incoming value that is actually still that same string.
-    if (isPlainObjectOrArray(incomingValue)) {
-      return jsonValuesEqual(parseMetadataValue(rawValue), incomingValue)
-    }
-    // Scalars (null, string, number, boolean) compare the literal string
-    // form rather than the re-parsed value: parsing is lossy and ambiguous
-    // for scalars — a `null` serializes to `''` and re-parses back to `''`
-    // rather than `null`, and a string "42" re-parses as the number 42 —
-    // so comparing re-parsed values spuriously flags an unrelated refetch
-    // of an unchanged null/string entry as a real change, wiping any blank
-    // draft row alongside it. Serializing the incoming value the same way
-    // the entry's own text input was serialized is lossless for this check.
-    return rawValue === serializeMetadataValue(incomingValue)
-  })
-}
+const normalizeMetadataRecord = (value?: Record<string, unknown> | null): Record<string, unknown> =>
+  value && typeof value === 'object' ? value : {}
 
 export function MetadataEditor({
   value,
@@ -134,13 +94,25 @@ export function MetadataEditor({
   const [collapsed, setCollapsed] = React.useState(defaultCollapsed)
   const [entries, setEntries] = React.useState<MetadataEntry[]>(() => toEntries(value))
   const skipSyncRef = React.useRef(false)
+  // Tracks the last `value` this editor either resynced its entries FROM or
+  // emitted TO the parent via `onChange` — never the UI's own text-input
+  // state. Comparing incoming snapshots directly (instead of reconstructing
+  // "committed" entries from local state and matching them against
+  // `value`) sidesteps every ambiguity a blank draft row's placeholder key
+  // ('') can create: a draft never has a counterpart in this ref, so it can
+  // never collide with — or get mistaken for — an actual stored entry, no
+  // matter what key either one carries.
+  const lastSyncedValueRef = React.useRef(normalizeMetadataRecord(value))
 
   React.useEffect(() => {
     if (skipSyncRef.current) {
       skipSyncRef.current = false
+      lastSyncedValueRef.current = normalizeMetadataRecord(value)
       return
     }
-    setEntries((prevEntries) => (entriesMatchValue(prevEntries, value) ? prevEntries : toEntries(value)))
+    if (jsonValuesEqual(lastSyncedValueRef.current, normalizeMetadataRecord(value))) return
+    lastSyncedValueRef.current = normalizeMetadataRecord(value)
+    setEntries(toEntries(value))
   }, [value])
 
   const emitChange = React.useCallback(
