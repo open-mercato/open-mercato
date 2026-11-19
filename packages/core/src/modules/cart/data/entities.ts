@@ -1,5 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 
 export type CartChannel = 'storefront' | 'pos' | 'pay_link' | 'agent' | 'api'
 export type CartKind = 'basket' | 'proposal'
@@ -359,10 +360,10 @@ export class CartLine {
   @Property({ name: 'uom_snapshot', type: 'jsonb', nullable: true })
   uomSnapshot?: Record<string, unknown> | null
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceNet?: string | null
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceGross?: string | null
 
   // Release 5, Step 3.5 (D-R5-19, cart §6a.4 rev 10). Written ONLY by the trusted pay-link
@@ -398,7 +399,7 @@ export class CartLine {
 
   // (rev 9 — F3/C10/D-R4-9) The persisted net line-total discount mapped to
   // SalesLineSnapshot.discountAmount (§3.2 rule 1); null when no promotion applies.
-  @Property({ name: 'discount_total_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'discount_total_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   discountTotalNet?: string | null
 
   // (rev 9 — F4/C3/D-R4-7) `promotions.Promotion.id` that produced a gift line. Soft
@@ -526,10 +527,10 @@ export class CartPromotionApplication {
   @Property({ name: 'effect', type: 'jsonb' })
   effect!: Record<string, unknown>
 
-  @Property({ name: 'amount_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'amount_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   amountNet?: string | null
 
-  @Property({ name: 'amount_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'amount_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   amountGross?: string | null
 
   @Property({ name: 'applied_at', type: Date })

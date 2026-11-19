@@ -39,6 +39,8 @@ import { detectCartRepriceTrigger } from '../lib/triggers'
 import type { CartRepriceTriggerReason } from '../lib/triggers'
 import { buildWholeCartRevisibilityPhase } from '../lib/visibility'
 import { emitVisibilityRejectedEvent } from './lines'
+import { resolveCartCurrencyDecimalPlaces } from '../lib/exactPricing'
+import { resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 
 // Step 4.5 — the first two commands in the §3.1a list: `cart.create` and `cart.get`, the
 // route edge's two entry points. Step 5.1 adds `cart.reprice` (§5.2 triggers 2-4) to this
@@ -560,13 +562,15 @@ const getCartCommand: CommandHandler<CartGetInput, CartGetResult> = {
     ensureOrganizationScope(ctx, input.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const storeScope = input.freshContext ? { storeId: input.freshContext.storeId } : {}
     const where = isCartGetByIdInput(input)
-      ? { id: input.cartId, tenantId: input.tenantId, organizationId: input.organizationId, kind: 'basket' as const }
+      ? { id: input.cartId, tenantId: input.tenantId, organizationId: input.organizationId, kind: 'basket' as const, ...storeScope }
       : {
           tokenHash: hashCartToken(input.token),
           tenantId: input.tenantId,
           organizationId: input.organizationId,
           kind: 'basket' as const,
+          ...storeScope,
         }
 
     const cart = await findOneWithDecryption(
@@ -848,7 +852,18 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
     // checks `flagState` again at each line's own EXECUTION time (not only via its eager
     // `origin` filter), so this composes correctly regardless of whether the re-visibility
     // phase actually ran for this call.
-    const linePhases = buildCartLineRepricePhases(em, ctx.container, cart, lines, input.trigger, now, changes, touched)
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
+    const linePhases = buildCartLineRepricePhases(
+      em,
+      ctx.container,
+      cart,
+      lines,
+      input.trigger,
+      now,
+      changes,
+      touched,
+      currencyDecimalPlaces,
+    )
 
     // Step 7.4 — trigger 6 (§5.2: "a promotion is applied or removed — effects only, not
     // unit prices"): `linePhases` re-resolves every line's CATALOG unit price via
@@ -870,13 +885,14 @@ const repriceCartCommand: CommandHandler<CartRepriceInput, CartRepriceResult> = 
       warnings: promotionWarnings,
       createdGiftLines,
       removedGiftLines,
+      amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
     })
 
     // `lines` is mutated in place by `promotionsPhase` (gift lines pushed/removed) — the
     // totals phase closes over the SAME array reference and filters/maps it at its own
     // execution time (after `promotionsPhase` has already run), so it always sees the
     // current set without a second DB round trip.
-    const totalsPhase = buildRecomputeCartTotalsPhase(ctx.container, cart, lines, now, changes, adjustments)
+    const totalsPhase = buildRecomputeCartTotalsPhase(ctx.container, cart, lines, now, changes, adjustments, currencyDecimalPlaces)
 
     // §3.1a: "mutates Cart/CartLine/CartPromotionApplication inside
     // withAtomicFlush(em, phases, { transaction: true, label: 'cart.<op>' })" — one

@@ -1,5 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Check, Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 
 export type CustomerGroupKind = 'b2c' | 'b2b' | 'internal' | 'partner'
@@ -255,16 +256,16 @@ export class CustomerGroupTerms {
   @Property({ name: 'allow_purchase_on_account', type: 'boolean', nullable: true })
   allowPurchaseOnAccount?: boolean | null
 
-  @Property({ name: 'default_credit_limit', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  @Property({ name: 'default_credit_limit', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   defaultCreditLimit?: string | null
 
   @Property({ name: 'credit_currency_code', type: 'text', nullable: true })
   creditCurrencyCode?: string | null
 
-  @Property({ name: 'approval_required_above', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  @Property({ name: 'approval_required_above', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   approvalRequiredAbove?: string | null
 
-  @Property({ name: 'min_order_value', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  @Property({ name: 'min_order_value', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   minOrderValue?: string | null
 
   // Release 5 (D-R5-4): currency of `approvalRequiredAbove`/`minOrderValue`. Nullable and

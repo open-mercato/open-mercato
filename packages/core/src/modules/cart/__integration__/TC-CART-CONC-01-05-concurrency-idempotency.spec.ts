@@ -5,6 +5,7 @@ import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   CART_LINES_PATH,
   backdateCartTotalsComputedAt,
+  setCatalogPriceAmounts,
   cartStorefrontRequest,
   cleanupCartProductFixture,
   cleanupCartStorefrontFixture,
@@ -159,20 +160,22 @@ test.describe('TC-CART-CONC-01/02/03/04/05: concurrency, idempotency and the re-
 
     const thirtyOneMinutesAgo = new Date(Date.now() - 31 * 60 * 1000).toISOString();
     await backdateCartTotalsComputedAt(cart.cartId, thirtyOneMinutesAgo);
+    // `priceChanges` lists only lines whose price actually changed, so change the catalog price.
+    await setCatalogPriceAmounts(product.priceId, '11', '13.2');
 
-    const response = await cartStorefrontRequest(store.hostname, '/api/cart/current', {
-      method: 'GET',
-      cartToken: cart.token,
-    });
+    try {
+      const response = await cartStorefrontRequest(store.hostname, '/api/cart/current', {
+        method: 'GET',
+        cartToken: cart.token,
+      });
 
-    expect(response.status, response.text).toBe(200);
-    const body = response.body as { versionBumpReason?: string; priceChanges?: Array<{ reason: string }> };
-    expect(body.versionBumpReason).toBe('repricing');
-    // Stale per review (TC-CART-CONC-04): the formatDecimalAmount fix correctly drops a
-    // no-op price change (this product's price hasn't actually moved), so a staleness-only
-    // recompute discloses no priceChanges — same assertion TC-CART-PRICE-01 already uses
-    // for the identical scenario.
-    expect(body.priceChanges).toBeUndefined();
+      expect(response.status, response.text).toBe(200);
+      const body = response.body as { versionBumpReason?: string; priceChanges?: Array<{ reason: string }> };
+      expect(body.versionBumpReason).toBe('repricing');
+      expect(body.priceChanges).toEqual([expect.objectContaining({ reason: 'stale_snapshot' })]);
+    } finally {
+      await setCatalogPriceAmounts(product.priceId, '10', '12');
+    }
   });
 
   // TC-CART-CONC-05: 20 parallel add-line calls yield a consistent final quantity.

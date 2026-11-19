@@ -255,6 +255,33 @@ describe('AuditLogsActions row controls', () => {
     expect(screen.queryByTestId('action-log-details-dialog')).not.toBeInTheDocument()
   })
 
+  it('shows a contributed action only on the rows its isVisible predicate accepts', async () => {
+    Object.assign(mockPermissions, { canUndoSelf: false, canUndoTenant: false, canRedoSelf: false, canRedoTenant: false })
+    const onSelect = jest.fn()
+    registerRowWidget({
+      metadata: { id: 'test.audit-row-action' },
+      rowActions: [{
+        id: 'test.open-run',
+        label: 'Open run',
+        onSelect,
+        isVisible: (row: unknown) => (row as ActionLogItem).id === 'with-run',
+      }],
+    })
+    const items = [
+      { ...baseItem, id: 'with-run', actionLabel: 'Agent change' },
+      { ...baseItem, id: 'no-run', actionLabel: 'Human change' },
+    ]
+    renderWithProviders(<AuditLogsActions items={items} onRefresh={jest.fn()} />)
+
+    const agentRow = (await screen.findByText('Agent change')).closest('tr')!
+    const humanRow = screen.getByText('Human change').closest('tr')!
+    expect(within(humanRow).queryByRole('button', { name: 'Open actions' })).not.toBeInTheDocument()
+    fireEvent.click(await within(agentRow).findByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Open run' }))
+    expect(onSelect).toHaveBeenCalledWith(items[0], expect.objectContaining({ navigate: expect.any(Function) }))
+    expect(screen.queryByTestId('action-log-details-dialog')).not.toBeInTheDocument()
+  })
+
   it('keeps older redo controls disabled without widgets and unavailable in contributed menus', async () => {
     const items = [
       { ...baseItem, id: 'latest', actionLabel: 'Latest undone', executionState: 'undone', updatedAt: '2026-10-01T11:00:00.000Z' },

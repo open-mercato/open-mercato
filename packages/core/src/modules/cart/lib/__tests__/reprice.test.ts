@@ -138,9 +138,9 @@ describe('buildCartLineRepricePhases', () => {
     const changedLine = makeLine({ id: 'line-1' })
     // `unit_price_net`/`unit_price_gross` are `numeric(_, 4)` columns, so a real row read
     // back from Postgres always carries 4 decimal places — '8.0000', never the bare '8' the
-    // resolved mock price below (`amountNet: 8`) would naively stringify to. Formatted
-    // explicitly here so this line genuinely proves "no real price movement", the same
-    // false-positive this function's `formatDecimalAmount` fix closes.
+    // resolved mock price below (`amountNet: 8`) stringifies to via `resolvedPriceString`.
+    // `samePrice` (decimal-aware) treats both as equal, so this line still genuinely proves
+    // "no real price movement" even though the stored string itself is reformatted.
     const unchangedLine = makeLine({ id: 'line-2', unitPriceNet: '8.0000', unitPriceGross: '9.6000' })
     const container = makeContainer({})
 
@@ -152,19 +152,19 @@ describe('buildCartLineRepricePhases', () => {
     for (const phase of phases) await phase()
 
     expect(touched).toHaveLength(2)
-    expect(changedLine.unitPriceNet).toBe('8.0000')
-    expect(changedLine.unitPriceGross).toBe('9.6000')
+    expect(changedLine.unitPriceNet).toBe('8')
+    expect(changedLine.unitPriceGross).toBe('9.6')
     expect(changedLine.priceRowId).toBe('price-row-2')
-    expect(unchangedLine.unitPriceNet).toBe('8.0000')
-    expect(unchangedLine.unitPriceGross).toBe('9.6000')
+    expect(unchangedLine.unitPriceNet).toBe('8')
+    expect(unchangedLine.unitPriceGross).toBe('9.6')
     expect(changes).toEqual([
       {
         lineId: 'line-1',
         productId: 'product-1',
         oldUnitPriceNet: '10',
-        newUnitPriceNet: '8.0000',
+        newUnitPriceNet: '8',
         oldUnitPriceGross: '12',
-        newUnitPriceGross: '9.6000',
+        newUnitPriceGross: '9.6',
         reason: 'stale_snapshot',
       },
     ])

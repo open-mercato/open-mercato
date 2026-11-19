@@ -33,3 +33,4 @@ export {
   type TrustedCommandAuditMetadata,
   type TrustedCommandContextResult,
 } from './trusted-context'
+export { withAuditCorrelation, getAmbientAuditCorrelation } from './auditCorrelationScope'
