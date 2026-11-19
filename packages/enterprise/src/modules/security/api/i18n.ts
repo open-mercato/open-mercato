@@ -63,6 +63,10 @@ const exactMessageMap = new Map<string, MessageDescriptor>([
   ['This sudo target requires MFA, but no MFA methods are configured', { key: 'security.api.errors.sudoMfaRequiredButUnavailable', fallback: 'This sudo target requires MFA, but no MFA methods are configured.' }],
   ['Sudo challenge session not found', { key: 'security.api.errors.sudoSessionNotFound', fallback: 'Sudo challenge session not found.' }],
   ['Sudo challenge session expired', { key: 'security.api.errors.sudoSessionExpired', fallback: 'Sudo challenge session expired.' }],
+  ['Current password is invalid', { key: 'security.api.errors.currentPasswordInvalid', fallback: 'Current password is incorrect.' }],
+  ['Password does not meet the requirements', { key: 'security.profile.password.form.errors.passwordPolicy', fallback: 'Password does not meet the requirements.' }],
+  ['New password must be different from current password', { key: 'security.api.errors.newPasswordSameAsCurrent', fallback: 'New password must be different from the current password.' }],
+  ['Password authentication is not available for this user', { key: 'security.api.errors.passwordAuthenticationUnavailable', fallback: 'Password authentication is not available for this user.' }],
   ['Password is required', { key: 'security.api.errors.passwordRequired', fallback: 'Password is required.' }],
   ['TOTP setup session not found', { key: 'security.api.errors.totpSetupSessionNotFound', fallback: 'TOTP setup session not found.' }],
   ['TOTP setup session expired', { key: 'security.api.errors.totpSetupSessionExpired', fallback: 'TOTP setup session expired.' }],
@@ -148,6 +152,17 @@ export async function localizeSecurityApiBody<T extends Record<string, unknown>>
 
   if (typeof nextBody.message === 'string') {
     nextBody.message = await translateSecurityApiMessage(nextBody.message)
+  }
+
+  if (Array.isArray(nextBody.issues)) {
+    nextBody.issues = await Promise.all(
+      nextBody.issues.map(async (issue: unknown) => {
+        if (!issue || typeof issue !== 'object') return issue
+        const message = (issue as { message?: unknown }).message
+        if (typeof message !== 'string') return issue
+        return { ...issue, message: await translateSecurityApiMessage(message) }
+      }),
+    )
   }
 
   return nextBody as T
