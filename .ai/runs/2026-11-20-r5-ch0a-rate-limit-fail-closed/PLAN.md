@@ -12,6 +12,8 @@
 |---|---|---|---|---|---|
 | 1 | 1.1 | `enforceCheckoutRateLimit` answers 503 under `fail-closed` without a limiter; rewrite the #5030 tests | inline | done | 05d89a21a8 |
 | 1 | 1.2 | UPGRADE_NOTES: checkout half of "Rate limiting fails closed" | inline | done | 07c1d9e90e |
+| 1 | 1.2-review-fix-1 | Framework rate-limiting docs describe checkout's fail-closed 503 | dispatch | done | fd5abdde16 |
+| 1 | 1.2-review-fix-2 | Log line per posture in the no-limiter branch | dispatch | done | 8c3d94adf4 |
 
 ## Goal
 
@@ -47,6 +49,8 @@
 - The binding re-landing plan `.ai/plans/2026-11-19-ecommerce-release-5-relanding-plan.md` was not present in the primary checkout, any git ref, or any worktree. Per the operator's instruction to continue autonomously, this run follows the brief and the spec's §17 card CH0a; rules R1–R14 and the plan's own CH0a card were not verified.
 - Card vs spec: no difference found. The spec's §3.2 item 1 also names "every fail-closed session route"; those routes do not exist yet on this base and arrive with CH1b+, where they use the same helper.
 - Reference port is verbatim for this slice; the three test files and `rateLimiter.ts` are unchanged between `b7b5309ccc` and the base, so the hunks apply as-is. The reference's `keyOverride` hunk is excluded (CH1b).
+
+- Review pass (`om-auto-review-pr --autofix`) widened the scope by two files' worth: `apps/docs/docs/framework/security/rate-limiting.mdx` cited checkout as an example of skipping without a limiter (now stale), and the no-limiter log line said "not enforced" even when the request is rejected. Both fixes stay inside the CH0a behaviour; the UPGRADE_NOTES-quoted log prefix is unchanged.
 
 ## Validation
 
