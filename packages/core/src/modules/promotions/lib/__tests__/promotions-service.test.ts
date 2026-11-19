@@ -9,7 +9,7 @@
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { evaluatePromotions } from '../evaluation-engine'
 import { PromotionsServiceImpl, type PromotionsServiceContainer } from '../promotions-service'
-import type { BuyerContext, EvaluateInput, EvaluationInput, NormalizedPromotion } from '../types'
+import type { BuyerContext, EvaluateInput, EvaluationInput, NormalizedPromotion, PromotionsService } from '../types'
 
 jest.mock('../evaluation-engine', () => {
   const actual = jest.requireActual('../evaluation-engine')
@@ -473,6 +473,52 @@ describe('PromotionsServiceImpl.revertUsage', () => {
 
     expect(result).toEqual({ ok: true, revertedCount: 2 })
     expect(commandBus.calls).toEqual([{ commandId: 'promotions.usage.revert', input: { orderId: 'order-1' } }])
+  })
+})
+
+describe('PromotionsServiceImpl.revertCodeUse', () => {
+  it('dispatches through commandBus as `promotions.code.use.revert` with the raw input', async () => {
+    const commandBus = fakeCommandBus({ 'promotions.code.use.revert': { ok: true, revertedCount: 1 } })
+    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([]), commandBus }))
+
+    const result = await service.revertCodeUse({ orderId: 'order-1' })
+
+    expect(result).toEqual({ ok: true, revertedCount: 1 })
+    expect(commandBus.calls).toEqual([{ commandId: 'promotions.code.use.revert', input: { orderId: 'order-1' } }])
+  })
+
+  it('fails closed with a 400 CrudHttpError when no `auth` is registered in the container', async () => {
+    const container: PromotionsServiceContainer = {
+      resolve: <T>(name: string): T => {
+        if (name === 'promotionCacheService') return fakeCacheService([]) as unknown as T
+        throw new Error(`[internal] not registered: ${name}`)
+      },
+    }
+    const service = new PromotionsServiceImpl(container)
+
+    expect.assertions(2)
+    try {
+      await service.revertCodeUse({ cartId: 'cart-1' })
+    } catch (err) {
+      expect(isCrudHttpError(err)).toBe(true)
+      expect(isCrudHttpError(err) && err.status).toBe(400)
+    }
+  })
+
+  it('is an optional member of the PromotionsService contract (D-R5-PR6) — a replacement facade without it still type-checks', () => {
+    const replacement: PromotionsService = {
+      evaluate: async () => ({ appliedPromotions: [] }),
+      evaluateForProduct: async () => ({ badges: [] }),
+      reserveCode: async () => ({ ok: true, codeId: 'code-1', type: 'static' }),
+      extendReservation: async () => {},
+      validateCode: async () => ({ valid: true }),
+      useCode: async () => ({ ok: true }),
+      releaseCode: async () => {},
+      registerUsage: async () => ({ ok: true, budgetExceeded: [] }),
+      revertUsage: async () => ({ ok: true, revertedCount: 0 }),
+    }
+
+    expect(typeof replacement.revertCodeUse).toBe('undefined')
   })
 })
 

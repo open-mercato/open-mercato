@@ -940,11 +940,25 @@ export const codeUseInputSchema = z.object({
   codeId: uuid(),
   codeString: z.string().trim().min(1).max(100),
   cartId: uuid(),
+  // Additive (Release 5 C5/SPEC-055 amendment) — see `lib/types.ts`'s `UseCodeInput`.
+  orderId: z.string().trim().min(1).max(200).nullable().optional(),
   customerId: requiredNullableCustomerIdSchema,
   type: promotionCodeTypeSchema,
 })
 
 export type CodeUseInput = z.infer<typeof codeUseInputSchema>
+
+// Release 5 C5/SPEC-055 amendment, additive: the `promotions.code.use.revert` command
+// payload (§Public TypeScript Contract `RevertCodeUseInput`). At least one of
+// `cartId`/`orderId` is required — enforced by `PromotionCodeService.revertCodeUse`
+// itself, not here, the same split as every other "needs at least one of" rule in this
+// module (plain structural validation at the zod boundary, business rule in the service).
+export const revertCodeUseInputSchema = z.object({
+  cartId: uuid().optional(),
+  orderId: z.string().trim().min(1).max(200).optional(),
+})
+
+export type RevertCodeUseCommandInput = z.infer<typeof revertCodeUseInputSchema>
 
 // ---------------------------------------------------------------------------
 // PromotionUsage
