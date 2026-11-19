@@ -51,6 +51,10 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn((args: unknown) => mockResolveOrganizationScope(args)),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
+}))
+
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]/reset-password'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -214,6 +218,30 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
 
     expect(inScope.status).toBe(200)
     expect(mockUpdatePassword).toHaveBeenCalledWith(foreignUser, 'new-strong-Passw0rd!', expect.anything())
+  })
+
+  it('returns 403 before changing the password when the caller lacks customer_accounts.manage in the target user organization', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({ selectedId: foreignOrgId, filterIds: [foreignOrgId], allowedIds: [foreignOrgId], tenantId })
+    mockEmFindOne.mockResolvedValue({ id: userId, tenantId, organizationId: foreignOrgId, email: 'foreign@example.com' })
+    mockUserHasAllFeatures.mockImplementation(
+      async (_sub: string, _features: string[], scope: { organizationId?: string | null }) => scope.organizationId === orgId,
+    )
+
+    const res = await POST(
+      makeRequest({ newPassword: 'new-strong-Passw0rd!' }),
+      { params: { id: userId } },
+    )
+
+    expect(res.status).toBe(403)
+    expect(mockUserHasAllFeatures).toHaveBeenLastCalledWith(
+      adminId,
+      ['customer_accounts.manage'],
+      { tenantId, organizationId: foreignOrgId },
+    )
+    expect(mockTransactional).not.toHaveBeenCalled()
+    expect(mockUpdatePassword).not.toHaveBeenCalled()
+    expect(mockRevokeAllUserSessions).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
   })
 
   it('does NOT run the transaction or emit when the body fails validation', async () => {

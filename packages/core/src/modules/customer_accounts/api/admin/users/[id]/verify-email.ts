@@ -25,10 +25,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findAdminScopedCustomerUser({ container, auth, request: req, em, userId: params.id })
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
-  }
+  const lookup = await findAdminScopedCustomerUser({
+    container,
+    auth,
+    request: req,
+    em,
+    userId: params.id,
+    requiredFeatures: ['customer_accounts.manage'],
+  })
+  if (!lookup.ok) return lookup.response
+  const user = lookup.user
 
   if (user.emailVerifiedAt) {
     return NextResponse.json({ ok: true, alreadyVerified: true })

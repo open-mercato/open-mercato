@@ -37,10 +37,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string; s
   }
 
   const em = container.resolve('em') as EntityManager
-  const user = await findAdminScopedCustomerUser({ container, auth, request: req, em, userId })
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
-  }
+  const lookup = await findAdminScopedCustomerUser({
+    container,
+    auth,
+    request: req,
+    em,
+    userId,
+    requiredFeatures: ['customer_accounts.manage'],
+  })
+  if (!lookup.ok) return lookup.response
+  const user = lookup.user
   const scope = { tenantId: user.tenantId, organizationId: user.organizationId }
 
   const session = await findOneWithDecryption(

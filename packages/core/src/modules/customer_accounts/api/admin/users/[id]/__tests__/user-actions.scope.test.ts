@@ -33,6 +33,10 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn((args: unknown) => mockResolveOrganizationScope(args)),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
+}))
+
 import { POST as sendResetLink } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]/send-reset-link'
 import { POST as verifyEmail } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]/verify-email'
 
@@ -48,6 +52,11 @@ const foreignUser = {
   organizationId: foreignOrgId,
   email: 'foreign@example.com',
   emailVerifiedAt: null,
+}
+
+function grantFeaturesOnlyIn(grantedOrganizationId: string) {
+  return async (_sub: string, _features: string[], scope: { organizationId?: string | null }) =>
+    scope.organizationId === grantedOrganizationId
 }
 
 function organizationScope(filterIds: string[] | null) {
@@ -119,5 +128,32 @@ describe('admin customer-user actions — target organization scope', () => {
       { id: userId, tenantId, organizationId: foreignOrgId },
       expect.objectContaining({ emailVerifiedAt: expect.any(Date) }),
     )
+  })
+
+  it('returns 403 before creating a reset token when the caller lacks customer_accounts.manage in the target user organization', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope([foreignOrgId]))
+    mockUserHasAllFeatures.mockImplementation(grantFeaturesOnlyIn(orgId))
+
+    const res = await sendResetLink(buildRequest('send-reset-link'), { params: { id: userId } })
+
+    expect(res.status).toBe(403)
+    expect(mockUserHasAllFeatures).toHaveBeenLastCalledWith(
+      adminId,
+      ['customer_accounts.manage'],
+      { tenantId, organizationId: foreignOrgId },
+    )
+    expect(mockCreatePasswordReset).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 before verifying the email when the caller lacks customer_accounts.manage in the target user organization', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope(null))
+    mockUserHasAllFeatures.mockImplementation(grantFeaturesOnlyIn(orgId))
+
+    const res = await verifyEmail(buildRequest('verify-email'), { params: { id: userId } })
+
+    expect(res.status).toBe(403)
+    expect(mockEmNativeUpdate).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
   })
 })

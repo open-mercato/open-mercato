@@ -64,6 +64,10 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn((args: unknown) => mockResolveOrganizationScope(args)),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
+}))
+
 import { DELETE, GET, PUT } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -118,6 +122,11 @@ function matchesOrganizationFilter(filter: unknown, organizationId: string): boo
 function findForeignUserWhenInScope(entity: unknown, where: Record<string, unknown>) {
   if (entity !== CustomerUser || where?.id !== userId || where.tenantId !== tenantId) return null
   return matchesOrganizationFilter(where.organizationId, foreignOrgId) ? foreignTargetUser : null
+}
+
+function grantFeaturesOnlyIn(grantedOrganizationId: string) {
+  return async (_sub: string, _features: string[], scope: { organizationId?: string | null }) =>
+    scope.organizationId === grantedOrganizationId
 }
 
 beforeEach(() => {
@@ -232,6 +241,63 @@ describe('admin customer-user detail routes — target organization scope', () =
     expect(res.status).toBe(200)
     expect(mockSoftDelete).toHaveBeenCalledWith(userId, { tenantId, organizationId: foreignOrgId })
     expect(mockRevokeAllUserSessions).toHaveBeenCalledWith(userId)
+  })
+
+  it('returns 403 when the caller lacks customer_accounts.view in the target user organization (GET)', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope([foreignOrgId]))
+    mockRbac.userHasAllFeatures.mockImplementation(grantFeaturesOnlyIn(orgId))
+
+    const res = await GET(buildMethodRequest('GET'), { params: { id: userId } })
+
+    expect(res.status).toBe(403)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenLastCalledWith(
+      adminId,
+      ['customer_accounts.view'],
+      { tenantId, organizationId: foreignOrgId },
+    )
+    expect(mockEmFind).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 before writing when the caller lacks customer_accounts.manage in the target user organization (PUT)', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope(null))
+    mockRbac.userHasAllFeatures.mockImplementation(grantFeaturesOnlyIn(orgId))
+
+    const res = await PUT(buildMethodRequest('PUT', { displayName: 'Changed', roleIds: [roleId] }), { params: { id: userId } })
+
+    expect(res.status).toBe(403)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenLastCalledWith(
+      adminId,
+      ['customer_accounts.manage'],
+      { tenantId, organizationId: foreignOrgId },
+    )
+    expect(mockUpdateProfile).not.toHaveBeenCalled()
+    expect(mockEmNativeUpdate).not.toHaveBeenCalled()
+    expect(mockEmNativeDelete).not.toHaveBeenCalled()
+    expect(mockEmPersist).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 before deleting when the caller lacks customer_accounts.manage in the target user organization (DELETE)', async () => {
+    mockResolveOrganizationScope.mockResolvedValue(organizationScope([foreignOrgId]))
+    mockRbac.userHasAllFeatures.mockImplementation(grantFeaturesOnlyIn(orgId))
+
+    const res = await DELETE(buildMethodRequest('DELETE'), { params: { id: userId } })
+
+    expect(res.status).toBe(403)
+    expect(mockSoftDelete).not.toHaveBeenCalled()
+    expect(mockRevokeAllUserSessions).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('does not re-check features for a user in the caller home organization', async () => {
+    mockEmFindOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) =>
+      entity === CustomerUser && where?.id === userId ? targetUser : null,
+    )
+
+    const res = await GET(buildMethodRequest('GET'), { params: { id: userId } })
+
+    expect(res.status).toBe(200)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledTimes(1)
   })
 })
 

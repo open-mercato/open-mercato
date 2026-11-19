@@ -40,10 +40,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findAdminScopedCustomerUser({ container, auth, request: req, em, userId: params.id })
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
-  }
+  const lookup = await findAdminScopedCustomerUser({
+    container,
+    auth,
+    request: req,
+    em,
+    userId: params.id,
+    requiredFeatures: ['customer_accounts.view'],
+  })
+  if (!lookup.ok) return lookup.response
+  const user = lookup.user
   const userScope = { tenantId: user.tenantId, organizationId: user.organizationId }
 
   const userRoles = await findWithDecryption(
@@ -126,10 +132,16 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findAdminScopedCustomerUser({ container, auth, request: req, em, userId: params.id })
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
-  }
+  const lookup = await findAdminScopedCustomerUser({
+    container,
+    auth,
+    request: req,
+    em,
+    userId: params.id,
+    requiredFeatures: ['customer_accounts.manage'],
+  })
+  if (!lookup.ok) return lookup.response
+  const user = lookup.user
   const userScope = { tenantId: user.tenantId, organizationId: user.organizationId }
 
   // Optimistic lock: refuse a stale overwrite so two admins editing the same
@@ -269,10 +281,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findAdminScopedCustomerUser({ container, auth, request: req, em, userId: params.id })
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
-  }
+  const lookup = await findAdminScopedCustomerUser({
+    container,
+    auth,
+    request: req,
+    em,
+    userId: params.id,
+    requiredFeatures: ['customer_accounts.manage'],
+  })
+  if (!lookup.ok) return lookup.response
+  const user = lookup.user
   const userScope = { tenantId: user.tenantId, organizationId: user.organizationId }
 
   // Optimistic lock: refuse a stale delete (e.g. deleting a record another admin

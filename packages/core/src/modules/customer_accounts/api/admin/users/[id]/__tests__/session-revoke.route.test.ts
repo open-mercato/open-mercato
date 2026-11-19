@@ -38,6 +38,10 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
+}))
+
 import { DELETE, openApi } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]/sessions/[sessionId]'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -124,6 +128,26 @@ describe('DELETE /api/customer_accounts/admin/users/[id]/sessions/[sessionId]', 
 
     expect(res.status).toBe(403)
     expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(mockRevokeSession).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 and revokes nothing when the caller lacks customer_accounts.manage in the target user organization', async () => {
+    const foreignOrgId = '88888888-8888-4888-8888-888888888888'
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) =>
+      entity === CustomerUser ? { ...user, organizationId: foreignOrgId } : session,
+    )
+    mockUserHasAllFeatures.mockImplementation(
+      async (_sub: string, _features: string[], scope: { organizationId?: string | null }) => scope.organizationId === orgId,
+    )
+
+    const res = await callDelete()
+
+    expect(res.status).toBe(403)
+    expect(mockUserHasAllFeatures).toHaveBeenLastCalledWith(
+      adminId,
+      ['customer_accounts.manage'],
+      { tenantId, organizationId: foreignOrgId },
+    )
     expect(mockRevokeSession).not.toHaveBeenCalled()
   })
 
