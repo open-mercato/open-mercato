@@ -2043,8 +2043,12 @@ The route now resolves the caller's project access the same way (`resolveFeature
 and denies a non-member with the same non-enumerable `404 { "error": "...", "reason":
 "no_project_access" }` the project-list route answers for a project the caller cannot see — so
 the response cannot be used to tell "exists but forbidden" apart from "doesn't exist." A caller
-with `staff.timesheets.projects.manage` is unaffected. `?timeProjectId=` on the query string can
-no longer override the URL's project id either way.
+with `staff.timesheets.projects.manage` is unaffected. Neither `?timeProjectId=` on the query
+string nor an advanced-filter condition on `time_project_id`
+(`?filter[conditions][0][field]=time_project_id...`) can override the URL's project id — the
+latter is consumed via `consumeAdvancedFilterState`/`mergeAdvancedFilterTree` and AND-combined
+with the route's own scope, the same pattern `devices`/`customers.people` already use, so it can
+only narrow the result, never redirect or widen it onto another project.
 
 **Action for integrators:** a caller that was relying on this endpoint to read a project it is
 not a member of (and does not manage) now gets `404` instead of `200`. This was always a bug —

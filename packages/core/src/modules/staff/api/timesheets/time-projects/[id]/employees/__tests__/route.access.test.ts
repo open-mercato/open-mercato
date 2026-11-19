@@ -9,6 +9,7 @@
 // `?timeProjectId=` can never widen or redirect the URL's project.
 
 import { StaffTeamMember, StaffTimeProjectMember } from '../../../../../../data/entities'
+import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 
 const tenantA = '11111111-1111-4111-8111-111111111111'
 const tenantB = '99999999-9999-4999-8999-999999999999'
@@ -304,6 +305,46 @@ describe('time-project employees route project access scoping (#8885)', () => {
       const filters = await buildFilters({ timeProjectId: foreignProjectId }, request)
 
       expect(filters.time_project_id).toBe(foreignProjectId)
+    })
+
+    it('cannot be widened to a foreign project via an advanced-filter override on time_project_id (#8885 follow-up)', async () => {
+      // A caller authorized for `memberProjectId` (via the URL) crafts
+      // `?filter[conditions][0][field]=time_project_id&...[op]=is&...[value]=<foreignProjectId>`.
+      // The CRUD factory's own merge step (`mergeAdvancedFilters` in
+      // advanced-filter-integration.ts) is `{ ...existingFilters, ...advancedWhere }` —
+      // a plain spread that never validates the client's field name, so an
+      // unprotected `buildFilters` would have this condition silently overwrite
+      // the route's own `time_project_id` key and leak the foreign project's
+      // roster.
+      const request = employeesRequest(memberProjectId)
+      const query: Record<string, unknown> = {
+        'filter[conditions][0][field]': 'time_project_id',
+        'filter[conditions][0][op]': 'is',
+        'filter[conditions][0][value]': foreignProjectId,
+      }
+
+      const filters = await buildFilters(query, request)
+
+      // Every `filter[...]` key must be consumed here so the factory's own
+      // merge step downstream (fed the same query object) has nothing left to
+      // re-apply — it would otherwise run again on `validated` and undo this
+      // route's protection.
+      expect(Object.keys(query).some((key) => key.startsWith('filter['))).toBe(false)
+
+      // The route's own project scope is AND-combined with the attacker's
+      // condition, never overwritten by it: a row would have to match both
+      // `memberProjectId` and `foreignProjectId` at once, which is impossible,
+      // so the crafted request can only ever return zero rows — never another
+      // project's roster.
+      expect(filters).toEqual({
+        $and: [{ time_project_id: memberProjectId }, { time_project_id: { $eq: foreignProjectId } }],
+      })
+
+      // Feeding the SAME (now-empty) query object through the real factory
+      // merge step is provably a no-op, proving this is closed end-to-end and
+      // not just at the `buildFilters` boundary.
+      const merged = mergeAdvancedFilters(filters as Record<string, unknown>, query)
+      expect(merged).toEqual(filters)
     })
   })
 })

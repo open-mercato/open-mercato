@@ -9,6 +9,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -214,6 +215,17 @@ const crud = makeCrudRoute({
       assignedStartDate: F.assigned_start_date,
     },
     buildFilters: async (query, ctx) => {
+      // Consume the client-supplied advanced filter here (deletes every
+      // `filter[...]` key from `query`) so the CRUD factory's own merge step
+      // (`{ ...existingFilters, ...advancedWhere }` in advanced-filter-integration.ts)
+      // becomes a no-op. Condition field names are never validated there, so
+      // `filter[conditions][0][field]=time_project_id` would otherwise silently
+      // overwrite the project scope below and let a caller authorized for the
+      // URL's project read a different project's roster instead. AND-combining
+      // via `mergeAdvancedFilterTree` keeps the project scope in its own `$and`
+      // branch, where no client-supplied condition can reach it. Same pattern
+      // as `devices/api/route.ts` and `customers/people/route.ts`.
+      const advancedFilterTree = consumeAdvancedFilterState(query)
       const filters: Record<string, unknown> = {}
       // The URL segment is authoritative: `?timeProjectId=` must never redirect
       // a caller, already authorized against the URL's project, onto a
@@ -225,7 +237,7 @@ const crud = makeCrudRoute({
       if (typeof query.status === 'string' && query.status.trim().length > 0) {
         filters[F.status] = query.status.trim()
       }
-      return filters
+      return mergeAdvancedFilterTree(filters, advancedFilterTree)
     },
   },
   actions: {
