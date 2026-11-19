@@ -170,9 +170,9 @@ export class SchedulerService {
    * Check if a schedule exists and will run: not soft-deleted and enabled.
    * `exists()` counts any row, including ones an operator deleted or disabled.
    */
-  async isActive(scheduleId: string): Promise<boolean> {
+  async isActive(scheduleId: string, scope: { tenantId: string; organizationId: string }): Promise<boolean> {
     const em = this.em()
-    const count = await em.count(ScheduledJob, { id: scheduleId, deletedAt: null, isEnabled: true })
+    const count = await em.count(ScheduledJob, { id: scheduleId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null, isEnabled: true })
     return count > 0
   }
 

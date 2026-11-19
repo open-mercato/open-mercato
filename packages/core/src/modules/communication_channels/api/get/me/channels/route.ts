@@ -63,6 +63,7 @@ export async function GET(req: Request): Promise<Response> {
     automaticSyncEnabled: await isAutomaticSyncEnabledForOrganization(
       container,
       (auth as { orgId?: string | null }).orgId ?? null,
+      auth.tenantId,
     ),
   })
 }

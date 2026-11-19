@@ -357,16 +357,28 @@ describe('SchedulerService', () => {
     it('counts only enabled, non-deleted schedules', async () => {
       mockEm.count.mockResolvedValue(1)
 
-      const result = await service.isActive('test-1')
+      const result = await service.isActive('test-1', { tenantId: 'tenant-1', organizationId: 'org-1' })
 
       expect(result).toBe(true)
-      expect(mockEm.count).toHaveBeenCalledWith(ScheduledJob, { id: 'test-1', deletedAt: null, isEnabled: true })
+      expect(mockEm.count).toHaveBeenCalledWith(ScheduledJob, { id: 'test-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null, isEnabled: true })
+    })
+
+    it.each([
+      ['other-tenant', 'org-1'],
+      ['tenant-1', 'other-org'],
+    ])('does not find a matching id in another tenant or organization', async (tenantId, organizationId) => {
+      const row = { id: 'test-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null, isEnabled: true }
+      mockEm.count.mockImplementation(async (_entity: unknown, filter: Record<string, unknown>) =>
+        Object.entries(filter).every(([key, value]) => row[key as keyof typeof row] === value) ? 1 : 0,
+      )
+
+      expect(await service.isActive('test-1', { tenantId, organizationId })).toBe(false)
     })
 
     it('returns false when the schedule is missing, disabled, or soft-deleted', async () => {
       mockEm.count.mockResolvedValue(0)
 
-      const result = await service.isActive('test-1')
+      const result = await service.isActive('test-1', { tenantId: 'tenant-1', organizationId: 'org-1' })
 
       expect(result).toBe(false)
     })

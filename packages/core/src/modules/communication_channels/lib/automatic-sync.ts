@@ -31,8 +31,7 @@ export function isAutomaticSyncAvailable(container: unknown): boolean {
 }
 
 type ScheduleLookup = {
-  isActive?: (scheduleId: string) => Promise<boolean>
-  exists?: (scheduleId: string) => Promise<boolean>
+  isActive?: (scheduleId: string, scope: { tenantId: string; organizationId: string }) => Promise<boolean>
 }
 
 /**
@@ -46,14 +45,14 @@ type ScheduleLookup = {
 export async function isAutomaticSyncEnabledForOrganization(
   container: unknown,
   organizationId: string | null,
+  tenantId: string,
 ): Promise<boolean> {
   const available = isAutomaticSyncAvailable(container)
   if (!available || !organizationId) return available
   try {
     const schedulerService = (container as { resolve: (name: string) => unknown }).resolve('schedulerService') as ScheduleLookup
     const scheduleId = pollTickScheduleId(organizationId)
-    if (typeof schedulerService?.isActive === 'function') return await schedulerService.isActive(scheduleId)
-    if (typeof schedulerService?.exists === 'function') return await schedulerService.exists(scheduleId)
+    if (typeof schedulerService?.isActive === 'function') return await schedulerService.isActive(scheduleId, { tenantId, organizationId })
     return true
   } catch (error) {
     getTelemetryRuntime()?.reportError(error, {

@@ -158,7 +158,7 @@ describe('communication_channels me/channels route', () => {
     findWithDecryptionMock.mockResolvedValue([])
 
     expect(await readAutomaticSyncEnabled()).toBe(true)
-    expect(scheduleActiveMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId))
+    expect(scheduleActiveMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId), { tenantId, organizationId })
     expect(scheduleExistsMock).not.toHaveBeenCalled()
   })
 
@@ -177,15 +177,15 @@ describe('communication_channels me/channels route', () => {
     expect(await readAutomaticSyncEnabled()).toBe(false)
   })
 
-  it('falls back to exists() on a scheduler that predates isActive()', async () => {
+  it('does not query an unscoped scheduler that predates isActive()', async () => {
     container.resolve.mockImplementation((name: string) =>
       name === 'schedulerService' ? { exists: scheduleExistsMock } : defaultResolve(name),
     )
     scheduleExistsMock.mockResolvedValue(false)
     findWithDecryptionMock.mockResolvedValue([])
 
-    expect(await readAutomaticSyncEnabled()).toBe(false)
-    expect(scheduleExistsMock).toHaveBeenCalledWith(pollTickScheduleId(organizationId))
+    expect(await readAutomaticSyncEnabled()).toBe(true)
+    expect(scheduleExistsMock).not.toHaveBeenCalled()
   })
 
   it('reports module availability without a schedule lookup when no organization is in scope', async () => {
