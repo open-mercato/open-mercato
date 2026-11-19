@@ -977,6 +977,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: yarn workspace @open-mercato/core test:pg-integration
 
+      - name: Run Discord auto-reply repeat-delivery suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/channel-discord test:pg-integration
+
       - name: Run checkout migration suite against real Postgres
         if: ${{ !cancelled() }}
         run: yarn workspace @open-mercato/checkout test:pg-integration
