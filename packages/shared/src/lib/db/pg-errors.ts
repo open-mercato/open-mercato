@@ -1,4 +1,4 @@
-const UNIQUE_VIOLATION_MESSAGE = /duplicate key value violates unique constraint/i
+const UNIQUE_VIOLATION_MESSAGE = /duplicate key value violates unique constraint(?: "([^"]+)")?/i
 
 /**
  * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
@@ -68,6 +68,23 @@ export function getForeignKeyViolationConstraint(err: unknown): string | null {
   for (const candidate of pgErrorCandidates(err)) {
     if (typeof candidate.message !== 'string') continue
     const match = FOREIGN_KEY_VIOLATION_MESSAGE.exec(candidate.message)
+    if (match?.[1]) return match[1]
+  }
+  return null
+}
+
+/**
+ * Name of the constraint behind a unique violation, read from the pg
+ * `constraint` field on any layer of the wrapper chain, or parsed out of the
+ * quoted constraint in the driver message when the field is missing.
+ */
+export function getUniqueViolationConstraint(err: unknown): string | null {
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.constraint === 'string' && candidate.constraint.length > 0) return candidate.constraint
+  }
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.message !== 'string') continue
+    const match = UNIQUE_VIOLATION_MESSAGE.exec(candidate.message)
     if (match?.[1]) return match[1]
   }
   return null
