@@ -9,6 +9,15 @@
  * and navigates with a real `?flash=`/`&type=` URL, exercising the same
  * `history.replaceState` + primary-host-election code path the real app uses.
  *
+ * The final assertion reads the toast's presence with a single, non-retrying
+ * `locator.count()` right after crossing the ORIGINAL 3000ms expiry, instead
+ * of the default retrying `toHaveCount` matcher (20s assertion timeout): a
+ * retrying matcher would still pass even if handover incorrectly restarted
+ * the dismiss timer, because it simply keeps polling real time until the
+ * reset timer also fires (~4500ms) within its own 20s budget. A single
+ * snapshot read at ~3200ms — comfortably past the original deadline but well
+ * short of a reset one — fails for real if handover ever resets the timer.
+ *
  * Each iteration reloads the page so the component module's singletons
  * (`mountedFlashHostIds`, `pendingFlash`, ...) start from a clean slate —
  * matching how a real full page load behaves.
@@ -43,10 +52,14 @@ test.describe('FlashMessages URL-flash primary-host handover', () => {
       // Immediately after handover, the surviving host still shows the same toast.
       await expect(page.getByText(message)).toHaveCount(1)
 
-      // Crosses the ORIGINAL 3000ms expiry (1500 + 1600 = 3100ms since showFlash),
-      // not a new 3000ms window restarted at handover time.
-      await page.waitForTimeout(1600)
-      await expect(page.getByText(message)).toHaveCount(0)
+      // Cross the ORIGINAL 3000ms expiry (1500 + 1700 = 3200ms since showFlash), well
+      // short of a fresh 3000ms window restarted at the ~1500ms handover (~4500ms).
+      await page.waitForTimeout(1700)
+      // A single, non-retrying read: the retrying `toHaveCount` matcher used above
+      // would still pass a reset-timer regression by polling for the extra ~1300ms
+      // the reset deadline needs, inside its own 20s assertion timeout.
+      const survivingCount = await page.getByText(message).count()
+      expect(survivingCount).toBe(0)
     })
   }
 })
