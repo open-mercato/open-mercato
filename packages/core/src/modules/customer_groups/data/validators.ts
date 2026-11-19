@@ -59,6 +59,10 @@ export const customerGroupKindSchema = z.enum(customerGroupKindValues)
 export const customerGroupMembershipSourceValues = ['manual', 'import', 'rule', 'onboarding'] as const
 export const customerGroupMembershipSourceSchema = z.enum(customerGroupMembershipSourceValues)
 
+// Release 5 (D-R5-1): no `either` value — see `CustomerGroupTerms.approvalPolicy`.
+export const customerGroupApprovalPolicyValues = ['buyer', 'merchant', 'both'] as const
+export const customerGroupApprovalPolicySchema = z.enum(customerGroupApprovalPolicyValues)
+
 // Default-free field set shared by the create and update schemas. Zod v4's `.partial()`
 // keeps an inner `.default()`, so deriving the update schema from the create schema
 // injected `isDefault: false` / `isActive: true` into every partial update and silently
@@ -200,6 +204,14 @@ const clearableNonNegativeNumberSchema = z.preprocess(
 
 const currencyCodeSchema = clearableStringSchema(4)
 
+// Release 5 (spec §5.3): the terms currency must be an ISO 4217 code of three uppercase
+// letters, so `eur` is refused instead of sending every cart to approval. Blank or null
+// clears the value back to inheriting.
+const isoCurrencyCodeSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().regex(/^[A-Z]{3}$/).nullable().optional(),
+)
+
 export const assortmentScopeSchema = z
   .object({
     categoryIds: z.array(uuid()).optional(),
@@ -225,6 +237,10 @@ const customerGroupTermsBaseShape = {
   creditCurrencyCode: currencyCodeSchema,
   approvalRequiredAbove: clearableNonNegativeNumberSchema,
   minOrderValue: clearableNonNegativeNumberSchema,
+  termsCurrencyCode: isoCurrencyCodeSchema,
+  approvalPolicy: customerGroupApprovalPolicySchema.nullable().optional(),
+  allowQuoteRequests: z.boolean().nullable().optional(),
+  requiresPoNumber: z.boolean().nullable().optional(),
   assortmentScope: assortmentScopeSchema.optional(),
   metadata: clearableMetadataSchema,
 }
