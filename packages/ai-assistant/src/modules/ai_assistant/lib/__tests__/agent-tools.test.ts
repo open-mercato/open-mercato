@@ -177,6 +177,64 @@ describe('resolveAiAgentTools', () => {
     }
   })
 
+  it('threads channel, mutation mode, API key and correlation id into the handler context', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    registerMcpTool(
+      makeTool({
+        name: 'customers.list_people',
+        handler: async (_input, ctx) => {
+          seen.push({
+            channel: ctx.channel,
+            mutationMode: ctx.mutationMode,
+            apiKeyId: ctx.apiKeyId,
+            correlationId: ctx.correlationId,
+          })
+          return { ok: true }
+        },
+      }),
+      { moduleId: 'customers' },
+    )
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowedTools: ['customers.list_people'] }),
+    ])
+
+    const result = await resolveAiAgentTools({
+      agentId: 'customers.assistant',
+      authContext: baseAuth,
+      channel: 'mcp',
+      mutationMode: 'deny',
+      apiKeyId: 'key-1',
+      correlationId: 'corr-1',
+    })
+    const tool = result.tools.customers__list_people as { execute: (args: unknown, options?: unknown) => Promise<unknown> }
+    await tool.execute({}, { toolCallId: 'call-1', messages: [] })
+
+    expect(seen).toEqual([{ channel: 'mcp', mutationMode: 'deny', apiKeyId: 'key-1', correlationId: 'corr-1' }])
+  })
+
+  it('stamps the agent channel on the handler context by default', async () => {
+    const seen: unknown[] = []
+    registerMcpTool(
+      makeTool({
+        name: 'customers.list_people',
+        handler: async (_input, ctx) => {
+          seen.push(ctx.channel)
+          return { ok: true }
+        },
+      }),
+      { moduleId: 'customers' },
+    )
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowedTools: ['customers.list_people'] }),
+    ])
+
+    const result = await resolveAiAgentTools({ agentId: 'customers.assistant', authContext: baseAuth })
+    const tool = result.tools.customers__list_people as { execute: (args: unknown, options?: unknown) => Promise<unknown> }
+    await tool.execute({}, { toolCallId: 'call-1', messages: [] })
+
+    expect(seen).toEqual(['agent'])
+  })
+
   it('skips tools the caller lacks features for and still returns the rest', async () => {
     registerMcpTool(
       makeTool({

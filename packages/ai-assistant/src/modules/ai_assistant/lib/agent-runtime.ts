@@ -1774,6 +1774,7 @@ function appendAttachmentSummary(
 function buildRuntimeMutationPolicySection(
   agent: { id: string; mutationPolicy?: string | null; allowedTools: string[] },
   mutationPolicyOverride: string | null,
+  channel: AiPendingActionChannel = 'agent',
 ): string | null {
   const effective = resolveEffectiveMutationPolicy(
     (agent.mutationPolicy ?? null) as never,
@@ -1807,7 +1808,7 @@ function buildRuntimeMutationPolicySection(
       blocked.push(toolName)
       continue
     }
-    if (effective === 'confirm-required') {
+    if (effective === 'confirm-required' || channel !== 'agent') {
       gated.push(toolName)
       continue
     }
@@ -1877,8 +1878,9 @@ function appendRuntimeMutationPolicy(
   systemPrompt: string,
   agent: { id: string; mutationPolicy?: string | null; allowedTools: string[] },
   mutationPolicyOverride: string | null,
+  channel?: AiPendingActionChannel,
 ): string {
-  const block = buildRuntimeMutationPolicySection(agent, mutationPolicyOverride)
+  const block = buildRuntimeMutationPolicySection(agent, mutationPolicyOverride, channel)
   if (!block) return systemPrompt
   return `${systemPrompt}\n\n${block}`
 }
@@ -2646,6 +2648,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     appendRuntimeTaskPlanPrompt(appendAttachmentSummary(composedPrompt.prompt, resolvedAttachments), agent),
     agent,
     runMutationPolicyOverride,
+    input.channel,
   )
 
   const resolvedObjectModel = resolveAgentModel(
