@@ -28,11 +28,12 @@ test('strict Turbo initialization uses only its proved disposable database (#880
   try {
     containerId = docker(['run', '--rm', '-d', '--name', containerName, '-e', `POSTGRES_PASSWORD=${password}`, '-e', `POSTGRES_DB=${ownedDatabase}`, '-p', '127.0.0.1::5432', 'postgres:16'])
     const startedAt = Date.now()
-    while (spawnSync('docker', ['exec', containerId, 'pg_isready', '-U', 'postgres', '-d', ownedDatabase], { timeout: 5000, stdio: 'ignore' }).status !== 0) {
+    const ownedDatabaseReady = () => spawnSync('docker', ['exec', '-e', `PGPASSWORD=${password}`, containerId, 'psql', '-h', '127.0.0.1', '-U', 'postgres', '-d', ownedDatabase, '-tAc', 'select 1'], { timeout: 5000, stdio: 'ignore' }).status === 0
+    while (!ownedDatabaseReady()) {
       assert.ok(Date.now() - startedAt < 45000, 'Owned PostgreSQL fixture becomes ready')
       await new Promise((resolve) => setTimeout(resolve, 200))
     }
-    docker(['exec', containerId, 'createdb', '-U', 'postgres', controlDatabase])
+    docker(['exec', '-e', `PGPASSWORD=${password}`, containerId, 'createdb', '-h', '127.0.0.1', '-U', 'postgres', controlDatabase])
     const publishedPort = docker(['port', containerId, '5432/tcp']).split(':').at(-1)
     assert.match(publishedPort, /^\d+$/)
     const ownedUrl = `postgresql://postgres:${password}@127.0.0.1:${publishedPort}/${ownedDatabase}`
