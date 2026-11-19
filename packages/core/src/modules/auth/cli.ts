@@ -1,9 +1,11 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { OM_LOG_LEVEL_ENV, resetLogLevelCache } from '@open-mercato/shared/lib/logger'
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
 import { hash } from 'bcryptjs'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EventBus } from '@open-mercato/events/types'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
@@ -98,18 +100,7 @@ const addUser: ModuleCli = {
 }
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]
-    if (!a) continue
-    if (a.startsWith('--')) {
-      const [k, v] = a.replace(/^--/, '').split('=')
-      if (v !== undefined) args[k] = v
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
-      else args[k] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 function normalizeKeyInput(value: string): string {
@@ -289,33 +280,17 @@ const rotateEncryptionKey: ModuleCli = {
         `select id, email, email_hash from ${qualifiedTable} where tenant_id = ? and organization_id = ?`,
         [scopeTenantId, scopeOrganizationId],
       )
-      const rows = Array.isArray(rawRows) ? rawRows : []
+      const rows: Array<{ id: string; email: string | null; email_hash: string | null }> = Array.isArray(rawRows) ? rawRows : []
       const pending = rotate
         ? rows
-        : rows.filter((row: any) => !isEncryptedPayload(row?.email))
+        : rows.filter((row) => !isEncryptedPayload(row.email))
       if (!pending.length) return 0
       console.log(
         `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
       )
       if (dryRun) return 0
-      const ids = pending.map((row: any) => String(row.id))
-      const users = rotate
-        ? await em.find(
-          User,
-          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-        )
-        : await findWithDecryption(
-          em,
-          User,
-          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-          {},
-          { tenantId: scopeTenantId, organizationId: scopeOrganizationId, encryptionService },
-        )
-      const usersById = new Map(users.map((user) => [String(user.id), user]))
       let updated = 0
       for (const row of pending) {
-        const user = usersById.get(String(row.id))
-        if (!user) continue
         const rawEmail = typeof row.email === 'string' ? row.email : String(row.email ?? '')
         if (!rawEmail) continue
         if (rotate && (!isEncryptedPayload(rawEmail) || !oldKms)) {
@@ -347,15 +322,17 @@ const rotateEncryptionKey: ModuleCli = {
           scopeOrganizationId,
         )
         const nextEmail = encrypted.email as string | undefined
-        if (nextEmail && nextEmail !== user.email) {
-          user.email = nextEmail as any
-          user.emailHash = (encrypted as any).emailHash ?? computeEmailHash(plainEmail)
-          em.persist(user)
+        if (nextEmail && nextEmail !== rawEmail) {
+          const nextEmailHash = encrypted.emailHash ?? computeEmailHash(plainEmail)
+          const result = await conn.execute(
+            `UPDATE ${qualifiedTable} SET email = ?, email_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id`,
+            [nextEmail, nextEmailHash, row.id, scopeTenantId, scopeOrganizationId, row.email, row.email_hash],
+          )
+          if (!Array.isArray(result) || result.length !== 1) {
+            throw new Error('[internal] A row changed concurrently during auth encryption maintenance. The conflicting row was not overwritten; retry after stopping writers.')
+          }
           updated += 1
         }
-      }
-      if (updated > 0) {
-        await em.flush()
       }
       return updated
     }
@@ -407,13 +384,19 @@ const addOrganization: ModuleCli = {
       return
     }
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
-    // Create tenant implicitly for simplicity
-    const tenant = em.create(Tenant, { name: `${name} Tenant` })
+    const em = resolve('em') as EntityManager
+    const eventBus = resolve('eventBus') as EventBus
+    const tenant = em.create(Tenant, { name: `${name} Tenant` }, { partial: true })
     await em.persist(tenant).flush()
-    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false })
+    await eventBus.emit('directory.tenant.created', {
+      id: String(tenant.id), tenantId: null, organizationId: null,
+    }, { persistent: true, tenantId: null, organizationId: null, rethrowHandlerErrors: true })
+    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false }, { partial: true })
     await em.persist(org).flush()
     await rebuildHierarchyForTenant(em, String(tenant.id))
+    await eventBus.emit('directory.organization.created', {
+      id: String(org.id), tenantId: String(tenant.id), organizationId: String(org.id),
+    }, { persistent: true, tenantId: String(tenant.id), organizationId: String(org.id), rethrowHandlerErrors: true })
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }

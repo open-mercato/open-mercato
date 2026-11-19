@@ -49,6 +49,7 @@ const F = {
   status: 'status',
   assigned_start_date: 'assigned_start_date',
   assigned_end_date: 'assigned_end_date',
+  is_assigner: 'is_assigner',
   created_at: 'created_at',
   updated_at: 'updated_at',
   deleted_at: 'deleted_at',
@@ -203,6 +204,7 @@ const crud = makeCrudRoute({
       F.status,
       F.assigned_start_date,
       F.assigned_end_date,
+      F.is_assigner,
       F.created_at,
       F.updated_at,
     ],
@@ -322,6 +324,7 @@ const projectMemberListItemSchema = z.object({
   status: z.string().nullable().optional(),
   assigned_start_date: z.string().nullable().optional(),
   assigned_end_date: z.string().nullable().optional(),
+  is_assigner: z.boolean().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 })

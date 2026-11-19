@@ -15,6 +15,7 @@ import { OutlinePane } from './OutlinePane'
 import { captureCommentAnchor, type CommentAnchor } from './CommentAnchorNavigation'
 import { DOCUMENT_EDITOR_CONTENT_CLASS } from './editorTypes'
 import { DOCUMENT_PAGINATION_STYLES } from './documentPagination'
+import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 
 type TitleModel = {
   value: string
@@ -49,6 +50,7 @@ export function DocumentCanvas({
   onComment?: (anchor: CommentAnchor) => void
 }) {
   const t = useT()
+  const nonce = useContentSecurityPolicyNonce()
   const editorState = useEditorState({
     editor,
     selector: ({ editor: current }) => current ? {
@@ -71,7 +73,7 @@ export function DocumentCanvas({
 
   return (
     <div className="om-doc-canvas max-h-[calc(100dvh-var(--topbar-height,0px)-12rem)] min-h-96 overflow-auto bg-muted p-0 sm:px-4 sm:py-8 md:px-8 md:py-10">
-      <style>{DOCUMENT_PAGINATION_STYLES}</style>
+      <style nonce={nonce}>{DOCUMENT_PAGINATION_STYLES}</style>
       {notice ? <Alert status="information" style="lighter" className="mx-auto mb-4 max-w-3xl"><AlertDescription>{notice}</AlertDescription></Alert> : null}
       <div className="mx-auto flex w-fit min-w-full flex-col gap-4 lg:flex-row lg:items-start">
         {outlineOpen ? <OutlinePane editor={editor} /> : null}

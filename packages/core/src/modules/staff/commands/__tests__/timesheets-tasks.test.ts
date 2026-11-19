@@ -419,6 +419,38 @@ describe('staff.timesheets.tasks.create', () => {
     expect(body.fieldErrors?.timeProjectId).toBeTruthy()
   })
 
+  it('takes a shared lock on the project inside its transaction before reading the board', async () => {
+    const { LockMode } = jest.requireActual('@mikro-orm/core') as typeof import('@mikro-orm/core')
+    const command = await loadCommand('staff.timesheets.tasks.create')
+    const { em } = makeHarness()
+
+    await command.execute(baseCreateInput, ctxFor(em))
+
+    const projectCallIndex = em.findOne.mock.calls.findIndex(([cls]) => (cls as { name: string }).name === 'StaffTimeProject')
+    expect(projectCallIndex).toBeGreaterThanOrEqual(0)
+    expect(em.findOne.mock.calls[projectCallIndex][2]).toEqual({ lockMode: LockMode.PESSIMISTIC_READ })
+    const projectCallOrder = em.findOne.mock.invocationCallOrder[projectCallIndex]
+    const statusReadOrders = em.find.mock.calls
+      .map(([cls], index) => ((cls as { name: string }).name === 'StaffTimeTaskStatus' ? em.find.mock.invocationCallOrder[index] : null))
+      .filter((order): order is number => order !== null)
+    expect(em.begin.mock.invocationCallOrder[0]).toBeLessThan(projectCallOrder)
+    expect(statusReadOrders.every((order) => order > projectCallOrder)).toBe(true)
+    expect(em.commit.mock.invocationCallOrder[0]).toBeGreaterThan(projectCallOrder)
+  })
+
+  it('refuses with the missing-project error once a concurrent undo deleted the project', async () => {
+    const command = await loadCommand('staff.timesheets.tasks.create')
+    const { em, created } = makeHarness({
+      projects: [{ id: PROJECT_ID, code: 'TT', tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: new Date() }],
+    })
+
+    const { status, body } = await captureError(command.execute(baseCreateInput, ctxFor(em)))
+
+    expect(status).toBe(422)
+    expect(body.fieldErrors?.timeProjectId).toBeTruthy()
+    expect(created).toHaveLength(0)
+  })
+
   it('re-reads the project counter and takes the next number when it loses the race', async () => {
     const command = await loadCommand('staff.timesheets.tasks.create')
     const { em, created, tasks } = makeHarness({ conflictOnCreate: [0] })
@@ -600,7 +632,7 @@ describe('staff.timesheets.tasks.delete', () => {
 
     const result = await command.execute({ id: PARENT_TASK_ID }, ctxFor(em))
 
-    expect(result).toEqual({ taskId: PARENT_TASK_ID, childIds: [CHILD_TASK_ID, SECOND_CHILD_TASK_ID] })
+    expect(result).toEqual({ taskId: PARENT_TASK_ID, childIds: [CHILD_TASK_ID, SECOND_CHILD_TASK_ID], supportTicketIds: [] })
     expect(tasks.find((task) => task.id === PARENT_TASK_ID)?.deletedAt).toBeInstanceOf(Date)
     expect(tasks.find((task) => task.id === CHILD_TASK_ID)?.deletedAt).toBeInstanceOf(Date)
     expect(tasks.find((task) => task.id === SECOND_CHILD_TASK_ID)?.deletedAt).toBeInstanceOf(Date)
@@ -640,7 +672,7 @@ describe('staff.timesheets.tasks.delete', () => {
 
     const result = await command.execute({ id: CHILD_TASK_ID }, ctxFor(em))
 
-    expect(result).toEqual({ taskId: CHILD_TASK_ID, childIds: [] })
+    expect(result).toEqual({ taskId: CHILD_TASK_ID, childIds: [], supportTicketIds: [] })
     expect(tasks.find((task) => task.id === PARENT_TASK_ID)?.deletedAt).toBeNull()
   })
 

@@ -1,12 +1,20 @@
 /** @jest-environment node */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   registerTelemetryRuntime,
   resetTelemetryRuntime,
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
-import { createIntegrationLogService, IntegrationLogError } from '../log-service'
+import { IntegrationLog } from '../../data/entities'
+import { createIntegrationLogService, findLatestIntegrationLogsByCodes, IntegrationLogError } from '../log-service'
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(),
+}))
+
+const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
 type Reported = {
   error: unknown
@@ -189,5 +197,64 @@ describe('integration log service error reporting', () => {
       message: 'Failed to import item product-3',
     }, scope)).resolves.toMatchObject({ level: 'error' })
     expect(flush).toHaveBeenCalled()
+  })
+})
+
+describe('findLatestIntegrationLogsByCodes', () => {
+  const em = {} as EntityManager
+  const codes = ['integrations.oauth_disconnected', 'integrations.oauth_revocation_confirmed'] as const
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockFindWithDecryption.mockResolvedValue([])
+  })
+
+  it('reads newest first through findWithDecryption, scoped and filtered by code, one row by default', async () => {
+    const rows = [{ id: 'log-1' }] as IntegrationLog[]
+    mockFindWithDecryption.mockResolvedValue(rows)
+
+    await expect(findLatestIntegrationLogsByCodes(em, 'test_oauth_grant', codes, scope)).resolves.toBe(rows)
+
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      em,
+      IntegrationLog,
+      {
+        integrationId: 'test_oauth_grant',
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        code: { $in: [...codes] },
+      },
+      { orderBy: { createdAt: 'DESC' }, limit: 1 },
+      scope,
+    )
+  })
+
+  it('narrows to a disconnectId in the payload', async () => {
+    await findLatestIntegrationLogsByCodes(em, 'test_oauth_grant', codes, scope, { disconnectId: 'disconnect-1', limit: 5 })
+
+    const [, , where, options] = mockFindWithDecryption.mock.calls[0] ?? []
+    expect(where).toMatchObject({ payload: { disconnectId: 'disconnect-1' } })
+    expect(options).toEqual({ orderBy: { createdAt: 'DESC' }, limit: 5 })
+  })
+
+  it('narrows to rows created at or after createdFrom', async () => {
+    const createdFrom = new Date('2026-01-01T00:00:00.000Z')
+
+    await findLatestIntegrationLogsByCodes(em, 'test_oauth_grant', codes, scope, { disconnectId: 'disconnect-1', createdFrom })
+
+    const [, , where] = mockFindWithDecryption.mock.calls[0] ?? []
+    expect(where).toMatchObject({ payload: { disconnectId: 'disconnect-1' }, createdAt: { $gte: createdFrom } })
+  })
+
+  it('clamps the limit to 1-20', async () => {
+    await findLatestIntegrationLogsByCodes(em, 'test_oauth_grant', codes, scope, { limit: 500 })
+    await findLatestIntegrationLogsByCodes(em, 'test_oauth_grant', codes, scope, { limit: 0 })
+
+    expect(mockFindWithDecryption.mock.calls.map((call) => (call[3] as { limit?: number }).limit)).toEqual([20, 1])
+  })
+
+  it('does not query without codes', async () => {
+    await expect(findLatestIntegrationLogsByCodes(em, 'test_oauth_grant', [], scope)).resolves.toEqual([])
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
 })

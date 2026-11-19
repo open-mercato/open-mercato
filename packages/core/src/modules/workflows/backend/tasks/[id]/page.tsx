@@ -222,8 +222,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           flash(t('workflows.tasks.messages.completed'), 'success')
           refreshTask()
         } else {
-          const failure = result.result as { error?: string } | null
-          flash(failure?.error || t('workflows.tasks.messages.completeFailed'), 'error')
+          const failure = result.result as { error?: string; code?: string } | null
+          const failureMessage =
+            failure?.code === 'WORKFLOW_NOT_ACTIVE'
+              ? t('workflows.tasks.messages.workflowNotActive')
+              : failure?.error || t('workflows.tasks.messages.completeFailed')
+          flash(failureMessage, 'error')
         }
       } catch (err) {
         logger.error('Error completing task', { err })

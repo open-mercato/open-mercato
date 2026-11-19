@@ -21,7 +21,7 @@ export type FormFieldProps = {
   error?: string
   /** Layout: vertical (default) or horizontal (label beside input) */
   orientation?: 'vertical' | 'horizontal'
-  /** Disabled styling on label */
+  /** Disables the child and applies disabled styling when true; otherwise preserves the child's disabled state. */
   disabled?: boolean
   /** The input element (slot) */
   children: React.ReactNode
@@ -57,7 +57,7 @@ export function FormField({
         'aria-describedby': ariaDescribedBy,
         'aria-invalid': error ? true : undefined,
         'aria-required': required ? true : undefined,
-        disabled: disabled || undefined,
+        ...(disabled ? { disabled: true } : {}),
       })
     : children
 

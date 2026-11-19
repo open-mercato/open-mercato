@@ -90,9 +90,12 @@ export const setup: ModuleSetupConfig = {
 Same async pattern as payment gateways:
 
 1. Carrier sends `POST /api/shipping_carriers/webhook/{provider}`.
-2. Signature verified, `ShippingWebhookEvent` constructed.
-3. Event enqueued to carrier-specific worker queue.
-4. Worker updates `CarrierShipment` status and emits domain events.
+2. The route finds candidate `CarrierShipment` rows by the carrier shipment id. It reads `shipmentId` or `data.shipmentId` from the body; a carrier that nests the id elsewhere implements the optional `extractWebhookShipmentId(payload)` adapter method.
+3. Signature verified with each candidate's tenant credentials, `ShippingWebhookEvent` constructed. Verification must fail closed when no signing secret is configured.
+4. Event enqueued to carrier-specific worker queue.
+5. Worker maps the raw carrier status from `event.data.status` through `mapStatus`, updates `CarrierShipment` status and emits domain events.
+
+Each delivery needs its own `idempotencyKey` (for example shipment id + event + status + timestamp). A key that only identifies the shipment makes every later status update for that shipment look like a duplicate. When a status transition is rejected, the worker keeps the claim for that delivery, so a redelivery of the same event is skipped while later deliveries, which carry their own keys, are still processed.
 
 ## Core service methods
 

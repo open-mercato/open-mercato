@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import { AiPendingActionRepository } from '../AiPendingActionRepository'
 import { AiPendingAction } from '../../entities'
 import {
@@ -30,6 +31,9 @@ type Row = {
   expiresAt: Date
   resolvedAt: Date | null
   resolvedByUserId: string | null
+  channel: 'agent' | 'mcp' | 'tools-api'
+  apiKeyId: string | null
+  correlationId: string | null
 }
 
 let idCounter = 0
@@ -42,11 +46,21 @@ function rowMatchesWhere(row: Row, where: any): boolean {
     const expected = where.organizationId ?? null
     if ((row.organizationId ?? null) !== expected) return false
   }
+  if ('createdByUserId' in where && row.createdByUserId !== where.createdByUserId) return false
   if (where.agentId && row.agentId !== where.agentId) return false
   if (where.idempotencyKey && row.idempotencyKey !== where.idempotencyKey) {
     return false
   }
   if (where.status && row.status !== where.status) return false
+  if (where.toolName && row.toolName !== where.toolName) return false
+  if (where.createdByUserId && row.createdByUserId !== where.createdByUserId) return false
+  if (typeof where.channel === 'string' && row.channel !== where.channel) return false
+  if (where.channel && typeof where.channel === 'object' && '$ne' in where.channel) {
+    if (row.channel === where.channel.$ne) return false
+  }
+  if (Array.isArray(where.$or)) {
+    if (!where.$or.some((clause: any) => rowMatchesWhere(row, clause))) return false
+  }
   if (where.expiresAt && typeof where.expiresAt === 'object') {
     if ('$lt' in where.expiresAt) {
       if (!(row.expiresAt.getTime() < (where.expiresAt.$lt as Date).getTime())) {
@@ -80,12 +94,18 @@ function mockEm() {
   const find = async (_entity: unknown, where: any, options?: any): Promise<Row[]> => {
     let rows = store.filter((row) => rowMatchesWhere(row, where))
     rows = applyOrder(rows, options?.orderBy)
-    if (typeof options?.limit === 'number') rows = rows.slice(0, options.limit)
+    const offset = typeof options?.offset === 'number' ? options.offset : 0
+    if (typeof options?.limit === 'number') rows = rows.slice(offset, offset + options.limit)
     return rows
   }
 
   const em: any = {
     find,
+    findAndCount: async (_entity: unknown, where: any, options?: any) => {
+      const total = store.filter((row) => rowMatchesWhere(row, where)).length
+      const rows = await find(_entity, where, options)
+      return [rows, total]
+    },
     findOne: async (_entity: unknown, where: any, options?: any) => {
       const rows = await find(_entity, where, options)
       return rows[0] ?? null
@@ -117,6 +137,9 @@ function mockEm() {
         expiresAt: data.expiresAt instanceof Date ? data.expiresAt : new Date(),
         resolvedAt: data.resolvedAt ?? null,
         resolvedByUserId: data.resolvedByUserId ?? null,
+        channel: data.channel ?? 'agent',
+        apiKeyId: data.apiKeyId ?? null,
+        correlationId: data.correlationId ?? null,
       }
       return row
     },
@@ -153,6 +176,8 @@ function mockEm() {
   return em
 }
 
+const userOne = '00000000-0000-4000-8000-000000000001'
+const userTwo = '00000000-0000-4000-8000-000000000002'
 const tenantAlpha = 't-alpha'
 const tenantBeta = 't-beta'
 
@@ -161,7 +186,7 @@ function baseInput(overrides: Partial<any> = {}) {
     agentId: 'catalog.merchandising_assistant',
     toolName: 'catalog.products.update',
     idempotencyKey: overrides.idempotencyKey ?? 'idem-1',
-    createdByUserId: 'u-1',
+    createdByUserId: userOne,
     normalizedInput: { productId: 'p-1', patch: { name: 'new' } },
     fieldDiff: [{ field: 'name', before: 'old', after: 'new' }],
     targetEntityType: 'catalog.product',
@@ -172,17 +197,40 @@ function baseInput(overrides: Partial<any> = {}) {
 }
 
 describe('AiPendingActionRepository', () => {
+  it('rejects a second expected-pending claim rather than treating confirmed as a successful claim', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-a', userId: userOne }
+    const { row } = await repo.create(baseInput(), ctx)
+    const claim = { expectedStatus: 'pending' as const, resolvedByUserId: userOne }
+    const findOne = jest.spyOn(em, 'findOne')
+    await repo.setStatus(row.id, 'confirmed', ctx, claim)
+    expect(findOne).toHaveBeenCalledWith(
+      AiPendingAction,
+      expect.objectContaining({
+        id: row.id,
+        tenantId: tenantAlpha,
+        organizationId: 'org-a',
+        $or: [{ createdByUserId: userOne }, { channel: { $ne: 'agent' } }],
+      }),
+      expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }),
+    )
+    await expect(repo.setStatus(row.id, 'confirmed', ctx, claim)).rejects.toBeInstanceOf(AiPendingActionStateError)
+    expect((await repo.getById(row.id, ctx))?.status).toBe('confirmed')
+  })
+
   it('creates a row in status=pending with TTL-derived expiresAt and empty attachmentIds default', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
     const now = new Date('2026-04-18T12:00:00.000Z')
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
-    const row = await repo.create(
+    const { row, reused } = await repo.create(
       baseInput({ now, ttlSeconds: 900 }),
       ctx,
     )
 
+    expect(reused).toBe(false)
     expect(row.status).toBe('pending')
     expect(row.tenantId).toBe(tenantAlpha)
     expect(row.attachmentIds).toEqual([])
@@ -196,10 +244,10 @@ describe('AiPendingActionRepository', () => {
   it('is idempotent: second create with same (tenant, org, idempotencyKey) returns the same row while pending', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
-    const first = await repo.create(baseInput({ idempotencyKey: 'idem-42' }), ctx)
-    const second = await repo.create(
+    const { row: first } = await repo.create(baseInput({ idempotencyKey: 'idem-42' }), ctx)
+    const { row: second, reused } = await repo.create(
       baseInput({
         idempotencyKey: 'idem-42',
         normalizedInput: { productId: 'p-1', patch: { name: 'different-call' } },
@@ -207,38 +255,168 @@ describe('AiPendingActionRepository', () => {
       ctx,
     )
 
+    expect(reused).toBe(true)
     expect(second.id).toBe(first.id)
     // the repo MUST NOT mutate the existing row from the second call
     expect(second.normalizedInput).toEqual(first.normalizedInput)
     expect(em.__store).toHaveLength(1)
   })
 
-  it('after a terminal status, same idempotencyKey mints a NEW row (new id)', async () => {
+  it('after a terminal status, same idempotencyKey mints a NEW row (new id) and re-keys the stale one', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
-    const first = await repo.create(baseInput({ idempotencyKey: 'idem-9' }), ctx)
-    await repo.setStatus(first.id, 'cancelled', ctx, { resolvedByUserId: 'u-1' })
+    const { row: first } = await repo.create(baseInput({ idempotencyKey: 'idem-9' }), ctx)
+    await repo.setStatus(first.id, 'cancelled', ctx, { resolvedByUserId: userOne })
 
-    const second = await repo.create(baseInput({ idempotencyKey: 'idem-9' }), ctx)
+    const { row: second, reused } = await repo.create(baseInput({ idempotencyKey: 'idem-9' }), ctx)
+    expect(reused).toBe(false)
     expect(second.id).not.toBe(first.id)
     expect(second.status).toBe('pending')
-    // The repo removes stale terminal rows (cancelled/failed/expired) before
-    // minting a fresh pending row so the unique-key constraint stays satisfied
-    // and the "Fix with AI" retry flow works. Store ends up with just the
-    // new pending row.
+    expect(second.idempotencyKey).toBe('idem-9')
+    // The repo re-keys stale terminal rows (cancelled/failed/expired) instead
+    // of deleting them — so the unique-key constraint stays satisfied for the
+    // "Fix with AI" retry flow, AND the stale row's own card keeps resolving
+    // to its terminal state via GET-by-id instead of 404ing (issue #7550).
+    expect(em.__store).toHaveLength(2)
+    const stale = em.__store.find((candidate) => candidate.id === first.id)
+    expect(stale).toBeDefined()
+    expect(stale!.status).toBe('cancelled')
+    expect(stale!.idempotencyKey).toBe(`idem-9:superseded:${first.id}`)
+    const fresh = em.__store.find((candidate) => candidate.id === second.id)
+    expect(fresh!.idempotencyKey).toBe('idem-9')
+  })
+
+  it('a confirmed row is returned as-is on retry — no second row, no unique-index collision', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+
+    const { row: first } = await repo.create(baseInput({ idempotencyKey: 'idem-confirmed' }), ctx)
+    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: userOne })
+
+    const { row: second, reused } = await repo.create(
+      baseInput({ idempotencyKey: 'idem-confirmed' }),
+      ctx,
+    )
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(second.status).toBe('confirmed')
     expect(em.__store).toHaveLength(1)
-    expect(em.__store[0].id).toBe(second.id)
+  })
+
+  it('an executing row is returned as-is on retry — no second row, no unique-index collision', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+
+    const { row: first } = await repo.create(baseInput({ idempotencyKey: 'idem-executing' }), ctx)
+    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: userOne })
+    await repo.setStatus(first.id, 'executing', ctx)
+
+    const { row: second, reused } = await repo.create(
+      baseInput({ idempotencyKey: 'idem-executing' }),
+      ctx,
+    )
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(second.status).toBe('executing')
+    expect(em.__store).toHaveLength(1)
+  })
+
+  it('a confirmed row is still reused just before its dedupe window elapses (now < expiresAt)', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const createdAt = new Date('2026-04-18T12:00:00.000Z')
+
+    const { row: first } = await repo.create(
+      baseInput({ idempotencyKey: 'idem-window', now: createdAt, ttlSeconds: 900 }),
+      ctx,
+    )
+    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: userOne })
+
+    const justBeforeExpiry = new Date(first.expiresAt.getTime() - 1)
+    const { row: second, reused } = await repo.create(
+      baseInput({ idempotencyKey: 'idem-window', now: justBeforeExpiry }),
+      ctx,
+    )
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(second.status).toBe('confirmed')
+    expect(em.__store).toHaveLength(1)
+  })
+
+  it('a confirmed row past its dedupe window is re-keyed and a fresh pending row is minted', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const createdAt = new Date('2026-04-18T12:00:00.000Z')
+
+    const { row: first } = await repo.create(
+      baseInput({ idempotencyKey: 'idem-stale-confirmed', now: createdAt, ttlSeconds: 900 }),
+      ctx,
+    )
+    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: userOne })
+
+    const afterExpiry = new Date(first.expiresAt.getTime() + 1)
+    const { row: second, reused } = await repo.create(
+      baseInput({ idempotencyKey: 'idem-stale-confirmed', now: afterExpiry }),
+      ctx,
+    )
+
+    expect(reused).toBe(false)
+    expect(second.id).not.toBe(first.id)
+    expect(second.status).toBe('pending')
+    expect(second.idempotencyKey).toBe('idem-stale-confirmed')
+    expect(em.__store).toHaveLength(2)
+    const stale = em.__store.find((candidate) => candidate.id === first.id)
+    expect(stale!.status).toBe('confirmed')
+    expect(stale!.idempotencyKey).toBe(`idem-stale-confirmed:superseded:${first.id}`)
+  })
+
+  it('an executing row past its dedupe window is re-keyed and a fresh pending row is minted', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const createdAt = new Date('2026-04-18T12:00:00.000Z')
+
+    const { row: first } = await repo.create(
+      baseInput({ idempotencyKey: 'idem-stale-executing', now: createdAt, ttlSeconds: 900 }),
+      ctx,
+    )
+    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: userOne })
+    await repo.setStatus(first.id, 'executing', ctx)
+
+    // a process dying mid-execution leaves this row stuck in `executing`
+    // forever — the dedupe window is what lets a later retry proceed
+    // instead of being told to "wait for the result" indefinitely.
+    const afterExpiry = new Date(first.expiresAt.getTime() + 1)
+    const { row: second, reused } = await repo.create(
+      baseInput({ idempotencyKey: 'idem-stale-executing', now: afterExpiry }),
+      ctx,
+    )
+
+    expect(reused).toBe(false)
+    expect(second.id).not.toBe(first.id)
+    expect(second.status).toBe('pending')
+    expect(em.__store).toHaveLength(2)
+    const stale = em.__store.find((candidate) => candidate.id === first.id)
+    expect(stale!.status).toBe('executing')
+    expect(stale!.idempotencyKey).toBe(`idem-stale-executing:superseded:${first.id}`)
   })
 
   it('setStatus rejects illegal transitions (e.g. confirmed → pending) with AiPendingActionStateError', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
-    const row = await repo.create(baseInput({ idempotencyKey: 'idem-illegal' }), ctx)
-    await repo.setStatus(row.id, 'confirmed', ctx, { resolvedByUserId: 'u-1' })
+    const { row } = await repo.create(baseInput({ idempotencyKey: 'idem-illegal' }), ctx)
+    await repo.setStatus(row.id, 'confirmed', ctx, { resolvedByUserId: userOne })
 
     await expect(
       repo.setStatus(row.id, 'pending', ctx),
@@ -251,9 +429,9 @@ describe('AiPendingActionRepository', () => {
   it('setStatus to expired sets resolvedAt and resolvedByUserId: null', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
-    const row = await repo.create(baseInput({ idempotencyKey: 'idem-expire' }), ctx)
+    const { row } = await repo.create(baseInput({ idempotencyKey: 'idem-expire' }), ctx)
     const expiredAt = new Date('2026-04-18T13:00:00.000Z')
     const expired = await repo.setStatus(row.id, 'expired', ctx, { now: expiredAt })
 
@@ -265,8 +443,8 @@ describe('AiPendingActionRepository', () => {
   it('listExpired returns rows with status=pending and expiresAt < now, capped by limit, tenant-isolated', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
-    const ctxBeta = { tenantId: tenantBeta, organizationId: null, userId: 'u-2' }
+    const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const ctxBeta = { tenantId: tenantBeta, organizationId: null, userId: userTwo }
 
     const baseNow = new Date('2026-04-18T12:00:00.000Z')
     for (let i = 0; i < 4; i += 1) {
@@ -315,9 +493,9 @@ describe('AiPendingActionRepository', () => {
   it('getById is tenant-scoped: another tenant returns null', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctxAlpha = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
-    const row = await repo.create(baseInput({ idempotencyKey: 'idem-iso' }), ctxAlpha)
+    const { row } = await repo.create(baseInput({ idempotencyKey: 'idem-iso' }), ctxAlpha)
     const sameTenant = await repo.getById(row.id, ctxAlpha)
     expect(sameTenant?.id).toBe(row.id)
 
@@ -331,12 +509,91 @@ describe('AiPendingActionRepository', () => {
     void AiPendingAction
   })
 
+  it('getById is owner-scoped: another user in the same tenant and org gets null', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const otherUser = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userTwo }
+
+    const { row } = await repo.create(baseInput({ idempotencyKey: 'idem-owner' }), owner)
+
+    expect((await repo.getById(row.id, owner))?.id).toBe(row.id)
+    expect(await repo.getById(row.id, otherUser)).toBeNull()
+    expect((await repo.getById(row.id, { ...owner, userId: null }))?.id).toBe(row.id)
+  })
+
+  it('setStatus refuses to resolve another user\'s action and leaves it pending', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const otherUser = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userTwo }
+
+    const { row } = await repo.create(baseInput({ idempotencyKey: 'idem-owner-status' }), owner)
+
+    await expect(
+      repo.setStatus(row.id, 'cancelled', otherUser, { resolvedByUserId: userTwo }),
+    ).rejects.toThrow(/not found/)
+    expect((await repo.getById(row.id, owner))?.status).toBe('pending')
+
+    const cancelled = await repo.setStatus(row.id, 'cancelled', owner, { resolvedByUserId: userOne })
+    expect(cancelled.status).toBe('cancelled')
+    expect(cancelled.resolvedByUserId).toBe(userOne)
+  })
+
+  it('setStatus without a userId (system sweeper) still resolves within the tenant', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+
+    const { row } = await repo.create(baseInput({ idempotencyKey: 'idem-owner-system' }), owner)
+
+    const expired = await repo.setStatus(
+      row.id,
+      'expired',
+      { tenantId: tenantAlpha, organizationId: 'org-1', userId: null },
+      { resolvedByUserId: null },
+    )
+    expect(expired.status).toBe('expired')
+  })
+
+  it('fails closed without querying for a missing, empty or non-UUID userId', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const { row } = await repo.create(baseInput({ idempotencyKey: 'idem-owner-invalid' }), owner)
+    const findOne = jest.spyOn(em, 'findOne')
+    const find = jest.spyOn(em, 'find')
+
+    for (const userId of [undefined, '', 'api_key:key-1']) {
+      const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId }
+      expect(await repo.getById(row.id, ctx)).toBeNull()
+      expect(await repo.listPendingForAgent('catalog.merchandising_assistant', ctx)).toEqual([])
+      await expect(repo.setStatus(row.id, 'cancelled', ctx)).rejects.toThrow(/not found/)
+    }
+    expect(findOne).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
+    expect((await repo.getById(row.id, owner))?.status).toBe('pending')
+  })
+
+  it('listPendingForAgent only returns the caller\'s own rows', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+    const other = { tenantId: tenantAlpha, organizationId: null, userId: userTwo }
+    await repo.create(baseInput({ idempotencyKey: 'own-1' }), owner)
+    await repo.create(baseInput({ idempotencyKey: 'other-1', createdByUserId: userTwo }), other)
+
+    expect((await repo.listPendingForAgent('catalog.merchandising_assistant', owner)).map((row) => row.idempotencyKey)).toEqual(['own-1'])
+    expect((await repo.listPendingForAgent('catalog.merchandising_assistant', other)).map((row) => row.idempotencyKey)).toEqual(['other-1'])
+    expect(await repo.listPendingForAgent('catalog.merchandising_assistant', { ...owner, userId: null })).toHaveLength(2)
+  })
+
   it('listPendingForAgent returns only pending rows for the requested agent and tenant', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
-    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
 
-    const first = await repo.create(
+    const { row: first } = await repo.create(
       baseInput({ idempotencyKey: 'p-1', agentId: 'catalog.assistant' }),
       ctx,
     )
@@ -348,10 +605,268 @@ describe('AiPendingActionRepository', () => {
       baseInput({ idempotencyKey: 'p-3', agentId: 'customers.assistant' }),
       ctx,
     )
-    await repo.setStatus(first.id, 'cancelled', ctx, { resolvedByUserId: 'u-1' })
+    await repo.setStatus(first.id, 'cancelled', ctx, { resolvedByUserId: userOne })
 
     const pending = await repo.listPendingForAgent('catalog.assistant', ctx)
     expect(pending).toHaveLength(1)
     expect(pending[0].idempotencyKey).toBe('p-2')
+  })
+
+  it('defaults channel to agent and stores null api key / correlation ids', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: null, userId: userOne }
+
+    const { row } = await repo.create(baseInput({ idempotencyKey: 'chan-default' }), ctx)
+
+    expect(row.channel).toBe('agent')
+    expect(row.apiKeyId).toBeNull()
+    expect(row.correlationId).toBeNull()
+  })
+
+  it('persists channel, apiKeyId and correlationId and keeps idempotency for non-agent rows', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+
+    const { row: first } = await repo.create(
+      baseInput({
+        idempotencyKey: 'chan-mcp',
+        agentId: 'ai_assistant.raw_tool',
+        channel: 'mcp',
+        apiKeyId: 'key-1',
+        correlationId: 'corr-1',
+      }),
+      ctx,
+    )
+    const { row: second } = await repo.create(
+      baseInput({ idempotencyKey: 'chan-mcp', channel: 'mcp', correlationId: 'corr-2' }),
+      ctx,
+    )
+
+    expect(first.channel).toBe('mcp')
+    expect(first.apiKeyId).toBe('key-1')
+    expect(first.correlationId).toBe('corr-1')
+    expect(second.id).toBe(first.id)
+    expect(em.__store).toHaveLength(1)
+  })
+
+  it.each<[AiPendingActionStatus[]]>([
+    [['confirmed']],
+    [['confirmed', 'executing']],
+    [['confirmed', 'executing', 'failed']],
+    [['cancelled']],
+  ])(
+    'raw-tool rows reuse only pending rows: a repeat after %j mints a fresh pending row within the TTL',
+    async (transitions) => {
+      const em = mockEm()
+      const repo = new AiPendingActionRepository(em)
+      const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+      const rawInput = baseInput({
+        idempotencyKey: 'raw-repeat',
+        agentId: 'ai_assistant.raw_tool',
+        channel: 'mcp',
+        apiKeyId: 'key-1',
+      })
+
+      const { row: first } = await repo.create(rawInput, ctx)
+      for (const status of transitions) {
+        await repo.setStatus(first.id, status, ctx, { resolvedByUserId: userTwo })
+      }
+
+      const { row: second, reused } = await repo.create(rawInput, ctx)
+
+      expect(reused).toBe(false)
+      expect(second.id).not.toBe(first.id)
+      expect(second.status).toBe('pending')
+      expect(second.idempotencyKey).toBe('raw-repeat')
+      expect(em.__store).toHaveLength(2)
+      const superseded = em.__store.find((candidate) => candidate.id === first.id)
+      expect(superseded!.idempotencyKey).toBe(`raw-repeat:superseded:${first.id}`)
+      expect(superseded!.status).toBe(transitions[transitions.length - 1])
+    },
+  )
+
+  it('raw-tool rows still collapse onto a pending row with the same key', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const rawInput = baseInput({ idempotencyKey: 'raw-pending', agentId: 'ai_assistant.raw_tool', channel: 'tools-api' })
+
+    const { row: first } = await repo.create(rawInput, ctx)
+    const { row: second, reused } = await repo.create(rawInput, ctx)
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(em.__store).toHaveLength(1)
+  })
+
+  it('setStatus lets another user resolve a non-agent row but keeps agent rows owner-only', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const owner = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const approver = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userTwo }
+
+    const { row: mcpRow } = await repo.create(
+      baseInput({ idempotencyKey: 'mcp-approve', agentId: 'ai_assistant.raw_tool', channel: 'mcp' }),
+      owner,
+    )
+    const { row: chatRow } = await repo.create(baseInput({ idempotencyKey: 'chat-owner', channel: 'agent' }), owner)
+
+    const approved = await repo.setStatus(mcpRow.id, 'confirmed', approver, { resolvedByUserId: userTwo })
+    expect(approved.status).toBe('confirmed')
+    await expect(
+      repo.setStatus(chatRow.id, 'confirmed', approver, { resolvedByUserId: userTwo }),
+    ).rejects.toThrow(`AiPendingAction not found: ${chatRow.id}`)
+    await expect(
+      repo.setStatus(mcpRow.id, 'executing', { ...approver, userId: 'api_key:key-1' }),
+    ).rejects.toThrow(`AiPendingAction not found: ${mcpRow.id}`)
+  })
+
+  it('chat rows on the agent channel keep reusing a confirmed row within the TTL', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: userOne }
+    const chatInput = baseInput({ idempotencyKey: 'chat-confirmed', channel: 'agent' })
+
+    const { row: first } = await repo.create(chatInput, ctx)
+    await repo.setStatus(first.id, 'confirmed', ctx, { resolvedByUserId: userOne })
+    const { row: second, reused } = await repo.create(chatInput, ctx)
+
+    expect(reused).toBe(true)
+    expect(second.id).toBe(first.id)
+    expect(em.__store).toHaveLength(1)
+  })
+
+  describe('caller visibility', () => {
+    const scope = { tenantId: tenantAlpha, organizationId: 'org-1' }
+
+    async function seedRows() {
+      const em = mockEm()
+      const repo = new AiPendingActionRepository(em)
+      const base = new Date('2026-10-22T10:00:00.000Z').getTime()
+      const { row: ownChat } = await repo.create(
+        baseInput({ idempotencyKey: 'own-chat', createdByUserId: 'owner', now: new Date(base) }),
+        { ...scope, userId: 'owner' },
+      )
+      const { row: ownMcp } = await repo.create(
+        baseInput({
+          idempotencyKey: 'own-mcp',
+          createdByUserId: 'owner',
+          channel: 'mcp',
+          toolName: 'customers.people.update',
+          now: new Date(base + 1000),
+        }),
+        { ...scope, userId: 'owner' },
+      )
+      const { row: otherChat } = await repo.create(
+        baseInput({ idempotencyKey: 'other-chat', createdByUserId: 'other', now: new Date(base + 2000) }),
+        { ...scope, userId: 'other' },
+      )
+      const { row: otherToolsApi } = await repo.create(
+        baseInput({
+          idempotencyKey: 'other-tools',
+          createdByUserId: 'other',
+          channel: 'tools-api',
+          now: new Date(base + 3000),
+        }),
+        { ...scope, userId: 'other' },
+      )
+      const { row: foreignOrg } = await repo.create(
+        baseInput({ idempotencyKey: 'foreign-org', createdByUserId: 'owner', channel: 'mcp' }),
+        { tenantId: tenantAlpha, organizationId: 'org-2', userId: 'owner' },
+      )
+      const { row: foreignTenant } = await repo.create(
+        baseInput({ idempotencyKey: 'foreign-tenant', createdByUserId: 'owner', channel: 'mcp' }),
+        { tenantId: tenantBeta, organizationId: 'org-1', userId: 'owner' },
+      )
+      return { repo, ownChat, ownMcp, otherChat, otherToolsApi, foreignOrg, foreignTenant }
+    }
+
+    it('getByIdForApprover returns own rows regardless of channel', async () => {
+      const { repo, ownChat, ownMcp } = await seedRows()
+      const viewer = { userId: 'owner', canApproveAny: false }
+
+      expect((await repo.getByIdForApprover(ownChat.id, scope, viewer))?.id).toBe(ownChat.id)
+      expect((await repo.getByIdForApprover(ownMcp.id, scope, viewer))?.id).toBe(ownMcp.id)
+    })
+
+    it('getByIdForApprover exposes non-agent rows only to approvers and never chat rows of others', async () => {
+      const { repo, otherChat, otherToolsApi } = await seedRows()
+      const approver = { userId: 'owner', canApproveAny: true }
+      const plainUser = { userId: 'owner', canApproveAny: false }
+
+      expect((await repo.getByIdForApprover(otherToolsApi.id, scope, approver))?.id).toBe(otherToolsApi.id)
+      expect(await repo.getByIdForApprover(otherToolsApi.id, scope, plainUser)).toBeNull()
+      expect(await repo.getByIdForApprover(otherChat.id, scope, approver)).toBeNull()
+      expect(await repo.getByIdForApprover(otherChat.id, scope, plainUser)).toBeNull()
+    })
+
+    it('getByIdForApprover never crosses tenant or organization scope', async () => {
+      const { repo, foreignOrg, foreignTenant } = await seedRows()
+      const approver = { userId: 'owner', canApproveAny: true }
+
+      expect(await repo.getByIdForApprover(foreignOrg.id, scope, approver)).toBeNull()
+      expect(await repo.getByIdForApprover(foreignTenant.id, scope, approver)).toBeNull()
+    })
+
+    it('listForCaller returns only own rows for a non-approver, newest first', async () => {
+      const { repo, ownChat, ownMcp } = await seedRows()
+
+      const result = await repo.listForCaller(
+        scope,
+        { userId: 'owner', canApproveAny: false },
+        {},
+        { page: 1, pageSize: 50 },
+      )
+
+      expect(result.total).toBe(2)
+      expect(result.items.map((row) => row.id)).toEqual([ownMcp.id, ownChat.id])
+    })
+
+    it('listForCaller adds non-agent rows of others for approvers but never their chat rows', async () => {
+      const { repo, ownChat, ownMcp, otherToolsApi } = await seedRows()
+
+      const result = await repo.listForCaller(
+        scope,
+        { userId: 'owner', canApproveAny: true },
+        {},
+        { page: 1, pageSize: 50 },
+      )
+
+      expect(result.total).toBe(3)
+      expect(result.items.map((row) => row.id)).toEqual([otherToolsApi.id, ownMcp.id, ownChat.id])
+    })
+
+    it('listForCaller honours mine, channel, toolName and status filters', async () => {
+      const { repo, ownMcp, otherToolsApi } = await seedRows()
+      const approver = { userId: 'owner', canApproveAny: true }
+      const page = { page: 1, pageSize: 50 }
+
+      const mine = await repo.listForCaller(scope, approver, { mine: true }, page)
+      expect(mine.items.every((row) => row.createdByUserId === 'owner')).toBe(true)
+      expect(mine.total).toBe(2)
+
+      const toolsApi = await repo.listForCaller(scope, approver, { channel: 'tools-api' }, page)
+      expect(toolsApi.items.map((row) => row.id)).toEqual([otherToolsApi.id])
+
+      const byTool = await repo.listForCaller(scope, approver, { toolName: 'customers.people.update' }, page)
+      expect(byTool.items.map((row) => row.id)).toEqual([ownMcp.id])
+
+      const cancelled = await repo.listForCaller(scope, approver, { status: 'cancelled' }, page)
+      expect(cancelled.total).toBe(0)
+    })
+
+    it('listForCaller paginates and reports the full total', async () => {
+      const { repo, ownChat, ownMcp, otherToolsApi } = await seedRows()
+      const approver = { userId: 'owner', canApproveAny: true }
+
+      const first = await repo.listForCaller(scope, approver, {}, { page: 1, pageSize: 2 })
+      const second = await repo.listForCaller(scope, approver, {}, { page: 2, pageSize: 2 })
+
+      expect(first.total).toBe(3)
+      expect(first.items.map((row) => row.id)).toEqual([otherToolsApi.id, ownMcp.id])
+      expect(second.items.map((row) => row.id)).toEqual([ownChat.id])
+    })
   })
 })

@@ -4,13 +4,14 @@ import type { EmbeddingProviderId } from '../../../vector'
 import { EMBEDDING_PROVIDERS } from '../../../vector'
 import { safeOllamaFetch } from '../../../vector/lib/ollama-url-safety'
 
-const CACHE_VERSION = 'v1'
+const CACHE_VERSION = 'v2'
 const CACHE_TTL_MS = 30_000
 const OLLAMA_PROBE_TIMEOUT_MS = 1500
 
 export type ProviderAvailability = {
   available: boolean
   reason?: string
+  diagnostic?: { key: string; params?: Record<string, string | number> }
   models?: number
 }
 
@@ -58,25 +59,45 @@ const keyPresence = (providerId: EmbeddingProviderId): ProviderAvailability => {
     case 'openai':
       return process.env.OPENAI_API_KEY?.trim()
         ? { available: true }
-        : { available: false, reason: `Set ${envKey} to enable ${info?.name ?? providerId}` }
+        : {
+            available: false,
+            reason: `Set ${envKey} to enable ${info?.name ?? providerId}`,
+            diagnostic: { key: 'missingKey', params: { envKey: envKey ?? '', provider: info?.name ?? providerId } },
+          }
     case 'google':
       return process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim()
         ? { available: true }
-        : { available: false, reason: `Set ${envKey} to enable ${info?.name ?? providerId}` }
+        : {
+            available: false,
+            reason: `Set ${envKey} to enable ${info?.name ?? providerId}`,
+            diagnostic: { key: 'missingKey', params: { envKey: envKey ?? '', provider: info?.name ?? providerId } },
+          }
     case 'mistral':
       return process.env.MISTRAL_API_KEY?.trim()
         ? { available: true }
-        : { available: false, reason: `Set ${envKey} to enable ${info?.name ?? providerId}` }
+        : {
+            available: false,
+            reason: `Set ${envKey} to enable ${info?.name ?? providerId}`,
+            diagnostic: { key: 'missingKey', params: { envKey: envKey ?? '', provider: info?.name ?? providerId } },
+          }
     case 'cohere':
       return process.env.COHERE_API_KEY?.trim()
         ? { available: true }
-        : { available: false, reason: `Set ${envKey} to enable ${info?.name ?? providerId}` }
+        : {
+            available: false,
+            reason: `Set ${envKey} to enable ${info?.name ?? providerId}`,
+            diagnostic: { key: 'missingKey', params: { envKey: envKey ?? '', provider: info?.name ?? providerId } },
+          }
     case 'bedrock':
       return process.env.AWS_ACCESS_KEY_ID?.trim() && process.env.AWS_SECRET_ACCESS_KEY?.trim()
         ? { available: true }
-        : { available: false, reason: 'Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to enable Bedrock' }
+        : {
+            available: false,
+            reason: 'Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to enable Bedrock',
+            diagnostic: { key: 'missingKey', params: { envKey: 'AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY', provider: 'Bedrock' } },
+          }
     default:
-      return { available: false, reason: `Unknown provider: ${providerId}` }
+      return { available: false, reason: `Unknown provider: ${providerId}`, diagnostic: { key: 'unknownProvider', params: { provider: providerId } } }
   }
 }
 
@@ -89,7 +110,7 @@ export async function probeOllama(baseUrl: string): Promise<ProviderAvailability
       signal: controller.signal,
     })
     if (!response.ok) {
-      return { available: false, reason: `Ollama responded ${response.status} at ${baseUrl}` }
+      return { available: false, reason: `Ollama responded ${response.status} at ${baseUrl}`, diagnostic: { key: 'ollamaResponse', params: { status: response.status, baseUrl } } }
     }
     let models: number | undefined
     try {
@@ -102,6 +123,7 @@ export async function probeOllama(baseUrl: string): Promise<ProviderAvailability
     return {
       available: false,
       reason: aborted ? `Ollama not reachable at ${baseUrl} (timed out)` : `Ollama not reachable at ${baseUrl}`,
+      diagnostic: { key: aborted ? 'ollamaTimeout' : 'ollamaUnreachable', params: { baseUrl } },
     }
   } finally {
     clearTimeout(timer)

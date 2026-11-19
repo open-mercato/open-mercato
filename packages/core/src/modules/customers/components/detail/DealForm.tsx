@@ -1,5 +1,6 @@
 "use client"
 
+import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import * as React from 'react'
 import { z } from 'zod'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -111,8 +112,8 @@ export type DealFormBaseValues = {
   companyIds?: string[]
 }
 
-type PipelineOption = { id: string; name: string; isDefault: boolean }
-type PipelineStageOption = { id: string; label: string; order: number }
+type PipelineOption = { id: string; name: string; isDefault: boolean; stageProbabilitiesEnabled?: boolean }
+type PipelineStageOption = { id: string; label: string; order: number; defaultProbability?: number | null }
 
 export type DealFormSubmitPayload = {
   base: DealFormBaseValues
@@ -213,6 +214,7 @@ function normalizePipelineOptions(options: PipelineOption[] | undefined): Pipeli
       id: option.id,
       name: option.name,
       isDefault: option.isDefault === true,
+      stageProbabilitiesEnabled: option.stageProbabilitiesEnabled === true,
     })
   }
   return Array.from(byId.values())
@@ -1047,10 +1049,17 @@ export function DealForm({
       label: t('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }) => (
+      component: ({ value, values, setValue, setFormValue }) => (
         <Select
           value={typeof value === 'string' && value ? value : undefined}
-          onValueChange={(next) => setValue(next ?? '')}
+          onValueChange={(next) => {
+            setValue(next ?? '')
+            const pipeline = pipelines.find((option) => option.id === values?.pipelineId)
+            const stage = pipelineStages.find((option) => option.id === next)
+            if (pipeline?.stageProbabilitiesEnabled && typeof stage?.defaultProbability === 'number') {
+              setFormValue?.('probability', stage.defaultProbability)
+            }
+          }}
           disabled={disabled || !pipelineStages.length}
         >
           <SelectTrigger>
@@ -1226,6 +1235,7 @@ export function DealForm({
     }
 
     return {
+      ...extractResponseEnricherNamespaces(initialValues ?? {}),
       id: typeof initialValues?.id === 'string' ? initialValues.id : undefined,
       title: initialValues?.title ?? '',
       status: initialValues?.status ?? '',
@@ -1326,6 +1336,9 @@ export function DealForm({
       schema={schema}
       fields={baseFields}
       groups={groups}
+      entityId="customers.deal"
+      resourceKind="customers.deal"
+      resourceId={typeof initialValues?.id === 'string' ? initialValues.id : undefined}
       entityIds={DEAL_ENTITY_IDS}
       initialValues={embeddedInitialValues}
       onSubmit={handleSubmit}

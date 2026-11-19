@@ -8,6 +8,12 @@ import {
 } from './lib/customDomainResolver'
 import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
 import { secretEqual } from '@open-mercato/core/modules/customer_accounts/lib/secretCompare'
+import {
+  createContentSecurityPolicyRequestHeaders,
+  devServerLoopbackFrameAncestorOrigins,
+} from '@open-mercato/shared/lib/security/contentSecurityPolicy'
+import { stripeContentSecurityPolicy } from '@open-mercato/gateway-stripe/contentSecurityPolicy'
+import { resolveDocumentsCollaborationCspOrigins } from '@open-mercato/documents/contentSecurityPolicy'
 
 const FORCE_HOST_HEADER = 'x-force-host'
 const FORCE_HOST_SECRET_HEADER = 'x-force-host-secret'
@@ -59,13 +65,22 @@ export async function proxy(req: NextRequest) {
   const platform = !normalizedHost || isPlatformHost(normalizedHost)
   const pathname = req.nextUrl.pathname
 
-  const requestHeaders = new Headers(req.headers)
+  const { requestHeaders, contentSecurityPolicy } = createContentSecurityPolicyRequestHeaders(req.headers, {
+    env: process.env,
+    ...stripeContentSecurityPolicy,
+    connectOrigins: [...stripeContentSecurityPolicy.connectOrigins, ...resolveDocumentsCollaborationCspOrigins()],
+    frameAncestorOrigins: process.env.OM_DEV_SERVER_LOOPBACK_FRAMING === '1' ? devServerLoopbackFrameAncestorOrigins : [],
+  })
+  function withContentSecurityPolicy(response: NextResponse) {
+    response.headers.set('Content-Security-Policy', contentSecurityPolicy)
+    return response
+  }
 
   if (platform) {
     // Existing behavior preserved: expose the request pathname to layouts
     // sitting above dynamic segments (issue #1083).
     requestHeaders.set('x-next-url', pathname)
-    return NextResponse.next({ request: { headers: requestHeaders } })
+    return withContentSecurityPolicy(NextResponse.next({ request: { headers: requestHeaders } }))
   }
 
   // Custom domain. The matcher already excludes /api/* so the proxy never sees
@@ -77,17 +92,17 @@ export async function proxy(req: NextRequest) {
   if (result.kind === 'error') {
     // Cold-miss fetch failed and no stale entry was available. Tell the client
     // to retry shortly while the platform recovers.
-    return new NextResponse('Domain temporarily unavailable', {
+    return withContentSecurityPolicy(new NextResponse('Domain temporarily unavailable', {
       status: 503,
       headers: { 'retry-after': '5' },
-    })
+    }))
   }
 
   if (result.kind === 'unknown') {
     // Hostname is not mapped (or no longer active). Pass through so Next.js
     // surfaces its standard 404, rather than rewriting to a non-existent org.
     requestHeaders.set('x-next-url', pathname)
-    return NextResponse.next({ request: { headers: requestHeaders } })
+    return withContentSecurityPolicy(NextResponse.next({ request: { headers: requestHeaders } }))
   }
 
   const rewrittenPath = buildRewrittenPath(result.orgSlug, pathname)
@@ -101,7 +116,7 @@ export async function proxy(req: NextRequest) {
 
   const response = NextResponse.rewrite(rewrittenUrl, { request: { headers: requestHeaders } })
   response.headers.set('x-custom-domain', '1')
-  return response
+  return withContentSecurityPolicy(response)
 }
 
 // Match app routes while skipping Next internals, API routes, and static assets.

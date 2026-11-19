@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -5,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedStaffActivityTypes, seedStaffAddressTypes, seedStaffTeamExamples, type StaffSeedScope } from './lib/seeds'
 import { seedStaffTimeTrackingExamples } from './lib/timeTrackingSeeds'
 import { migrateProjectCodes } from './lib/time-tracking/migrateProjectCodes'
+import { resolveContainerProjectCodeGenerator, seedSupportDefaults } from './lib/support/seedDefaults'
 import { appendWidgetsToRoles } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import {
@@ -24,20 +26,7 @@ const TIMESHEETS_DASHBOARD_WIDGET_IDS = [
 ]
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string> = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part) continue
-    if (part.startsWith('--')) {
-      const [rawKey, rawValue] = part.slice(2).split('=')
-      if (rawValue !== undefined) args[rawKey] = rawValue
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) {
-        args[rawKey] = rest[i + 1]!
-        i += 1
-      }
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { flagValue: undefined })
 }
 
 const seedExamplesCommand: ModuleCli = {
@@ -202,6 +191,32 @@ const seedAddressTypesCommand: ModuleCli = {
   },
 }
 
+const seedSupportDefaultsCommand: ModuleCli = {
+  command: 'seed-support-defaults',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato staff seed-support-defaults --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    const scope: StaffSeedScope = { tenantId, organizationId }
+    try {
+      const em = container.resolve<EntityManager>('em')
+      const { translate } = await resolveTranslations()
+      await seedSupportDefaults(em.fork(), scope, { translate, generateCode: resolveContainerProjectCodeGenerator(container) })
+      console.log('🎫 Support ticket defaults seeded for organization', organizationId)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
 const seedTimesheetsWidgetsCommand: ModuleCli = {
   command: 'seed-timesheets-widgets',
   async run(rest) {
@@ -344,6 +359,7 @@ export default [
   seedExamplesCommand,
   seedTimeTrackingExamplesCommand,
   seedTimesheetsWidgetsCommand,
+  seedSupportDefaultsCommand,
   migrateProjectCodesCommand,
   recalculateCommand,
 ]
