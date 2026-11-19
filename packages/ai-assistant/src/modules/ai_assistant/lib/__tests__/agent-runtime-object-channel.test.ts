@@ -58,7 +58,7 @@ const container = {
   },
 } as unknown as AwilixContainer
 
-function seedMutationAgent(): void {
+function seedMutationAgent(mutationPolicy: AiAgentDefinition['mutationPolicy'] = 'confirm-required'): void {
   const readTool: AiToolDefinition = {
     name: 'customers.read_deal',
     description: 'read',
@@ -82,7 +82,7 @@ function seedMutationAgent(): void {
     systemPrompt: 'System prompt base.',
     executionMode: 'object',
     readOnly: false,
-    mutationPolicy: 'confirm-required',
+    mutationPolicy,
     allowedTools: ['customers.read_deal', 'customers.update_deal'],
     output: { schemaName: 'Verdict', schema: outputSchema },
   }
@@ -173,6 +173,55 @@ describe('runAiAgentObject channel mutation policy (MCP parity §3.1)', () => {
     })
     if (result.mode !== 'generate') throw new Error('unreachable')
     expect(result.pendingActionIds).toEqual(['pending-1'])
+  })
+
+  it("tells the model every write is queued for a destructive-confirm-required agent on 'mcp' in 'approval' mode", async () => {
+    seedMutationAgent('destructive-confirm-required')
+    mockGenerateTextCallingUpdate()
+
+    const result = await runAiAgentObject({
+      agentId: 'customers.writer_agent',
+      input: 'judge',
+      authContext: baseAuth,
+      enableTools: true,
+      container,
+      channel: 'mcp',
+      mutationMode: 'approval',
+    })
+
+    const callArg = generateTextMock.mock.calls[0][0] as { system: string }
+    expect(callArg.system).toContain('Effective policy: destructive-confirm-required.')
+    expect(callArg.system).toContain('Tools that REQUIRE APPROVAL under the effective policy: customers.update_deal.')
+    expect(callArg.system).toContain('queued as a pending action')
+    expect(callArg.system).not.toContain('WILL RUN DIRECTLY')
+    expect(callArg.system).not.toContain('inline approval card')
+    expect(prepareMutationMock).toHaveBeenCalledTimes(1)
+    if (result.mode !== 'generate') throw new Error('unreachable')
+    expect(result.pendingActionIds).toEqual(['pending-1'])
+  })
+
+  it('keeps the direct-run prompt for a destructive-confirm-required agent on the agent channel', async () => {
+    seedMutationAgent('destructive-confirm-required')
+    generateTextMock.mockResolvedValue({
+      output: { verdict: 'ok' },
+      finishReason: 'stop',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    })
+
+    await runAiAgentObject({
+      agentId: 'customers.writer_agent',
+      input: 'judge',
+      authContext: baseAuth,
+      enableTools: true,
+      container,
+    })
+
+    const callArg = generateTextMock.mock.calls[0][0] as { system: string }
+    expect(callArg.system).toContain(
+      'Tools that WILL RUN DIRECTLY (no approval card, no pending action) under the effective policy: customers.update_deal.',
+    )
+    expect(callArg.system).not.toContain('REQUIRE APPROVAL')
+    expect(prepareMutationMock).not.toHaveBeenCalled()
   })
 
   it('keeps default agent-channel behaviour when no channel is supplied', async () => {
