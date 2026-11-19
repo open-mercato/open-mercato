@@ -149,7 +149,7 @@ export function EntityFilterPopover({
           ? translateWithFallback(t, 'customers.deals.kanban.filter.noneSelected', 'None selected')
           : translateWithFallback(
               t,
-              'customers.deals.kanban.filter.countSelected',
+              'customers.deals.kanban.filter.multipleSelected',
               '{count} selected',
               { count: draft.length },
             )}

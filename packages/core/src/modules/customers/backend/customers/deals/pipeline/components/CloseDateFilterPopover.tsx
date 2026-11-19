@@ -212,7 +212,7 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
               />
             </label>
             <label className="flex flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {translateWithFallback(t, 'customers.deals.kanban.filter.toLabel', 'To')}
+              {translateWithFallback(t, 'customers.deals.kanban.filter.to', 'To')}
               <input
                 type="date"
                 value={draft.to ?? ''}
