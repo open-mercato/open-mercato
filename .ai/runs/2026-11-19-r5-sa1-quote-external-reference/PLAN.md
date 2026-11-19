@@ -17,7 +17,8 @@
 | 1 | 1.1 | Accept explicit null on the shared order and quote line fields | inline | done | 00acacf3de |
 | 1 | 1.2 | Accept and persist externalReference and customerReference on sales.quotes.create | inline | done | 96328c4a0f |
 | 1 | 1.3 | Index sales_quotes and sales_orders by tenant and external reference | inline | done | 26515f137e |
-| 1 | 1.4 | Document the sales line validator widening in UPGRADE_NOTES | inline | done | (this commit) |
+| 1 | 1.4 | Document the sales line validator widening in UPGRADE_NOTES | inline | done | 74e2b5f448 |
+| 1 | 1.5 | Cover POST /api/sales/quotes and /orders with snapshot-shaped lines in an integration spec | inline | done | (this commit) |
 
 ## Goal
 
@@ -51,6 +52,9 @@ Reference hunk 3 of `validators.ts` and hunk 9 of `documents.ts`. `documents.quo
 
 #### Step 1.3 — Index sales_quotes and sales_orders by tenant and external reference
 Entity decorators, two non-transactional concurrent-build migrations, the two snapshot index entries. Gate: `yarn db:generate` shows no further diff for `sales`.
+
+#### Step 1.5 — Cover POST /api/sales/quotes and /orders with snapshot-shaped lines in an integration spec
+Added at the final gate (AGENTS.md: integration coverage for affected API paths). `TC-SALES-R5-SA1-quote-external-reference.spec.ts`: a quote created through the API with the references and an all-`null` snapshot line reads back with both references; an order accepts the same line.
 
 #### Step 1.4 — Document the sales line validator widening in UPGRADE_NOTES
 The reference's "Sales line validators" bullet under its own heading, covering order and quote lines, plus the `quoteCreateSchema` fields and the two indexes.
