@@ -71,6 +71,7 @@ function harness(resource: string) {
   }
   const em = {
     fork: jest.fn(),
+    transactional: jest.fn(async (work: (tx: unknown) => Promise<unknown>) => work(em)),
     findOne: jest.fn(async (_entity?: unknown, _where?: unknown, _options?: { refresh?: boolean }) => record),
   }
   em.fork.mockReturnValue(em)
@@ -125,7 +126,7 @@ describe.each(commandNames)('EUDR %s update redo', (resource) => {
     expect(record.notes).not.toBe('My edit')
     expect(sideEffects).not.toHaveBeenCalled()
     expect(em.findOne).toHaveBeenCalledWith(expect.anything(), {
-      id: RECORD_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, deletedAt: null,
+      id: RECORD_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
     }, { refresh: true, lockMode: LockMode.PESSIMISTIC_WRITE })
   })
 
@@ -155,9 +156,10 @@ describe('plot redo without later edits', () => {
   })
 
   it('keeps normal updates independent of replay snapshots', async () => {
-    const { command, input, ctx, record, em } = harness('plots')
-    await command.execute(input, ctx)
+    const { command, input, ctx, record } = harness('plots')
+    record.name = 'Colleague plot'
+    await expect(command.execute(input, ctx)).resolves.toMatchObject({ entityId: RECORD_ID })
     expect(record.name).toBe('My edit')
-    expect(em.findOne).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE }))
+    expect(sideEffects).toHaveBeenCalledTimes(1)
   })
 })

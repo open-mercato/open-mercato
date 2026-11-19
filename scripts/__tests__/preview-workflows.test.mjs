@@ -110,7 +110,9 @@ test('npm snapshot credentials are isolated behind the preview environment', () 
     'NPM_PREVIEW_TOKEN',
   ])
   assert.equal(workflow.jobs['resolve-pr'].env, undefined)
-  assert.equal(workflow.jobs['standalone-integration'].env, undefined)
+  assert.deepEqual(workflow.jobs['standalone-integration'].env, {
+    NPM_PROPAGATION_VERSION: '${{ needs.snapshot.outputs.snapshot_version }}',
+  })
 })
 
 test('npm snapshot approval rejects self approval and fails closed before PR checkout', async () => {

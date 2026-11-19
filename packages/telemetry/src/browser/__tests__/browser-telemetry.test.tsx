@@ -44,6 +44,7 @@ jest.mock('@opentelemetry/sdk-trace-web', () =>
     WebTracerProvider: class {
       register = jest.fn()
       forceFlush = jest.fn(async () => {})
+      getTracer = jest.fn(() => ({ startSpan: jest.fn() }))
       constructor(options: Record<string, unknown>) {
         mockProviderInstances.push({ options, register: this.register, forceFlush: this.forceFlush })
       }
