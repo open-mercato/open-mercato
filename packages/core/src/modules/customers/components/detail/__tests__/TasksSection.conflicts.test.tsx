@@ -152,7 +152,7 @@ async function renderTasks() {
 
 describe('canonical task conflicts through the section and edit dialog', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    jest.resetAllMocks()
     dismissRecordConflict()
     readApiResultOrThrowMock
       .mockResolvedValueOnce({ items: [interaction] })
@@ -197,6 +197,43 @@ describe('canonical task conflicts through the section and edit dialog', () => {
     )
     expect(apiCallOrThrowMock.mock.calls.at(-1)?.[1]?.body).toContain('Attempted title')
     expect(flashMock).toHaveBeenCalledWith('Task updated', 'success')
+  })
+
+  it('retains both attempted title and description through a rejected edit and retry', async () => {
+    apiCallOrThrowMock.mockRejectedValueOnce(conflict).mockResolvedValueOnce(undefined)
+    await renderTasks()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Attempted title' } })
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Attempted description' } })
+    fireEvent.click(screen.getByRole('button', { name: /Update task/ }))
+
+    await waitFor(() => expect(screen.getByTestId('record-conflict-banner')).toBeInTheDocument())
+    expect(screen.getByRole('dialog', { name: 'Edit task' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Title')).toHaveValue('Attempted title')
+    expect(screen.getByLabelText('Description')).toHaveValue('Attempted description')
+    expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'success')
+
+    fireEvent.click(screen.getByRole('button', { name: /Update task/ }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(apiCallOrThrowMock).toHaveBeenLastCalledWith(
+      '/api/customers/interactions',
+      expect.objectContaining({ body: expect.stringContaining('Attempted description') }),
+      expect.anything(),
+    )
+    expect(flashMock).toHaveBeenCalledWith('Task updated', 'success')
+  })
+
+  it('closes the edit dialog and announces success after an accepted edit', async () => {
+    apiCallOrThrowMock.mockResolvedValue(undefined)
+    await renderTasks()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Accepted title' } })
+    fireEvent.click(screen.getByRole('button', { name: /Update task/ }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(flashMock).toHaveBeenCalledWith('Task updated', 'success')
+    expect(onDataRefreshMock).toHaveBeenCalledTimes(1)
   })
 
   it.each(taskActions)('does not announce success or show a raw toast for a rejected %s action', async (_name, activate) => {
