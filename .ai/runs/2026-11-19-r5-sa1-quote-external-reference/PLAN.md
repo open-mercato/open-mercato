@@ -14,7 +14,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Accept explicit null on the shared order and quote line fields | inline | todo | |
+| 1 | 1.1 | Accept explicit null on the shared order and quote line fields | inline | done | f297795027 |
 | 1 | 1.2 | Accept and persist externalReference and customerReference on sales.quotes.create | inline | todo | |
 | 1 | 1.3 | Index sales_quotes and sales_orders by tenant and external reference | inline | todo | |
 | 1 | 1.4 | Document the sales line validator widening in UPGRADE_NOTES | inline | todo | |
