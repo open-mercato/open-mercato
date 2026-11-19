@@ -11,3 +11,7 @@
 
 ## 2026-11-19T22:55:21Z — decision: migration authored from the reference SQL
 - No local database for `yarn db:generate`; SQL copied from reference `Migration20261026161603_promotions` with a fresh timestamp `20261119224920` (B3).
+
+## 2026-11-19T23:41:45Z — final gate
+- `validation.commands` green except the known local-only `create-mercato-app` agent-harness live-adapter suites (unrelated). TC-PROM integration suite: 39 passed. See `final-gate-checks.md`.
+- Draft PR: https://github.com/open-mercato/open-mercato/pull/10034
