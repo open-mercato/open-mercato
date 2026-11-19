@@ -65,6 +65,7 @@ const exactMessageMap = new Map<string, MessageDescriptor>([
   ['Sudo challenge session expired', { key: 'security.api.errors.sudoSessionExpired', fallback: 'Sudo challenge session expired.' }],
   ['Current password is invalid', { key: 'security.api.errors.currentPasswordInvalid', fallback: 'Current password is incorrect.' }],
   ['Password does not meet the requirements', { key: 'security.profile.password.form.errors.passwordPolicy', fallback: 'Password does not meet the requirements.' }],
+  ['Password does not meet the requirements.', { key: 'security.profile.password.form.errors.passwordPolicy', fallback: 'Password does not meet the requirements.' }],
   ['New password must be different from current password', { key: 'security.api.errors.newPasswordSameAsCurrent', fallback: 'New password must be different from the current password.' }],
   ['Password authentication is not available for this user', { key: 'security.api.errors.passwordAuthenticationUnavailable', fallback: 'Password authentication is not available for this user.' }],
   ['Password is required', { key: 'security.api.errors.passwordRequired', fallback: 'Password is required.' }],
