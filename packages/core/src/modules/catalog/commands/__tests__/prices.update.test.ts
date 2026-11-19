@@ -423,8 +423,10 @@ describe('catalog price update checks the validity window against the stored dat
   })
 
   it('accepts an edit that moves both dates together past the stored window', async () => {
-    const { record } = await runUpdate({ startsAt: DECEMBER, endsAt: new Date('2032-01-01T00:00:00.000Z') }, { startsAt: JANUARY, endsAt: JUNE })
+    const nextJanuary = new Date('2032-01-01T00:00:00.000Z')
+    const { record } = await runUpdate({ startsAt: DECEMBER, endsAt: nextJanuary }, { startsAt: JANUARY, endsAt: JUNE })
     expect(record.startsAt).toEqual(DECEMBER)
+    expect(record.endsAt).toEqual(nextJanuary)
   })
 
   it('accepts a startsAt-only edit when the stored price has no end date', async () => {
