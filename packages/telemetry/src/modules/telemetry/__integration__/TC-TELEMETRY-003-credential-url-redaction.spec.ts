@@ -28,7 +28,10 @@ for (const locale of ['en', 'pl']) {
     })
     page.on('response', (response) => {
       const url = new URL(response.url())
-      if (response.status() === 200 && response.request().method() === 'GET' && url.pathname.startsWith('/api/')) {
+      if (response.status() === 200
+        && response.request().method() === 'GET'
+        && url.pathname.startsWith('/api/')
+        && response.headers()['content-type']?.includes('application/json')) {
         apiUrls.push(response.url())
       }
     })
