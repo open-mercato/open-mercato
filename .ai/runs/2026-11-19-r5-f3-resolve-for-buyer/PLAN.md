@@ -12,7 +12,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Port resolveForBuyer seam with store_misconfigured and unit tests | inline | todo | — |
+| 1 | 1.1 | Port resolveForBuyer seam with store_misconfigured and unit tests | inline | done | (see 1.2) |
 | 1 | 1.2 | Add the StoreContextService upgrade note | inline | todo | — |
 
 ## Goal
