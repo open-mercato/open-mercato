@@ -99,8 +99,16 @@ PR: #9837
 ### Review 5980488282 plan (2026-11-19)
 - [x] Own scopes at application/API boundaries through completion, error and stream termination; mirror standalone entry points and cover direct app-shell acquisitions.
 - [x] Add real app-entry regressions proving generation singleton disposal after completed requests and preserving independent/deferred work; independently review the boundary change.
-- [ ] Run the configured gate and both runtime feature modes, publish evidence and request re-review.
+- [x] Run the configured gate and both runtime feature modes, publish evidence and request re-review. — 24486351f7
 
 - Boundary focused checks: 68 shared tests, 60 API tests and 40 portal/layout/backend/health/start tests pass; shared typecheck passes. Independent review found and verified fixes for async stream cancellation races, then reported no remaining concrete blocker. Template sync and lessons checks pass.
 
 - Deferred-work audit found legacy scheduler cold-start reconciliation still borrowing the request container. Both registrar modes now use the existing independently owned background reconciliation path. Its focused regression and all 563 scheduler tests pass. The first full unit pass succeeded before this correction; final qualification reruns on the complete source.
+
+### Review 5980488282 results (2026-11-19)
+- Boundary fix 5fcb077437 and deferred scheduler correction 24486351f7 are complete. API authorization, lifecycle hooks and handlers own their acquired scopes through response-body close/error/cancel. App-shell lookup/auth work owns its scopes without borrowing returned React children. Health probes retain scopes until underlying timed-out operations settle; legacy and process scheduler reconciliation own independent background scopes. Standalone counterparts match.
+- Real portal-layout and API-dispatcher regressions complete requests, invalidate the generation and verify singleton disposal exactly once. Additional regressions cover errors, nested scopes, in-flight acquisition, asynchronous source cancellation and independent deferred work. Independent review found no remaining concrete blocker after its cancellation findings were fixed.
+- The final configured local gate passes on Node 24.22.3 at 24486351f7: build → generate → build → translation checks → workspace typecheck → unit tests → production app build. Unit totals: 50,788 passed, zero failed, 456 existing skips; 51/51 tasks. Five cache hits were build dependencies, with zero cached test jobs. Original 1 GiB heap and Turbo concurrency 2 retained. CLASSIC DI, template parity, lessons and diff checks pass.
+- Native integration passes 13/13 enabled and 13/13 disabled, with zero test retries, flakes or skips. Both modes preserve 120 distinct caller EntityManagers and the 63 versus 7,560 registrar-work result. Owned disposable apps/databases were stopped and verified absent. No general HTTP performance claim.
+- The configured production build passed directly. Native environment preparation encountered the existing Next.js advisory notice and repeated the identical build once using Next’s receipt mechanism; no dependency, security-setting or receipt modifications. The retry audit and sanitized evidence are retained outside the worktree.
+- Base 4ee923350e remains unchanged; main CI is not triggered for this stacked base, so the full gate above is local fallback evidence. The feature stays default-off. Re-review is requested and external review/QA approval remain pending; no merge performed.
