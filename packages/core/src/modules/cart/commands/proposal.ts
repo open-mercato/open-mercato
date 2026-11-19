@@ -29,6 +29,8 @@ import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/visibility'
 import type { CartVisibilityLineRef } from '../lib/visibility'
 import type { CartPromotionWarning } from '../lib/promotionContext'
+import { resolveCartCurrencyDecimalPlaces } from '../lib/exactPricing'
+import { resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 import { emitCartEvent } from '../events'
 import { isAcceptanceTokenFresh, verifyAcceptanceToken } from '../lib/acceptanceToken'
 import { buildFreshAcceptanceChallenge } from '../lib/acceptanceChallenge'
@@ -334,6 +336,7 @@ const createProposalCommand: CommandHandler<CartProposalCreateInput, CartProposa
     const variantsById = new Map(variants.map((variant) => [variant.id, variant]))
 
     const now = new Date()
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, target)
     const { tokenHash } = generateCartToken()
     // §7a.1: "A proposal cart holds a `token_hash` only to satisfy the unique column; it is
     // never returned by any route, command result or event" — the plaintext is discarded.
@@ -414,7 +417,7 @@ const createProposalCommand: CommandHandler<CartProposalCreateInput, CartProposa
       }
       const acceptedQuantity = check.quantity
       const rows = filterRowsForVariant(rowsByProduct.get(entry.productId) ?? [], variantId)
-      const resolved = await resolveLinePricing(em, ctx.container, proposalCart, rows, acceptedQuantity, now)
+      const resolved = await resolveLinePricing(em, ctx.container, proposalCart, rows, acceptedQuantity, now, currencyDecimalPlaces)
       if (!resolved.priceRow) {
         rejectedLines.push({ productId: entry.productId, variantId, reason: 'product_unavailable' })
         continue
@@ -453,6 +456,9 @@ const createProposalCommand: CommandHandler<CartProposalCreateInput, CartProposa
         quantity: acceptedQuantity,
         unitPriceNet: resolved.amountNet,
         unitPriceGross: resolved.amountGross,
+        unitPriceNetExact: resolved.amountNetExact,
+        unitPriceGrossExact: resolved.amountGrossExact,
+        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
         taxRate: resolved.taxRatePercent,
         configuration: fields.configuration,
       })
@@ -491,6 +497,7 @@ const createProposalCommand: CommandHandler<CartProposalCreateInput, CartProposa
           createdGiftLines,
           removedGiftLines,
           promotionWarnings,
+          currencyDecimalPlaces,
         }),
       ],
       { transaction: true, label: 'cart.proposal.create' },

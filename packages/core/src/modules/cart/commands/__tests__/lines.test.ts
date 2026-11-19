@@ -743,9 +743,9 @@ describe('cart.lines.update', () => {
         lineId: 'line-1',
         productId: 'product-1',
         oldUnitPriceNet: '10',
-        newUnitPriceNet: '8.0000',
+        newUnitPriceNet: '8',
         oldUnitPriceGross: '12',
-        newUnitPriceGross: '9.6000',
+        newUnitPriceGross: '9.6',
         reason: 'tier_change',
       },
     ])

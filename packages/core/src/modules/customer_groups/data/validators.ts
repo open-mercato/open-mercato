@@ -285,7 +285,7 @@ const customerCreditAccountCreateBaseSchema = z.object({
   tenantId: uuid(),
   customerId: uuid(),
   currencyCode: z.string().trim().min(1).max(4),
-  creditLimit: z.coerce.number().min(0).max(NUMERIC_16_2_MAX),
+  creditLimit: moneyInputSchema(z.coerce.number().min(0)),
   isOnHold: z.boolean().optional().default(false),
   // Spec §5.4: "Required when is_on_hold = true (validator)."
   holdReason: clearableStringSchema(2000),
@@ -304,12 +304,14 @@ export type CustomerCreditAccountCreateInput = z.infer<typeof customerCreditAcco
 // session, never the body, so the body is `.strict()` and rejects them. `creditLimit` is
 // required: `default_credit_limit` only pre-fills the form (D-R5-5) and is never applied
 // by the server. Money accepts a JSON number or a decimal string with up to 2 places.
-const creditLimitInputSchema = z
-  .union([
-    z.number(),
-    z.string().trim().regex(/^\d+(\.\d{1,2})?$/).transform((value) => Number(value)),
-  ])
-  .pipe(z.number().finite().min(0).max(NUMERIC_16_2_MAX))
+const creditLimitInputSchema = moneyInputSchema(
+  z
+    .union([
+      z.number(),
+      z.string().trim().regex(/^\d+(\.\d{1,2})?$/).transform((value) => Number(value)),
+    ])
+    .pipe(z.number().finite().min(0)),
+)
 
 export const customerCreditAccountCreateRequestBaseSchema = z
   .object({
@@ -345,7 +347,7 @@ const customerCreditAccountUpdateBaseSchema = z
       tenantId: uuid().optional(),
       customerId: uuid().optional(),
       currencyCode: z.string().trim().min(1).max(4).optional(),
-      creditLimit: z.coerce.number().min(0).max(NUMERIC_16_2_MAX).optional(),
+      creditLimit: moneyInputSchema(z.coerce.number().min(0)).optional(),
       isOnHold: z.boolean().optional(),
       holdReason: clearableStringSchema(2000),
       updatedByUserId: clearableUuidSchema,

@@ -440,7 +440,7 @@ function resolveDeliveryDiscount(benefit: NormalizedBenefit, context: Evaluation
   const value = readString(config.value, '0')
   const labels = readLabels(config.labels)
   const fractionDigits = getCurrencyFractionDigits(context)
-  const baseAmount = Number(context.deliveryCost)
+  const baseAmount = toDecimal(context.deliveryCost)
 
   const raw = computeRawAmountPair(discountType, value, baseAmount, baseAmount, 1)
 

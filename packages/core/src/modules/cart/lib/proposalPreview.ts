@@ -11,6 +11,7 @@ import {
   resolveLinePricing,
 } from '../commands/lines'
 import { cartVisibilityKey, evaluateCartVisibility, isVisible } from './visibility'
+import { resolveCartCurrencyDecimalPlaces } from './exactPricing'
 
 // Step 3.4 (§7a.4) — `POST /proposals/:id/preview`'s dry-run. "Creates nothing" (TC-CART-PROP-10):
 // no `em.persist`/`em.flush`/`withAtomicFlush` call anywhere in this file — every helper this
@@ -91,6 +92,7 @@ export async function buildProposalAcceptancePreview(
 
   const pricingContext = buildCartPricingRowFilterContext(target)
   const priceRows = await fetchPriceRowsBatch(em, scope, pricingContext, productIds, variantIds)
+  const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(container, target)
   const rowsByProduct = groupRowsByProduct(priceRows, variantToProduct)
   const now = new Date()
 
@@ -116,7 +118,7 @@ export async function buildProposalAcceptancePreview(
     // call is the one place that gets to say "unpriceable," not an empty-rows short-circuit
     // here.
     const rows = filterRowsForVariant(rowsByProduct.get(line.productId) ?? [], line.variantId ?? null)
-    const resolved = await resolveLinePricing(em, container, target, rows, Number(line.quantity), now)
+    const resolved = await resolveLinePricing(em, container, target, rows, Number(line.quantity), now, currencyDecimalPlaces)
     if (!resolved.priceRow) {
       lines.push({ ...base, currentUnitPriceNet: null, currentUnitPriceGross: null, rejected: true, reason: 'product_unavailable' })
       continue

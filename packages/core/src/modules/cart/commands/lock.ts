@@ -17,6 +17,7 @@ import { resolveCartLockTimeoutMs } from '../lib/sweepConfig'
 import { assertCartNotLocked } from '../lib/lockGuard'
 import { emitCartEvent } from '../events'
 import { approvalQualifies, computeGoodsGrossAmount } from '../lib/approvalGate'
+import { resolveCartCurrencyDecimalPlaces } from '../lib/exactPricing'
 import { tryResolveTransactionBoundApprovalService, tryResolveCustomerPurchaseApprovalService, tryResolveCartCodeService } from '../lib/adminCartScope'
 import { withdrawPendingCartApproval } from '../lib/approvalLifecycle'
 import { releaseCartCodeReservations } from '../lib/sweepers'
@@ -225,6 +226,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
     const createdGiftLines: CartLine[] = []
     const removedGiftLines: CartLine[] = []
     const promotionWarnings: CartPromotionWarning[] = []
+    const currencyDecimalPlaces = await resolveCartCurrencyDecimalPlaces(ctx.container, cart)
     const recomputeTotalsPhases = buildCartPromotionsAndTotalsPhases({
       em,
       container: ctx.container,
@@ -235,6 +237,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       createdGiftLines,
       removedGiftLines,
       promotionWarnings,
+      currencyDecimalPlaces,
     })
 
     const assertApprovalGate = async (): Promise<void> => {
