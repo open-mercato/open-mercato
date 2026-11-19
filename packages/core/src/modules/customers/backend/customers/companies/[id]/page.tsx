@@ -487,16 +487,25 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   )
 
   const handleAnnualRevenueChange = React.useCallback(
-    async ({ amount, currency }: { amount: number | null; currency: string | null }) => {
+    async ({
+      amount,
+      amountExact,
+      currency,
+    }: {
+      amount: number | null
+      amountExact?: string | null
+      currency: string | null
+    }) => {
+      const exactRevenue = amountExact ?? (amount === null ? null : String(amount))
       await saveCompany(
-        { annualRevenue: amount ?? null },
+        { annualRevenue: exactRevenue },
         (prev) => {
           if (!prev.profile) return prev
           return {
             ...prev,
             profile: {
               ...prev.profile,
-              annualRevenue: amount === null ? null : String(amount),
+              annualRevenue: exactRevenue,
             },
           }
         }
