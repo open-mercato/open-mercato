@@ -133,3 +133,43 @@ describe('GET /api/staff/timesheets/reports/[id]/sheet — report period', () =>
     await expect(fetchSheetPeriod()).resolves.toEqual({ periodFrom: '2026-09-01', periodTo: '2026-09-30' })
   })
 })
+
+const eventMetadata = [
+  { totalAmount: 375.5, currencyCode: 'EUR', frozenEntryCount: 3, lockedEntryCount: 3, roundingUnitMinutes: 5, roundingDirection: 'up' },
+  { frozenTotalAmount: '375.50', currencyCode: 'EUR', unlockedEntryCount: 3, transferredLockCount: 1, frozenBillableMinutes: 180, frozenNonbillableMinutes: 30 },
+  { format: 'csv', grouping: 'task', rowCount: 3 },
+  { contributedAmount: 375.5, nested: { rate: 125 } },
+  { rowCount: { amount: 375.5 } },
+  null,
+]
+
+describe('report history confidentiality', () => {
+  it.each([true, false])('applies the resolved rates permission to every event (money: %s)', async (canSeeMoney) => {
+    const context = await mockResolveReportRequestContext()
+    mockResolveReportRequestContext.mockResolvedValue({ ...context, canSeeMoney })
+    mockFindOne.mockResolvedValue(reportRow('2026-11-01', '2026-11-30'))
+    mockFind.mockResolvedValue(eventMetadata.map((metadata, index) => ({
+      id: `history-${index}`,
+      eventType: index === 0 ? 'closed' : 'unlocked',
+      reason: 'Corrected entry',
+      actorUserId: USER_ID,
+      metadata,
+    })))
+
+    const response = await getHandler(new Request(`http://localhost/api/staff/timesheets/reports/${REPORT_ID}/sheet`))
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.events.map((event: { metadata: unknown }) => event.metadata)).toEqual(canSeeMoney ? eventMetadata : [
+      { frozenEntryCount: 3, lockedEntryCount: 3, roundingUnitMinutes: 5, roundingDirection: 'up' },
+      { unlockedEntryCount: 3, transferredLockCount: 1, frozenBillableMinutes: 180, frozenNonbillableMinutes: 30 },
+      { format: 'csv', grouping: 'task', rowCount: 3 },
+      {},
+      {},
+      null,
+    ])
+    expect(body.events[1]).toMatchObject({ reason: 'Corrected entry', actorUserId: USER_ID })
+    expect(mockFind).toHaveBeenCalledWith(expect.anything(), {
+      reportId: REPORT_ID, tenantId: TENANT_ID, organizationId: ORG_ID,
+    }, expect.anything())
+  })
+})

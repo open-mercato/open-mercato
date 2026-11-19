@@ -27,7 +27,7 @@
 
 The mockups in [`.ai/mockups/time-tracking/`](../mockups/time-tracking/) resolve the requirements into 17 concrete screens. They are the design authority for this spec. Their per-screen `notes` blocks flag every place the requirements were silent or self-contradictory; all eight of those are decided in [Resolved Decisions](#resolved-decisions), and two of the decisions deliberately override what the mockup drew.
 
-This spec **extends and refactors** the existing module. It does not fork it. Every existing entity, route, command and event survives; the redesign is additive at the contract layer and a rewrite at the page layer.
+This spec **extends and refactors** the existing module. It does not fork it. Every existing entity, route, command and event survives; the redesign is additive at the contract layer and a rewrite at the page layer, except for the later report-history security restriction documented under Migration & Backward Compatibility.
 
 ---
 
@@ -541,6 +541,8 @@ Each phase is one PR, independently shippable, with its integration tests in the
 4. Unlock: modal requiring a reason, sent-to-client warning, report history timeline, destructive-outline styling.
 5. Exports: PDF (mirrors the sheet), CSV/XLSX (adds raw date / person / description columns for accounting).
 
+Report-sheet history uses the same `staff.timesheets.rates.view` decision as the sheet totals. Without it, metadata is restricted to typed nonfinancial counts, rounding settings and export details; monetary, unknown and nested values are omitted. Authorized history is unchanged. Regression coverage includes the sheet route unit tests and TC-TT-028. Closed-report entry tables scroll inside their card in a focusable, named region.
+
 Export money visibility is gated by `staff.timesheets.rates.view`, independently of the report's `showRates` presentation setting. A caller without that permission receives time and work details without rate or amount columns or invoice totals. Before dispatching to any EP-35 serializer, including contributed formats, the route recursively replaces group and line rates with `null` and amounts with `0`, row rates and amounts with `null`, and the grand amount with `0`. These are redaction sentinels preserving the existing input types; serializers must not present them as actual monetary values. `ReportExportInput.canSeeMoney` carries the permission decision. Authorized viewers can still set `showRates: false` while retaining amounts.
 
 Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts` exercises the real request-context money check and export handler with built-in PDF/CSV/XLSX serializers, a contributed serializer, nested group lines, authorized hidden-rate output, and tenant/organization/report scope. `lib/timesheets-reports/__tests__/reportExport.test.ts` also checks rendering without permission, including callers supplying raw monetary input. The route suite substitutes the report data loader and database; it does not replace live database integration coverage.
@@ -633,6 +635,10 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 
 ## Migration & Backward Compatibility
 
+**Report-history security restriction (replacement PR #9362 / #8595).** `events[].metadata` on the existing report-sheet route is a STABLE HTTP response surface. Readers without `staff.timesheets.rates.view` lose monetary, unknown and structurally invalid metadata; known nonfinancial primitive counts, rounding and export fields remain. Authorized responses, event identity/reason/actor/timestamps and persisted events are unchanged. This is an intentional response restriction requiring the Emergency Security Exception recorded in `BACKWARD_COMPATIBILITY.md` (2026-11-12). Keeping the old financial payload as a bridge would preserve the unauthorized disclosure. Piotr Karwatka (@pkarw) explicitly approved the narrow exception in the operator session on 2026-11-12; the [transcription](https://github.com/open-mercato/open-mercato/pull/9362#issuecomment-6829104942) preserves that provenance. This is distinct from native GitHub approval and protected human financial QA.
+
+Clients must treat omitted amounts as unavailable and update custom renderers. Operators must deploy all replicas, invalidate cached sheet responses and review retained unauthorized responses as potentially disclosed financial information. No database migration or event rewrite is needed; rollback restores the exposure. `UPGRADE_NOTES.md` gives the client and operator steps. TC-TT-028 has independent self-contained API permission cases, a seeded-admin rates/report grant assertion and browser containment coverage.
+
 **Whole-filter entry totals (#6990).** `GET /api/staff/timesheets/time-entries?includeTotals=true` adds optional `totals: { entryCount, durationMinutes, roundedMinutes, money? }` across the entire filtered result, independent of pagination. `money` is absent without `staff.timesheets.rates.view`; authorized amounts use entry-level rounding and separate currency groups. Authorization-derived project predicates are structurally AND-composed with advanced filters for both items and totals. Aggregate failure omits `totals` while preserving the list. Requests without the opt-in retain the existing response.
 
 The entries footer renders through the existing `data-table:staff.time_entries.list:footer` spot and retains the `staff.entries_summary_footer` replacement handle and existing props, adding only optional `totals`. Shared `DataTable` / `FilterBar` accept optional `showActiveFilterChips`, defaulting to `true`. No ACL, database, route, event, or required prop changes; no client or operator migration is needed. `UPGRADE_NOTES.md` describes the footer placement for component replacements.
@@ -653,7 +659,7 @@ Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'
 | 4. Import paths | None changed; all new code is module-internal |
 | 5. Event ids | **Additive only.** No existing id renamed or removed |
 | 6. Widget spot ids | Additive — new `data-table:` ids for the entries and tasks tables |
-| 7. API routes | **Additive only.** Existing routes gain optional request fields and additive response fields |
+| 7. API routes | Additive except the deliberate unauthorized history-metadata restriction described above; emergency security exception and named human sign-off required |
 | 8. DB schema | Additive — 10 new tables, 11 nullable/defaulted columns (incl. `staff_time_tasks.parent_task_id`, `staff_time_projects.customer_snapshot`). No column dropped or retyped; `customer_id` gains a declared target but no enforced FK, since it crosses a module boundary |
 | 9. DI names | Additive — `timeTrackingAccessResolver` |
 | 10. ACL features | **Additive only.** 7 new ids; no existing id renamed (they are FROZEN) |
@@ -663,7 +669,7 @@ Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'
 
 **Page routes are the one moving part.** `/backend/staff/timesheets*` → `/backend/staff/time-tracking*` with 308 redirects retained for at least one minor release, plus an `UPGRADE_NOTES.md` entry covering the move, the `notes`/`description` aliasing, and the new default role grants.
 
-No deprecation protocol is triggered beyond that, because nothing is removed in this change.
+Apart from the history-metadata security restriction described above, no further removal requires a deprecation protocol.
 
 The #7834 export permission fix adds only the optional `ReportExportInput.canSeeMoney` field; omission preserves existing serializer callers. Routes, methods, format identifiers, ACL features, required input fields and authorized output remain compatible. Contributed serializers now receive redacted money for unauthorized callers and should honor `canSeeMoney: false` when deciding which monetary columns to display. No database migration is required.
 
@@ -720,6 +726,7 @@ Every question the requirements left open — each one traced to the mockup note
 
 | Date | Change |
 |---|---|
+| 2026-11-12 | Replacement for #8595: reimplement report-table containment and typed nonfinancial history projection on current main. |
 | 2026-11-03 | #6990 / #8379: document additive whole-filter entry totals, rates redaction, structural project-access filter composition, footer/shared chip props, and self-contained live API boundary regressions in TC-STAFF-048. |
 | 2026-11-02 | #8448: bind access-request writes, authorization, deduplication and manager notification to validated request-selected scope; reject rejected/missing scope. Bootstrap integration waits for switcher completion, requiring a project reload only for fresh-cookie hydration, while preserving scope/confidentiality/acknowledgement assertions. |
 | 2026-10-29 | #6821: bind fresh-session access acknowledgement to optional server-resolved request-scope headers; preserve matching hydration and reject first differing tenant/organization cookies, deferred writes and late completions. |

@@ -513,7 +513,7 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
         />
 
         {isClosed ? (
-          <section className="mt-6 rounded-lg border border-border">
+          <section className="mt-6 min-w-0 overflow-hidden rounded-lg border border-border">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border p-4">
               <h3 className="text-sm font-semibold">
                 {t('staff.time_tracking.reports.locked.tableTitle', 'Locked entries')}
@@ -524,13 +524,20 @@ export default function TimeTrackingReportDetailPage({ params }: { params?: { id
                   .replace('{hours}', formatReportMinutes(sheet.totals.billableMinutes))}
               </span>
             </header>
-            <DataTable<ReportSheetRow>
-              embedded
-              extensionTableId={extensionPoints.hosts.reportDetailLockedEntriesTable.tableId}
-              disableRowClick
-              columns={lockedEntriesColumns}
-              data={sheet.rows}
-            />
+            <div
+              role="region"
+              aria-label={t('staff.time_tracking.reports.locked.tableTitle', 'Locked entries')}
+              tabIndex={0}
+              className="max-w-full overflow-x-auto focus-visible:outline-none focus-visible:shadow-focus"
+            >
+              <DataTable<ReportSheetRow>
+                embedded
+                extensionTableId={extensionPoints.hosts.reportDetailLockedEntriesTable.tableId}
+                disableRowClick
+                columns={lockedEntriesColumns}
+                data={sheet.rows}
+              />
+            </div>
             {sheet.rowsTruncated ? (
               <p className="border-t border-border p-3 text-xs text-muted-foreground">
                 {t(
