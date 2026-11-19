@@ -161,7 +161,7 @@ const behavior = (
 const resources = true
 
 export const calendarEventTypes: readonly CalendarEventTypeDefinition[] = deepFreeze([
-  { key: 'meeting', label: 'Meeting', labelKey: 'customers.calendar.editor.types.meeting', icon: 'lucide:users', color: '#f59e0b', behavior: behavior('meeting', 0, { endTime: true, allDay: true, recurrence: true, location: 'location', people: 'attendees', priority: false, resources }) },
+  { key: 'meeting', label: 'Meeting', labelKey: 'customers.calendar.editor.types.meeting', icon: 'lucide:users', color: '#0f766e', behavior: behavior('meeting', 0, { endTime: true, allDay: true, recurrence: true, location: 'location', people: 'attendees', priority: false, resources }) },
   { key: 'call', label: 'Call', labelKey: 'customers.calendar.editor.types.call', icon: 'lucide:phone-call', color: '#2563eb', behavior: behavior('call', 100, { endTime: true, allDay: true, recurrence: true, location: 'phoneLink', people: 'participants', priority: false, resources }) },
   { key: 'email', label: 'Email', labelKey: 'customers.calendar.editor.types.email', icon: 'lucide:mail', color: '#16a34a', behavior: behavior('email', 200, { endTime: false, allDay: true, recurrence: true, location: 'none', people: 'recipients', priority: false, resources }) },
   { key: 'note', label: 'Note', labelKey: 'customers.calendar.editor.types.note', icon: 'lucide:notebook', color: '#a855f7', behavior: behavior('note', 300, { endTime: false, allDay: false, recurrence: false, location: 'none', people: 'none', priority: false, resources }) },
