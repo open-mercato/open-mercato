@@ -26,6 +26,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime } from '../../../../components/types'
 import { PROCESS_STATUS_LABEL_KEY, type ProcessInstanceStatus } from '../../../../components/processTypes'
 import {
@@ -150,6 +151,7 @@ function mapRun(raw: Record<string, unknown>): ProcessExecutionRow | null {
 export default function ProcessDefinitionDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const router = useRouter()
   const taskId = params?.id ?? ''
 
@@ -379,12 +381,12 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
       {
         accessorKey: 'createdAt',
         header: t('agent_orchestrator.processDefinitions.runs.col.started'),
-        cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.createdAt, locale) ?? '—'}</span>,
+        cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.createdAt, locale, dateSettings) ?? '—'}</span>,
       },
       {
         accessorKey: 'completedAt',
         header: t('agent_orchestrator.processDefinitions.runs.col.completed'),
-        cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.completedAt, locale) ?? '—'}</span>,
+        cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.completedAt, locale, dateSettings) ?? '—'}</span>,
       },
       {
         id: 'outcome',
@@ -421,7 +423,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
         },
       },
     ],
-    [t, locale, router],
+    [t, locale, dateSettings, router],
   )
 
   const [origin, setOrigin] = React.useState('')

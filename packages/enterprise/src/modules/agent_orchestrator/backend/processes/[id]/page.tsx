@@ -27,7 +27,6 @@ import {
   formatCostMinor,
   formatDurationMs,
   formatNumber,
-  formatTimeShort,
   mapProposal,
   mapRun,
   type ProposalView,
@@ -46,7 +45,9 @@ import {
   type ProcessStateTone,
   type ProcessStep,
 } from '../../../components/processTypes'
-import { formatDisplayDate, todayInZone } from '@open-mercato/ui/primitives/date-format'
+import type { DisplaySettings } from '@open-mercato/ui/primitives/date-format'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
+import { formatTimelineTimestamp, timelineDayLabel } from '../timelineDates'
 
 type StageState = 'done' | 'current' | 'upcoming'
 
@@ -116,22 +117,6 @@ function formatAge(iso: string | null, t: ReturnType<typeof useT>): string | nul
   return t('agent_orchestrator.process.relTimeM', undefined, { minutes })
 }
 
-/** Calendar-day key used for the timeline's day dividers. */
-function dayKeyOf(iso: string | null): string {
-  if (!iso) return ''
-  const parsed = new Date(iso)
-  if (Number.isNaN(parsed.getTime())) return iso.slice(0, 10)
-  return todayInZone(undefined, parsed)
-}
-
-function dayLabelOf(dayKey: string, t: ReturnType<typeof useT>, locale: string): string {
-  const today = todayInZone()
-  const yesterday = todayInZone(undefined, new Date(Date.now() - 24 * 60 * 60 * 1000))
-  if (dayKey === today) return t('agent_orchestrator.process.today')
-  if (dayKey === yesterday) return t('agent_orchestrator.process.yesterday')
-  return formatDisplayDate(dayKey, locale) ?? dayKey
-}
-
 function summarize(proposal: ProposalView, t: ReturnType<typeof useT>): string {
   if (proposal.rationale) return proposal.rationale
   return t('agent_orchestrator.process.stepProposed')
@@ -146,6 +131,8 @@ function buildSteps(
   proposals: ProposalView[],
   runsById: Map<string, RunView>,
   t: ReturnType<typeof useT>,
+  locale: string,
+  settings: DisplaySettings,
 ): ProcessStep[] {
   const steps: ProcessStep[] = []
   for (const proposal of proposals) {
@@ -160,8 +147,7 @@ function buildSteps(
       actor: proposal.agentId,
       actorKind: 'agent',
       summary: summarize(proposal, t),
-      time: formatTimeShort(proposal.createdAt) ?? '',
-      day: dayKeyOf(proposal.createdAt),
+      ...formatTimelineTimestamp(proposal.createdAt, locale, settings),
       detail: {
         confidence: formatConfidence(proposal.confidence ?? run?.confidence ?? null),
         latency: formatDurationMs(run?.latencyMs ?? null),
@@ -183,8 +169,7 @@ function buildSteps(
         summary: t('agent_orchestrator.process.stepDisposed', undefined, {
           disposition: t(`agent_orchestrator.disposition.${proposal.disposition}`),
         }),
-        time: formatTimeShort(proposal.updatedAt ?? proposal.createdAt) ?? '',
-        day: dayKeyOf(proposal.updatedAt ?? proposal.createdAt),
+        ...formatTimelineTimestamp(proposal.updatedAt ?? proposal.createdAt, locale, settings),
         detail: {
           confidence: proposal.dispositionBy?.startsWith('rule:') ? 'auto' : null,
           latency: null,
@@ -372,6 +357,7 @@ type ListResponse = { items?: Array<Record<string, unknown>> }
 export default function ProcessDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const router = useRouter()
   const workflowInstanceId = params?.id ?? ''
 
@@ -493,8 +479,8 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   }, [workflowInstanceId, t])
 
   const steps = React.useMemo(
-    () => buildSteps(proposals, runsById, t),
-    [proposals, runsById, t],
+    () => buildSteps(proposals, runsById, t, locale, dateSettings),
+    [proposals, runsById, t, locale, dateSettings],
   )
   const stages = React.useMemo(
     () => buildStages(proposals, projection?.currentStage ?? null),
@@ -770,7 +756,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                             <span className="relative size-1.5 rounded-full bg-muted-foreground ring-2 ring-card" />
                           </span>
                           <p className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            {dayLabelOf(step.day, t, locale)}
+                            {timelineDayLabel(step.day, t, locale, dateSettings)}
                           </p>
                         </div>
                       ) : null}
@@ -816,7 +802,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
           {selected ? (
             <StepDetailPanel
               step={selected}
-              dayLabel={dayLabelOf(selected.day, t, locale)}
+              dayLabel={timelineDayLabel(selected.day, t, locale, dateSettings)}
               onOpenTrace={openTrace}
               onReviewInCaseload={reviewSelectedInCaseload}
             />

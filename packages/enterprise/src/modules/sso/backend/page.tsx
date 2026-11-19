@@ -11,6 +11,7 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import Link from 'next/link'
 
@@ -41,6 +42,7 @@ export default function SsoConfigListPage() {
   const router = useRouter()
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
 
   const [data, setData] = React.useState<ListResponse>(fallback)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -159,12 +161,12 @@ export default function SsoConfigListPage() {
       {
         accessorKey: 'createdAt',
         header: t('sso.admin.column.created', 'Created'),
-        cell: ({ row }) => formatDisplayDate(row.original.createdAt, locale),
+        cell: ({ row }) => formatDisplayDate(row.original.createdAt, locale, dateSettings),
       },
     ]
 
     return cols
-  }, [t, isSuperAdmin, locale])
+  }, [t, isSuperAdmin, locale, dateSettings])
 
   const hasConfigs = data.items.length > 0 || search
   const canCreateNew = isSuperAdmin || data.items.length === 0

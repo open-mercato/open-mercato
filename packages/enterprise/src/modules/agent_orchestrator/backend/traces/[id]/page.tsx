@@ -16,6 +16,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
 import {
   mapRunDetail,
@@ -463,6 +464,7 @@ function ReasoningCard({
 function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   if (proposals.length === 0) return null
   return (
     <InspectorCard title={t('agent_orchestrator.traces.detail.disposition')}>
@@ -483,7 +485,7 @@ function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
                 </StatusBadge>
                 <span className="font-mono text-xs text-muted-foreground">{proposal.id.slice(0, 8)}</span>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {formatDateTime(proposal.updatedAt, locale) ?? ''}
+                  {formatDateTime(proposal.updatedAt, locale, dateSettings) ?? ''}
                 </span>
               </div>
               <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-sm">
@@ -532,6 +534,7 @@ function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
 export default function AgentRunTracePage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const router = useRouter()
   const runId = params?.id ?? ''
   const [detail, setDetail] = React.useState<RunDetailView | null>(null)
@@ -832,7 +835,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                                   >
                                     <span className="truncate font-mono text-xs">{proposal.id.slice(0, 8)}</span>
                                     <span className="shrink-0 text-xs text-muted-foreground">
-                                      {formatDateTime(proposal.createdAt, locale) ?? ''}
+                                      {formatDateTime(proposal.createdAt, locale, dateSettings) ?? ''}
                                     </span>
                                   </button>
                                 ))}
@@ -962,12 +965,12 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     <StatCell
                       icon={Play}
                       label={t('agent_orchestrator.traces.detail.started')}
-                      value={formatDateTime(run.createdAt, locale) ?? '—'}
+                      value={formatDateTime(run.createdAt, locale, dateSettings) ?? '—'}
                     />
                     <StatCell
                       icon={Flag}
                       label={t('agent_orchestrator.traces.detail.finished')}
-                      value={formatDateTime(run.completedAt, locale) ?? '—'}
+                      value={formatDateTime(run.completedAt, locale, dateSettings) ?? '—'}
                     />
                     <StatCell
                       icon={Cpu}

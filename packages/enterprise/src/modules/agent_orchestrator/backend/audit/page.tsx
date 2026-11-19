@@ -16,6 +16,7 @@ import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime, formatNumber, mapAgent, mapOverviewMetrics, type OverviewMetricsView } from '../../components/types'
 import { subjectLabelOf } from '../../components/subjectRef'
 
@@ -67,6 +68,7 @@ type ListResponse = { items?: Array<Record<string, unknown>>; total?: number; to
 export default function AgentAuditPage() {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const router = useRouter()
   const [rows, setRows] = React.useState<AuditRow[]>([])
   const [total, setTotal] = React.useState(0)
@@ -164,7 +166,7 @@ export default function AgentAuditPage() {
     {
       accessorKey: 'when',
       header: t('agent_orchestrator.audit.col.when', 'When'),
-      cell: ({ row }) => <span className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">{formatDateTime(row.original.when, locale) ?? '—'}</span>,
+      cell: ({ row }) => <span className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">{formatDateTime(row.original.when, locale, dateSettings) ?? '—'}</span>,
     },
     {
       accessorKey: 'agentLabel',
@@ -222,7 +224,7 @@ export default function AgentAuditPage() {
         ? <span className="block truncate text-sm text-muted-foreground" title={row.original.reason}>{row.original.reason}</span>
         : <span className="text-sm text-muted-foreground">—</span>,
     },
-  ], [t, locale, router, agentIcons])
+  ], [t, locale, dateSettings, router, agentIcons])
 
   if (isLoading && rows.length === 0) {
     return (

@@ -30,6 +30,13 @@ describe('shared locale-aware formatters (UX consistency pass, Phase 2)', () => 
   describe('formatDateTime', () => {
     const iso = '2026-07-12T14:05:00.000Z'
 
+    it('accepts explicit provider settings for server rendering', () => {
+      expect(formatDateTime('2026-07-02T02:05:00Z', 'en', {
+        locale: 'en-GB', dateFormat: null, dateTimeFormat: 'dd/MM/yyyy HH:mm',
+        timeFormat: 'HH:mm', timeZone: 'America/Los_Angeles',
+      })).toBe('01/07/2026 19:05')
+    })
+
     it('renders locale-appropriate date order', () => {
       const en = formatDateTime(iso, 'en')
       const de = formatDateTime(iso, 'de')

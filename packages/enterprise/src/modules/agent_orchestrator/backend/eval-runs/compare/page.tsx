@@ -14,6 +14,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatDateTime } from '../../../components/types'
 import { agentLabelFor, useAgentLabelMap } from '../../../components/useAgentLabels'
@@ -49,6 +50,7 @@ function Stat({ label, children, testId }: { label: string; children: React.Reac
 function RunCard({ title, run }: { title: string; run: RunSummary }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   return (
     <section className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-center justify-between gap-2">
@@ -88,7 +90,7 @@ function RunCard({ title, run }: { title: string; run: RunSummary }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <dt className="text-muted-foreground">{t('agent_orchestrator.evalRuns.col.when')}</dt>
-          <dd className="tabular-nums text-foreground">{formatDateTime(run.finishedAt ?? run.createdAt, locale) ?? '—'}</dd>
+          <dd className="tabular-nums text-foreground">{formatDateTime(run.finishedAt ?? run.createdAt, locale, dateSettings) ?? '—'}</dd>
         </div>
       </dl>
     </section>

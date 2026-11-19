@@ -9,6 +9,7 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime } from '../../../../components/types'
 import {
   buildAuditEntryHref,
@@ -45,6 +46,7 @@ type InstigatorResponse = {
 export default function InstigatorAuditChainPage({ params }: { params?: { humanUserId?: string } }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const humanUserId = params?.humanUserId ?? ''
   const [data, setData] = React.useState<InstigatorResponse | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -105,7 +107,7 @@ export default function InstigatorAuditChainPage({ params }: { params?: { humanU
                       {entry.actionLabel ?? entry.commandId ?? entry.actionType ?? '—'}
                     </span>
                     <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                      {formatDateTime(entry.createdAt, locale) ?? entry.createdAt ?? '—'}
+                      {formatDateTime(entry.createdAt, locale, dateSettings) ?? entry.createdAt ?? '—'}
                       <StatusBadge variant={entry.via === 'via_agent' ? 'warning' : 'neutral'}>
                         {entry.via === 'via_agent'
                           ? t('agent_orchestrator.identity.audit.viaAgent')

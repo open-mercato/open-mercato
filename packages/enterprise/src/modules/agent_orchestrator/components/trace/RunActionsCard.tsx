@@ -4,7 +4,9 @@ import * as React from 'react'
 import Link from 'next/link'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { InspectorCard } from './InspectorCard'
+import { OPTIONAL_REQUEST_INIT } from '../optionalRequest'
 import { formatDateTime } from '../types'
 import { buildAuditEntryHref, buildProposalHref } from '../../lib/identity/auditEntryLinks'
 
@@ -37,6 +39,7 @@ function shortId(value: string): string {
 export function RunActionsCard({ runId }: { runId: string }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const [state, setState] = React.useState<LoadState>({ status: 'loading' })
 
   React.useEffect(() => {
@@ -46,6 +49,7 @@ export function RunActionsCard({ runId }: { runId: string }) {
       try {
         const call = await apiCall<RunActionsResponse>(
           `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/actions?pageSize=${RUN_ACTIONS_PAGE_SIZE}`,
+          OPTIONAL_REQUEST_INIT,
         )
         if (!active) return
         if (!call.ok || !call.result) {
@@ -82,7 +86,7 @@ export function RunActionsCard({ runId }: { runId: string }) {
                 <span className="min-w-0 truncate text-sm font-medium text-foreground">
                   {row.actionLabel ?? row.commandId}
                 </span>
-                <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(row.createdAt, locale)}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{formatDateTime(row.createdAt, locale, dateSettings)}</span>
               </div>
               <p className="truncate font-mono text-xs text-muted-foreground">{row.commandId}</p>
               <dl className="mt-1 grid grid-cols-1 gap-x-3 gap-y-0.5 text-xs sm:grid-cols-2">

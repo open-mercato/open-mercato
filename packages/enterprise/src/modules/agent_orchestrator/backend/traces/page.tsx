@@ -23,6 +23,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { mapRun, mapOverviewMetrics, mapAgent, formatCostMinor, formatDateTime, formatDurationMs, formatRelativeAge, type RunView, type TracesKpiView } from '../../components/types'
 import { runStatusLabelKey } from '../../components/cockpitStatus'
@@ -450,8 +451,9 @@ export default function AgentTracesPage() {
 // "7d" alone reads as a mystery number — the clock icon + the exact timestamp in
 // the tooltip make it unmistakably "when this run happened".
 function WhenLabel({ createdAt, locale }: { createdAt: string | null; locale: string }) {
+  const dateSettings = useDateLocaleSettings()
   return (
-    <span className="inline-flex items-center gap-1 tabular-nums text-sm text-muted-foreground" title={formatDateTime(createdAt, locale) ?? '—'}>
+    <span className="inline-flex items-center gap-1 tabular-nums text-sm text-muted-foreground" title={formatDateTime(createdAt, locale, dateSettings) ?? '—'}>
       <Clock className="size-3 shrink-0 opacity-70" />
       {formatRelativeAge(createdAt) ?? '—'}
     </span>

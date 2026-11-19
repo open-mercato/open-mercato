@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime } from '../types'
 import { InspectorCard } from './InspectorCard'
 import type { ArtifactCaptureFailure } from '../../lib/trace/artifactCaptureStatus'
@@ -37,6 +38,7 @@ function formatArtifactSize(bytes: number): string {
 export function RunFilesCard({ runId }: { runId: string }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const [state, setState] = React.useState<FilesState | null>(null)
   React.useEffect(() => {
     let active = true
@@ -99,7 +101,7 @@ export function RunFilesCard({ runId }: { runId: string }) {
                       <p className="truncate text-xs text-muted-foreground">{row.caption}</p>
                     ) : null}
                     <p className="text-xs text-muted-foreground">
-                      {formatArtifactSize(row.fileSize)} · {formatDateTime(row.createdAt, locale)}
+                      {formatArtifactSize(row.fileSize)} · {formatDateTime(row.createdAt, locale, dateSettings)}
                     </p>
                   </div>
                   <a
