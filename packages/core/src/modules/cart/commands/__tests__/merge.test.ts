@@ -245,6 +245,12 @@ function makeEm() {
       rows.forEach((row) => Object.assign(row, data))
       return rows.length
     }),
+    // `cart.merge` and the merge undo take both carts' `cart:lines` keys through
+    // `withCartLineMutationLock` and re-read both carts via `em.refresh`; the fixtures are the
+    // same row objects `findOneWithDecryption` returns, so returning them unchanged is a no-op.
+    execute: jest.fn(async () => [{ locked: true }]),
+    isInTransaction: jest.fn(() => false),
+    refresh: jest.fn(async (row: FakeRow) => row),
   }
   em.fork.mockReturnValue(em)
   return em
@@ -1072,5 +1078,218 @@ describe('cart.mergeUndo', () => {
     expect((captured as { body: FakeRow }).body.code).toBe('cart_not_active')
     const guestCart = seededCarts.find((row) => row.id === 'cart-guest')!
     expect(guestCart.status).toBe('merged')
+  })
+})
+
+describe('cart.merge / cart.mergeUndo advisory locks (§8.1, #9183)', () => {
+  function armLockRace(em: any, race: (row: FakeRow) => void): string[] {
+    const lockKeys: string[] = []
+    let armed = false
+    em.execute.mockImplementation(async (sql: string, params: string[]) => {
+      if (sql.includes('pg_try_advisory_xact_lock')) {
+        lockKeys.push(params[0])
+        armed = true
+      }
+      return [{ locked: true }]
+    })
+    em.refresh.mockImplementation(async (row: FakeRow) => {
+      if (armed) race(row)
+      return row
+    })
+    return lockKeys
+  }
+
+  function seedMergedPair() {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token'), status: 'merged', mergedIntoCartId: 'cart-target' }),
+    ]
+    seededCartLines = [makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', productId: 'product-1', quantity: '5' })]
+    seededMergeLogs = [
+      makeMergeLogFixture({
+        id: 'merge-log-race',
+        sourceCartId: 'cart-guest',
+        targetCartId: 'cart-target',
+        strategy: 'sum',
+        outcome: [{ sourceLineId: 'line-guest-1', targetLineId: 'line-target-1', disposition: 'summed', previousTargetQuantity: '2' }],
+        createdAt: new Date(Date.now() - 60 * 1000),
+      }),
+    ]
+  }
+
+  it('takes both carts\' line locks and refuses without merging when checkout locked the TARGET after the pre-checks (#9183)', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token') }),
+    ]
+    seededCartLines = [
+      makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', productId: 'product-1', quantity: '2', lineNumber: 1 }),
+      makeLineFixture({ id: 'line-guest-2', cartId: 'cart-guest', productId: 'product-2', quantity: '5', lineNumber: 1 }),
+    ]
+    seededProducts = [makeProductFixture({ id: 'product-1' }), makeProductFixture({ id: 'product-2' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    const lockKeys = armLockRace(em, (row) => {
+      if (row.id === 'cart-target') {
+        row.status = 'locked'
+        row.checkoutSessionId = 'session-late'
+      }
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        { targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() },
+        makeCtx({ em }),
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_locked', checkoutSessionId: 'session-late' })
+    expect(lockKeys).toEqual(['cart:lines:cart-guest', 'cart:lines:cart-target'])
+    expect(em.rollback).toHaveBeenCalled()
+    expect(seededMergeLogs).toHaveLength(0)
+    expect(seededCartLines.some((row) => row.cartId === 'cart-target' && row.productId === 'product-2')).toBe(false)
+    const guestCart = seededCarts.find((row) => row.id === 'cart-guest')!
+    expect(guestCart.status).toBe('active')
+    expect(guestCart.mergedIntoCartId ?? null).toBeNull()
+    expect(seededCarts.find((row) => row.id === 'cart-target')!.tokenHash).toBe('target-token-hash')
+  })
+
+  it('adopts nothing when the SOURCE cart left active inside the locks (row 1 adoption keeps the guest cart\'s buyer fields)', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token'), customerId: null, customerUserId: null, buyerDigest: 'digest-guest' }),
+    ]
+    seededCartLines = [makeLineFixture({ id: 'line-guest-1', cartId: 'cart-guest', productId: 'product-1', quantity: '1', lineNumber: 1 })]
+    seededProducts = [makeProductFixture({ id: 'product-1' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    armLockRace(em, (row) => {
+      if (row.id === 'cart-guest') row.status = 'expired'
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute(
+        { targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() },
+        makeCtx({ em }),
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(404)
+    const guestCart = seededCarts.find((row) => row.id === 'cart-guest')!
+    expect(guestCart.customerUserId ?? null).toBeNull()
+    expect(guestCart.buyerDigest).toBe('digest-guest')
+    expect(seededCarts.find((row) => row.id === 'cart-target')!.status).toBe('active')
+  })
+
+  it('re-reads the survivor inside the line locks and refuses without restoring when checkout locked it after the pre-checks (#9183)', async () => {
+    seedMergedPair()
+    const handler = getUndoHandler()
+    const em = makeEm()
+    const lockKeys = armLockRace(em, (row) => {
+      if (row.id === 'cart-target') {
+        row.status = 'locked'
+        row.checkoutSessionId = 'session-late'
+      }
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute({ cartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, routeContext: makeRouteContext() }, makeCtx({ em }))
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect(lockKeys).toEqual(['cart:lines:cart-guest', 'cart:lines:cart-target'])
+    expect(seededCartLines.find((row) => row.id === 'line-target-1')!.quantity).toBe('5')
+    expect(seededCarts.find((row) => row.id === 'cart-guest')!.status).toBe('merged')
+    expect(seededMergeLogs[0].undoneAt ?? null).toBeNull()
+  })
+
+  it('re-reads undone_at inside the line locks and refuses a concurrent second undo with merge_already_undone', async () => {
+    seedMergedPair()
+    const handler = getUndoHandler()
+    const em = makeEm()
+    armLockRace(em, (row) => {
+      if (row.id === 'merge-log-race') row.undoneAt = new Date()
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute({ cartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, routeContext: makeRouteContext() }, makeCtx({ em }))
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'merge_already_undone' })
+    expect(seededCartLines.find((row) => row.id === 'line-target-1')!.quantity).toBe('5')
+    expect(seededCarts.find((row) => row.id === 'cart-guest')!.status).toBe('merged')
+  })
+
+  it('refuses the undo with 409 cart_not_active when the absorbed cart is no longer merged inside the locks', async () => {
+    seedMergedPair()
+    const handler = getUndoHandler()
+    const em = makeEm()
+    armLockRace(em, (row) => {
+      if (row.id === 'cart-guest') row.status = 'active'
+    })
+
+    let captured: unknown
+    try {
+      await handler.execute({ cartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, routeContext: makeRouteContext() }, makeCtx({ em }))
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_not_active', status: 'active' })
+    expect(seededCartLines.find((row) => row.id === 'line-target-1')!.quantity).toBe('5')
+    expect(seededMergeLogs[0].undoneAt ?? null).toBeNull()
+  })
+
+  it('backs off when one cart\'s lock is busy and merges once both are held, without losing the outcome built before the lock', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token') }),
+    ]
+    seededCartLines = [
+      makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', productId: 'product-1', quantity: '2', lineNumber: 1 }),
+      makeLineFixture({ id: 'line-guest-2', cartId: 'cart-guest', productId: 'product-2', quantity: '5', lineNumber: 1 }),
+    ]
+    seededProducts = [makeProductFixture({ id: 'product-1' }), makeProductFixture({ id: 'product-2' })]
+
+    const handler = getMergeHandler()
+    const em = makeEm()
+    let tryLockCalls = 0
+    em.execute.mockImplementation(async (sql: string) => {
+      if (!sql.includes('pg_try_advisory_xact_lock')) return [{ locked: true }]
+      tryLockCalls += 1
+      return [{ locked: tryLockCalls !== 2 }]
+    })
+
+    const result = await handler.execute(
+      { targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() },
+      makeCtx({ em }),
+    )
+
+    expect(tryLockCalls).toBe(4)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(result.mergeSummary.strategy).toBe('sum')
+    expect(seededMergeLogs).toHaveLength(1)
+    expect(seededCartLines.some((row) => row.cartId === 'cart-target' && row.productId === 'product-2')).toBe(true)
+    expect(seededCarts.find((row) => row.id === 'cart-guest')!.status).toBe('merged')
   })
 })
