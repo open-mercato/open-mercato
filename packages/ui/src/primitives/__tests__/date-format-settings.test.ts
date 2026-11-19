@@ -145,6 +145,14 @@ describe('Intl fallback', () => {
 })
 
 describe('zone helpers', () => {
+  it.each([
+    ['2026-03-08T02:30:00Z', 'UTC', '2026-03-08 02:30 Z'],
+    ['2026-03-07T17:30:00Z', 'Asia/Tokyo', '2026-03-08 02:30 +09:00'],
+  ])('preserves pinned clock fields across the host DST gap for %s in %s', (instant, timeZone, expected) => {
+    expect(formatDisplayDateTime(instant, 'en-US', settings({ timeZone, dateTimeFormat: 'yyyy-MM-dd HH:mm XXX' }))).toBe(expected)
+    expect(formatDisplayTime(instant, 'en-US', settings({ timeZone, timeFormat: 'HH:mm' }))).toBe('02:30')
+  })
+
   it('names today in the given zone', () => {
     const now = new Date('2026-12-31T23:30:00.000Z')
     expect(todayInZone('UTC', now)).toBe('2026-12-31')

@@ -1,5 +1,6 @@
 import { format as formatDateFns } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
+import { TZDate } from 'react-day-picker'
 import type { Locale } from 'date-fns/locale'
 import { normalizeDateFormatPattern } from '@open-mercato/shared/lib/date-locale/validation'
 import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
@@ -240,6 +241,16 @@ export function toZonedWallClock(date: Date, timeZone: string | null | undefined
 
 const ZONE_TOKEN_LETTERS = new Set(['X', 'x', 'O', 'z', 't', 'T'])
 
+function dateInDisplayZone(date: Date, timeZone: string | null | undefined): Date {
+  if (!timeZone) return date
+  try {
+    const zoned = new TZDate(date.getTime(), timeZone)
+    return Number.isNaN(zoned.getTime()) ? date : zoned
+  } catch {
+    return date
+  }
+}
+
 function offsetMinutesIn(date: Date, timeZone: string): number {
   let parts: WallClockParts
   try {
@@ -319,10 +330,8 @@ function expandLongFormatTokens(pattern: string, locale: Locale = enUS): string 
 }
 
 /**
- * `date-fns` renders zone (`X x O z`) and epoch (`t T`) tokens from the runtime's own offset, but
- * patterns are formatted on a wall-clock `Date` shifted into `timeZone` (`toZonedWallClock`). Those
- * tokens are therefore resolved here, for the real instant in `timeZone`, and inlined as quoted
- * literals; every other token (and quoted text) is left to `date-fns`.
+ * Resolves zone (`X x O z`) and epoch (`t T`) tokens from the original instant in `timeZone`, then
+ * inlines them as quoted literals. Every other token and quoted value is left to `date-fns`.
  */
 function inlineZoneTokens(pattern: string, date: Date, timeZone: string, locale: string | undefined): string {
   let output = ''
@@ -376,7 +385,7 @@ function formatDisplay(
     const zonedPattern = timeZone
       ? inlineZoneTokens(expandLongFormatTokens(pattern, dateFnsLocale), parsed, timeZone, formatLocale)
       : pattern
-    return formatWithPublicDateFormat(toZonedWallClock(parsed, timeZone), zonedPattern, dateFnsLocale)
+    return formatWithPublicDateFormat(dateInDisplayZone(parsed, timeZone), zonedPattern, dateFnsLocale)
   }
   // A pinned time pattern with no date-time pattern still decides the clock of Intl timestamps, so
   // choosing `HH:mm` makes every date-time 24-hour, not only time-only values.
@@ -449,7 +458,7 @@ export function formatDisplayTime(
  * UTC day and is wrong near midnight everywhere except UTC.
  */
 export function todayInZone(timeZone: string | null | undefined = getActiveDateLocaleSettings().timeZone, now: Date = new Date()): string {
-  return formatDateFns(toZonedWallClock(now, timeZone), 'yyyy-MM-dd')
+  return formatDateFns(dateInDisplayZone(now, timeZone), 'yyyy-MM-dd')
 }
 
 /**
