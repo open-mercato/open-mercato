@@ -19,6 +19,7 @@
 | 2 | 2.5 | `assisted_selling.settings.save` command (`withAtomicFlush`, 409 on first-save race) + tests | inline | done | — |
 | 2 | 2.6 | `GET/PUT /api/assisted_selling/settings/:storeId` (store-org ownership, 404, 500) + tests | inline | done | — |
 | 3 | 3.1 | UPGRADE_NOTES + spec changelog line | inline | done | — |
+| 3 | 3.2 | Integration coverage TC-ASSIST-001 (§10.1 settings rows) | inline | done | — |
 
 ## Goal
 
