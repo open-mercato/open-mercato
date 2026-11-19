@@ -220,6 +220,7 @@ export function withToolReplayContext<T>(ctx: ToolReplayContext, fn: () => Promi
 - `argsKey = canonicalInputKey(args)`. `strict` matches `(toolName, argsKey, occurrence)`. `ordered` matches the n-th call of `toolName` regardless of args, for inputs that carry generated ids.
 - A miss with `onMiss: 'error'` throws `tool_fixture_missing`, which errors the case run (never a silent live call). `onMiss: 'live'` runs the real tool and flags the case `toolMode: 'mixed'` in the report.
 - Replay never invokes a handler. This is safe for AO because its agents are read-only, and the wrapper refuses replay for `isMutation` tools as defence in depth.
+- Tool fixtures and per-case mocks retain the live tool's `requiredFeatures` check before lookup. A denied call reports `tool_replay_forbidden` and errors the case even when the SDK catches tool errors or live fallback is enabled.
 - **Record (A-3):** `eval … --record <dir>` records tool fixtures and ordered model-call fixtures at `<dir>/<agentId>/<caseKey>.<trialIndex>.model.json`. A generic async-scoped model-factory override lives in ai-assistant; enterprise owns fixture storage and replay. Calls are captured at the SDK model boundary, so structured output and tool loops run their normal validation on replay. Failed/incomplete provider recordings are rejected.
 - **Replay (A-3):** `--replay <dir>` retains tool-only semantics. Add `--offline true` to replay both models and tools without credentials or live fallback. `fixtures.model` also opts into model replay. Validate agent/case/trial identity, input and request fingerprints (including strict response schema, tools and settings); reject unused and missing calls. Bind across the whole case, including synchronous judge scoring. Recorded tool outputs encapsulate nested inference and delegation; those child calls are not recorded again or executed on replay. Reject OpenCode dispatch before execution. Files are CLI-only, limited to 5 MiB, validated, contained beneath their fixture directory and atomically written as mode 0600. Offline does not remove database/storage requirements. Raw tenant content is sensitive.
 - **Best-effort export from a stored run:** `--fixtures-from-run <runId>` reads `agent_tool_calls`. It marks a fixture `fidelity: 'summary'` when the stored response is a redacted or truncated summary, and replay of such a fixture produces a report warning.
@@ -408,6 +409,8 @@ Eval run detail (`backend/eval-runs/[id]/page.tsx`):
 
 ## Migration & Backward Compatibility
 
+The replay decision seam accepts an optional `authorized` flag; existing callers retain their signature. The AI tool adapter supplies the wildcard-aware feature decision for every invocation. The additive `forbidden` miss reason and `tool_replay_forbidden` error code let eval consumers fail denied cases without changing fixture files, HTTP APIs, or storage. Existing authorized replays need no migration.
+
 Checked against `BACKWARD_COMPATIBILITY.md`:
 
 | Surface | Category | Change | Verdict |
@@ -590,6 +593,10 @@ None. One ask-first item (generated descriptor field) is open; the YAML dependen
 **Approved for implementation of Phases 1–4** once Q1–Q5 are confirmed. Phase 5 step 2 waits for the ask-first approval.
 
 ## Changelog
+
+### 2026-11-19
+
+- #8922: enforce tool feature grants before replay/mock lookup and propagate forbidden replay misses to eval case failure, including SDK-caught errors and live fallback. Regression coverage spans the AI adapter and enterprise eval consumer.
 
 ### 2026-10-21
 - Initial specification. Motivated by content-validation use cases, generalized to all AO agents. Code facts recorded: the CLI prints only a summary; `evalSetVersion` is free text and replays read live, editable rows; replayed judge results lack `evalCaseRunId`, so they never reach the suite summary, and the judge does not receive `expected`; the scripted provider scripts tool calls but tools still execute live; there are no model temperature/seed settings for agents; the registry holds 22 scorer definitions (text 4, structured 4, tools 4, economics 3, agent 6, judge 1), while the workbench spec says 21.
