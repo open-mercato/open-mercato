@@ -51,7 +51,7 @@ describe('availability policies list route', () => {
     const response = await listHandler(new Request(`http://localhost/api/availability/policies${query}`))
 
     expect(response.status).toBe(200)
-    const options = mockFindAndCountWithDecryption.mock.calls[0][3]
+    const options = mockFindAndCountWithDecryption.mock.calls[0][3] as { orderBy: Record<string, 'ASC' | 'DESC'> }
     expect(options.orderBy).toEqual(expectedOrderBy)
     expect(Object.keys(options.orderBy)).toEqual(Object.keys(expectedOrderBy))
   })
