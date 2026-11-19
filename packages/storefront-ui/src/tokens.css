@@ -1,0 +1,283 @@
+/*
+  @open-mercato/storefront-ui tokens.
+  Semantic names match apps/mercato/src/app/globals.css so one merchant theme.css
+  (see .ai/specs/2026-07-05-ds-theming-and-brand-customization.md) brands both the
+  back office and the storefront. Values are the storefront defaults from the
+  DS library section "E-commerce / Foundations" (collection 07-Commerce, mode Open Mercato). Storefront-only tokens are prefixed --sf-.
+  Import this file once, before the merchant theme.css.
+*/
+
+:root {
+  /* Identity surface (merchants may override) */
+  --font-base: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: var(--font-base);
+  --font-sans: var(--font-base);
+  --font-display: var(--font-heading);
+  --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, monospace;
+  --sf-label-case: none;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --primary-hover: oklch(0.145 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.545 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --sf-surface: #f5f5f5;
+  --sf-surface-tint: #ebebeb;
+  --sf-primary-soft: oklch(0.269 0 0);
+  --sf-sale: #dc2626;
+  --sf-sale-foreground: #ffffff;
+
+  /* Pastel tiles (Figma v2 "lighter" state colours) */
+  --sf-tile-warm: #fff4e8;
+  --sf-tile-fresh: #effaf3;
+  --sf-tile-bold: #f3eeff;
+  --sf-tile-cool: #eef2ff;
+  --sf-tile-soft: #fdf2f2;
+  --sf-tile-calm: #eefafb;
+  --sf-tile-bright: #fff9e6;
+
+  /* Radii follow the store branding radius (--radius, SPEC-029 section 7): 8, 12, 12, 12, 16, 16, 20 at the default */
+  --radius: 0.625rem;
+  --sf-radius-badge: calc(var(--radius) * 0.8);
+  --sf-radius-button: calc(var(--radius) * 1.2);
+  --sf-radius-chip: calc(var(--radius) * 1.2);
+  --sf-radius-field: calc(var(--radius) * 1.2);
+  --sf-radius-card: calc(var(--radius) * 1.6);
+  --sf-radius-tile: calc(var(--radius) * 1.6);
+  --sf-radius-sheet: calc(var(--radius) * 2);
+
+  /* Control sizes (fixed) */
+  --sf-control-sm: 2rem;
+  --sf-control-md: 2.5rem;
+  --sf-control-lg: 2.75rem;
+
+  /* Layout */
+  --sf-gutter-sm: 1rem;
+  --sf-gutter-md: 2.5rem;
+  --sf-gutter-lg: 5rem;
+  --sf-grid-gap: 1.5rem;
+  --sf-container: 80rem;
+
+  /* Media */
+  --sf-image-ratio-product: 151 / 178;
+  --sf-image-fit: cover;
+
+  /* Type scale (DS library "Commerce/*" and "Paragraph/*" styles): size / line-height, display sizes are light.
+     Below `lg` use one step down: page title display-s, section title, card and sheet title-sm, text in fields body-lg (16 px, iOS zooms into smaller fields). */
+  --sf-text-display-xl: 4rem;
+  --sf-text-display-xl--line-height: 4.25rem;
+  --sf-text-display-xl--letter-spacing: -0.023em;
+  --sf-text-display-xl--font-weight: 300;
+  --sf-text-display-l: 3rem;
+  --sf-text-display-l--line-height: 3.25rem;
+  --sf-text-display-l--letter-spacing: -0.021em;
+  --sf-text-display-l--font-weight: 300;
+  --sf-text-display-m: 2.5rem;
+  --sf-text-display-m--line-height: 2.75rem;
+  --sf-text-display-m--letter-spacing: -0.02em;
+  --sf-text-display-m--font-weight: 300;
+  --sf-text-display-s: 1.75rem;
+  --sf-text-display-s--line-height: 2rem;
+  --sf-text-display-s--letter-spacing: -0.014em;
+  --sf-text-display-s--font-weight: 300;
+  --sf-text-title: 1.375rem;
+  --sf-text-title--line-height: 1.75rem;
+  --sf-text-title--letter-spacing: -0.009em;
+  --sf-text-title--font-weight: 300;
+  --sf-text-title-sm: 1.125rem;
+  --sf-text-title-sm--line-height: 1.5rem;
+  --sf-text-body-lg: 1rem;
+  --sf-text-body-lg--line-height: 1.5rem;
+  --sf-text-body: 0.875rem;
+  --sf-text-body--line-height: 1.25rem;
+  --sf-text-body-sm: 0.8125rem;
+  --sf-text-body-sm--line-height: 1.25rem;
+  --sf-text-body-xs: 0.75rem;
+  --sf-text-body-xs--line-height: 1rem;
+  --sf-text-badge: 0.6875rem;
+  --sf-text-badge--line-height: 1rem;
+
+  /* Disabled construction (fixed) */
+  --bg-disabled: #f7f7f7;
+  --text-disabled: #d1d1d1;
+  --border-disabled: #ebebeb;
+
+  /* Focus ring (fixed): uses --foreground, because the admin --ring grey is below 3:1 on white */
+  --focus-ring-inner: rgba(255, 255, 255, 1);
+  --focus-ring-outer: var(--foreground);
+  --shadow-focus: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer);
+
+  /* Elevation */
+  --shadow-xs: 0 1px 2px rgb(10 13 20 / 0.06);
+  --shadow-sm: 0 1px 3px rgb(10 13 20 / 0.08), 0 1px 2px rgb(10 13 20 / 0.04);
+  --shadow-md: 0 8px 24px rgb(10 13 20 / 0.10);
+  --shadow-lg: 0 16px 40px rgb(10 13 20 / 0.14);
+  --shadow-xl: 0 24px 64px rgb(10 13 20 / 0.18);
+
+  /* Layers */
+  --z-index-sticky: 20;
+  --z-index-dropdown: 30;
+  --z-index-overlay: 40;
+  --z-index-modal: 50;
+  --z-index-popover: 60;
+  --z-index-toast: 70;
+  --z-index-tooltip: 80;
+
+  /* Motion */
+  --sf-motion-fast: 150ms;
+  --sf-motion-base: 200ms;
+  --sf-motion-slow: 300ms;
+
+  /* Status palette (fixed, identical to the admin DS) */
+  --status-error-bg: oklch(0.971 0.013 17.38);
+  --status-error-text: oklch(0.396 0.141 25.723);
+  --status-error-border: oklch(0.885 0.062 18.334);
+  --status-error-icon: oklch(0.577 0.245 27.325);
+  --status-success-bg: oklch(0.982 0.018 155.826);
+  --status-success-text: oklch(0.393 0.095 152.535);
+  --status-success-border: oklch(0.925 0.084 155.995);
+  --status-success-icon: oklch(0.627 0.194 149.214);
+  --status-warning-bg: oklch(0.987 0.022 95.277);
+  --status-warning-text: oklch(0.414 0.112 45.904);
+  --status-warning-border: oklch(0.924 0.12 95.746);
+  --status-warning-icon: oklch(0.666 0.179 58.318);
+  --status-info-bg: oklch(0.962 0.018 272.314);
+  --status-info-text: oklch(0.359 0.144 278.697);
+  --status-info-border: oklch(0.870 0.065 274.039);
+  --status-info-icon: oklch(0.511 0.262 276.966);
+  --status-neutral-bg: oklch(0.97 0 0);
+  --status-neutral-text: oklch(0.371 0 0);
+  --status-neutral-border: oklch(0.922 0 0);
+  --status-neutral-icon: oklch(0.556 0 0);
+  --status-pink-bg: oklch(0.965 0.020 340);
+  --status-pink-text: oklch(0.388 0.180 340);
+  --status-pink-border: oklch(0.840 0.090 340);
+  --status-pink-icon: oklch(0.633 0.238 340);
+  --status-error-solid: oklch(0.577 0.245 27.325);
+  --status-error-solid-foreground: #ffffff;
+  --status-success-solid: oklch(0.527 0.154 150.069);
+  --status-success-solid-foreground: #ffffff;
+  --status-warning-solid: oklch(0.555 0.163 48.998);
+  --status-warning-solid-foreground: #ffffff;
+  --status-info-solid: oklch(0.511 0.262 276.966);
+  --status-info-solid-foreground: #ffffff;
+  --status-neutral-solid: oklch(0.439 0 0);
+  --status-neutral-solid-foreground: #ffffff;
+  --status-pink-solid: oklch(0.388 0.180 340);
+  --status-pink-solid-foreground: #ffffff;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --primary-hover: oklch(0.85 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --sf-surface: #141414;
+  --sf-surface-tint: #262626;
+  --sf-primary-soft: oklch(0.85 0 0);
+  --sf-sale: #ef4444;
+  --sf-sale-foreground: #0a0a0a;
+
+  --sf-tile-warm: #2b2118;
+  --sf-tile-fresh: #15241b;
+  --sf-tile-bold: #221a33;
+  --sf-tile-cool: #181d33;
+  --sf-tile-soft: #2b1818;
+  --sf-tile-calm: #14262a;
+  --sf-tile-bright: #2b2612;
+
+  --bg-disabled: oklch(0.25 0 0);
+  --text-disabled: oklch(0.45 0 0);
+  --border-disabled: oklch(0.30 0 0);
+  --focus-ring-inner: var(--background);
+
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.40), 0 1px 2px rgb(0 0 0 / 0.30);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.50);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.60);
+  --shadow-xl: 0 20px 40px rgb(0 0 0 / 0.70);
+
+  --status-error-bg: oklch(0.258 0.092 26.042);
+  --status-error-text: oklch(0.808 0.114 19.571);
+  --status-error-border: oklch(0.444 0.177 26.899);
+  --status-error-icon: oklch(0.637 0.237 25.331);
+  --status-success-bg: oklch(0.266 0.065 152.934);
+  --status-success-text: oklch(0.871 0.15 154.449);
+  --status-success-border: oklch(0.448 0.119 151.328);
+  --status-success-icon: oklch(0.723 0.219 149.579);
+  --status-warning-bg: oklch(0.279 0.077 45.635);
+  --status-warning-text: oklch(0.879 0.169 91.605);
+  --status-warning-border: oklch(0.473 0.137 46.201);
+  --status-warning-icon: oklch(0.769 0.188 70.08);
+  --status-info-bg: oklch(0.257 0.09 281.288);
+  --status-info-text: oklch(0.785 0.115 274.713);
+  --status-info-border: oklch(0.398 0.195 277.366);
+  --status-info-icon: oklch(0.585 0.233 277.117);
+  --status-neutral-bg: oklch(0.205 0 0);
+  --status-neutral-text: oklch(0.872 0 0);
+  --status-neutral-border: oklch(0.371 0 0);
+  --status-neutral-icon: oklch(0.708 0 0);
+  --status-pink-bg: oklch(0.225 0.045 340);
+  --status-pink-text: oklch(0.815 0.135 340);
+  --status-pink-border: oklch(0.405 0.155 340);
+  --status-pink-icon: oklch(0.700 0.225 340);
+  --status-error-solid: oklch(0.577 0.245 27.325);
+  --status-success-solid: oklch(0.527 0.154 150.069);
+  --status-warning-solid: oklch(0.555 0.163 48.998);
+  --status-info-solid: oklch(0.511 0.262 276.966);
+  --status-neutral-solid: oklch(0.439 0 0);
+  --status-pink-solid: oklch(0.388 0.180 340);
+}
+
+/* Shape presets: one attribute on <html> or any subtree switches the whole radius group. */
+/* Density: one step on grid gap and control size. */
+[data-sf-density="compact"] {
+  --sf-grid-gap: 1rem;
+  --sf-control-sm: 1.75rem;
+  --sf-control-md: 2.25rem;
+  --sf-control-lg: 2.5rem;
+}
+
+[data-sf-density="comfortable"] {
+  --sf-grid-gap: 2rem;
+  --sf-control-sm: 2.25rem;
+  --sf-control-md: 2.75rem;
+  --sf-control-lg: 3.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sf-motion-fast: 0ms;
+    --sf-motion-base: 0ms;
+    --sf-motion-slow: 0ms;
+  }
+}
