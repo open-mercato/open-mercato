@@ -11,3 +11,6 @@
 
 ## 2026-11-19T22:48:28Z — decision: spec over card (R4)
 - sales_orders index added (D-R5-CH1); amountsMode made nullable (§14a row 3); index columns (tenant_id, external_reference) per spec, not the audit's 3-column proposal.
+
+## 2026-11-19T23:34:14Z — final gate
+- Gate green except the known local-only create-mercato-app harness suites; core re-run alone green; db:generate clean for sales; integration 3/3. Step 1.5 (integration spec) added.
