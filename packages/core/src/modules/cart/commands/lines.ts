@@ -1244,81 +1244,90 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     }
 
     const now = new Date()
-    const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
     // §5.2 trigger 1 + §5.1's `priceChanges` disclosure (Step 5.1): populated only when the
     // tier-crossing re-price below actually moved the unit price, never for a same-tier
     // quantity change. `Cart.lastPriceChangeAt` (§5.3: "the cart records last_price_change_at")
-    // is set on `cart` — already loaded on this same `em` by `loadMutableCart` — so the single
-    // `em.flush()` below persists both the line's new snapshot and the cart's own timestamp.
+    // is set on `cart` in the same locked transaction as the line's new snapshot. §8.1 (rev
+    // 10.1 — I1): the tier is judged against the line as read under the cart lock, so a
+    // concurrent update that crossed a tier is never overwritten at the stale tier's price.
     const priceChanges: CartPriceChange[] = []
-    if (!sameTier) {
-      const pricingContext = buildCartPricingRowFilterContext(cart)
-      const variantIds = line.variantId ? [line.variantId] : []
-      const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
-      const resolved = await resolveLinePricing(em, ctx.container, cart, rows, finalQuantity, now, currencyDecimalPlaces)
-      if (!resolved.priceRow) return { status: 'rejected', reason: 'product_not_priceable' }
-      const oldUnitPriceNet = line.unitPriceNet ?? null
-      const oldUnitPriceGross = line.unitPriceGross ?? null
-      applyPriceSnapshot(line, resolved, now)
-      line.lineTotals = await computeLineTotals(ctx.container, cart, {
-        productId: line.productId,
-        variantId: line.variantId ?? null,
-        name: line.name,
-        quantity: finalQuantity,
-        unitPriceNet: resolved.amountNet,
-        unitPriceGross: resolved.amountGross,
-        unitPriceNetExact: resolved.amountNetExact,
-        unitPriceGrossExact: resolved.amountGrossExact,
-        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
-        taxRate: resolved.taxRatePercent,
-        configuration: line.configuration ?? null,
-      })
-      const newUnitPriceNet = line.unitPriceNet ?? null
-      const newUnitPriceGross = line.unitPriceGross ?? null
-      if (!samePrice(oldUnitPriceNet, newUnitPriceNet) || !samePrice(oldUnitPriceGross, newUnitPriceGross)) {
-        priceChanges.push({
-          lineId: line.id,
+    const notPriceable = new Error('[internal] cart line is not priceable under the cart lock')
+    const repriceLinePhase = async () => {
+      const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
+      if (!sameTier) {
+        const pricingContext = buildCartPricingRowFilterContext(cart)
+        const variantIds = line.variantId ? [line.variantId] : []
+        const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
+        const resolved = await resolveLinePricing(em, ctx.container, cart, rows, finalQuantity, now, currencyDecimalPlaces)
+        if (!resolved.priceRow) throw notPriceable
+        const oldUnitPriceNet = line.unitPriceNet ?? null
+        const oldUnitPriceGross = line.unitPriceGross ?? null
+        applyPriceSnapshot(line, resolved, now)
+        line.lineTotals = await computeLineTotals(ctx.container, cart, {
           productId: line.productId,
-          oldUnitPriceNet,
-          newUnitPriceNet,
-          oldUnitPriceGross,
-          newUnitPriceGross,
-          reason: 'tier_change',
+          variantId: line.variantId ?? null,
+          name: line.name,
+          quantity: finalQuantity,
+          unitPriceNet: resolved.amountNet,
+          unitPriceGross: resolved.amountGross,
+          unitPriceNetExact: resolved.amountNetExact,
+          unitPriceGrossExact: resolved.amountGrossExact,
+          amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
+          taxRate: resolved.taxRatePercent,
+          configuration: line.configuration ?? null,
         })
-        cart.lastPriceChangeAt = now
+        const newUnitPriceNet = line.unitPriceNet ?? null
+        const newUnitPriceGross = line.unitPriceGross ?? null
+        if (!samePrice(oldUnitPriceNet, newUnitPriceNet) || !samePrice(oldUnitPriceGross, newUnitPriceGross)) {
+          priceChanges.push({
+            lineId: line.id,
+            productId: line.productId,
+            oldUnitPriceNet,
+            newUnitPriceNet,
+            oldUnitPriceGross,
+            newUnitPriceGross,
+            reason: 'tier_change',
+          })
+          cart.lastPriceChangeAt = now
+        }
       }
     }
     // Step 8.2 (QA F12) — this command previously closed with a single bare `em.flush()`
     // here. Adding the whole-cart promotions/totals recompute means a QUERY (the fresh
     // full-line fetch `buildCartPromotionsAndTotalsPhases` needs) now runs after this
     // scalar mutation on the SAME `em` — `packages/core/AGENTS.md`'s "Entity Update Safety"
-    // rule requires `withAtomicFlush` for that, so this is no longer a plain flush. Every
-    // validation/rejection check above (quantity rule, visibility, not-priceable) still
-    // runs BEFORE this point and returns directly, matching `cart.lines.add`'s own
-    // validate-first-then-atomic-mutate structure.
+    // rule requires `withAtomicFlush` for that, so this is no longer a plain flush. The
+    // quantity-rule and visibility checks above still return directly; a not-priceable tier
+    // found under the lock rolls the transaction back and returns the same rejection.
     const createdGiftLines: CartLine[] = []
     const removedGiftLines: CartLine[] = []
     const promotionWarnings: CartPromotionWarning[] = []
 
-    await withCartLineMutationLock(em, cart.id, [
-      ...buildCartLineMutationGuardPhases(em, cart, line),
-      async () => {
-        line.quantity = String(finalQuantity)
-        if (assortmentScope !== undefined && line.flagState === 'product_unavailable') line.flagState = null
-      },
-      ...buildCartPromotionsAndTotalsPhases({
-        currencyDecimalPlaces,
-        em,
-        container: ctx.container,
-        cart,
-        scope,
-        assortmentScope,
-        now,
-        createdGiftLines,
-        removedGiftLines,
-        promotionWarnings,
-      }),
-    ], 'cart.lines.update')
+    try {
+      await withCartLineMutationLock(em, cart.id, [
+        ...buildCartLineMutationGuardPhases(em, cart, line),
+        repriceLinePhase,
+        async () => {
+          line.quantity = String(finalQuantity)
+          if (assortmentScope !== undefined && line.flagState === 'product_unavailable') line.flagState = null
+        },
+        ...buildCartPromotionsAndTotalsPhases({
+          currencyDecimalPlaces,
+          em,
+          container: ctx.container,
+          cart,
+          scope,
+          assortmentScope,
+          now,
+          createdGiftLines,
+          removedGiftLines,
+          promotionWarnings,
+        }),
+      ], 'cart.lines.update')
+    } catch (err) {
+      if (err === notPriceable) return { status: 'rejected', reason: 'product_not_priceable' }
+      throw err
+    }
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })

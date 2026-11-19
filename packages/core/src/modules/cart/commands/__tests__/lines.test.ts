@@ -1698,6 +1698,62 @@ describe('cart.lines.update / cart.lines.remove advisory lock', () => {
     },
   )
 
+  it('cart.lines.update judges the price tier against the line read under the lock, re-pricing a line a concurrent update moved to another tier', async () => {
+    seedCustomerLine()
+    seededPriceRows = [
+      { id: 'price-row-1', tenantId: TENANT_ID, organizationId: ORG_ID, minQuantity: 1, maxQuantity: 9 },
+      { id: 'price-row-10', tenantId: TENANT_ID, organizationId: ORG_ID, minQuantity: 10, maxQuantity: null },
+    ]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    const em = makeEm()
+    let armed = false
+    em.execute.mockImplementation(async (sql: string) => {
+      armed = sql.includes('pg_try_advisory_xact_lock')
+      return [{ locked: true }]
+    })
+    em.refresh.mockImplementation(async (row: Row) => {
+      if (armed && row.id === 'line-1') {
+        row.quantity = '12'
+        row.priceRowId = 'price-row-10'
+        row.priceTierMinQuantity = 10
+        row.unitPriceNet = '8'
+        row.unitPriceGross = '9.6'
+      }
+      return row
+    })
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+    const ctx = makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } })
+
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 6 }, ctx)
+
+    expect(result.status).toBe('updated')
+    if (result.status !== 'updated') throw new Error('expected updated')
+    expect(resolveLinePrice).toHaveBeenCalledTimes(1)
+    expect(result.line.quantity).toBe('6')
+    expect(result.line.priceRowId).toBe('price-row-1')
+    expect(result.priceChanges).toEqual([
+      expect.objectContaining({ lineId: 'line-1', oldUnitPriceNet: '8', newUnitPriceNet: '10', reason: 'tier_change' }),
+    ])
+  })
+
+  it('cart.lines.update rolls back and answers product_not_priceable when the tier found under the lock has no price', async () => {
+    seedCustomerLine()
+    seededPriceRows = [{ id: 'price-row-1', tenantId: TENANT_ID, organizationId: ORG_ID, minQuantity: 1, maxQuantity: 9 }]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    const em = makeEm()
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice({ priceRow: null }))
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 15 },
+      makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } }),
+    )
+
+    expect(result).toEqual({ status: 'rejected', reason: 'product_not_priceable' })
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(seededCartLines[0].quantity).toBe('5')
+  })
+
   it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
     '%s backs off and retries when the cart lock is busy, never mutating before it is held',
     async (commandId) => {

@@ -20,8 +20,8 @@
 | 1 | 1.4 | Login merge and merge undo lock both carts and re-check under the locks | inline | done | 2eee8ae23a |
 | 2 | 2.1 | Real-PostgreSQL status-transition races and cart in test:pg-integration | inline | done | f2f4631ba5 |
 | 2 | 2.2 | TC-CART-PRICE-01-02 assertion hunks | inline | done | 733ffc83e5 |
-| 3 | 1.4-review-fix | Merge reads lines and builds its outcome under the locks; undo check order | inline | done | (this commit) |
-| 3 | 1.2-review-fix | lines.update tier check and re-price under the lock | inline | todo | — |
+| 3 | 1.4-review-fix | Merge reads lines and builds its outcome under the locks; undo check order | inline | done | 0cbbcf7181 |
+| 3 | 1.2-review-fix | lines.update tier check and re-price under the lock | inline | done | (this commit) |
 
 ## Goal
 
