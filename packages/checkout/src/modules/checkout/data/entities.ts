@@ -229,7 +229,10 @@ export class CheckoutLink extends CheckoutLinkTemplate {
 
 @Entity({ tableName: 'checkout_link_slug_owners' })
 export class CheckoutLinkSlugOwner {
-  @PrimaryKey({ type: 'text' })
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ type: 'text', unique: true })
   slug!: string
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })

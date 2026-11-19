@@ -3,7 +3,7 @@ import { Migration } from '@mikro-orm/migrations'
 export class Migration20261119143000_checkout extends Migration {
   override async up(): Promise<void> {
     this.addSql('lock table "checkout_links" in share row exclusive mode;')
-    this.addSql('create table "checkout_link_slug_owners" ("slug" text not null, "tenant_id" uuid null, constraint "checkout_link_slug_owners_pkey" primary key ("slug"));')
+    this.addSql('create table "checkout_link_slug_owners" ("id" uuid not null default gen_random_uuid(), "slug" text not null, "tenant_id" uuid null, constraint "checkout_link_slug_owners_pkey" primary key ("id"), constraint "checkout_link_slug_owners_slug_unique" unique ("slug"));')
     this.addSql(`
       insert into "checkout_link_slug_owners" ("slug", "tenant_id")
       select "slug", case when count(distinct "tenant_id") = 1 then min("tenant_id"::text)::uuid end
@@ -32,7 +32,7 @@ export class Migration20261119143000_checkout extends Migration {
         ) then
           raise unique_violation using
             message = 'Checkout link slug is reserved',
-            constraint = 'checkout_link_slug_owners_pkey';
+            constraint = 'checkout_link_slug_owners_slug_unique';
         end if;
 
         return new;

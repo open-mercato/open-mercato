@@ -87,6 +87,18 @@ describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
     }
   }, 120_000)
 
+  it('provides stable UUID record IDs for tenant-scoped query indexing', async () => {
+    const reservations = await db.query(
+      'select id, slug from checkout_link_slug_owners where tenant_id = $1 order by id',
+      [originalScope.tenantId],
+    )
+    expect(reservations.rows).toEqual([
+      { id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f-]{27}$/), slug: 'retired' },
+    ])
+    const reservation = await orm.em.fork().findOneOrFail(CheckoutLinkSlugOwner, { slug: 'retired' })
+    expect(reservation.id).toBe(reservations.rows[0].id)
+  })
+
   it('reserves a previously deleted link for its original tenant and allows restore', async () => {
     const otherSlug = await allocate('retired', otherScope)
     expect(otherSlug).toBe('retired-2')
@@ -139,11 +151,23 @@ describeWithPostgres('checkout link slug ownership on PostgreSQL', () => {
 
       await expect(addLink(staleCandidate, otherScope.tenantId)).rejects.toMatchObject({
         code: '23505',
-        constraint: 'checkout_link_slug_owners_pkey',
+        constraint: 'checkout_link_slug_owners_slug_unique',
       })
       await expect(allocate('competing', otherScope)).resolves.toBe('competing-2')
     } finally {
       await writer.end()
     }
+  })
+  it('rolls back reservations without deleting checkout links', async () => {
+    const before = await db.query('select id, slug, tenant_id, deleted_at from checkout_links order by id')
+    const statements: string[] = []
+    const migration = Object.create(Migration20261119143000_checkout.prototype) as Migration20261119143000_checkout
+    Object.defineProperty(migration, 'addSql', { value: (statement: string) => statements.push(statement) })
+    await migration.down()
+    for (const statement of statements) await db.query(statement)
+    const after = await db.query('select id, slug, tenant_id, deleted_at from checkout_links order by id')
+    expect(after.rows).toEqual(before.rows)
+    await expect(db.query('select * from checkout_link_slug_owners')).rejects.toMatchObject({ code: '42P01' })
+    await expect(addLink('after-rollback', otherScope.tenantId)).resolves.toBeUndefined()
   })
 })

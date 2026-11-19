@@ -8,14 +8,31 @@
       "name": "checkout_link_slug_owners",
       "schema": "public",
       "columns": {
-        "slug": {
-          "name": "slug",
-          "type": "text",
+        "id": {
+          "name": "id",
+          "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
           "primary": true,
           "nullable": false,
           "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": true,
           "length": null,
           "precision": null,
           "scale": null,
@@ -46,12 +63,22 @@
       "indexes": [
         {
           "columnNames": [
-            "slug"
+            "id"
           ],
           "composite": false,
           "constraint": true,
           "keyName": "checkout_link_slug_owners_pkey",
           "primary": true,
+          "unique": true
+        },
+        {
+          "columnNames": [
+            "slug"
+          ],
+          "composite": false,
+          "constraint": true,
+          "keyName": "checkout_link_slug_owners_slug_unique",
+          "primary": false,
           "unique": true
         }
       ],

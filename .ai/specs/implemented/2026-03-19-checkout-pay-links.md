@@ -394,7 +394,7 @@ The actual pay link with a unique public URL slug. Shares all template columns p
 **Indexes:**
 - Partial unique index: `UNIQUE (slug) WHERE deleted_at IS NULL`
 - Index: `(organization_id, tenant_id, status, deleted_at)`
-- `checkout_link_slug_owners` reserves each slug by tenant after deletion or renaming. A tenant can reuse its retired slug when no live link uses it. Requests from other tenants receive the next available suffix.
+- `checkout_link_slug_owners` uses a UUID `id` for platform query indexing and a unique `slug` constraint. It reserves each slug by tenant after deletion or renaming. A tenant can reuse its retired slug when no live link uses it. Requests from other tenants receive the next available suffix.
 
 ### Entity: CheckoutTransaction
 
