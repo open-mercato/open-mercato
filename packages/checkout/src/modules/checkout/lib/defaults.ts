@@ -29,3 +29,27 @@ export function getLocalizedDefaultCheckoutCustomerFields(t?: TranslateFn): Defa
       : field.placeholder,
   }))
 }
+
+// Stored field definitions snapshot a built-in field's label in whatever locale was active when
+// the link/template was created (or last edited), so the public pay page cannot tell "operator
+// customized this label" apart from "this is just the default text" without a comparison. A
+// stored label that still matches the untranslated default for its key is treated as untouched
+// and re-rendered through the viewer's active locale; anything else is an explicit customization
+// and is preserved verbatim.
+export function localizeStoredCheckoutCustomerFieldLabel(key: string, label: string, t?: TranslateFn): string {
+  if (!t) return label
+  const defaultField = DEFAULT_CHECKOUT_CUSTOMER_FIELDS.find((candidate) => candidate.key === key)
+  if (!defaultField || defaultField.label !== label) return label
+  return t(`checkout.defaultCustomerFields.${key}.label`, defaultField.label)
+}
+
+export function localizeStoredCheckoutCustomerFields<T extends { key: string; label: string }>(
+  fields: T[],
+  t?: TranslateFn,
+): T[] {
+  if (!t) return fields
+  return fields.map((field) => {
+    const label = localizeStoredCheckoutCustomerFieldLabel(field.key, field.label, t)
+    return label === field.label ? field : { ...field, label }
+  })
+}

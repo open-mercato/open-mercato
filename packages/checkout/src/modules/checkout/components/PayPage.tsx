@@ -38,6 +38,7 @@ import {
   getCheckoutCustomerFieldSemanticType,
   validateCheckoutCustomerData,
 } from '../lib/customerDataValidation'
+import { localizeStoredCheckoutCustomerFields } from '../lib/defaults'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('checkout').child({ component: 'PayPage' })
@@ -780,6 +781,10 @@ export function PayPageCustomerForm({
   themeTokens,
 }: PayPageCustomerFormProps) {
   const t = useT()
+  const localizedFields = React.useMemo(
+    () => localizeStoredCheckoutCustomerFields(payload.customerFieldsSchema ?? [], t),
+    [payload.customerFieldsSchema, t],
+  )
 
   if ((payload.customerFieldsSchema?.length ?? 0) === 0 || payload.collectCustomerDetails === false) {
     return null
@@ -798,7 +803,7 @@ export function PayPageCustomerForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {(payload.customerFieldsSchema ?? []).map((field) => {
+        {localizedFields.map((field) => {
           const fieldPath = `customerData.${field.key}`
           const fieldError = fieldErrors[fieldPath]
           const value = customerData[field.key]
@@ -1477,6 +1482,10 @@ export function PayPage({
   const previewRequested = searchParams.get('preview') === 'true' || mode === 'template'
 
   const [payload, setPayload] = React.useState<PayLinkPayload | null>(initialPayload)
+  const localizedCustomerFieldsSchema = React.useMemo(
+    () => localizeStoredCheckoutCustomerFields(payload?.customerFieldsSchema ?? [], t),
+    [payload?.customerFieldsSchema, t],
+  )
   const [isLoading, setIsLoading] = React.useState(initialPayload == null && initialLoadError == null)
   const [loadError, setLoadError] = React.useState<string | null>(initialLoadError)
   const [password, setPassword] = React.useState('')
@@ -1579,7 +1588,7 @@ export function PayPage({
     if (!payload) return t('checkout.payPage.validation.thisField', 'this field')
     if (fieldPath.startsWith('customerData.')) {
       const fieldKey = fieldPath.slice('customerData.'.length)
-      return payload.customerFieldsSchema?.find((field) => field.key === fieldKey)?.label
+      return localizedCustomerFieldsSchema.find((field) => field.key === fieldKey)?.label
         ?? fieldKey
     }
     if (fieldPath === 'amount') {
@@ -1600,7 +1609,7 @@ export function PayPage({
       }
     }
     return t('checkout.payPage.validation.thisField', 'this field')
-  }, [payload, t])
+  }, [payload, localizedCustomerFieldsSchema, t])
 
   const translateValidationMessage = React.useCallback((message: string | null | undefined, fieldPath?: string) => {
     const trimmed = typeof message === 'string' ? message.trim() : ''
@@ -1705,7 +1714,7 @@ export function PayPage({
       selectedAmount: effectiveAmount ?? null,
       currencyCode: effectiveCurrencyCode,
       pricingMode: payload.pricingMode,
-      customerSchema: payload.customerFieldsSchema ?? [],
+      customerSchema: localizedCustomerFieldsSchema,
       customerData,
       legalDocuments: payload.legalDocuments ?? {},
       acceptedLegalConsents,
@@ -1731,6 +1740,7 @@ export function PayPage({
     isSubmitting,
     inputsLocked,
     payload,
+    localizedCustomerFieldsSchema,
     fieldErrors,
     paymentSession,
     paymentView,
