@@ -36,7 +36,7 @@ import {
 } from '../data/validators'
 import { computeSubmissionCompleteness, countActivePlots, type CompletenessContext } from '../lib/completeness'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
-import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 
 const EVIDENCE_SUBMISSION_ENTITY_ID = 'eudr:eudr_evidence_submission'
 

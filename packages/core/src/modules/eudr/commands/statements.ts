@@ -42,7 +42,7 @@ import {
   type StatementUpdateInput,
 } from '../data/validators'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
-import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 import {
   EUDR_AMEND_GUARDED_FIELDS,
   canDeleteStatement,

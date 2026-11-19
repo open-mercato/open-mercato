@@ -11,6 +11,7 @@ jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
   buildCustomFieldResetMap: jest.fn(),
 }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: async () => [],
   findOneWithDecryption: (
     em: { findOne: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown> },
     entity: unknown,
@@ -137,21 +138,21 @@ describe.each(commandNames)('EUDR %s update redo', (resource) => {
   })
 })
 
-describe('plot redo without later edits', () => {
+describe.each(commandNames)('EUDR %s redo without later edits', (resource) => {
   beforeEach(() => {
     jest.clearAllMocks()
     customFields = {}
   })
 
   it('replays the forward edit when only the undo timestamp changed', async () => {
-    const { command, input, ctx, record } = harness('plots')
+    const { command, input, ctx, record } = harness(resource)
     const snapshots = await command.prepare!(input, ctx)
     const before = JSON.parse(JSON.stringify(snapshots!.before)) as Record<string, unknown>
     record.updatedAt = new Date('2026-11-02T00:00:00Z')
 
     await expect(command.redo!({ input, ctx, logEntry: { snapshotBefore: before } })).resolves.toMatchObject({ entityId: RECORD_ID })
 
-    expect(record.name).toBe('My edit')
+    expect(resource === 'plots' ? record.name : record.notes).toBe('My edit')
     expect(sideEffects).toHaveBeenCalledTimes(1)
   })
 

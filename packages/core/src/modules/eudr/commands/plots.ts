@@ -34,7 +34,7 @@ import {
   type PlotUpdateInput,
 } from '../data/validators'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
-import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 import { POINT_MAX_AREA_HA, validatePlotGeometry } from '../lib/geometry'
 
 const PLOT_ENTITY_ID = 'eudr:eudr_plot'

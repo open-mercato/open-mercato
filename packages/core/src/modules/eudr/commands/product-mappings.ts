@@ -32,7 +32,7 @@ import {
   type ProductMappingUpdateInput,
 } from '../data/validators'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
-import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 
 const PRODUCT_MAPPING_ENTITY_ID = 'eudr:eudr_product_mapping'
 
