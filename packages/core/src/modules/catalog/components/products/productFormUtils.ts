@@ -89,3 +89,14 @@ export function normalizeProductConversionInputs(
   }
   return normalized;
 }
+
+export function applyProductMarkdownPreference(
+  metadata: Record<string, unknown>,
+  useMarkdown: boolean | null | undefined,
+): Record<string, unknown> {
+  const nextMetadata = { ...metadata };
+  if (useMarkdown || Object.prototype.hasOwnProperty.call(metadata, "__useMarkdown")) {
+    nextMetadata.__useMarkdown = useMarkdown ?? false;
+  }
+  return nextMetadata;
+}

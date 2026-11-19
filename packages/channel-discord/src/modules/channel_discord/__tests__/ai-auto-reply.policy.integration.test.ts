@@ -216,7 +216,7 @@ describe('channel_discord auto-reply — the subscriber against the real runtime
   })
 
   function makeCtx() {
-    const forked = { findOne: jest.fn(async () => null) }
+    const forked = { findOne: jest.fn(async () => null), count: jest.fn(async () => 0) }
     const em = { fork: () => forked }
     const commandBus = { execute: jest.fn(async () => ({ result: { id: 'reply-msg', threadId: null } })) }
     const resolve = jest.fn((name: string) => {
