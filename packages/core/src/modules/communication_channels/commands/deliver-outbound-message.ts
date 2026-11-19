@@ -14,13 +14,18 @@ import {
 } from '../lib/thread-token'
 import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
 import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
+import {
+  OutboundAttachmentDeliveryError,
+  loadOutboundAttachments,
+  omitOutboundAttachments,
+  readStoredOutboundAttachments,
+} from '../lib/outbound-attachments'
 import { adoptProviderConversationRef } from '../lib/outbound-conversation-ref'
+import { resolveOutboundRouting } from '../lib/outbound-routing'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
 import {
-  ChannelThreadMapping,
-  CommunicationChannel,
   ExternalMessage,
   MessageChannelLink,
 } from '../data/entities'
@@ -169,41 +174,14 @@ const deliverOutboundMessageCommand: CommandHandler<
       dscope,
     )
 
-    const mapping = await findOneWithDecryption(
-      em,
-      ChannelThreadMapping,
-      {
-        messageThreadId: message.threadId,
-        ...(link ? { externalConversationId: link.externalConversationId } : {}),
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
-    if (!mapping) {
-      // Internal-only message — no channel delivery needed.
-      return NO_THREAD_MAPPING_RESULT
+    if (link && ['queued', 'sent', 'delivered', 'read'].includes(link.deliveryStatus)) {
+      return { status: 'already_delivered', messageId: message.id, channelLinkId: link.id }
     }
 
-    // (2) Channel + adapter.
-    const channel = await findOneWithDecryption(
-      em,
-      CommunicationChannel,
-      {
-        id: mapping.channelId,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-        deletedAt: null,
-      },
-      undefined,
-      dscope,
-    )
-    if (!channel) {
-      throw new Error(
-        `[internal] Channel ${mapping.channelId} not found for tenant ${input.scope.tenantId} (or has been deleted)`,
-      )
-    }
+    const routing = await resolveOutboundRouting(em, { message, link, scope: dscope })
+    if (!routing) return NO_THREAD_MAPPING_RESULT
+    const { mapping, channel } = routing
+
     if (!channel.isActive) {
       throw new Error(`[internal] Channel ${mapping.channelId} is inactive; refusing to deliver outbound`)
     }
@@ -217,22 +195,6 @@ const deliverOutboundMessageCommand: CommandHandler<
       )
     }
 
-    // (3) Idempotently upsert a 'pending' MessageChannelLink.
-    if (
-      link &&
-      (link.deliveryStatus === 'queued' ||
-        link.deliveryStatus === 'sent' ||
-        link.deliveryStatus === 'delivered' ||
-        link.deliveryStatus === 'read')
-    ) {
-      // Already sent (or accepted by the provider as 'queued') — short-circuit
-      // so a retried job does not re-invoke the adapter and double-send.
-      return {
-        status: 'already_delivered',
-        messageId: message.id,
-        channelLinkId: link.id,
-      }
-    }
     if (!link) {
       link = em.create(MessageChannelLink, {
         messageId: message.id,
@@ -440,9 +402,29 @@ const deliverOutboundMessageCommand: CommandHandler<
           mergedReferences = [...mergedReferences, refId]
         }
       }
+      // Attachment bytes are read here, on every attempt, for the channel owner
+      // the send-as-user facade authorized; a file that is gone or no longer
+      // fits fails the delivery permanently rather than sending without it.
+      const storedAttachments = readStoredOutboundAttachments(baseMetadata)
+      if (storedAttachments.length && !channel.userId) {
+        throw new OutboundAttachmentDeliveryError('attachment_unavailable')
+      }
+      const attachments = storedAttachments.length
+        ? await loadOutboundAttachments({
+            container: ctx.container,
+            scope: {
+              userId: channel.userId as string,
+              tenantId: input.scope.tenantId,
+              organizationId: input.scope.organizationId ?? null,
+            },
+            stored: storedAttachments,
+            capabilities: adapter.capabilities,
+          })
+        : undefined
       const converted = await adapter.convertOutbound({
         body: outboundBody,
         bodyFormat: outboundBodyFormat,
+        ...(attachments ? { attachments } : {}),
         channelMetadata: {
           thread_id: mapping.externalThreadRef,
           // Reply targeting is hub-resolved only. `send-as-user` merges
@@ -452,7 +434,7 @@ const deliverOutboundMessageCommand: CommandHandler<
           // resolved a parent, and the uncontested case — no `parentMessageId`,
           // or a parent that does not resolve — is exactly the one a caller
           // controls.
-          ...stripCallerReplyTargeting(baseMetadata),
+          ...stripCallerReplyTargeting(omitOutboundAttachments(baseMetadata)),
           references: mergedReferences,
           ...(threadToken ? { omThreadToken: threadToken } : {}),
           ...(replyToExternalId ? { replyToExternalId } : {}),
@@ -528,7 +510,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         // (the RFC2822 id the recipient replies to) — fall back to that.
         // Store it bracket-stripped to match the inbound convention
         // (`normalizeMimeInbound` strips), so the JWZ matcher and sent-folder dedup —
-        // which compare against stripped ids — resolve it. `assembleRfc2822`
+        // which compare against stripped ids — resolve it. The MIME composer
         // re-applies brackets when this id is later used to build reply headers.
         // A provider that rewrites the header on send (Gmail mints its own
         // Message-ID) reports the id it actually sent in `sendResult.metadata.messageId`;

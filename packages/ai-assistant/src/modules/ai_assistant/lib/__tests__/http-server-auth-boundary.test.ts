@@ -4,16 +4,18 @@ import type { AwilixContainer } from 'awilix'
 
 /**
  * Boundary coverage for issue #5173: proves the HTTP MCP transport's per-tool-call
- * auth decision over a *real* HTTP connection and the *real* MCP wire protocol —
- * not the mocked SDK/executor/ACL-matcher the sibling unit test
- * (`http-server-session-fallback.test.ts`) uses. Only the DB-backed lookups
- * (`findApiKeyBySecret`, `findSessionApiKeyWithSecret`) and the RBAC role-grant
- * read (`rbacService.loadAcl`) are stubbed — this package has no live-Postgres
- * Jest lane (see `packages/core`'s `test:pg-integration` for the pattern this
- * repo uses elsewhere; ai-assistant isn't wired into it). Everything else —
- * `McpServer`/`StreamableHTTPServerTransport` (real SDK), `extractApiKeyFromHeaders`
- * and `hasRequiredFeatures` (real `../auth`), the tool registry and `executeTool`
- * (real `../tool-registry` / `../tool-executor`) — runs for real.
+ * auth decision over a *real* HTTP connection and the *real* MCP wire protocol.
+ * Only the DB-backed lookups (`findApiKeyBySecret`, `findSessionApiKeyWithSecret`)
+ * and the RBAC role-grant read (`rbacService.loadAcl`) are stubbed — this package
+ * has no live-Postgres Jest lane (see `packages/core`'s `test:pg-integration` for
+ * the pattern this repo uses elsewhere; ai-assistant isn't wired into it).
+ * Everything else — `McpServer`/`StreamableHTTPServerTransport` (real SDK),
+ * `extractApiKeyFromHeaders` and `hasRequiredFeatures` (real `../auth`), the tool
+ * registry and `executeTool` (real `../tool-registry` / `../tool-executor`),
+ * and `tools/list` ACL filtering (real `../mcp-exposure`) — runs for real. The
+ * transport key's own `loadAcl` fixture resolves superadmin (the worst case for
+ * list-time filtering) specifically so every assertion below proves the
+ * per-call `_sessionToken` requirement, not an accident of a narrower list ACL.
  */
 
 jest.mock('../tool-loader', () => ({
@@ -55,7 +57,14 @@ const loadAcl = jest.fn(async (userId: string) => {
   if (userId === 'api_key:session-restricted-1') {
     return { isSuperAdmin: false, features: ['allowed.feature'], organizations: null }
   }
-  throw new Error(`unexpected loadAcl call for ${userId} — the transport key must never reach RBAC`)
+  if (userId === 'api_key:infra-key-1') {
+    // Worst case: the transport key's own ACL resolves superadmin (e.g. it was
+    // created by a superadmin user). This is consulted for `tools/list`
+    // filtering only — the test still proves that holding this key alone can
+    // never execute a tool without a valid per-user `_sessionToken`.
+    return { isSuperAdmin: true, features: ['*'], organizations: null }
+  }
+  throw new Error(`unexpected loadAcl call for ${userId}`)
 })
 
 function getFreePort(): Promise<number> {
@@ -242,8 +251,20 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
     const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
     expect(payload.code).toBe('UNAUTHORIZED')
     expect(restrictedToolRuns).toBe(0)
-    // The transport key's identity must never reach RBAC — there is no code path left that asks for its ACL.
-    expect(loadAcl).not.toHaveBeenCalled()
+    // The transport key's ACL is consulted only to decide which tools are listed
+    // (even a superadmin-resolved transport key, the worst case, lists every
+    // tool) — it is never consulted again to authorize execution. Holding the
+    // key alone, with no `_sessionToken`, still fails closed.
+    expect(loadAcl).toHaveBeenCalledWith('api_key:infra-key-1', { tenantId: null, organizationId: null })
+  })
+
+  it('treats an empty-string _sessionToken as missing, not present', async () => {
+    const result = await callTool({ apiKey: TRANSPORT_KEY_SECRET, args: { _sessionToken: '' } }, 'restricted_tool')
+
+    expect(result.isError).toBe(true)
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
+    expect(payload.code).toBe('UNAUTHORIZED')
+    expect(restrictedToolRuns).toBe(0)
   })
 
   it('rejects an invalid/expired _sessionToken without ever running the tool', async () => {
@@ -256,7 +277,6 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
     const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
     expect(payload.code).toBe('SESSION_EXPIRED')
     expect(allowedToolRuns).toBe(0)
-    expect(loadAcl).not.toHaveBeenCalled()
   })
 
   it('denies a restricted session a tool outside its granted scope — the tool never executes', async () => {
