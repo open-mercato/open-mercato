@@ -39,7 +39,7 @@ test('TC-NOTIF-9136: settings recover from load failure, refuse stale browser sa
     await acknowledgeGlobalNotices(page)
     await page.route('**/api/notifications/settings', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Controlled settings failure' }) }))
     await page.goto('/backend/config/notifications')
-    await expect(page.getByRole('alert').filter({ hasText: 'Controlled settings failure' })).toBeVisible()
+    await expect(page.getByRole('alert').filter({ hasText: 'Controlled settings failure', has: page.getByRole('button', { name: /retry/i }) })).toBeVisible()
     await page.unroute('**/api/notifications/settings')
     await page.getByRole('button', { name: /retry/i }).click()
     await expect(page.locator('#notifications-email-reply')).toBeVisible()
