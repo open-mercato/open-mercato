@@ -3,6 +3,7 @@ import { Readable } from 'stream'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment, AttachmentPartition } from '../../attachments/data/entities'
+import { ensureAttachmentPartitionProtection } from '../../attachments/lib/access-protection'
 import { buildAttachmentFileUrl } from '../../attachments/lib/imageUrls'
 import { ensureDefaultPartitions } from '../../attachments/lib/partitions'
 import { resolveAttachmentAbsolutePath, storePartitionFile } from '../../attachments/lib/storage'
@@ -26,6 +27,8 @@ export async function createSyncExcelUploadAttachment(input: {
   if (!partition) {
     throw new Error('Storage partition is not configured.')
   }
+
+  await ensureAttachmentPartitionProtection(input.em, partition)
 
   const stored = await storePartitionFile({
     partitionCode: partition.code,

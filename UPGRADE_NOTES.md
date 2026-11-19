@@ -508,6 +508,32 @@ or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
 
+## Sync Excel attachments enforce upload view permission (#8763)
+
+Generic attachment routes (file/image, list/metadata, and any direct reader already enforcing
+owner policy) now apply the owning module's `sync_excel.view` check to `sync_excel:upload`
+attachments. Baseline organization membership alone no longer grants access to a restricted
+import upload; a caller holding `sync_excel.view` keeps their existing access, exactly as the
+native import preview endpoint already required.
+
+**Operator action:** run the additive attachments migration (`Migration20261119120000_attachments.ts`)
+before serving the new binaries, then `yarn generate` and rebuild modules. It backfills the
+required `sync_excel.upload-attachments` provider onto existing `privateAttachments` partitions
+that already hold `sync_excel:upload` attachments. This backfill needs no enabled `sync_excel`
+module and preserves unrelated owners and requirements in that shared partition (and other
+partitions' requirements), failing closed on malformed existing policy data, like the Documents
+backfill in #6726.
+
+**Module author action:** none beyond the existing `data/attachment-access.ts` convention
+(`@open-mercato/core/modules/attachments`). No new types or signatures.
+
+**Rollback:** keep the additive schema and roll forward. Older binaries ignore the new
+requirement. Dropping the backfilled policy data is not a supported security rollback.
+
+This intentional tightening uses the Emergency Security Exception described in
+`BACKWARD_COMPATIBILITY.md` and [spec `2026-11-19-sync-excel-attachment-access.md`](.ai/specs/2026-11-19-sync-excel-attachment-access.md).
+Named human maintainer waiver of steps 1–3: **PENDING**.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
