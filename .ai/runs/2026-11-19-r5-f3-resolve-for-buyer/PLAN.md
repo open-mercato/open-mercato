@@ -14,7 +14,7 @@
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Port resolveForBuyer seam with store_misconfigured and unit tests | inline | done | 29160c906c |
 | 1 | 1.2 | Add the StoreContextService upgrade note | inline | done | d279417b1f |
-| 1 | 1.3-review-fix | Cover review test gaps for resolveForBuyer | inline | done | (this commit) |
+| 1 | 1.3-review-fix | Cover review test gaps for resolveForBuyer | inline | done | 7b9dc7bd22 |
 
 ## Goal
 

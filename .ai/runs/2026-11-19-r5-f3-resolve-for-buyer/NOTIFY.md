@@ -11,3 +11,7 @@
 
 ## 2026-11-19T20:04:24Z — final gate
 - Gate passed apart from create-mercato-app#test (known local OMH harness failure). Integration and DS passes skipped (no route or UI). See final-gate-checks.md.
+
+## 2026-11-19T20:08:43Z — review and run end
+- Independent review: approve. One Medium (trusted guest omits the default customer group) left as spec-literal and flagged for the owner; test gaps fixed in 1.3-review-fix (26/26).
+- Run complete: https://github.com/open-mercato/open-mercato/pull/10010

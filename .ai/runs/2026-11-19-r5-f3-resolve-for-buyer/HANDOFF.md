@@ -1,19 +1,19 @@
 # Handoff — 2026-11-19-r5-f3-resolve-for-buyer
 
-**Last updated:** 2026-11-19T20:04:24Z
+**Last updated:** 2026-11-19T20:08:43Z
 **Branch:** feat/r5-f3-resolve-for-buyer
 **PR:** https://github.com/open-mercato/open-mercato/pull/10010
 **Current phase/step:** complete
-**Last commit:** d279417b1f — docs(upgrade-notes): StoreContextService gains optional resolveForBuyer
+**Last commit:** 7b9dc7bd22 — test(ecommerce): cover resolveForBuyer review gaps
 
 ## What just happened
-- Steps 1.1 and 1.2 landed; final gate recorded in final-gate-checks.md.
+- Steps 1.1, 1.2 and 1.3-review-fix landed; final gate recorded; review approved; PR flipped to ready.
 
 ## Next concrete action
 - None in this run. Rebase onto main once #10000 and #9988 merge.
 
 ## Blockers / open questions
-- none (release plan file unavailable; proceeding on the spec, per user)
+- Spec question for the owner: should a trusted guest include the tenant default customer group, as a storefront guest does? (PLAN.md § Review outcome)
 
 ## Environment caveats
 - Dev runtime runnable: unknown
