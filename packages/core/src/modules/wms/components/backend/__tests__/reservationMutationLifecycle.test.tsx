@@ -109,6 +109,21 @@ describe('reservation mutation lifecycle', () => {
     expect(mockFlash).not.toHaveBeenCalledWith(expect.anything(), 'success')
   })
 
+  it('rejects a balance integrity conflict and its retry without emitting success', async () => {
+    mockApiCall.mockResolvedValue({ ok: false, response: { status: 409 }, result: { error: 'balance_integrity_violation' } })
+    render(<ReleaseReservationDialog open onOpenChange={jest.fn()} access={access} reservation={reservation} />)
+    fireEvent.click(screen.getByText('Select test reason'))
+    fireEvent.click(screen.getByTestId('wms-inventory-release-submit'))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(expect.stringContaining('Balance integrity error'), 'error'))
+    expect(mockTriggerEvent.mock.calls.some(([event]) => event === 'onAfterSave')).toBe(false)
+    let retried = true
+    await act(async () => { retried = await retryFromMutationContext()() })
+    expect(retried).toBe(false)
+    expect(mockDispatchMutationError).toHaveBeenCalledTimes(2)
+    expect(mockTriggerEvent.mock.calls.some(([event]) => event === 'onAfterSave')).toBe(false)
+    expect(mockFlash).not.toHaveBeenCalledWith(expect.anything(), 'success')
+  })
+
   it('emits success after a release succeeds', async () => {
     mockApiCall.mockResolvedValue({ ok: true, result: { ok: true } })
     render(<ReleaseReservationDialog open onOpenChange={jest.fn()} access={access} reservation={reservation} />)
