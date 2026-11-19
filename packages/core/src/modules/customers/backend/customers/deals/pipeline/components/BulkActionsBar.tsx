@@ -4,8 +4,21 @@ import * as React from 'react'
 import { Download, Trash2, Workflow, UserCircle2, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+
+const COUNT_MARKER = '\uE000'
+const ON_BAR_ICON_BUTTON = 'hover:bg-white/10'
+
+function splitAroundCount(text: string): { before: string; after: string } {
+  const index = text.indexOf(COUNT_MARKER)
+  if (index === -1) return { before: '', after: text.trim() }
+  return {
+    before: text.slice(0, index).trim(),
+    after: text.slice(index + COUNT_MARKER.length).trim(),
+  }
+}
 
 type BulkActionsBarProps = {
   count: number
@@ -52,120 +65,90 @@ export function BulkActionsBar({
 
   if (count === 0) return null
 
+  const selectedLabel = splitAroundCount(
+    translateWithFallback(t, 'customers.deals.kanban.bulk.selectedCount', '{count} selected', {
+      count: COUNT_MARKER,
+    }),
+  )
+
+  const changeStageLabel = translateWithFallback(t, 'customers.deals.kanban.bulk.changeStage', 'Change stage')
+  const changeOwnerLabel = translateWithFallback(t, 'customers.deals.kanban.bulk.changeOwner', 'Change owner')
+  const exportLabel = translateWithFallback(t, 'customers.deals.kanban.bulk.exportCsv', 'Export CSV')
+  const deleteLabel = translateWithFallback(t, 'customers.deals.kanban.bulk.delete', 'Delete')
+
   return (
     <div
       role="region"
-      aria-label={translateWithFallback(
-        t,
-        'customers.deals.kanban.bulk.aria.bar',
-        'Bulk actions',
-      )}
-      className="fixed bottom-6 left-1/2 z-toast flex w-[min(960px,calc(100%-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-4 py-3 text-background shadow-xl"
+      aria-label={translateWithFallback(t, 'customers.deals.kanban.bulk.aria.bar', 'Bulk actions')}
+      className="sticky bottom-4 z-sticky flex w-full flex-wrap items-center gap-2 rounded-lg bg-neutral-700 px-3 py-2 text-white shadow-lg sm:gap-x-3"
     >
-      <IconButton
-        variant="ghost"
-        size="xs"
-        onClick={onClear}
-        aria-label={translateWithFallback(
-          t,
-          'customers.deals.kanban.bulk.aria.clear',
-          'Clear selection',
-        )}
-        className="inline-flex size-6 items-center justify-center rounded-md transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-      >
-        <X className="size-4" aria-hidden="true" />
-      </IconButton>
-
-      <span className="inline-flex size-7 items-center justify-center rounded-md bg-background/10 text-xs font-semibold">
-        {count}
-      </span>
-      <span className="text-sm font-medium">
-        {translateWithFallback(
-          t,
-          'customers.deals.kanban.bulk.selectedCount',
-          'selected',
-        )}
-      </span>
-      {totalLabel ? (
-        <span className="hidden text-sm text-background/80 sm:inline">
-          ·{' '}
-          {translateWithFallback(
-            t,
-            'customers.deals.kanban.bulk.totalValue',
-            'Total {value}',
-            { value: totalLabel },
-          )}
+      <div className="flex min-w-0 items-center gap-2">
+        <IconButton
+          variant="modifiable"
+          size="sm"
+          type="button"
+          onClick={onClear}
+          aria-label={translateWithFallback(t, 'customers.deals.kanban.bulk.aria.clear', 'Clear selection')}
+          className={ON_BAR_ICON_BUTTON}
+        >
+          <X aria-hidden="true" />
+        </IconButton>
+        <span className="inline-flex items-center gap-1.5 text-sm" data-testid="kanban-bulk-selected-count">
+          {selectedLabel.before ? <span>{selectedLabel.before}</span> : null}
+          <span className="tabular-nums">{count}</span>
+          {selectedLabel.after ? <span>{selectedLabel.after}</span> : null}
         </span>
-      ) : null}
+        {totalLabel ? (
+          <span className="hidden pl-2 text-sm text-neutral-300 sm:inline" data-testid="kanban-bulk-total">
+            {translateWithFallback(t, 'customers.deals.kanban.bulk.totalValue', 'Total {value}', { value: totalLabel })}
+          </span>
+        ) : null}
+      </div>
 
       <div className="ml-auto flex items-center gap-1">
+        <SimpleTooltip content={changeOwnerLabel}>
+          <IconButton
+            variant="modifiable"
+            type="button"
+            onClick={onChangeOwner}
+            aria-label={changeOwnerLabel}
+            className={ON_BAR_ICON_BUTTON}
+          >
+            <UserCircle2 aria-hidden="true" />
+          </IconButton>
+        </SimpleTooltip>
+        <SimpleTooltip content={exportLabel}>
+          <IconButton
+            variant="modifiable"
+            type="button"
+            onClick={onExportCsv}
+            aria-label={exportLabel}
+            className={ON_BAR_ICON_BUTTON}
+          >
+            <Download aria-hidden="true" />
+          </IconButton>
+        </SimpleTooltip>
+        <SimpleTooltip content={deleteLabel}>
+          <IconButton
+            variant="modifiable"
+            type="button"
+            onClick={onDelete}
+            aria-label={deleteLabel}
+            className={ON_BAR_ICON_BUTTON}
+          >
+            <Trash2 aria-hidden="true" />
+          </IconButton>
+        </SimpleTooltip>
         <Button
-          variant="ghost"
           size="sm"
           type="button"
           onClick={onChangeStage}
-          className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
+          className="ml-2 w-8 bg-white text-neutral-900 shadow-none hover:bg-neutral-100 has-[>svg]:px-0 sm:w-auto sm:has-[>svg]:px-2.5"
         >
-          <Workflow className="size-4" aria-hidden="true" />
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.bulk.changeStage',
-              'Change stage',
-            )}
-          </span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          onClick={onChangeOwner}
-          className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-        >
-          <UserCircle2 className="size-4" aria-hidden="true" />
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.bulk.changeOwner',
-              'Change owner',
-            )}
-          </span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          onClick={onExportCsv}
-          className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-        >
-          <Download className="size-4" aria-hidden="true" />
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.bulk.exportCsv',
-              'Export CSV',
-            )}
-          </span>
-        </Button>
-        <Button
-          variant="destructive-ghost"
-          size="sm"
-          type="button"
-          onClick={onDelete}
-          className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm text-status-error-text transition-colors hover:bg-status-error-bg/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.bulk.delete',
-              'Delete',
-            )}
-          </span>
+          <Workflow aria-hidden="true" />
+          <span className="sr-only sm:not-sr-only">{changeStageLabel}</span>
         </Button>
       </div>
     </div>
   )
 }
-
-export default BulkActionsBar
