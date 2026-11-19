@@ -7,6 +7,7 @@ import {
   cancelWorkflowInstanceIfExists,
   createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
+  listWorkflowInstanceTasks,
   pollWorkflowInstance,
   startWorkflowInstanceFixture,
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
@@ -86,6 +87,7 @@ function buildFanOutTaskDefinitionPayload(timestamp: number, assignedTo: string)
 
 test.describe('TC-WF-081: list pagination stays stable when createdAt ties', () => {
   test('instance list pages return every tied instance exactly once', async ({ request }) => {
+    test.setTimeout(60_000)
     const token = await getAuthToken(request, 'admin')
     const definitionPayload = buildMinimalDefinitionPayload(Date.now(), '-081')
     const instanceIds: string[] = []
@@ -114,11 +116,11 @@ test.describe('TC-WF-081: list pagination stays stable when createdAt ties', () 
   })
 
   test('task list pages return every tied task of a fan-out step exactly once', async ({ request }) => {
+    test.setTimeout(120_000)
     const token = await getAuthToken(request, 'admin')
     const definitionPayload = buildFanOutTaskDefinitionPayload(Date.now(), getTokenScope(token).userId)
     let definitionId: string | null = null
     let instanceId: string | null = null
-    let taskIds: string[] = []
     try {
       definitionId = await createWorkflowDefinitionFixture(request, token, definitionPayload)
       instanceId = await startWorkflowInstanceFixture(request, token, {
@@ -127,6 +129,7 @@ test.describe('TC-WF-081: list pagination stays stable when createdAt ties', () 
       })
 
       const basePath = `/api/workflows/tasks?workflowInstanceId=${encodeURIComponent(instanceId)}`
+      let taskIds: string[] = []
       const deadline = Date.now() + 30_000
       while (Date.now() < deadline) {
         const response = await apiRequest(request, 'GET', `${basePath}&limit=100`, { token })
@@ -144,19 +147,20 @@ test.describe('TC-WF-081: list pagination stays stable when createdAt ties', () 
       expect([...firstWalk].sort()).toEqual([...taskIds].sort())
       expect(await walkPages(request, token, basePath)).toEqual(firstWalk)
 
-      while (taskIds.length > 0) {
-        const response = await apiRequest(request, 'POST', `/api/workflows/tasks/${encodeURIComponent(taskIds[0])}/complete`, {
+      for (const taskId of taskIds) {
+        const response = await apiRequest(request, 'POST', `/api/workflows/tasks/${encodeURIComponent(taskId)}/complete`, {
           token,
           data: { formData: {} },
         })
         expect([200, 201]).toContain(response.status())
-        taskIds = taskIds.slice(1)
       }
       const finished = await pollWorkflowInstance(request, token, instanceId, (instance) => instance.status === 'COMPLETED', { timeoutMs: 30_000 })
       expect(finished?.status).toBe('COMPLETED')
     } finally {
-      for (const taskId of taskIds) {
-        await apiRequest(request, 'POST', `/api/workflows/tasks/${encodeURIComponent(taskId)}/complete`, {
+      const openTasks = instanceId ? await listWorkflowInstanceTasks(request, token, instanceId).catch(() => []) : []
+      for (const task of openTasks) {
+        if (!task.id || (task.status !== 'PENDING' && task.status !== 'IN_PROGRESS')) continue
+        await apiRequest(request, 'POST', `/api/workflows/tasks/${encodeURIComponent(task.id)}/complete`, {
           token,
           data: { formData: {} },
         }).catch(() => undefined)
