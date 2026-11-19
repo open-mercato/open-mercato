@@ -14,7 +14,7 @@ import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fi
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
-import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
+import { CheckoutLink, CheckoutLinkSlugOwner, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
 import { buildCheckoutAttachmentPreviewUrl, normalizeOptionalString } from './client-utils'
 import {
   assertExactCustomAmountRange,
@@ -251,21 +251,12 @@ export function validateDescriptorCurrencies(providerKey: string | null | undefi
 /**
  * Generates a unique checkout link slug.
  *
- * NOTE: The slug uniqueness check runs GLOBALLY against all checkout links, and the
- * `scope` parameter is intentionally ignored. This is required because the public-facing
- * checkout routes (e.g., `/pay/[slug]`) do not have any tenant/organization discriminator
- * in their URL path, resolving links solely by the slug. Consequently, duplicate slugs
- * cannot exist across different tenants.
- *
- * @param em MikroORM EntityManager
- * @param _scope Tenant and organization scope (ignored in database query)
- * @param requestedSlug The slug requested by the user
- * @param fallbackText The title/name used to generate the slug if requestedSlug is empty
- * @param excludeId Optional ID of the checkout link to exclude from the duplicate check
+ * Public checkout routes resolve slugs globally. A retired slug can be reused by its
+ * owning tenant, and an existing live link can keep its slug when edited.
  */
 export async function ensureUniqueSlug(
   em: EntityManager,
-  _scope: CheckoutScope,
+  scope: CheckoutScope,
   requestedSlug: string | null | undefined,
   fallbackText: string,
   excludeId?: string | null,
@@ -274,12 +265,16 @@ export async function ensureUniqueSlug(
   let candidate = base
   let counter = 1
   while (true) {
-    const existing = await em.findOne(CheckoutLink, {
+    const liveLink = await em.findOne(CheckoutLink, {
       slug: candidate,
       deletedAt: null,
-      ...(excludeId ? { id: { $ne: excludeId } } : {}),
-    })
-    if (!existing) return candidate
+    }, { fields: ['id', 'tenantId'] })
+    if (liveLink) {
+      if (liveLink.id === excludeId && liveLink.tenantId === scope.tenantId) return candidate
+    } else {
+      const owner = await em.findOne(CheckoutLinkSlugOwner, { slug: candidate })
+      if (!owner || owner.tenantId === scope.tenantId) return candidate
+    }
     counter += 1
     candidate = `${base}-${counter}`
   }

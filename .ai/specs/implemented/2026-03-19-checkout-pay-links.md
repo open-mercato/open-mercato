@@ -386,14 +386,15 @@ The actual pay link with a unique public URL slug. Shares all template columns p
 |--------|------|-------------|-------|
 | _(all columns from CheckoutLinkTemplate)_ | | | Same structure |
 | `template_id` | uuid | NULL | FK → `checkout_link_templates` (by ID) |
-| `slug` | varchar(255) | NOT NULL | URL-friendly, unique per tenant |
+| `slug` | text | NOT NULL | URL-friendly and globally unique among live links |
 | `completion_count` | integer | DEFAULT `0` | Successful completed uses only |
 | `active_reservation_count` | integer | DEFAULT `0` | In-flight payment attempts currently occupying a usage slot |
 | `is_locked` | boolean | DEFAULT `false` | `true` while the link has in-flight reservations (`active_reservation_count > 0`) |
 
 **Indexes:**
-- Partial unique index: `UNIQUE (organization_id, tenant_id, slug) WHERE deleted_at IS NULL`
+- Partial unique index: `UNIQUE (slug) WHERE deleted_at IS NULL`
 - Index: `(organization_id, tenant_id, status, deleted_at)`
+- `checkout_link_slug_owners` reserves each slug by tenant after deletion or renaming. A tenant can reuse its retired slug when no live link uses it. Requests from other tenants receive the next available suffix.
 
 ### Entity: CheckoutTransaction
 
@@ -1973,6 +1974,12 @@ Phase A keeps core changes minimal, but it does introduce one **additive** contr
 
 Optional future enhancements to generic payment-source correlation in `payment_gateways` must be specified separately and follow the full deprecation / BC process if they alter existing contracts.
 
+### Checkout slug ownership (#9115, 2026-11-19)
+
+The additive migration backfills reservations from live and soft-deleted checkout links. It installs a database trigger that reserves slugs in the same transaction as the link write. Existing live links keep their URLs. If records from multiple tenants already share a slug, the current live link can keep it until deletion or renaming, after which the slug is unavailable to every tenant. Earlier slugs that no longer appear in any stored link row cannot be reconstructed by the migration.
+
+Deploy the migration with the updated checkout application. Checkout link writes, including payment reservation and counter updates, wait for the backfill transaction to commit. Reverting the migration drops the reservations, including any history recorded after the upgrade.
+
 ### Public pay-link disclosure fix (#7823, 2026-10-27)
 
 Removing the administrative fields from `GET /api/checkout/pay/:slug` narrows a **STABLE API response**. This uses the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: returning the administrative configuration on the public route is the disclosure itself, so a legacy response, opt-in flag, or bridge release would leave the flaw reachable. Removal is limited to administrative members; payer-facing values, password verification, status gating, public custom-field filtering, and derived availability retain their existing behavior.
@@ -2101,3 +2108,6 @@ None identified.
 
 ### 2026-10-29
 - Recorded @haxiorz’s human approval of the security exception for all 18 administrative fields and acknowledgment of the client/operator migration; independent review and QA remain required.
+
+### 2026-11-19
+- Reserved public checkout slugs for the original tenant after soft-deletion or renaming and added PostgreSQL coverage for migration, restore, and competing writes (#9115).

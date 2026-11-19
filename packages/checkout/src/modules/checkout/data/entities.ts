@@ -227,6 +227,15 @@ export class CheckoutLink extends CheckoutLinkTemplate {
   isLocked: boolean = false
 }
 
+@Entity({ tableName: 'checkout_link_slug_owners' })
+export class CheckoutLinkSlugOwner {
+  @PrimaryKey({ type: 'text' })
+  slug!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+}
+
 @Entity({ tableName: 'checkout_transactions' })
 @Index({ properties: ['organizationId', 'tenantId', 'linkId', 'status'] })
 @Index({ properties: ['organizationId', 'tenantId', 'createdAt'] })
