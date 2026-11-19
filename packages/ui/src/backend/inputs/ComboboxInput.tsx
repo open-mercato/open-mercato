@@ -272,10 +272,9 @@ export function ComboboxInput({
   //     the route's `?search=` cannot match — drops it back to the placeholder).
   React.useEffect(() => {
     const option = optionMap.get(value)
-    const hasRealLabel = Boolean(option && option.label !== option.value)
-    if (document.activeElement === inputRef.current && (userTypedRef.current || !hasRealLabel)) return
+    if (document.activeElement === inputRef.current && (userTypedRef.current || !coveredOptionValues.has(value))) return
     setInput(option?.label ?? value ?? '')
-  }, [value, optionMap])
+  }, [value, optionMap, coveredOptionValues])
 
   const selectValue = React.useCallback(
     (nextValue: string) => {
@@ -323,7 +322,7 @@ export function ComboboxInput({
         // would freeze a placeholder (e.g. a UUID) into the visible input.
         setShowSuggestions(false)
         const currentOption = optionMap.get(value)
-        if (currentOption && currentOption.label !== currentOption.value) {
+        if (currentOption && coveredOptionValues.has(value)) {
           setInput(currentOption.label)
         } else if (!value) {
           setInput('')
@@ -332,7 +331,7 @@ export function ComboboxInput({
       }
       selectValue(raw)
     },
-    [allowCustomValues, clearable, disabled, findOptionForInput, optionMap, selectValue, value]
+    [allowCustomValues, clearable, coveredOptionValues, disabled, findOptionForInput, optionMap, selectValue, value]
   )
 
   const handleClear = React.useCallback(() => {
