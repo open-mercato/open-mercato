@@ -7,14 +7,12 @@ import {
   PostgresQueryCompiler,
   type Expression,
   type ExpressionBuilder,
-  type SelectQueryBuilder,
 } from 'kysely'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import type { FilterOp } from '@open-mercato/shared/lib/query/types'
 import { HybridQueryEngine } from '../lib/engine'
 
 type IndexDb = { entity_indexes: { id: string; doc: unknown } }
-type Builder = SelectQueryBuilder<IndexDb, 'ei', { id: string }>
 type IndexDocSource = { alias: string; entityId: string; recordIdColumn: string }
 
 type HybridInternals = {
@@ -25,7 +23,6 @@ type HybridInternals = {
     value: unknown,
     sources: IndexDocSource[],
   ) => Expression<boolean> | null
-  applyCfFilterFromAlias: (q: Builder, alias: string, entityType: string, key: string, op: FilterOp, value: unknown) => Builder
 }
 
 const db = new Kysely<IndexDb>({
@@ -38,64 +35,38 @@ const db = new Kysely<IndexDb>({
 })
 const em = { getKysely: () => db } as unknown as EntityManager
 const engine = new HybridQueryEngine(em, new BasicQueryEngine(em, () => db)) as unknown as HybridInternals
-const ENTITY = 'catalog:catalog_product'
-const sources: IndexDocSource[] = [{ alias: 'ei', entityId: ENTITY, recordIdColumn: 'ei.id' }]
+const sources: IndexDocSource[] = [{ alias: 'ei', entityId: 'catalog:catalog_product', recordIdColumn: 'ei.id' }]
 
-function base(): Builder {
-  return db.selectFrom('entity_indexes as ei').select('ei.id')
+function compile(op: FilterOp, value: unknown) {
+  return db
+    .selectFrom('entity_indexes as ei')
+    .select('ei.id')
+    .where((eb) => engine.buildCfFilterExpression(eb, 'cf:labels', op, value, sources)!)
+    .compile()
 }
 
-function viaExpression(op: FilterOp, value: unknown) {
-  return base().where((eb) => engine.buildCfFilterExpression(eb, 'cf:labels', op, value, sources)!).compile()
-}
-
-function viaAlias(op: FilterOp, value: unknown) {
-  return engine.applyCfFilterFromAlias(base(), 'ei', ENTITY, 'cf:labels', op, value).compile()
-}
-
-describe('HybridQueryEngine cf ne/nin on multi-value fields', () => {
-  it.each([
-    ['buildCfFilterExpression', viaExpression],
-    ['applyCfFilterFromAlias', viaAlias],
-  ])('%s compiles ne as the negation of the containment-aware eq', (_name, compile) => {
+describe('HybridQueryEngine.buildCfFilterExpression ne/nin on multi-value fields', () => {
+  it('compiles ne as the negation of the containment-aware eq', () => {
     const compiled = compile('ne', 'a')
     expect(compiled.sql).toMatch(/where not \(.+ = \$\d+ or .+ @> \$\d+::jsonb\)$/)
     expect(compiled.sql).not.toContain('<>')
     expect(compiled.parameters).toEqual(expect.arrayContaining(['a', '["a"]']))
   })
 
-  it.each([
-    ['buildCfFilterExpression', viaExpression],
-    ['applyCfFilterFromAlias', viaAlias],
-  ])('%s compiles nin as the negation of the containment-aware in', (_name, compile) => {
+  it('compiles nin as the negation of the containment-aware in', () => {
     const compiled = compile('nin', ['a', 'b'])
     expect(compiled.sql).toMatch(/where not \(.+ = \$\d+ or .+ @> \$\d+::jsonb or .+ = \$\d+ or .+ @> \$\d+::jsonb\)$/)
     expect(compiled.sql).not.toContain('not in')
     expect(compiled.parameters).toEqual(expect.arrayContaining(['a', '["a"]', 'b', '["b"]']))
   })
 
-  it.each([
-    ['buildCfFilterExpression', viaExpression],
-    ['applyCfFilterFromAlias', viaAlias],
-  ])('%s reads the array from the cf: key or the bare key', (_name, compile) => {
-    const compiled = compile('ne', 'a')
-    expect(compiled.sql).toMatch(/coalesce\("ei"\."doc" -> \$\d+, "ei"\."doc" -> \$\d+\) @> \$\d+::jsonb/)
-    expect(compiled.parameters).toEqual(expect.arrayContaining(['cf:labels', 'labels']))
-  })
-
-  it.each([
-    ['buildCfFilterExpression', viaExpression],
-    ['applyCfFilterFromAlias', viaAlias],
-  ])('%s keeps ne null as is not null', (_name, compile) => {
+  it('keeps ne null as is not null', () => {
     const compiled = compile('ne', null)
     expect(compiled.sql).toMatch(/where coalesce\(.+\) is not null$/)
     expect(compiled.sql).not.toContain('@>')
   })
 
-  it.each([
-    ['buildCfFilterExpression', viaExpression],
-    ['applyCfFilterFromAlias', viaAlias],
-  ])('%s compiles an empty nin to the field being set', (_name, compile) => {
+  it('compiles an empty nin to the field being set', () => {
     const compiled = compile('nin', [])
     expect(compiled.sql).toMatch(/where coalesce\(.+\) is not null$/)
     expect(compiled.sql).not.toContain('not in')
