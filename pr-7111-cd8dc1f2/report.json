@@ -1,0 +1,389 @@
+{
+  "runId": "cd8dc1f2-89ff-4bcd-a97b-7fcf2b261c81",
+  "mode": "pr",
+  "target": {
+    "prNumber": 7111,
+    "title": "fix(directory): keep organization switcher usable without organizations",
+    "branch": "fix/organization-switcher-no-organizations",
+    "headSha": "4ea4d19686b3c4c4dbf25040dcade232881a018b"
+  },
+  "verdict": "PARTIAL",
+  "status": "verification complete; evidence-only",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:44131",
+    "role": "native demo superadmin plus own tenant-bound actors A/B",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "browserVersion": "1.61.1",
+    "mode": "isolated production ephemeral PostgreSQL/app",
+    "runner": "local",
+    "headSha": "4ea4d19686b3c4c4dbf25040dcade232881a018b",
+    "warmReuse": "verified",
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Native OrganizationSwitcher regression",
+      "expected": "Focused regression suite passes",
+      "observed": "5/5 tests, 1 suite; unmodified workspace command",
+      "result": "PASS",
+      "kind": "native unit"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "Native directory API/scope and switcher cache/fallback",
+      "expected": "Scope/cache suites pass",
+      "observed": "52/52 tests, 5 suites",
+      "result": "PASS",
+      "kind": "native unit"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Native TC-DIR-016 through mercato integration runner",
+      "expected": "Owned actors isolated; grant/revocation invalidates cache",
+      "observed": "1/1 integration test passed, 2.3s test execution / 207.5s total including Chromium installer",
+      "result": "PASS",
+      "kind": "native integration/API"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "App/template parity and translations",
+      "expected": "Both mirrors identical; keys in all supported locales",
+      "observed": "Both cmp checks passed; en/pl/es/de/ko existing keys present; no new keys",
+      "result": "PASS",
+      "kind": "static"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "Create empty tenant through UI and select it",
+      "expected": "Tenant selector, All organizations and No organizations remain usable",
+      "observed": "Owned empty tenant created; all three observed; switch-away works",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-02-empty-en.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-02-empty-en.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Escape closes; Enter reopens; repeat settled switching",
+      "expected": "No static/blank trap after repeated switches",
+      "observed": "10/10 populated\u2194empty round trips; 20 assertions; 10s idle; Escape hidden-dialog assertion and Enter reopen passed",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-06-ten-rounds-pl.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-06-ten-rounds-pl.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "Explicit Polish and 390\u00d7844 viewport",
+      "expected": "Localized empty menu readable and reachable",
+      "observed": "Wszystkie organizacje / Brak organizacji observed; menu inside viewport",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-05-mobile-pl.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-05-mobile-pl.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Long tenant name at 390px",
+      "expected": "Menu remains usable without page overflow",
+      "observed": "Long name selected; viewport and document width both390; selected text truncates",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-07-long-mobile.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-07-long-mobile.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Delay switcher request8s on People consumer",
+      "expected": "Useful shell/loading state then usable menu",
+      "observed": "Inspected PNG shows Loading\u2026 while shell/table remain; request settles and menu works",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-09-injected-loading.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-09-injected-loading.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "Inject switcher503 and recover",
+      "expected": "Friendly error; recovery after injection removed",
+      "observed": "Failed to load shown; removing injection restores usable switcher on People route",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-08-injected-error.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-08-injected-error.png"
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "action": "UI-create two tenant-bound users/roles/organizations",
+      "expected": "Ordinary users see only owned organization; no tenant selector",
+      "observed": "Own users A/B each have a restricted menu; neither has Tenant selector",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-12-view-only-actor-b.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-12-view-only-actor-b.png"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "Positive own reads and valid foreign tenant IDs in both directions",
+      "expected": "Own records allowed; foreign records refused",
+      "observed": "A\u2192A and B\u2192B200 with expected IDs; A\u2192B and B\u2192A403; managing A foreign PUT404; B own PUT403 for missing manage feature",
+      "result": "PASS",
+      "kind": "API with UI-created fixtures"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "Hidden Manage action and direct URL/write",
+      "expected": "View-only actor cannot bypass UI restriction",
+      "observed": "Manage absent; direct create route Access Denied; PUT403; Enter/Escape menu usable after refusal",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-13-view-only-direct-refusal.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-13-view-only-direct-refusal.png"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "Two-actor stale organization form; repeated refused saves",
+      "expected": "Concurrent slug preserved; stale name save refused",
+      "observed": "Conflict bar observed; two repeated stale Save clicks changed no returned field",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-14-stale-write.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-14-stale-write.png"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "Refresh and retry; compare every returned field",
+      "expected": "Only intended fields/version/derived label change",
+      "observed": "Name saved, second actor slug retained; all returned fields compared; list/header clean after10s",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-15-after-retry.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-15-after-retry.png"
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "Revoke every organization from own role through UI",
+      "expected": "No accessible organization or tenant escape exposed",
+      "observed": "ACL organizations[]; real actor payload items[]/canManagefalse; switcher hidden",
+      "result": "PASS",
+      "kind": "UI",
+      "screenshot": "step-16-empty-access-actor-a.png",
+      "screenshotUrl": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-16-empty-access-actor-a.png"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "Ordinary tenant-bound static-empty branch in a literally empty tenant",
+      "expected": "Static No organizations label without switching controls",
+      "observed": "Not exercised: supported user creation requires an organization UUID. Real empty-access role hides the switcher, which does not prove the separate static-empty branch. No invalid database fixture or mocked PASS substituted.",
+      "result": "NOT_EXERCISED",
+      "kind": "UI"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "Measured cold-route performance, rapid unsynchronised race stress",
+      "expected": "Recorded cold timing and rapid race results",
+      "observed": "Functional cold navigation/loading observed, but no instrumented cold timing. Ten settled round trips do not establish rapid stress coverage.",
+      "result": "NOT_EXERCISED",
+      "kind": "UI"
+    },
+    {
+      "step": 19,
+      "priority": "P1",
+      "action": "All-submit-button double-click and post-refusal focus matrix",
+      "expected": "No duplicate mutations; keyboard/focus stays correct for every write",
+      "observed": "Repeated stale saves and switcher keyboard recovery covered; true double-click of every create/edit submit and full focus matrix not exercised.",
+      "result": "NOT_EXERCISED",
+      "kind": "UI"
+    },
+    {
+      "step": 20,
+      "priority": "P1",
+      "action": "Standalone scaffold browser and every boundary in Polish",
+      "expected": "Runtime template and localized error/permission/conflict states verified",
+      "observed": "Template parity only; no separately scaffolded app. Polish empty/menu/mobile verified; error, permission and conflict UI exercised in English.",
+      "result": "NOT_EXERCISED",
+      "kind": "UI"
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "Exact two-tree comparison, not merge-base comparison: old82eea8a42c9ac3741ad8701cef528042cdd7b174 vs current2dcc26b6b868f1467e154b1279bc8494e0f2886c. Switcher blob unchanged; directory API/scope/branding, runtime manifests and lockfile changed;675 commits added. Prior screenshot freshness not retained as current runtime proof.",
+    "Prior Nov4/5 PARTIAL facts retained: missing toolchain/tokenizer and preparation timeout; later Nov5 actual images tested89c0ef2c959c7c37cdc02dc2ca7f8ac43aebfb94. Prior rapid-loop harness timed out; its later settled10 passed. This run proves only its own settled10.",
+    "Current preparation: native Next16.4.1 security advisory interrupted builds. Native unchanged receipt mechanism consumed on successful retry; no guard/config/dependency edits. One owned wrapper reset race caused ENOTEMPTY and was corrected. Production build and authenticated readiness then passed; warm reuse passed.",
+    "Native warning recommends a Next security upgrade; any dependency change is outside this evidence-only review.",
+    "Current inherited UI observation: authorized narrow organization editor briefly displays missing auth.roles.list permission from capability probe at packages/core/src/modules/directory/backend/directory/organizations/[id]/edit/page.tsx:68. File is byte-identical across the two evidence heads. The form loads/saves and the alert is absent from the post-save screen. No introduced defect attributed to this PR.",
+    "Observed English example navigation labels on Polish shell are outside the changed switcher. Changed empty/menu labels translated correctly.",
+    "Harness limitations retained: initial descriptor assumed wrong superadmin demo password; corrected to native ephemeral credential reference inside process. First API cookie-only read401 was a harness authentication error, then authenticated positive controls200 succeeded. One networkidle navigation timed out despite rendered page; subsequent navigation used DOMContentLoaded and explicit assertions. No development500 or fabricated product failure.",
+    "Financial arithmetic, decimal-comma amounts, stock/money reversals, workers and external integrations are inapplicable to this rendering-only diff. No .uxproof contract exists.",
+    "Intermediate animation captures04 and10 and duplicate captures retained locally but excluded from publication; selected11 images individually inspected. PNG09 visibly confirms Loading\u2026 despite the immediately preceding accessibility snapshot occurring earlier in header hydration.",
+    "No source edits, commits, source pushes, merges, approval/failure/pipeline labels or global QA metadata changes. Only owned temporary claim and authorized screenshots handling."
+  ],
+  "claim": {
+    "lockSha": "e3f0db157d9a1991e7564c385914e3a4a74b8d0c",
+    "commentId": 7019987566,
+    "assignment": "assignment-specific403; confirmed bot omission",
+    "cleanup": "pending"
+  },
+  "screenshots": [
+    {
+      "file": "step-02-empty-en.png",
+      "bytes": 91746,
+      "sha256": "28ba62a2374376b7e16eaef876fdfa89f01f76ec7fb014c8d8db2ffa47ea10b5",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-02-empty-en.png"
+    },
+    {
+      "file": "step-05-mobile-pl.png",
+      "bytes": 35956,
+      "sha256": "40b61fba4aad4eb00d50a874dfcae9f17adc15cb1df8ee60e09ebf8d77f832b0",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-05-mobile-pl.png"
+    },
+    {
+      "file": "step-06-ten-rounds-pl.png",
+      "bytes": 101193,
+      "sha256": "6993facc13febcd50d136c8815125bd637e8470d201ea686e0b674acbedf8750",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-06-ten-rounds-pl.png"
+    },
+    {
+      "file": "step-07-long-mobile.png",
+      "bytes": 32346,
+      "sha256": "179db53107f8cc1233c220a88738fa20a7e8bbc82a635523e0a058336ed05a46",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-07-long-mobile.png"
+    },
+    {
+      "file": "step-08-injected-error.png",
+      "bytes": 83935,
+      "sha256": "70a88983a4c6916bf053ed2e11571be9c4df51d3bc7d6fabe97a31fbc7bfa82a",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-08-injected-error.png"
+    },
+    {
+      "file": "step-09-injected-loading.png",
+      "bytes": 58709,
+      "sha256": "b68f0f8f163088c08baddcb7a8b648073f950154ad47e3ab700e3879a36f39f3",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-09-injected-loading.png"
+    },
+    {
+      "file": "step-12-view-only-actor-b.png",
+      "bytes": 44193,
+      "sha256": "5bce2217713a1c1269f0a7fc666ee2face46006b2ccf2faf067ffa6ed5367100",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-12-view-only-actor-b.png"
+    },
+    {
+      "file": "step-13-view-only-direct-refusal.png",
+      "bytes": 42862,
+      "sha256": "07e5b3f304ce5cc0769fab541beb1f39f63976844c9f31dc0236239c09746349",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-13-view-only-direct-refusal.png"
+    },
+    {
+      "file": "step-14-stale-write.png",
+      "bytes": 96406,
+      "sha256": "70a9f3672aabf79bbb7d1e1f3d5df9c2a624bf3e5f5dec12ba33ec499ab897c6",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-14-stale-write.png"
+    },
+    {
+      "file": "step-15-after-retry.png",
+      "bytes": 53823,
+      "sha256": "76fd1311170c514d01d89cbe3d930add3ae9909d37f646dd9973a97042400a50",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-15-after-retry.png"
+    },
+    {
+      "file": "step-16-empty-access-actor-a.png",
+      "bytes": 29345,
+      "sha256": "8e6cf8c35942df8ef281cbd369fbf166b7a2daef1ca57da460b67210c0271bd9",
+      "inspected": true,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-7111/pr-7111-cd8dc1f2/step-16-empty-access-actor-a.png"
+    }
+  ],
+  "cleanup": {
+    "runtime": "complete",
+    "browserContexts": "closed in provider finally",
+    "ownedProcessesRemaining": [],
+    "listenerPort": 44131,
+    "listenerAbsent": true,
+    "databaseContainer": "9be2b833f773",
+    "databaseContainerAbsent": true,
+    "allFixtures": "Removed with owned disposable database",
+    "descriptorStatus": "stopped",
+    "nativeStateFileAbsent": true,
+    "trackedRuntimeOutput": "Restored only own four email-capture.jsonl append lines to initial clean state; no email contents published",
+    "sourceClean": true,
+    "head": "4ea4d19686b3c4c4dbf25040dcade232881a018b",
+    "foreignState": "No foreign processes, containers, assignees, comments or pipeline labels changed",
+    "claim": "Owned lease held until publication and final exact-SHA release",
+    "nativeStateCleanup": "Removed owned stale native state only after exact baseUrl match and verified app/DB absence"
+  },
+  "reviewVerdict": "changes \u2014 verification gaps, no demonstrated defect introduced by PR",
+  "nativeTests": [
+    {
+      "command": "timeout 60 yarn workspace @open-mercato/app test --runInBand --runTestsByPath src/components/__tests__/OrganizationSwitcher.tenantCookie.test.tsx",
+      "result": "5 passed, 1 suite passed"
+    },
+    {
+      "command": "timeout 60 yarn workspace @open-mercato/core test --runInBand --runTestsByPath src/modules/directory/api/organizations/__tests__/route.test.ts src/modules/directory/utils/__tests__/organizationScopeCache.test.ts",
+      "result": "38 passed, 2 suites passed"
+    },
+    {
+      "command": "timeout 60 yarn workspace @open-mercato/core test --runInBand --runTestsByPath src/modules/directory/api/organization-switcher/__tests__/cache-invalidation.test.ts src/modules/directory/api/organization-switcher/__tests__/cache.test.ts src/modules/directory/api/organization-switcher/__tests__/tenant-fallback.test.ts",
+      "result": "14 tests / 3 suites passed"
+    },
+    {
+      "command": "OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=86400 timeout 300 yarn mercato test:integration TC-DIR-016",
+      "result": "1 passed; exact-head production instance reused; native runner, no config/test changes"
+    }
+  ],
+  "fixtures": {
+    "createdThrough": "UI, including role ACL checkboxes",
+    "tenants": [
+      {
+        "id": "810890aa-73d3-47d6-942f-567576cb091b",
+        "name": "QA7111 Empty cd8dc1f2"
+      },
+      {
+        "id": "01fd3a3a-bee5-4913-aae1-813f6f8e62ac",
+        "name": "QA7111 Long cd8dc1f2 \u2026"
+      }
+    ],
+    "organizations": [
+      "3fd7aaf2-07b5-4440-b286-764cf445de01",
+      "4e0c6493-638b-4c34-9438-535f29c10e70"
+    ],
+    "roles": [
+      "d0c028fd-f8cf-4356-8521-b792f6d10fd8",
+      "82752aee-d930-4fc3-8fa8-36c01183b0d6"
+    ],
+    "actors": [
+      "qa7111-a-cd8dc1f2@example.com",
+      "qa7111-b-cd8dc1f2@example.com"
+    ],
+    "lifecycle": "Empty-tenant captures/round trips precede adding actor organizations; all fixtures removed by disposable DB teardown"
+  }
+}
