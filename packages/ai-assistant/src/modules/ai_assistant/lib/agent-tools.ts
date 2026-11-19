@@ -32,6 +32,7 @@ import {
   withToolReplayContext,
 } from './llm-adapters/tool-replay-context'
 import { resolveStagedToolInput } from './tool-input'
+import { hasRequiredFeatures } from './auth'
 
 const logger = createLogger('ai_assistant')
 
@@ -300,6 +301,7 @@ function adaptToolToAiSdk(
       args,
       isMutation: tool.isMutation === true,
       toolCallId,
+      authorized: hasRequiredFeatures(tool.requiredFeatures, ctx.features, ctx.isSuperAdmin),
     })
     if (replayDecision.kind === 'replay') {
       const recordedError = replayDecision.fixture.error
