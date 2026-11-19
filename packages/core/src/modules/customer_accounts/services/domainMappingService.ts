@@ -44,8 +44,8 @@ export class DomainMappingRegistrationConflict extends Error {}
 export class DomainMappingUnavailableError extends Error {}
 
 const DOMAIN_ROUTING_TAG = 'domain_routing'
-const RESOLVE_KEY_PREFIX = 'domain_routing:resolve'
-const ACTIVE_BY_ORG_KEY_PREFIX = 'domain_routing:active-by-org'
+const RESOLVE_KEY_PREFIX = 'domain_routing:resolve:txt-v1'
+const ACTIVE_BY_ORG_KEY_PREFIX = 'domain_routing:active-by-org:txt-v1'
 const RESOLVE_TTL_MS = 5 * 60_000
 const TLS_HEALTH_CHECK_TIMEOUT_MS = 10_000
 const TLS_HEALTH_CHECK_RETRY_DELAYS_MS = [1_000, 4_000, 16_000]

@@ -9,7 +9,7 @@ export class Migration20261119031934_customer_accounts extends Migration {
     this.addSql(`update "domain_mappings"
       set "status" = 'pending', "verified_at" = null, "last_dns_check_at" = null,
           "dns_failure_reason" = null, "tls_failure_reason" = null, "tls_retry_count" = 0, "updated_at" = now()
-      where "status" in ('verified', 'tls_failed');`);
+      where "status" in ('verified', 'tls_failed', 'active');`);
   }
 
   override down(): void | Promise<void> {

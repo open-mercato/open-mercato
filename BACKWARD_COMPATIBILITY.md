@@ -696,4 +696,4 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## 2026-11-19 — Custom-domain ownership (#9146)
 
-STABLE verification. Shared-target-only checks permit cross-tenant claims. Waiver of steps 1–3 awaits named maintainer approval. Publish the mapping’s TXT record. [Migration](UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146).
+STABLE verification and routing of legacy active assignments. Shared-target-only checks permit cross-tenant claims; retaining routing for unproven legacy active rows preserves that exploit. The migration resets every legacy active/TLS mapping to pending; fresh mapping-specific TXT proof is required before routing or TLS, including after cutover. Waiver of steps 1–3 awaits named maintainer approval. Publish the mapping’s TXT record. [Migration](UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146).

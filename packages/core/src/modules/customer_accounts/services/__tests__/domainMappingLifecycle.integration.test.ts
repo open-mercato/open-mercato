@@ -6,7 +6,7 @@ import { DomainMapping } from '../../data/entities'
 import { domainOwnershipRecord } from '../../lib/domainMappingLifecycle'
 import { Migration20260430120000_customer_accounts } from '../../migrations/Migration20260430120000_customer_accounts'
 import { Migration20261119031934_customer_accounts } from '../../migrations/Migration20261119031934_customer_accounts'
-import { DomainMappingRegistrationConflict, DomainMappingService } from '../domainMappingService'
+import { DomainMappingRegistrationConflict, DomainMappingService, DomainMappingUnavailableError } from '../domainMappingService'
 
 jest.mock('../../events', () => ({ emitCustomerAccountsEvent: jest.fn(async () => undefined) }))
 
@@ -58,6 +58,9 @@ describeWithPostgres('custom domain lifecycle on PostgreSQL', () => {
       await em.execute(`insert into domain_mappings (hostname, tenant_id, organization_id, status, verified_at)
         values (?, ?, ?, ?, now())`, [hostname, scope.tenantId, scope.organizationId, status])
     }
+    await em.execute(`insert into domain_mappings (hostname, tenant_id, organization_id, status, verified_at, created_at)
+      values (?, ?, ?, 'active', now(), now() - interval '3 days')`,
+      ['expired-active.example.test', scope.tenantId, scope.organizationId])
     const upgrade = new Migration20261119031934_customer_accounts(orm.em.getDriver(), orm.config)
     await upgrade.up()
     for (const query of upgrade.getQueries()) await em.execute(query)
@@ -78,12 +81,35 @@ describeWithPostgres('custom domain lifecycle on PostgreSQL', () => {
     await database().nativeDelete(DomainMapping, {})
   })
 
-  it('requires ownership verification again for legacy mappings awaiting TLS', async () => {
+  it('gates all legacy TLS and active mappings on fresh ownership proof', async () => {
     const service = new DomainMappingService(database())
     expect(await service.findPendingTls()).toEqual([])
     expect(await service.isAllowedForTls('verified.example.test')).toBeNull()
     expect(await service.isAllowedForTls('tls.example.test')).toBeNull()
-    expect(await service.isAllowedForTls('active.example.test')).toMatchObject({ status: 'active' })
+    expect(await service.isAllowedForTls('active.example.test')).toBeNull()
+    expect(await service.resolveByHostname('active.example.test')).toBeNull()
+    expect(await service.resolveByHostname('expired-active.example.test')).toBeNull()
+    expect(await service.resolveActiveByOrg(scope.organizationId)).toBeNull()
+    expect(await service.resolveAll()).toEqual([])
+    const expired = await database().findOneOrFail(DomainMapping, { hostname: 'expired-active.example.test' })
+    expect(expired).toMatchObject({ status: 'pending', verifiedAt: null })
+    await expect(service.verify(expired.id)).rejects.toBeInstanceOf(DomainMappingUnavailableError)
+    const legacy = await database().findOneOrFail(DomainMapping, { hostname: 'active.example.test' })
+    let ownershipTxt: string[][] = []
+    const verifying = new DomainMappingService(database(), {
+      dnsResolver: {
+        resolveTxt: async () => ownershipTxt,
+        resolveCname: async () => [routingTarget],
+        resolve4: async () => [],
+      },
+    })
+    expect((await verifying.verify(legacy.id)).domainMapping.status).toBe('dns_failed')
+    expect(await verifying.isAllowedForTls(legacy.hostname)).toBeNull()
+    ownershipTxt = [[domainOwnershipRecord(legacy).value]]
+    expect((await verifying.verify(legacy.id)).domainMapping.status).toBe('verified')
+    await verifying.activate(legacy.id)
+    expect(await verifying.isAllowedForTls(legacy.hostname)).toMatchObject({ status: 'active' })
+    expect(await verifying.resolveActiveByOrg(scope.organizationId)).toMatchObject({ hostname: legacy.hostname })
   })
 
   it('enforces the organization limit across concurrent registrations on separate managers', async () => {
@@ -135,4 +161,22 @@ describeWithPostgres('custom domain lifecycle on PostgreSQL', () => {
     await verifying.pruneExpiredMappings()
     expect(await database().findOne(DomainMapping, { id: previous.id })).toBeNull()
   })
+  it('rolls back lifecycle columns without restoring unproven active routes', async () => {
+    const service = new DomainMappingService(database())
+    const mapping = await service.register({ ...scope, hostname: 'rollback.example.test' })
+    const downgrade = new Migration20261119031934_customer_accounts(orm!.em.getDriver(), orm!.config)
+    await downgrade.down()
+    for (const query of downgrade.getQueries()) await database().execute(query)
+    const rows = await database().execute<Array<{ status: string; verified_at: Date | null }>>(
+      'select status, verified_at from domain_mappings where id = ?', [mapping.id],
+    )
+    expect(rows).toEqual([{ status: 'pending', verified_at: null }])
+    const columns = await database().execute<Array<{ column_name: string }>>(
+      'select column_name from information_schema.columns where table_schema = ? and table_name = ?',
+      [schema, 'domain_mappings'],
+    )
+    expect(columns.map(({ column_name: columnName }) => columnName)).not.toContain('deleted_at')
+    expect(columns.map(({ column_name: columnName }) => columnName)).not.toContain('reserved_until')
+  })
+
 })

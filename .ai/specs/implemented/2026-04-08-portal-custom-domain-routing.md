@@ -1414,9 +1414,9 @@ These handles are declared via `useRegisteredComponent(handle, FallbackComponent
 
 - Staff create and list responses can include `ownershipRecord` with a TXT `name` and `value` and `verificationExpiresAt` for unverified mappings. Clients publish the record and keep their routing configuration. Registrations expire 48 hours after creation and the existing two-domain organization limit is enforced transactionally.
 - A released verified or active hostname is unavailable to other tenants for seven days. The releasing tenant may register it again with a new mapping ID and TXT record. A failed attempt carries the original reservation through to its deadline. Unverified registrations without a prior reservation are reclaimed on expiry or deletion.
-- New hostnames must leave room for the `_om-verify.` label within the 253-character DNS limit. Existing active mappings stay routed. The migration returns `verified` and `tls_failed` rows to pending. Rows more than 48 hours old must be registered again. Operators should audit existing active assignments with their domain owners during rollout.
+- New hostnames must leave room for the `_om-verify.` label within the 253-character DNS limit. The migration returns legacy `active`, `verified` and `tls_failed` rows to pending and clears their verification. They cannot route or authorize TLS until mapping-specific TXT proof succeeds. Creation timestamps are retained; mappings more than 48 hours old must be registered again with a fresh TXT value. Plan custom-domain downtime and use the platform portal URL while re-verifying. Restart all app, edge and worker instances before reopening traffic; versioned service cache keys ignore stored pre-TXT routing entries.
 - Retaining shared-target-only verification would preserve the security defect. See [the compatibility exception](../../../BACKWARD_COMPATIBILITY.md) and [upgrade instructions](../../../UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146). Pause older app and worker writers during migration and cutover.
-- Regression coverage exercises TXT success and failure, concurrent registration, expired mappings, replacement reservations, staff list scoping, and migration of legacy TLS candidates. The settings panel shows copyable DNS instructions and the registration deadline.
+- Regression coverage exercises TXT success and failure, concurrent registration, expired mappings, replacement reservations, staff list scoping, and migration and re-verification of legacy active/TLS candidates, expired legacy refusal, and pre-TXT cache rejection. The settings panel shows copyable DNS instructions and the registration deadline.
 
 ### Migration & Backward Compatibility — bundled edge ports (#7833)
 
@@ -1763,7 +1763,7 @@ Custom-domain integration tests need to drive requests with arbitrary `Host` hea
 - **Severity**: High
 - **Affected area**: End customer trust, platform reputation
 - **Mitigation**: Require a mapping-specific TXT record, retain recently released hostnames for the prior tenant, and expire and cap unverified registrations. The globally unique hostname constraint remains the final arbiter of concurrent claims.
-- **Residual risk**: Active hostnames from before the upgrade require an operator ownership audit. A pending claim may hold a hostname for up to 48 hours while its DNS is being configured.
+- **Residual risk**: Active hostnames from before the upgrade stop routing until TXT ownership is re-verified; expired registrations require a new mapping. A pending claim may hold a hostname for up to 48 hours while its DNS is being configured.
 
 #### Domain Mapping Leaks Organization Data Cross-Tenant
 - **Scenario**: A bug in the resolve endpoint returns org data for a different tenant.

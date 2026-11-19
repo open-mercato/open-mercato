@@ -898,6 +898,22 @@ describe('DomainMappingService.resolveByHostname', () => {
     })
   })
 
+  it('ignores pre-TXT cached routes after the migration resets a legacy mapping', async () => {
+    const row = seedDomain({ status: 'pending', tenantId: TENANT_A, organizationId: ORG_A })
+    const em = createFakeEm({ domains: [row] })
+    const cache = createCacheService({ strategy: 'memory' })
+    await runWithCacheTenant(null, () => cache.set(`domain_routing:resolve:${row.hostname}`, {
+      domainMappingId: row.id, hostname: row.hostname, tenantId: TENANT_A,
+      organizationId: ORG_A, orgSlug: 'acme', status: 'active',
+    }, { ttl: 300_000 }))
+    await runWithCacheTenant(TENANT_A, () => cache.set(`domain_routing:active-by-org:${ORG_A}`, {
+      hostname: row.hostname, status: 'active',
+    }, { ttl: 300_000 }))
+    const service = new DomainMappingService(em as unknown as EntityManager, { cacheService: cache })
+    expect(await service.resolveByHostname(row.hostname)).toBeNull()
+    expect(await runWithCacheTenant(TENANT_A, () => service.resolveActiveByOrg(ORG_A))).toBeNull()
+  })
+
   it('returns null for verified-but-not-active mappings (negative test for the active-only filter)', async () => {
     const row = seedDomain({ hostname: 'shop.example.com', status: 'verified' })
     const em = createFakeEm({ domains: [row] })
