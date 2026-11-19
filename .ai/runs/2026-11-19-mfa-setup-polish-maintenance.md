@@ -26,8 +26,8 @@ The full monorepo validation gate may be limited by worktree dependency/build pr
 
 ### Phase 1: Focused fixes
 
-- [ ] 1.1 Correct setup error mapping and add mocked regressions.
-- [ ] 1.2 Translate uncovered Polish labels and provider title.
+- [x] 1.1 Correct setup error mapping and add mocked regressions.
+- [x] 1.2 Translate uncovered Polish labels and provider title.
 
 ### Phase 2: Verify and publish
 
