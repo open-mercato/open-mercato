@@ -97,6 +97,8 @@ describe('allocateMoney', () => {
     ['a non-decimal ratio', [1, 'abc'], 2],
     ['invalid decimal places', [1, 1], -1],
     ['fractional decimal places', [1, 1], 1.5],
+    ['a ratio beyond the supported decimal range', [1, '1e-400'], 2],
+    ['a ratio with 300 or more decimals', [1, `0.${'1'.repeat(300)}`], 2],
   ])('rejects %s', (_label, ratios, decimalPlaces) => {
     expect(() => allocateMoney(createMoney('0.15', usd), ratios, { decimalPlaces })).toThrow(InvalidAllocationError)
   })

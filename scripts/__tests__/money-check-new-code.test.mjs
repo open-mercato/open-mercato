@@ -200,6 +200,44 @@ test('does not flag reads, calls or function-valued <field>Exact keys', () => {
   assert.deepEqual(checkDiff(diff).findings, [])
 })
 
+test('does not flag object-literal writes that map an existing <field>Exact value', () => {
+  const diff = addedFile('packages/core/src/modules/payment_gateways/api/transactions/route.ts', [
+    '    amountExact: toMoneyString(transaction.amount),',
+    '    unitPriceExact: line.unitPriceExact ?? null,',
+    "    totalExact: decimalToString(total),",
+    '    feeExact,',
+  ])
+  assert.deepEqual(checkDiff(diff).findings, [])
+})
+
+test('flags class property and initialised type declarations of <field>Exact keys', () => {
+  const diff = addedFile('packages/core/src/modules/billing/data/entities.ts', [
+    '  unitPriceExact!: string',
+    '  discountExact: string | null = null',
+    '  rateExact: DecimalValue;',
+    '  surchargeExact: nonNegativeDecimalStringSchema.optional(),',
+  ])
+  assert.deepEqual(rulesOf(checkDiff(diff).findings), [
+    `${RULE_EXACT_DECIMAL_KEY}:unitPriceExact`,
+    `${RULE_EXACT_DECIMAL_KEY}:discountExact`,
+    `${RULE_EXACT_DECIMAL_KEY}:rateExact`,
+    `${RULE_EXACT_DECIMAL_KEY}:surchargeExact`,
+  ])
+})
+
+test('parseUnifiedDiff strips mnemonic diff prefixes so exclusions and allowlists still match', () => {
+  const diff = [
+    'diff --git c/packages/shared/src/lib/money/money.ts w/packages/shared/src/lib/money/money.ts',
+    '--- c/packages/shared/src/lib/money/money.ts',
+    '+++ w/packages/shared/src/lib/money/money.ts',
+    '@@ -1,0 +1,1 @@',
+    '+  totalExact?: string | null',
+    '',
+  ].join('\n')
+  assert.equal(parseUnifiedDiff(diff)[0].path, 'packages/shared/src/lib/money/money.ts')
+  assert.deepEqual(checkDiff(diff).findings, [])
+})
+
 test('does not flag an @Embedded MoneyColumns field', () => {
   const diff = addedFile(ENTITY, ["  @Embedded(() => MoneyColumns, { prefix: 'price_' })", '  price!: MoneyColumns'])
   assert.deepEqual(checkDiff(diff).findings, [])

@@ -125,6 +125,15 @@ export function moneyEquals(left: Money, right: Money): boolean {
   return currenciesEqual(left.currency, right.currency) && left.amount.eq(right.amount)
 }
 
+/**
+ * Whether the amount has at most the currency's decimal places (no sub-cent
+ * USD). `resolveMoney` keeps client amounts exact, so a request handler whose
+ * field must be in minor units checks this and rejects the input with a 400.
+ */
+export function fitsCurrencyPrecision(money: Money): boolean {
+  return countDecimalPlaces(money.amount) <= money.currency.decimalPlaces
+}
+
 export function isZeroMoney(money: Money): boolean {
   return money.amount.eq(0)
 }
@@ -164,6 +173,24 @@ function parseRatio(ratio: DecimalInput, index: number): DecimalValue {
   return value
 }
 
+function splitUnits(units: DecimalValue, ratios: DecimalValue[]): DecimalValue[] {
+  const ratioScale = toDecimal(`1e${Math.max(...ratios.map(countDecimalPlaces))}`)
+  const integerRatios = ratios.map((ratio) => multiplyDecimals(ratio, ratioScale))
+  const ratioTotal = integerRatios.reduce((total, ratio) => addDecimals(total, ratio), toDecimal(0))
+  const shares = integerRatios.map((ratio, index) => {
+    const product = multiplyDecimals(units, ratio)
+    const quotient = divideOnce(product, ratioTotal, 0, ROUND_DOWN)
+    return { index, units: quotient, remainder: subtractDecimals(product, multiplyDecimals(quotient, ratioTotal)) }
+  })
+  const allocatedUnits = shares.reduce((total, share) => addDecimals(total, share.units), toDecimal(0))
+  const leftoverUnits = Number(subtractDecimals(units, allocatedUnits).toFixed())
+  const ranked = [...shares].sort((left, right) => right.remainder.cmp(left.remainder) || left.index - right.index)
+  for (const share of ranked.slice(0, leftoverUnits)) {
+    share.units = addDecimals(share.units, 1)
+  }
+  return shares.map((share) => share.units)
+}
+
 /**
  * Splits `money` by `ratios` into parts that sum exactly to `money`, using the
  * largest-remainder method on exact integer remainders (ties go to the lower
@@ -185,27 +212,18 @@ export function allocateMoney(
   const parsedRatios = ratios.map(parseRatio)
   if (parsedRatios.every((ratio) => ratio.eq(0))) throw new InvalidAllocationError('all ratios are zero')
 
-  const ratioScale = toDecimal(`1e${Math.max(...parsedRatios.map(countDecimalPlaces))}`)
-  const integerRatios = parsedRatios.map((ratio) => multiplyDecimals(ratio, ratioScale))
-  const ratioTotal = integerRatios.reduce((total, ratio) => addDecimals(total, ratio), toDecimal(0))
   const units = multiplyDecimals(money.amount.abs(), `1e${decimalPlaces}`)
-
-  const shares = integerRatios.map((ratio, index) => {
-    const product = multiplyDecimals(units, ratio)
-    const quotient = divideOnce(product, ratioTotal, 0, ROUND_DOWN)
-    return { index, units: quotient, remainder: subtractDecimals(product, multiplyDecimals(quotient, ratioTotal)) }
-  })
-  const allocatedUnits = shares.reduce((total, share) => addDecimals(total, share.units), toDecimal(0))
-  const leftoverUnits = Number(subtractDecimals(units, allocatedUnits).toFixed())
-  const ranked = [...shares].sort((left, right) => right.remainder.cmp(left.remainder) || left.index - right.index)
-  for (const share of ranked.slice(0, leftoverUnits)) {
-    share.units = addDecimals(share.units, 1)
+  let shares: DecimalValue[]
+  try {
+    shares = splitUnits(units, parsedRatios)
+  } catch {
+    throw new InvalidAllocationError('amount or ratios exceed the supported decimal range')
   }
 
   const unitSize = `1e-${decimalPlaces}`
   const negative = money.amount.lt(0)
-  return shares.map((share) => {
-    const amount = multiplyDecimals(share.units, unitSize)
+  return shares.map((shareUnits) => {
+    const amount = multiplyDecimals(shareUnits, unitSize)
     return brandMoney(negative ? amount.neg() : amount, money.currency)
   })
 }

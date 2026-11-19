@@ -46,7 +46,11 @@ export function serializeMoney(money: Money): MoneyInput {
   return { amount: money.amount.toFixed(), currencyCode: money.currency.code }
 }
 
-/** Resolves client input against the tenant's current currency precision. */
+/**
+ * Resolves client input against the tenant's current currency precision. The
+ * amount stays exact (`0.001` USD is kept as is); use `fitsCurrencyPrecision`
+ * where a field must be in the currency's minor units.
+ */
 export async function resolveMoney(container: ServiceContainer, scope: MoneyScope, input: MoneyInput): Promise<Money> {
   const parsed = moneyInputSchema.safeParse(input)
   if (!parsed.success) throw new Error('[internal] Invalid money input')

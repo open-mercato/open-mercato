@@ -17,6 +17,7 @@ export {
   convertMoney,
   createMoney,
   divideMoney,
+  fitsCurrencyPrecision,
   isNegativeMoney,
   isPositiveMoney,
   isZeroMoney,

@@ -122,6 +122,7 @@ assertSameCurrency(left: Currency, right: Currency): void
 | `compareMoney(a, b)` | Asserts the same currency, returns `-1 \| 0 \| 1`. Usable as an `Array.sort` comparator |
 | `moneyEquals(a, b)` | `false` for different currencies (not arithmetic, so it does not throw) |
 | `isZeroMoney`, `isNegativeMoney`, `isPositiveMoney` | |
+| `fitsCurrencyPrecision(m)` | `true` when the amount has at most `m.currency.decimalPlaces` decimals. `resolveMoney` keeps client amounts exact, so a field that must be in minor units checks this and rejects the request |
 | `minMoney(...values)`, `maxMoney(...values)` | Assert the same currency. Throw on an empty list |
 
 **`allocateMoney` algorithm.**
@@ -224,7 +225,7 @@ No HTTP endpoints are added or changed, so this spec needs no integration (Playw
 | No organization in the lookup (CLI, system jobs) | The service returns `null`, so `CurrencyNotResolvedError`. Callers must pass the organization |
 | Currencies module disabled | `currencyPrecisionService` is not registered, so `CurrencyNotResolvedError` |
 | Currency soft-deleted after a `Money` was persisted | `moneyFromColumns` still restores it from the snapshot. A new `resolveCurrency` throws |
-| Tenant changes `decimal_places` (2 → 4) | Restored values carry dp 2 and freshly resolved ones carry dp 4. Mixing them throws `CurrencyMismatchError`. This is a known cost of D3, which the user accepted: a config change surfaces as an error, not as silent mixing. An adopter that reads stored money next to freshly resolved money calls `rescaleMoney(old, fresh, rounding)` at its read boundary. Going from fewer to more decimals is lossless; going from more to fewer follows the caller's rounding |
+| Tenant changes `decimal_places` (2 → 4) | Restored values carry dp 2 and freshly resolved ones carry dp 4. Mixing them throws `CurrencyMismatchError`. This is a known cost of D3, which the user accepted: a config change surfaces as an error, not as silent mixing. An adopter that reads stored money next to freshly resolved money calls `rescaleMoney(old, freshCurrency, rounding)` at its read boundary. Going from fewer to more decimals is lossless; going from more to fewer follows the caller's rounding |
 | `Money` passed through a queue, cache or `structuredClone` | The brand and the `Big` prototype are lost. Senders send `snapshotMoney(m)`, and receivers call `restoreMoney`. The receiver gets the precision the sender used, not the current tenant setting |
 | Precision changes (dp 2 → 4) while a snapshot is in a queue | Received with dp 2. Mixing it with freshly resolved money throws `CurrencyMismatchError` until the receiver calls `rescaleMoney`, the same as a stored `MoneyColumns` |
 | Currency soft-deleted or disabled while a snapshot is in a queue | `restoreMoney` still succeeds, since it runs no lookup. A new `resolveCurrency` for that code throws |
@@ -344,6 +345,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - Added a trusted `MoneySnapshot` transport (`snapshotMoney`/`restoreMoney`), separate from the untrusted `MoneyInput`, so values in queues and caches keep their precision.
   - Replaced the rollback rule with a Migration & Backward Compatibility section that follows `BACKWARD_COMPATIBILITY.md`.
 - 2026-11-19 — Implemented Phases 1–3 (see Implementation Status). Added the `@open-mercato/shared/lib/money` entry point, listed the extra exported types (`MoneyScope`, `CurrencyLookup`) and constants in the BC tables, and excluded `lib/money/internal` from the contract.
+- 2026-11-19 — Code-review follow-ups: added `fitsCurrencyPrecision` (over-precise client amounts stay exact in `resolveMoney`; handlers that need minor units check it), `allocateMoney` reports out-of-range ratios as `InvalidAllocationError`, documented the decimal size caps, and narrowed `money:check-new-code`'s `<field>Exact` rule to declarations (object-literal writes are no longer flagged) with pinned `a/`/`b/` diff prefixes.
 
 ## Implementation Status
 

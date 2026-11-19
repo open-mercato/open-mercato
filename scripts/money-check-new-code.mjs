@@ -28,9 +28,13 @@
  *                         `create table` / `alter table` / `add column`) is matched
  *                         as `"column" numeric|decimal|real|double precision|float|money`.
  *   exact-decimal-key     A new key, property or type member named `<field>Exact`
- *                         declared at the start of a line (optionally quoted or
- *                         `readonly`, followed by `:` or `?:`). Reads such as
- *                         `line.unitPriceExact` and function-valued keys are ignored.
+ *                         declared at the start of a line: `readonly`, optional
+ *                         (`?:`), definite (`!:`), or with a type-position value
+ *                         (a zod schema, `*Schema` identifier or a `string`/`number`/
+ *                         `null` type union). Object-literal writes that map an
+ *                         existing value (`amountExact: toMoneyString(x),`), reads
+ *                         such as `line.unitPriceExact` and function-valued keys are
+ *                         ignored.
  *
  * Not flagged: lines mentioning `MoneyColumns`, the columns a `MoneyColumns`
  * migration adds (a file whose added lines contain `<prefix>amount`,
@@ -105,7 +109,9 @@ const NAME_OPTION = /\bname\s*:\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]/g
 const FIRST_QUOTED_CALL_ARG = /\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]/g
 const LEADING_PROPERTY = /^\s*(?:(?:readonly|public|private|protected|declare)\s+)*(['"]?)([A-Za-z_$][\w$]*)\1\s*[!?]?\s*[:=]/
 const DECORATOR_LINE = /^\s*@\w+\s*\(/
-const EXACT_KEY = /^\s*(?:readonly\s+)?(['"]?)([A-Za-z_$][\w$]*Exact)\1\s*\??\s*:(.*)$/
+const DIFF_PATH_PREFIX = /^[abciow12]\//
+const EXACT_KEY = /^\s*(readonly\s+)?(['"]?)([A-Za-z_$][\w$]*Exact)\2\s*([?!]?)\s*:(.*)$/
+const TYPE_POSITION_VALUE = /^\s*(?:z\s*\.|[A-Za-z_$][\w$]*Schema\b|(?:string|number|bigint|null|undefined|Big|DecimalValue|DecimalInput)(?:\s*\|\s*(?:string|number|bigint|null|undefined|Big|DecimalValue|DecimalInput))*\s*(?:=[^,;]*)?[;,]?\s*$)/
 const FUNCTION_VALUE = /^\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*(?::[^=]*)?=>|[A-Za-z_$][\w$]*\s*=>)/
 const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*|--)/
 
@@ -156,7 +162,7 @@ export function parseUnifiedDiff(diffText) {
         current = null
         continue
       }
-      const filePath = target.replace(/^"|"$/g, '').replace(/^b\//, '')
+      const filePath = target.replace(/^"|"$/g, '').replace(DIFF_PATH_PREFIX, '')
       current = files.find((file) => file.path === filePath) ?? null
       if (!current) {
         current = { path: filePath, addedLines: [] }
@@ -229,6 +235,11 @@ export function findMoneyColumnsPrefixes(addedTexts) {
   return prefixes
 }
 
+function isExactKeyDeclaration([, readonlyModifier, , , marker, value]) {
+  if (FUNCTION_VALUE.test(value)) return false
+  return Boolean(readonlyModifier) || marker.length > 0 || TYPE_POSITION_VALUE.test(value)
+}
+
 export function classifyLine(filePath, text, context = {}) {
   if (COMMENT_LINE.test(text) || text.includes('MoneyColumns')) return []
   const moneyColumnsPrefixes = context.moneyColumnsPrefixes ?? new Set()
@@ -242,8 +253,8 @@ export function classifyLine(filePath, text, context = {}) {
   }
   if (!filePath.endsWith('.sql')) {
     const exact = text.match(EXACT_KEY)
-    if (exact && !FUNCTION_VALUE.test(exact[3])) {
-      findings.push({ rule: RULE_EXACT_DECIMAL_KEY, name: exact[2] })
+    if (exact && isExactKeyDeclaration(exact)) {
+      findings.push({ rule: RULE_EXACT_DECIMAL_KEY, name: exact[3] })
     }
   }
   return findings
@@ -377,7 +388,7 @@ function collectGitFiles(root, base) {
   } catch {
     mergeBase = base
   }
-  const files = parseUnifiedDiff(git(root, ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--find-renames', mergeBase]))
+  const files = parseUnifiedDiff(git(root, ['diff', '--unified=0', '--no-color', '--no-ext-diff', '--find-renames', '--src-prefix=a/', '--dst-prefix=b/', mergeBase]))
   const untracked = git(root, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean)
   for (const filePath of untracked) {
     if (!isInspectedPath(filePath)) continue

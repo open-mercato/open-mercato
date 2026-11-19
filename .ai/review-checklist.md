@@ -54,7 +54,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] No `em.find`/`em.findOne` between scalar mutations and `em.flush()` without `withAtomicFlush`
 - [ ] Transactions are atomic — all-or-nothing semantics
 - [ ] **New monetary values use `Money`** (`@open-mercato/shared/lib/money`): every new entity column, validator field, command input, service signature or API field that holds an amount tied to a currency uses `Money`/`Currency` and persists through `MoneyColumns` (`@open-mercato/shared/lib/db/moneyColumns`) — no new `number` or bare decimal-string money fields and no new `<field>Exact` pairs. Code that only touches existing money fields is exempt. `yarn money:check-new-code` lists likely misses (advisory; exceptions in `.ai/money-allowlist.json`)
-- [ ] A `Currency` comes only from `resolveCurrency(container, { code, tenantId, organizationId })` — never built by hand or from the ISO table; `restoreMoney` / `moneyFromColumns` read only snapshots the system wrote itself (request input goes through `moneyInputSchema` + `resolveMoney`)
+- [ ] A `Currency` comes only from `resolveCurrency(container, { code, tenantId, organizationId })` — never built by hand or from the ISO table; `restoreMoney` / `moneyFromColumns` read only snapshots the system wrote itself (request input goes through `moneyInputSchema` + `resolveMoney`, and a field that must be in minor units rejects `!fitsCurrencyPrecision(money)` with a 400)
 - [ ] Every `divideMoney`, `convertMoney`, `rescaleMoney`, `roundMoney` and `allocateMoney` call passes an explicit rounding / `decimalPlaces`; a `CurrencyMismatchError` is not swallowed by a `try`/`catch`
 
 ## 4. API Routes

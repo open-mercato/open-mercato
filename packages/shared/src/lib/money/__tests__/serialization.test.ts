@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals'
 import { resolveCurrency } from '../currency'
 import { CurrencyMismatchError, CurrencyNotResolvedError } from '../errors'
-import { addMoney, createMoney, moneyEquals, rescaleMoney } from '../money'
+import { addMoney, createMoney, fitsCurrencyPrecision, moneyEquals, rescaleMoney } from '../money'
 import {
   moneyInputSchema,
   moneySnapshotSchema,
@@ -35,6 +35,16 @@ describe('MoneyInput (untrusted)', () => {
     expect(moneyInputSchema.safeParse({ amount: '1e5000', currencyCode: 'USD' }).success).toBe(false)
     expect(moneyInputSchema.safeParse({ amount: '1', currencyCode: 'US' }).success).toBe(false)
     expect(moneyInputSchema.safeParse({ currencyCode: 'USD' }).success).toBe(false)
+  })
+
+  it('keeps over-precise client amounts exact and lets the caller detect them', async () => {
+    const container = createContainer(createResolver(defaultTable))
+    const subCent = await resolveMoney(container, scope, { amount: '0.001', currencyCode: 'USD' })
+    expect(subCent.amount.toFixed()).toBe('0.001')
+    expect(fitsCurrencyPrecision(subCent)).toBe(false)
+    expect(fitsCurrencyPrecision(await resolveMoney(container, scope, { amount: '0.10', currencyCode: 'USD' }))).toBe(true)
+    expect(fitsCurrencyPrecision(await resolveMoney(container, scope, { amount: '5', currencyCode: 'JPY' }))).toBe(true)
+    expect(fitsCurrencyPrecision(await resolveMoney(container, scope, { amount: '5.5', currencyCode: 'JPY' }))).toBe(false)
   })
 
   it('resolves against the current tenant precision and throws for an unknown currency', async () => {

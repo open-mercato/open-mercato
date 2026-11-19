@@ -59,6 +59,9 @@ const inEur = convertMoney(subtotal, rate, eur, { decimalPlaces: eur.decimalPlac
 - `allocateMoney` uses the largest-remainder method on exact integer remainders.
   The parts always sum exactly to the total. The amount must already have at most
   `decimalPlaces` decimals.
+- Results stay within the decimal toolkit's size caps: a value with more than
+  1000 significant digits is rounded half-up to fit, and one with 300 or more
+  integer digits throws. Real money never comes close.
 - `convertMoney` takes the rate from its caller (for example `exchangeRateService`)
   and rejects a target with the same code. `rescaleMoney` moves an amount between
   two currencies with the same code and different decimal places.
@@ -69,6 +72,10 @@ const inEur = convertMoney(subtotal, rate, eur, { decimalPlaces: eur.decimalPlac
 |-------|-------------|----------------|
 | `MoneyInput` `{ amount, currencyCode }` (untrusted) | Clients: request bodies, imports, webhooks | `moneyInputSchema` then `await resolveMoney(container, scope, input)` (the tenant's current precision) |
 | `MoneySnapshot` `{ amount, currencyCode, currencyDecimalPlaces }` (trusted) | This system: `snapshotMoney(money)` | `restoreMoney(snapshot)`, synchronous, keeps the precision at snapshot time |
+
+`resolveMoney` keeps a client amount exact, so `0.001` USD stays `0.001`. Where a
+field must be in the currency's minor units (a price, a payment amount), check
+`fitsCurrencyPrecision(money)` and answer with a 400 when it is `false`.
 
 API responses use `serializeMoney(money)`. Queues, caches, events and workflow
 state carry a `MoneySnapshot`. Never pass request input to `restoreMoney`:
