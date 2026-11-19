@@ -20,6 +20,7 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveFeatureCheckContext: async () => ({ organizationId: 'org', scope: { tenantId: 'tenant' } }),
 }))
 jest.mock('@open-mercato/core/bootstrap', () => ({
+  bootstrap: async (root: AppContainer) => { root.register({ eventBus: asValue({ emit: async () => {} }) }) },
   bootstrapProcessRoot: async (root: AppContainer) => {
     root.register({ eventBus: asValue({ emit: async () => {} }) })
     return () => {}
@@ -51,18 +52,20 @@ import { GET } from '@/app/api/[...slug]/route'
 
 const originalFlag = process.env.OM_PROCESS_CONTAINER_ROOT
 const mockRootDispose = jest.fn()
+const mockCreateRootResource = jest.fn(() => ({}))
 let ownedScopes: AppContainer[] = []
 
 beforeEach(() => {
   process.env.OM_PROCESS_CONTAINER_ROOT = 'on'
   invalidateProcessContainer()
   mockRootDispose.mockClear()
+  mockCreateRootResource.mockClear()
   mockReportError.mockReset()
   mockRbac.userHasAllFeatures.mockResolvedValue(true)
   ownedScopes = []
   registerDiRegistrars([defineProcessDiRegistrar((root) => {
     root.register({
-      generationResource: asFunction(() => ({})).singleton().disposer(mockRootDispose),
+      generationResource: asFunction(mockCreateRootResource).singleton().disposer(mockRootDispose),
       rbacService: asValue(mockRbac),
     })
     root.resolve('generationResource')
@@ -155,7 +158,6 @@ it.each(['cancel', 'error'] as const)('keeps stream event context and releases s
   expect(mockRootDispose).toHaveBeenCalledTimes(1)
 })
 
-
 it.each([true, false])('releases HEAD request scopes without consuming the response when authorization is %s', async (authorized) => {
   mockRbac.userHasAllFeatures.mockResolvedValueOnce(authorized)
   const response = await request('HEAD')
@@ -171,12 +173,15 @@ it.each([true, false])('releases HEAD request scopes without consuming the respo
   expect(mockRootDispose).toHaveBeenCalledTimes(1)
 })
 
-it('waits for asynchronous HEAD source cancellation before releasing request scopes', async () => {
+it.each(['resolve', 'reject', 'reject-with-broken-telemetry'])('returns HEAD headers while deferred cancellation will %s', async (ending) => {
+  const failure = new Error('[internal] deferred source cancellation failed')
+  if (ending === 'reject-with-broken-telemetry') mockReportError.mockImplementationOnce(() => { throw new Error('[internal] telemetry failed') })
   let release!: () => void
   const blocked = new Promise<void>((resolve) => { release = resolve })
   const cancelled = jest.fn(async () => {
     await blocked
     expect(mockRootDispose).not.toHaveBeenCalled()
+    if (ending !== 'resolve') throw failure
   })
   mockHandler.mockImplementationOnce(async () => {
     await createRequestContainer()
@@ -188,16 +193,18 @@ it('waits for asynchronous HEAD source cancellation before releasing request sco
   const pending = request('HEAD').then((response) => { completed = true; return response })
   await new Promise((resolve) => setImmediate(resolve))
   expect(cancelled).toHaveBeenCalledTimes(1)
-  expect(completed).toBe(false)
+  expect(completed).toBe(true)
   invalidateProcessContainer()
   expect(mockRootDispose).not.toHaveBeenCalled()
-  release()
   const response = await pending
+  release()
+  await new Promise((resolve) => setImmediate(resolve))
   expect(response.body).toBeNull()
   expect(response.status).toBe(202)
   expect(response.statusText).toBe('Accepted')
   expect(response.headers.get('x-probe')).toBe('stream')
   expect(mockRootDispose).toHaveBeenCalledTimes(1)
+  if (ending !== 'resolve') expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'api', code: 'api.head_body_cancel_failed' })
 })
 
 it.each([false, true])('preserves the HEAD status when body cancellation fails and telemetry throws: %s', async (telemetryThrows) => {
@@ -210,8 +217,54 @@ it.each([false, true])('preserves the HEAD status when body cancellation fails a
   const response = await request('HEAD')
   expect(response.status).toBe(202)
   expect(response.body).toBeNull()
-  expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'api', code: 'api.head_body_cancel_failed' })
   invalidateProcessContainer()
   await new Promise((resolve) => setImmediate(resolve))
+  expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'api', code: 'api.head_body_cancel_failed' })
   expect(mockRootDispose).toHaveBeenCalledTimes(1)
 })
+
+it.each(['on', 'off'].flatMap((mode) => ['close', 'cancel', 'reject'].map((ending) => ({ mode, ending }))))(
+  'returns HEAD for an open tee sibling with process root $mode, then cleans up on $ending', async ({ mode, ending }) => {
+    process.env.OM_PROCESS_CONTAINER_ROOT = mode
+    let source!: ReadableStreamDefaultController<Uint8Array>
+    let sibling!: ReadableStream<Uint8Array>
+    const failure = new Error('[internal] tee source cancellation failed')
+    const cancelled = jest.fn(async () => {
+      expect(mockRootDispose).not.toHaveBeenCalled()
+      if (ending === 'reject') throw failure
+    })
+    mockHandler.mockImplementationOnce(async () => {
+      await createRequestContainer()
+      const branches = new ReadableStream<Uint8Array>({ start: (controller) => { source = controller }, cancel: cancelled }).tee()
+      sibling = branches[1]
+      return new Response(branches[0], { status: 202, headers: { 'x-probe': 'tee' } })
+    })
+    let received: Response | undefined
+    const pending = request('HEAD').then((response) => { received = response; return response })
+    await new Promise((resolve) => setImmediate(resolve))
+    try {
+      expect(received?.status).toBe(202)
+      expect(received?.body).toBeNull()
+      expect(received?.headers.get('x-probe')).toBe('tee')
+      invalidateProcessContainer()
+      expect(mockRootDispose).not.toHaveBeenCalled()
+      expect(cancelled).not.toHaveBeenCalled()
+    } finally {
+      if (ending === 'close') {
+        source.close()
+        await new Response(sibling).text()
+      } else if (ending === 'reject') {
+        await expect(sibling.cancel()).rejects.toBe(failure)
+      } else await sibling.cancel()
+      await pending
+    }
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(mockCreateRootResource).toHaveBeenCalled()
+    expect(mockRootDispose).toHaveBeenCalledTimes(mockCreateRootResource.mock.results.length)
+    expect(new Set(mockRootDispose.mock.calls.map(([resource]) => resource))).toEqual(
+      new Set(mockCreateRootResource.mock.results.map((result) => result.value)),
+    )
+    if (ending === 'reject') expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'api', code: 'api.head_body_cancel_failed' })
+    else expect(mockReportError).not.toHaveBeenCalled()
+  },
+)

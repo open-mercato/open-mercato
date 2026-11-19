@@ -449,26 +449,27 @@ function observeHeadCleanupFailure(report: () => void): void {
   }
 }
 
-function handleRequest(
+async function cancelHeadResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch (error) {
+    observeHeadCleanupFailure(() => logger.error('Failed to cancel suppressed HEAD response body', { err: error }))
+    observeHeadCleanupFailure(() => getTelemetryRuntime()?.reportError(error, { module: 'api', code: 'api.head_body_cancel_failed' }))
+  }
+}
+
+async function handleRequest(
   method: HttpMethod,
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
 ): Promise<Response> {
-  return runInOwnedRequestScope(async () => {
-    const response = await dispatchRequest(method, req, paramsPromise)
-    if (req.method.toUpperCase() !== 'HEAD') return response
-    const headResponse = new Response(null, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    })
-    try {
-      await response.body?.cancel()
-    } catch (error) {
-      observeHeadCleanupFailure(() => logger.error('Failed to cancel suppressed HEAD response body', { err: error }))
-      observeHeadCleanupFailure(() => getTelemetryRuntime()?.reportError(error, { module: 'api', code: 'api.head_body_cancel_failed' }))
-    }
-    return headResponse
+  const response = await runInOwnedRequestScope(() => dispatchRequest(method, req, paramsPromise))
+  if (req.method.toUpperCase() !== 'HEAD') return response
+  void cancelHeadResponseBody(response)
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
   })
 }
 

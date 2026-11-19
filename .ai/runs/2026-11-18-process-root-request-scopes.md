@@ -127,3 +127,10 @@ PR: #9837
 - Native runtime integration passes 13/13 enabled and 13/13 disabled without test retries, flakes or skips. Authenticated real Next.js GET/HEAD smoke passes in both modes: status 200 and matching JSON Content-Type, with zero HEAD body bytes. Disposable apps and databases were stopped and verified absent.
 - Configured production build passed directly. Each native environment build repeated the identical command once after the existing Next.js advisory using its normal receipt mechanism; no dependency, security-setting or receipt modifications.
 - Base 4ee923350e is unchanged. Guard/CLA pass; this stacked base has no main CI run, so the complete gate is local fallback evidence. Feature remains default-off; external re-review and QA approval remain pending. No merge performed.
+
+### Review 5981915356 plan (2026-11-19)
+- [x] Decouple HEAD delivery from potentially unbounded source cancellation, retaining request ownership until cancellation settles; mirror standalone dispatcher.
+- [x] Cover real tee cancellation, settlement/rejection and exactly-once generation cleanup; independently audit adjacent lifetime cases.
+- [ ] Run the configured gate and both native runtime modes, publish results and request re-review.
+
+- Focused API validation passes 73/73 across four suites, including 18 lifecycle cases. Independent review found no remaining concrete blocker. The fix reuses the existing ownership-wrapped response; no shared lifecycle API changed.
