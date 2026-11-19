@@ -46,7 +46,8 @@ yarn workspace @open-mercato/shared build
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
 | `db/` | When resolving the ORM/connection-pool config (`resolvePoolConfig`, pool/timeout env knobs); when serializing a bounded write across processes under a Postgres transaction advisory lock (`withAdvisoryXactLock` — pass the request EntityManager; `fn` does all DB I/O on `txEm`, flushes its own writes, makes at most one external call, never nests `transactional` or forks; `maxConcurrentHolders` caps holders per process) | `@open-mercato/shared/lib/db/mikro`, `@open-mercato/shared/lib/db/advisoryLock` |
-| `decimal.ts` | When doing ANY money or FX arithmetic - exact add/subtract/multiply, division that keeps at least 17 significant digits, half-up rounding, and `decimalStringSchema` (accepts number or string, outputs a canonical decimal string). MUST NOT do money math on JS `number`; round amounts with `resolveAmountDecimalPlaces(currency.decimalPlaces)` | `@open-mercato/shared/lib/decimal` |
+| `decimal.ts` | Raw exact decimal math for EXISTING `number` + `<field>Exact` money contracts and for non-monetary FX math (rates) - exact add/subtract/multiply, division that keeps at least 17 significant digits, half-up rounding, and `decimalStringSchema` (accepts number or string, outputs a canonical decimal string). MUST NOT do money math on JS `number`; round amounts with `resolveAmountDecimalPlaces(currency.decimalPlaces)`. New monetary values use `lib/money` instead | `@open-mercato/shared/lib/decimal` |
+| `money/` | For EVERY new monetary value (new entity column, validator field, command input, service signature, API field): immutable `Money` (exact amount + `Currency`) and free functions (`addMoney`, `sumMoney`, `multiplyMoney`, `divideMoney`, `allocateMoney`, `convertMoney`, `rescaleMoney`, `compareMoney`, ...). A `Currency` comes ONLY from `await resolveCurrency(container, { code, tenantId, organizationId })` (no ISO fallback, throws `CurrencyNotResolvedError`). Cross-currency arithmetic throws `CurrencyMismatchError`; equal means same code AND decimal places. Rounding is never implicit: divide/convert/rescale/round take `{ decimalPlaces, mode }`, allocate takes `{ decimalPlaces }`. Client input: `moneyInputSchema` + `resolveMoney`. Queues/caches/events/JSON state: `snapshotMoney` + `restoreMoney` (never feed request input to `restoreMoney`). Persist with `MoneyColumns` (see Money Value Objects below). Spec: `.ai/specs/2026-10-22-money-value-object.md` | `@open-mercato/shared/lib/money` |
 | `delivery/` | When scheduling delivery/retry attempts — exponential backoff with jitter for delivery pipelines (currently the push delivery worker) | `@open-mercato/shared/lib/delivery/retry` (`calculateBackoffDelayMs`) |
 | `di/` | When setting up dependency injection (Awilix). The app-level hook (`src/di.ts` → `register`) is wired explicitly in BOTH bootstrap paths — `src/bootstrap.ts` for the Next.js runtime, `bootstrapFromAppRoot()` for worker/scheduler/CLI processes. Never rely on the legacy `import('@/di')` fallback: the alias does not exist outside the app bundler | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
@@ -126,6 +127,21 @@ When fallback would compare with ciphertext, both engines retain the existing wa
 
 - `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default.
 - Direct `…WithDecryption` helpers warn outside production about `$like`/`$ilike`/`$re` in encrypted-field ORM predicates (`lib/encryption/likeFilterWarning`); they decrypt returned rows but cannot repair a ciphertext filter.
+
+### Money Value Objects — MUST use for every new monetary value
+
+```typescript
+import { resolveCurrency, createMoney, sumMoney, divideMoney, snapshotMoney, restoreMoney } from '@open-mercato/shared/lib/money'
+import { MoneyColumns, moneyToColumns, moneyFromColumns } from '@open-mercato/shared/lib/db/moneyColumns'
+```
+
+Adopter recipe for a new entity:
+1. Embed: `@Embedded(() => MoneyColumns, { prefix: 'total_', nullable? }) total!: MoneyColumns` — produces `total_amount numeric`, `total_currency_code text`, `total_currency_decimal_places int`. MikroORM discovers the embeddable from the referencing entity; no re-export is needed.
+2. Migration: `yarn db:generate`, keep only this entity's three columns per money field.
+3. Boundary: commands/services convert with `moneyToColumns(money)` / `moneyFromColumns(columns)` (`columns ? moneyFromColumns(columns) : null` for nullable fields). Entities never hold `Money`.
+4. Mixing stored money with freshly resolved money after a tenant precision change throws `CurrencyMismatchError`; call `rescaleMoney(stored, fresh, rounding)` at the read boundary.
+
+MUST NOT: build a `Currency` by hand or from the ISO table, pass request input to `restoreMoney`, round implicitly, or hide a `CurrencyMismatchError` in a `try`/`catch`. `lib/money/internal.ts` is not public API. Docs: `apps/docs/docs/framework/data-integrity/money-value-objects.mdx`.
 
 ### Boolean Parsing — MUST use instead of ad-hoc parsing
 

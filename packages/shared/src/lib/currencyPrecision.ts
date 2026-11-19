@@ -29,8 +29,19 @@ export type CurrencyPrecisionLookup = {
   organizationId?: string | null
 }
 
+export type CurrencyDetails = {
+  code: string
+  decimalPlaces: number
+  symbol: string | null
+}
+
+/**
+ * `getCurrency` MUST stay optional: third-party resolvers implement only
+ * `getDecimalPlaces`, and consumers then fall back to `symbol: null`.
+ */
 export type CurrencyPrecisionResolver = {
   getDecimalPlaces(lookup: CurrencyPrecisionLookup): Promise<number | null>
+  getCurrency?(lookup: CurrencyPrecisionLookup): Promise<CurrencyDetails | null>
 }
 
 type ServiceContainer = {

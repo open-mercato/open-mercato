@@ -342,3 +342,29 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - `Money.amount` is now deep-frozen, and `Money` owns a copy of its amount. The shallow freeze left big.js's coefficient array writable.
   - Added a trusted `MoneySnapshot` transport (`snapshotMoney`/`restoreMoney`), separate from the untrusted `MoneyInput`, so values in queues and caches keep their precision.
   - Replaced the rollback rule with a Migration & Backward Compatibility section that follows `BACKWARD_COMPATIBILITY.md`.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Value objects | Done | 2026-11-19 | `lib/money/*` + `CurrencyPrecisionResolver.getCurrency?`; unit tests passing |
+| Phase 2 — Persistence | Done | 2026-11-19 | `lib/db/moneyColumns.ts`, metadata test (`connect: false`), adopter recipe in `packages/shared/AGENTS.md` and `apps/docs` |
+| Phase 3 — Harness enforcement | In Progress | 2026-11-19 | — |
+
+### Phase 1 — Detailed Progress
+- [x] Step 1: `CurrencyDetails` + optional `getCurrency` on the resolver contract; `CurrencyPrecisionService.getCurrency` shares the per-request lookup with `getDecimalPlaces`
+- [x] Step 2: `types.ts`, `errors.ts`, `currency.ts` (`resolveCurrency`, `currenciesEqual`, `assertSameCurrency`)
+- [x] Step 3: `money.ts` core arithmetic, comparison and sign checks, immutability regressions
+- [x] Step 4: `divideMoney`, `roundMoney`, `convertMoney`, `rescaleMoney`
+- [x] Step 5: `allocateMoney`
+- [x] Step 6: `serialization.ts` + `packages/shared/AGENTS.md` row
+
+### Phase 2 — Detailed Progress
+- [x] Step 1: `MoneyColumns`, `moneyToColumns`, `moneyFromColumns` + metadata and round-trip tests. Discovery through the referencing entity works; no re-export fallback is needed
+- [x] Step 2: Adopter recipe in `packages/shared/AGENTS.md` and `apps/docs/docs/framework/data-integrity/money-value-objects.mdx`
+
+### Implementation notes
+- The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract.
+- `allocateMoney` computes each share as `floor(U × ratio_i / S)` with a single private-constructor division (`DP = 0`, `RM = down`) and the remainder as `U × ratio_i − share × S`. This is the same exact integer remainder as `mod`, without calling `mod` at all.
+- `restoreMoney` and `resolveMoney` throw a plain `[internal]` `Error` for an invalid snapshot or input. No extra error class was added.
+- A zero result is normalised to a positive sign, so `negateMoney(zero)` is never `-0`.

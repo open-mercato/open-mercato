@@ -514,7 +514,10 @@ const sidebars: SidebarsConfig = {
         {
           type: "category",
           label: "Data Integrity",
-          items: ["framework/data-integrity/concurrency-locking"],
+          items: [
+            "framework/data-integrity/concurrency-locking",
+            "framework/data-integrity/money-value-objects",
+          ],
         },
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
