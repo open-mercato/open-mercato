@@ -455,7 +455,7 @@ Response: `{ "ok": true, "status": "done" }`.
 
 ACL: `wms.manage_packing`. Status must be `done`. `sales_shipment_id` required, else `409 shipment_link_missing`. `label_status` is ignored.
 
-For each line, write one `ship` movement and decrement pack-location on-hand and allocated by `quantity_packed`. Reduce the reservation quantity. Fulfill the reservation at zero. Status `shipped`. Emit `wms.packing.shipped`. This is the only on-hand reduction in the phase.
+For each line, write one `ship` movement and decrement pack-location on-hand and allocated by `quantity_packed`. Reduce the reservation quantity. Fulfill the reservation at zero. Status `shipped`. Emit `wms.packing.shipped`. This is the only on-hand reduction in the phase. Ship does not read the sales shipment. Sales rejects delete and item changes once `wms_packing_task_id` is set, so a committed ship cannot race a fulfillment reversal.
 
 Response: `{ "ok": true, "status": "shipped", "movementIds": ["uuid"] }`.
 
@@ -508,17 +508,21 @@ Sales owns shipment records and shipment status dictionaries. WMS does not read 
 
 System command `sales.shipments.create-for-packing` has no public route and is called only by this subscriber. It validates items, locks the order, and updates fulfilled quantities the same way as `sales.shipments.create`. In that same transaction it sets `wms_packing_task_id`. When a non-deleted shipment already has this packing task id, it returns that shipment and does not insert and does not change fulfilled quantities.
 
+System command `sales.shipments.claim-for-packing` has no public route and is called only by this subscriber, before `link-shipment`, when a hand-created shipment is reused. It locks the shipment row. A null `wms_packing_task_id` is set to this packing task id. The same id is success. A different packing task id returns `409 shipment_already_linked` and writes nothing. Items, metadata, and fulfilled quantities stay unchanged. A missing or deleted shipment is not claimed.
+
+`sales.shipments.delete`, and `sales.shipments.update` when the submitted items differ in order line or quantity from the stored items, lock the shipment row and re-read `wms_packing_task_id` before writing. A set column returns `409 shipment_claimed` and writes nothing, so fulfilled quantities stay. Notes, metadata, tracking, and dictionary status still save when items are omitted or match the stored lines and quantities. The column stays. This guard holds after ship. A return is phase 5.
+
 Each `wms.packing.completed` is one packing task. A second wave of the same order emits a second event whose lines are only that wave's picks. The sales subscriber:
 
 1. If this `packingTaskId` is already linked, call `link-shipment` with the same id and stop.
-2. Load every non-deleted sales shipment for the order. If one has `wms_packing_task_id` equal to this packing task id, call `link-shipment` with that shipment and stop. The column was written by `sales.shipments.create-for-packing`, so a later public metadata update does not free the shipment for another packing task. Do not create a second shipment and do not add its quantity to fulfilled totals again.
+2. Load every non-deleted sales shipment for the order. If one has `wms_packing_task_id` equal to this packing task id, call `link-shipment` with that shipment and stop. The column was written by `create-for-packing` or `claim-for-packing`, so a later public metadata update does not free the shipment for another packing task. Do not create a second shipment and do not add its quantity to fulfilled totals again.
 3. Shipment status is a tenant dictionary, so it is not a filter. Drop any shipment whose id is already stored on another non-deleted packing task. Drop any shipment whose `wms_packing_task_id` belongs to a different packing task, including one that is not linked yet.
 4. A candidate matches when its items, mapped through order lines, equal the packed variant quantities, and the packed quantity still fits each line once that candidate's own items are excluded from the shipped totals (`excludeShipmentId` in the sales shipment command).
-5. Exactly one match: call `link-shipment` with that id. Do not create a second shipment and do not add its quantity to fulfilled totals again. A hand-created shipment has `wms_packing_task_id` null, and linking it leaves the column null.
+5. Exactly one match: call `sales.shipments.claim-for-packing`, then `link-shipment`. Do not create a second shipment and do not add its quantity to fulfilled totals again. Claim sets `wms_packing_task_id` when it was null. A crash after claim and before link is recovered by step 2.
 6. No match: split the packed variant quantity across the order's product lines for that variant, in stable line id order. Remaining quantity is line quantity minus shipped totals of every non-deleted shipment, with nothing excluded. When the packed quantity fits, call `sales.shipments.create-for-packing` with the order's current optimistic-lock version and this packing task id, then `link-shipment`. The command returns the existing non-deleted shipment for that packing task id or inserts one. A returned shipment does not change fulfilled quantities. When the packed quantity does not fit, create nothing and leave `sales_shipment_id` null. Set the packing task `metadata.linkBlockReason` to `quantity_exceeds_remaining`. An optimistic-lock 409 from create-for-packing reruns this algorithm from step 1 and is not a `quantity_exceeds_remaining`.
 7. More than one match: create nothing and link nothing. Set the packing task `metadata.linkBlockReason` to `ambiguous_shipment`.
 
-If `link-shipment` returns `409 shipment_already_linked` because that shipment id is already stored on another live packing task, the subscriber drops that shipment and runs this algorithm again. It does not create a replacement for it in the same pass.
+If `claim-for-packing` or `link-shipment` returns `409 shipment_already_linked` because that shipment belongs to another packing task, the subscriber drops that shipment and runs this algorithm again. A missing shipment on claim does the same. It does not create a replacement for it in the same pass.
 
 Ship stays `409 shipment_link_missing` until `sales_shipment_id` is set. The link command idempotency key is the packing task id. The partial unique index on `sales_shipment_id` rejects a second live packing task for the same shipment.
 
@@ -631,7 +635,7 @@ Cache: command success invalidates the wave, task, balance, and reservation tags
 ### Story 3: Pack, sales link, and ship
 
 1. Packing list/detail, start, and complete. Complete emits `wms.packing.completed` and does not move stock.
-2. Sales subscriber creates or reuses a shipment through `sales.shipments.create-for-packing` and calls `link-shipment`. That command stores `wms_packing_task_id` in the shipment transaction. Public shipment metadata edits do not clear it.
+2. Sales subscriber creates a shipment through `sales.shipments.create-for-packing`, or claims a hand-created one through `sales.shipments.claim-for-packing`, then calls `link-shipment`. Public metadata edits do not clear `wms_packing_task_id`. Delete and item changes after claim return `409 shipment_claimed`.
 3. Ship writes `type = ship` and fulfills the reservation portion. It refuses a missing link.
 
 ### Story 4: Labels and sales projection
@@ -660,17 +664,19 @@ Cache: command success invalidates the wave, task, balance, and reservation tags
 | WMS-P3-INT-13 | API | Undo the confirm that created an `open` packing task, then confirm again | compensating movement keeps the first movement row, `movement_attempt` increments, the second confirm inserts a new movement id and restores pack-location balances, a new packing task is created |
 | WMS-P3-INT-14 | API | Short, undo, short the same quantity | second short inserts a new movement; the first short movement row remains |
 | WMS-P3-INT-15 | API | Undo confirm after packing is `done` | `409 pick_undo_blocked`, balances unchanged, complete is not undoable, a linked sales shipment stays |
-| WMS-P3-INT-16 | API | Order already has one non-deleted shipment for the packed quantity | subscriber links that shipment, fulfilled quantity is not increased again, a second packing task cannot store the same `sales_shipment_id` |
+| WMS-P3-INT-16 | API | Order already has one non-deleted shipment for the packed quantity | subscriber claims that shipment, fulfilled quantity is not increased again, `wms_packing_task_id` becomes this packing task, a second packing task cannot store the same `sales_shipment_id` |
 | WMS-P3-INT-17 | API | Two concurrent confirms of the last two picks of one order on the same wave | exactly one live packing task, both picks `done` |
 | WMS-P3-INT-18 | API | Complete racing confirm undo on the same wave | one winner: either packing is soft-deleted and `wms.packing.completed` is not emitted, or complete wins and undo returns `409 pick_undo_blocked` |
 | WMS-P3-INT-19 | API | Short a pick, release the remainder on a second wave, then confirm the first wave's last open pick and the second wave's pick concurrently, then undo the first wave's short | two live packing tasks, one per `(wave, order)`; each task's lines are only that wave's picks; both confirms succeed; the short undo returns `409 pick_undo_blocked` and leaves both waves, both packing tasks, and the balances unchanged |
 | WMS-P3-INT-20 | API | Cancel the last open pick after another pick on the same wave is `done`, then undo that cancel while packing is `open` | packing task is soft-deleted, the pick returns to `open` and is allocated again, a later confirm creates a new packing task |
 | WMS-P3-INT-21 | API | Undo that cancel after packing is `done` | `409 pick_undo_blocked`, packing stays `done`, balances unchanged |
 | WMS-P3-INT-22 | API | Two packing tasks for one order pack the same variant and the same quantity. The first subscriber's create-for-packing commits and stops before link. A public shipment update then replaces metadata. The second subscriber runs. The first then replays | `wms_packing_task_id` stays the first packing task, the metadata update does not change fulfilled quantity, the second task does not link the first shipment, replay links the first task to that shipment, each task ends with its own shipment, and fulfilled quantity increases once per created shipment |
+| WMS-P3-INT-23 | API | After link, delete the shipment and replace its item quantities, for a shipment created by `create-for-packing` and for a hand-created shipment that was claimed | both deletes and both item changes return `409 shipment_claimed`, fulfilled quantity unchanged, a metadata-only update still saves, then ship decrements pack on-hand once and fulfillment stays |
+| WMS-P3-INT-24 | API | Delete racing ship after the shipment is claimed | delete returns `409 shipment_claimed`, ship decrements pack on-hand once, fulfilled quantity unchanged |
 
 Fixtures use phase 1 reservations and a staging pack location. Do not reserve staging stock directly. Carrier failure asserts the packing row and the balances, not a rolled-back transaction.
 
-Unit coverage: bucket split on short, ship quantity against reservation remainder, subscriber line split across two order lines of the same variant, idempotent release and confirm, short undo when the remainder is no longer reserved, and shipment-owner replay after a crash before link, including a public metadata update in between.
+Unit coverage: bucket split on short, ship quantity against reservation remainder, subscriber line split across two order lines of the same variant, idempotent release and confirm, short undo when the remainder is no longer reserved, shipment-owner replay after a crash before link, including a public metadata update in between, and claim rejecting a second packing task for the same shipment.
 
 ## Risks
 
@@ -689,6 +695,14 @@ Unit coverage: bucket split on short, ship quantity against reservation remainde
 - **Affected area:** Sales shipments, reservations
 - **Mitigation:** WMS never creates a shipment and never allocates from a shipment event. The sales subscriber keys off `packingTaskId`. `sales.shipments.create-for-packing` writes that id into `wms_packing_task_id` in the shipment transaction, and a later pass links that shipment instead of inserting another. Public metadata updates do not clear the column.
 - **Residual risk:** A shipment created by hand for the same lines can still collide with remaining shippable quantity. The subscriber then skips the link and ship stays blocked. Acceptable because the operator sees `shipment_link_missing`.
+
+#### Claimed shipment deleted or rewritten before ship
+
+- **Scenario:** Sales deletes a linked shipment or replaces its items. Ship then decrements stock while fulfillment was reversed or no longer matches the pack.
+- **Severity:** High
+- **Affected area:** Sales fulfillment, pack-location balances
+- **Mitigation:** `create-for-packing` and `claim-for-packing` set `wms_packing_task_id` under the shipment row lock before `link-shipment`. Delete, and an update that changes lines or quantities, lock that row, re-read the column, and return `409 shipment_claimed`. Ship does not read the sales row. INT-23 and INT-24.
+- **Residual risk:** A shipment whose column is still null can be deleted before claim. The subscriber finds nothing to link and ship stays `409 shipment_link_missing`. Acceptable.
 
 #### One order on two waves shares one packing task
 
@@ -767,6 +781,10 @@ Unit coverage: bucket split on short, ship quantity against reservation remainde
 Ready for implementation. Code is not shipped with this revision.
 
 ## Changelog
+
+### 2026-11-19 (rev 12)
+
+- A reused shipment is claimed through `sales.shipments.claim-for-packing` before `link-shipment`, which sets `wms_packing_task_id`. Delete and an update that changes lines or quantities then return `409 shipment_claimed` and leave fulfilled quantities in place. The guard holds after ship.
 
 ### 2026-11-19 (rev 11)
 
