@@ -17,6 +17,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { makeCreateRedo, restoreCreatedRow } from '@open-mercato/shared/lib/commands/redo'
+import { resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 import { E } from '#generated/entities.ids.generated'
 import {
   CatalogProductCategory,
@@ -393,10 +394,23 @@ async function restoreServiceChildren(
   }
 }
 
+const SERVICE_EXACT_AMOUNT_FIELDS = ['defaultPriceAmount'] as const
+
+type ExactDefaultPriceInput = {
+  defaultPriceAmount?: number | null
+  defaultPriceAmountExact?: string | null
+}
+
+function resolveDefaultPriceAmount(parsed: ExactDefaultPriceInput): string | null {
+  if (parsed.defaultPriceAmount === null || parsed.defaultPriceAmount === undefined) return null
+  return resolveExactDecimal(parsed.defaultPriceAmountExact, parsed.defaultPriceAmount)
+}
+
 const createServiceCommand: CommandHandler<ServiceCreateInput, { serviceId: string }> = {
   id: 'catalog.services.create',
   async execute(input, ctx) {
-    const { parsed, custom } = parseWithCustomFields(serviceCreateSchema, input)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(serviceCreateSchema, input)
+    const parsed = withExactAmounts(parsedInput, input, SERVICE_EXACT_AMOUNT_FIELDS)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -412,10 +426,7 @@ const createServiceCommand: CommandHandler<ServiceCreateInput, { serviceId: stri
       description: trimNullable(parsed.description),
       scope: trimNullable(parsed.scope),
       category,
-      defaultPriceAmount:
-        parsed.defaultPriceAmount === null || parsed.defaultPriceAmount === undefined
-          ? null
-          : (toNumericString(parsed.defaultPriceAmount) ?? null),
+      defaultPriceAmount: resolveDefaultPriceAmount(parsed) ?? null,
       defaultPriceCurrencyCode: parsed.defaultPriceCurrencyCode ?? null,
       defaultMediaId: parsed.defaultMediaId ?? null,
       defaultMediaUrl: trimNullable(parsed.defaultMediaUrl),
@@ -516,7 +527,8 @@ const updateServiceCommand: CommandHandler<ServiceUpdateInput, { serviceId: stri
     return before ? { before } : {}
   },
   async execute(input, ctx) {
-    const { parsed, custom } = parseWithCustomFields(serviceUpdateSchema, input)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(serviceUpdateSchema, input)
+    const parsed = withExactAmounts(parsedInput, input, SERVICE_EXACT_AMOUNT_FIELDS)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await findOneWithDecryption(em, CatalogService, { id: parsed.id, deletedAt: null })
     if (!record) throw notFound(await translateServiceNotFound())
@@ -534,8 +546,7 @@ const updateServiceCommand: CommandHandler<ServiceUpdateInput, { serviceId: stri
     if (parsed.scope !== undefined) record.scope = trimNullable(parsed.scope)
     if (nextCategory !== undefined) record.category = nextCategory
     if (parsed.defaultPriceAmount !== undefined) {
-      record.defaultPriceAmount =
-        parsed.defaultPriceAmount === null ? null : (toNumericString(parsed.defaultPriceAmount) ?? null)
+      record.defaultPriceAmount = resolveDefaultPriceAmount(parsed)
     }
     if (parsed.defaultPriceCurrencyCode !== undefined) {
       record.defaultPriceCurrencyCode = parsed.defaultPriceCurrencyCode ?? null

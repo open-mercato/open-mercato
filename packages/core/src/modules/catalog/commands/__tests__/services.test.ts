@@ -192,6 +192,27 @@ describe('catalog.services commands', () => {
     )
   })
 
+  it('stores the exact default price digits the route captured, not the float', async () => {
+    const command = loadCommand('catalog.services.create')
+    const { ctx, created } = buildCtx()
+    const exact = '12345678901234567.123456789012345678'
+
+    await command.execute(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        title: 'Precise workshop',
+        defaultPriceAmount: Number(exact),
+        defaultPriceAmountExact: exact,
+        defaultPriceCurrencyCode: 'USD',
+      } as never,
+      ctx,
+    )
+
+    const service = created.find((entry) => entry.entity === 'CatalogService')
+    expect(service?.data).toMatchObject({ defaultPriceAmount: exact })
+  })
+
   it('rejects a category that is not visible in the service scope', async () => {
     const command = loadCommand('catalog.services.create')
     const { ctx } = buildCtx()

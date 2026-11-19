@@ -20,6 +20,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 type ServiceRow = {
   id: string
@@ -87,12 +88,15 @@ export function formatServiceDefaultPrice(
   locale?: string | null,
 ): string {
   if (amount === null || amount === undefined || amount === '') return fallback
-  const parsed = typeof amount === 'string' ? Number(amount) : amount
+  const exact = parseDecimal(typeof amount === 'string' ? amount.trim() : amount)
   const formatLocale = resolvePriceFormatLocale(locale)
-  if (!Number.isFinite(parsed)) {
+  if (!exact) {
     const code = currency?.trim()
     return `${amount}${code ? ` ${code}` : ''}`.trim()
   }
+  const parsed = decimalToString(exact) as Intl.StringNumericLiteral
+  const plain = () =>
+    new Intl.NumberFormat(formatLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(parsed)
   const code = currency?.trim().toUpperCase()
   if (code) {
     try {
@@ -106,10 +110,10 @@ export function formatServiceDefaultPrice(
         .format(parsed)
         .replace(/[\u00a0\u202f]/g, ' ')
     } catch {
-      return `${parsed.toLocaleString(formatLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${code}`
+      return `${plain()} ${code}`
     }
   }
-  return parsed.toLocaleString(formatLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return plain()
 }
 
 export default function ServicesDataTable() {

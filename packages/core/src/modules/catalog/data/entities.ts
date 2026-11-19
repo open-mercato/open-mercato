@@ -319,7 +319,7 @@ export class CatalogService {
   })
   category?: CatalogProductCategory | null
 
-  @Property({ name: 'default_price_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'default_price_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   defaultPriceAmount?: string | null
 
   @Property({ name: 'default_price_currency_code', type: 'text', nullable: true })

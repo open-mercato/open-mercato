@@ -28,7 +28,7 @@ Catalog currently models service-like examples through products and custom field
 
 ## Data Models
 
-- `catalog_services`: standard scoped editable entity with `updated_at` for optimistic locking.
+- `catalog_services`: standard scoped editable entity with `updated_at` for optimistic locking. `default_price_amount` is an unconstrained `numeric` exact money column, like catalog prices.
 - `catalog_service_media`: service-owned media rows with sort order and default marker.
 - `catalog_service_work_requirements`: service-owned structured requirements with `targetType` (`staff_team`, `staff_role`, `staff_member`, `resource`, `resource_type`, `generic`) and `allocationMode` (`ratio`, `fixed_hours`).
 - Sales line tables add nullable `service_id` where line records already store product references.
@@ -63,6 +63,7 @@ Catalog currently models service-like examples through products and custom field
 
 ## Changelog
 
+- 2026-11-19: Aligned with upstream arbitrary-precision money (#7324). `catalog_services.default_price_amount` is unconstrained `numeric` (`ExactDecimalType`); the services API and commands keep the exact digits a client sends (`withExactAmounts` → `resolveExactDecimal`), the service form submits the typed price as an exact decimal string, the list formats it from the exact value, and the sales line dialog carries a selected service's price as an exact string. Service-line UoM normalization and unit-price conversion take upstream's exact prices and amount precision while keeping the carried-unit fallback and same-product conversion rule.
 - 2026-11-11: CI follow-ups (#9092). The services list forwards the server's `totalIsCapped` flag to the table pagination (`yarn check:pagination-capped`), so a capped total is no longer shown as exact. The services CRUD spec is renumbered `TC-CAT-053-services-crud.spec.ts` because upstream added `TC-CAT-046-dictionary-access-scope.spec.ts`.
 - 2026-11-10: PR review follow-up (#9092). Integration coverage for the permission and organization boundaries: `TC-CAT-047-services-access-scope.spec.ts` and `TC-SALES-051-service-line-org-scope.spec.ts`. `TC-SALES-050` now expects a 400 for a line that references both a service and a product, matching the third-round rule (a `kind: 'service'` line with a matched product and no `serviceId` is accepted). The four service specs pass against an ephemeral app.
 - 2026-11-09: Fourteenth review follow-ups. The work-requirements editor stacks into one column on narrow screens and uses two columns from `sm` up; the one-row `@6xl` layout from the thirteenth round was dropped because the form column it sits in never reaches that width. The remove action fills the cell next to Value on rows with a reference and takes its own row only on generic rows. The service edit page translates its navigation group (`pageGroupKey`).

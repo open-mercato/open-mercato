@@ -783,6 +783,17 @@ describe('catalog module components', () => {
     ])
   })
 
+  it('keeps every typed digit of the default price', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const payload = buildServicePayload(createServiceInitialValues({
+      title: 'Workshop',
+      defaultPriceAmount: '12345678901234567.123456789012345678',
+      defaultPriceCurrencyCode: 'USD',
+    }), t)
+
+    expect(payload.defaultPriceAmount).toBe('12345678901234567.123456789012345678')
+  })
+
   it('rejects an unreadable or negative default price before submit', () => {
     const t = (_key: string, fallback?: string) => fallback ?? _key
     for (const defaultPriceAmount of ['abc', '-5']) {

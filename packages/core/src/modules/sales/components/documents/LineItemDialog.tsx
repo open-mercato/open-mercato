@@ -97,7 +97,7 @@ type ServiceOption = {
   title: string;
   description: string | null;
   scope: string | null;
-  defaultPriceAmount: number | null;
+  defaultPriceAmount: string | null;
   defaultPriceCurrencyCode: string | null;
   defaultMediaUrl: string | null;
   workRequirements: unknown[];
@@ -512,7 +512,7 @@ function mapServiceOption(item: Record<string, unknown>): ServiceOption | null {
   const id = typeof item.id === "string" ? item.id : null;
   if (!id) return null;
   const title = typeof item.title === "string" && item.title.trim().length ? item.title : id;
-  const priceAmount = normalizeNumber(item.defaultPriceAmount ?? item.default_price_amount);
+  const priceAmount = toExactAmount(item.defaultPriceAmount ?? item.default_price_amount);
   const currency =
     typeof item.defaultPriceCurrencyCode === "string"
       ? item.defaultPriceCurrencyCode
@@ -530,7 +530,7 @@ function mapServiceOption(item: Record<string, unknown>): ServiceOption | null {
     title,
     description: typeof item.description === "string" ? item.description : null,
     scope: typeof item.scope === "string" ? item.scope : null,
-    defaultPriceAmount: Number.isFinite(priceAmount) ? priceAmount : null,
+    defaultPriceAmount: priceAmount,
     defaultPriceCurrencyCode: currency,
     defaultMediaUrl: mediaUrl,
     workRequirements: Array.isArray(item.workRequirements)
@@ -2168,7 +2168,10 @@ export function LineItemDialog({
                       setFormValue?.("priceId", null);
                       setFormValue?.("quantityUnit", null);
                       if (selectedOption.defaultPriceAmount !== null) {
-                        setFormValue?.("unitPrice", normalizeUnitPriceInputValue(selectedOption.defaultPriceAmount));
+                        setFormValue?.(
+                          "unitPrice",
+                          normalizeUnitPriceInputValue(selectedOption.defaultPriceAmount, selectedOption.defaultPriceAmount),
+                        );
                       }
                       if (selectedOption.defaultPriceCurrencyCode) {
                         setFormValue?.("currencyCode", selectedOption.defaultPriceCurrencyCode);

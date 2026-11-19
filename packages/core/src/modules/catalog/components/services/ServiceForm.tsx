@@ -7,7 +7,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { Input } from '@open-mercato/ui/primitives/input'
 import { AMOUNT_CURRENCIES } from '@open-mercato/ui/primitives/amount-input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
+import { parseLocaleDecimal, parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import { E } from '#generated/entities.ids.generated'
 import {
   CatalogMediaManager,
@@ -16,6 +16,7 @@ import {
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { DictionaryEntrySelect, type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { loadCurrencyOptions } from '../../lib/currencyOptions'
+import { validateCatalogPriceAmountInput } from '../../lib/priceValidation'
 import { CategorySelect } from '../categories/CategorySelect'
 import { ServiceWorkRequirements, type ServiceWorkRequirementDraft } from './ServiceWorkRequirements'
 
@@ -80,6 +81,12 @@ function parseUserDecimal(value: unknown): number | null {
   return null
 }
 
+function parseUserPrice(value: unknown): string | null {
+  const typed = typeof value === 'string' ? parseLocaleDecimal(value) : value
+  const validation = validateCatalogPriceAmountInput(typed)
+  return validation.ok ? validation.exact : null
+}
+
 function hasUserInput(value: unknown): boolean {
   return typeof value === 'number' || (typeof value === 'string' && value.trim().length > 0)
 }
@@ -123,12 +130,11 @@ export function buildServicePayload(values: ServiceFormValues, t: ReturnType<typ
     throw createCrudFormError(message, { title: message })
   }
   const currency = trimOptional(values.defaultPriceCurrencyCode)
-  const parsedPrice = parseUserDecimal(values.defaultPriceAmount)
-  if (hasUserInput(values.defaultPriceAmount) && (parsedPrice === null || parsedPrice < 0)) {
+  const price = parseUserPrice(values.defaultPriceAmount)
+  if (hasUserInput(values.defaultPriceAmount) && price === null) {
     const message = t('catalog.services.form.errors.priceInvalid', 'Provide a valid, non-negative default price.')
     throw createCrudFormError(message, { defaultPriceAmount: message })
   }
-  const price = parsedPrice === null ? null : String(parsedPrice)
   if (price && !currency) {
     const message = t('catalog.services.form.errors.priceCurrency', 'Provide both default price and currency, or leave both empty.')
     throw createCrudFormError(message, { defaultPriceAmount: message, defaultPriceCurrencyCode: message })

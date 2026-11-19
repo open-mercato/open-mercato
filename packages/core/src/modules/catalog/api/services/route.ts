@@ -7,6 +7,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
 import { E } from '#generated/entities.ids.generated'
 import {
   CatalogProductCategory,
@@ -200,6 +201,8 @@ export async function decorateServicesAfterList(
   }
 }
 
+const SERVICE_AMOUNT_FIELDS = ['defaultPriceAmount'] as const
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
@@ -249,7 +252,8 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(serviceCreateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(serviceCreateSchema, raw ?? {}, ctx, translate)
+        return withExactAmounts(parsed, raw, SERVICE_AMOUNT_FIELDS)
       },
       response: ({ result }) => ({ id: result?.serviceId ?? result?.id ?? null }),
       status: 201,
@@ -259,7 +263,8 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(serviceUpdateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(serviceUpdateSchema, raw ?? {}, ctx, translate)
+        return withExactAmounts(parsed, raw, SERVICE_AMOUNT_FIELDS)
       },
       response: () => ({ ok: true }),
     },

@@ -3,7 +3,7 @@ import { Migration } from '@mikro-orm/migrations';
 export class Migration20261106120000_catalog extends Migration {
 
   override up(): void | Promise<void> {
-    this.addSql(`create table "catalog_services" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "title" text not null, "description" text null, "scope" text null, "category_id" uuid null, "default_price_amount" numeric(16,4) null, "default_price_currency_code" text null, "default_media_id" uuid null, "default_media_url" text null, "metadata" jsonb null, "is_active" boolean not null default true, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, primary key ("id"));`);
+    this.addSql(`create table "catalog_services" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "title" text not null, "description" text null, "scope" text null, "category_id" uuid null, "default_price_amount" numeric null, "default_price_currency_code" text null, "default_media_id" uuid null, "default_media_url" text null, "metadata" jsonb null, "is_active" boolean not null default true, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, primary key ("id"));`);
     this.addSql(`create index "catalog_services_category_idx" on "catalog_services" ("category_id", "organization_id", "tenant_id");`);
     this.addSql(`create index "catalog_services_scope_idx" on "catalog_services" ("organization_id", "tenant_id");`);
 
