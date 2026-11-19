@@ -308,6 +308,29 @@ describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
     expect(payload.description).toBe('B2B widgets')
   })
 
+  it('keeps an exact revenue with more than two decimals so an unrelated edit still saves', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      websiteUrl: 'https://acme.example',
+      annualRevenue: '2500000.125',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.annualRevenue).toBe('2500000.125')
+  })
+
+  it('still rejects a negative or non-numeric revenue', () => {
+    for (const annualRevenue of ['-5', 'abc', '1.2.3']) {
+      const parsed = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', annualRevenue })
+      expect(parsed.success).toBe(true)
+      if (!parsed.success) continue
+      expect(() => buildCompanyEditPayload(parsed.data as any)).toThrow('ANNUAL_REVENUE_INVALID')
+    }
+  })
+
   it('leaves create-mode blanks as omitted (no clear semantics on create)', () => {
     const parsed = createCompanyFormSchema().safeParse({
       displayName: 'Acme',

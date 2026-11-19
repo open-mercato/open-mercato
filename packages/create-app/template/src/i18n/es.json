@@ -1031,7 +1031,7 @@
   "ui.inputs.websiteInput.placeholder": "www.ejemplo.es",
   "ui.lookupSelect.change": "Cambiar",
   "ui.lookupSelect.clearSelection": "Borrar selección",
-  "ui.lookupSelect.minQueryHint": "Escribe al menos {minQuery} caracteres o pega un id para buscar.",
+  "ui.lookupSelect.minQueryHint": "Caracteres mínimos para buscar: {minQuery}. También puedes pegar un id.",
   "ui.lookupSelect.noResults": "Sin resultados",
   "ui.lookupSelect.searchPlaceholder": "Buscar…",
   "ui.lookupSelect.searching": "Buscando…",
