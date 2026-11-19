@@ -9,7 +9,8 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
-import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { formatInitSummary } from './lib/init-summary'
+import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
 import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
 import { assertEphemeralDatabaseConnection, assertEphemeralDatabaseOwnership, readEphemeralDatabaseGuard } from './lib/testing/ephemeral-database-guard'
 import {
@@ -36,6 +37,7 @@ import {
   startInProcessGenerateWatcher,
   type GenerateWatcherHandle,
 } from './lib/in-process-generate-watcher'
+import { runGenerateChildProcess } from './lib/generate-child-process'
 import {
   resolveGenerateWatcherMode,
   type GenerateWatcherMode,
@@ -362,10 +364,12 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     ) {
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
-        fs.copyFileSync(examplePath, envPath)
+        const { createEnvFileFromExample } = await import('./lib/env-example.js')
+        createEnvFileFromExample(examplePath, envPath)
         console.log('')
         console.log('⚠️  No .env was found, so one was created from .env.example.')
         console.log(`   ${envPath}`)
+        console.log('   A unique tenant encryption key was generated; keep it — data encrypted with it is unreadable without it.')
         console.log('   It carries the example placeholders — review DATABASE_URL and secrets before continuing.')
         console.log('')
       }
@@ -379,10 +383,19 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     // Resolver might fail during early init, fall back to default behavior
   }
 
-  // Fall back to default dotenv behavior (loads from cwd)
+  // Preserve dotenv/config's environment/argv options in the cwd fallback.
+  const previousDotenvQuiet = process.env.DOTENV_CONFIG_QUIET
   try {
+    if (quietDotenv) process.env.DOTENV_CONFIG_QUIET = 'true'
     await import('dotenv/config')
-  } catch {}
+  } catch {
+    // Environment loading remains best effort.
+  } finally {
+    if (quietDotenv) {
+      if (previousDotenvQuiet === undefined) delete process.env.DOTENV_CONFIG_QUIET
+      else process.env.DOTENV_CONFIG_QUIET = previousDotenvQuiet
+    }
+  }
 }
 
 function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): string {
@@ -831,12 +844,7 @@ async function runPostGenerateStructuralInvalidation(quiet: boolean): Promise<vo
   }
 }
 
-/**
- * Generator suite invoked by both `mercato generate all` and the in-process
- * generate watcher embedded in `mercato server dev`. Hoisted to module scope
- * so the watcher embedded in the server lifecycle can reuse the same closure
- * without re-importing the closure-scoped version inside `buildBaseModules`.
- */
+/** Full one-shot suite; long-lived watchers invoke this in a disposable CLI process. */
 async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
   const { createResolver } = await import('./lib/resolver')
   const {
@@ -870,6 +878,17 @@ async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Prom
     return
   }
   await runPostGenerateStructuralInvalidation(quiet)
+}
+
+async function runWatchGeneratorSuite(): Promise<void> {
+  // Keep resolver setup behind command dispatch; other CLI modes do not need it.
+  const { resolveEnvironment } = await import('./lib/resolver')
+  const { rootDir, appDir } = resolveEnvironment()
+  await runGenerateChildProcess({
+    mercatoBin: resolveInstalledBinary([rootDir, appDir], '@open-mercato/cli/bin/mercato'),
+    cwd: process.cwd(),
+    quiet: true,
+  })
 }
 
 /**
@@ -993,16 +1012,18 @@ export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: 
   const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
   const readOnlyModuleCommand = first === 'module' && (parts[1] === 'search' || parts[1] === 'info')
   const jsonOutput = parts.includes('--json')
+  const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   const helpRequested = isHelpRequest(parts)
   return {
     createIfMissing: !helpRequested && !opaqueEnvCommand && !readOnlyModuleCommand,
-    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput,
+    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput || quietGeneration,
   }
 }
 
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
+  const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   // Help must never have side effects: it must not create .env, and must not fall through
   // to the command it is asking about.
   const helpRequested = isHelpRequest(parts)
@@ -1044,6 +1065,7 @@ export async function run(argv = process.argv) {
         delete process.env.OM_INIT_REINSTALL
       }
       const skipIfInitialized = initArgs.includes('--skip-if-initialized')
+      const credentials = skipIfInitialized && !reinstall ? undefined : resolveInitSuperadminCredentials(initArgs)
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
@@ -1227,6 +1249,8 @@ export async function run(argv = process.argv) {
         }
       }
 
+      const { email, password, skipPasswordPolicy } = credentials ?? resolveInitSuperadminCredentials(initArgs)
+
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
@@ -1275,16 +1299,7 @@ export async function run(argv = process.argv) {
         }
         return fallback
       }
-      const readEnvDefault = (key: string) => {
-        const value = process.env[key]
-        if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-        return undefined
-      }
-      const defaultEmail = readEnvDefault('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
-      const defaultPassword = readEnvDefault('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret'
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
-      const email = findArgValue(['--email='], defaultEmail)
-      const password = findArgValue(['--password='], defaultPassword)
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
@@ -1318,16 +1333,6 @@ export async function run(argv = process.argv) {
         process.env.OM_INIT_EMPLOYEE_EMAIL = employeeEmailDerived
       }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
-      const skipPasswordPolicyRaw = initArgs.find((arg) =>
-        arg === '--skip-password-policy' ||
-        arg.startsWith('--skip-password-policy=') ||
-        arg === '--allow-weak-password' ||
-        arg.startsWith('--allow-weak-password=')
-      )
-      const skipPasswordPolicy = skipPasswordPolicyRaw
-        ? parseBooleanToken(skipPasswordPolicyRaw.split('=')[1] ?? 'true') ?? true
-        : true
-
       console.log('🔐 Setting up RBAC and users...')
       // Run auth setup command via CLI
       const setupArgs = [
@@ -1501,29 +1506,18 @@ export async function run(argv = process.argv) {
         pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
         pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
       }
-      // Simplified success message: we know which users were created
-      console.log('🎉 App initialization complete!\n')
-      console.log('╔══════════════════════════════════════════════════════════════╗')
-      console.log('║  🚀 You\'re now ready to start development!                   ║')
-      console.log('║                                                              ║')
-      if (parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true) {
-        console.log('║  The dev server is starting now (next time run: yarn dev).   ║')
-      } else {
-        console.log('║  Start the dev server:                                       ║')
-        console.log('║    yarn dev                                                  ║')
-      }
-      console.log('║                                                              ║')
-      console.log('║  Users created:                                              ║')
-      for (const entry of createdUsers) {
-        const label = `${entry.icon} ${entry.label}:`
-        const labelPad = padByCodePointWidth(label, 13)
-        const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
-        console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
-        console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
-      }
-      console.log('║                                                              ║')
-      console.log('║  Happy coding!                                               ║')
-      console.log('╚══════════════════════════════════════════════════════════════╝')
+      const summaryColor = parseBooleanToken(process.env.OM_INIT_SUMMARY_COLOR)
+      const summaryColumns = Number(process.env.OM_INIT_SUMMARY_COLUMNS ?? process.stdout.columns)
+      const summary = formatInitSummary({
+        users: createdUsers.map((entry) => ({
+          ...entry,
+          password: createdPasswords.get(entry.email.toLowerCase()) ?? password,
+        })),
+        autoStart: parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true,
+        columns: summaryColumns,
+        color: process.env.NO_COLOR === undefined && (summaryColor ?? (Boolean(process.stdout.isTTY) || parseBooleanToken(process.env.FORCE_COLOR) === true)),
+      })
+      for (const line of summary) console.log(line)
 
       return 0
     } catch (error: unknown) {
@@ -2081,9 +2075,9 @@ export async function run(argv = process.argv) {
         run: async (args: string[]) => {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
-          console.log('Running all generators...')
+          if (!quiet) console.log('Running all generators...')
           await runGeneratorSuiteWithStructuralInvalidation(quiet)
-          console.log('All generators completed.')
+          if (!quiet) console.log('All generators completed.')
         },
       },
       {
@@ -2101,9 +2095,7 @@ export async function run(argv = process.argv) {
             skipInitial,
             quiet,
             ...generateWatchRuntime,
-            runGenerators: async () => {
-              await runGeneratorSuiteWithStructuralInvalidation(true)
-            },
+            runGenerators: runWatchGeneratorSuite,
           })
 
           const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
@@ -2352,7 +2344,7 @@ export async function run(argv = process.argv) {
               )
               const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
-                env: runtimeEnv,
+                env: { ...runtimeEnv, NODE_ENV: 'development' },
                 cwd: appDir,
               })
               processes.push(nextProcess)
@@ -2572,12 +2564,10 @@ export async function run(argv = process.argv) {
               })
 
               if (generateWatcherMode === 'in-process') {
-                // Run the structural regeneration watcher inside this process
-                // instead of spawning a dedicated `mercato generate watch --skip-initial`
-                // sidecar. Saves ~190 MB of resident RSS on a typical dev box
-                // (measured against the legacy sidecar). Opt back into the
-                // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
-                console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                // Keep the event watcher here, but evaluate each generation in
+                // a fresh one-shot child so imported module revisions do not
+                // accumulate in this long-lived supervisor.
+                console.log('[server] In-process generate watcher enabled — structural changes regenerate in a one-shot child.')
                 const generateWatchRuntime = await createGenerateWatchRuntime()
                 activeGenerateWatcher = startInProcessGenerateWatcher({
                   // `--skip-initial` equivalent: `yarn dev` always runs an
@@ -2588,9 +2578,7 @@ export async function run(argv = process.argv) {
                   skipInitial: true,
                   quiet: false,
                   ...generateWatchRuntime,
-                  runGenerators: async () => {
-                    await runGeneratorSuiteWithStructuralInvalidation(true)
-                  },
+                  runGenerators: runWatchGeneratorSuite,
                 })
               } else {
                 console.log('[server] Legacy out-of-process generate watcher selected via OM_DEV_GENERATE_WATCH_MODE=legacy — expect the dev orchestrator to spawn `mercato generate watch --skip-initial`.')
@@ -2830,7 +2818,7 @@ export async function run(argv = process.argv) {
 
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
-  const quietBanner = process.env.OM_CLI_QUIET === '1'
+  const quietBanner = process.env.OM_CLI_QUIET === '1' || quietGeneration
   const banner = '🧩 Open Mercato CLI'
   if (!quietBanner) {
     const header = [
@@ -2894,18 +2882,20 @@ export async function run(argv = process.argv) {
     return 0
   }
 
-  console.log('')
+  if (!quietGeneration) console.log('')
   const started = Date.now()
-  const commandArgs = modName === 'deploy' && cmdName === 'railway'
-    ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
-    : rest
-  const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
-  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  if (!quietGeneration) {
+    const commandArgs = modName === 'deploy' && cmdName === 'railway'
+      ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
+      : rest
+    const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
+    console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  }
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
       await cmd.run(rest)
     })
-    if (modName !== 'deploy' || cmdName !== 'railway') {
+    if (!quietGeneration && (modName !== 'deploy' || cmdName !== 'railway')) {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)
     }

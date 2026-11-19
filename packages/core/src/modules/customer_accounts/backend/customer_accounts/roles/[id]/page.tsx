@@ -11,7 +11,7 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -239,6 +239,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
   const initialValues = React.useMemo(() => {
     if (!data) return {}
     return {
+      id: data.id,
       name: data.name,
       description: data.description || '',
       isDefault: data.isDefault,
@@ -267,9 +268,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       )
     ))
     if (!roleCall.ok) {
-      if (surfaceRecordConflict({ status: roleCall.status, body: roleCall.result }, t)) return
-      flash(t('customer_accounts.admin.roleDetail.error.save', 'Failed to save role'), 'error')
-      return
+      await raiseCrudError(roleCall.response, t('customer_accounts.admin.roleDetail.error.save', 'Failed to save role'))
     }
     const features = Array.isArray(values.features) ? values.features : []
     // The role PUT just bumped the aggregate's `updatedAt`; the ACL write guards
@@ -288,9 +287,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       )
     ))
     if (!aclCall.ok) {
-      if (surfaceRecordConflict({ status: aclCall.status, body: aclCall.result }, t)) return
-      flash(t('customer_accounts.admin.roleDetail.error.saveAcl', 'Failed to save permissions'), 'error')
-      return
+      await raiseCrudError(aclCall.response, t('customer_accounts.admin.roleDetail.error.saveAcl', 'Failed to save permissions'))
     }
     flash(t('customer_accounts.admin.roleDetail.flash.saved', 'Role updated'), 'success')
     router.push('/backend/customer_accounts/roles')
@@ -306,9 +303,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       )
     ))
     if (!call.ok) {
-      if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
-      flash(t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'), 'error')
-      return
+      await raiseCrudError(call.response, t('customer_accounts.admin.roles.error.delete', 'Failed to delete role'))
     }
     flash(t('customer_accounts.admin.roles.flash.deleted', 'Role deleted'), 'success')
     router.push('/backend/customer_accounts/roles')

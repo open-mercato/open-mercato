@@ -675,6 +675,9 @@ None.
 
 ## Changelog
 
+### 2026-11-15
+- The CSV inventory import read a `quantity` that isn't a number (for example `1,000` with a comma thousands separator, a decimal comma like `1,5`, or other text) as 0, so the row was skipped in additive mode or set the bucket to 0 in reconcile mode. Validation now rejects it with the existing `quantity_invalid` row error, whose message now asks for a plain number with a dot for decimals. Coverage: `inventoryImportService.test.ts`, `TC-WMS-035`.
+
 ### 2026-10-09
 - Balance buckets without a serial number had no unique index, and `upsertBalanceBucket` read the bucket `FOR UPDATE` (locking nothing when no row exists) before inserting it, so concurrent receipts, adjustments, cycle counts or moves into an empty bucket each inserted their own row. Cycle counts and moves then read one of those rows, and `verify-balances --repair` set every row to the bucket total. Creating a bucket now takes a transaction-scoped advisory lock on the bucket identity (warehouse, location, variant, lot, serial) and re-reads it before inserting; writes to existing buckets are unchanged. `move` no longer creates an empty source bucket before answering `409 insufficient_stock`. Existing duplicate rows are not merged. Coverage: `inventory-actions.balanceBucket.test.ts`, `TC-WMS-030`.
 

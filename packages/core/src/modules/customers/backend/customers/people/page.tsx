@@ -29,9 +29,7 @@ import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserI
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import {
   DictionaryValue,
-  createEmptyCustomerDictionaryMaps,
-  renderDictionaryColor,
-  renderDictionaryIcon,
+  dictionaryValueAppearance,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../lib/dictionaries'
@@ -50,7 +48,7 @@ import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilter
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import { useQueryClient } from '@tanstack/react-query'
-import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
+import { usePeopleDictionaryMaps } from '../../hooks/usePeopleDictionaryMaps'
 import {
   ensureCurrentUserFilterOption,
   fetchAssignableStaffMembers,
@@ -259,9 +257,9 @@ export default function CustomersPeoplePage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
-  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyCustomerDictionaryMaps())
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
+  const dictionaryMaps = usePeopleDictionaryMaps(queryClient, scopeVersion, reloadToken)
   const t = useT()
   const router = useRouter()
   const handlePageSizeChange = React.useCallback((newSize: number) => {
@@ -293,18 +291,6 @@ export default function CustomersPeoplePage() {
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
-  const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
-    try {
-      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
-      setDictionaryMaps((prev) => ({
-        ...prev,
-        [kind]: data.map,
-      }))
-      return data.entries
-    } catch {
-      return []
-    }
-  }, [queryClient, scopeVersion])
   const dictionaryOptions = React.useMemo(() => {
     const toOptions = (map?: DictionaryMap | null): DictionaryOptionWithTone[] =>
       Object.values(map ?? {})
@@ -321,23 +307,6 @@ export default function CustomersPeoplePage() {
       lifecycleStages: toOptions(dictionaryMaps['lifecycle-stages']),
     }
   }, [dictionaryMaps])
-
-  React.useEffect(() => {
-    let cancelled = false
-    async function loadAll() {
-      if (cancelled) return
-      setDictionaryMaps(createEmptyCustomerDictionaryMaps())
-      await Promise.all([
-        fetchDictionaryEntries('statuses'),
-        fetchDictionaryEntries('sources'),
-        fetchDictionaryEntries('lifecycle-stages'),
-      ])
-    }
-    loadAll().catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
   const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_person_profile],
@@ -593,10 +562,7 @@ export default function CustomersPeoplePage() {
         value={rawValue}
         map={dictionaryMaps[kind]}
         fallback={rawValue ? <span>{rawValue}</span> : noValue}
-        className="text-sm"
-        iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-        iconClassName="h-4 w-4"
-        colorClassName="h-3 w-3 rounded-full"
+        appearance={dictionaryValueAppearance(kind)}
       />
     )
 
@@ -699,22 +665,12 @@ export default function CustomersPeoplePage() {
           row.original.nextInteractionAt
             ? (
               <div className="flex items-start gap-2 text-sm">
-                {row.original.nextInteractionIcon ? (
-                  <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card">
-                    {renderDictionaryIcon(row.original.nextInteractionIcon, 'h-4 w-4')}
-                  </span>
-                ) : null}
                 <div className="flex flex-col">
                   <span>{formatDate(row.original.nextInteractionAt, t('customers.people.list.noValue'))}</span>
                   {row.original.nextInteractionName ? (
                     <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
                   ) : null}
                 </div>
-                {row.original.nextInteractionColor ? (
-                  <span className="mt-1">
-                    {renderDictionaryColor(row.original.nextInteractionColor, 'h-3 w-3 rounded-full border border-border')}
-                  </span>
-                ) : null}
               </div>
             )
             : <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
