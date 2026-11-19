@@ -9,9 +9,11 @@ import StaffLeaveRequestDetailPage from '../page'
 
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111'
 
+const mockTranslate = (key: string, fallback?: string) => fallback ?? key
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/i18n/context')
-  return { ...actual, useT: () => (key: string, fallback?: string) => fallback ?? key }
+  return { ...actual, useT: () => mockTranslate }
 })
 
 jest.mock('next/navigation', () => ({
@@ -41,9 +43,9 @@ function buildRecord(status: string) {
   return {
     id: REQUEST_ID,
     status,
-    start_date: '2026-12-01',
-    end_date: '2026-12-02',
-    updated_at: '2026-11-18T10:00:00.000Z',
+    start_date: '2025-03-03',
+    end_date: '2025-03-04',
+    updated_at: '2025-03-01T10:00:00.000Z',
   }
 }
 
