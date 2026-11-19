@@ -11,6 +11,7 @@ describe('guarded init uses the effective child database before mutation', () =>
   const originalRedisUrl = process.env.REDIS_URL
   const originalInitFlow = process.env.OM_INIT_FLOW
   const originalReinstall = process.env.OM_INIT_REINSTALL
+  const originalSuperadminPassword = process.env.OM_INIT_SUPERADMIN_PASSWORD
   let directory: string
   let proofPath: string
   const query = jest.fn()
@@ -28,6 +29,7 @@ describe('guarded init uses the effective child database before mutation', () =>
     process.env.NODE_ENV = 'production'
     process.env.DATABASE_URL = ownedUrl
     process.env.REDIS_URL = ''
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'Guard-Test-Password-2026!'
     connect.mockReset().mockResolvedValue(undefined)
     end.mockReset().mockResolvedValue(undefined)
     query.mockReset().mockResolvedValue({ rows: [{ database_name: 'owned_fixture', ownership_marker: 'not-owned' }] })
@@ -51,7 +53,7 @@ describe('guarded init uses the effective child database before mutation', () =>
     rmSync(directory, { recursive: true, force: true })
     if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL
     else process.env.DATABASE_URL = originalDatabaseUrl
-    for (const [key, value] of Object.entries({ NODE_ENV: originalNodeEnv, REDIS_URL: originalRedisUrl, OM_INIT_FLOW: originalInitFlow, OM_INIT_REINSTALL: originalReinstall })) {
+    for (const [key, value] of Object.entries({ NODE_ENV: originalNodeEnv, REDIS_URL: originalRedisUrl, OM_INIT_FLOW: originalInitFlow, OM_INIT_REINSTALL: originalReinstall, OM_INIT_SUPERADMIN_PASSWORD: originalSuperadminPassword })) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
     }
