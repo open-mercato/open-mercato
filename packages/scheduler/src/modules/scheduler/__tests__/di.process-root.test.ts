@@ -1,7 +1,7 @@
 import { asValue, createContainer } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { asScopedService, getProcessDiRegistrar, runCallerSetups, runProcessActivations } from '@open-mercato/shared/lib/di/process-registrar'
-import { getRequestScopeContainer, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
+import { bindRequestScopeContainer, getRequestScopeContainer, runInOwnedRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 
 const mockSyncAll = jest.fn<Promise<void>, []>()
 const mockCreateContainer = jest.fn<Promise<AppContainer>, []>()
@@ -163,4 +163,48 @@ it('observes background scope construction failure without an unhandled rejectio
   await nextTurn()
   expect(mockSyncAll).not.toHaveBeenCalled()
   expect(mockReportError).toHaveBeenCalledWith(error, { module: 'scheduler', code: 'scheduler.cold_start_failed' })
+})
+
+
+it('reconciles legacy registration after the originating request closes using an independent owned scope', async () => {
+  process.env.QUEUE_STRATEGY = 'async'
+  const caller = createContainer().register({ em: asValue({ getEventManager: () => ({ registerSubscriber: jest.fn() }) }) })
+  const callerResolve = jest.spyOn(caller, 'resolve')
+  const backgroundEm = { clear: jest.fn(), getEventManager: () => ({ registerSubscriber: jest.fn() }) }
+  const background = createContainer().register({ em: asValue(backgroundEm) })
+  const backgroundDispose = jest.spyOn(background, 'dispose')
+  let release!: () => void
+  const blocked = new Promise<void>((resolve) => { release = resolve })
+  mockSyncAll.mockImplementation(async () => {
+    expect(getRequestScopeContainer()).toBe(background)
+    await blocked
+    expect(backgroundDispose).not.toHaveBeenCalled()
+  })
+  mockCreateContainer.mockImplementation(async () => {
+    expect(getRequestScopeContainer()).toBeNull()
+    register(background)
+    return background
+  })
+  await runInOwnedRequestScope(() => {
+    bindRequestScopeContainer(caller)
+    register(caller)
+    caller.resolve('bullmqSchedulerService')
+  })
+  expect(mockSchedulers[0].destroy).toHaveBeenCalledTimes(1)
+  expect(mockSyncAll).not.toHaveBeenCalled()
+  const originalResolveCount = callerResolve.mock.calls.length
+  await nextTurn()
+  expect(callerResolve).toHaveBeenCalledTimes(originalResolveCount)
+  expect(mockCreateContainer).toHaveBeenCalledTimes(1)
+  expect(mockSyncAll).toHaveBeenCalledTimes(1)
+  expect(backgroundDispose).not.toHaveBeenCalled()
+  expect(backgroundEm.clear).not.toHaveBeenCalled()
+  expect(mockSchedulers[1].destroy).not.toHaveBeenCalled()
+  release()
+  await nextTurn()
+  expect(backgroundEm.clear).toHaveBeenCalledTimes(1)
+  expect(backgroundDispose).toHaveBeenCalledTimes(1)
+  expect(mockSchedulers[1].destroy).toHaveBeenCalledTimes(1)
+  expect(mockCreateContainer).toHaveBeenCalledTimes(1)
+  expect(mockReportError).not.toHaveBeenCalled()
 })

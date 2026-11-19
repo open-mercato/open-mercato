@@ -31,6 +31,17 @@ async function reconcileScheduler(): Promise<void> {
   }
 }
 
+function scheduleReconciliation(): void {
+  if (schedulerSynced) return
+  schedulerSynced = true
+  setImmediate(() => {
+    void runInRequestScope(reconcileScheduler).catch((error: unknown) => {
+      logger.error('BullMQ cold start sync failed', { err: error })
+      getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.cold_start_failed' })
+    })
+  })
+}
+
 /**
  * Scheduler module DI registration
  * 
@@ -68,15 +79,7 @@ function registerLegacy(container: AppContainer) {
 
     // Cold start sync: reconcile DB schedules with BullMQ repeatable jobs.
     // Deferred so it doesn't block DI registration. Runs once per process.
-    if (!schedulerSynced) {
-      schedulerSynced = true
-      setImmediate(() => {
-        const service = container.resolve('bullmqSchedulerService') as BullMQSchedulerService
-        service.syncAll()
-          .then(() => logger.info('BullMQ cold start sync complete'))
-          .catch((err: Error) => logger.error('BullMQ cold start sync failed', { err }))
-      })
-    }
+    scheduleReconciliation()
   } else {
     // Register local scheduler service for development (no Redis required)
     const queueFactory = (name: string) => createQueue(name, 'local')
@@ -124,14 +127,7 @@ export const register = defineProcessDiRegistrar((container: AppContainer) => {
       em.getEventManager().registerSubscriber(subscriber)
     })
     registerProcessActivation(container, () => {
-      if (schedulerSynced) return
-      schedulerSynced = true
-      setImmediate(() => {
-        void runInRequestScope(reconcileScheduler).catch((error: unknown) => {
-          logger.error('BullMQ cold start sync failed', { err: error })
-          getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.cold_start_failed' })
-        })
-      })
+      scheduleReconciliation()
     })
   } else {
     container.register({

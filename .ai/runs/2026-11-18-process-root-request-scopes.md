@@ -102,3 +102,5 @@ PR: #9837
 - [ ] Run the configured gate and both runtime feature modes, publish evidence and request re-review.
 
 - Boundary focused checks: 68 shared tests, 60 API tests and 40 portal/layout/backend/health/start tests pass; shared typecheck passes. Independent review found and verified fixes for async stream cancellation races, then reported no remaining concrete blocker. Template sync and lessons checks pass.
+
+- Deferred-work audit found legacy scheduler cold-start reconciliation still borrowing the request container. Both registrar modes now use the existing independently owned background reconciliation path. Its focused regression and all 563 scheduler tests pass. The first full unit pass succeeded before this correction; final qualification reruns on the complete source.
