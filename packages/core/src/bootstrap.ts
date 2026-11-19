@@ -2,11 +2,11 @@ import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
 import { getDefaultEncryptionMaps, type ModuleSubscriber } from '@open-mercato/shared/modules/registry'
 import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
-import { createEventBus } from '@open-mercato/events/index'
+import { createEventBus, createScopedEventBusFactory, type EventBus } from '@open-mercato/events/index'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
-import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { createKmsService, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
@@ -21,6 +21,13 @@ import { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { asScopedService, runProcessEventSetups } from '@open-mercato/shared/lib/di/process-registrar'
+import { runInRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
+import { registerSyncSubscribers } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
+import { getModules } from '@open-mercato/shared/lib/modules/registry'
+import { registerScopedSearchModule } from '@open-mercato/search/di'
+import type { SearchIndexer } from '@open-mercato/search'
+import type { SearchDeletePayload } from '@open-mercato/shared/modules/search'
 
 const logger = createLogger('core')
 
@@ -274,5 +281,94 @@ export async function bootstrap(container: AwilixContainer) {
     }
   } catch (err) {
     logger.warn('Failed to register search module', { component: 'search', err })
+  }
+}
+
+const KMS_GLOBAL_KEY = Symbol.for('@open-mercato/core/process-kms')
+const processEventSetupBuses = new WeakMap<AwilixContainer, EventBus>()
+
+/** @internal Completes generation-local setup after module and app registration. */
+export async function finalizeProcessRoot(root: AwilixContainer): Promise<void> {
+  const definitions = processEventSetupBuses.get(root)
+  if (!definitions) return
+  processEventSetupBuses.delete(root)
+  await runProcessEventSetups(root, definitions)
+}
+
+function getProcessKmsService(): KmsService {
+  const state = globalThis as typeof globalThis & { [KMS_GLOBAL_KEY]?: KmsService }
+  if (!state[KMS_GLOBAL_KEY]) state[KMS_GLOBAL_KEY] = createKmsService()
+  return state[KMS_GLOBAL_KEY]
+}
+
+export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() => void> {
+  const cache = getCachedCacheService()
+  if (!cache) throw new Error('[internal] Process root requires the shared cache service')
+  const kmsService = getProcessKmsService()
+  const rateLimiterService = getCachedRateLimiterService()
+  const searchModuleConfigs = getSearchModuleConfigs()
+  const modules = getModules()
+  const defaultEncryptionMaps = isTenantDataEncryptionEnabled() ? getDefaultEncryptionMaps(modules) : []
+  warnUnresolvedEncryptionMapEntityIds(defaultEncryptionMaps)
+  const strategy = process.env.QUEUE_STRATEGY || process.env.EVENTS_STRATEGY
+  const createScopedBus = createScopedEventBusFactory({
+    queueStrategy: strategy === 'async' || strategy === 'redis' ? 'async' : 'local',
+  })
+  const definitions = createScopedBus.definitions
+  const subscribers = modules.flatMap((module) => (module.subscribers ?? []).map((subscriber) => ({
+    ...subscriber,
+    moduleId: subscriber.moduleId ?? module.id,
+  })))
+  definitions.registerModuleSubscribers(subscribers.map((subscriber) => ({
+    ...subscriber,
+    handler: async (payload, context) => { await subscriber.handler(payload, context) },
+  })))
+  definitions.on(searchDeleteMetadata.event, async (payload, context) => {
+    const indexer = context.resolve<SearchIndexer>('searchIndexer')
+    await createSearchDeleteSubscriber(indexer)(payload as SearchDeletePayload)
+  }, { id: 'search.delete_record', moduleId: 'search', persistent: searchDeleteMetadata.persistent })
+
+  root.register({
+    cache: asValue(cache),
+    kmsService: asValue(kmsService),
+    searchModuleConfigs: asValue(searchModuleConfigs),
+    tenantEncryptionService: asScopedService((caller) => new TenantDataEncryptionService(
+      caller.resolve<EntityManager>('em'),
+      { cache: caller.resolve<CacheStrategy>('cache'), kms: caller.resolve<KmsService>('kmsService'), defaultEncryptionMaps },
+    )),
+    eventBus: asScopedService((caller): EventBus => {
+      const bus = createScopedBus(caller.resolve.bind(caller))
+      const emit: EventBus['emit'] = (event, payload, options) =>
+        runWithRequestScopeContainer(caller, () => bus.emit(event, payload, options))
+      return {
+        ...bus,
+        emit,
+        emitEvent: emit,
+        dispatchQueued: (event, payload, options, resolve) => resolve
+          ? bus.dispatchQueued!(event, payload, options, resolve)
+          : runWithRequestScopeContainer(caller, () => bus.dispatchQueued!(event, payload, options)),
+      }
+    }),
+  })
+  if (rateLimiterService) root.register({ rateLimiterService: asValue(rateLimiterService) })
+  registerScopedSearchModule(root, { moduleConfigs: searchModuleConfigs })
+  processEventSetupBuses.set(root, definitions)
+
+  return () => {
+    registerSyncSubscribers(subscribers.filter((subscriber) => subscriber.sync === true).map((subscriber) => ({
+      metadata: { event: subscriber.event, sync: true, priority: subscriber.priority, id: subscriber.id },
+      handler: async (payload, context) => subscriber.handler(payload, context),
+    })))
+    setGlobalEventBus({
+      emit: (event, payload, options) => runInRequestScope(async () => {
+        const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+        const caller = await createRequestContainer()
+        try {
+          await caller.resolve<EventBus>('eventBus').emit(event, payload, options)
+        } finally {
+          await caller.dispose()
+        }
+      }),
+    })
   }
 }

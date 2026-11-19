@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import { toolRegistry } from './lib/tool-registry'
@@ -10,13 +11,15 @@ export function register(container: AwilixContainer): void {
     mcpToolRegistry: asValue(toolRegistry),
     // Input pre-moderation service (OpenAI /v1/moderations). Singleton +
     // overridable by downstream apps via the module overrides DI seam.
-    moderationService: asFunction(() => createModerationService()).singleton(),
+    moderationService: asFunction(() => createModerationService()).scoped(),
     // Decision model port (typed answers with probabilities). Singleton that
     // owns the only decision model registry; consumers resolve it soft-optionally.
-    decisionModelService: asFunction(() => createDecisionModelService()).singleton(),
+    decisionModelService: asFunction(() => createDecisionModelService()).scoped(),
     // Injectable OpenCode client so the file-agent runner (and tests, via a
     // fake client) resolve it from DI instead of constructing it inline.
     // Production wiring uses the env-configured factory.
-    openCodeClient: asFunction(() => createOpenCodeClient()).singleton(),
+    openCodeClient: asFunction(() => createOpenCodeClient()).scoped(),
   })
 }
+
+defineProcessDiRegistrar(register)

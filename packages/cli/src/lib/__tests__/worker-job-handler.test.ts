@@ -3,7 +3,7 @@ import {
   getModuleResourceUsageReport,
   resetModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
-import { getRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
+import { bindRequestScopeContainer, getRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { createPerJobWorkerHandler, type WorkerJobContainer } from '../worker-job-handler'
 
 type FakeContainer = WorkerJobContainer & {
@@ -129,6 +129,28 @@ describe('createPerJobWorkerHandler', () => {
     await Promise.all([first, second])
 
     expect(scoped).toEqual([containers[1], containers[0]])
+    expect(getRequestScopeContainer()).toBeNull()
+  })
+
+  it('retains job ownership when a worker builds and binds a sibling container', async () => {
+    const { factory, containers } = makeContainerFactory()
+    const observed: unknown[] = []
+    const handler = createPerJobWorkerHandler([
+      makeWorker('first', async () => {
+        const sibling = await factory()
+        bindRequestScopeContainer(sibling)
+        await new Promise((resolve) => setImmediate(resolve))
+        observed.push(getRequestScopeContainer())
+      }),
+      makeWorker('second', () => { observed.push(getRequestScopeContainer()) }),
+    ], factory)
+
+    await handler({ id: 'a' }, baseCtx)
+
+    expect(containers).toHaveLength(2)
+    expect(observed).toEqual([containers[0], containers[0]])
+    expect(containers[0].em.clear).toHaveBeenCalledTimes(1)
+    expect(containers[1].em.clear).not.toHaveBeenCalled()
     expect(getRequestScopeContainer()).toBeNull()
   })
 

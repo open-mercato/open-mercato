@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import { RateFetchingService } from './services/rateFetchingService'
@@ -34,3 +35,5 @@ export function register(container: AppContainer) {
     },
   })
 }
+
+defineProcessDiRegistrar(register)
