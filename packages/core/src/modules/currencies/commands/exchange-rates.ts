@@ -18,6 +18,7 @@ import {
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { buildCurrencyCommandWhere, ensureCurrencyCommandScope } from './scope'
+import { isDecimalInput, toDecimal } from '@open-mercato/shared/lib/decimal'
 
 const exchangeRateCrudEvents: CrudEventsConfig = {
   module: 'currencies',
@@ -41,6 +42,7 @@ type ExchangeRateSnapshot = {
   source: string
   type: string | null
   externalReference: string | null
+  metadata: Record<string, unknown> | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -70,6 +72,7 @@ async function loadExchangeRateSnapshot(
     source: record.source,
     type: record.type ?? null,
     externalReference: record.externalReference ?? null,
+    metadata: record.metadata ?? null,
     isActive: !!record.isActive,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -140,6 +143,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       source: parsed.source,
       type: parsed.type ?? null,
       externalReference: null,
+      metadata: parsed.metadata ?? null,
       isActive: parsed.isActive !== false,
       createdAt: now,
       updatedAt: now,
@@ -261,6 +265,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       'date',
       'source',
       'type',
+      'metadata',
       'isActive',
     ])
     const changes = Object.fromEntries(
@@ -281,8 +286,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       throw new CrudHttpError(400, { error: 'From and To currencies must be different' })
     }
     
-    const rateValue = parseFloat(record.rate)
-    if (isNaN(rateValue) || rateValue <= 0) {
+    if (!isDecimalInput(record.rate) || !toDecimal(record.rate).gt(0)) {
       throw new CrudHttpError(400, { error: 'Rate must be greater than zero' })
     }
     
@@ -338,6 +342,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       source: before.source,
       type: before.type,
       externalReference: before.externalReference,
+      metadata: before.metadata ?? null,
       isActive: before.isActive,
       updatedAt: new Date(),
     })

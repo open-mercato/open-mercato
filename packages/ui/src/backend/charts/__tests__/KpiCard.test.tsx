@@ -7,6 +7,25 @@ import { render, screen } from '@testing-library/react'
 import { KpiCard } from '../KpiCard'
 
 describe('KpiCard', () => {
+  it.each([
+    'target 8:00 — 6:00 to go',
+    'of 40:00',
+    '21 working days',
+    '16.7% of the month',
+  ])('shows the comparison caption without a trend: %s', (comparisonLabel) => {
+    render(<KpiCard title="Today" value={120} comparisonLabel={comparisonLabel} />)
+
+    expect(screen.getByText(comparisonLabel)).toBeVisible()
+    expect(screen.queryByTitle('Compared to previous period')).toBeNull()
+  })
+
+  it('shows the comparison caption alongside a supplied trend', () => {
+    render(<KpiCard title="Orders" value={3} comparisonLabel="last month" trend={{ value: 10, direction: 'up' }} />)
+
+    expect(screen.getByText('last month')).toBeVisible()
+    expect(screen.getByText('10%')).toBeVisible()
+  })
+
   it('keeps the footer when there is no value, because the footer is what explains the dash', () => {
     render(<KpiCard title="Latest NPS" value={null} footer={<span>Never answered a survey</span>} />)
     expect(screen.getByText('--')).toBeTruthy()

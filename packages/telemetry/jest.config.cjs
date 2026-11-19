@@ -6,6 +6,9 @@ module.exports = {
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
+  moduleNameMapper: {
+    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+  },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   transform: {
     '^.+\\.(t|j)sx?$': [

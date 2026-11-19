@@ -266,6 +266,7 @@ export class RateFetchingService {
           existing.rate = rate.rate
           existing.type = rate.type ?? null
           existing.externalReference = rate.externalReference ?? null
+          if (rate.metadata !== undefined) existing.metadata = rate.metadata
           existing.updatedAt = now
           em.persist(existing)
         } else {
@@ -280,6 +281,7 @@ export class RateFetchingService {
             source: rate.source,
             type: rate.type ?? null,
             externalReference: rate.externalReference ?? null,
+            metadata: rate.metadata ?? null,
             isActive: true,
             createdAt: now,
             updatedAt: now,
