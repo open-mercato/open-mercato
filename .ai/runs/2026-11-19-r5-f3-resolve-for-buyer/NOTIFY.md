@@ -8,3 +8,6 @@
 
 ## 2026-11-19T19:32:00Z — decision
 - Release plan .ai/plans/2026-11-19-ecommerce-release-5-relanding-plan.md not found anywhere; user said to proceed. Binding sources: SPEC-029 on #10000 plus the F3 card in the brief.
+
+## 2026-11-19T20:04:24Z — final gate
+- Gate passed apart from create-mercato-app#test (known local OMH harness failure). Integration and DS passes skipped (no route or UI). See final-gate-checks.md.

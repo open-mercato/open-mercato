@@ -1,16 +1,16 @@
 # Handoff — 2026-11-19-r5-f3-resolve-for-buyer
 
-**Last updated:** 2026-11-19T19:32:00Z
+**Last updated:** 2026-11-19T20:04:24Z
 **Branch:** feat/r5-f3-resolve-for-buyer
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** — run folder only
+**PR:** https://github.com/open-mercato/open-mercato/pull/10010
+**Current phase/step:** complete
+**Last commit:** d279417b1f — docs(upgrade-notes): StoreContextService gains optional resolveForBuyer
 
 ## What just happened
-- Plan drafted from SPEC-029 (base #10000) and the reference #8268.
+- Steps 1.1 and 1.2 landed; final gate recorded in final-gate-checks.md.
 
 ## Next concrete action
-- Step 1.1: port the resolveForBuyer seam.
+- None in this run. Rebase onto main once #10000 and #9988 merge.
 
 ## Blockers / open questions
 - none (release plan file unavailable; proceeding on the spec, per user)

@@ -13,7 +13,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Port resolveForBuyer seam with store_misconfigured and unit tests | inline | done | 29160c906c |
-| 1 | 1.2 | Add the StoreContextService upgrade note | inline | done | (this commit) |
+| 1 | 1.2 | Add the StoreContextService upgrade note | inline | done | d279417b1f |
 
 ## Goal
 
