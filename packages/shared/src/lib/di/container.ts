@@ -12,7 +12,7 @@ import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/li
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { createLogger } from '../logger'
 import { getTelemetryRuntime } from '../telemetry/runtime'
-import { bindRequestScopeContainer, runWithRequestScopeContainer } from './request-scope'
+import { bindRequestScopeContainer, runWithRequestScopeContainer, trackRequestScopeDisposal, runWithRequestScopeAcquisition } from './request-scope'
 import { parseBooleanWithDefault } from '../boolean'
 import { onModulesRegistered } from '../modules/registry'
 import { asScopedService, getProcessDiRegistrar, isProcessDiRegistrar, runCallerSetups, runProcessActivations } from './process-registrar'
@@ -350,6 +350,7 @@ function ownProcessRoot(root: AppContainer): ProcessRootLifetime {
       })
       return disposing
     }
+    trackRequestScopeDisposal(scope)
     return scope
   }
   root.createScope = (() => {
@@ -587,7 +588,11 @@ async function disposeFailedContainer(
   throw initializationError
 }
 
-export async function createRequestContainer(): Promise<AppContainer> {
+export function createRequestContainer(): Promise<AppContainer> {
+  return runWithRequestScopeAcquisition(buildRequestContainer)
+}
+
+async function buildRequestContainer(): Promise<AppContainer> {
   let root = await initializeProcessContainer()
   while (root && getProcessRootState().lifetimes?.get(root)?.retired) {
     root = await initializeProcessContainer()
@@ -617,6 +622,7 @@ async function buildLegacyRequestContainer(): Promise<AppContainer> {
   const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
   const em = baseEm.fork({ clear: true, freshEventManager: true, useContext: true }) as unknown as EntityManager
   const container = createContainer<DynamicCradle>({ injectionMode: InjectionMode.CLASSIC })
+  trackRequestScopeDisposal(container)
   // Core registrations
   container.register({
     em: asValue(em),

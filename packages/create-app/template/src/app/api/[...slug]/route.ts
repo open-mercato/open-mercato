@@ -7,7 +7,7 @@ import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/se
 import { bootstrap } from '@/bootstrap-api'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { runInRequestScope } from '@open-mercato/shared/lib/di/request-scope'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { enforceTenantSelection, normalizeTenantId, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
@@ -443,7 +443,7 @@ function handleRequest(
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
 ): Promise<Response> {
-  return runInRequestScope(() => dispatchRequest(method, req, paramsPromise))
+  return runInOwnedRequestScope(() => dispatchRequest(method, req, paramsPromise))
 }
 
 async function dispatchRequest(

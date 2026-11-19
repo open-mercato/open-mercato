@@ -2,7 +2,7 @@
 title: "Request-path work runs per call, not per request"
 modules: ["shared","core","query_index","customers","auth"]
 areas: ["architecture","module-data"]
-topics: ["performance","dependency-injection","auth-context","service-lifetimes","resource-disposal"]
+topics: ["performance","dependency-injection","auth-context","service-lifetimes","resource-disposal","request-lifecycle"]
 ---
 
 # Request-path work runs per call, not per request
@@ -21,3 +21,5 @@ topics: ["performance","dependency-injection","auth-context","service-lifetimes"
 **Process-root review correction (#9837)**: Audit work by lifetime, not only factory signatures. Caller setup must not await process-wide queue reconciliation; defer it after activation into an owned background scope with observed failure and cleanup. Cache caller-independent Meilisearch initialization per generation when encrypted-field filtering is off, but retain caller scope for SQL-backed encryption policy. Custom event buses need the complete legacy registration path unless their subscriber-definition lifecycle is explicitly supported. Calendar/provider/webhook global writes belong in activation hooks, so discarded generations cannot publish them. Cover each boundary with a regression test.
 
 **Generation retirement correction (#9837)**: Dropping a published root promise does not dispose its singleton cache, and disposing an Awilix child only cleans that child. Retain generation ownership through every caller and nested scope, retire on invalidation, and dispose the root exactly once after all owned scopes finish cleanup. Test an already-published generation with live callers, nested scopes that outlive their parent, invalidation during acquisition/setup, and rejecting disposers. Every scope owner must call `dispose()`; do not rely on garbage collection to close resources.
+
+**Entry-point ownership correction (#9837)**: Reference-counted root retirement is insufficient if normal first-party callers never release their references. Validate the lifecycle through actual application entry points, including containers hidden inside auth helpers, rather than only manually disposed unit-test callers. Own request acquisitions at the boundary, retain streaming resources until close/error/cancel, and isolate independent background work. Mirror app-shell boundaries into the standalone template. For timed-out work that continues underneath a response, retain ownership until that operation actually settles.

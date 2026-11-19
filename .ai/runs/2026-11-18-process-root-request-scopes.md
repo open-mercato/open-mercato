@@ -95,3 +95,10 @@ PR: #9837
 - Full configured gate passes on the local Node 24.22.3 runner: package build → generate → package build → translation sync/usage → workspace typecheck → unit tests → production app build. Unit totals: 50,769 passed, zero failed, 456 existing skips; 51/51 tasks. Five build dependencies were cached, with no cached test jobs. Original 1 GiB unit heap and Turbo concurrency 2 retained. Production build passed without retry.
 - Native runtime integration passes 13/13 enabled and 13/13 disabled, zero retries/flakes/skips in the tests. Both modes retain 120 distinct EntityManagers; enabled generation setup executes 63 registrars versus 7,560 disabled. No general HTTP speedup claim. Owned test app/database resources were stopped and verified absent.
 - Translation/template hooks, lessons catalog, CLASSIC DI bundling and diff checks pass. Base 4ee923350e remains unchanged. The feature stays default-off; re-review is requested and external review/QA approval remain outstanding. No merge performed.
+
+### Review 5980488282 plan (2026-11-19)
+- [x] Own scopes at application/API boundaries through completion, error and stream termination; mirror standalone entry points and cover direct app-shell acquisitions.
+- [x] Add real app-entry regressions proving generation singleton disposal after completed requests and preserving independent/deferred work; independently review the boundary change.
+- [ ] Run the configured gate and both runtime feature modes, publish evidence and request re-review.
+
+- Boundary focused checks: 68 shared tests, 60 API tests and 40 portal/layout/backend/health/start tests pass; shared typecheck passes. Independent review found and verified fixes for async stream cancellation races, then reported no remaining concrete blocker. Template sync and lessons checks pass.
