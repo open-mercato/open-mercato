@@ -159,7 +159,7 @@ Events consumed by WMS (subscribers):
 | Event | Source Module | WMS Action |
 |-------|-------------|------------|
 | `sales.order.confirmed` | Sales | Create inventory reservation for order line items (`source_type = order`) |
-| `sales.order.cancelled` | Sales | Release all active reservations linked to the cancelled order |
+| `sales.order.cancelled` | Sales | Release active reservations that are still fully reserved and have no pick task. A reservation with a non-cancelled pick task or an allocated bucket follows the phase 3 order-cancel rules |
 
 Undo expectations:
 - CRUD-style configuration commands are undoable by reverting fields or soft-deleting the created row.
@@ -346,6 +346,7 @@ All list routes:
 - `POST /api/wms/inventory/release`
 - Request: `{ "reservationId": "uuid", "reason": "order_cancelled" }`
 - Response: `{ "ok": true }`
+- A reservation that is still fully reserved, with no non-cancelled pick task, releases as before. When a pick task is non-cancelled or any bucket is `allocated`, the command returns `409 release_blocked_by_wave` and writes nothing. The phase 3 order-cancel subscriber handles that case.
 
 #### Allocate reservation
 - `POST /api/wms/inventory/allocate`
@@ -676,6 +677,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-19
+- `POST /api/wms/inventory/release` returns `409 release_blocked_by_wave` when the reservation has a non-cancelled pick task or an allocated bucket. Fully reserved reservations with no pick task still release. Order cancel of in-flight phase 3 work is specified in `2026-04-15-wms-phase-3-picking-packing.md`.
 
 ### 2026-11-15
 - The CSV inventory import read a `quantity` that isn't a number (for example `1,000` with a comma thousands separator, a decimal comma like `1,5`, or other text) as 0, so the row was skipped in additive mode or set the bucket to 0 in reconcile mode. Validation now rejects it with the existing `quantity_invalid` row error, whose message now asks for a plain number with a dot for decimals. Coverage: `inventoryImportService.test.ts`, `TC-WMS-035`.
