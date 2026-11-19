@@ -1,4 +1,4 @@
-import type { DecimalValue } from '../decimal'
+import { MAX_DECIMAL_EXPONENT, MAX_DECIMAL_INTEGER_DIGITS, MAX_DECIMAL_SIGNIFICANT_DIGITS, type DecimalValue } from '../decimal'
 import { InvalidMoneyRoundingError } from './errors'
 import { MAX_MONEY_DECIMAL_PLACES, type Currency, type Money, type MoneyRounding, type MoneyRoundingMode } from './types'
 
@@ -38,8 +38,22 @@ export function brandCurrency(code: string, decimalPlaces: number, symbol: strin
   return Object.freeze({ code, decimalPlaces, symbol }) as Currency
 }
 
-/** `amount` MUST be a fresh instance nobody else holds; it is frozen in place. */
+function isStorableDecimal(amount: DecimalValue): boolean {
+  if (amount.c.length === 1 && amount.c[0] === 0) return true
+  return (
+    amount.e < MAX_DECIMAL_INTEGER_DIGITS &&
+    amount.c.length <= MAX_DECIMAL_SIGNIFICANT_DIGITS &&
+    amount.c.length - 1 - amount.e <= MAX_DECIMAL_EXPONENT
+  )
+}
+
+/**
+ * `amount` MUST be a fresh instance nobody else holds; it is frozen in place.
+ * Every `Money` stays within the decimal toolkit's caps, so `snapshotMoney` and
+ * `restoreMoney` always round-trip; a result outside them throws.
+ */
 export function brandMoney(amount: DecimalValue, currency: Currency): Money {
+  if (!isStorableDecimal(amount)) throw new Error('[internal] Decimal result out of range')
   if (amount.c.length === 1 && amount.c[0] === 0) amount.s = 1
   return Object.freeze({ amount: freezeDecimal(amount), currency }) as Money
 }

@@ -25,9 +25,16 @@ describe('MoneyInput (untrusted)', () => {
   })
 
   it('normalizes the code and amount and strips a client-sent precision', () => {
-    const parsed = moneyInputSchema.parse({ amount: 12.5, currencyCode: ' usd ', currencyDecimalPlaces: 8 })
+    const parsed = moneyInputSchema.parse({ amount: ' 12.50 ', currencyCode: ' usd ', currencyDecimalPlaces: 8 })
     expect(parsed).toEqual({ amount: '12.5', currencyCode: 'USD' })
     expect('currencyDecimalPlaces' in parsed).toBe(false)
+  })
+
+  it('rejects JSON numbers, which may have lost digits before the schema sees them', () => {
+    expect(JSON.parse('{"amount":90071992547409.93}').amount).toBe(90071992547409.94)
+    expect(moneyInputSchema.safeParse({ amount: 90071992547409.93, currencyCode: 'USD' }).success).toBe(false)
+    expect(moneyInputSchema.safeParse({ amount: 12.5, currencyCode: 'USD' }).success).toBe(false)
+    expect(moneyInputSchema.parse({ amount: '90071992547409.93', currencyCode: 'USD' }).amount).toBe('90071992547409.93')
   })
 
   it('rejects invalid input', () => {

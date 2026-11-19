@@ -33,7 +33,7 @@ describe('MoneyColumns schema', () => {
 
   it('discovers the embeddable from the entity that embeds it', () => {
     expect(orm.getMetadata().find(MoneyColumns)?.embeddable).toBe(true)
-    const metadata = orm.getMetadata().get(MoneyColumnsProbe.name)
+    const metadata = orm.getMetadata().get(MoneyColumnsProbe)
     expect(metadata.properties.price.embeddable).toBe(MoneyColumns)
   })
 

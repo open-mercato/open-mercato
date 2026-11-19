@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { decimalStringSchema } from '../decimal'
+import { decimalStringSchema, decimalToString, isDecimalInput } from '../decimal'
 import { resolveCurrency } from './currency'
 import { brandCurrency } from './internal'
 import { createMoney } from './money'
@@ -19,10 +19,12 @@ const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/)
 /**
  * Untrusted money from clients (request bodies, imports, webhooks). Parses into a
  * plain `MoneyInput`, never a `Money`: precision keys a client sends are stripped,
- * and the value reaches a `Money` only through `resolveMoney`.
+ * and the value reaches a `Money` only through `resolveMoney`. The amount MUST be a
+ * decimal string: a JSON number may already have lost digits when it was parsed
+ * (`90071992547409.93` arrives as `90071992547409.94`), so numbers are rejected.
  */
 export const moneyInputSchema = z.object({
-  amount: decimalStringSchema,
+  amount: z.string().refine(isDecimalInput, { message: 'invalidDecimal' }).transform((value) => decimalToString(value)),
   currencyCode: z.string().trim().toUpperCase().pipe(currencyCodeSchema),
 })
 

@@ -26,16 +26,22 @@ async function readCurrencyDetails(
   return decimalPlaces === null ? null : { code: lookup.code, decimalPlaces, symbol: null }
 }
 
+function hasScope(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
 /**
  * The tenant's `Currency` for `code`, read from `currencyPrecisionService`. There is
- * no ISO fallback: a missing service, an unknown code, a lookup without an
- * organization or a failing lookup all throw `CurrencyNotResolvedError`.
+ * no ISO fallback: a missing service, an unknown or inactive code, a lookup without
+ * a tenant or an organization (checked here, before any resolver override runs) or
+ * a failing lookup all throw `CurrencyNotResolvedError`.
  * Existing `<field>Exact` code keeps using `resolveCurrencyDecimalPlaces`.
  */
 export async function resolveCurrency(container: ServiceContainer, lookup: CurrencyLookup): Promise<Currency> {
   const rawCode = typeof lookup?.code === 'string' ? lookup.code : ''
   const code = normalizeCurrencyCode(rawCode)
   if (!code) throw new CurrencyNotResolvedError(rawCode)
+  if (!hasScope(lookup.tenantId) || !hasScope(lookup.organizationId)) throw new CurrencyNotResolvedError(code)
   const resolver = resolvePrecisionService(container)
   if (!resolver) throw new CurrencyNotResolvedError(code)
   let details: CurrencyDetails | null

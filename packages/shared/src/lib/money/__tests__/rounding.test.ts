@@ -105,6 +105,22 @@ describe('divideMoney', () => {
 })
 
 describe('convertMoney', () => {
+  it('applies the caller rounding to the exact, uncapped product', () => {
+    const tiny = createMoney('1e-1000', usd)
+    expect(text(convertMoney(tiny, '0.1', eur, { decimalPlaces: 2, mode: 'up' }))).toBe('0.01')
+    expect(text(convertMoney(tiny, '0.1', eur, { decimalPlaces: 2, mode: 'down' }))).toBe('0')
+    expect(text(convertMoney(tiny, '0.1', eur, { decimalPlaces: 2, mode: 'halfUp' }))).toBe('0')
+    const negativeTiny = createMoney('-1e-1000', usd)
+    expect(text(convertMoney(negativeTiny, '0.1', eur, { decimalPlaces: 2, mode: 'up' }))).toBe('-0.01')
+    expect(text(convertMoney(negativeTiny, '0.1', eur, { decimalPlaces: 2, mode: 'down' }))).toBe('0')
+  })
+
+  it('rejects a converted amount beyond the stored-amount range', () => {
+    expect(() => convertMoney(createMoney('1e299', usd), '10', eur, { decimalPlaces: 2, mode: 'halfUp' })).toThrow(
+      '[internal] Decimal result out of range',
+    )
+  })
+
   it('multiplies by the rate exactly and rounds once', () => {
     const converted = convertMoney(createMoney('10.00', usd), '0.923456', eur, { decimalPlaces: 2, mode: 'halfUp' })
     expect(text(converted)).toBe('9.23')
@@ -122,6 +138,17 @@ describe('convertMoney', () => {
     expect(() => convertMoney(createMoney(1, usd), 1, usdFourPlaces, { decimalPlaces: 4, mode: 'halfUp' })).toThrow(
       CurrencyMismatchError,
     )
+  })
+})
+
+describe('range after rounding', () => {
+  const carry = `${'9'.repeat(300)}.5`
+
+  it('rejects a rounding carry into a 301st integer digit for round and rescale', () => {
+    const money = createMoney(carry, usdFourPlaces)
+    expect(() => roundMoney(money, { decimalPlaces: 0, mode: 'halfUp' })).toThrow('[internal] Decimal result out of range')
+    expect(() => rescaleMoney(money, usd, { decimalPlaces: 0, mode: 'up' })).toThrow('[internal] Decimal result out of range')
+    expect(text(roundMoney(money, { decimalPlaces: 0, mode: 'down' }))).toBe('9'.repeat(300))
   })
 })
 

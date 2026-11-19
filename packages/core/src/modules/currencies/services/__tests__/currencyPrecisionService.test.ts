@@ -2,7 +2,7 @@ import { describe, it, expect, jest } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CurrencyPrecisionService } from '../currencyPrecisionService'
 
-type CurrencyRecord = { code?: string; decimalPlaces: number; symbol?: string | null }
+type CurrencyRecord = { code?: string; decimalPlaces: number; symbol?: string | null; isActive?: boolean }
 
 function createService(record: CurrencyRecord | null) {
   const findOne = jest.fn(async () => record)
@@ -73,6 +73,24 @@ describe('CurrencyPrecisionService', () => {
     await expect(service.getCurrency(lookup)).resolves.toEqual({ code: 'JPY', decimalPlaces: 0, symbol: '¥' })
     await expect(service.getDecimalPlaces(lookup)).resolves.toBe(0)
     expect(findOne).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the precision of an inactive currency but returns no details for new money', async () => {
+    const { service, findOne } = createService({ code: 'EUR', decimalPlaces: 2, symbol: '€', isActive: false })
+    const lookup = { code: 'EUR', tenantId: 't1', organizationId: 'o1' }
+    await expect(service.getDecimalPlaces(lookup)).resolves.toBe(2)
+    await expect(service.getCurrency(lookup)).resolves.toBeNull()
+    await expect(service.getDecimalPlaces(lookup)).resolves.toBe(2)
+    expect(findOne).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns details for an active currency', async () => {
+    const { service } = createService({ code: 'EUR', decimalPlaces: 2, symbol: '€', isActive: true })
+    await expect(service.getCurrency({ code: 'EUR', tenantId: 't1', organizationId: 'o1' })).resolves.toEqual({
+      code: 'EUR',
+      decimalPlaces: 2,
+      symbol: '€',
+    })
   })
 
   it('returns frozen currency details so a caller cannot change the cached precision', async () => {

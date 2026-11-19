@@ -1,4 +1,5 @@
 import BigConstructor from 'big.js'
+import type { BigConstructor as DecimalConstructor } from 'big.js'
 import {
   addDecimals,
   countDecimalPlaces,
@@ -33,6 +34,21 @@ function divideOnce(dividend: DecimalValue, divisor: DecimalValue, decimalPlaces
     const quotient = new RoundedDivision(dividend.toFixed()).div(divisor.toFixed())
     if (!quotient.eq(0) && quotient.e >= MAX_DECIMAL_INTEGER_DIGITS) throw new Error('[internal] Decimal result out of range')
     return toDecimal(quotient.toFixed())
+  } finally {
+    RoundedDivision.DP = previousDecimalPlaces
+    RoundedDivision.RM = previousRoundingMode
+  }
+}
+
+function integerQuotient(dividend: DecimalValue, divisor: DecimalValue): DecimalValue {
+  const previousDecimalPlaces = RoundedDivision.DP
+  const previousRoundingMode = RoundedDivision.RM
+  RoundedDivision.DP = 0
+  RoundedDivision.RM = ROUND_DOWN
+  try {
+    const quotient = new RoundedDivision(dividend.toFixed()).div(divisor.toFixed())
+    const ExactDecimal = dividend.constructor as DecimalConstructor
+    return new ExactDecimal(quotient.toFixed())
   } finally {
     RoundedDivision.DP = previousDecimalPlaces
     RoundedDivision.RM = previousRoundingMode
@@ -87,7 +103,8 @@ export function absMoney(money: Money): Money {
 
 /**
  * Converts to another currency at `rate` target units per one source unit: an
- * exact multiplication followed by one rounding. Rates are never looked up here.
+ * exact multiplication (no intermediate cap or rounding) followed by one
+ * rounding. Rates are never looked up here.
  */
 export function convertMoney(money: Money, rate: DecimalInput, target: Currency, rounding: MoneyRounding): Money {
   const { decimalPlaces, mode } = resolveBigRounding(rounding)
@@ -100,7 +117,7 @@ export function convertMoney(money: Money, rate: DecimalInput, target: Currency,
       `[internal] convertMoney needs a different currency code (${target.code}); use rescaleMoney`,
     )
   }
-  return brandMoney(multiplyDecimals(money.amount, exchangeRate).round(decimalPlaces, mode), target)
+  return brandMoney(money.amount.times(exchangeRate).round(decimalPlaces, mode), target)
 }
 
 /** Moves an amount between two currencies with the same code and different decimal places. */
@@ -175,20 +192,24 @@ function parseRatio(ratio: DecimalInput, index: number): DecimalValue {
   return value
 }
 
+/**
+ * Exact integer arithmetic on scaled units: no intermediate value is capped or
+ * rounded, so only the returned parts have to fit the stored-amount range.
+ */
 function splitUnits(units: DecimalValue, ratios: DecimalValue[]): DecimalValue[] {
-  const ratioScale = toDecimal(`1e${Math.max(...ratios.map(countDecimalPlaces))}`)
-  const integerRatios = ratios.map((ratio) => multiplyDecimals(ratio, ratioScale))
-  const ratioTotal = integerRatios.reduce((total, ratio) => addDecimals(total, ratio), toDecimal(0))
+  const ratioScale = toDecimal(10).pow(Math.max(...ratios.map(countDecimalPlaces)))
+  const integerRatios = ratios.map((ratio) => ratio.times(ratioScale))
+  const ratioTotal = integerRatios.reduce((total, ratio) => total.plus(ratio), toDecimal(0))
   const shares = integerRatios.map((ratio, index) => {
-    const product = multiplyDecimals(units, ratio)
-    const quotient = divideOnce(product, ratioTotal, 0, ROUND_DOWN)
-    return { index, units: quotient, remainder: subtractDecimals(product, multiplyDecimals(quotient, ratioTotal)) }
+    const product = units.times(ratio)
+    const quotient = integerQuotient(product, ratioTotal)
+    return { index, units: quotient, remainder: product.minus(quotient.times(ratioTotal)) }
   })
-  const allocatedUnits = shares.reduce((total, share) => addDecimals(total, share.units), toDecimal(0))
-  const leftoverUnits = Number(subtractDecimals(units, allocatedUnits).toFixed())
+  const allocatedUnits = shares.reduce((total, share) => total.plus(share.units), toDecimal(0))
+  const leftoverUnits = Number(units.minus(allocatedUnits).toFixed())
   const ranked = [...shares].sort((left, right) => right.remainder.cmp(left.remainder) || left.index - right.index)
   for (const share of ranked.slice(0, leftoverUnits)) {
-    share.units = addDecimals(share.units, 1)
+    share.units = share.units.plus(1)
   }
   return shares.map((share) => share.units)
 }
@@ -214,18 +235,11 @@ export function allocateMoney(
   const parsedRatios = ratios.map(parseRatio)
   if (parsedRatios.every((ratio) => ratio.eq(0))) throw new InvalidAllocationError('all ratios are zero')
 
-  const units = multiplyDecimals(money.amount.abs(), `1e${decimalPlaces}`)
-  let shares: DecimalValue[]
-  try {
-    shares = splitUnits(units, parsedRatios)
-  } catch {
-    throw new InvalidAllocationError('amount or ratios exceed the supported decimal range')
-  }
-
-  const unitSize = `1e-${decimalPlaces}`
+  const unitScale = toDecimal(10).pow(decimalPlaces)
+  const shares = splitUnits(money.amount.abs().times(unitScale), parsedRatios)
   const negative = money.amount.lt(0)
   return shares.map((shareUnits) => {
-    const amount = multiplyDecimals(shareUnits, unitSize)
+    const amount = shareUnits.div(unitScale)
     return brandMoney(negative ? amount.neg() : amount, money.currency)
   })
 }

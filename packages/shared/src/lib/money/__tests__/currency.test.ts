@@ -66,6 +66,23 @@ describe('resolveCurrency', () => {
     )
   })
 
+  it.each([
+    ['tenant', { code: 'USD', tenantId: '', organizationId: 'o1' }],
+    ['organization', { code: 'USD', tenantId: 't1' }],
+    ['null organization', { code: 'USD', tenantId: 't1', organizationId: null }],
+    ['blank organization', { code: 'USD', tenantId: 't1', organizationId: '  ' }],
+  ])('rejects a lookup without a %s before calling either resolver variant', async (_label, lookup) => {
+    const decimalPlacesOnly: CurrencyPrecisionResolver = { getDecimalPlaces: jest.fn(async () => 2) }
+    await expect(resolveCurrency(createContainer(decimalPlacesOnly), lookup)).rejects.toBeInstanceOf(
+      CurrencyNotResolvedError,
+    )
+    expect(decimalPlacesOnly.getDecimalPlaces).not.toHaveBeenCalled()
+    const withDetails = createResolver(defaultTable)
+    const getCurrency = jest.spyOn(withDetails, 'getCurrency')
+    await expect(resolveCurrency(createContainer(withDetails), lookup)).rejects.toBeInstanceOf(CurrencyNotResolvedError)
+    expect(getCurrency).not.toHaveBeenCalled()
+  })
+
   it('returns a frozen currency', async () => {
     const currency = await currencyOf('USD')
     expect(Object.isFrozen(currency)).toBe(true)
