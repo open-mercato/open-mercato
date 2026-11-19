@@ -10,7 +10,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Add `buildTrustedCommandContext` (trusted-context.ts + unit test + barrel re-export) | inline | todo | — |
+| 1 | 1.1 | Add `buildTrustedCommandContext` (trusted-context.ts + unit test + barrel re-export) | inline | done | (this commit) |
 
 ## Goal
 
