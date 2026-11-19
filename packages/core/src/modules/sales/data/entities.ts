@@ -1,5 +1,6 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT, type SalesDocumentNumberKind } from '../lib/documentNumberTokens'
 import type { ShipmentItemSnapshot } from '../lib/shipments/types'
 import type { SalesLineUomSnapshot } from '../lib/types'
@@ -130,10 +131,10 @@ export class SalesShippingMethod {
   @Property({ name: 'estimated_transit_days', type: 'integer', nullable: true })
   estimatedTransitDays?: number | null
 
-  @Property({ name: 'base_rate_net', type: 'numeric', precision: 16, scale: 4, default: '0' })
+  @Property({ name: 'base_rate_net', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   baseRateNet: string = '0'
 
-  @Property({ name: 'base_rate_gross', type: 'numeric', precision: 16, scale: 4, default: '0' })
+  @Property({ name: 'base_rate_gross', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   baseRateGross: string = '0'
 
   @Property({ name: 'currency_code', type: 'text', nullable: true })
@@ -382,7 +383,7 @@ export class SalesOrder {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'exchange_rate', type: 'numeric', precision: 18, scale: 8, nullable: true })
+  @Property({ name: 'exchange_rate', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   exchangeRate?: string | null
 
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
@@ -436,43 +437,43 @@ export class SalesOrder {
   @Property({ name: 'internal_notes', type: 'text', nullable: true })
   internalNotes?: string | null
 
-  @Property({ name: 'subtotal_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'subtotal_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   subtotalNetAmount: string = '0'
 
-  @Property({ name: 'subtotal_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'subtotal_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   subtotalGrossAmount: string = '0'
 
-  @Property({ name: 'discount_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'discount_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   discountTotalAmount: string = '0'
 
-  @Property({ name: 'tax_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'tax_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   taxTotalAmount: string = '0'
 
-  @Property({ name: 'shipping_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'shipping_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   shippingNetAmount: string = '0'
 
-  @Property({ name: 'shipping_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'shipping_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   shippingGrossAmount: string = '0'
 
-  @Property({ name: 'surcharge_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'surcharge_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   surchargeTotalAmount: string = '0'
 
-  @Property({ name: 'grand_total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'grand_total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   grandTotalNetAmount: string = '0'
 
-  @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'grand_total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   grandTotalGrossAmount: string = '0'
 
   @Property({ name: 'totals_snapshot', type: 'jsonb', nullable: true })
   totalsSnapshot?: Record<string, unknown> | null
 
-  @Property({ name: 'paid_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'paid_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   paidTotalAmount: string = '0'
 
-  @Property({ name: 'refunded_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'refunded_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   refundedTotalAmount: string = '0'
 
-  @Property({ name: 'outstanding_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'outstanding_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   outstandingAmount: string = '0'
 
   /** `external`: the header totals are the caller's and never rebuilt; payment totals stay core-owned. */
@@ -640,13 +641,13 @@ export class SalesOrderLine {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceNet: string = '0'
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceGross: string = '0'
 
-  @Property({ name: 'discount_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'discount_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   discountAmount: string = '0'
 
   @Property({ name: 'discount_percent', type: 'numeric', precision: 7, scale: 4, default: '0' })
@@ -655,13 +656,13 @@ export class SalesOrderLine {
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, default: '0' })
   taxRate: string = '0'
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'tax_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   taxAmount: string = '0'
 
-  @Property({ name: 'total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalNetAmount: string = '0'
 
-  @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalGrossAmount: string = '0'
 
   /** `external`: amounts are the caller's; `discount_amount` is then signed. Matches the order's `totals_mode`. */
@@ -744,10 +745,10 @@ export class SalesOrderAdjustment {
   @Property({ name: 'rate', type: 'numeric', precision: 7, scale: 4, default: '0' })
   rate: string = '0'
 
-  @Property({ name: 'amount_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'amount_net', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   amountNet: string = '0'
 
-  @Property({ name: 'amount_gross', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'amount_gross', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   amountGross: string = '0'
 
   @Property({ name: 'currency_code', type: 'text', nullable: true })
@@ -957,22 +958,22 @@ export class SalesQuote {
   @Property({ name: 'payment_method_snapshot', type: 'jsonb', nullable: true })
   paymentMethodSnapshot?: Record<string, unknown> | null
 
-  @Property({ name: 'subtotal_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'subtotal_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   subtotalNetAmount: string = '0'
 
-  @Property({ name: 'subtotal_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'subtotal_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   subtotalGrossAmount: string = '0'
 
-  @Property({ name: 'discount_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'discount_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   discountTotalAmount: string = '0'
 
-  @Property({ name: 'tax_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'tax_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   taxTotalAmount: string = '0'
 
-  @Property({ name: 'grand_total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'grand_total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   grandTotalNetAmount: string = '0'
 
-  @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'grand_total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   grandTotalGrossAmount: string = '0'
 
   @Property({ name: 'totals_snapshot', type: 'jsonb', nullable: true })
@@ -1089,13 +1090,13 @@ export class SalesQuoteLine {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceNet: string = '0'
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceGross: string = '0'
 
-  @Property({ name: 'discount_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'discount_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   discountAmount: string = '0'
 
   @Property({ name: 'discount_percent', type: 'numeric', precision: 7, scale: 4, default: '0' })
@@ -1104,13 +1105,13 @@ export class SalesQuoteLine {
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, default: '0' })
   taxRate: string = '0'
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'tax_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   taxAmount: string = '0'
 
-  @Property({ name: 'total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalNetAmount: string = '0'
 
-  @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalGrossAmount: string = '0'
 
   @Property({ name: 'configuration', type: 'jsonb', nullable: true })
@@ -1180,10 +1181,10 @@ export class SalesQuoteAdjustment {
   @Property({ name: 'rate', type: 'numeric', precision: 7, scale: 4, default: '0' })
   rate: string = '0'
 
-  @Property({ name: 'amount_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'amount_net', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   amountNet: string = '0'
 
-  @Property({ name: 'amount_gross', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'amount_gross', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   amountGross: string = '0'
 
   @Property({ name: 'currency_code', type: 'text', nullable: true })
@@ -1251,10 +1252,10 @@ export class SalesShipment {
   @Property({ name: 'weight_unit', type: 'text', nullable: true })
   weightUnit?: string | null
 
-  @Property({ name: 'declared_value_net', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'declared_value_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   declaredValueNet?: string | null
 
-  @Property({ name: 'declared_value_gross', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'declared_value_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   declaredValueGross?: string | null
 
   @Property({ name: 'currency_code', type: 'text', nullable: true })
@@ -1381,16 +1382,16 @@ export class SalesReturnLine {
   @Property({ name: 'quantity_returned', type: 'numeric', precision: 18, scale: 4, default: '0' })
   quantityReturned: string = '0'
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceNet: string = '0'
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceGross: string = '0'
 
-  @Property({ name: 'total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalNetAmount: string = '0'
 
-  @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalGrossAmount: string = '0'
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
@@ -1438,28 +1439,28 @@ export class SalesInvoice {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'subtotal_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'subtotal_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   subtotalNetAmount: string = '0'
 
-  @Property({ name: 'subtotal_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'subtotal_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   subtotalGrossAmount: string = '0'
 
-  @Property({ name: 'discount_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'discount_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   discountTotalAmount: string = '0'
 
-  @Property({ name: 'tax_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'tax_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   taxTotalAmount: string = '0'
 
-  @Property({ name: 'grand_total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'grand_total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   grandTotalNetAmount: string = '0'
 
-  @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'grand_total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   grandTotalGrossAmount: string = '0'
 
-  @Property({ name: 'paid_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'paid_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   paidTotalAmount: string = '0'
 
-  @Property({ name: 'outstanding_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'outstanding_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   outstandingAmount: string = '0'
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
@@ -1539,13 +1540,13 @@ export class SalesInvoiceLine {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceNet: string = '0'
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceGross: string = '0'
 
-  @Property({ name: 'discount_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'discount_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   discountAmount: string = '0'
 
   @Property({ name: 'discount_percent', type: 'numeric', precision: 7, scale: 4, default: '0' })
@@ -1554,13 +1555,13 @@ export class SalesInvoiceLine {
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, default: '0' })
   taxRate: string = '0'
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'tax_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   taxAmount: string = '0'
 
-  @Property({ name: 'total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalNetAmount: string = '0'
 
-  @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalGrossAmount: string = '0'
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
@@ -1608,19 +1609,19 @@ export class SalesCreditMemo {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'subtotal_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'subtotal_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   subtotalNetAmount: string = '0'
 
-  @Property({ name: 'subtotal_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'subtotal_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   subtotalGrossAmount: string = '0'
 
-  @Property({ name: 'tax_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'tax_total_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   taxTotalAmount: string = '0'
 
-  @Property({ name: 'grand_total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'grand_total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   grandTotalNetAmount: string = '0'
 
-  @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'grand_total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   grandTotalGrossAmount: string = '0'
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
@@ -1697,22 +1698,22 @@ export class SalesCreditMemoLine {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceNet: string = '0'
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   unitPriceGross: string = '0'
 
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, default: '0' })
   taxRate: string = '0'
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'tax_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   taxAmount: string = '0'
 
-  @Property({ name: 'total_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_net_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalNetAmount: string = '0'
 
-  @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'total_gross_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   totalGrossAmount: string = '0'
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
@@ -1747,16 +1748,16 @@ export class SalesPayment {
   @Property({ name: 'status', type: 'text', nullable: true })
   status?: string | null
 
-  @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   amount: string = '0'
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'captured_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'captured_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   capturedAmount: string = '0'
 
-  @Property({ name: 'refunded_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'refunded_amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   refundedAmount: string = '0'
 
   @Property({ name: 'received_at', type: Date, nullable: true })
@@ -1807,7 +1808,7 @@ export class SalesPaymentAllocation {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  @Property({ name: 'amount', type: ExactDecimalType, columnType: 'numeric', default: '0' })
   amount: string = '0'
 
   @Property({ name: 'currency_code', type: 'text' })

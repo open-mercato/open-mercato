@@ -64,7 +64,7 @@ describe('AnnualRevenueField comma-decimal input (#8642)', () => {
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(onSave).toHaveBeenCalledWith({ amount: 1234.5, currency: null })
+    expect(onSave).toHaveBeenCalledWith({ amount: 1234.5, amountExact: '1234.5', currency: null })
   })
 
   it('rejects an unparseable amount instead of silently coercing it to NaN or 0', async () => {
