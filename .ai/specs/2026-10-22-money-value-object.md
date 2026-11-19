@@ -126,7 +126,7 @@ assertSameCurrency(left: Currency, right: Currency): void
 | `minMoney(...values)`, `maxMoney(...values)` | Assert the same currency. Throw on an empty list |
 
 **`allocateMoney` algorithm.**
-1. Throw `InvalidAllocationError` when `m.amount` has more than `decimalPlaces` decimals (round it first, since rounding is explicit), when `ratios` is empty or has more than 1000 entries, when any ratio is negative, has more than 50 integer digits or more than 50 decimals, or when all ratios are zero. The ratio bounds keep the exact integer work small (1000 ratios at the bounds take well under a second).
+1. Throw `InvalidAllocationError` when `m.amount` has more than `decimalPlaces` decimals (round it first, since rounding is explicit), when `ratios` is empty or has more than 1000 entries, when any ratio is negative, has more than 50 integer digits or more than 50 decimals, or when all ratios are zero. The ratio bounds keep the exact integer work small (1000 ratios at the bounds take about a second).
 2. Make the ratios integers by scaling them all by `10^k`, where `k` is the largest number of decimals among them. Let `U = |amount| × 10^decimalPlaces` (an integer number of units) and `S = Σratios`.
 3. Share `i` gets `floor(U × ratio_i / S)` units, computed with exact, uncapped integer math (`big.js` `div` at `DP = 0`, `RM = down`, on integers). Only the returned parts must fit the stored-amount range.
 4. The leftover `U − Σshares` units (an integer smaller than the number of ratios) go one each to the shares with the largest **exact** remainder `(U × ratio_i) mod S`, computed on the fresh product, never on a stored amount. Ties go to the lower index. A zero ratio has remainder 0 and never receives a unit.
@@ -403,7 +403,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 - Fresh packed-preset scaffolds — see Phase 3 Step 4
 
 ### Implementation notes
-- The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract; `exports` maps `./lib/money/internal`, `.ts`, `.tsx` and `.js` to `null`, and other spellings resolve to no file.
+- The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract; `exports` maps `./lib/money/internal`, `.ts`, `.tsx` and `.js` to `null`, and other spellings resolve to no file on case-sensitive filesystems (on macOS a case variant such as `Internal` can still load it through the generic wildcards). This is a guardrail against accidental imports, not a security boundary.
 - `allocateMoney` computes each share as `floor(U × ratio_i / S)` with a single private-constructor division (`DP = 0`, `RM = down`) and the remainder as `U × ratio_i − share × S`. This is the same exact integer remainder as `mod`, without calling `mod` at all.
 - `restoreMoney` and `resolveMoney` throw a plain `[internal]` `Error` for an invalid snapshot or input. No extra error class was added.
 - A zero result is normalised to a positive sign, so `negateMoney(zero)` is never `-0`.
