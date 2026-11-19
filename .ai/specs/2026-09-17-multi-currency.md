@@ -517,10 +517,23 @@ opposite of the adjusting entry made in the previous period."*
     with the open EntityManager as `ctx.transactionalEm`
     (`CommandRuntimeContext` in `@open-mercato/shared`); the ledger
     commands treat a call that carries it as composed, running inside
-    the caller's transaction and not emitting their own events before it
-    commits (GL core engine implementation, #6340). A failure anywhere
+    the caller's transaction and **suppressing** their own events rather
+    than queuing them (GL core engine implementation, #6340:
+    `postJournalEntry`/`reverseJournalEntry` return the posting result
+    and explicitly leave event emission to the composing caller — they
+    emit nothing when `ctx.transactionalEm` is set). This spec therefore
+    requires the run to **collect every posting result** (the supersede
+    reversals in 10d, the valuation in 10e, and its reversing entry) and,
+    **only after the outer transaction commits**, emit each one's
+    canonical `ledger.journal_entry.posted` payload through
+    `ledger`'s declared event surface (`createModuleEvents`), so
+    subscribers see the valuation pair and the supersede reversals
+    exactly as they would an ordinary posting. On rollback nothing is
+    emitted. This introduces **no new `fx_revaluation` event** — the
+    emitted event is `ledger`'s own, re-published by the composing
+    caller, which is the contract #6340 defines. A failure anywhere
     rolls back the whole step: the supersede, the two postings and the
-    inserts commit together or not at all.
+    inserts commit together or not at all, and no event is emitted.
 
 11. **Sign convention is document-type-dependent, and a leg is only
     ever omitted when its own delta is exactly zero — never the whole
@@ -752,6 +765,36 @@ opposite of the adjusting entry made in the previous period."*
     and should itself be gated once that module's own spec is next
     touched (see Risks).
 
+    **Booked base identity, including before the first run (added
+    2026-11-19).** Comparing the current base only to the *latest prior
+    run* leaves a hole: the run snapshot does not exist yet, so a base
+    change between booking a foreign document and that organization's
+    first valuation is undetected. Worked counterexample: book an EUR
+    invoice against a PLN base, switch the base to EUR (still permitted
+    by `currencies.currencies.update`) before any run, then run — there is
+    no prior run to mismatch and the foreign-document filter now skips
+    that EUR invoice as base currency. The fix has two parts. (1) **Each
+    foreign-currency AP/AR document snapshots the base currency it was
+    booked against** — `bookedBaseCurrencyId` (nullable, FK-id, no ORM
+    relation), captured in the same command that captures
+    `exchangeRate` and immutable with it after posting (Design decision
+    15's sibling patches). `revalueOpenBalances` validates every in-scope
+    document's `bookedBaseCurrencyId` (and each ledger-account line's
+    account currency against the same run base) against the run's
+    `baseCurrencyId`; a mismatch is **422 `BASE_CURRENCY_CHANGED`**, never
+    silently re-based. (2) **A coordinated accounting-base invariant from
+    first booking**: the deployment policy is that an organization may not
+    change `isBase` while it holds any posted foreign-currency document or
+    any `FxRevaluationRun`; until `currencies.currencies.update` enforces
+    that (coordination note above), the run enforces it on its own side
+    via the snapshot check. A pre-existing document whose
+    `bookedBaseCurrencyId` is `null` (booked before this field shipped) is
+    treated as booked under the tenant's base at its own posting date and
+    must be backfilled; if that cannot be established the run fails
+    (`422 BASE_CURRENCY_CHANGED`) rather than assume. Mixed booked bases
+    across documents are rejected in their entirety, with a preview that
+    names every offending document. See Testing Strategy cases 26–27.
+
 17. **The open amount of a sales invoice is read ledger-side, never from
     `SalesInvoice.outstandingAmount`, and only for invoices that are in the
     ledger.** `sales` does not maintain that column for invoices (a payment
@@ -761,10 +804,26 @@ opposite of the adjusting entry made in the previous period."*
     revaluation entry adjusts the receivable control account, so its base
     must be what the ledger actually holds for the invoice:
     `grandTotalGrossAmount − Σ BankStatementLine.settledAmount` over the invoice's `sales_invoice` matches dated on or before `valuationDate` (`BankStatementLine.lineDate`; Design decision 13) in Cash & Bank Management (#6055; a
-    soft read: no `cash_bank_management`, no settlements), and only for an invoice posted on or before `valuationDate` with an unreversed `JournalEntry` carrying
+    soft read: no `cash_bank_management`, no settlements), and only for an invoice posted on or before `valuationDate` with a `JournalEntry` carrying
     `referenceType: 'sales:sales_invoice'`, `referenceId: invoice.id` (the
     reference #6046 writes). An unposted invoice is not in the ledger and is
-    never revalued. This is consistent with the settlement path:
+    never revalued. **Eligibility is evaluated at the valuation cutoff, not
+    against current state (replaced 2026-11-19).** An earlier draft required
+    the posting to be "unreversed *now*", which wrongly dropped an invoice
+    that was open on `valuationDate` but whose posting was reversed after it
+    (e.g. open on 31 Dec, reversed 3 Jan, run executed 5 Jan) — the run would
+    have omitted a position the ledger still held at the cutoff. The rule is
+    now: the posting counts when its own (operation-) date is on or before
+    `valuationDate` and it has **no reversal whose operation date is on or
+    before `valuationDate`**; a reversal dated after the cutoff does not remove
+    it, and a reversal dated on or before the cutoff does. This is
+    reconstructable because `sales` reversals are ordinary dated postings:
+    `reverseJournalEntry` carries its own `operationDate` and the original
+    entry reference (#6340, `reverseJournalEntry.ts`), so the run inspects the
+    dated reversal history rather than a mutable "is reversed" flag. When the
+    dated history for an in-scope posting cannot be reconstructed, the run
+    fails loudly instead of guessing (Design decision 13's principle; see
+    Testing Strategy cases 24–25). This is consistent with the settlement path:
     `matchBankStatementLine` clears the receivable by `settledAmount` and
     checks the same remaining balance. Known gap: a payment recorded in
     `sales` by hand never credits the receivable in `ledger`, so it does not
@@ -826,8 +885,12 @@ Decided by the team (2026-10-12): no external review of this direction; the reas
   decisions 5 and 12) and inserts the run and its lines. The ledger
   commands are called through `commandBus.execute` with the open
   EntityManager as `ctx.transactionalEm` (`CommandRuntimeContext`), so
-  they run inside this transaction; this module emits no event of its
-  own (Canonical Mechanisms). It reads open `VendorInvoice`/`SalesInvoice`
+  they run inside this transaction and suppress their own events; the
+  command collects each returned posting result and, **after the outer
+  transaction commits, emits the canonical
+  `ledger.journal_entry.posted` payload for every composed posting**
+  (Design decision 10), and emits nothing on rollback. This module emits
+  no `fx_revaluation` event of its own (Canonical Mechanisms). It reads open `VendorInvoice`/`SalesInvoice`
   data directly through `entityManager` (scoped by `tenantId` and
   `organizationId`, FK-id reads, no ORM relation), calls
   `currencies.ExchangeRateService.getRates()` (batch) for the valuation
@@ -1295,6 +1358,23 @@ and its 2026-10-23 changelog entry).
   side positive, R3) is `balance` negated for a `CREDIT`-normal account; and
   `balanceInAccountCurrency` is `null` for a parent whose subtree mixes
   currencies.
+
+  **The balance query must be accounting-date (operation-date) based
+  (added 2026-11-19).** The dependency as currently written in #6013 is
+  not sufficient: its pinned query filters `posted_at < asOf + 1 day`,
+  while #6340 writes `postedAt: new Date()` separately from the entry's
+  `operationDate`. A 31 Dec operation entered on 5 Jan is therefore
+  missing from the 31 Dec valuation, and the 1 Jan reversing entry
+  created by a 31 Dec run is included on 31 Dec. R4 is now an explicit
+  dependency requirement on #6013: `getAccountBalance` must accept an
+  operation-date basis (e.g. `dateBasis: 'operationDate'`; default
+  unchanged for existing callers) and this run always passes it, with the
+  same semantics as the document cutoff of Design decision 13. The
+  sibling patch to `general-ledger-account-balances.md` is updated to
+  patch/pin that query accordingly before Phase 2 may start; merely
+  adding the foreign-currency sum to the existing `posted_at` query does
+  not satisfy it. Test both a late-entered operation and a future-dated
+  reversal (Testing Strategy cases 29–30).
 - **R5 — Agreement with the bank statement is a property, not a feature. ⚠
   NEEDS HUMAN CONFIRMATION** (decided by the team, not yet reviewed by a
   maintainer). For a bank account managed by Cash & Bank, the balance in the
@@ -1425,6 +1505,24 @@ maintainer; the column names are a proposal).
    `valuationDate` (R4), compute R3, and add the account lines and the
    aggregated unrealized gain/loss lines to the same valuation entry and its
    reversing entry.
+   **The baseline must exclude a superseded run's own valuation and
+   cancellation legs (added 2026-11-19).** Reading the raw as-of balance
+   while a prior `POSTED` run for the same period is being superseded is
+   the double-adjustment bug: with USD 500 carried at PLN 2,000 and valued
+   at 4.10, run 1 posts +50 and leaves the base balance at 2,050; run 2 at
+   the same rate reads the already-adjusted 2,050, computes zero, then
+   10d cancels the old +50 — the period ends at 2,000 instead of 2,050.
+   Therefore, for every account line, the `baseBalance` R3 subtracts is
+   the ledger balance **excluding the period's prior valuation pair**:
+   the run filters out postings whose `referenceType`/`referenceId` mark
+   them as the superseded run's `fx_revaluation:period_end` and
+   `fx_revaluation:period_end_reversal` legs (the same tags Design
+   decision 5 writes), or, equivalently, neutralises the pair and
+   re-reads the balance after the 10d reversals in the same transaction
+   before computing R3. The unchanged-input second run must be a no-op on
+   the account: final base balance stays 2,050 (Testing Strategy case 28),
+   with the same atomic rollback guarantee (test 22). The same exclusion
+   applies to the reader so a subsequent preview and a re-run agree.
 4. Implement the open points of Edge cases once they are decided.
 5. Tests: the controller's worked example (USD lot at 4.00, outflow at 4.20,
    valuation at 4.10: 50 unrealized, account line `amountCurrency = 0`), an
@@ -1606,16 +1704,41 @@ sibling spec PRs.
   rows get `NULL`, not a default that could be mistaken for a real
   rate (Design decision 15). No existing query that doesn't already
   select these columns is affected.
-- **Backfill order**: `currencyId` backfill (pure lookup, safe,
-  automatic) runs before `fx_revaluation` is enabled for a tenant;
-  `exchangeRate` backfill (per-document, admin-triggered, the owning module's `backfill` command) is optional and can happen any time
-  afterward — a tenant can start using `fx_revaluation` for
-  newly-created documents immediately, with older documents joining
-  revaluation scope only as they're individually backfilled.
-- **Rollback**: dropping the new `fx_revaluation` tables and the
-  nullable sibling columns is non-destructive to existing data (no
-  existing column is altered or removed) — a rollback loses only
-  revaluation history, never AP/AR document data.
+- **Backfill order, and the rate-remediation gate (corrected
+  2026-11-19).** `currencyId` backfill (pure lookup, safe, automatic)
+  runs before `fx_revaluation` is enabled for a tenant. The earlier text
+  promised that `exchangeRate` backfill was optional and that a tenant
+  could start at once with older documents joining scope as they were
+  backfilled — that contradicts Design decision 15 and POST /runs: every
+  posted open foreign invoice is in scope and a single null rate rejects
+  the **entire** run (`422 EXCHANGE_RATE_MISSING_ON_DOCUMENT`), so there
+  is no implicit exclusion. The corrected rollout is: **all in-scope
+  legacy rates must be remediated before the first run**, not "whenever".
+  Sequence: (1) enable the module and open `GET /runs/preview`, which
+  lists every in-scope document whose rate is null; (2) for each, the
+  owning module's `backfill` command sets the rate (Design decision 15);
+  (3) re-preview until the list is empty; (4) run. The failure path is
+  deliberate and documented — a null rate blocks the run rather than
+  silently omitting the document — and the error names the offending
+  document(s).
+- **Rollback keeps financial audit data (corrected 2026-11-19).**
+  Dropping the `fx_revaluation` tables would delete posted run/line
+  history that Design decision 5's journals reference by
+  `referenceId`, and dropping the sibling invoice
+  `currencyId`/`exchangeRate`/`bookedBaseCurrencyId` columns would
+  discard the booked rates that posting and settlement consume — even
+  though those columns can ship and remain useful independently.
+  Rollback is therefore defined as **disabling new runs while retaining
+  posted run/line records and the captured invoice rates**. If postings
+  must be cancelled, do it through the documented ledger commands
+  (`reverseJournalEntry`) *before* disabling; removal of any table or
+  column is restricted to a deployment that proves it unused
+  (`FxRevaluationRun`/`FxRevaluationLine` empty and the sibling columns
+  never populated). Verify rollback against an existing posted pair and
+  a previously captured invoice rate (Testing Strategy case 31), per
+  `currencies/AGENTS.md`'s immutable-audit/no-deletion rule and the root
+  compatibility policy; this documentation PR itself changes no
+  implemented contract.
 - **Deployment order**: `accounts-payable`/`sales-invoice-gl-posting`'s
   column additions can ship independently of `fx_revaluation` itself
   (the columns are useful — booked-rate capture — even before period-
@@ -1652,6 +1775,14 @@ base / EUR foreign currency):
 | 21 | Only a Table C (`NBP`) or Raiffeisen row exists for the date | `422 EXCHANGE_RATE_UNAVAILABLE` naming `NBP_A`; no fallback |
 | 22 | Failure after the supersede step (e.g. the second posting rejected) | Whole transaction rolled back: the earlier run is still `POSTED`, no new entry exists |
 | 23 | Second `POST /runs` for a tenant with a `POSTED` run for a different period | The earlier period's run is untouched (already unwound by its own reversing entry) |
+| 24 | Sales invoice open on 31 Dec, its ledger posting reversed 3 Jan, run executed 5 Jan | The invoice is still in scope at the 31 Dec cutoff (reversal is after it); control account reflects the position the ledger held on 31 Dec (Design decision 17) |
+| 25 | Sales invoice open on 31 Dec, reversed 29 Dec (before the cutoff) | Excluded from the 31 Dec valuation; no base-currency adjustment for it |
+| 26 | Base currency changed from PLN to EUR before the organization's first run; a EUR invoice was booked while PLN was base | `422 BASE_CURRENCY_CHANGED` naming the offending document(s); nothing posted; preview lists them (Design decision 16) |
+| 27 | Two documents booked under different base currencies | Rejected in their entirety with both documents named; no partial valuation |
+| 28 | Phase 2: re-run an account valuation with unchanged inputs (USD 500 carried at 2,000, run 1 at 4.10 left 2,050) | Run 2 computes a zero delta and posts no new net adjustment; final base balance stays 2,050 — the superseded pair is excluded from the baseline (Implementation plan, Phase 2 step 3) |
+| 29 | Phase 2: a 31 Dec operation entered on 5 Jan, run executed 5 Jan with `valuationDate` 31 Dec | The late operation is included; the balance query uses operation date, not `posted_at` (R4) |
+| 30 | Phase 2: a 1 Jan reversing entry created by a 31 Dec run, valuation read as of 31 Dec | The 1 Jan reversal is excluded from the 31 Dec balance (operation-date basis, R4) |
+| 31 | Rollback after a posted valuation | Disabling new runs retains the posted run/lines and the captured invoice rates; the journals' `referenceId` still resolves; table/column removal is refused while data exists (Migration & Backward Compatibility) |
 
 ## Canonical Mechanisms
 
@@ -1668,12 +1799,18 @@ base / EUR foreign currency):
   `fx_revaluation.valuationGraceDays` are `ModuleConfigService` keys,
   the same DI-resolved config mechanism Cash & Bank Management already
   uses for its own account lookups — no bespoke settings table.
-- **Events**: `fx_revaluation` emits no event in Phase 1 (nothing
-  outside this module reacts to a posted or reversed run yet); it only
-  *consumes* `ledger`'s and `currencies`' existing surface — one-way
-  dependency direction, per knowledge-base §2. Flagged as a Phase 2
-  candidate if a future filing/notification feature needs to react to
-  a run.
+- **Events**: `fx_revaluation` declares no event of its own in Phase 1
+  (nothing outside this module reacts to a run yet). Because the ledger
+  commands run composed under `ctx.transactionalEm` and therefore emit
+  nothing themselves (#6340), `revalueOpenBalances` re-publishes
+  `ledger`'s canonical `ledger.journal_entry.posted` payload for each
+  posting result it collected, **after its own transaction commits and
+  never on rollback** (Design decision 10) — it emits `ledger`'s event,
+  not a new `fx_revaluation` one, and still only *consumes* `ledger`'s
+  and `currencies`' surface (one-way dependency direction, per
+  knowledge-base §2). A dedicated `fx_revaluation.run.posted` event
+  remains a Phase 2 candidate if a future filing/notification feature
+  needs to react to a run.
 - **Cache**: `GET /runs`/`GET /runs/:id` are low-frequency,
   per-fiscal-period reads (at most a handful of runs per period) — no
   new cache layer, same "N/A, justified" reasoning #6188 already
@@ -2265,3 +2402,13 @@ Not yet reviewed by a maintainer.
 ### 2026-10-26 (cont. — realized differences on two accounts in Cash & Bank and AP payments)
 
 - `cash-bank-management.md` and `accounts-payable-payments.md` replace the single netted `gainLossAccountId` with `realizedFxGainAccountId` (financial income) and `realizedFxLossAccountId` (financial costs), the same split as this module's `unrealizedGainAccountId`/`unrealizedLossAccountId`; basis art. 30 ust. 4 (changelog 2026-10-12 above) and the controller's answer of 2026-10-23. Design decision 11 and R2 updated to name the new keys. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).
+
+### 2026-11-19 — re-review round (PR #6190, @haxiorz, reviewed head `06dd52d61`)
+
+- **F1 (Phase 2 baseline).** R3's `baseBalance` must exclude the period's prior valuation pair; added to the Phase 2 implementation plan step 3 with the USD 500 / 2,000 / 4.10 counterexample and a second-run no-op assertion (test 28).
+- **F2 (R4 cutoff).** R4 now requires an operation-date balance query in #6013 (`dateBasis: 'operationDate'`), not the `posted_at` filter; the #6013 patch is pinned to it. Tests 29–30 cover a late entry and a future-dated reversal.
+- **F3 (sales eligibility).** Design decision 17 evaluates posting/reversal eligibility at `valuationDate` from dated reversals, so a post-cutoff reversal no longer drops a position held at the cutoff. Tests 24–25.
+- **F4 (event emission).** Design decision 10, Architecture and Canonical Mechanisms now require collecting each composed posting result and emitting `ledger.journal_entry.posted` after the outer commit, none on rollback; no new `fx_revaluation` event.
+- **F5 (booked base identity).** Design decision 16 adds `bookedBaseCurrencyId` on the sibling documents and validates every in-scope document against the run base, covering a base change before the first run and mixed booked bases. Tests 26–27.
+- **F6 (rollback).** Migration & Backward Compatibility defines rollback as disabling new runs while retaining run/line history and captured rates; removal only for a proven-unused deployment. Test 31.
+- **F7 (rollout).** The backfill bullet no longer promises implicit exclusion; all in-scope legacy rates must be remediated (preview → backfill → re-preview → run) because a null rate rejects the whole run.
