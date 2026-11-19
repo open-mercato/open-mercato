@@ -5,7 +5,7 @@ import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points
 import Link from 'next/link'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { RowData, SortingState } from '@tanstack/react-table'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
@@ -32,6 +32,7 @@ import {
   inventoryReservationStatusLabel,
 } from '../../lib/inventoryDisplayUi'
 import { parseInventoryQuantity } from '../../lib/inventoryMutationUi'
+import { ReservationNotActiveError } from '../../lib/reservationMutationError'
 import { ImportInventoryDialog } from './ImportInventoryDialog'
 import { InventoryOperationsSection } from './InventoryOperationsSection'
 import { MoveInventoryDialog } from './MoveInventoryDialog'
@@ -735,6 +736,7 @@ export function InventoryReservationsSection({
   lotId?: string
 }) {
   const t = useT()
+  const queryClient = useQueryClient()
   const { quantityFormatter } = useInventoryDisplayFormatters()
   const [releaseOpen, setReleaseOpen] = React.useState(false)
   const [releasePreset, setReleasePreset] = React.useState<InventoryReservationRow | null>(null)
@@ -757,7 +759,6 @@ export function InventoryReservationsSection({
         reservationId: row.id,
       }
       try {
-        let staleReservation = false
         await runAllocateMutation({
           operation: async () => {
             const call = await apiCall<{ ok?: boolean; error?: string }>('/api/wms/inventory/allocate', {
@@ -767,8 +768,7 @@ export function InventoryReservationsSection({
             })
             if (!call.ok) {
               if (call.response.status === 409 && call.result?.error === 'invalid_reservation_state') {
-                staleReservation = true
-                return {}
+                throw new ReservationNotActiveError()
               }
               await raiseCrudError(call.response, t('wms.backend.inventory.allocate.errors.submit', 'Failed to allocate reservation.'))
             }
@@ -777,7 +777,9 @@ export function InventoryReservationsSection({
           context: allocateMutationContext,
           mutationPayload: payload,
         })
-        if (staleReservation) {
+        flash(t('wms.backend.inventory.allocate.flash.success', 'Reservation allocated'), 'success')
+      } catch (error) {
+        if (error instanceof ReservationNotActiveError) {
           flash(
             t(
               'wms.backend.inventory.allocate.errors.reservationNotActive',
@@ -785,14 +787,13 @@ export function InventoryReservationsSection({
             ),
             'error',
           )
+          await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
           return
         }
-        flash(t('wms.backend.inventory.allocate.flash.success', 'Reservation allocated'), 'success')
-      } catch {
         flash(t('wms.backend.inventory.allocate.errors.submit', 'Failed to allocate reservation.'), 'error')
       }
     },
-    [access.organizationId, access.tenantId, allocateMutationContext, runAllocateMutation, t],
+    [access.organizationId, access.tenantId, allocateMutationContext, queryClient, runAllocateMutation, t],
   )
 
   const openReleaseDialog = React.useCallback((row: InventoryReservationRow) => {

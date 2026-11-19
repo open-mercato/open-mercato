@@ -2,6 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
+  createOrganizationFixture,
+  createRoleFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
+import {
   createProductFixture,
   createVariantFixture,
   deleteCatalogProductIfExists,
@@ -13,7 +22,6 @@ import {
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCrudFixture,
-  ensureRoleFeatures,
   postAction,
 } from './helpers/wmsFixtures'
 
@@ -23,24 +31,37 @@ export const integrationMeta = {
 
 test.describe('TC-WMS-028: Reservation release replay', () => {
   test('rejects a replayed release without making the released stock reservable again', async ({ request }) => {
-    const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
-    const scope = getTokenScope(adminToken)
+    const bootstrapScope = getTokenScope(superadminToken)
     const suffix = randomUUID().slice(0, 8)
-    const restoreAdminAcl = await ensureRoleFeatures(
-      request,
-      superadminToken,
-      scope.tenantId,
-      'admin',
-      ['wms.view', 'wms.manage_warehouses', 'wms.manage_locations', 'wms.manage_inventory', 'wms.manage_reservations', 'wms.adjust_inventory'],
-    )
-
+    const email = `tc-wms-028-${suffix}@example.invalid`
+    const password = `WmsReplay1!${suffix}`
+    let organizationId: string | null = null
+    let roleId: string | null = null
+    let userId: string | null = null
+    let adminToken: string | null = null
     let productId: string | null = null
     let warehouseId: string | null = null
     let locationId: string | null = null
     let profileId: string | null = null
 
     try {
+      organizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `TC-WMS-028 Org ${suffix}`,
+        tenantId: bootstrapScope.tenantId,
+      })
+      roleId = await createRoleFixture(request, superadminToken, {
+        name: `TC-WMS-028 Role ${suffix}`,
+        tenantId: bootstrapScope.tenantId,
+      })
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId,
+        features: ['wms.view', 'wms.manage_warehouses', 'wms.manage_locations', 'wms.manage_inventory', 'wms.manage_reservations', 'wms.adjust_inventory', 'catalog.*'],
+        organizations: [organizationId],
+      })
+      userId = await createUserFixture(request, superadminToken, { email, password, organizationId, roles: [roleId] })
+      adminToken = await getAuthToken(request, email, password)
+      const scope = getTokenScope(adminToken)
       productId = await createProductFixture(request, adminToken, {
         title: `TC-WMS-028 Replay ${suffix}`,
         sku: `TCW28-${suffix}`,
@@ -203,7 +224,9 @@ test.describe('TC-WMS-028: Reservation release replay', () => {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', locationId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
       await deleteCatalogProductIfExists(request, adminToken, productId)
-      await restoreAdminAcl()
+      await deleteUserIfExists(request, superadminToken, userId)
+      await deleteRoleIfExists(request, superadminToken, roleId)
+      await deleteOrganizationIfExists(request, superadminToken, organizationId)
     }
   })
 })

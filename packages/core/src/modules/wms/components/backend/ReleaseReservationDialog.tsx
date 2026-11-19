@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ShieldOff } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { flashMutationError } from '../../lib/flashMutationError'
+import { ReservationNotActiveError } from '../../lib/reservationMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -224,15 +225,7 @@ export function ReleaseReservationDialog({
                 return { handled: true as const }
               }
               if (call.response.status === 409 && (call.result as { error?: string } | null)?.error === 'invalid_reservation_state') {
-                flash(
-                  t(
-                    'wms.backend.inventory.release.errors.reservationNotActive',
-                    'This reservation is no longer active — it was already released or fulfilled. Refresh the list to see its current state.',
-                  ),
-                  'error',
-                )
-                await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
-                return { handled: true as const }
+                throw new ReservationNotActiveError()
               }
               await raiseCrudError(
                 call.response,
@@ -255,6 +248,17 @@ export function ReleaseReservationDialog({
         closeDialog()
         onSuccess?.()
       } catch (error) {
+        if (error instanceof ReservationNotActiveError) {
+          flash(
+            t(
+              'wms.backend.inventory.release.errors.reservationNotActive',
+              'This reservation is no longer active — it was already released or fulfilled. Refresh the list to see its current state.',
+            ),
+            'error',
+          )
+          await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
+          return
+        }
         flashMutationError(error, t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'), t)
       } finally {
         setSubmitting(false)
