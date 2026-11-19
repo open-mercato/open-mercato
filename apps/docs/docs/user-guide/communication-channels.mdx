@@ -7,13 +7,12 @@ description: Connect your personal Gmail or IMAP+SMTP mailbox so outbound messag
 
 Connect a personal mailbox to Open Mercato so the messages you send through the app go out under **your** real email address and replies land in the unified inbox alongside Slack, WhatsApp, and other channels.
 
-This release ships three providers:
+This release ships four providers:
 
 - **Gmail** (personal + Google Workspace) — administrators: see **[Set up Gmail](communication-channels-gmail.mdx)** for the one-time OAuth (and optional Pub/Sub push) setup
+- **Microsoft 365 / Outlook** (Exchange Online, work and school accounts) — administrators: see **[Set up Microsoft 365](communication-channels-ms365.mdx)** for the one-time Entra ID app registration
 - **IMAP + SMTP** (Fastmail, iCloud, generic providers, on-prem mail servers) — see **[Set up IMAP + SMTP](communication-channels-imap.mdx)**
 - **Discord** — a bot connected to a Discord server, rather than a mailbox. Everything it posts is attributed to the bot, not to you. See **[Set up Discord](communication-channels-discord.mdx)**.
-
-There is no dedicated Microsoft 365 / Outlook connector; connect those mailboxes through IMAP + SMTP (see below).
 
 The rest of this page describes the email providers. Discord follows the same connect / send /
 receive shape, but its setup and its capability limits are specific enough to live on their own
@@ -36,7 +35,7 @@ A tenant can use both. Communication Channels is per-user; Inbox Ops is tenant-s
 
 Profile → **Communication Channels** (in the left sidebar). The page is empty until you connect a channel.
 
-The CTA in the top right offers two providers. Pick the one that matches your mailbox.
+The CTA in the top right offers one button per enabled provider. Pick the one that matches your mailbox.
 
 ### 2) Connect a channel
 
@@ -51,7 +50,12 @@ The first poll runs within five minutes. New mail in your **inbox** label is syn
 
 #### Microsoft 365 / Outlook
 
-There is no dedicated Microsoft connector. An Outlook.com / Microsoft 365 mailbox can be connected through **[IMAP + SMTP](communication-channels-imap.mdx)** using an app password.
+1. Click **Connect Microsoft 365**.
+2. Microsoft opens its sign-in / consent screen (work or school account; personal Outlook.com accounts are rejected unless your administrator enabled them).
+3. Accept the permissions Open Mercato asks for (read and send mail; sign-in and profile).
+4. You return to the profile page; your mailbox address appears as the new channel.
+
+The first poll runs within five minutes. New mail in your **Inbox** is synced; sent mail is stored in your Sent Items automatically when you reply from inside Open Mercato. Administrators register the Entra ID app once per workspace — see **[Set up Microsoft 365](communication-channels-ms365.mdx)**.
 
 #### IMAP + SMTP
 
