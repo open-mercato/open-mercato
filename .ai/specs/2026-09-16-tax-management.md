@@ -137,7 +137,7 @@ interface ITaxEngine {
   taxCode: string
   label: string              // display label for the TaxCode row and settings page
   accountRoles: string[]     // static declaration — drives the settings-page UI (UI/UX)
-  payableRole?: string       // role whose net credit must equal `amount` when declared
+  payableRole?: string       // role whose net credit must equal `amount` for nonempty lines
   calculate(input: { periodId, tenantId, organizationId }): Promise<{
     amount: string           // the remittance amount for this period
     currencyId: string
@@ -157,8 +157,10 @@ call and requires recalculation and renewed accountant review. With a match,
 it resolves roles against that locked mapping and posts the stored lines.
 Every mapping write increments the revision atomically; holding the lock
 through posting prevents a concurrent settings edit from changing accounts
-between the comparison and ledger call. A missing or replaced mapping is
-also rejected. Empty-line drafts carry null mapping ID and revision and skip
+between the comparison and ledger call. If the edit commits first, posting
+rejects without ledger writes; if posting acquires the lock first, it commits
+to the reviewed accounts before the edit proceeds. A missing or replaced
+mapping is also rejected. Empty-line drafts carry null mapping ID and revision and skip
 the mapping check; their scope and fiscal-period checks still apply.
 
 **Journal balance and remittance amount are separate checks.** The
@@ -169,10 +171,11 @@ settlement debits `vatOutputClearing` by 5,000 and credits
 `vatInputClearing` 2,000 plus `vatPayable` 3,000, and the amount to
 remit is 3,000, not 5,000. So the framework does **not** require total
 debits to equal `amount`. An engine that wants the amount checked
-against its posting declares `payableRole` (e.g. `vatPayable`); then the
-net credit on that role (`sum(credit) − sum(debit)` for the role) must
+against its posting declares `payableRole` (e.g. `vatPayable`); for
+nonempty lines the net credit on that role (`sum(credit) − sum(debit)` for the role) must
 equal `amount`. Without `payableRole`, `amount` is stored and shown to
-the accountant but not cross-checked against the lines. A three-line VAT
+the accountant but not cross-checked against the lines. Empty lines skip this
+reconciliation even when a role is declared. A three-line VAT
 case is part of the contract test suite (Implementation Plan), so the
 reconciliation cannot regress into a debit-total rule.
 
@@ -331,7 +334,7 @@ existing territory in `sales`, unaffected by this document.
     the returned lines: an empty array is allowed; otherwise at least two
     lines are required, with exactly one strictly positive debit or credit
     per line, ledger-compatible decimal precision, and equal debit and
-    credit totals (journal balance). When
+    credit totals (journal balance). For nonempty lines, when
     the engine declares `payableRole`, the net credit on that role must
     equal `amount`; total debits are deliberately **not** compared to
     `amount` (a VAT settlement's turnover and remittance differ, Design
@@ -367,7 +370,7 @@ existing territory in `sales`, unaffected by this document.
     On a match it resolves the **stored snapshot's** `accountRole`s against
     the locked mapping and holds that lock until transaction completion; it
     never re-runs the engine (the M3 fix). It re-verifies the snapshot
-    balances and, when the
+    balances and, for a nonempty snapshot when the
     engine declares `payableRole`, that the role's net credit still
     equals the stored `amount`. **Correction flow (the
     M4 fix):** when the record carries `correctsRecordId`, the same
@@ -550,8 +553,8 @@ as paid" button) lives in that document now (`#7524`).
 ## Edge Cases & Failure Scenarios
 
 - **No `TaxCodeAccountMapping` role configured for a tax code.**
-  `calculateTaxLiability`/`postTaxLiability` reject with a named error
-  before computing or posting anything — same reject-if-unset posture
+  For nonempty lines, `calculateTaxLiability`/`postTaxLiability` reject
+  with a named error before persisting or posting anything — same reject-if-unset posture
   as `PostingRulesSettings`/`FixedAssetSettings`.
 - **`calculateTaxLiability` called twice for the same period/code.**
   The call holds a transaction-scoped advisory lock keyed by
@@ -590,7 +593,8 @@ as paid" button) lives in that document now (`#7524`).
   mismatch under the mapping lock and rejects without ledger writes; the
   accountant recalculates and reviews a new draft.
 - **`ITaxEngine.calculate()` returns unbalanced lines, or a declared
-  `payableRole` whose net credit differs from `amount`.** Rejected at
+  `payableRole` whose net credit differs from `amount` for nonempty
+  lines.** Rejected at
   `calculateTaxLiability` (before the record exists) and re-checked at
   `postTaxLiability` against the stored snapshot — a named
   `tax_management` error (a plugin bug), not a raw `ledger` 500. Total
@@ -663,9 +667,8 @@ entry.
 mapping revision on `TaxLiabilityRecord` at calculation time; posting locks
 the scoped mapping and rejects a changed revision before resolving roles.
 The post uses exactly the stored snapshot and re-validates its balance and,
-when the
-engine declares `payableRole`, that role's net credit against the stored
-`amount`, refusing on mismatch.
+when the snapshot is nonempty and the engine declares `payableRole`, that
+role's net credit against the stored `amount`, refusing on mismatch.
 **Residual risk:** Low — the engine is never invoked again after
 calculation.
 
@@ -777,10 +780,15 @@ decisions; doesn't fit VAT or PIT-4.
    concurrent-import test pattern, PR #6137 review m1), the
    three-line VAT worked example (5,000 debit, 2,000 + 3,000 credits,
    3,000 remittance — accepted because `payableRole` reconciles the
-   amount instead of the debit total), empty-lines post path, one-line and
-   zero-value rejection before draft persistence, and a remapped payable
-   role between calculation and post (including a concurrent mapping edit):
-   reject without ledger writes and require a newly reviewed draft. Cover the
+   amount instead of the debit total), and an empty-lines draft with a positive
+   amount and a declared `payableRole`: calculation and posting succeed
+   without reconciliation or a settlement journal. Reject one-line and
+   zero-value journals before draft persistence. For a remapped payable role
+   between calculation and post, require a newly reviewed draft and no ledger
+   writes. Test both concurrent mapping-edit orderings: if the edit commits
+   first, posting rejects without ledger writes; if posting acquires the mapping
+   lock first, it commits to the reviewed accounts before the edit proceeds.
+   Cover the
    reverse-and-repost correction (including a correction draft replaced
    before posting, and a second successful
    reversal rejected), the `calculated → paid` rejection and idempotent
@@ -903,6 +911,12 @@ maintainer re-review of this revision, then implementation per the
 plan above.
 
 ## Changelog
+
+### 2026-11-19 - Review follow-up: empty journals and mapping races
+
+- Apply payable-role reconciliation only to nonempty snapshots in both
+  commands and cover the declared-role, positive-remittance empty path.
+- Specify and test both lock orderings for posting versus mapping edits.
 
 ### 2026-11-19 - Review follow-up
 
