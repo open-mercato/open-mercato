@@ -4,7 +4,6 @@ import { asValue } from 'awilix'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { badRequest, conflict, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
@@ -566,6 +565,24 @@ async function loadMutableCart(
   return cart
 }
 
+async function assertCartActiveUnderLock(em: EntityManager, cart: Cart): Promise<void> {
+  await em.refresh(cart)
+  assertCartNotLocked(cart)
+  if (cart.status !== 'active') {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
+  }
+}
+
+function buildCartLineMutationGuardPhases(em: EntityManager, cart: Cart, line: CartLine): Array<() => Promise<void>> {
+  return [
+    async () => {
+      await assertCartActiveUnderLock(em, cart)
+      const current = await em.refresh(line)
+      if (!current || line.deletedAt) throw notFound('[internal] cart line not found')
+    },
+  ]
+}
+
 export type CartLineSnapshot = {
   id: string
   cartId: string
@@ -754,7 +771,7 @@ function resolveSnapshotFields(product: CatalogProduct, variant: CatalogProductV
  * through every later phase exactly like `buildPromotionsEffectsPhase`'s own in-place gift
  * line push/splice already depends on.
  */
-function buildCartPromotionsAndTotalsPhases(params: {
+export function buildCartPromotionsAndTotalsPhases(params: {
   em: EntityManager
   container: CommandRuntimeContext['container']
   cart: Cart
@@ -813,7 +830,7 @@ function buildCartPromotionsAndTotalsPhases(params: {
  * possibly have produced. Called AFTER the caller's own `withAtomicFlush` commits, same
  * "side effects only after the DB write lands" rule as every other emission in this file.
  */
-async function emitCartPromotionsAndTotalsSideEffects(
+export async function emitCartPromotionsAndTotalsSideEffects(
   dataEngine: DataEngine,
   cart: Cart,
   outcome: { createdGiftLines: CartLine[]; removedGiftLines: CartLine[]; promotionWarnings: CartPromotionWarning[] },
@@ -964,6 +981,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     // `TC-CART-CONC-05` reproduced (a silently lost update, and a raw 500 off
     // `cart_lines_unique_line_key`).
     await withCartLineMutationLock(em, cart.id, [
+      () => assertCartActiveUnderLock(em, cart),
       async () => {
         const existing = await findExistingCustomerLine(em, scope, cart.id, input.productId, variantId, input.configuration ?? null)
         const pricingContext = buildCartPricingRowFilterContext(cart)
@@ -1282,7 +1300,8 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     const removedGiftLines: CartLine[] = []
     const promotionWarnings: CartPromotionWarning[] = []
 
-    await withAtomicFlush(em, [
+    await withCartLineMutationLock(em, cart.id, [
+      ...buildCartLineMutationGuardPhases(em, cart, line),
       async () => {
         line.quantity = String(finalQuantity)
         if (assortmentScope !== undefined && line.flagState === 'product_unavailable') line.flagState = null
@@ -1299,7 +1318,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
         removedGiftLines,
         promotionWarnings,
       }),
-    ], { transaction: true, label: 'cart.lines.update' })
+    ], 'cart.lines.update')
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
@@ -1366,7 +1385,8 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     const removedGiftLines: CartLine[] = []
     const promotionWarnings: CartPromotionWarning[] = []
 
-    await withAtomicFlush(em, [
+    await withCartLineMutationLock(em, cart.id, [
+      ...buildCartLineMutationGuardPhases(em, cart, line),
       async () => {
         line.deletedAt = now
       },
@@ -1382,7 +1402,7 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
         removedGiftLines,
         promotionWarnings,
       }),
-    ], { transaction: true, label: 'cart.lines.remove' })
+    ], 'cart.lines.remove')
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'deleted', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
@@ -1688,6 +1708,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     // `bulkAdd`/`add` calls on this cart must serialize, not just this call's own entries
     // against each other.
     await withCartLineMutationLock(em, cart.id, [
+      () => assertCartActiveUnderLock(em, cart),
       ...phases,
       ...buildCartPromotionsAndTotalsPhases({
         currencyDecimalPlaces,

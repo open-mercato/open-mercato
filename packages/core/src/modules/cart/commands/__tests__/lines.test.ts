@@ -180,6 +180,10 @@ function makeEm() {
     // `em.execute` (concurrency fix, review finding) — stub the transaction/raw-SQL surface
     // `withAtomicFlush` drives so this fake EM still satisfies it.
     execute: jest.fn(async () => [{ locked: true }]),
+    // Under the cart lock every line writer re-reads the cart (and update/remove the line)
+    // via `em.refresh`. The fixtures are the same objects `findOneWithDecryption` returns,
+    // so returning the row unchanged is the fake EM's faithful no-op.
+    refresh: jest.fn(async (row: Row) => row),
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),
@@ -1580,5 +1584,191 @@ describe('cart promotions + totals recompute (Step 8.2, QA F12)', () => {
 
     expect(seededCartLines[0].deletedAt).toBeNull()
     expect(seededCarts[0].totals.grandTotalNetAmount).toBe(10)
+  })
+})
+
+describe('cart.lines.update / cart.lines.remove advisory lock', () => {
+  beforeEach(resetFixtures)
+
+  function seedCustomerLine(): Row {
+    const line = {
+      id: 'line-1',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      cartId: CART_ID,
+      lineNumber: 1,
+      productId: 'product-1',
+      variantId: null,
+      sku: null,
+      name: 'Widget',
+      optionValues: null,
+      quantity: '5',
+      unitPriceNet: '10',
+      unitPriceGross: '12',
+      taxRate: '20',
+      priceKindId: null,
+      priceRowId: 'price-row-1',
+      priceTierMinQuantity: 1,
+      pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+      lineTotals: makeLineTotalsFixture(5),
+      discountTotalNet: null,
+      promotionId: null,
+      origin: 'customer',
+      configuration: null,
+      addedByActorType: 'buyer',
+      addedByActorId: null,
+      metadata: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      deletedAt: null,
+    }
+    seededCartLines = [line]
+    return line
+  }
+
+  async function runAfterLockRace(commandId: 'cart.lines.update' | 'cart.lines.remove', race: (row: Row) => void) {
+    seedCustomerLine()
+    const handler = getHandler<any, any>(commandId)
+    const em = makeEm()
+    const lockKeys: string[] = []
+    let armed = false
+    em.execute.mockImplementation(async (sql: string, params: string[]) => {
+      lockKeys.push(params[0])
+      armed = sql.includes('pg_try_advisory_xact_lock')
+      return [{ locked: true }]
+    })
+    em.refresh.mockImplementation(async (row: Row) => {
+      if (armed) race(row)
+      return row
+    })
+    const input = commandId === 'cart.lines.update'
+      ? { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 5 }
+      : { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }
+    let captured: unknown
+    try {
+      await handler.execute(input, makeCtx({ em }))
+    } catch (err) {
+      captured = err
+    }
+    return { captured, lockKeys, em }
+  }
+
+  it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
+    '%s takes the per-cart advisory lock and answers 423 once a concurrent cart.lock committed inside it',
+    async (commandId) => {
+      const { captured, lockKeys } = await runAfterLockRace(commandId, (row) => {
+        if (row.id === CART_ID) {
+          row.status = 'locked'
+          row.checkoutSessionId = 'other-session'
+        }
+      })
+
+      expect(lockKeys).toEqual([`cart:lines:${CART_ID}`])
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(423)
+      expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_locked', checkoutSessionId: 'other-session' })
+      expect(seededCartLines[0].deletedAt).toBeNull()
+      expect(seededCartLines[0].quantity).toBe('5')
+    },
+  )
+
+  it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
+    '%s answers 409 cart_not_active once the cart left active inside the lock',
+    async (commandId) => {
+      const { captured } = await runAfterLockRace(commandId, (row) => {
+        if (row.id === CART_ID) row.status = 'merged'
+      })
+
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(409)
+      expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_not_active', status: 'merged' })
+      expect(seededCartLines[0].deletedAt).toBeNull()
+    },
+  )
+
+  it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
+    '%s refuses with 404 when the line was removed by a concurrent writer before the lock granted',
+    async (commandId) => {
+      const { captured } = await runAfterLockRace(commandId, (row) => {
+        if (row.id === 'line-1') row.deletedAt = new Date()
+      })
+
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(404)
+    },
+  )
+
+  it.each(['cart.lines.update', 'cart.lines.remove'] as const)(
+    '%s backs off and retries when the cart lock is busy, never mutating before it is held',
+    async (commandId) => {
+      seedCustomerLine()
+      const handler = getHandler<any, any>(commandId)
+      const em = makeEm()
+      em.execute.mockResolvedValueOnce([{ locked: false }])
+      const input = commandId === 'cart.lines.update'
+        ? { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 5 }
+        : { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1' }
+
+      await handler.execute(input, makeCtx({ em }))
+
+      expect(em.rollback).toHaveBeenCalledTimes(1)
+      expect(em.execute).toHaveBeenCalledTimes(2)
+      expect(em.commit).toHaveBeenCalledTimes(1)
+    },
+  )
+})
+
+describe('cart.lines.add / cart.lines.bulkAdd status re-check inside the advisory lock', () => {
+  beforeEach(resetFixtures)
+
+  function armLockRace(em: any, race: (row: Row) => void) {
+    let armed = false
+    em.execute.mockImplementation(async (sql: string) => {
+      armed = sql.includes('pg_try_advisory_xact_lock')
+      return [{ locked: true }]
+    })
+    em.refresh.mockImplementation(async (row: Row) => {
+      if (armed) race(row)
+      return row
+    })
+  }
+
+  it('cart.lines.add answers 423 and adds nothing when a concurrent cart.lock committed before the lock granted', async () => {
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    armLockRace(em, (row) => {
+      if (row.id === CART_ID) row.status = 'locked'
+    })
+    let captured: unknown
+    try {
+      await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 1, addedByActorType: 'system' }, makeCtx({ em }))
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(423)
+    expect(seededCartLines).toHaveLength(0)
+  })
+
+  it('cart.lines.bulkAdd answers 409 cart_not_active and adds nothing when the cart left active before the lock granted', async () => {
+    const handler = getHandler<any, any>('cart.lines.bulkAdd')
+    const em = makeEm()
+    armLockRace(em, (row) => {
+      if (row.id === CART_ID) row.status = 'merged'
+    })
+    let captured: unknown
+    try {
+      await handler.execute(
+        { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lines: [{ productId: 'product-1', quantity: 1 }], addedByActorType: 'system' },
+        makeCtx({ em }),
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { body?: Record<string, unknown> }).body).toMatchObject({ code: 'cart_not_active', status: 'merged' })
+    expect(seededCartLines).toHaveLength(0)
   })
 })

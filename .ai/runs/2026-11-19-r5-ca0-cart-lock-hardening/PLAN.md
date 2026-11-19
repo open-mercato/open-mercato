@@ -14,8 +14,8 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Multi-key try-lock in withCartLineMutationLock | inline | done | (this commit) |
-| 1 | 1.2 | Line writes take the cart lock and re-check status under it | inline | todo | — |
+| 1 | 1.1 | Multi-key try-lock in withCartLineMutationLock | inline | done | ea930489fc |
+| 1 | 1.2 | Line writes take the cart lock and re-check status under it | inline | done | (this commit) |
 | 1 | 1.3 | cart.lock re-reads, recomputes and compare-and-sets under the cart lock | inline | todo | — |
 | 1 | 1.4 | Login merge and merge undo lock both carts and re-check under the locks | inline | todo | — |
 | 2 | 2.1 | Real-PostgreSQL status-transition races and cart in test:pg-integration | inline | todo | — |
