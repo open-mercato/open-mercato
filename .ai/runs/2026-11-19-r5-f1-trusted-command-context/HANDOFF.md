@@ -1,24 +1,24 @@
 # Handoff — 2026-11-19-r5-f1-trusted-command-context
 
-**Last updated:** 2026-11-19T19:27:30Z
+**Last updated:** 2026-11-19T19:35:23Z
 **Branch:** feat/r5-f1-trusted-command-context
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** — (run folder commit pending)
+**PR:** pending creation
+**Current phase/step:** complete. All Tasks rows are done.
+**Last commit:** 0ca1d84f6a — feat(shared): add buildTrustedCommandContext for request-less trusted commands
 
 ## What just happened
-- Run folder created on a branch cut from refs/remotes/pr/9999 (6c596fe157).
+- Step 1.1 is ported from #8268, and the narrowed gate is green (final-gate-checks.md).
 
 ## Next concrete action
-- Step 1.1: port trusted-context.ts + test + barrel re-export from bdb747c36a.
+- None for this run. The next R5 steps (PR1c, AV2a, CH3, CH4, AS4) import the helper.
 
 ## Blockers / open questions
-- Binding plan file missing (see PLAN.md Deviations); proceeding per operator instruction.
+- The binding plan file was missing, so rules R1–R14 were not read (see PLAN.md Deviations).
 
 ## Environment caveats
-- Dev runtime runnable: not needed (no UI)
-- Browser / UI checks: skipped — no UI touched
-- Database/migration state: clean (no migrations)
+- Dev runtime runnable: not needed
+- Browser / UI checks: skipped because no UI was touched
+- Database/migration state: clean
 
 ## Worktree
 - Path: /Users/bernard/workspace/open-mercato/.ai/cezar/worktrees/d740585b-178d-4ba8-a13a-a4e9b5aff034
