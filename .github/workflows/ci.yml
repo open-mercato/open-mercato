@@ -867,6 +867,33 @@ jobs:
       - name: Run real two-sidecar durability regression
         run: yarn workspace @open-mercato/documents test:multi-instance
 
+<<<<<<< HEAD
+=======
+      - name: Run advisory lock suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/shared test:pg-integration
+
+      - name: Run integrations module suites against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/core test:pg-integration
+
+      - name: Run Discord auto-reply repeat-delivery suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/channel-discord test:pg-integration
+
+      - name: Run checkout migration suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/checkout test:pg-integration
+
+      - name: Run webhook delivery claim suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/webhooks test:pg-integration
+
+      - name: Check OAuth grant import paths resolve against the built dist
+        if: ${{ !cancelled() }}
+        run: node scripts/check-oauth-publish-shape.mjs
+
+>>>>>>> c61c8910f7 (fix(channel-discord): stop AI auto-reply re-sending or re-proposing on an event retry (#8277) (#9938))
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
