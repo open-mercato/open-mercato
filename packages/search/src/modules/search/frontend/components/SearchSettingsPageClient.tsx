@@ -67,6 +67,7 @@ type EmbeddingSettings = {
   autoIndexingLocked: boolean
   lockReason: string | null
   embeddingConfig: EmbeddingProviderConfig | null
+  embeddingConfigSource?: 'tenant' | 'instance' | 'env'
   configuredProviders: EmbeddingProviderId[]
   indexedDimension: number | null
   reindexRequired: boolean
@@ -146,6 +147,7 @@ export function SearchSettingsPageClient() {
   // Embedding settings state
   const [embeddingSettings, setEmbeddingSettings] = React.useState<EmbeddingSettings | null>(null)
   const [embeddingLoading, setEmbeddingLoading] = React.useState(true)
+  const [embeddingError, setEmbeddingError] = React.useState<string | null>(null)
 
   // Global search settings state
   const [globalSearchStrategies, setGlobalSearchStrategies] = React.useState<Set<string>>(() => new Set(['fulltext', 'vector', 'tokens']))
@@ -260,6 +262,7 @@ export function SearchSettingsPageClient() {
   // Fetch embedding settings
   const fetchEmbeddingSettings = React.useCallback(async () => {
     setEmbeddingLoading(true)
+    setEmbeddingError(null)
     try {
       const body = await readApiResultOrThrow<EmbeddingSettingsResponse>(
         '/api/search/embeddings',
@@ -269,20 +272,10 @@ export function SearchSettingsPageClient() {
       if (body?.settings) {
         setEmbeddingSettings(body.settings)
       } else {
-        setEmbeddingSettings({
-          openaiConfigured: false,
-          autoIndexingEnabled: true,
-          autoIndexingLocked: false,
-          lockReason: null,
-          embeddingConfig: null,
-          configuredProviders: [],
-          indexedDimension: null,
-          reindexRequired: false,
-          documentCount: null,
-        })
+        setEmbeddingError(t('search.settings.errors.loadFailed', 'Failed to load settings'))
       }
-    } catch {
-      // Error already handled
+    } catch (err) {
+      setEmbeddingError(normalizeErrorMessage(err, t('search.settings.errors.loadFailed', 'Failed to load settings')))
     } finally {
       setEmbeddingLoading(false)
     }
@@ -435,6 +428,7 @@ export function SearchSettingsPageClient() {
       <VectorSearchSection
         embeddingSettings={embeddingSettings}
         embeddingLoading={embeddingLoading}
+        embeddingError={embeddingError}
         vectorStoreConfig={vectorStoreConfig}
         vectorStoreConfigLoading={vectorStoreConfigLoading}
         vectorReindexLock={settings?.vectorReindexLock ?? null}
@@ -448,8 +442,8 @@ export function SearchSettingsPageClient() {
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => fetchSettings()}
-          disabled={loading}
+          onClick={() => void Promise.all([fetchSettings(), fetchEmbeddingSettings()])}
+          disabled={loading || embeddingLoading}
         >
           {loading ? (
             <>

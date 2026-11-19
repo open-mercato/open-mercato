@@ -1,3 +1,14 @@
+jest.mock('@open-mercato/core/modules/configs/lib/module-config-service', () => ({
+  createModuleConfigService: (container: { resolve: (name: string) => unknown }) => container.resolve('moduleConfigService'),
+}))
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: (
+    em: { transactional: (callback: () => Promise<unknown>) => Promise<unknown> },
+    _key: string,
+    callback: (transactionEm: unknown) => Promise<unknown>,
+  ) => em.transactional(() => callback(em)),
+}))
+
 import type { EmbeddingProviderConfig } from '../../../../../vector'
 import { EMBEDDING_CONFIG_KEY } from '../../../../../vector'
 import { SEARCH_AUTO_INDEX_CONFIG_KEY } from '../../../lib/auto-indexing'
@@ -54,9 +65,9 @@ describe('tenant embedding updates preserve the shared index', () => {
         if (name === 'vectorDrivers') return [{ id: 'pgvector', getTableDimension, recreateWithDimension, count: async () => rows.get(tenantId)?.length ?? 0 }]
         if (name === 'vectorEmbeddingService') return { updateConfig }
         if (name === 'em') return {
-          transactional: async (callback: () => Promise<void>) => {
+          transactional: async <T,>(callback: () => Promise<T>): Promise<T> => {
             const snapshot = new Map(configs)
-            try { await callback() } catch (error) {
+            try { return await callback() } catch (error) {
               configs.clear()
               for (const [entryKey, value] of snapshot) configs.set(entryKey, value)
               throw error
@@ -69,9 +80,12 @@ describe('tenant embedding updates preserve the shared index', () => {
     })
   }
 
-  function request(embeddingConfig: unknown = nextConfig, extra: Record<string, unknown> = {}) {
+  function request(embeddingConfig: unknown = nextConfig, extra: Record<string, unknown> = {}, expectedVersion?: string) {
     return new Request('http://localhost/api/search/embeddings', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: {
+        'content-type': 'application/json',
+        ...(expectedVersion ? { 'x-om-ext-optimistic-lock-expected-updated-at': expectedVersion } : {}),
+      },
       body: JSON.stringify({ embeddingConfig, ...extra }),
     })
   }
@@ -126,6 +140,41 @@ describe('tenant embedding updates preserve the shared index', () => {
     expect(response.status).toBe(200)
     expect((await response.json()).settings.reindexRequired).toBe(false)
     expect(recreateWithDimension).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale provider edit before either settings key changes', async () => {
+    prepare()
+    const saved = await POST(request(nextConfig, {}, originalConfig.updatedAt))
+    expect(saved.status).toBe(200)
+    const savedVersion = (await saved.json()).settings.embeddingConfig.updatedAt
+    const beforeA = configs.get(key('tenant-a', EMBEDDING_CONFIG_KEY))
+    const writes = setValue.mock.calls.length
+    prepare()
+    const stale = await POST(request(originalConfig, { autoIndexingEnabled: false }, originalConfig.updatedAt))
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toMatchObject({ code: 'optimistic_lock_conflict', currentUpdatedAt: savedVersion })
+    expect(setValue).toHaveBeenCalledTimes(writes)
+    expect(configs.get(key('tenant-a', EMBEDDING_CONFIG_KEY))).toEqual(beforeA)
+    expect(configs.get(key('tenant-a', SEARCH_AUTO_INDEX_CONFIG_KEY))).toBe(true)
+    expect(configs.get(key('tenant-b', EMBEDDING_CONFIG_KEY))).toEqual(otherTenantConfig)
+  })
+
+  it('uses a stable first-override version and rejects its stale reuse', async () => {
+    configs.delete(key('tenant-a', EMBEDDING_CONFIG_KEY))
+    prepare()
+    const first = await POST(request(nextConfig, {}, '1970-01-01T00:00:00.000Z'))
+    expect(first.status).toBe(200)
+    const stored = configs.get(key('tenant-a', EMBEDDING_CONFIG_KEY))
+    prepare()
+    expect((await POST(request(originalConfig, {}, '1970-01-01T00:00:00.000Z'))).status).toBe(409)
+    expect(configs.get(key('tenant-a', EMBEDDING_CONFIG_KEY))).toEqual(stored)
+  })
+
+  it('refuses tenantless writes before resolving any persistence service', async () => {
+    mockGetAuthFromRequest.mockResolvedValueOnce({ sub: 'user' })
+    expect((await POST(request())).status).toBe(401)
+    expect(mockCreateRequestContainer).not.toHaveBeenCalled()
+    expect(setValue).not.toHaveBeenCalled()
   })
 
   it.each([

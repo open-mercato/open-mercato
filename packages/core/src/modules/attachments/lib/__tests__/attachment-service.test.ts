@@ -7,6 +7,9 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { DefaultAttachmentService } from '../attachment-service'
+import { attachmentCrudEvents, attachmentCrudIndexer } from '../crud'
+import { clearAttachmentThumbnailCache } from '../thumbnailCache'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../documentStructure/purge'
 import type { StorageDriverFactory } from '../drivers'
 import type { AttachmentQuotaService } from '../quota-service'
 import { ScopedAttachmentUploadService } from '../scoped-upload-service'
@@ -41,6 +44,13 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 jest.mock('../ocrQueue', () => ({ requestOcrProcessing: jest.fn(async () => undefined) }))
+
+jest.mock('../thumbnailCache', () => ({ clearAttachmentThumbnailCache: jest.fn(async () => undefined) }))
+
+jest.mock('../documentStructure/purge', () => ({
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0, indexedSectionIds: [] })),
+  enqueuePurgedSectionSearchDelete: jest.fn(async () => undefined),
+}))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) =>
@@ -107,6 +117,7 @@ function createHarness(options: {
   withoutScopedUpload?: boolean
   /** Ids of the attachment rows the storage-reference lock finds for the stored object. */
   storageReferenceIds?: string[]
+  dataEngine?: { markOrmEntityChange: jest.Mock; flushOrmEntityChanges: jest.Mock } | null
   /** Rows a batched lookup can find; defaults to the single `attachment`. */
   attachments?: Attachment[]
 } = {}) {
@@ -179,7 +190,13 @@ function createHarness(options: {
       return attachment({ fileName: 'stored.txt', mimeType: 'text/plain', fileSize: 4 })
     }),
   }
-  const service = new DefaultAttachmentService(em, factory, () => (options.withoutScopedUpload ? null : scopedUpload))
+  const service = new DefaultAttachmentService(
+    em,
+    factory,
+    () => (options.withoutScopedUpload ? null : scopedUpload),
+    null,
+    () => (options.dataEngine ?? null) as never,
+  )
   return { service, em, driver, factory, scopedUpload, lockedStorageReferences, lockQuery: query.forUpdate }
 }
 
@@ -245,6 +262,19 @@ function createInput(overrides: Record<string, unknown> = {}) {
 
 async function expectStatus(promise: Promise<unknown>, status: number) {
   await expect(promise).rejects.toMatchObject<Partial<CrudHttpError>>({ status })
+}
+
+beforeEach(() => {
+  jest.mocked(purgeDocumentStructure).mockClear()
+  jest.mocked(enqueuePurgedSectionSearchDelete).mockClear()
+})
+
+function purgeWithIndexedSections(sectionIds: string[]) {
+  jest.mocked(purgeDocumentStructure).mockResolvedValueOnce({
+    extractionCount: 1,
+    sectionCount: sectionIds.length,
+    indexedSectionIds: sectionIds,
+  })
 }
 
 describe('DefaultAttachmentService', () => {
@@ -657,6 +687,14 @@ describe('DefaultAttachmentService', () => {
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(driver.delete.mock.invocationCallOrder[0])
+    expect(purgeDocumentStructure).toHaveBeenCalledWith(
+      em,
+      { attachmentId: 'attachment-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      { flush: false },
+    )
+    expect(jest.mocked(purgeDocumentStructure).mock.invocationCallOrder[0]).toBeLessThan(
+      em.flush.mock.invocationCallOrder[0],
+    )
   })
 
   it('keeps provider bytes another attachment row still references', async () => {
@@ -678,7 +716,7 @@ describe('DefaultAttachmentService', () => {
     expect(driver.delete).not.toHaveBeenCalled()
   })
 
-  it('returns no deferred provider cleanup while another row references the bytes', async () => {
+  it('keeps provider bytes in the deferred cleanup while another row references them', async () => {
     const { service, driver, em, lockQuery } = createHarness({
       storageReferenceIds: ['attachment-1', 'attachment-copy'],
     })
@@ -696,7 +734,8 @@ describe('DefaultAttachmentService', () => {
 
     expect(lockQuery).toHaveBeenCalledTimes(1)
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
-    expect(cleanup).toBeUndefined()
+    expect(cleanup).toEqual(expect.any(Function))
+    await cleanup()
     expect(driver.delete).not.toHaveBeenCalled()
   })
 
@@ -737,6 +776,7 @@ describe('DefaultAttachmentService', () => {
 
     expect(driver.delete).not.toHaveBeenCalled()
     expect(em.remove).not.toHaveBeenCalled()
+    expect(purgeDocumentStructure).not.toHaveBeenCalled()
   })
 
   // `expectedAssignment` is a required field, but this service is resolved
@@ -781,6 +821,11 @@ describe('DefaultAttachmentService', () => {
         expectedAssignment: { type: 'documents:document', id: 'document-1' },
       }, { em, flush: false })
       expect(driver.delete).not.toHaveBeenCalled()
+      expect(purgeDocumentStructure).toHaveBeenCalledWith(
+        em,
+        { attachmentId: 'attachment-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+        { flush: false },
+      )
     }], { transaction: true, label: 'attachments.release' })
 
     expect(em.commit).toHaveBeenCalledTimes(1)
@@ -833,7 +878,8 @@ describe('DefaultAttachmentService', () => {
     expect(lockQuery).not.toHaveBeenCalled()
     expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
     expect(em.flush).not.toHaveBeenCalled()
-    expect(cleanup).toBeUndefined()
+    expect(cleanup).toEqual(expect.any(Function))
+    await cleanup!()
     expect(driver.delete).not.toHaveBeenCalled()
   })
 
@@ -872,6 +918,141 @@ describe('DefaultAttachmentService', () => {
 
     expect(em.remove).not.toHaveBeenCalled()
     expect(driver.delete).not.toHaveBeenCalled()
+  })
+  it('queues section search cleanup only after its own release transaction commits', async () => {
+    const { service, driver, em } = createHarness()
+    purgeWithIndexedSections(['section-1', 'section-2'])
+
+    await service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    })
+
+    expect(enqueuePurgedSectionSearchDelete).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      ['section-1', 'section-2'],
+    )
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(enqueuePurgedSectionSearchDelete).mock.invocationCallOrder[0],
+    )
+    expect(driver.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('queues section search cleanup from the deferred callback after the owning transaction commits', async () => {
+    const { service, driver, em } = createHarness({
+      storageReferenceIds: ['attachment-1', 'attachment-copy'],
+    })
+    purgeWithIndexedSections(['section-1'])
+    let cleanup: (() => Promise<void>) | void = undefined
+
+    await withAtomicFlush(em, [async () => {
+      cleanup = await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false })
+    }], { transaction: true, label: 'attachments.release' })
+
+    expect(enqueuePurgedSectionSearchDelete).not.toHaveBeenCalled()
+    expect(cleanup).toEqual(expect.any(Function))
+    await cleanup!()
+    expect(enqueuePurgedSectionSearchDelete).toHaveBeenCalledWith(
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      ['section-1'],
+    )
+    expect(driver.delete).not.toHaveBeenCalled()
+  })
+
+  it('never queues section search cleanup when the owning transaction rolls back', async () => {
+    const { service, em } = createHarness()
+    purgeWithIndexedSections(['section-1'])
+
+    await expect(withAtomicFlush(em, [
+      async () => { await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false }) },
+      () => { throw new Error('later document mutation failed') },
+    ], { transaction: true, label: 'attachments.release' })).rejects.toThrow('later document mutation failed')
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(enqueuePurgedSectionSearchDelete).not.toHaveBeenCalled()
+  })
+
+  it('emits the attachment deleted CRUD side effect once after its own release commits', async () => {
+    const dataEngine = { markOrmEntityChange: jest.fn(), flushOrmEntityChanges: jest.fn(async () => undefined) }
+    const { service, em } = createHarness({ dataEngine })
+
+    await service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    })
+
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(1)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'deleted',
+      entity: expect.objectContaining({ id: 'attachment-1' }),
+      identifiers: { id: 'attachment-1', organizationId: 'org-1', tenantId: 'tenant-1' },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    }))
+    expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(
+      dataEngine.markOrmEntityChange.mock.invocationCallOrder[0],
+    )
+    expect(clearAttachmentThumbnailCache).toHaveBeenCalledWith('privateAttachments', 'attachment-1')
+  })
+
+  it('emits the attachment deleted CRUD side effect only from the deferred cleanup after commit', async () => {
+    const dataEngine = { markOrmEntityChange: jest.fn(), flushOrmEntityChanges: jest.fn(async () => undefined) }
+    const { service, em, driver } = createHarness({ dataEngine })
+    let cleanup: (() => Promise<void>) | void = undefined
+
+    await withAtomicFlush(em, [async () => {
+      cleanup = await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false })
+    }], { transaction: true, label: 'attachments.release' })
+
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    await cleanup!()
+    expect(driver.delete).toHaveBeenCalledTimes(1)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(1)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted' }))
+    expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+  })
+
+  it('never emits the attachment deleted side effect when the owning transaction rolls back', async () => {
+    const dataEngine = { markOrmEntityChange: jest.fn(), flushOrmEntityChanges: jest.fn(async () => undefined) }
+    const { service, em } = createHarness({ dataEngine })
+
+    await expect(withAtomicFlush(em, [
+      async () => { await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false }) },
+      () => { throw new Error('later document mutation failed') },
+    ], { transaction: true, label: 'attachments.release' })).rejects.toThrow('later document mutation failed')
+
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
   })
 })
 

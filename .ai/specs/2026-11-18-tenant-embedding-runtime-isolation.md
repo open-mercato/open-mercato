@@ -18,6 +18,10 @@ A supplied tenant Ollama URL must pass existing SSRF checks and either equal the
 
 No schema or response shape changes. Existing API ACL metadata and tenant derivation remain intact. POST `/api/search/embeddings` returns the existing localized invalid-URL 400 with `reason: operator_not_allowed` for an unauthorized public destination, before the provider probe or persistence.
 
+Provider edits send the shared optional optimistic-lock header using the saved embedding configuration's `updatedAt`. The UI captures that version when editing starts; background refreshes cannot silently advance a dirty form's expected version. An environment-only configuration uses a stable epoch version until its first tenant override. Writes compare the fresh persisted value while holding a tenant-scoped advisory transaction lock, using the shared OSS and optional record-lock guard. A stale write returns the standard structured409 before either the provider configuration or a companion auto-indexing flag changes. Versions advance monotonically even within one clock tick. Existing callers omitting the header retain their previous write behavior; tenantless writes fail closed. No new database column or response field is needed.
+
+Editing only an Ollama URL preserves a saved custom model, its declared dimension and optional output dimension. Failed or missing embedding settings are rendered through the shared error/retry component rather than an unconfigured-provider state. Both section and page Refresh actions reload embedding settings.
+
 ## Implementation / Coverage
 
 1. Correct DI lifetime and scope config reads; remove POST runtime mutation.
@@ -29,6 +33,8 @@ No schema or response shape changes. Existing API ACL metadata and tenant deriva
 Protected surfaces: STABLE API accepted URL behavior narrows; DI token and methods remain unchanged, while unsafe shared mutable lifetime is corrected. Clients that submit arbitrary public Ollama URLs now receive 400 and must select an operator-approved destination. Operators already using custom hosts can retain them through existing `OLLAMA_BASE_URL` or `OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST`; no new configuration is introduced. Review existing tenant rows and remove unexpected endpoints; restart existing web/worker processes to clear the previously mutable singleton. No data/index rebuild or migration is required.
 
 Keeping arbitrary tenant-controlled endpoints accepted preserves the reported query-disclosure route; no compatibility flag or partial bridge is provided. Emergency exception steps 1–3 require named human maintainer approval under BACKWARD_COMPATIBILITY.md before merge. Upgrade notes accompany the change. The dated compatibility-ledger entry records the pending human waiver; automation cannot approve it.
+
+The stale-write repair is additive: the existing configuration timestamp becomes the opt-in request token, and clients without that header retain their contract. No new provider setting, permission grant, shared singleton, transport, dependency or migration is introduced. The existing human compatibility and personal protected-QA gates remain mandatory.
 
 ## Risks & Impact Review
 
@@ -44,6 +50,8 @@ Keeping arbitrary tenant-controlled endpoints accepted preserves the reported qu
 Scope is search plus issue-specific documentation. No direct ORM relationships, schema changes, startup changes or new dependencies. Tenant scope derives from trusted existing contexts. Validation and contract review evidence will be recorded on the PR; incomplete gates block approval.
 
 ## Changelog
+
+- 2026-11-19: Repair inherited production-QA findings for custom-model URL edits, same-tenant stale provider saves and embedding load-error recovery. Commit UI regressions and PostgreSQL route coverage for stale/concurrent/first-override saves, same-clock versions, rollback and unaffected tenant/index data; retain the existing personal protected-QA gate.
 
 - 2026-11-18: Closed the reviewed allowlist HTTP downgrade; helper and POST regressions reject plaintext before probing or saving, accept HTTPS, and preserve the exact explicitly configured private HTTP endpoint.
 - 2026-11-18: Documented #9135 lifetime correction, tenant resolution, destination policy, regression coverage and security migration gate.

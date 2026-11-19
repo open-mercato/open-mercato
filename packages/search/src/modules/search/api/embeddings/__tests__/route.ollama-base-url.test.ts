@@ -1,3 +1,14 @@
+jest.mock('@open-mercato/core/modules/configs/lib/module-config-service', () => ({
+  createModuleConfigService: (container: { resolve: (name: string) => unknown }) => container.resolve('moduleConfigService'),
+}))
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: (
+    em: { transactional: (callback: () => Promise<unknown>) => Promise<unknown> },
+    _key: string,
+    callback: (transactionEm: unknown) => Promise<unknown>,
+  ) => em.transactional(() => callback(em)),
+}))
+
 const mockGetAuthFromRequest = jest.fn()
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
@@ -63,6 +74,7 @@ describe('POST /api/search/embeddings — Ollama baseUrl SSRF guard', () => {
 
     const moduleConfigService = {
       setValue: jest.fn().mockResolvedValue(undefined),
+      invalidate: jest.fn().mockResolvedValue(undefined),
     }
     mockCreateRequestContainer.mockResolvedValue({
       resolve: jest.fn((name: string) => {

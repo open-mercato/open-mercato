@@ -1,7 +1,8 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { dismissRecordConflict, getRecordConflictForTest } from '@open-mercato/ui/backend/conflicts'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import {
   VectorSearchSection,
@@ -14,9 +15,18 @@ jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
 }))
 
 const readApiResultOrThrowMock = jest.fn()
+const scopedHeadersMock = jest.fn((_headers: Record<string, string>, operation: () => Promise<unknown>) => operation())
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({
+    runMutation: ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+    retryLastMutation: jest.fn(),
+  }),
+}))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: (headers: Record<string, string>, operation: () => Promise<unknown>) => scopedHeadersMock(headers, operation),
 }))
 
 const flashMock = jest.fn()
@@ -193,6 +203,7 @@ describe('VectorSearchSection Ollama base URL', () => {
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue(null)
     flashMock.mockReset()
+    scopedHeadersMock.mockClear()
     Object.defineProperty(globalThis, 'fetch', {
       configurable: true,
       value: jest.fn(() => new Promise(() => undefined)),
@@ -204,6 +215,79 @@ describe('VectorSearchSection Ollama base URL', () => {
       .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as { embeddingConfig?: Record<string, unknown> })
       .map((body) => body.embeddingConfig)
       .filter(Boolean)
+
+  it('preserves the saved custom model and dimensions when only its URL is changed', async () => {
+    renderSection({
+      ...embeddingSettings,
+      embeddingConfig: {
+        providerId: 'ollama', model: 'tenant-custom-model', dimension: 3072, outputDimensionality: 1536,
+        baseUrl: 'https://provider.example/old', updatedAt: '2026-07-26T12:00:00.000Z',
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://provider.example/new' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(savedEmbeddingConfigs()).toHaveLength(1))
+    expect(savedEmbeddingConfigs()[0]).toMatchObject({
+      providerId: 'ollama', model: 'tenant-custom-model', dimension: 3072, outputDimensionality: 1536,
+      baseUrl: 'https://provider.example/new',
+    })
+    expect(scopedHeadersMock).toHaveBeenCalledWith(
+      { 'x-om-ext-optimistic-lock-expected-updated-at': '2026-07-26T12:00:00.000Z' },
+      expect.any(Function),
+    )
+  })
+
+  it('retains the draft version across background refreshes and surfaces a stale save with explicit refresh recovery', async () => {
+    dismissRecordConflict()
+    const saved = {
+      ...embeddingSettings,
+      embeddingConfig: {
+        providerId: 'ollama' as const, model: 'tenant-custom-model', dimension: 1536,
+        baseUrl: 'https://provider.example/original', updatedAt: '2026-07-26T12:00:00.000Z',
+      },
+    }
+    const refresh = jest.fn().mockResolvedValue(undefined)
+    const section = (settings: typeof saved) => (
+      <I18nProvider locale="en" dict={{}}>
+        <VectorSearchSection
+          embeddingSettings={settings}
+          embeddingLoading={false}
+          vectorStoreConfig={vectorStoreConfig}
+          vectorStoreConfigLoading={false}
+          vectorReindexLock={null}
+          onEmbeddingSettingsUpdate={jest.fn()}
+          onRefreshEmbeddings={refresh}
+        />
+      </I18nProvider>
+    )
+    const { rerender } = render(section(saved))
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://provider.example/draft' } })
+    rerender(section({
+      ...saved,
+      embeddingConfig: { ...saved.embeddingConfig, baseUrl: 'https://provider.example/newer', updatedAt: '2026-07-26T12:01:00.000Z' },
+    }))
+    readApiResultOrThrowMock.mockRejectedValueOnce(Object.assign(new Error('[internal] Version conflict'), {
+      status: 409,
+      body: {
+        code: 'optimistic_lock_conflict',
+        currentUpdatedAt: '2026-07-26T12:01:00.000Z', expectedUpdatedAt: saved.embeddingConfig.updatedAt,
+      },
+    }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(getRecordConflictForTest()?.currentUpdatedAt).toBe('2026-07-26T12:01:00.000Z'))
+    expect(scopedHeadersMock).toHaveBeenCalledWith(
+      { 'x-om-ext-optimistic-lock-expected-updated-at': saved.embeddingConfig.updatedAt }, expect.any(Function),
+    )
+    expect(screen.getByLabelText('Base URL')).toHaveProperty('value', 'https://provider.example/draft')
+    expect(flashMock).not.toHaveBeenCalled()
+    act(() => getRecordConflictForTest()?.onRefresh?.())
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(screen.getByLabelText('Base URL')).toHaveProperty('value', 'https://provider.example/newer')
+    dismissRecordConflict()
+  })
 
   it('shows a base URL field only for the Ollama provider', () => {
     renderSection()

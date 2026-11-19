@@ -2,7 +2,7 @@
 title: "Stabilize flaky integration tests by finding the hang, not by raising the timeout"
 modules: ["events","queue","ui","auth","example","record_locks","warranty_claims","customers","phone_calls","search","cache","query_index","sales","sync_excel","workflows","data_sync","communication_channels","forms","security","documents","cart","catalog"]
 areas: ["integration","testing","backend-ui","module-data","debugging"]
-topics: ["events","testing","workers","hydration","component-overrides","timers"]
+topics: ["test-timeouts","testing","workers","hydration","component-overrides","timers"]
 ---
 
 # Stabilize flaky integration tests by finding the hang, not by raising the timeout
@@ -12,6 +12,8 @@ topics: ["events","testing","workers","hydration","component-overrides","timers"
 **Queue observations**: Before recording a no-write baseline for a denied action, wait for the exact preceding authorized message to finish its asynchronous interaction projection; retain the full equality check after denial so legitimate earlier work cannot be mistaken for a forbidden write. The channel-reply trace also spent 31 seconds bootstrapping a redundant drain before a required 30-second negative observation in a 60-second test; reusing the configured workers preserves that entire observation window.
 
 **Negative queue assertions**: A 404 followed immediately by an unchanged footprint is insufficient when workers run asynchronously. Wait for the existing read-only pending probe to show the affected queues settled, including active handlers and delayed retries, before reading the full footprint. Resolve the probe against the actual app queue root and strategy, and fail on missing storage or probe errors; an empty directory under the test runner can otherwise make the barrier vacuous. A regression control should hold a real handler open and demonstrate that a late forbidden write still fails footprint equality.
+
+**Whole-test budget**: Playwright `beforeEach` and the test body share the configured timeout; relocating work into that hook does not reset the deadline. In `TC-CRM-recently-created-preset`, the trace charged ~5 seconds to the login helper’s redundant dashboard navigation before opening companies. Reuse the existing API-session/browser-cookie helper and navigate directly to the target page; retain the clock, boundary fixtures, screenshot, reload/editability assertions and global timeout. Verify saved work from the trace or actual navigation sequence, not a green retry alone.
 
 **Session and form readiness**: Give each authenticated role a separate browser context and establish its API session before opening a page; replacing cookies in a live admin document can race its session-refresh navigation. For the first controlled field, prove the application received an edit and blur through its required-validation state before filling the submitted values. A bounded local-state probe can repeat harmless edits while hydration is incomplete; keep one submit and every persistence assertion.
 

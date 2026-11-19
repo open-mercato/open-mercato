@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { envDisablesAutoIndexing, resolveAutoIndexingEnabled, SEARCH_AUTO_INDEX_CONFIG_KEY } from '../../lib/auto-indexing'
+import { envDisablesAutoIndexing, resolveAutoIndexingEnabled } from '../../lib/auto-indexing'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { saveEmbeddingSettings } from '../../lib/embedding-settings'
 import {
   resolveEmbeddingConfig,
   resolveEmbeddingConfigResult,
-  saveEmbeddingConfig,
   getConfiguredProviders,
   detectConfigChange,
   getEffectiveDimension,
@@ -192,7 +192,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) return await unauthorized()
+  if (!auth?.sub || !auth.tenantId) return await unauthorized()
 
   let body: unknown
   try {
@@ -322,15 +322,12 @@ export async function POST(req: Request) {
     }
 
     if (parsed.data.embeddingConfig || parsed.data.autoIndexingEnabled !== undefined) {
-      const em = container.resolve<EntityManager>('em')
       try {
-        await em.transactional(async () => {
-          if (parsed.data.embeddingConfig && embeddingConfig) {
-            await saveEmbeddingConfig(container, embeddingConfig, { scope: { tenantId: auth.tenantId } })
-          }
-          if (parsed.data.autoIndexingEnabled !== undefined) {
-            await service.setValue('vector', SEARCH_AUTO_INDEX_CONFIG_KEY, parsed.data.autoIndexingEnabled, { tenantId: auth.tenantId })
-          }
+        embeddingConfig = await saveEmbeddingSettings(container, {
+          tenantId: auth.tenantId,
+          embeddingConfig: parsed.data.embeddingConfig ? embeddingConfig ?? undefined : undefined,
+          autoIndexingEnabled: parsed.data.autoIndexingEnabled,
+          request: req,
         })
       } catch (error) {
         await service.invalidate('vector', undefined, { tenantId: auth.tenantId })
@@ -373,6 +370,7 @@ export async function POST(req: Request) {
       },
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     reportSearchError('search.embeddings.update', error, 'search.embedding_settings_update_failed')
     searchError('search.embeddings.update', 'failed', {
       error: error instanceof Error ? error.message : error,

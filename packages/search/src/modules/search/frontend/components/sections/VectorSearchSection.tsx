@@ -2,7 +2,10 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -19,6 +22,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
 import { Check, Plus } from 'lucide-react'
 
@@ -178,6 +182,7 @@ const EMBEDDING_PROVIDERS: Record<EmbeddingProviderId, EmbeddingProviderInfo> = 
 export type VectorSearchSectionProps = {
   embeddingSettings: EmbeddingSettings | null
   embeddingLoading: boolean
+  embeddingError?: string | null
   vectorStoreConfig: VectorStoreConfigResponse | null
   vectorStoreConfigLoading: boolean
   vectorReindexLock: ReindexLock | null
@@ -193,6 +198,7 @@ function flashRequestError(err: unknown, fallbackMessage: string) {
 export function VectorSearchSection({
   embeddingSettings,
   embeddingLoading,
+  embeddingError,
   vectorStoreConfig,
   vectorStoreConfigLoading,
   vectorReindexLock,
@@ -200,6 +206,10 @@ export function VectorSearchSection({
   onRefreshEmbeddings,
 }: VectorSearchSectionProps) {
   const t = useT()
+  const { runMutation, retryLastMutation } = useGuardedMutation({
+    contextId: 'search.embedding_config',
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const [embeddingSaving, setEmbeddingSaving] = React.useState(false)
   const autoIndexingPreviousRef = React.useRef<boolean>(true)
 
@@ -209,6 +219,13 @@ export function VectorSearchSection({
   const [customModelName, setCustomModelName] = React.useState<string>('')
   const [customDimension, setCustomDimension] = React.useState<number>(768)
   const [ollamaBaseUrlDraft, setOllamaBaseUrlDraft] = React.useState<string | null>(null)
+  const embeddingVersionRef = React.useRef<string | null>(null)
+  const captureEmbeddingVersion = () => {
+    if (embeddingVersionRef.current !== null) return
+    embeddingVersionRef.current = embeddingSettings?.embeddingConfigSource === 'env'
+      ? '1970-01-01T00:00:00.000Z'
+      : embeddingSettings?.embeddingConfig?.updatedAt ?? '1970-01-01T00:00:00.000Z'
+  }
 
   const [pendingEmbeddingConfig, setPendingEmbeddingConfig] = React.useState<EmbeddingProviderConfig | null>(null)
   const [showEmbeddingConfirmDialog, setShowEmbeddingConfirmDialog] = React.useState(false)
@@ -303,7 +320,8 @@ export function VectorSearchSection({
 
   // Provider handlers
   const handleProviderChange = (providerId: EmbeddingProviderId) => {
-    setSelectedProvider(providerId)
+    captureEmbeddingVersion()
+    setSelectedProvider(providerId === embeddingSettings?.embeddingConfig?.providerId ? null : providerId)
     setSelectedModel(null)
     setCustomModelName('')
     setCustomDimension(768)
@@ -311,6 +329,7 @@ export function VectorSearchSection({
   }
 
   const handleModelChange = (modelId: string) => {
+    captureEmbeddingVersion()
     setSelectedModel(modelId)
   }
 
@@ -335,8 +354,10 @@ export function VectorSearchSection({
       }
     } else {
       const newModel = newProviderInfo.models.find((m) => m.id === newModelId) ?? newProviderInfo.models[0]
-      modelName = newModel.id
-      dimension = newModel.dimension
+      const savedConfig = embeddingSettings?.embeddingConfig
+      const unchangedModel = savedConfig?.providerId === newProviderId && savedConfig.model === newModelId
+      modelName = unchangedModel ? savedConfig.model : newModel.id
+      dimension = unchangedModel ? savedConfig.dimension : newModel.dimension
     }
 
     const newConfig: EmbeddingProviderConfig = {
@@ -344,6 +365,10 @@ export function VectorSearchSection({
       model: modelName,
       dimension,
       updatedAt: new Date().toISOString(),
+    }
+    const savedConfig = embeddingSettings?.embeddingConfig
+    if (savedConfig?.providerId === newProviderId && savedConfig.model === modelName && selectedModel !== 'custom') {
+      newConfig.outputDimensionality = savedConfig.outputDimensionality
     }
     const ollamaBaseUrl = (ollamaBaseUrlDraft ?? savedOllamaBaseUrl).trim()
     if (newProviderId === 'ollama' && ollamaBaseUrl) {
@@ -359,6 +384,7 @@ export function VectorSearchSection({
   }
 
   const handleCancelEmbeddingSelection = () => {
+    embeddingVersionRef.current = null
     setSelectedProvider(null)
     setSelectedModel(null)
     setCustomModelName('')
@@ -372,22 +398,36 @@ export function VectorSearchSection({
     setPendingEmbeddingConfig(null)
 
     try {
-      await readApiResultOrThrow<EmbeddingSettingsResponse>(
-        '/api/search/embeddings',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ embeddingConfig: config }),
-        },
-        { errorMessage: t('search.settings.errors.saveFailed', 'Failed to save settings'), allowNullResult: true },
-      )
+      captureEmbeddingVersion()
+      const updatedAt = embeddingVersionRef.current
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(buildOptimisticLockHeader(updatedAt), () =>
+          readApiResultOrThrow<EmbeddingSettingsResponse>(
+            '/api/search/embeddings',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ embeddingConfig: config }),
+            },
+            { errorMessage: t('search.settings.errors.saveFailed', 'Failed to save settings'), allowNullResult: true },
+          ),
+        ),
+        context: { formId: 'search.embedding_config', resourceKind: 'search.embedding_config', retryLastMutation },
+        mutationPayload: { embeddingConfig: config },
+      })
       setSelectedProvider(null)
       setSelectedModel(null)
       setOllamaBaseUrlDraft(null)
+      embeddingVersionRef.current = null
       flash(t('search.settings.messages.providerSaved', 'Embedding provider saved'), 'success')
       await onRefreshEmbeddings()
     } catch (err) {
-      flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
+      if (!surfaceRecordConflict(err, t, { onRefresh: () => {
+        handleCancelEmbeddingSelection()
+        void onRefreshEmbeddings()
+      } })) {
+        flashRequestError(err, t('search.settings.errors.saveFailed', 'Failed to save settings'))
+      }
     } finally {
       setEmbeddingSaving(false)
     }
@@ -527,6 +567,15 @@ export function VectorSearchSection({
               <Spinner size="sm" />
               <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
             </div>
+          ) : embeddingError ? (
+            <ErrorMessage
+              label={embeddingError}
+              action={(
+                <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshEmbeddings()}>
+                  {t('search.settings.refreshLabel', 'Refresh')}
+                </Button>
+              )}
+            />
           ) : (
             <div className="space-y-4">
               {storeUnavailableBanner}
@@ -718,7 +767,10 @@ export function VectorSearchSection({
                                   type="url"
                                   size="sm"
                                   value={ollamaBaseUrlDraft ?? savedOllamaBaseUrl}
-                                  onChange={(e) => setOllamaBaseUrlDraft(e.target.value)}
+                                  onChange={(event) => {
+                                    captureEmbeddingVersion()
+                                    setOllamaBaseUrlDraft(event.target.value)
+                                  }}
                                   placeholder="http://localhost:11434"
                                   aria-describedby="ollama-base-url-hint"
                                   disabled={embeddingLoading || embeddingSaving}
@@ -740,7 +792,10 @@ export function VectorSearchSection({
                                     type="text"
                                     size="sm"
                                     value={customModelName}
-                                    onChange={(e) => setCustomModelName(e.target.value)}
+                                    onChange={(event) => {
+                                      captureEmbeddingVersion()
+                                      setCustomModelName(event.target.value)
+                                    }}
                                     placeholder={t('search.settings.model.namePlaceholder', 'Model name')}
                                     disabled={embeddingLoading || embeddingSaving}
                                   />
@@ -754,7 +809,10 @@ export function VectorSearchSection({
                                     type="number"
                                     size="sm"
                                     value={customDimension}
-                                    onChange={(e) => setCustomDimension(Number(e.target.value) || 768)}
+                                    onChange={(event) => {
+                                      captureEmbeddingVersion()
+                                      setCustomDimension(Number(event.target.value) || 768)
+                                    }}
                                     placeholder="768"
                                     min={1}
                                     disabled={embeddingLoading || embeddingSaving}

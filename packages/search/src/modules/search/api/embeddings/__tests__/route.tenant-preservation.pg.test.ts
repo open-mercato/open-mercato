@@ -51,7 +51,7 @@ describePostgres('embedding POST with real PostgreSQL settings and shared pgvect
   let orm: MikroORM
   let driver: VectorDriver
 
-  function request(tenantId: string, embeddingConfig: EmbeddingProviderConfig, autoIndexingEnabled?: boolean) {
+  function request(tenantId: string, embeddingConfig: EmbeddingProviderConfig, autoIndexingEnabled?: boolean, expectedVersion?: string) {
     const em = orm.em.fork({ useContext: true })
     const resolver = {
       resolve: <T,>(name: string): T => {
@@ -66,7 +66,10 @@ describePostgres('embedding POST with real PostgreSQL settings and shared pgvect
     mockGetAuthFromRequest.mockResolvedValueOnce({ sub: randomUUID(), tenantId })
     mockCreateRequestContainer.mockResolvedValueOnce(resolver)
     return POST(new Request('http://localhost/api/search/embeddings', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: {
+        'content-type': 'application/json',
+        ...(expectedVersion ? { 'x-om-ext-optimistic-lock-expected-updated-at': expectedVersion } : {}),
+      },
       body: JSON.stringify({ embeddingConfig, ...(autoIndexingEnabled !== undefined ? { autoIndexingEnabled } : {}) }),
     }))
   }
@@ -174,6 +177,61 @@ describePostgres('embedding POST with real PostgreSQL settings and shared pgvect
     const beforeA = await storedSettings(tenantA)
     expect((await request(tenantA, { ...config, dimension: 4 }, false)).status).toBe(409)
     expect(await storedSettings(tenantA)).toEqual(beforeA)
+    await assertPreserved()
+  })
+
+  it('refuses a stale actor without overwriting the newer endpoint or companion flag', async () => {
+    const beforeB = await storedSettings(tenantB)
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'provider.example'
+    const latestConfig: EmbeddingProviderConfig = {
+      ...config, providerId: 'ollama', model: 'tenant-custom', baseUrl: 'https://provider.example/new',
+    }
+    const first = await request(tenantA, latestConfig, undefined, config.updatedAt)
+    expect(first.status).toBe(200)
+    const savedVersion = (await first.json()).settings.embeddingConfig.updatedAt
+    expect(savedVersion).not.toBe(config.updatedAt)
+    const beforeA = await storedSettings(tenantA)
+    const stale = await request(tenantA, { ...config, model: 'stale-model' }, false, config.updatedAt)
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toMatchObject({
+      code: 'optimistic_lock_conflict', currentUpdatedAt: savedVersion,
+    })
+    expect(await storedSettings(tenantA)).toEqual(beforeA)
+    expect(await storedSettings(tenantB)).toEqual(beforeB)
+    await assertPreserved()
+  })
+
+  it('allows exactly one concurrent save of the same tenant version', async () => {
+    const beforeB = await storedSettings(tenantB)
+    const responses = await Promise.all([
+      request(tenantA, { ...config, model: 'first-model' }, undefined, config.updatedAt),
+      request(tenantA, { ...config, model: 'second-model' }, undefined, config.updatedAt),
+    ])
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
+    const winner = responses[0].status === 200 ? 'first-model' : 'second-model'
+    expect((await storedSettings(tenantA)).find((row) => row.name === EMBEDDING_CONFIG_KEY)?.value_json)
+      .toMatchObject({ model: winner })
+    expect(await storedSettings(tenantB)).toEqual(beforeB)
+    await assertPreserved()
+  })
+
+  it('serializes the first override and keeps versions distinct within one clock tick', async () => {
+    await pool.query(`DELETE FROM "${schema}".module_configs WHERE tenant_id = $1 AND name = $2`, [tenantA, EMBEDDING_CONFIG_KEY])
+    const epoch = '1970-01-01T00:00:00.000Z'
+    const first = await request(tenantA, config, undefined, epoch)
+    expect(first.status).toBe(200)
+    const firstVersion = (await first.json()).settings.embeddingConfig.updatedAt
+    expect((await request(tenantA, config, undefined, epoch)).status).toBe(409)
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.parse(firstVersion))
+    try {
+      const second = await request(tenantA, { ...config, model: 'second-model' }, undefined, firstVersion)
+      expect(second.status).toBe(200)
+      const secondVersion = (await second.json()).settings.embeddingConfig.updatedAt
+      expect(Date.parse(secondVersion)).toBe(Date.parse(firstVersion) + 1)
+      expect((await request(tenantA, config, undefined, firstVersion)).status).toBe(409)
+    } finally {
+      clock.mockRestore()
+    }
     await assertPreserved()
   })
 

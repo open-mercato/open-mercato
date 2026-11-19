@@ -1,3 +1,14 @@
+jest.mock('@open-mercato/core/modules/configs/lib/module-config-service', () => ({
+  createModuleConfigService: (container: { resolve: (name: string) => unknown }) => container.resolve('moduleConfigService'),
+}))
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: (
+    em: { transactional: (callback: () => Promise<unknown>) => Promise<unknown> },
+    _key: string,
+    callback: (transactionEm: unknown) => Promise<unknown>,
+  ) => em.transactional(() => callback(em)),
+}))
+
 import { asValue, createContainer } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EmbeddingProviderConfig } from '../../../../vector'
@@ -45,6 +56,7 @@ function requestContainer(configs: Map<string, EmbeddingProviderConfig>, instanc
   container.register({
     moduleConfigService: asValue({ getValue,
       getRecord: async (_module: string, _key: string, scope: { tenantId?: string }) => ({ value: configs.get(scope.tenantId ?? ''), source: 'tenant' }),
+      invalidate: async () => {},
       setValue: async (_module: string, _key: string, value: EmbeddingProviderConfig, scope: { tenantId: string }) => { configs.set(scope.tenantId, value) },
     }),
     em: asValue({ transactional: async (callback: () => Promise<void>) => callback() }),
