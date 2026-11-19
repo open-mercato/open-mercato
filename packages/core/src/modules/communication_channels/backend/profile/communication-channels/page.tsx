@@ -51,6 +51,10 @@ type ChannelRow = {
   lastPolledAt: string | null
   /** Spec C — push delivery state (null when provider doesn't support push). */
   pushStatus: 'active' | 'inactive' | 'failed' | null
+  /** When the provider-side push subscription lapses (Gmail watch expiry). */
+  pushExpiresAt: string | null
+  /** `true` when `pushStatus` is still 'active' but the subscription has expired. */
+  pushExpired: boolean
   lastPushError: { code: string | null; message: string | null; at: string | null } | null
   /**
    * `true` when the adapter declares real-time push, so the hub's poll worker
@@ -441,6 +445,10 @@ export default function ProfileCommunicationChannelsPage() {
         // Its own key: sharing `push.status.active` made the header render
         // "Push active" over a column whose rows say "Polling only" (#4980).
         header: t('communication_channels.profile.columns.push', 'Push'),
+        // A computed column has no accessor value, so DataTable's default 150px
+        // truncation clipped long tags mid-word with no tooltip (#9802). Opt out
+        // and let the bounded tags wrap instead.
+        meta: { truncate: false },
         cell: ({ row }) => {
           const ps = row.original.pushStatus
           const errorTitle = row.original.lastPushError?.message ?? undefined
@@ -459,7 +467,7 @@ export default function ProfileCommunicationChannelsPage() {
             }
             if (ps === 'failed') {
               return (
-                <Tag variant="error" dot title={errorTitle}>
+                <Tag variant="error" dot title={errorTitle} className="max-w-60">
                   {t('communication_channels.push.status.pushDrivenFailed', 'Push connection failed')}
                 </Tag>
               )
@@ -480,6 +488,13 @@ export default function ProfileCommunicationChannelsPage() {
               </Tag>
             )
           }
+          if (ps === 'active' && row.original.pushExpired) {
+            return (
+              <Tag variant="warning" dot className="max-w-60">
+                {t('communication_channels.push.status.expired', 'Push expired — re-register to resume delivery')}
+              </Tag>
+            )
+          }
           if (ps === 'active') {
             return (
               <Tag variant="success" dot>
@@ -489,7 +504,7 @@ export default function ProfileCommunicationChannelsPage() {
           }
           if (ps === 'failed') {
             return (
-              <Tag variant="error" dot title={errorTitle}>
+              <Tag variant="error" dot title={errorTitle} className="max-w-60">
                 {t('communication_channels.push.status.failed', 'Push failed — using polling')}
               </Tag>
             )
@@ -564,8 +579,9 @@ export default function ProfileCommunicationChannelsPage() {
       }
 
       // Offered only when the adapter can register push AND it is not already
-      // active — re-registering a healthy subscription is a no-op.
-      if (channel.supportsPushRegistration && channel.pushStatus !== 'active') {
+      // active — re-registering a healthy subscription is a no-op. An expired
+      // subscription still stores 'active', so it is offered there too (#8943).
+      if (channel.supportsPushRegistration && (channel.pushStatus !== 'active' || channel.pushExpired)) {
         items.push({
           id: 'register-push',
           label: t('communication_channels.push.button.reregister', 'Re-register push'),

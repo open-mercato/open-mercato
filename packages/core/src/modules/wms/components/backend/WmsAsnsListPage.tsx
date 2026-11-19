@@ -347,7 +347,7 @@ export default function WmsAsnsListPage() {
               title={title}
               columns={columns}
               data={asnsQuery.data.items}
-              isLoading={asnsQuery.isFetching}
+              isLoading={asnsQuery.isLoading}
               entityId={E.wms.asn}
               searchValue={search}
               onSearchChange={(value) => {

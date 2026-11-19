@@ -54,6 +54,7 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
 
       // Close the key dialog
       await page.getByRole('button', { name: 'Close', exact: true }).and(page.locator('[data-slot="button"]')).click();
+      await expect(page).toHaveURL(/\/backend\/api-keys$/);
 
       // Navigate back to list
       await page.goto('/backend/api-keys');
