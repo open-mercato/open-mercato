@@ -15,6 +15,7 @@ type GroupSummary = { id: string; code: string; name: string }
 type ExplainTermsField = {
   value: string | number | boolean | null
   sourceGroupId: string | null
+  source?: 'group' | 'tenant_default' | 'base_currency'
   path: GroupSummary[]
 }
 
@@ -29,6 +30,10 @@ type ExplainTermsResponse = {
     allowPurchaseOnAccount: ExplainTermsField
     approvalRequiredAbove: ExplainTermsField
     minOrderValue: ExplainTermsField
+    termsCurrencyCode: ExplainTermsField
+    approvalPolicy: ExplainTermsField
+    allowQuoteRequests: ExplainTermsField
+    requiresPoNumber: ExplainTermsField
   }
 }
 
@@ -38,6 +43,10 @@ const TERMS_FIELD_ORDER = [
   'allowPurchaseOnAccount',
   'approvalRequiredAbove',
   'minOrderValue',
+  'termsCurrencyCode',
+  'approvalPolicy',
+  'allowQuoteRequests',
+  'requiresPoNumber',
 ] as const
 
 type TermsFieldKey = (typeof TERMS_FIELD_ORDER)[number]
@@ -54,7 +63,19 @@ const FIELD_LABEL_KEYS: Record<TermsFieldKey, [string, string]> = {
     'Approval required above',
   ],
   minOrderValue: ['customer_groups.groups.personTab.explainTerms.field.minOrderValue', 'Minimum order value'],
+  termsCurrencyCode: ['customer_groups.groups.personTab.explainTerms.field.termsCurrencyCode', 'Terms currency'],
+  approvalPolicy: ['customer_groups.groups.personTab.explainTerms.field.approvalPolicy', 'Approval policy'],
+  allowQuoteRequests: ['customer_groups.groups.personTab.explainTerms.field.allowQuoteRequests', 'Allow quote requests'],
+  requiresPoNumber: ['customer_groups.groups.personTab.explainTerms.field.requiresPoNumber', 'Requires PO number'],
 }
+
+const APPROVAL_POLICY_LABEL_KEYS: Record<string, [string, string]> = {
+  buyer: ['customer_groups.groups.personTab.explainTerms.value.approvalPolicy.buyer', 'Buyer'],
+  merchant: ['customer_groups.groups.personTab.explainTerms.value.approvalPolicy.merchant', 'Merchant'],
+  both: ['customer_groups.groups.personTab.explainTerms.value.approvalPolicy.both', 'Buyer and merchant'],
+}
+
+const BOOLEAN_FIELDS: ReadonlySet<TermsFieldKey> = new Set(['allowPurchaseOnAccount', 'allowQuoteRequests', 'requiresPoNumber'])
 
 function pickString(item: Record<string, unknown>, ...keys: string[]): string {
   for (const key of keys) {
@@ -103,7 +124,15 @@ function formatFieldValue(
     if (typeof entry.value !== 'number') return notSet
     return t('customer_groups.groups.personTab.explainTerms.value.days', '{count} days', { count: entry.value })
   }
-  if (field === 'allowPurchaseOnAccount') {
+  if (field === 'termsCurrencyCode') {
+    return typeof entry.value === 'string' && entry.value ? entry.value : notSet
+  }
+  if (field === 'approvalPolicy') {
+    if (typeof entry.value !== 'string') return notSet
+    const labelKey = APPROVAL_POLICY_LABEL_KEYS[entry.value]
+    return labelKey ? t(labelKey[0], labelKey[1]) : entry.value
+  }
+  if (BOOLEAN_FIELDS.has(field)) {
     if (typeof entry.value !== 'boolean') return notSet
     return entry.value
       ? t('customer_groups.groups.personTab.explainTerms.value.yes', 'Yes')
@@ -115,6 +144,9 @@ function formatFieldValue(
 }
 
 function formatSourceLabel(entry: ExplainTermsField, t: TranslateFn): string {
+  if (entry.source === 'base_currency') {
+    return t('customer_groups.groups.personTab.explainTerms.baseCurrency', 'Organization base currency')
+  }
   if (entry.sourceGroupId == null) {
     return t('customer_groups.groups.personTab.explainTerms.tenantDefault', 'Tenant default')
   }
