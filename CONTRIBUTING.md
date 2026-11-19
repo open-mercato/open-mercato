@@ -146,7 +146,7 @@ Before enabling npm snapshot previews, a repository administrator and npm packag
 
 1. Create the **`npm-preview`** GitHub Environment in Settings → Environments. Require a maintainer reviewer, enable **Prevent self-review**, and disable **Allow administrators to bypass configured protection rules**. Under deployment branches and tags, select only the trusted `main` branch and allow no tags. Dispatch the workflow from `main`; the workflow checks out the separately resolved, pinned PR SHA after approval. Keep the `production` environment and its stable release approvals separate.
 2. Create a distinct, short-lived npm **granular access token** with read/write publishing access to the explicit public package names under `packages/*/package.json` (`private != true`), including the unscoped `create-mercato-app`. Exclude unrelated packages, whole-organization administration, and blanket access to all packages or scopes. Use only the noninteractive publishing/2FA permission required by the registry's current policy. Review the allowlist when a public package is added and rotate the token before expiration. See [npm's granular token permissions](https://docs.npmjs.com/about-access-tokens/).
-3. Store that distinct value as **`NPM_PREVIEW_TOKEN` only in `npm-preview` environment secrets**. Do not define it as a repository or organization secret, copy the stable `NPM_TOKEN`, or add a fallback to it. The workflow stops on a missing preview token before dependency installation. The stable release and trusted branch snapshot workflows retain their existing credentials.
+3. Store that distinct value as **`NPM_PREVIEW_TOKEN` only in `npm-preview` environment secrets**. The workflow stops on a missing preview token before dependency installation. Stable releases and main snapshots authenticate via npm Trusted Publishing.
 4. Record non-secret verification evidence on the security issue or fix PR: environment reviewers, self-review/bypass settings, allowed dispatch ref, environment-only secret placement, and the token's actual package allowlist, permission flags, owner, expiration, and rotation owner. Inspect grants in npm's token settings; a secret name or workflow reference does not prove registry scope. Never include the token value. Repository tests cannot establish these external settings.
 
 Before any PR code is checked out, the workflow checks the run's deployment approval history and requires an approver other than the PR author, dispatcher, or rerun initiator. An absent approval, an approval for another environment, or an unavailable review API stops the job. Use a **new workflow dispatch** for retries or a newer commit; **Re-run jobs** is refused so an approval from an earlier attempt cannot authorize a different snapshot. The reviewer must inspect the pinned SHA from `Resolve PR`, including install hooks and release scripts, before approving. GitHub's [environment configuration guide](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) explains the required protection settings.
@@ -255,10 +255,33 @@ Patches usually ship with the generated notes, so **every PR needs a category la
 
 ### One-time setup (maintainers)
 
-1. **Release GitHub App** (required) — **Open Mercato Assistant**, owned by the `open-mercato` org and installed on this repository only, with repository permissions **Contents, Pull requests, Issues and Workflows: read & write** (webhook off). The release workflows mint a one-hour token from it on every run (`actions/create-github-app-token`), so nothing expires and no personal account is involved. Store its **Client ID** as the repository variable `RELEASE_APP_CLIENT_ID` and a generated **private key** as the secret `RELEASE_APP_PRIVATE_KEY`. `GITHUB_TOKEN` is not enough — PRs and tags it creates trigger no workflows, and it cannot bypass the ruleset below. PRs the app opens are authored by the app, so any maintainer can approve them.
+1. **Release GitHub App** (required) — **Open Mercato Assistant**, owned by the `open-mercato` org and installed on this repository only, with repository permissions **Contents, Pull requests, Issues and Workflows: read & write** (webhook off). Store its **Client ID** as the repository variable `RELEASE_APP_CLIENT_ID`. Store its generated **private key** as `RELEASE_ENV_APP_PRIVATE_KEY` only in the `release-automation` and `production` environment secrets. The workflows mint a one-hour installation token so their PRs and tags trigger CI and the app can bypass the release-line ruleset.
 2. **Ruleset `release lines`** (Settings → Rules → New branch ruleset), target `release/v*`: bypass list = the **Open Mercato Assistant** app (and admins), mode *Always*; Restrict creations ✅, Restrict deletions ✅, Block force pushes ✅, Restrict updates ❌; Require a pull request ✅ (1 approval); Require status checks ✅ with the CI jobs, "Do not require status checks on creation" ✅; Require signed commits ❌.
-3. **`production` environment** (Settings → Environments → production): required reviewers (the approval click before every publish), and *Deployment branches and tags* → **Selected branches and tags** with the tag rule `v*` — Release publish runs on tags. The `release/v*` branch rule is no longer needed.
-4. **Tag ruleset** (recommended; Settings → Rules → New tag ruleset), target `v*`: Restrict creations, updates and deletions ✅, bypass list = the **Open Mercato Assistant** app, mode *Always*. Only Release can then create the tags that start a publish.
+3. **Tag ruleset** (required; Settings → Rules → New tag ruleset), target `v*`: Restrict creations, updates and deletions ✅, bypass list = the **Open Mercato Assistant** app, mode *Always*. This protects the refs admitted to `production`.
+4. **Deployment environments** (Settings → Environments). Set *Deployment branches and tags* to **Selected branches and tags** for each environment. Keep `main` and `release/v*` protected by their branch rulesets.
+
+   | Environment | Allowed refs | Jobs |
+   |---|---|---|
+   | `release-automation` | Branches `main` and `release/v*` | Release cut, Release, Backport |
+   | `npm-snapshot` | Branch `main` | Main Snapshot Release |
+   | `production` | Tags `v*` | Release publish |
+
+   Require reviewers for `production`, enable **Prevent self-review**, and disable administrator bypass. Release publish needs approval for each tag. For two-person control across Release and Release publish, choose production reviewers who cannot dispatch Release. GitHub checks self-review against the publish run's initiator, which is the release app for automated tag pushes. Branch policies allow snapshots and backports to run automatically from the allowed refs.
+
+5. **[npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)**. For each public workspace package under `packages/`, including `create-mercato-app`, register these two GitHub Actions publishers for `open-mercato/open-mercato` on npmjs.com. Allow `npm publish` for both and allow `npm dist-tag` for `release-publish.yml` so it can reconcile tags after a partial release.
+
+   | Workflow filename | Environment |
+   |---|---|
+   | `snapshot.yml` | `npm-snapshot` |
+   | `release-publish.yml` | `production` |
+
+   Time each registration for its first successful publish within two days. When adding a package, bootstrap it on npm and register its publishers before its first automated publish.
+
+### Migrating existing release credentials
+
+1. Finish any in-flight stable publish before cutover. Configure the environments and install a new release-app key in both required environment secrets. Register the main snapshot publishers immediately before merging the workflow changes to `main` so that the merge can publish the snapshot.
+2. Backport the workflow changes to every release line that can still publish before its next release. Register the production publishers just before the first planned stable publish with the updated workflow. Older tags keep their original workflow definition, so coordinate the cutover around any tagged release that still needs a retry.
+3. During cutover, revoke the legacy `NPM_TOKEN`, delete its repository and organization secret entries, and remove the old `RELEASE_APP_PRIVATE_KEY` secret entries at both levels. Revoke the old private key in the GitHub App settings. Keep `NPM_PREVIEW_TOKEN` scoped to `npm-preview` for the separate PR preview workflow.
 
 ## Helpful Resources
 

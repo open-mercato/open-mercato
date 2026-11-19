@@ -20,6 +20,7 @@ jobs:
     name: Backport
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: release-automation
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository &&
@@ -32,7 +33,7 @@ jobs:
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          private-key: ${{ secrets.RELEASE_ENV_APP_PRIVATE_KEY }}
 
       - name: Checkout code
         uses: actions/checkout@v7

@@ -10,6 +10,7 @@ const releasePath = workflowPath('release.yml')
 const publishPath = workflowPath('release-publish.yml')
 const cutPath = workflowPath('release-cut.yml')
 const backportPath = workflowPath('backport.yml')
+const snapshotPath = workflowPath('snapshot.yml')
 const ciPath = workflowPath('ci.yml')
 const changelogPath = path.resolve('CHANGELOG.md')
 
@@ -75,7 +76,7 @@ test('release publish runs at the tag, so npm provenance attests the commit it s
   assert.ok('workflow_dispatch' in parsed.on, 'A failed publish is resumable by dispatching from the same tag')
   assert.equal(job.if, "startsWith(github.ref, 'refs/tags/v')")
   assert.equal(checkout.with?.ref, undefined, 'Checking out anything but the run commit would make provenance attest other code')
-  assert.equal(parsed.permissions['id-token'], 'write')
+  assert.equal(job.permissions['id-token'], 'write')
   assert.equal(job.environment, 'production', 'Publishing stays behind the production environment')
   assert.match(source, /--sha "\$GITHUB_SHA"/, 'The GitHub Release targets the commit this run built')
 })
@@ -96,6 +97,33 @@ test('release publish verifies the tag before building and resolves the dist-tag
     stepIndex(source, 'Publish packages to npm') < stepIndex(source, 'Changelog PR and GitHub Release'),
     'The GitHub Release marks a version done, so it comes only after every package is published',
   )
+})
+
+test('main snapshots and stable releases use environment-bound npm Trusted Publishing', () => {
+  const publishers = [
+    { file: snapshotPath, jobId: 'snapshot', environment: 'npm-snapshot' },
+    { file: publishPath, jobId: 'publish', environment: 'production' },
+  ]
+
+  for (const { file, jobId, environment } of publishers) {
+    const { parsed, source } = readWorkflow(file)
+    const job = parsed.jobs[jobId]
+    const setupNode = job.steps.find((step) => step.uses?.startsWith('actions/setup-node@'))
+    assert.equal(job.environment, environment)
+    assert.equal((job.permissions ?? parsed.permissions)['id-token'], 'write')
+    assert.equal(setupNode.with['package-manager-cache'], false)
+    assert.doesNotMatch(source, /\b(?:NPM_TOKEN|YARN_NPM_AUTH_TOKEN|NODE_AUTH_TOKEN)\b|_authToken/)
+  }
+
+  const { parsed: snapshot } = readWorkflow(snapshotPath)
+  assert.deepEqual(snapshot.on.push.branches, ['main'])
+})
+
+test('resumed stable releases use an npm CLI that can reconcile dist-tags over OIDC', () => {
+  const { source } = readWorkflow(publishPath)
+
+  assert.match(source, /npm install --global npm@11\.21\.0\b/)
+  assert.ok(stepIndex(source, 'Install npm with OIDC dist-tag support') < stepIndex(source, 'Publish packages to npm'))
 })
 
 test('release publish runs one version at a time so `latest` never moves backwards', () => {
@@ -136,12 +164,23 @@ test('release cut runs only from main and only by hand', () => {
 })
 
 test('workflows that open PRs use a release app token so CI runs on them', () => {
-  for (const file of [releasePath, publishPath, cutPath, backportPath]) {
-    const { source } = readWorkflow(file)
+  const releaseJobs = [
+    { file: releasePath, jobId: 'release', environment: 'release-automation' },
+    { file: publishPath, jobId: 'publish', environment: 'production' },
+    { file: cutPath, jobId: 'cut', environment: 'release-automation' },
+    { file: backportPath, jobId: 'backport', environment: 'release-automation' },
+  ]
+
+  for (const { file, jobId, environment } of releaseJobs) {
+    const { parsed, source } = readWorkflow(file)
+    assert.equal(parsed.jobs[jobId].environment, environment)
     assert.match(source, /uses: actions\/create-github-app-token@[0-9a-f]{40} /, `${path.basename(file)} must mint an app token from a SHA-pinned action`)
     assert.match(source, /client-id: \$\{\{ vars\.RELEASE_APP_CLIENT_ID \}\}/)
-    assert.match(source, /private-key: \$\{\{ secrets\.RELEASE_APP_PRIVATE_KEY \}\}/)
-    assert.doesNotMatch(source, /secrets\.RELEASE_TOKEN|github\.token/, `${path.basename(file)} must not fall back to a PAT or GITHUB_TOKEN`)
+    const appTokenSteps = parsed.jobs[jobId].steps.filter((step) => step.uses?.startsWith('actions/create-github-app-token@'))
+    for (const step of appTokenSteps) {
+      assert.equal(step.with['private-key'], '${{ secrets.RELEASE_ENV_APP_PRIVATE_KEY }}')
+    }
+    assert.doesNotMatch(source, /secrets\.(?:RELEASE_APP_PRIVATE_KEY|RELEASE_TOKEN)\b|github\.token/, `${path.basename(file)} must use its environment key`)
   }
 })
 

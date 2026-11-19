@@ -23,12 +23,12 @@ concurrency:
 jobs:
   snapshot:
     name: Publish Snapshot
-    # Forks have no NPM_TOKEN nor rights on the @open-mercato scope, so this
+    # Forks are not trusted publishers for the @open-mercato scope, so this
     # job could only fail there; standalone-integration needs it and skips too.
     if: ${{ !github.event.repository.fork }}
     permissions:
       contents: read
-      id-token: write  # required for npm provenance attestation
+      id-token: write  # npm Trusted Publishing and provenance
     outputs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
@@ -41,8 +41,7 @@ jobs:
     # Blacksmith runners register as `self-hosted`, so this job published nothing
     # between #5244 and #5292. Guarded by scripts/__tests__/npm-provenance-runners.test.mjs.
     runs-on: ubuntu-latest
-    env:
-      YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    environment: npm-snapshot
 
     steps:
       - name: Checkout code
@@ -54,16 +53,11 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '24.19.0'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - name: Enable Corepack
         run: corepack enable
-
-      - name: Configure npm authentication
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > .npmrc
-          echo "access=public" >> .npmrc
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Install dependencies
         run: yarn install --immutable

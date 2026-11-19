@@ -37,6 +37,7 @@ jobs:
     timeout-minutes: 60
     # workflow_dispatch reads this file from the ref it runs on: dispatch from the line's BRANCH.
     if: startsWith(github.ref, 'refs/heads/release/v')
+    environment: release-automation
     env:
       HUSKY: '0'
 
@@ -62,7 +63,7 @@ jobs:
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          private-key: ${{ secrets.RELEASE_ENV_APP_PRIVATE_KEY }}
 
       - name: Bump and tag the release line
         id: prepare
