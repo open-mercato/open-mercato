@@ -8,6 +8,7 @@ import {
 declare global {
   interface Window {
     __flashRaceHarness?: FlashRaceHarness
+    __lastFlashShownAt?: number
   }
 }
 
@@ -78,6 +79,18 @@ test.describe('TC-UI-FLASH-001: FlashMessages late-secondary URL flash race (bro
 
     await page.goto(harness.url)
     await page.waitForFunction(() => Boolean(window.__flashRaceHarness))
+    // `showFlash` (which schedules the 3s dismiss timer) runs as a direct
+    // listener of the same `flash` DOM event this records against — both
+    // fire synchronously in the same turn, so this captures the exact
+    // instant the dismiss timer started. The expiry check below anchors to
+    // this timestamp rather than to "now" at that point in the test, so the
+    // toast/URL assertions and the unmount round trip in between can take
+    // however long they take without eating into the 3s margin.
+    await page.evaluate(() => {
+      window.addEventListener('flash', () => {
+        window.__lastFlashShownAt = Date.now()
+      })
+    })
 
     const attempts = 10
     let lastMessage = ''
@@ -106,14 +119,20 @@ test.describe('TC-UI-FLASH-001: FlashMessages late-secondary URL flash race (bro
       await page.evaluate(() => window.__flashRaceHarness!.unmountSecondary())
     }
 
-    // Verify the real 3-second auto-dismiss on the last delivered toast —
-    // checked once (not on every attempt) to keep the spec's wall-clock
-    // cost bounded. Two tight real-time windows bracket the 3s boundary
-    // instead of one loose 3.1s wait, so the assertion actually pins down
-    // *when* the toast disappears rather than merely "eventually".
-    await page.waitForTimeout(2_900)
+    // Deterministic 3-second auto-dismiss boundary, anchored to the exact
+    // instant the last toast appeared (captured via the `flash` event
+    // listener above) rather than to "now" at this point in the test — the
+    // preceding toast/URL assertions and the unmount round trip already
+    // consumed an unknown amount of real time, so computing the remaining
+    // wait relative to the actual anchor (instead of a fixed offset from
+    // here) keeps the two checks pinned to "just before" and "just after"
+    // the real 3s boundary regardless of how long those steps took.
+    const toastShownAt = await page.evaluate(() => window.__lastFlashShownAt!)
+    const elapsedBeforeFirstCheck = (await page.evaluate(() => Date.now())) - toastShownAt
+    await page.waitForTimeout(Math.max(0, 2_999 - elapsedBeforeFirstCheck))
     await expect(page.getByText(lastMessage)).toBeVisible()
-    await page.waitForTimeout(200)
+    const elapsedBeforeSecondCheck = (await page.evaluate(() => Date.now())) - toastShownAt
+    await page.waitForTimeout(Math.max(0, 3_001 - elapsedBeforeSecondCheck))
     await expect(page.getByText(lastMessage)).toHaveCount(0)
   })
 })

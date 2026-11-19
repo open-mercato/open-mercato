@@ -4,13 +4,14 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 /**
- * TC-UI-FLASH-002: companion to TC-UI-FLASH-001 — exercises the same
- * primary-host flash delivery through a real tenant-bound record and the
- * product's actual production CrudForm save redirect, per #8709's
- * acceptance criteria, rather than the synthetic harness used by
- * TC-UI-FLASH-001. Kept in its own file (not sharing TC-UI-FLASH-001's)
- * per `.ai/qa/AGENTS.md`'s one-scenario-per-file convention, and so this
- * real-app test never loads the synthetic harness bundle.
+ * TC-UI-FLASH-002: companion to `packages/ui/__integration__/TC-UI-FLASH-001-url-flash-browser-race.spec.ts`
+ * — exercises the same primary-host flash delivery through a real
+ * tenant-bound Todo record and the product's actual production CrudForm
+ * save redirect, per #8709's acceptance criteria, rather than TC-UI-FLASH-001's
+ * synthetic harness. Lives here (not in `packages/ui/__integration__/`) so it
+ * can use `@open-mercato/core`'s integration-test helpers without adding a
+ * `ui` -> `core` devDependency, which would close an existing one-way
+ * workspace dependency (`core` already depends on `ui`) into a cycle.
  */
 test.describe('TC-UI-FLASH-002: FlashMessages real production save redirect', () => {
   test('shows exactly one "Todo saved" toast and strips the URL after a real edit/save redirect', async ({ page, request }) => {
