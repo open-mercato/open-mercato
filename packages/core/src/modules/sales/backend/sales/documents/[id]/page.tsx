@@ -4408,7 +4408,7 @@ export default function SalesDocumentDetailPage({
         )
       }
       return (
-        <>
+        <div className="space-y-4">
           <SalesShipmentsSection
             orderId={record.id}
             currencyCode={record.currencyCode ?? null}
@@ -4425,7 +4425,7 @@ export default function SalesDocumentDetailPage({
             data={record}
             onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
           />
-        </>
+        </div>
       )
     }
     if (activeTab === 'returns') {
