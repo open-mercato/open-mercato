@@ -37,8 +37,6 @@ Risks & Impact Review.
 > linked, and out-of-date text is corrected. Changelog: 2026-10-09.
 
 ## TLDR
-## TLDR
-
 
 Posts real `sales.SalesInvoice` records to `ledger` as balanced
 `JournalEntry` postings: debit the receivable control account for the
@@ -316,37 +314,57 @@ exists. `currencies` joins `requires` as a third hard dependency (see
 Module Dependency) — multi-currency exchange-rate handling itself
 stays out of scope (see Out of scope).
 
-**Foreign-currency invoice (added 2026-10-23).** #5663 now stores a
+**Foreign-currency invoice is a Phase 1 capability, and it is the command —
+not `ledger` — that decides the amounts (revised 2026-11-19).** #5663 stores a
 currency, a rate and an original-currency amount on every `JournalEntryLine`
-(GL core engine, Design decisions, "Multi-currency"). For an invoice whose
-currency is not the tenant's base currency, `postSalesInvoiceToLedger` passes
-the invoice's `exchangeRate` with the call (once `SalesInvoice.exchangeRate`
-exists, see the update below), and every line (revenue, output
-VAT, receivable) carries `amountCurrency`, its amount in the invoice
-currency, next to `debit`/`credit` in the base currency (the amount ×
-`exchangeRate`, rounded to the base currency's decimal places). GL rejects a
-foreign-currency line without `amountCurrency` and one without a rate, so an
-invoice with `exchangeRate = null` cannot post in a foreign currency until the
-backfill described next has set it.
-**Rounding remainder (decided by the team 2026-10-23; not yet reviewed
-by a controller or maintainer).** Every line (revenue, output VAT,
-receivable) is converted on its own: `debit`/`credit` = `amountCurrency` ×
-`exchangeRate`, rounded half up to the base currency's decimal places, so each
-line keeps GL's half-unit rule. When the converted lines do not balance,
-`postSalesInvoiceToLedger` adds one ordinary base-currency line (rate `1`,
-`amountCurrency` equal to its base amount) on the module-config account
-`roundingAccountId` for the difference, on the side that balances the entry.
-It refuses to post (422) when the difference exceeds half the smallest base
-unit times the number of converted lines, and when a difference exists but
-`roundingAccountId` is not set. The VAT line is not adjusted to absorb the
-remainder. The rate is the booking-day rate (Multi-Currency Design decisions
-9f/9g). The VAT amount for the VAT register and the invoice uses the rate of
-art. 31a ustawy o VAT (last business day before the tax obligation arises)
-and belongs to `financial_pl`; Phase 1 books one rate per invoice, so the
-two can differ when the obligation date and the issue date give different
-rates. `receivableAccountId` carries no `currencyId` (controller, e-mail of
-2026-10-23: settlement accounts are kept in the base currency); setting a
-currency on it would reject every line in another currency.
+(GL core engine, Design decisions, "Multi-currency"). This section is the
+single, authoritative Phase 1 FX algorithm; Commands, Invariants, API
+Contracts, Module Config and Testing Strategy implement exactly this text and
+do not restate a different one. It applies only when the invoice's currency
+differs from the tenant's base currency.
+
+- **Base currency.** `postSalesInvoiceToLedger` resolves the base currency by
+  reading `currencies.Currency` for `{ tenantId, organizationId, isBase: true,
+  deletedAt: null }`. No live base row is a readable configuration error
+  (422 `BASE_CURRENCY_UNRESOLVED`) — never a silent assumption of `PLN`.
+- **Rate source.** A foreign-currency invoice requires a stored
+  `SalesInvoice.exchangeRate` (decimal string, > 0). That column is owned by
+  the Multi-Currency spec ([#6190](https://github.com/open-mercato/open-mercato/pull/6190),
+  its Design decision 15) and its one-time backfill; this module only reads it
+  (see the "Update" note below). An invoice whose `currencyCode` is not the
+  base currency and whose `exchangeRate` is `null` is rejected with 422
+  `EXCHANGE_RATE_MISSING`, never posted at an implied rate. One booking-day
+  rate per invoice is used for every line (Multi-Currency Design decisions
+  9f/9g); per-line rates, FX gain/loss recognition and revaluation stay out of
+  scope.
+- **Per-line conversion.** Every line (revenue, output VAT, receivable) keeps
+  `amountCurrency` — its amount in the invoice currency — next to
+  `debit`/`credit`, which are `amountCurrency × exchangeRate` rounded half up
+  to the base currency's minor units (the half-unit rule `ledger` itself
+  applies). GL independently rejects a foreign-currency line that lacks
+  `amountCurrency` or a rate; the command never relies on that as its only
+  guard, which is why the two rejections above are its own.
+- **Rounding remainder (decided by the team 2026-10-23; not yet reviewed by a
+  controller or maintainer).** When the converted lines do not balance, the
+  command adds one ordinary base-currency line (rate `1`, `amountCurrency`
+  equal to its base amount) on the module-config account
+  `roundingAccountId`, on the side that balances the entry. It refuses to post
+  (422) with `ROUNDING_ACCOUNT_UNSET` when a difference exists and
+  `roundingAccountId` is not configured, and with
+  `ROUNDING_DIFFERENCE_TOO_LARGE` when the difference exceeds half the
+  smallest base unit times the number of converted lines. The VAT line is not
+  adjusted to absorb the remainder.
+- **Out of scope, kept out of scope.** The VAT amount for the VAT register and
+  the invoice uses the rate of art. 31a ustawy o VAT (last business day before
+  the tax obligation arises) and belongs to `financial_pl`; Phase 1 books one
+  rate per invoice, so the two can differ when the obligation date and the
+  issue date give different rates. `receivableAccountId` carries no
+  `currencyId` (controller, e-mail of 2026-10-23: settlement accounts are kept
+  in the base currency); setting a currency on it would reject every line in
+  another currency.
+- **A base-currency invoice bypasses all of this**: no `amountCurrency`, no
+  rate, no rounding line, and the posted amounts are the invoice amounts
+  unchanged.
 
 **Update (2026-09-17, revised 2026-10-15):** the Multi-Currency spec
 ([#6190](https://github.com/open-mercato/open-mercato/pull/6190)) proposes adding
@@ -564,19 +582,25 @@ this document's scope can fix.
    `SalesInvoiceGlPosting` records a one-to-one link; a second
    `postSalesInvoiceToLedger` call against an already-posted invoice
    is rejected, not silently re-posted.
-2. **The receivable control account's balance equals the sum of
-   `grandTotalGrossAmount` across every `SalesInvoice` this module has
-   posted, less the receipts Cash & Bank Management (#6055) has posted
-   against it.** Until #6055 is deployed nothing credits the account and
-   the balance equals the sum. It is deliberately
-   *not* compared to `outstandingAmount`: for invoices `sales` does not
-   maintain it (Design decisions, "No subsidiary ledger in Phase 1").
-   The invariant holds only for invoices this module has posted — an
-   unposted invoice is not reflected anywhere in `ledger`, by design (see
-   Problem Statement).
-3. **Every posting balances**: the debit to the receivable account
-   equals the sum of the credits to revenue lines plus the credit to
-   output VAT, for every `postSalesInvoiceToLedger` call. The command checks the
+2. **The receivable control account's balance equals the sum of the
+   receivable *debits* (`JournalEntryLine.debit`, base currency) across
+   every `SalesInvoice` this module has posted, less the receipts Cash & Bank
+   Management (#6055) has posted against it.** Until #6055 is deployed
+   nothing credits the account and the balance equals that sum. For a
+   base-currency invoice the debit is `grandTotalGrossAmount`; for a
+   foreign-currency invoice it is the converted base amount per Design
+   decisions ("Foreign-currency invoice"), and the rounding line stays on
+   `roundingAccountId`, not on the receivable. It is deliberately *not*
+   compared to `outstandingAmount`, nor to a raw invoice-currency
+   `Σ grandTotalGrossAmount`: for invoices `sales` does not maintain the
+   former (Design decisions, "No subsidiary ledger in Phase 1"), and the
+   latter is not what the posting books once a rate applies. The invariant
+   holds only for invoices this module has posted — an unposted invoice is
+   not reflected anywhere in `ledger`, by design (see Problem Statement).
+3. **Every posting balances in the base currency**: the debit to the
+   receivable account equals the sum of the credits to revenue lines plus
+   the credit to output VAT plus the signed rounding line, for every
+   `postSalesInvoiceToLedger` call. The command checks the
    header/line identity as a precondition before building the lines
    (Commands), and `ledger.postJournalEntry`'s own balance check
    enforces the result independently.
@@ -696,7 +720,13 @@ Matrix from an earlier independent review pass. No gaps found.
 ### Access Control (`acl.ts`)
 
 - `sales_invoices_gl_posting.invoices.post` — required by
-  `postSalesInvoiceToLedger`.
+  `postSalesInvoiceToLedger` and by the posting-status GET route.
+- `sales_invoices_gl_posting.settings.manage` — required by the settings PUT
+  route. Kept separate from `invoices.post` so an accountant can post without
+  being able to repoint the account configuration, which is the control that
+  keeps revenue out of a wrong account (Risks). The settings GET reuses
+  `invoices.post` — anyone allowed to post must be able to see which accounts
+  the posting will use.
 
 No *separate* feature gates reading `SalesInvoiceGlPosting` in Phase 1
 — the one read route (see API Contracts) reuses
@@ -740,7 +770,10 @@ surface.
 
 ```typescript
 defaultRoleFeatures: {
-  admin: ['sales_invoices_gl_posting.invoices.post'],
+  admin: [
+    'sales_invoices_gl_posting.invoices.post',
+    'sales_invoices_gl_posting.settings.manage',
+  ],
 }
 ```
 
@@ -774,12 +807,19 @@ before the first posting (see Migration & Deployment).
   corresponds to a real line on the invoice and every invoice line has
   an assignment (no fallback account, matching AP's own "manual
   per-line, no default" Phase 1 stance). Resolves
-  `receivableAccountId`/`vatOutputAccountId` from `ModuleConfigService`
-  (rejects with a readable configuration error if either is unset,
-  mirroring Accounts Payable's own configuration-error handling), and
-  resolves `currencyId` by querying `currencies.Currency` for
-  `{ code: invoice.currencyCode, organizationId, tenantId }` (rejects
-  if no match — see Design decisions, "Currency resolution"). Calls
+  `receivableAccountId`/`vatOutputAccountId` (and, on demand,
+  `roundingAccountId`) from `ModuleConfigService` through `lib/moduleConfig.ts`
+  using the **organization-qualified keys** Module Config defines (rejects
+  with a readable configuration error if either required value is unset for
+  the active organization, mirroring Accounts Payable's own
+  configuration-error handling), and resolves `currencyId` by querying
+  `currencies.Currency` for `{ code: invoice.currencyCode, organizationId,
+  tenantId }` (rejects if no match — see Design decisions, "Currency
+  resolution"). It then applies the FX step: a base-currency invoice posts
+  its own amounts; for a foreign-currency invoice it resolves the base
+  currency (`isBase: true`), requires `invoice.exchangeRate`, converts each
+  line per Design decisions ("Foreign-currency invoice"), and computes the
+  rounding remainder. Calls
   `commandBus.execute('ledger.postJournalEntry', { input, ctx })` with
   one credit line per `lineAccounts` entry (that line's `totalNetAmount`,
   to its assigned `accountId`), one aggregated credit line to
@@ -787,7 +827,14 @@ before the first posting (see Migration & Deployment).
   line to `receivableAccountId` (`grandTotalGrossAmount`), the
   resolved `currencyId`, `operationDate: invoice.issueDate`,
   `documentType: 'external_own'`, `referenceType: 'sales:sales_invoice'`,
-  `referenceId: invoice.id`. Because the line/header balance identity
+  `referenceId: invoice.id`. For a foreign-currency invoice those three
+  groups carry `amountCurrency` plus the converted `debit`/`credit`, and the
+  rounding line is appended when a remainder exists. Every account id
+  (`lineAccounts`, `receivableAccountId`, `vatOutputAccountId`,
+  `roundingAccountId`) is validated to be a live `LedgerAccount` in the
+  posting's `tenantId`/`organizationId` scope before the entry is built; an
+  account from another organization rejects with 422
+  `ACCOUNT_OUT_OF_SCOPE` rather than being posted. Because the line/header balance identity
   is validated above, the debit and credit sides of this posting are
   guaranteed equal before `ledger.postJournalEntry` ever sees them —
   a checked precondition on `sales`'s own, unvalidated data, not an
@@ -882,13 +929,17 @@ the `GET` route; both are ordinary authenticated, feature-gated routes.
   surface is a `sales` deliverable that would otherwise gate this module.
 - **The module-config settings page** (`backend/settings/page.tsx`,
   File Manifest) is a minimal `<CrudForm>` (from
-  `@open-mercato/ui/backend/CrudForm`) with two `<FormField>`-wrapped
-  `LedgerAccount` pickers (`receivableAccountId`, `vatOutputAccountId`),
-  submitted via `updateCrud` against `ModuleConfigService`'s own config
-  endpoint — the same construction Accounts Payable's own
-  `vatInputAccountId`/`liabilityAccountId` settings page already uses.
-  Field labels and validation errors go through `resolveTranslations()`
-  server-side / `useT()` client-side.
+  `@open-mercato/ui/backend/CrudForm`) with three `<FormField>`-wrapped
+  `LedgerAccount` pickers (`receivableAccountId`, `vatOutputAccountId`,
+  optional `roundingAccountId`) for the **active organization**. It loads
+  `GET /api/sales_invoices_gl_posting/settings` into `initialValues`
+  (including `updatedAt`) and saves through
+  `PUT /api/sales_invoices_gl_posting/settings`; `CrudForm` derives the
+  optimistic-lock header from `initialValues.updatedAt`, so a second admin's
+  stale save surfaces the standard conflict bar instead of overwriting the
+  first. It does **not** call a generic module-config HTTP endpoint — none
+  exists (API Contracts). Field labels and validation errors go through
+  `resolveTranslations()` server-side / `useT()` client-side.
 
 ## Data Models
 
@@ -925,15 +976,42 @@ constraint elsewhere in the repo (e.g.
 
 ### Module Config
 
-Two tenant-scoped configuration values via `ModuleConfigService`,
-mirroring Accounts Payable's own `vatInputAccountId`/
-`liabilityAccountId` pattern exactly: `receivableAccountId` (FK-id to
-`ledger.LedgerAccount`) and `vatOutputAccountId` (FK-id to
-`ledger.LedgerAccount`). Both required before the first posting (see
-Migration & Deployment). A third value, `roundingAccountId` (FK-id to
-`ledger.LedgerAccount`), is required only before the first foreign-currency
-invoice that produces a rounding difference (see the foreign-currency
-paragraph under Design decisions).
+Three configuration values via `ModuleConfigService`, organized
+**per organization** because the accounts they name are organization-scoped:
+`receivableAccountId` (FK-id to `ledger.LedgerAccount`),
+`vatOutputAccountId` (FK-id to `ledger.LedgerAccount`) and
+`roundingAccountId` (FK-id to `ledger.LedgerAccount`, required only before the
+first foreign-currency invoice that produces a rounding difference). Both of
+the first two are required before the first posting (see Migration &
+Deployment).
+
+`ModuleConfigService` keys a row by `(moduleId, name, tenantId)` and records
+`organizationId` as metadata only (`configs/lib/module-config-service.ts`:
+`loadRow`/`setValue` both `findOne({ moduleId, name, tenantId })`), so a single
+per-tenant value set would make one organization's save silently overwrite the
+other's in a multi-organization tenant. This module therefore stores **distinct
+organization-qualified names** and does not change the shared service's
+contract:
+
+- `lib/moduleConfig.ts` owns the key builder:
+  `accountConfigKey(name, organizationId)` → `"<name>:<organizationId>"` for
+  `name` in `receivableAccountId` / `vatOutputAccountId` / `roundingAccountId`,
+  and passes `scope: { tenantId, organizationId }` on every read and write so
+  the row's metadata matches its key.
+- Every read and write requires a resolved `organizationId`; a posting or a
+  settings save without one is rejected with 422 `ORGANIZATION_REQUIRED`.
+  There is no tenant-wide fallback value, by design — a fallback is exactly
+  how one organization's accounts would leak into another's posting.
+- An account id that does not resolve to a live `LedgerAccount` inside the
+  posting's `tenantId`/`organizationId` scope is rejected (422
+  `ACCOUNT_OUT_OF_SCOPE`), never silently used.
+- Provisioning (`setup.ts` defaults) does not seed values: an organization's
+  chart of accounts differs, so both required keys start unset for every
+  organization until an admin saves them (Migration & Deployment).
+
+The settings page and its GET/PUT route (API Contracts) read and write
+exactly these keys; no other module reads them, so the naming scheme is this
+module's private storage detail rather than a shared contract.
 
 ## API Contracts
 
@@ -956,11 +1034,17 @@ paragraph under Design decisions).
   raised by the unique index under a concurrent duplicate (Commands). **Response 422**: the balance-identity
   check fails, any line's `kind` is `'discount'`/`'adjustment'`,
   `issueDate` is null, `lineAccounts` is incomplete or
-  references a line not on the invoice, or
-  `receivableAccountId`/`vatOutputAccountId`/`currencyId` cannot be
-  resolved (see Design decisions, Commands) — one discriminated error
-  code per cause, the same typed-error precedent Accounts Payable
-  sets with `FISCAL_PERIOD_LOCKED`. In Phase 1 it is called
+  references a line not on the invoice, `receivableAccountId`/
+  `vatOutputAccountId`/`currencyId` cannot be resolved for the active
+  organization, no live base currency exists (`BASE_CURRENCY_UNRESOLVED`),
+  a foreign-currency invoice has no `exchangeRate` (`EXCHANGE_RATE_MISSING`),
+  a rounding difference exists without `roundingAccountId`
+  (`ROUNDING_ACCOUNT_UNSET`) or exceeds the tolerance
+  (`ROUNDING_DIFFERENCE_TOO_LARGE`), an account id is outside the posting's
+  organization (`ACCOUNT_OUT_OF_SCOPE`), or the request has no resolved
+  organization (`ORGANIZATION_REQUIRED`) (see Design decisions, Commands,
+  Module Config) — one discriminated error code per cause, the same typed-error
+  precedent Accounts Payable sets with `FISCAL_PERIOD_LOCKED`. In Phase 1 it is called
   by API clients only (Backend Pages); the Phase 2 widget will call it via
   `useGuardedMutation(...).runMutation(...)`, never raw `fetch`.
 - `GET /api/sales_invoices_gl_posting/postings/:salesInvoiceId` — thin
@@ -974,6 +1058,44 @@ paragraph under Design decisions).
   allowed to post has already been posted is not a separate privilege
   in Phase 1). Called by API clients in Phase 1 (Backend Pages); the Phase 2 widget
   will use `apiCall`, never raw `fetch`.
+- `GET /api/sales_invoices_gl_posting/settings` — the settings read route.
+  A module-owned custom route, the exact shape
+  `catalog/api/settings/route.ts` establishes: `metadata` with
+  `GET: { requireAuth: true, requireFeatures: ['sales_invoices_gl_posting.invoices.post'] }`
+  (no top-level `export const requireAuth`). Returns
+  `{ receivableAccountId: string | null, vatOutputAccountId: string | null,
+  roundingAccountId: string | null, updatedAt: string | null }` for the
+  active organization, read through `lib/moduleConfig.ts`; `updatedAt` is the
+  newest `ModuleConfig.updatedAt` among the three rows (`null` when none is
+  set) and is the version the PUT compares against.
+- `PUT /api/sales_invoices_gl_posting/settings` — the settings write route.
+  `metadata` with `PUT: { requireAuth: true, requireFeatures:
+  ['sales_invoices_gl_posting.settings.manage'] }`. **Body** (zod,
+  `data/validators.ts`): `{ receivableAccountId: uuid, vatOutputAccountId:
+  uuid, roundingAccountId: uuid | null, updatedAt: string | null }`. It
+  resolves the route context (`createRequestContainer` +
+  `getAuthFromRequest`, `tenantId`, `organizationId`, actor id — the
+  `catalog/api/settings/route.ts` precedent), rejects 422
+  `ORGANIZATION_REQUIRED` without an active organization, validates every
+  supplied account id is a live `LedgerAccount` in the same
+  tenant/organization scope (422 `ACCOUNT_OUT_OF_SCOPE`), and runs
+  `validateCrudMutationGuard`/`runCrudMutationGuardAfterSuccess` with
+  `resourceKind: 'sales_invoices_gl_posting.settings'`,
+  `resourceId: '<organizationId>'`, `operation: 'update'`. Writes go through
+  `lib/moduleConfig.ts` so the organization-qualified keys stay in one place.
+  **Optimistic locking:** when `updatedAt` is supplied it must equal the
+  current version, else 409 `CONFLICT` (surfaced by `CrudForm`'s standard
+  conflict bar; the page must send `initialValues.updatedAt`); when it is
+  `null` the write is only accepted while no row exists yet, so two admins
+  cannot both create the initial configuration unnoticed. **Response 200**:
+  the same shape as the GET.
+- **Settings, not `ModuleConfigService`'s own endpoint.** There is no generic
+  HTTP endpoint for arbitrary module config (`configs/api/` exposes cache,
+  module-telemetry, system-status and upgrade-actions only) —
+  `ModuleConfigService` is a server-side DI service, so the page can only save
+  through a module-owned route like the one above. The integration coverage
+  for both settings routes is part of the Testing Strategy and ships with the
+  implementation.
 
 **Caching:** none in Phase 1. The one read route is a point lookup
 keyed by the same unique index (`organization_id, tenant_id,
@@ -999,15 +1121,21 @@ configuration is in place.
 1. `SalesInvoiceGlPosting`/`SalesInvoiceLineRevenueAccount` entities +
    migration.
 2. `data/validators.ts` for `postSalesInvoiceToLedger`'s input.
-3. `ModuleConfigService` registration for `receivableAccountId`/ `vatOutputAccountId`/`roundingAccountId` + a minimal settings page.
+3. `ModuleConfigService` registration for `receivableAccountId`/
+   `vatOutputAccountId`/`roundingAccountId` through `lib/moduleConfig.ts`'s
+   organization-qualified keys, plus the `GET`/`PUT`
+   `/api/sales_invoices_gl_posting/settings` routes and the settings page
+   (API Contracts, Backend Pages).
 4. `postSalesInvoiceToLedger` command (inside `em.transactional`,
-   passing `ctx.transactionalEm`; unique-violation mapped to `409`) +
+   passing `ctx.transactionalEm`; unique-violation mapped to `409`; the FX
+   conversion and rounding step from Design decisions included) +
    `acl.ts` + `setup.ts`.
 5. `GET /api/sales_invoices_gl_posting/postings/:salesInvoiceId` route
    and `POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`
    route (dispatches `postSalesInvoiceToLedger` via `commandBus`,
    mapped to `update` in the mutation guard registry) — both with
-   `openApi`, per `packages/core/AGENTS.md`.
+   `openApi`, per `packages/core/AGENTS.md`, plus the settings routes
+   from step 3.
 6. *(Phase 2, not part of the first implementation PR.)* Posting widget,
    once `sales` provides an invoice surface to host it (Backend Pages).
 7. Integration test: post a real `SalesInvoice` fixture, assert the
@@ -1032,6 +1160,7 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
 | `index.ts` | Create | `requires: ['ledger', 'sales', 'currencies']` |
 | `api/postings/[salesInvoiceId]/route.ts` | Create | `openApi`-documented read route, served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId` |
 | `api/postings/[salesInvoiceId]/post/route.ts` | Create | Custom write route (served at `/api/sales_invoices_gl_posting/postings/:salesInvoiceId/post`), dispatches `postSalesInvoiceToLedger` via `commandBus`, mapped to `update` |
+| `api/settings/route.ts` | Create | `GET`/`PUT` module settings (served at `/api/sales_invoices_gl_posting/settings`), organization-qualified keys via `lib/moduleConfig.ts`, mutation guard on `PUT`, `openApi`-documented |
 | `backend/settings/page.tsx` | Create | Minimal `receivableAccountId`/`vatOutputAccountId`/`roundingAccountId` config UI |
 
 ## Testing Strategy
@@ -1102,6 +1231,35 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   (Invariant 1), and 422 with a discriminated error code for each of
   the rejection causes above (balance mismatch, null `issueDate`,
   incomplete `lineAccounts`, unresolved config/currency).
+
+- Assert `GET /api/sales_invoices_gl_posting/settings` returns the active
+  organization's three account ids and `updatedAt`, `403` without
+  `sales_invoices_gl_posting.invoices.post`, and never another organization's
+  values in a two-organization tenant.
+- Assert `PUT /api/sales_invoices_gl_posting/settings` requires
+  `sales_invoices_gl_posting.settings.manage` (403 without it), validates the
+  body with zod (400), rejects an account id outside the active
+  tenant/organization (422 `ACCOUNT_OUT_OF_SCOPE`), rejects a missing
+  organization (422 `ORGANIZATION_REQUIRED`), and rejects a stale `updatedAt`
+  with 409 without partial writes. Saving organization A's accounts must not
+  change organization B's, and a posting in each organization must use its
+  own accounts (the multi-organization regression this design exists for).
+- Assert a base-currency invoice posts with no `amountCurrency`, no rate and
+  no rounding line — the pre-FX Phase 1 behavior is unchanged.
+- Assert a foreign-currency invoice with a stored `exchangeRate` posts every
+  line with `amountCurrency` in the invoice currency and `debit`/`credit`
+  converted to the base currency (half-up), balances exactly, and — when its
+  converted lines leave a remainder — adds exactly one rounding line on
+  `roundingAccountId` with rate `1`, leaving the VAT line untouched.
+- Assert `EXCHANGE_RATE_MISSING` for a non-base-currency invoice with a null
+  rate, `ROUNDING_ACCOUNT_UNSET` when a remainder exists and no rounding
+  account is configured, and `ROUNDING_DIFFERENCE_TOO_LARGE` beyond the
+  half-smallest-unit × converted-line tolerance — each before any
+  `JournalEntry` row exists.
+- Assert the restated Invariant 2: after posting a mix of base- and
+  foreign-currency invoices, the receivable account's summed `debit` equals
+  the sum of the booked base-currency receivable debits, not a raw sum of
+  invoice-currency `grandTotalGrossAmount`.
 
 ## Risks & Impact Review
 
@@ -1177,6 +1335,22 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   `sales` has an invoice surface (Backend Pages). Posting is done through
   the route by an integration or an operator script.
 
+- **FX conversion depends on a `sales` column this module does not own.**
+  A foreign-currency invoice can only post once
+  `SalesInvoice.exchangeRate` exists and is filled (Multi-Currency #6190's
+  column and backfill). Until then the command rejects it with
+  `EXCHANGE_RATE_MISSING` rather than inventing a rate — a named delivery
+  dependency, not silent breakage. The rounding tolerance and the single
+  booking-day rate are the team's 2026-10-23 decision and are not yet
+  controller- or maintainer-reviewed.
+- **Organization-scoped configuration is a correctness requirement, not a
+  nicety.** Because the configured accounts are organization-scoped while
+  `ModuleConfigService` keys only by tenant, storing one value set per tenant
+  would post organization B's revenue into organization A's accounts. The
+  organization-qualified keys (Module Config) plus the `ACCOUNT_OUT_OF_SCOPE`
+  guard are the mitigation; a posting with no active organization is refused
+  outright.
+
 ## Out of scope
 
 
@@ -1223,11 +1397,14 @@ AGENTS.md → Where to Put Code, which forbids new module code there.
   distinct accounting treatments (trade discount, settlement
   discount, invoice-time allowance) a generic `kind` value represents
   (see Design decisions, "Line-kind scope").
-- Multi-currency exchange-rate handling — this document resolves
-  `currencyCode` to a `currencyId` (a required lookup, not optional;
-  see Design decisions) but does nothing with `SalesOrder.exchangeRate`
-  or any FX gain/loss recognition; every invoice this module posts is
-  assumed to be in the tenant's own bookkeeping currency for Phase 1.
+- FX gain/loss, revaluation and rate sourcing — Phase 1 *does* post a
+  foreign-currency invoice, converting each line at the invoice's single
+  stored booking-day `SalesInvoice.exchangeRate` (Design decisions,
+  "Foreign-currency invoice"). What stays out of scope: computing or
+  backfilling that rate (Multi-Currency #6190 owns the column, its backfill
+  and re-resolution), revaluation/`fx_revaluation`, FX gain/loss accounts,
+  per-line or multiple rates per invoice, and rate sourcing. The required
+  `currencyCode` → `currencyId` lookup remains part of this module.
 - A per-tax-rate output-VAT account structure — the aggregation gap
   named in Risks is real but not solved here; no confirmed consumer
   for a rate-level breakdown has been named.
@@ -1299,18 +1476,18 @@ review above hasn't already covered.
 | Rule Source | Rule | Status | Notes |
 |-------------|------|--------|-------|
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | `SalesInvoiceGlPosting.salesInvoiceId`/`journalEntryId`/`contractorId` and `SalesInvoiceLineRevenueAccount.salesInvoiceLineId`/`accountId` are all plain FK-ids, explicitly "no ORM relation" (Architecture → Entities) |
-| root AGENTS.md | Filter by `organization_id` | Compliant | Both new entities are tenant/org-scoped (Data Models); the command scopes every `sales`/`ledger`/`currencies` read by `tenantId`/`organizationId` (Commands) |
-| packages/core/AGENTS.md → API Routes | API routes MUST export `openApi` | Compliant | Both routes (`GET`/`POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId[/post]`) are `openApi`-documented per File Manifest and Implementation Plan step 5 |
-| packages/core/AGENTS.md → API Routes | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | Both routes export `metadata` with `{ requireAuth: true, requireFeatures: ['sales_invoices_gl_posting.invoices.post'] }` on their respective method (`GET`/`POST`), no top-level `export const requireAuth` |
+| root AGENTS.md | Filter by `organization_id` | Compliant | Both new entities are tenant/org-scoped (Data Models); the command scopes every `sales`/`ledger`/`currencies` read by `tenantId`/`organizationId`, and the module config uses organization-qualified keys so one organization's accounts never configure another's (Module Config, Commands) |
+| packages/core/AGENTS.md → API Routes | API routes MUST export `openApi` | Compliant | All four routes — `GET`/`POST /api/sales_invoices_gl_posting/postings/:salesInvoiceId[/post]` and `GET`/`PUT /api/sales_invoices_gl_posting/settings` — are `openApi`-documented per File Manifest and Implementation Plan step 5 |
+| packages/core/AGENTS.md → API Routes | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | Each route exports `metadata` with `requireAuth: true` and a feature on its method: `invoices.post` for both posting routes and the settings `GET`, `settings.manage` for the settings `PUT`; no top-level `export const requireAuth` |
 | packages/core/AGENTS.md → CRUD Factory | CRUD APIs use `makeCrudRoute` | N/A | No CRUD collection in Phase 1 — the mutation is a custom write route (`POST .../post`, mapped to `update` in the mutation guard registry, mirroring Accounts Payable's own `.../post` route) dispatching `postSalesInvoiceToLedger` via `commandBus`, not a `makeCrudRoute` list/detail surface; the other route is a bespoke single-record GET |
-| packages/core/AGENTS.md | All user input validated with zod before persistence | Compliant | `postSalesInvoiceToLedger`'s input shape is validated via `data/validators.ts` before any business-rule check runs (Commands, updated this revision) |
+| packages/core/AGENTS.md | All user input validated with zod before persistence | Compliant | `postSalesInvoiceToLedger`'s input shape and the settings `PUT` body are validated via `data/validators.ts` before any business-rule check or write (Commands, API Contracts) |
 | packages/core/AGENTS.md → Encryption | Encryption maps for PII/GDPR columns | N/A | Neither new entity carries a free-text or PII field (FK-ids + timestamps only); the one PII value in this flow (`contractorSnapshot`: name, NIP) is written onto `ledger.JournalEntryLine.contractorSnapshot` — that module's own column and encryption surface, not this module's, mirroring Accounts Payable's established precedent exactly |
-| packages/core/AGENTS.md | Optimistic locking (`updatedAt`) on user-editable entities | N/A | Both entities are write-once/append-only by design — no `updatedAt` on either, matching `JournalEntry`'s own immutable-posting precedent (a correction is a new `ledger.reverseJournalEntry`, never an edit to these rows) |
+| packages/core/AGENTS.md | Optimistic locking (`updatedAt`) on user-editable entities | N/A for the two entities; Compliant for the settings write | Both new posting entities are write-once/append-only — no `updatedAt`, matching `JournalEntry`'s immutable-posting precedent. The one user-editable surface is the module configuration, and the settings `PUT` compares the supplied `ModuleConfig.updatedAt` and returns 409 `CONFLICT` on a stale save (API Contracts, Backend Pages), which `CrudForm` surfaces as the standard conflict bar |
 | packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | `sales`/`ledger` (hard `requires`, direct-entity-read / `commandBus`) and `contractors` (optional peer, `tryResolve`, fails open, degrades to "no `contractorSnapshot`") are all named explicitly in Cross-module integration |
 | packages/events/AGENTS.md | No direct cross-module calls; events for side effects | Compliant | No direct cross-module *service* calls; writes into `ledger` go through `commandBus.execute('ledger.postJournalEntry', ...)`; reads of `sales.SalesInvoice`/`SalesInvoiceLine` and `ledger.LedgerAccount` are the sanctioned hard-dependency direct-entity-read pattern (see Cross-module integration), not a rule violation; no events declared in Phase 1 since no downstream consumer exists yet (named explicitly, not silently skipped) |
 | packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | No caching declared — the one read route is a point lookup on the same unique index backing the idempotency check (`tenant_id, organization_id, sales_invoice_id`), not a list/aggregate query (added explicitly to API Contracts this revision) |
 | packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | Backend Pages: the settings page uses `<CrudForm>`/`<FormField>`; the posting widget (`useGuardedMutation(...).runMutation(...)`) is Phase 2, so Phase 1 has no non-`CrudForm` UI write |
-| packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow` (never raw `fetch`) | Compliant | The settings page's save goes through `apiCall` (the Phase 2 widget's reads and trigger will too) — no raw `fetch` |
+| packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow` (never raw `fetch`) | Compliant | The settings page is a `<CrudForm>` loading `GET /api/sales_invoices_gl_posting/settings` and saving through the `PUT`, with its submit path on `apiCall` (the Phase 2 widget's reads and trigger will too) — no raw `fetch` |
 | root AGENTS.md (Design System Rules) | Semantic status tokens, Tailwind text scale, shared primitives, `aria-label` on icon-only buttons | N/A in Phase 1 (applies to the Phase 2 widget) | `<StatusBadge>` for posted/not-posted status (semantic tokens only, e.g. `bg-status-success-bg`, never `bg-green-*`); neither new control is icon-only, so no `aria-label` gap applies |
 | checklist §5 | i18n keys planned for all user-facing strings | Compliant | Settings-page labels/errors (and the Phase 2 widget's status text) go through `useT()` (client) / `resolveTranslations()` (server) — no hard-coded strings |
 | checklist §1.2 | Spec covers ONE independently deployable capability (fresh-context subagent check) | Compliant | **COHESIVE** verdict from an isolated, fresh-context review given only this spec file — no text in the document admits any part functions independently of the others (see narrative above) |
@@ -1320,7 +1497,7 @@ review above hasn't already covered.
 | Check | Status | Notes |
 |-------|--------|-------|
 | Data models match API contracts | Pass | Every field the `GET` route returns traces to a `SalesInvoiceGlPosting` column; no field appears in one section and not the other |
-| API contracts match UI/UX section | Pass (corrected 2026-10-09) | Phase 1 has no posting UI: the `POST`/`GET` routes are called by API clients, and the widget that would call them is Phase 2 (Backend Pages); the settings page maps 1:1 to the two Module Config values. The earlier "Pass" assumed an invoice detail page that `sales` does not have |
+| API contracts match UI/UX section | Pass (corrected 2026-10-09, 2026-11-19) | Phase 1 has no posting UI: the `POST`/`GET` posting routes are called by API clients, and the widget that would call them is Phase 2 (Backend Pages); the settings page maps 1:1 to the three Module Config values and to the settings `GET`/`PUT` routes. The earlier "Pass" assumed an invoice detail page that `sales` does not have; the earlier settings-save endpoint did not exist |
 | Risks cover all write operations | Pass | The sole mutating command (`postSalesInvoiceToLedger`) has named Risk entries covering wrong-account misposting, the discount rejection, post-posting `sales`-side edits desyncing the entry, and the VAT per-rate aggregation gap |
 | Commands defined for all mutations | Pass | `postSalesInvoiceToLedger` is the only mutation; both new entities are written exclusively by it, in one transaction |
 | Cache strategy covers all read APIs | N/A | No caching declared (see Compliance Matrix) |
@@ -1509,7 +1686,7 @@ the maintainer first, then applied:
   sanctioned hard-dependency direct-entity-read pattern named
   explicitly rather than left to read as a contradiction.
 - **n1 — fixed.** Module id renamed `sales_invoice_gl_posting` →
-  `sales_invoices_gl_posting` (plural, per root AGENTS.md → 
+  `sales_invoices_gl_posting` (plural, per root AGENTS.md →
   Conventions), cascaded through the permission scope, both API route
   paths, module metadata, `setup.ts`, and every citing sentence. The
   entity/table name `sales_invoice_gl_posting` (singular — one row per
@@ -1671,3 +1848,44 @@ on the new module-config account `roundingAccountId` (no wider tolerance, no
 exemption); the rate is the booking-day rate (Multi-Currency Design decisions
 9f/9g); the VAT rate of art. 31a belongs to `financial_pl`; `receivableAccountId`
 carries no `currencyId`. Not yet reviewed by a maintainer.
+
+### 2026-11-19 — Maintainer re-review (@pkarw, PR #6046): settings route, organization-scoped config, one FX scope
+
+One blocker and two majors, all fixed in the specification (no
+implementation is added by this document):
+
+- **Blocker — the settings page depended on an HTTP endpoint that does not
+  exist.** `ModuleConfigService` is a server-side DI service; `configs/api/`
+  exposes no arbitrary module-config route. Added a module-owned
+  `GET`/`PUT /api/sales_invoices_gl_posting/settings` route (the
+  `catalog/api/settings/route.ts` precedent) with per-method
+  `metadata`/features, a zod body, `LedgerAccount` scope validation, the
+  mutation guard, `ModuleConfig.updatedAt` optimistic locking, `openApi`, File
+  Manifest/Implementation Plan entries, a new
+  `sales_invoices_gl_posting.settings.manage` feature granted to `admin`, and
+  route/integration coverage. The page now loads `initialValues` (including
+  `updatedAt`) and saves through that route.
+- **Major — one tenant-wide account set could not configure two organization
+  charts.** The shared service keys a row by `(moduleId, name, tenantId)`;
+  `organizationId` is metadata only. Configuration now uses
+  organization-qualified names through `lib/moduleConfig.ts` (the shared
+  service's contract is unchanged), an unresolved organization is rejected
+  (422 `ORGANIZATION_REQUIRED`), and an account from another organization is
+  rejected (422 `ACCOUNT_OUT_OF_SCOPE`). A two-organization post/save
+  regression is in Testing Strategy.
+- **Major — the foreign-currency addition contradicted Commands, Invariant 2
+  and Out of scope.** Chose to keep FX in Phase 1 (preserving the team's
+  2026-10-23 rounding decision) and propagate it consistently instead of
+  deleting it: Design decisions now holds one authoritative algorithm
+  (base-currency resolution, rate source, per-line conversion with
+  `amountCurrency`, rounding line and tolerance); Commands implements it and
+  validates every account's scope; Invariant 2 is restated on booked
+  base-currency receivable debits and Invariant 3 includes the signed
+  rounding line; the 422 contract names `BASE_CURRENCY_UNRESOLVED`,
+  `EXCHANGE_RATE_MISSING`, `ROUNDING_ACCOUNT_UNSET` and
+  `ROUNDING_DIFFERENCE_TOO_LARGE`; Out of scope now lists FX gain/loss,
+  revaluation and rate sourcing instead of claiming base-currency-only; and
+  Testing Strategy covers the base-currency no-op, a foreign-currency
+  posting, the rounding line and every rejection.
+
+Not yet re-reviewed after these edits.
