@@ -53,6 +53,9 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] Scalar changes flushed BEFORE relation syncs that query on same `EntityManager`
 - [ ] No `em.find`/`em.findOne` between scalar mutations and `em.flush()` without `withAtomicFlush`
 - [ ] Transactions are atomic — all-or-nothing semantics
+- [ ] **New monetary values use `Money`** (`@open-mercato/shared/lib/money`): every new entity column, validator field, command input, service signature or API field that holds an amount tied to a currency uses `Money`/`Currency` and persists through `MoneyColumns` (`@open-mercato/shared/lib/db/moneyColumns`) — no new `number` or bare decimal-string money fields and no new `<field>Exact` pairs. Code that only touches existing money fields is exempt. `yarn money:check-new-code` lists likely misses (advisory; exceptions in `.ai/money-allowlist.json`)
+- [ ] A `Currency` comes only from `resolveCurrency(container, { code, tenantId, organizationId })` — never built by hand or from the ISO table; `restoreMoney` / `moneyFromColumns` read only snapshots the system wrote itself (request input goes through `moneyInputSchema` + `resolveMoney`)
+- [ ] Every `divideMoney`, `convertMoney`, `rescaleMoney`, `roundMoney` and `allocateMoney` call passes an explicit rounding / `decimalPlaces`; a `CurrencyMismatchError` is not swallowed by a `try`/`catch`
 
 ## 4. API Routes
 
@@ -342,6 +345,7 @@ Flag any of these patterns as violations:
 | Anti-Pattern | Severity | Fix |
 |---|---|---|
 | Removed/renamed event ID without deprecation bridge | Critical | Keep old ID, emit both, deprecate after one minor version |
+| New money field as `number`, bare decimal string or `<field>Exact` pair | High | Use `Money`/`Currency` from `@open-mercato/shared/lib/money`; persist with `MoneyColumns` |
 | Removed/renamed widget spot ID | Critical | Keep old spot ID, add new one additively |
 | Removed field from API response schema | Critical | Keep field (set to null/default if no longer meaningful), deprecate |
 | Renamed/removed DB column or table | Critical | Keep old column, add new one, backfill, deprecate old |

@@ -9,6 +9,7 @@ Check `.ai/specs/` and `.ai/specs/enterprise/` before modifying any module. Crea
 - Update an existing spec when changing APIs, data models, workflows, permissions, or cross-module behavior.
 - Keep specs implementation-accurate and update the changelog after implementation.
 - Use the root Task Router to identify all related guides for review.
+- A spec that adds monetary fields states that they use `Money`/`Currency` (`@open-mercato/shared/lib/money`) and lists their `MoneyColumns` embeds (prefix and the three generated columns).
 
 ## Ask First
 
