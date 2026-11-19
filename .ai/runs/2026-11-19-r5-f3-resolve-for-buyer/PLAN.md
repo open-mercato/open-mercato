@@ -14,6 +14,7 @@
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Port resolveForBuyer seam with store_misconfigured and unit tests | inline | done | 29160c906c |
 | 1 | 1.2 | Add the StoreContextService upgrade note | inline | done | d279417b1f |
+| 1 | 1.3-review-fix | Cover review test gaps for resolveForBuyer | inline | done | (this commit) |
 
 ## Goal
 
@@ -41,6 +42,7 @@ Add the trusted, in-process buyer seam `storeContextService.resolveForBuyer?` (o
 
 - **1.1 Port resolveForBuyer seam with store_misconfigured and unit tests** — port the three lib hunks from `bdb747c36a`; change `loadStoreChannelForBuyer` to join `sales_channels` (tenant/org/`deleted_at` scoped, as `resolve()` does) and the service to throw `StorefrontResolutionError(503, 'store_misconfigured')` when the store has no usable default channel binding (D-R5-SF3); port the reference unit test and add the §16 cases it lacks.
 - **1.2 Add the StoreContextService upgrade note** — the reference's StoreContextService bullet only, under its own `##` heading.
+- **1.3-review-fix Cover review test gaps for resolveForBuyer** — guest on an open store, person with no `customer_people` row, `buyerDigest` stability/sensitivity, and the store `where` scoping in the lookup SQL.
 
 ## Differences from the reference / card (rule R4: spec wins)
 
@@ -62,6 +64,14 @@ From `.ai/analysis/pre-implement-SPEC-029-2026-02-17-ecommerce-storefront-module
 - N1: active, non-deleted user required; `customerId`-only buyers resolve with primary company and count as authenticated. Ported.
 - I7: §16 unit cases. Covered (difference #3).
 - I4, I5, I6, D3/SF4, SF5 names: caller-side; out of scope here.
+
+## Review outcome (independent review pass)
+
+Verdict: approve. Findings and dispositions:
+- Medium — a trusted guest gets no groups, while a storefront guest resolves the tenant's default customer group (`resolveGroups` with no ids). Not changed: §6.3 says a guest gets "no groups, the channel price kind", and #8268 agrees. Flagged on the PR as a spec question for the owner.
+- Low — a person's primary company is not checked for deletion. Not changed: matches how `resolve()` treats `CustomerUser` links.
+- Low — test gaps. Fixed in 1.3-review-fix.
+- Low — redundant `customerIds.length > 0` guard. Left as ported from the reference.
 
 ## Risks
 

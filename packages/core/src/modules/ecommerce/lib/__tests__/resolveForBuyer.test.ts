@@ -377,6 +377,9 @@ describe('storeContextService.resolveForBuyer', () => {
       expect(query.sql).toContain('"sc"."organization_id" = "c"."organization_id"')
       expect(query.sql).toContain('"sc"."deleted_at" is null')
       expect(query.sql).toContain('"c"."tenant_id" = "s"."tenant_id"')
+      expect(query.sql).toContain('"s"."tenant_id" = $')
+      expect(query.sql).toContain('"s"."organization_id" = $')
+      expect(query.sql).toContain('"s"."deleted_at" is null')
       expect(query.parameters).toEqual(expect.arrayContaining([STORE_ID, TENANT_ID, ORG_ID]))
     })
 
@@ -479,7 +482,17 @@ describe('storeContextService.resolveForBuyer', () => {
       expect(result.assortmentScope).toBeNull()
     })
 
-    it('resolves a company alone and counts as authenticated for scope', async () => {
+    it('resolves a person with no customer_people row alone', async () => {
+    const harness = createHarness({ entities: [entity('person-1', 'person')] })
+    const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+
+    const result = await resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID, customerId: 'person-1' })
+
+    expect(result.customerId).toBe('person-1')
+    expect(result.customerIds).toEqual(['person-1'])
+  })
+
+  it('resolves a company alone and counts as authenticated for scope', async () => {
       const harness = createHarness({ entities: [entity('company-1', 'company')] })
       mockedLoadStoreChannelForBuyer.mockResolvedValue(
         openStore({ channel: { priceKindId: null, assortmentScope: null, requireAuthentication: true } }),
@@ -553,6 +566,41 @@ describe('storeContextService.resolveForBuyer', () => {
     expect(withClosedStore.priceKindId).toBe('kind-channel')
     expect(withClosedStore.currencyCode).toBe('USD')
     expect(withClosedStore.assortmentScope).toEqual([])
+  })
+
+  it('resolves a guest on an open store to the channel scope', async () => {
+    const harness = createHarness({})
+    mockedLoadStoreChannelForBuyer.mockResolvedValue(
+      openStore({
+        channel: { priceKindId: 'kind-channel', assortmentScope: { categoryIds: ['cat-1'] }, requireAuthentication: false },
+      }),
+    )
+    const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+
+    const result = await resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID, storeId: STORE_ID })
+
+    expect(result.customerGroupIds).toEqual([])
+    expect(result.priceKindId).toBe('kind-channel')
+    expect(result.assortmentScope).not.toEqual([])
+    expect(result.assortmentScope).not.toBeNull()
+  })
+
+  it('buyerDigest is stable for the same identity and changes with groups and store', async () => {
+    const groupsByCustomer: Record<string, GroupFixture> = { 'person-1': { groupIds: ['group-b', 'group-a'] } }
+    const harness = createHarness({ users: [user('user-1', 'person-1', null)], groupsByCustomer })
+    mockedLoadStoreChannelForBuyer.mockResolvedValue(openStore())
+    const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
+    const input = { tenantId: TENANT_ID, organizationId: ORG_ID, customerUserId: 'user-1' }
+
+    const first = await resolveForBuyer(input)
+    const repeat = await resolveForBuyer(input)
+    groupsByCustomer['person-1'] = { groupIds: ['group-a'] }
+    const fewerGroups = await resolveForBuyer(input)
+    const withStore = await resolveForBuyer({ ...input, storeId: STORE_ID })
+
+    expect(repeat.buyerDigest).toBe(first.buyerDigest)
+    expect(fewerGroups.buyerDigest).not.toBe(first.buyerDigest)
+    expect(withStore.buyerDigest).not.toBe(fewerGroups.buyerDigest)
   })
 
   it('never reads or writes the buyer\'s own 60s cache, and sees a membership change at once', async () => {
