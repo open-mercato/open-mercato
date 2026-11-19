@@ -56,6 +56,7 @@ import {
 import { DisposeDialog } from '../../components/DisposeDialog'
 import { ProposalOptionList } from '../../components/ProposalOptionList'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
+import { heldIntegrityRuleIds } from '../../components/guardrailEvidence'
 import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 import {
   useInboxCursor,
@@ -1708,6 +1709,7 @@ function DecisionPane({
               onSelect={row.isPending ? (optionId) => onChooseOption(row.id, optionId) : undefined}
               disabled={busy}
               autoDispositionBlock={row.autoDispositionBlock}
+              heldRuleIds={heldIntegrityRuleIds(detail.proposal.guardResults)}
               showChooseHint={row.isPending && row.optionCount > 1}
             />
           </section>
