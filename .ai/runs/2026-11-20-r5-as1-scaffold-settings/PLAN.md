@@ -18,7 +18,7 @@
 | 2 | 2.4 | Settings validators (`rep \| off`, §5.6 bounds, `.strict()`) + tests | inline | done | — |
 | 2 | 2.5 | `assisted_selling.settings.save` command (`withAtomicFlush`, 409 on first-save race) + tests | inline | done | — |
 | 2 | 2.6 | `GET/PUT /api/assisted_selling/settings/:storeId` (store-org ownership, 404, 500) + tests | inline | done | — |
-| 3 | 3.1 | UPGRADE_NOTES + spec changelog line | inline | todo | — |
+| 3 | 3.1 | UPGRADE_NOTES + spec changelog line | inline | done | — |
 
 ## Goal
 
