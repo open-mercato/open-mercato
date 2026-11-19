@@ -9,6 +9,7 @@
  */
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
+import { flushSync } from 'react-dom'
 import { FlashMessages } from '../../src/backend/FlashMessages'
 
 export type FlashRaceHarness = {
@@ -28,8 +29,14 @@ function Harness() {
 
   React.useEffect(() => {
     window.__flashRaceHarness = {
-      mountSecondary: () => setSecondaryMounted(true),
-      unmountSecondary: () => setSecondaryMounted(false),
+      // `flushSync` forces the mount/unmount commit (and its layout/passive
+      // effects) to run synchronously, in the same turn as the call — the
+      // deterministic ordering the race test relies on against the primary
+      // host's `setTimeout`+`queueMicrotask`-deferred navigation observer.
+      // A plain `setState` call from outside a React event is only
+      // scheduled, not guaranteed to commit before that deferred effect.
+      mountSecondary: () => flushSync(() => setSecondaryMounted(true)),
+      unmountSecondary: () => flushSync(() => setSecondaryMounted(false)),
       navigate: (href: string) => {
         window.history.pushState({}, '', href)
       },

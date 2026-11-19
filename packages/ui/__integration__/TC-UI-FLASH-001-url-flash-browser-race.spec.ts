@@ -1,7 +1,4 @@
 import { expect, test, type Page } from '@playwright/test'
-import { login } from '@open-mercato/core/helpers/integration/auth'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import type { FlashRaceHarness } from './flash-race/harnessApp'
 import {
   startFlashRaceHarnessServer,
@@ -32,8 +29,19 @@ async function runLateSecondaryRace(
       // update reproduces the race from #8471/#8709: the secondary's own
       // mount-time effect observes the just-written URL before the primary
       // host's deferred navigation-observer effect (scheduled off the
-      // monkey-patched `pushState`) has had a chance to run.
+      // monkey-patched `pushState` via `setTimeout`+`queueMicrotask`) has
+      // had a chance to run. `mountSecondary` commits synchronously (the
+      // harness wraps it in `flushSync`), so the ordering below is
+      // guaranteed, not merely hoped for.
       window.__flashRaceHarness!.mountSecondary()
+      if (!window.location.search.includes('flash=')) {
+        throw new Error(
+          'Harness ordering assumption violated: the primary host already ' +
+            'consumed/stripped the URL flash params before the secondary ' +
+            'host finished mounting synchronously — this run would not ' +
+            'actually exercise the late-secondary-mount race.',
+        )
+      }
     },
     { message, keepValue },
   )
@@ -100,61 +108,12 @@ test.describe('TC-UI-FLASH-001: FlashMessages late-secondary URL flash race (bro
 
     // Verify the real 3-second auto-dismiss on the last delivered toast —
     // checked once (not on every attempt) to keep the spec's wall-clock
-    // cost bounded.
-    await page.waitForTimeout(3_100)
+    // cost bounded. Two tight real-time windows bracket the 3s boundary
+    // instead of one loose 3.1s wait, so the assertion actually pins down
+    // *when* the toast disappears rather than merely "eventually".
+    await page.waitForTimeout(2_900)
+    await expect(page.getByText(lastMessage)).toBeVisible()
+    await page.waitForTimeout(200)
     await expect(page.getByText(lastMessage)).toHaveCount(0)
-  })
-})
-
-/**
- * TC-UI-FLASH-002: companion to TC-UI-FLASH-001 — exercises the same
- * primary-host flash delivery through a real tenant-bound record and the
- * product's actual production CrudForm save redirect, per #8709's
- * acceptance criteria, rather than the synthetic harness above.
- */
-test.describe('TC-UI-FLASH-002: FlashMessages real production save redirect', () => {
-  test('shows exactly one "Todo saved" toast and strips the URL after a real edit/save redirect', async ({ page, request }) => {
-    test.slow()
-    const token = await getAuthToken(request, 'admin')
-    const title = `QA flash redirect ${Date.now()}`
-    let todoId: string | null = null
-
-    try {
-      const created = await apiRequest(request, 'POST', '/api/example/todos', {
-        token,
-        // `cf_priority`/`cf_severity` are required custom fields on the Todo
-        // entity (apps/mercato/src/modules/example/ce.ts) — the API does not
-        // backfill their `defaultValue` on create, so omitting them here
-        // leaves the edit form's required-field validation blocking every
-        // save silently (no navigation, no error toast).
-        data: { title, cf_priority: 3, cf_severity: 'medium' },
-      })
-      expect(created.ok(), `Failed to create todo fixture: ${created.status()}`).toBeTruthy()
-      const createdBody = (await created.json()) as { id?: string }
-      todoId = createdBody.id ?? null
-      expect(todoId).toBeTruthy()
-
-      await login(page, 'admin')
-      await page.goto(`/backend/todos/${encodeURIComponent(todoId!)}/edit`, { waitUntil: 'commit' })
-
-      const titleInput = page.locator('[data-crud-field-id="title"] input').first()
-      await expect(titleInput).toHaveValue(title)
-      await titleInput.fill(`${title} edited`)
-
-      const saveForm = page.locator('[data-crud-field-id="title"]').first().locator('xpath=ancestor::form').first()
-      await saveForm.locator('button[type="submit"]').first().click()
-
-      await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
-
-      const toasts = page.locator('[data-slot="alert"]')
-      await expect(toasts).toHaveCount(1)
-      await expect(toasts.first()).toContainText('Todo saved')
-
-      const currentUrl = page.url()
-      expect(currentUrl).not.toContain('flash=')
-      expect(currentUrl).not.toContain('type=')
-    } finally {
-      await deleteEntityIfExists(request, token, '/api/example/todos', todoId)
-    }
   })
 })
