@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft (rev 3.10) — independent verification approved (rev 3.9); awaiting maintainer approval |
+| **Status** | Draft (rev 3.11) — PR #10009 review findings addressed; awaiting re-review |
 | **Created** | 2026-11-19 |
 | **Builds on** | [CRM Calendar](./2026-06-11-crm-calendar.md), [Configurable Calendar Event Types](./2026-09-28-configurable-calendar-event-types.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md), [CRM Email Integration](./implemented/2026-05-27-crm-email-integration.md), [Email Integration Foundation](./2026-05-21-email-integration-foundation.md) |
 | **Reuses** | `communication_channels` hub OAuth flow + token refresh, `@open-mercato/channel-gmail` Google OAuth client, `customers` interaction/person commands + `syncOrigin`, `findPeopleByAddresses`, `hashForLookup`, the `communication_channels` adapter-registry pattern (`registerChannelAdapter`) |
@@ -139,7 +139,7 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
 
 ### Shared meetings (R14)
 
-- **Meeting key** = `(organization_id, ical_uid, instance_key)`. Provider adapters MUST supply `icalUid`; all three target protocols expose it (Google `iCalUID`, Graph `iCalUId`, CalDAV `UID`). An event without one gets a synthetic key `provider:<providerKey>:<externalId>`, **stored in the `ical_uid` column** (so every index sees it), and is never shared.
+- **Meeting key** = `(organization_id, ical_uid, instance_key)`. Provider adapters MUST supply `icalUid`; all three target protocols expose it (Google `iCalUID`, Graph `iCalUId`, CalDAV `UID`). An event without one gets a synthetic key `provider:<providerKey>:<connectionId>:<externalId>`, **stored in the `ical_uid` column** (so every index sees it), and is never shared. External event ids are only unique **within one calendar**, so the key includes the connection: two calendars returning the same local id for unrelated UID-less events are always placed independently.
 - **`instance_key` canonical form.** Adapters MUST build it with the hub helper `buildInstanceKey({ originalStart, allDay, timezone })`, exported with the contract, so keys are byte-equal across providers:
   - `''` for non-recurring events and for series masters;
   - timed instances: original start converted to UTC, second precision, `YYYY-MM-DDTHH:mm:ssZ`;
@@ -182,8 +182,13 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
   - when a user chooses "Create person" or "Link to existing customer" (`promote { entityId }`);
   - when the owner chooses "Add to CRM" (required for private events).
 - **User deletes an interaction (CRM-side delete) — state machine:**
-  - **Handler:** the **only** handler of `customers.interaction.deleted` is a hub subscriber, and it acts only when `syncOrigin` is **not** `calendar_sync`. In one hub transaction it:
-    1. Picks the **owning link**: the interaction's primary link if `push_enabled` and (`origin = 'crm'` or `is_organizer`); the CRM then owns the provider event. It sets `state = 'deleting'` (keeping `interaction_id`) and enqueues outbound **after** commit.
+  - **Handler:** the **only** handler of `customers.interaction.deleted` is a hub subscriber, and it acts only when `syncOrigin` is **not** `calendar_sync`.
+  - **Staleness guard:** in one hub transaction it first re-reads the interaction including soft-deleted rows (`findOneWithDecryption` with `deletedAt` visible), locking the owning link row `FOR UPDATE`.
+    - Interaction **live**: the delete was already undone, so this delivery is superseded. It is a **no-op**.
+    - Interaction **deleted**: it proceeds only when this deletion has not been handled yet, that is, when the owning link's `deletion_marker` differs from the interaction's current `deletedAt`. A re-delivery of an already-handled deletion is a no-op; a re-delete after an undo has a new `deletedAt` and is handled.
+  - **Safety net:** the stale-state sweep restores a `deleting` link whose interaction is live (`state = 'linked'`, `deletion_marker` cleared), so a link can never stay stuck in `deleting`.
+  - When it proceeds, it:
+    1. Picks the **owning link**: the interaction's primary link if `push_enabled` and (`origin = 'crm'` or `is_organizer`); the CRM then owns the provider event. It moves it with a compare-and-set (`UPDATE … SET state = 'deleting', deletion_marker = :deletedAt WHERE id = ? AND state = 'linked'`), keeps `interaction_id`, and enqueues outbound **after** commit.
     2. **Detaches** every other link with this `interaction_id` and `state NOT IN ('unlinked','deleting')`: each is re-placed as external from its latest normalized copy (the user's availability stays on the calendar), gets `auto_promote_suppressed_at`, and records `detached_from_interaction_id`.
   - **Worker (owning link):**
     - It acts on a soft-deleted interaction **only when the link is `deleting`**. A pending outbound job that meets a soft-deleted interaction while the link is still `linked` is a **no-op**: the handler has not committed yet and will enqueue its own job. So the worker can never run "before the handler".
@@ -304,7 +309,11 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
 ### Inbound flow
 
 1. **Triggers:** a webhook, a poll tick (`OM_CALENDAR_SYNC_POLL_INTERVAL`), "Sync now", or a connect.
-2. **Coalesce and lock:** the `calendar-sync-inbound` queue is built with `coalesceBy: (p) => \`connection:${p.connectionId}\`` (`@open-mercato/queue` coalescing: a burst of triggers runs once, and a trigger landing mid-run still gets one follow-up run). Across processes the worker takes a **lease**, not a row lock held across network calls: a short transaction runs `UPDATE … SET sync_lease_until = now() + interval '5 minutes', sync_lease_owner = :me WHERE id = ? AND (sync_lease_until IS NULL OR sync_lease_until < now())`. Renewals, cursor writes and the final clear add `AND sync_lease_owner = :me`, so a stalled worker whose lease was taken over can no longer write. Zero rows updated means another worker holds it, so this one exits. The lease is renewed per page and cleared at the end. No database connection or row lock is held during provider calls, and `PUT /connections` never waits on a running sync. The job payload is only `{ connectionId }`. The mode is read from state: `full` when `full_resync_requested_at` is set or the cursor is missing, otherwise `incremental`. Workers stay idempotent (queue `AGENTS.md`).
+2. **Coalesce and lock:** the `calendar-sync-inbound` queue is built with `coalesceBy: (p) => \`connection:${p.connectionId}\`` (`@open-mercato/queue` coalescing: a burst of triggers runs once, and a trigger landing mid-run still gets one follow-up run). Across processes the worker takes a **lease**, not a row lock held across network calls: a short transaction runs `UPDATE … SET sync_lease_until = now() + interval '5 minutes', sync_lease_owner = :me WHERE id = ? AND (sync_lease_until IS NULL OR sync_lease_until < now())`. Each acquisition also increments `lease_epoch` (a monotonically increasing fencing token), and the job keeps the epoch it acquired. Renewals, cursor writes and the final clear add `AND sync_lease_owner = :me AND lease_epoch = :epoch`, so a stalled worker whose lease was taken over can no longer write.
+   - **Fencing of placement and content mutations** (not only cursor writes): every transaction that applies a page's results first runs `SELECT lease_epoch FROM calendar_sync_connections WHERE id = ? AND sync_lease_owner = :me AND lease_epoch = :epoch FOR SHARE` and aborts when no row comes back. Those results are link/placement changes, external rows, the full-sync sweep, attach, promote and customers writes.
+   - `FOR SHARE` blocks a concurrent lease takeover (an `UPDATE` of the row) until the transaction commits, so a takeover is either visible before the mutation (abort) or waits until after it (the old worker's mutation is still valid).
+   - The **customers command runs inside the same transaction** via `ctx.transactionalEm`. `customers.interactions.create` and `update` already honor it; Part A adds the same support to `cancel` and `delete`, which today always fork their own EntityManager. That puts the customers write behind the same fence.
+   - **Version guard** (defence in depth): a link applies a normalized event only when `event.updatedAt ≥ link.externalUpdatedAt`. A provider call that returns after a newer page of the same event was applied is dropped instead of overwriting newer content. Zero rows updated means another worker holds it, so this one exits. The lease is renewed per page and cleared at the end. No database connection or row lock is held during provider calls, and `PUT /connections` never waits on a running sync. The job payload is only `{ connectionId }`. The mode comes from the persisted **traversal** (see step 6): an unfinished traversal is always continued in its own mode; otherwise the run is `full` when `full_resync_requested_at` is set or the cursor is missing, else `incremental`. Workers stay idempotent (queue `AGENTS.md`).
 3. **Token:** `refreshCredentialsIfNeeded` returns a fresh token. Reauth errors route to the hub's `requires_reauth`.
 4. **Listing:**
    - `adapter.listChanges({ state: connection.providerState, mode: 'incremental' | 'full', horizon, pageBudget })` returns `{ events, deletedExternalIds, nextState, hasMore, fullResyncRequired }`.
@@ -315,9 +324,18 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
    - When only the CRM side changed, the CRM version is kept. Outbound is enqueued if push is enabled; otherwise the edit stays CRM-only, as the editor states. A full sync, `410` or reconnect therefore never overwrites CRM edits with unchanged provider content.
    - For a freshly cleared hash (unlink/re-place) **on a link with no `external_updated_at` of its own**, content is applied only when the interaction is sync-pristine. A link that still has its own watermark uses `event.updatedAt > link.externalUpdatedAt` as the change signal, with the normal conflict rule. This matches the first-apply-as-primary rule. The check is provider-independent: it works for CalDAV, where one ETag covers a whole series. `version` is used only for `If-Match` concurrency.
 6. **Cursor and paging:**
-   - The connection keeps two pieces of state: the **committed cursor** `provider_state` (the adapter's `nextState`, persisted only when a listing finishes, `hasMore = false`) and the **in-progress page state** `provider_page_state` (the adapter's `nextPageState`, persisted after **every** page).
-   - When the page budget is exhausted with `hasMore = true`, the worker persists the page state and enqueues a follow-up inbound job, so the next run resumes from that page instead of page 1. A listing of any size converges.
-   - A full sync stamps a fresh `full_sync_run_id` on the connection and sets `last_seen_run_id` on every link it sees. On completion it **marks and sweeps**: links of the connection whose `starts_at` is inside the horizon and that were not seen are treated as deleted. Excluded from the sweep: **owning** links (`push_enabled` and (`origin = 'crm'` or `is_organizer`)) with `external_event_id IS NULL` (first push or re-insert still pending), and links in `deleting` (their delete flow owns them). Only links with `state NOT IN ('unlinked','deleting')` are considered. Each unseen link is unlinked (`unlink_reason = 'sweep'`, with primary handover) and its external row soft-deleted. The sweep never overwrites an existing `unlink_reason`, so a `crm_delete` row keeps its reason for undo. This sweep is needed because providers return deletions only for a limited time.
+   - The connection keeps the **committed cursor** `provider_state` (the adapter's `nextState`, persisted only when a listing finishes, `hasMore = false`) and one **traversal** record, persisted **atomically together** after every page:
+     - `traversal_mode`: `incremental` | `full`;
+     - `traversal_run_id`;
+     - `traversal_started_at`;
+     - `traversal_horizon_from` / `traversal_horizon_to`: the horizon fixed at traversal start and passed unchanged to every page call;
+     - `provider_page_state`: the adapter's `nextPageState`.
+   - When the page budget is exhausted with `hasMore = true`, the worker persists the traversal record and enqueues a follow-up inbound job. The next run **continues the same traversal**: same mode, same `traversal_run_id`, same fixed horizon, from the stored page. It never stamps a new run id mid-traversal. A listing of any size converges.
+   - **A full request arriving mid-traversal:**
+     - During an **incremental** traversal: its page state is incompatible with a full listing, so it is **invalidated**. The traversal record is cleared, while the committed cursor is untouched. A fresh full traversal starts with a new `traversal_run_id`, a new fixed horizon and `traversal_started_at = now()`.
+     - During a **full** traversal: no restart. The running traversal continues.
+   - **Completion:** when a traversal finishes (`hasMore = false`), the worker commits `provider_state`. If the traversal was `full`, it runs the sweep below **for its own `traversal_run_id` only**, then clears `full_resync_requested_at` **only if it is ≤ `traversal_started_at`**. A request made after that traversal began was not serviced by it and triggers another full run. Finally the traversal record is cleared.
+   - A full traversal sets `last_seen_run_id = traversal_run_id` on every link it sees. On completion it **marks and sweeps**, within its fixed horizon: links of the connection whose `starts_at` is inside the horizon and that were not seen are treated as deleted. Excluded from the sweep: **owning** links (`push_enabled` and (`origin = 'crm'` or `is_organizer`)) with `external_event_id IS NULL` (first push or re-insert still pending), and links in `deleting` (their delete flow owns them). Only links with `state NOT IN ('unlinked','deleting')` are considered. Each unseen link is unlinked (`unlink_reason = 'sweep'`, with primary handover) and its external row soft-deleted. The sweep never overwrites an existing `unlink_reason`, so a `crm_delete` row keeps its reason for undo. This sweep is needed because providers return deletions only for a limited time.
    - Failed events are retried on the next tick (`pendingRetryExternalIds`, ≤ 50).
 
 ### Outbound flow (interactions only)
@@ -515,8 +533,7 @@ One row per (communication channel, external calendar). User-editable → `updat
 | `external_calendar_id` | text | |
 | `status` | text | `active` \| `paused` \| `error` \| `requires_reauth` |
 | `provider_state` | jsonb null | committed cursor owned by the adapter (validated by `providerStateSchema`); no PII |
-| `full_sync_run_id` | uuid null | id of the running or most recent full sync |
-| `provider_page_state` | jsonb null | in-progress page token of an unfinished listing; persisted per page, cleared when the listing completes |
+| `provider_page_state` | jsonb null | in-progress page token of the current traversal; persisted atomically with the traversal record, cleared on completion or invalidation |
 | `sync_lease_until` | timestamptz null | inbound worker lease (see Inbound flow step 2) |
 | `sync_lease_owner` | uuid null | random id of the lease holder; renewals, the final clear, and every `provider_state` / `provider_page_state` write are conditional on `sync_lease_owner = :me` |
 | `pending_retry_external_ids` | jsonb null | ≤ 50 |
@@ -529,7 +546,9 @@ One row per (communication channel, external calendar). User-editable → `updat
 | `push_default_enabled`, `notify_attendees_default` | boolean default true | |
 | `last_full_sync_at`, `last_incremental_sync_at` | timestamptz null | |
 | `status_changed_at` | timestamptz | set whenever `status` changes; drives delete abandonment for inactive connections |
-| `full_resync_requested_at` | timestamptz null | persisted intent from "Full resync"; the inbound worker runs `mode: 'full'` when set and clears it on completion |
+| `full_resync_requested_at` | timestamptz null | persisted intent from "Full resync"; cleared by a completed full traversal only when `≤ traversal_started_at` |
+| `traversal_mode`, `traversal_run_id`, `traversal_started_at`, `traversal_horizon_from`, `traversal_horizon_to` | text / uuid / timestamptz null | the in-progress traversal; written atomically with `provider_page_state` after every page, cleared on completion or invalidation |
+| `lease_epoch` | bigint default 0 | fencing token, incremented on every lease acquisition; checked `FOR SHARE` by every mutation transaction |
 | `settings_updated_at` | timestamptz | **optimistic-lock version** for user settings, bumped only by `connection.update` (sync writes never touch it); returned as `updatedAt` by the connections API |
 | `last_error` | text null | machine code |
 | `created_at`, `updated_at`, `deleted_at` | timestamptz | |
@@ -565,6 +584,7 @@ Identity and sync state per (connection, external event or instance). Holds no c
 | `state_changed_at` | timestamptz | set whenever `state` changes; separates a live `promoting`/`demoting` row from a crashed one |
 | `auto_promote_suppressed_at` | timestamptz null | set by undo of a manual promotion, by a user-delete detach and by the missing-interaction detach; suppresses automatic promotion until the attendee set changes or a manual promote |
 | `auto_promote_suppressed_hashes` | text[] null | attendee-email hashes at suppression time; placement compares against them to detect an attendee change |
+| `deletion_marker` | timestamptz null | the interaction `deletedAt` this link's delete flow is handling; makes the delete handler idempotent and rejects superseded deliveries |
 | `detached_from_interaction_id` | uuid null | set when the link is detached from an interaction by demotion or by a user delete; lets the `customers.interaction.created` subscriber restore the meeting's links when that delete is undone. **Cleared** by promote finalize and by any later re-placement of the link to `interaction`. Re-placement to `external` by demotion or detach keeps it, which is what undo needs. |
 | `skip_reason` | text null | `event_type` \| `before_lookback` \| `series_master` |
 | `is_organizer`, `is_private` | boolean | |
@@ -645,9 +665,14 @@ One row per organization. User-editable → `updated_at` for optimistic locking.
 |--------|------|-----------|
 | `meeting_url` | text null | http(s) URL ≤ 2048; rejects `javascript:` and `data:`. Join anchors use `rel="noopener noreferrer"` + `target="_blank"`. |
 | `meeting_provider` | text null | `^[a-z0-9_]{1,50}$` (`google_meet`, `teams`, `zoom`, `webex`, `other`) |
-| `meeting_details` | jsonb null | strict `{ conferenceId?: ≤200, entryPoints?: max 10 × { type: video\|phone\|sip\|more, uri ≤2048, label? ≤200, pin? ≤50, regionCode? ≤10 }, notes? ≤2000 }` |
+| `meeting_details` | jsonb null | strict `{ conferenceId?: ≤200, entryPoints?: max 10 × { type: video\|phone\|sip\|more, uri ≤2048 (**scheme allowlist by type**: `video`/`more` → `https:` only; `phone` → `tel:` only; `sip` → `sip:`/`sips:` only; anything else, including `javascript:`, `data:` and `http:`, is rejected), label? ≤200, pin? ≤50, regionCode? ≤10 }, notes? ≤2000 }` |
 
 - **Encryption:** `meeting_url`, `meeting_details` **and `participants`** (jsonb: attendee names and emails, which sync writes at volume) are added to the `customers:customer_interaction` map, with a `buildEncryptionMapBackfillSql` migration (empty `down()`) that also backfills existing `participants`. Every reader already loads interactions through `findWithDecryption` (list route, detail routes, conflict check, calendar), and no SQL filters on `participants`; Phase 2 verifies both with a grep plus the existing conflict/visibility tests.
+- **Entry-point URI safety (validation and rendering):** the scheme allowlist on `meetingDetails.entryPoints[].uri` lives in one exported helper, `isAllowedMeetingEntryPointUri(type, uri)` (`customers/lib/meetingLinks.ts`).
+  - The zod validator uses it, so the API rejects a bad entry point with 400.
+  - The hub's normalizer uses it to **drop** non-conforming entry points from provider data instead of failing the whole event.
+  - Every UI that renders entry points uses it **again at render time**: an entry point that fails the check renders as plain text, never as an anchor. Rows stored before the rule existed are therefore safe too.
+  - `meetingUrl` keeps its own `http(s):` rule.
 - **Index:** GIN `jsonb_path_ops` on `linked_entities`, built `CONCURRENTLY` (precedent: `sales/migrations/Migration20260916120000_sales_payment_allocation_order_idx.ts`).
 - **Applicability:** `meetingUrl` is applicable to the `meeting` and `event` base kinds.
 
@@ -660,7 +685,7 @@ One row per organization. User-editable → `updated_at` for optimistic locking.
 | `start/end/allDay` | `scheduledAt`, `durationMinutes`, `allDay` | `starts_at`, `ends_at`, `all_day` | |
 | `timezone` | `timezone` | `timezone` | |
 | `location` | `location` (≤500) | `location` | |
-| `conference` | `meetingUrl/Provider/Details` | same | without a conference: first known-platform URL in location/description |
+| `conference` | `meetingUrl/Provider/Details` | same | without a conference: first known-platform URL in location/description. Entry points failing `isAllowedMeetingEntryPointUri` are dropped during normalization. |
 | `attendees` | `participants[]` (`self` → connection user id); attached links add their own user | `attendees` + link hashes | resources excluded from matching |
 | matched persons | `entity` + `linkedEntities` (`managedPersonIds`) | — | entity is stable once set |
 | `kind` | — | `kind` | `focus_time` / `out_of_office`; `default` → `meeting` / `event` |
@@ -695,7 +720,7 @@ All routes:
 | `GET /api/calendar_sync/events/[id]` | same | Details (owner, or shared non-private) incl. `attendees: [{ email, name, status, personId \| null, canCreatePerson }]` (one batched matcher call). Redacted → `{ redacted: true }`. |
 | `POST /api/calendar_sync/events/[id]/promote` | `calendar_sync.view` + `customers.interactions.manage` | `{ entityId?: uuid, confirmSharePrivate?: boolean }`. **Authorization follows the redaction rule:** a caller who would receive the redacted shape for this event (any non-owner of a private event, or of an event whose owner has `share_event_details = false`) gets 403 `details_hidden`. **Focus-time and out-of-office events cannot be promoted by anyone** (409 `kind_not_promotable`): they are availability, not meetings. Other errors: 409 `no_person`, 409 `confirmation_required` (owner promoting their own private event without `confirmSharePrivate`); a foreign `entityId` → 404 from the customers command. Idempotent. The details panel hides the actions whenever the API would refuse them. |
 | `GET/PUT /api/calendar_sync/interactions/[interactionId]/link` | GET `calendar_sync.connect` + `customers.interactions.view`; PUT + `customers.interactions.manage` | **Record-level authorization (GET and PUT):** the hub resolves the customers DI service `customerInteractionAccess` (`tryResolve`) and calls `describeForUser({ interactionId, userId, tenantId, organizationId })`. That applies the same visibility rules as the interactions read path (`customers/lib/visibilityFilter.ts`, including owner-only private email rows) and returns `{ visible, baseKind }`. Not visible → 404. A base kind other than `meeting`/`event` → 409 `kind_not_syncable` (email/call/note/task interactions are never pushed). The outbound worker re-checks the base kind before every provider write (defense in depth). `{ connections: [{ id, providerKey, providerLabelKey, conference: {key,labelKey}\|null }], link: null \| { id, connectionId, origin, isPrimary, isOrganizer, pushEnabled, conferenceRequested, conferencePending, notifyAttendees, htmlLink, lastError, updatedAt /* = intent_updated_at */ }, defaults }` / PUT `{ connectionId, pushEnabled, conferenceRequested?, notifyAttendees? }` + lock on `intent_updated_at` (sync ticks never bump it). The interaction itself is already saved when this runs; a 409 is surfaced via `surfaceRecordConflict` and leaves the interaction edit intact, with only the push intent unsaved. Errors: 409 `not_organizer`, `not_primary`, `not_connected`, `conference_unsupported`. |
-| `POST /api/calendar_sync/webhook/[provider]` | `requireAuth: false`, rate limited | Unknown provider or no `parseNotification` → 404. `validation` → the adapter's status and body, served by the hub **always** as `text/plain; charset=utf-8` with `X-Content-Type-Options: nosniff` (the adapter cannot choose the content type). `changes` → for each item, look up the connection by `notification_channel_id` or `notification_resource` (per `lookup.by`) and do a constant-time `sha256(token)` compare. Matching items enqueue the coalesced inbound job for their connection. Unknown or bad-token items are dropped and counted in metrics/logs. The response is a **uniform `202`** regardless of item validity, so callers cannot probe which channel ids exist. `sync`/`ignore` → 200. Scope comes only from the stored connection. |
+| `POST /api/calendar_sync/webhook/[provider]` | `requireAuth: false`, rate limited | **Bounded body first:** before any adapter code runs, the route reads the body with `readBoundedRequestBody(req)` from `@open-mercato/shared/lib/webhooks` (shared 1 MiB default, `OM_WEBHOOK_MAX_BODY_BYTES` override). A declared `Content-Length` over the limit, or a streamed/chunked body that overflows, raises `WebhookBodyTooLargeError` → **413**, with no adapter call and no lookup. `parseNotification` only ever receives the bounded string. Unknown provider or no `parseNotification` → 404. `validation` → the adapter's status and body, served by the hub **always** as `text/plain; charset=utf-8` with `X-Content-Type-Options: nosniff` (the adapter cannot choose the content type). `changes` → for each item, look up the connection by `notification_channel_id` or `notification_resource` (per `lookup.by`) and do a constant-time `sha256(token)` compare. Matching items enqueue the coalesced inbound job for their connection. Unknown or bad-token items are dropped and counted in metrics/logs. The response is a **uniform `202`** regardless of item validity, so callers cannot probe which channel ids exist. `sync`/`ignore` → 200. Scope comes only from the stored connection. |
 
 **Response enricher** `calendar_sync.interaction-link` on `customers.interaction`: `_calendarSync: { linked, providerKey, htmlLink, origin, isOrganizer, conferencePending, sharedWith: number }`. One batched query, gated on `calendar_sync.connect`, `cacheableOnListHit: false`.
 
@@ -926,7 +951,7 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
 
 ### Phase 2 — Customers seams (A)
 
-6. Meeting columns/validators/encryption/backfill/applicability/API.
+6. Meeting columns/validators/encryption/backfill/applicability/API; `isAllowedMeetingEntryPointUri` (validator + render-time check); `ctx.transactionalEm` support added to `customers.interactions.cancel` and `customers.interactions.delete` (create/update already have it), so hub writes can run behind the lease fence.
 7. Meeting link field; Join prefers `meetingUrl`.
 8. `customerPersonEmailMatcher`; `customerInteractionAccess` (visibility + base kind); `includeLinked` + GIN (bound `?::jsonb` parameter); person activities use `includeLinked=true`.
 9. Item-source + details hosts and types; `fetchExternalCalendarItems`; external rendering; conflicts; peek.
@@ -1005,7 +1030,7 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
 | `apps/mercato/src/modules.ts`, `packages/create-app/template/src/modules.ts` | Modify | Enable `{ id: 'calendar_sync', from: '@open-mercato/core' }` and `{ id: 'channel_google_calendar', from: '@open-mercato/channel-google-calendar' }` (same pattern as `channel_gmail`) |
 | `apps/mercato/package.json`, `packages/create-app/template/package.json.template` | Modify | Add `@open-mercato/channel-google-calendar` and `@open-mercato/google-auth` |
 | `packages/channel-gmail/package.json` | Modify | Depend on `@open-mercato/google-auth` |
-| `packages/core/src/modules/customers/**` (entities, validators, encryption, migrations, di, extension-points, `lib/personEmailMatcher.ts`, `lib/interactionAccess.ts`, `lib/calendar/*`, calendar components, interactions route, email components) | Modify/Create | Part A |
+| `packages/core/src/modules/customers/**` (entities, validators, encryption, migrations, di, extension-points, `lib/personEmailMatcher.ts`, `lib/interactionAccess.ts`, `lib/meetingLinks.ts`, `commands/interactions.ts` (transactional EM for cancel/delete), `lib/calendar/*`, calendar components, interactions route, email components) | Modify/Create | Part A |
 | `packages/core/src/modules/calendar_sync/**` | Create | Hub (contract, registry, entities, engine, workers, subscribers, API, widgets, pages, i18n, tests, fake adapter) |
 | `packages/channel-google-calendar/src/modules/channel_google_calendar/**` | Create | Google provider |
 | `apps/docs/docs/framework/modules/building-calendar-sync-provider.mdx`, `apps/docs/docs/user-guide/calendar-sync-google.mdx` | Create | Docs |
@@ -1052,6 +1077,12 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
     - undo of a manual promote is not reversed by the next person update (`auto_promote_suppressed_at`);
     - refresh after a dedicated calendar client is configured still uses the issuing (Gmail) client;
     - Graph-like recurring occurrences produce the same meeting key as the Google and CalDAV fixtures (series-master UID);
+    - a full traversal spanning several jobs keeps one `traversal_run_id` and its fixed horizon, and its final sweep removes nothing that was seen on page 1;
+    - a full request arriving mid-incremental traversal invalidates the incremental page state (the committed cursor is unchanged) and starts a fresh full traversal; a full request arriving mid-full traversal does not restart it, and a request made after the traversal started is not cleared by it;
+    - a provider call that returns after another worker took over the lease and applied a newer page → the stale worker's placement/content transaction aborts on the `lease_epoch` fence, and the version guard drops the older event;
+    - a delete delivery arriving after its undo was handled → no-op (interaction live); a duplicate delivery of a handled deletion → no-op (`deletion_marker`); a re-delete after undo → handled; a `deleting` link with a live interaction is restored by the sweep;
+    - two connections returning the same local external id for unrelated UID-less events → placed independently (connection-scoped synthetic key);
+    - the normalizer drops entry points with disallowed schemes, and the render-time check never emits a link for them;
     - reconnect with unchanged provider events restores the external rows and re-elects primaries (full mode bypasses the echo skip); enabling auto-create, then a full resync, creates People for unchanged events;
     - undo of a manual promotion after a colleague attached → every link attached at undo time is re-placed as external (none dangling);
     - a user deleting an imported interaction → all its links detached to external rows with auto-promotion suppressed; undoing the delete restores them;
@@ -1104,7 +1135,7 @@ Self-contained Playwright specs in `calendar_sync/__integration__/`, `channel_go
 | Id | Covers |
 |----|--------|
 | TC-CALSYNC-001 | Connections/settings APIs: 401, 403 (`connect`/`configure`), foreign connection 404, stale 409, invalid domain 400; **two organizations in one tenant** keep separate auto-create settings (each GET returns only its own values); a sync tick between GET and PUT of connection settings does not cause 409 |
-| TC-CALSYNC-002 | Webhook: unknown provider → 404; unknown channel id, bad token and valid change all → uniform 202 (only the valid one enqueues a job, asserted via the job count); a `validation` response is served as `text/plain` with `X-Content-Type-Options: nosniff`; `POST /api/communication_channels/webhook/google_calendar` → 404 |
+| TC-CALSYNC-002 | Webhook: unknown provider → 404; unknown channel id, bad token and valid change all → uniform 202 (only the valid one enqueues a job, asserted via the job count); a `validation` response is served as `text/plain` with `X-Content-Type-Options: nosniff`; `POST /api/communication_channels/webhook/google_calendar` → 404; a body with a declared `Content-Length` over the limit → 413, and a chunked body without `Content-Length` that streams past the limit → 413, neither reaching the adapter (asserted by no job and no adapter call) |
 | TC-CALSYNC-003 | Placement: matched meeting with an unknown email + Meet → interaction (entity, participants, meeting fields, `source = calendar_sync:google_calendar`); internal meeting → external item; cancelled → `canceled` |
 | TC-CALSYNC-004 | User settings page hydration + settings round-trip |
 | TC-CALSYNC-005 | Multi-match → one interaction; `includeLinked=true` for the second person |
@@ -1121,7 +1152,7 @@ Self-contained Playwright specs in `calendar_sync/__integration__/`, `channel_go
 | TC-GCAL-002 | Google normalization end to end (stub): Meet conference, focus time, OOO, private visibility, all-day → correct hub records |
 | TC-GCAL-003 | Editor widget + Meet: insert with `createRequest` and the client id; `meetingUrl` written back; a retried insert (`409`) creates no duplicate |
 | TC-GCAL-004 | Watch registration with `OM_CALENDAR_SYNC_WEBHOOK_BASE_URL`; `X-Goog-*` headers parsed by the generic webhook route |
-| TC-CAL-016 (customers) | `meetingUrl` validation; Join prefers `meetingUrl`; participant "Create person" |
+| TC-CAL-016 (customers) | `meetingUrl` validation; Join prefers `meetingUrl`; participant "Create person"; `meetingDetails.entryPoints` rejects `javascript:`/`data:`/`http:` on `video`, non-`tel:` on `phone` and non-`sip(s):` on `sip` (400); a legacy row containing a `javascript:` entry point renders as plain text, not a link |
 | TC-CAL-017 (customers) | Item-source extension: test source renders; failure notice; no source → no change |
 | TC-CHANNEL-EMAIL-033 (hub) | A calendar channel is not offered as an email sender |
 
@@ -1492,6 +1523,16 @@ None blocking. (`CustomerInteraction.participants` encryption, previously a foll
     - explicit no-op for `deleting` + live interaction;
     - `not_organizer` unlink reason.
 
+- 2026-11-19 — **Rev 3.11 (PR #10009 review: haxiorz security scan, pkarw spec review):**
+  - **High fixes:**
+    - The public webhook reads a bounded body (`readBoundedRequestBody`, 1 MiB default / `OM_WEBHOOK_MAX_BODY_BYTES`) before any adapter parsing, and returns 413 for declared and streamed overflow.
+    - A full sync is a persisted **traversal** (mode, run id, start time, fixed horizon and page state written together). Continuations reuse it. An incompatible incremental traversal is invalidated by a full request. The sweep runs only for the completing full traversal's run id, and the full request is cleared only when it predates the traversal start.
+    - Placement and content mutations are fenced by a `lease_epoch` token (`FOR SHARE` check in every mutation transaction), with customers commands joining that transaction via `ctx.transactionalEm` (support added to cancel/delete). A monotonic version guard is added.
+    - The delete handler ignores superseded deliveries: it re-reads the interaction, uses a `deletion_marker` + CAS, and a sweep safety net restores `deleting` links whose interaction is live.
+  - **Medium fixes:**
+    - `meetingDetails.entryPoints[].uri` has a per-type scheme allowlist enforced at validation, normalization and render time.
+    - Synthetic meeting keys are scoped by connection.
+
 ### Review — 2026-11-19 (rev 3)
 
 - **Reviewer:** Agent (author pass, checklist §§2–7) + fresh-context agent (checklist §1 + consistency, given only this file)
@@ -1615,3 +1656,14 @@ None blocking. (`CustomerInteraction.participants` encryption, previously a foll
 - **Verdict: approve.** Every rev 3.9 change resolves its finding, and no new Blocker or Major was introduced.
 - 5 minor precision gaps and 3 nits on rare paths were folded into rev 3.10.
 - The gate was not re-run (markdown-only diff). The earlier full runs were green except the environmental `create-mercato-app#test` failure, which must be confirmed green in CI before merge.
+
+### Review — 2026-11-19 (PR #10009, external: `haxiorz` security scan + `pkarw` spec review)
+
+- **Verdict:** changes requested. 4 high and 2 medium findings:
+  - unbounded webhook body;
+  - full-sync run-id and horizon reuse across jobs;
+  - unfenced placement mutations;
+  - delete delivery superseded by undo;
+  - entry-point URI schemes;
+  - synthetic key scope.
+- All six were addressed in rev 3.11.
