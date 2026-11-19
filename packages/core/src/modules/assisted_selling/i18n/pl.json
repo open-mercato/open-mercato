@@ -1,0 +1,10 @@
+{
+  "assisted_selling.audit.settings.save": "Zapisanie ustawień sprzedaży wspomaganej",
+  "assisted_selling.errors.conflict": "Ten rekord został zmieniony przez kogoś innego. Odśwież i spróbuj ponownie.",
+  "assisted_selling.errors.invalidInput": "Nieprawidłowe dane wejściowe",
+  "assisted_selling.errors.invalid_store_id": "Nieprawidłowe ID sklepu",
+  "assisted_selling.errors.load_failed": "Nie udało się wczytać ustawień sprzedaży wspomaganej.",
+  "assisted_selling.errors.save_failed": "Nie udało się zapisać ustawień sprzedaży wspomaganej.",
+  "assisted_selling.errors.store_not_found": "Nie znaleziono sklepu",
+  "assisted_selling.errors.unauthorized": "Brak autoryzacji"
+}
