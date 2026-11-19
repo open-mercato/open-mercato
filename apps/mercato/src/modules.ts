@@ -242,12 +242,10 @@ if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
 }
 
 /**
- * Marketing automation: a trigger, an audience expression and an ordered list of steps.
+ * Marketing automation Phase 1a: the opt-in schema and module vocabulary.
  *
- * Opt-in, and deliberately so. It is a large optional vertical: 23 tables to migrate and six public
- * unauthenticated routes (tracking, unsubscribe, survey, inbound hooks) that a reference app has no reason to
- * serve unless somebody asked for them. Audience expressions reuse the `business_rules` condition evaluator,
- * sends go through the shared email transport, and tagging goes through the `customers` commands.
+ * Registers 23 tables, metadata, ACL, events, notifications and translations.
+ * Campaign execution, public routes and token configuration arrive in later phases.
  */
 if (parseBooleanWithDefault(process.env.OM_ENABLE_MARKETING_AUTOMATION, false)) {
   enabledModules.push({ id: 'marketing_automation', from: '@open-mercato/marketing-automation' })

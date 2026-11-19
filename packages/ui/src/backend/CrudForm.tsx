@@ -4887,6 +4887,17 @@ const FieldControl = React.memo(function FieldControlImpl({
     field.type === 'combobox' ||
     (field.type === 'select' && !builtin?.multiple)
 
+  const fieldLabel = (
+    <label
+      id={labelId}
+      htmlFor={hasSingleControl ? controlId : undefined}
+      className="block text-sm font-medium"
+    >
+      {field.label}
+      {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
+    </label>
+  )
+
   return (
     <div
       className={rootClassName}
@@ -4899,19 +4910,14 @@ const FieldControl = React.memo(function FieldControlImpl({
           }
         : undefined}
     >
-      {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <>
-          <label
-            id={labelId}
-            htmlFor={hasSingleControl ? controlId : undefined}
-            className="block text-sm font-medium"
-          >
-            {field.label}
-            {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
-          </label>
-          {field.help ? <HelpTip title={field.help.title} body={field.help.body} /> : null}
-        </>
-      ) : null}
+      {field.type !== 'checkbox' && field.label.trim().length > 0
+        ? field.help
+          ? <div className="flex items-center gap-1">
+              {fieldLabel}
+              <HelpTip title={field.help.title} body={field.help.body} />
+            </div>
+          : fieldLabel
+        : null}
       {field.type === 'text' && (
         <TextInput
           id={controlId}
@@ -5095,7 +5101,7 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <>
+        <div className="flex items-center gap-1">
           <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
             <Checkbox
               id={controlId}
@@ -5107,7 +5113,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             <span className="text-sm">{field.label}</span>
           </label>
           {field.help ? <HelpTip title={field.help.title} body={field.help.body} /> : null}
-        </>
+        </div>
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <Select

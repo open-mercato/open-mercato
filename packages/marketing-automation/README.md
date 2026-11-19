@@ -8,39 +8,23 @@ Open Mercato had no marketing automation. Two analyses in this repository name t
 `ANALYSIS-002` ("Mercato has no marketing automation module"). This is an optional package that fills it without
 changing how any existing module behaves.
 
-## Enabling it
+## Enabling Phase 1a
 
 This phase ships the opt-in module, its 23 tables, migrations, and shared extension points. It does
-not yet ship marketing routes, screens, workers, or campaign execution. The capabilities and setup
-instructions below describe the planned full module; they are not available in this phase.
+not yet ship marketing routes, screens, workers, or campaign execution. The capabilities below
+describe the planned full module; they are not available in this phase.
 
 Off by default, on purpose: the full module migrates 23 tables and will serve public unauthenticated
 routes, which a shop should switch on deliberately rather than inherit.
 
-Generate a signing secret first — a `.env` file is not a shell, so the command belongs in your
-terminal and its OUTPUT belongs in the file:
-
-```bash
-openssl rand -hex 32
-```
-
 ```bash
 # apps/mercato/.env
 OM_ENABLE_MARKETING_AUTOMATION=true
-
-# Signs every token the module issues: tracking, unsubscribe, survey, inbound hooks.
-# Paste the value printed above. There is no default, and no fallback to the platform's
-# encryption keys — those are published in .env.example, so a token signed with one could
-# be forged by anybody.
-OM_MARKETING_TRACKING_SECRET=<the 64 hex characters printed above>
 ```
 
-The secret is not optional in practice: it is also what builds the unsubscribe link, and a
-marketing send that cannot offer a way out is refused rather than delivered. `APP_URL` has to be
-set for the same reason. Both appear as a blocking item on the module's setup screen.
-
-Then `yarn generate` — the app's route registry is emitted from the enabled-module list, so a stale
-registry keeps the module hidden however the flag reads.
+Then run `yarn generate` to include the module in discovery, and include its migrations in the
+normal database setup workflow. Marketing token configuration and integration-suite selection
+will arrive with the later phases that consume them.
 
 ## Planned merchant capabilities
 
@@ -101,7 +85,7 @@ recorded as suppressed, never deferred, because deferring it only sends it later
 | tagging | the `customers.tags.assign` command. **No new tag storage** |
 | email | `sendEmail` from `@open-mercato/shared`; transports come from `communication_channels` |
 | triggers | the platform event bus, through convention subscribers |
-| canvas | `@xyflow/react`, already a dependency |
+| canvas | `@xyflow/react` and `@dagrejs/dagre`, added with the canvas phase |
 | background work | `@open-mercato/queue`; `@open-mercato/scheduler` as an **optional** peer |
 | CRUD, tables, forms | `makeCrudRoute`, `DataTable`, `CrudForm` |
 

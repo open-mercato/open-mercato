@@ -48,7 +48,7 @@ export function HelpTip({ title, body, size = 'xs', className }: HelpTipProps) {
         variant="ghost"
         size={size}
         fullRadius
-        aria-label={t('ui.helpTip.ariaLabel', 'What is this?')}
+        aria-label={`${t('ui.helpTip.ariaLabel', 'What is this?')}: ${title}`}
         className={cn('text-muted-foreground', className)}
       >
         <HelpCircle className={size === 'xs' ? 'size-3.5' : 'size-4'} />
