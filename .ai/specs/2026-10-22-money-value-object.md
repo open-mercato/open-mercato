@@ -108,7 +108,7 @@ assertSameCurrency(left: Currency, right: Currency): void
 
 | Function | Rule |
 |----------|------|
-| `createMoney(amount: DecimalInput, currency)` | `toDecimal` validation and the parent spec's size caps apply. The amount is exact, with no rounding |
+| `createMoney(amount: DecimalInput, currency)` | `toDecimal` validation and the parent spec's size caps apply. The amount is exact, with no rounding: a `Big` is copied exactly and one beyond the caps throws `Decimal value out of range` (the legacy `toDecimal` would round it half-up). The same exact conversion applies to the `multiplyMoney` factor, the `divideMoney` divisor, the `convertMoney` rate and `allocateMoney` ratios |
 | `zeroMoney(currency)` | Starting value for a `reduce` |
 | `addMoney(a, b)`, `subtractMoney(a, b)` | `assertSameCurrency`, then exact. A result that would need rounding to fit the stored-amount range (300 integer digits, 1000 significant digits, nothing below `1e-1000`) throws `Decimal result out of range`; nothing is rounded silently |
 | `sumMoney(currency, values)` | `values.reduce(addMoney, zeroMoney(currency))`. The currency is required so an empty list is well defined |
@@ -365,6 +365,9 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - `exports` also blocks `lib/money/internal.tsx` and `.js`.
   - The `CurrencyPrecisionResolver` type documents that `getCurrency` should return `null` for inactive currencies.
   - Status, Verification and Phase 3 Step 4 record the PostgreSQL test, the Linux create-app run and the fresh packed-preset evidence, and the live/certified routing lane waiver request.
+- 2026-11-19 — PR #9978 re-review follow-ups:
+  - Money inputs given as `Big` (amounts, factors, divisors, rates, ratios) are copied exactly and rejected with `Decimal value out of range` when they exceed the decimal caps, instead of being rounded half-up by the legacy `toDecimal` normalisation.
+  - Phase 3 is marked In Review: Step 4 stays open until the certified routing lane passes or a maintainer waiver is recorded.
 
 ## Implementation Status
 
@@ -372,7 +375,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 |-------|--------|------|-------|
 | Phase 1 — Value objects | Done | 2026-11-19 | `lib/money/*` + `CurrencyPrecisionResolver.getCurrency?`; unit tests passing |
 | Phase 2 — Persistence | Done | 2026-11-19 | `lib/db/moneyColumns.ts`, metadata test (`connect: false`) plus a PostgreSQL-backed round-trip test (`moneyColumns.integration.test.ts`, `test:pg-integration`), adopter recipe in `packages/shared/AGENTS.md` and `apps/docs` |
-| Phase 3 — Harness enforcement | Done | 2026-11-19 | Root `AGENTS.md`, `packages/shared/AGENTS.md`, review/spec checklists, `yarn money:check-new-code`, standalone harness case OMH-243. Fresh packed-preset deterministic proof done; the live/certified routing lane awaits a maintainer waiver (see Step 4) |
+| Phase 3 — Harness enforcement | In Review | 2026-11-19 | Root `AGENTS.md`, `packages/shared/AGENTS.md`, review/spec checklists, `yarn money:check-new-code`, standalone harness case OMH-243 and fresh packed-preset deterministic proof are done. **Incomplete until** the affected certified routing lane has a passing result or an explicit maintainer waiver is recorded on PR #9978 (knowledge-change step 8; see Step 4) |
 
 ### Phase 1 — Detailed Progress
 - [x] Step 1: `CurrencyDetails` + optional `getCurrency` on the resolver contract; `CurrencyPrecisionService.getCurrency` shares the per-request lookup with `getDecimalPlaces`
@@ -390,7 +393,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 - [x] Step 1: Root `AGENTS.md` `Always`/`Never` lines + Task Router row (existing wording tightened to stay inside the 31,232-byte root limit; `yarn agents:check-budget` passes) and `packages/shared/AGENTS.md` (`money/` row, `decimal.ts` row scoped to existing contracts, Money Value Objects recipe)
 - [x] Step 2: `.ai/review-checklist.md` (§3 items + anti-pattern row), `.ai/specs/AGENTS.md`, and the repo-local `om-spec-writing` spec checklist (§3)
 - [x] Step 3: `scripts/money-check-new-code.mjs`, `yarn money:check-new-code`, `.ai/money-allowlist.json`; fixture tests in `scripts/__tests__/money-check-new-code.test.mjs` (run by `yarn test:scripts`)
-- [x] Step 4: Standalone harness: Money Contract in `om-data-model-design/references/schema-design.md` (kept in a reference so no initial-context budget grows), pointers in `agentic/guides/contracts.md`, `om-data-model-design/SKILL.md` and `agentic/shared/ai/review-checklist.md`; routing case `OMH-243` with counts synced to 243, regenerated source-link inventory, and knowledge-change manifest `harness-evidence/D9-money-value-object.knowledge-change.json` (validator: PASS).
+- [ ] Step 4 (pending the certified routing-lane disposition): Standalone harness: Money Contract in `om-data-model-design/references/schema-design.md` (kept in a reference so no initial-context budget grows), pointers in `agentic/guides/contracts.md`, `om-data-model-design/SKILL.md` and `agentic/shared/ai/review-checklist.md`; routing case `OMH-243` with counts synced to 243, regenerated source-link inventory, and knowledge-change manifest `harness-evidence/D9-money-value-object.knowledge-change.json` (validator: PASS).
   - Fresh packed-preset proof (2026-11-19, Linux container `node:24-bookworm`): the branch's packages were published to a private Verdaccio and `create-mercato-app` scaffolded the `classic`, `crm`, `empty` and `wms` presets (`yarn install`, `yarn generate`, `yarn install-skills` all pass). Deterministic `harness:validate --case OMH-243` passes on `classic`, `crm` and `wms`, and `harness:validate --all` passes 243/243 on `classic`. On `empty` 150 of 243 cases fail, OMH-243 among them, because `empty` installs no customers/sales/currencies module guides; existing cases (for example OMH-075 and OMH-114, which reference the same currencies guide) fail identically, so this is the catalog's established behaviour, not a regression.
   - Not run: the live routing lane (`harness:validate --runner claude|codex`) and the certified `harness:release` suite. No runner credentials are available in this environment, and `harness:release` requires Linux bubblewrap with loopback isolation. A maintainer waiver for these lanes is requested on PR #9978, following the precedent in `.ai/specs/2026-08-14-standalone-harness-optimizations.md` (PR #5295); this entry does not claim they ran
 

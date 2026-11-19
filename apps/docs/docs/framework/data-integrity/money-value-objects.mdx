@@ -71,9 +71,9 @@ const inEur = convertMoney(subtotal, rate, eur, { decimalPlaces: eur.decimalPlac
   1000 significant digits, nothing below `1e-1000`), so snapshots always
   round-trip. A result is never rounded to fit: a sum, product, conversion or
   rounding carry whose exact result is outside the caps throws `Decimal result out
-  of range`. (A `Big` passed in as an input beyond 1000 significant digits is
-  rounded half-up by `toDecimal`, as everywhere in the decimal toolkit; pass
-  decimal strings at module boundaries.) `convertMoney` and `allocateMoney` compute their intermediates exactly
+  of range`. Inputs follow the same rule: an amount, factor, divisor, rate or
+  ratio passed as a `Big` is copied exactly, and one beyond the caps throws
+  `Decimal value out of range` instead of being rounded. `convertMoney` and `allocateMoney` compute their intermediates exactly
   and only check the final result. Real money never comes close.
 - `allocateMoney` accepts at most 1000 ratios, each with at most 50 integer digits
   and 50 decimals, which keeps its exact integer work small.
