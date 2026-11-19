@@ -279,6 +279,27 @@ const REQUESTY_PRESET: OpenAICompatiblePreset = {
 }
 
 /**
+ * Cheaper Inference — OpenAI-compatible LLM gateway. One API key gives
+ * access to models from several labs. Model ids are bare (e.g.
+ * `gpt-5.4-mini`), so no vendor prefix handling is needed.
+ */
+const CHEAPER_INFERENCE_PRESET: OpenAICompatiblePreset = {
+  id: 'cheaperinference',
+  name: 'Cheaper Inference',
+  baseURL: 'https://api.cheaperinference.com/v1',
+  baseURLEnvKeys: ['CHEAPER_INFERENCE_BASE_URL'],
+  envKeys: ['CHEAPER_INFERENCE_API_KEY'],
+  defaultModel: 'gpt-5.4-mini',
+  defaultModels: [
+    {
+      id: 'gpt-5.4-mini',
+      name: 'GPT-5.4 Mini',
+      contextWindow: 400000,
+    },
+  ],
+}
+
+/**
  * LM Studio — local model server for development and offline use.
  * Default port 1234 can be overridden via `LM_STUDIO_BASE_URL`.
  * `defaultModel` is intentionally empty — LM Studio auto-detects
@@ -310,5 +331,6 @@ export const OPENAI_COMPATIBLE_PRESETS: readonly OpenAICompatiblePreset[] = [
   OLLAMA_PRESET,
   OPENROUTER_PRESET,
   REQUESTY_PRESET,
+  CHEAPER_INFERENCE_PRESET,
   LM_STUDIO_PRESET,
 ]

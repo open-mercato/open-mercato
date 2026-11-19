@@ -327,6 +327,121 @@ describe('LM Studio preset', () => {
   })
 })
 
+describe('Cheaper Inference preset', () => {
+  const cheaperInferencePreset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === 'cheaperinference')!
+
+  const CHAT_COMPLETION_RESPONSE = {
+    id: 'chatcmpl-1',
+    object: 'chat.completion',
+    created: 0,
+    model: 'gpt-5.4-mini',
+    choices: [
+      {
+        index: 0,
+        message: { role: 'assistant', content: 'ok' },
+        finish_reason: 'stop',
+      },
+    ],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+  }
+
+  type GenerateModel = {
+    doGenerate: (options: {
+      prompt: Array<{ role: 'user'; content: Array<{ type: 'text'; text: string }> }>
+    }) => Promise<unknown>
+  }
+
+  async function generateAndReadUrl(
+    preset = cheaperInferencePreset,
+    options: { baseURL?: string; envBaseURL?: string } = {},
+  ): Promise<string> {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(CHAT_COMPLETION_RESPONSE), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    if (options.envBaseURL) {
+      process.env.CHEAPER_INFERENCE_BASE_URL = options.envBaseURL
+    }
+    try {
+      const model = createOpenAICompatibleProvider(preset).createModel({
+        apiKey: 'test-key',
+        modelId: preset.defaultModel,
+        ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+      }) as GenerateModel
+      await model.doGenerate({
+        prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      })
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      return String(fetchSpy.mock.calls[0][0])
+    } finally {
+      delete process.env.CHEAPER_INFERENCE_BASE_URL
+      jest.restoreAllMocks()
+    }
+  }
+
+  it('has the expected shape', () => {
+    expect(cheaperInferencePreset).toBeDefined()
+    expect(cheaperInferencePreset.name).toBe('Cheaper Inference')
+    expect(cheaperInferencePreset.baseURL).toBe('https://api.cheaperinference.com/v1')
+    expect(cheaperInferencePreset.baseURLEnvKeys).toEqual(['CHEAPER_INFERENCE_BASE_URL'])
+    expect(cheaperInferencePreset.envKeys).toEqual(['CHEAPER_INFERENCE_API_KEY'])
+    expect(cheaperInferencePreset.defaultModel).toBe('gpt-5.4-mini')
+    expect(cheaperInferencePreset.defaultModels).toEqual([
+      { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', contextWindow: 400000 },
+    ])
+  })
+
+  it('does not opt into vendor-prefixed model ids or the Responses API', () => {
+    expect(cheaperInferencePreset.usesVendorPrefixedModelIds).toBeFalsy()
+    expect(cheaperInferencePreset.apiMode).toBeUndefined()
+    const provider = createOpenAICompatibleProvider(cheaperInferencePreset).createModel({
+      apiKey: 'test-key',
+      modelId: cheaperInferencePreset.defaultModel,
+    }) as { provider: string }
+    expect(provider.provider).toBe('openai.chat')
+  })
+
+  it('is configured only by CHEAPER_INFERENCE_API_KEY', () => {
+    const provider = createOpenAICompatibleProvider(cheaperInferencePreset)
+    expect(provider.isConfigured({ CHEAPER_INFERENCE_API_KEY: 'ci-key' })).toBe(true)
+    expect(provider.isConfigured({ OPENAI_API_KEY: 'unrelated' })).toBe(false)
+    expect(provider.isConfigured({})).toBe(false)
+  })
+
+  it('getConfiguredEnvKey returns CHEAPER_INFERENCE_API_KEY', () => {
+    const provider = createOpenAICompatibleProvider(cheaperInferencePreset)
+    expect(provider.getConfiguredEnvKey({ CHEAPER_INFERENCE_API_KEY: 'key' })).toBe(
+      'CHEAPER_INFERENCE_API_KEY',
+    )
+    expect(provider.getConfiguredEnvKey({})).toBe('CHEAPER_INFERENCE_API_KEY')
+  })
+
+  it('posts to the default /chat/completions endpoint', async () => {
+    await expect(generateAndReadUrl()).resolves.toBe(
+      'https://api.cheaperinference.com/v1/chat/completions',
+    )
+  })
+
+  it('CHEAPER_INFERENCE_BASE_URL env override beats the preset default', async () => {
+    await expect(
+      generateAndReadUrl(cheaperInferencePreset, {
+        envBaseURL: 'https://cheaper-inference-gateway.example.com/v1',
+      }),
+    ).resolves.toBe('https://cheaper-inference-gateway.example.com/v1/chat/completions')
+  })
+
+  it('per-call baseURL wins over the env override', async () => {
+    await expect(
+      generateAndReadUrl(cheaperInferencePreset, {
+        envBaseURL: 'https://cheaper-inference-gateway.example.com/v1',
+        baseURL: 'https://per-call-proxy.example.com/v1',
+      }),
+    ).resolves.toBe('https://per-call-proxy.example.com/v1/chat/completions')
+  })
+})
+
 describe('OpenAIAdapter — safety identifier + moderation capability', () => {
   it('maps an end-user identifier into the OpenAI safetyIdentifier providerOptions fragment', () => {
     // Key MUST be the AI SDK provider-option name `safetyIdentifier` (camelCase);
