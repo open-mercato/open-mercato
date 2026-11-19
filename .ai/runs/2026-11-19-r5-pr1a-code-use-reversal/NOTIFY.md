@@ -18,3 +18,6 @@
 
 ## 2026-11-19T23:55:00Z — code review
 - Fresh-reviewer pass on `7e41bb84f1..HEAD`: approve, no Critical/High/Medium. Low #1 (union of `cartId`/`orderId` undocumented) fixed in Step 1.5-review-fix; Low #2 (no index on `generated_code_id`) recorded as a follow-up; two nits left as inherited from the reference.
+
+## 2026-11-19T23:58:00Z — run finished
+- PR https://github.com/open-mercato/open-mercato/pull/10034 flipped to ready; labels feature, needs-qa, priority-medium, risk-high, review.
