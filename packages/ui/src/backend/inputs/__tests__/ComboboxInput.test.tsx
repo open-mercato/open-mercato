@@ -474,6 +474,55 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Central warehouse'))
   })
 
+  it.each(['suggestions', 'seedOptions'] as const)('shows a saved currency under autofocus with self-labeled %s', (source) => {
+    const onChange = jest.fn()
+    const { container } = render(
+      <ComboboxInput
+        value="USD"
+        onChange={onChange}
+        autoFocus
+        allowCustomValues={false}
+        {...{ [source]: [{ value: 'USD', label: 'USD' }] }}
+      />,
+    )
+
+    expect(document.activeElement).toBe(getInput(container))
+    expect(getInput(container).value).toBe('USD')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('shows a saved currency when its options arrive after autofocus without changing the stored value', async () => {
+    const onChange = jest.fn()
+    const loadSuggestions = jest.fn(async () => [{ value: 'USD', label: 'USD' }])
+    const { container } = render(
+      <ComboboxInput value="USD" onChange={onChange} autoFocus allowCustomValues={false} loadSuggestions={loadSuggestions} />,
+    )
+
+    await waitFor(() => expect(getInput(container).value).toBe('USD'))
+    expect(document.activeElement).toBe(getInput(container))
+    expect(loadSuggestions).toHaveBeenCalledTimes(1)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('reverts an invalid query to the saved self-labeled currency on blur', async () => {
+    const onChange = jest.fn()
+    const { container } = render(
+      <ComboboxInput
+        value="USD"
+        onChange={onChange}
+        suggestions={[{ value: 'USD', label: 'USD' }]}
+        allowCustomValues={false}
+      />,
+    )
+    const input = getInput(container)
+    act(() => input.focus())
+    fireEvent.change(input, { target: { value: 'missing' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(input.value).toBe('USD'))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   // Guards the opposite direction of the case above: it passes on both the old
   // focus-based guard and the current typing-based one, so it is a behavior pin
   // rather than a regression test for any specific bug.
