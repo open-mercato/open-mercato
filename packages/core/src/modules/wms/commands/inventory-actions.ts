@@ -77,20 +77,29 @@ import {
 import {
   ensureOrganizationScope,
   ensureTenantScope,
+  findExactBalanceForUpdate,
+  getAvailableQuantity,
   inventoryBalanceCrudEvents,
   inventoryBalanceCrudIndexer,
   inventoryMovementCrudEvents,
   inventoryMovementCrudIndexer,
   inventoryReservationCrudEvents,
   inventoryReservationCrudIndexer,
+  isUniqueConstraintError,
+  loadProfileForVariant,
   requireId,
+  requireWarehouse,
+  resolveScope,
+  runInTransaction,
+  setNumeric,
+  toNumber,
   toNumericString,
+  type Scope,
   WMS_INVENTORY_BALANCE_RESOURCE,
   WMS_INVENTORY_MOVEMENT_RESOURCE,
   WMS_INVENTORY_RESERVATION_RESOURCE,
 } from './shared'
 
-type Scope = { tenantId: string; organizationId: string }
 type AllocationBucket = {
   balanceId: string
   locationId: string
@@ -191,47 +200,8 @@ async function emitInventorySideEffects(
   }
 }
 
-function resolveScope(ctx: CommandRuntimeContext, fallback?: { tenantId?: string | null; organizationId?: string | null }): Scope {
-  const tenantId = fallback?.tenantId ?? ctx.auth?.tenantId ?? null
-  const organizationId = fallback?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (!tenantId || !organizationId) {
-    throw new CrudHttpError(400, { error: 'Tenant and organization scope are required.' })
-  }
-  return { tenantId, organizationId }
-}
-
 function resolveEm(ctx: CommandRuntimeContext): EntityManager {
   return (ctx.container.resolve('em') as EntityManager).fork()
-}
-
-async function runInTransaction<TResult>(
-  em: EntityManager,
-  operation: (trx: EntityManager) => Promise<TResult>,
-): Promise<TResult> {
-  const transactionalEm = em as EntityManager & {
-    transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
-  }
-  if (typeof transactionalEm.transactional === 'function') {
-    return transactionalEm.transactional((trx) => operation(trx))
-  }
-  return operation(em)
-}
-
-function toNumber(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return 0
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false
-  const code = (error as { code?: string }).code
-  if (code === '23505') return true
-  const name = (error as { name?: string }).name
-  return name === 'UniqueConstraintViolationException'
 }
 
 async function findExistingMovementByIdempotencyKey(
@@ -282,14 +252,6 @@ function balanceHasEligibleLot(balance: InventoryBalance, now: Date): boolean {
   return isLotEligible(lot, now)
 }
 
-function setNumeric(target: { [key: string]: unknown }, key: string, value: number) {
-  target[key] = toNumericString(value)
-}
-
-function getAvailableQuantity(balance: InventoryBalance): number {
-  return toNumber(balance.quantityOnHand) - toNumber(balance.quantityReserved) - toNumber(balance.quantityAllocated)
-}
-
 function extractReservationMetadata(reservation: InventoryReservation): ReservationMetadata {
   if (!reservation.metadata || typeof reservation.metadata !== 'object' || Array.isArray(reservation.metadata)) {
     return {}
@@ -338,21 +300,6 @@ async function buildMutationLog(input: MutationLogInput) {
   }
 }
 
-async function requireWarehouse(em: EntityManager, ctx: CommandRuntimeContext, warehouseId: string, scope?: Scope) {
-  const resolvedScope = scope ?? resolveScope(ctx)
-  const warehouse = await findOneWithDecryption(
-    em,
-    Warehouse,
-    { id: warehouseId, deletedAt: null },
-    undefined,
-    resolvedScope,
-  )
-  if (!warehouse) throw new CrudHttpError(404, { error: 'Warehouse not found.' })
-  ensureTenantScope(ctx, warehouse.tenantId)
-  ensureOrganizationScope(ctx, warehouse.organizationId)
-  return warehouse
-}
-
 async function requireLocation(em: EntityManager, ctx: CommandRuntimeContext, locationId: string, scope?: Scope) {
   const resolvedScope = scope ?? resolveScope(ctx)
   const location = await findOneWithDecryption(
@@ -381,26 +328,6 @@ async function requireReservation(em: EntityManager, ctx: CommandRuntimeContext,
   ensureTenantScope(ctx, reservation.tenantId)
   ensureOrganizationScope(ctx, reservation.organizationId)
   return reservation
-}
-
-async function loadProfileForVariant(
-  em: EntityManager,
-  ctx: CommandRuntimeContext,
-  catalogVariantId: string,
-  scope?: Scope,
-) {
-  const resolvedScope = scope ?? resolveScope(ctx)
-  const profile = await findOneWithDecryption(
-    em,
-    ProductInventoryProfile,
-    { catalogVariantId, deletedAt: null },
-    undefined,
-    resolvedScope,
-  )
-  if (!profile) return null
-  ensureTenantScope(ctx, profile.tenantId)
-  ensureOrganizationScope(ctx, profile.organizationId)
-  return profile
 }
 
 async function loadEffectiveProfileForVariant(
@@ -680,33 +607,6 @@ function requireSufficientAvailability(remaining: number) {
   if (remaining > 0.000001) {
     throw new CrudHttpError(409, { error: 'insufficient_stock' })
   }
-}
-
-async function findExactBalanceForUpdate(
-  em: EntityManager,
-  scope: Scope,
-  input: {
-    warehouseId: string
-    locationId: string
-    catalogVariantId: string
-    lotId?: string
-    serialNumber?: string
-  },
-) {
-  return findOneWithDecryption(
-    em,
-    InventoryBalance,
-    {
-      warehouse: input.warehouseId,
-      location: input.locationId,
-      catalogVariantId: input.catalogVariantId,
-      lot: input.lotId ?? null,
-      serialNumber: input.serialNumber ?? null,
-      deletedAt: null,
-    },
-    { lockMode: LockMode.PESSIMISTIC_WRITE },
-    scope,
-  )
 }
 
 async function findReservationBucketBalance(
