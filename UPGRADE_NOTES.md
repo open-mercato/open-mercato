@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Message reactions respect message visibility (#7671)
+
+`POST` and `DELETE /api/communication_channels/messages/:messageId/reactions[/reactionId]` now return the existing masked 404 when the caller cannot read the message. This closes the unreadable-message existence/mutation bypass. Senders and active recipients remain allowed; other channel operators need `messages.view`, an explicitly public external-conversation message and access to the channel. Personal mailbox ownership remains required. Accessible conflicts keep 409 with localized text; clients must use status codes rather than matching English diagnostic reasons.
+
+Operators should review custom react-only roles and grant `messages.view` only to users intended to read public channel threads. No startup/configuration, architecture or database migration is needed.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.

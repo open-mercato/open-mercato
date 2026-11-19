@@ -693,3 +693,8 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+
+## Reaction message read access (2026-11-19, #7671)
+
+STABLE command/API behavior: reaction mutations now mask unreadable messages with the existing `not_found`/404 instead of disclosing linkage or changing reactions. Senders, active recipients and authorized readers of public channel messages keep the existing shapes and successful behavior. Keeping the old unreadable-message path as a bridge would preserve the vulnerability, so steps 1–3 require the emergency security exception; named human maintainer acknowledgment is pending before merge. No opt-in retains the vulnerable branch. Clients handle masked 404 and localized 409; operators review custom react-only roles. [Migration](UPGRADE_NOTES.md#message-reactions-respect-message-visibility-7671); [spec](.ai/specs/implemented/SPEC-045d-communication-notification-hubs.md#reaction-read-access-correction-7671-2026-11-19).

@@ -73,7 +73,7 @@ describe('POST /communication_channels/messages/[messageId]/reactions existence 
     expect(afterSuccessMock).not.toHaveBeenCalled()
   })
 
-  it('keeps 409 for a duplicate reaction', async () => {
+  it('keeps a localized 409 for a duplicate reaction', async () => {
     commandExecuteMock.mockResolvedValueOnce({
       result: { status: 'noop', reason: 'duplicate reaction from same user with same emoji' },
     })
