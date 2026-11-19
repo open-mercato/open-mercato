@@ -1,16 +1,16 @@
 # Handoff — 2026-11-19-r5-sa1-quote-external-reference
 
-**Last updated:** 2026-11-19T23:34:14Z
+**Last updated:** 2026-11-19T23:36:54Z
 **Branch:** feat/r5-sa1-quote-external-reference
 **PR:** https://github.com/open-mercato/open-mercato/pull/10033
-**Current phase/step:** all Steps done (1.1–1.5); final gate recorded
+**Current phase/step:** complete — all Steps done, review pass posted, PR ready
 **Last commit:** 42b0c6b0b0 — test(sales): cover quote references and snapshot-shaped lines through the API
 
 ## What just happened
-- Final gate run; see final-gate-checks.md.
+- Final gate run (final-gate-checks.md); om-auto-review-pr pass posted as a comment review (document-approvable, one pre-existing nit); manual QA instructions posted; PR flipped to ready.
 
 ## Next concrete action
-- Review pass, then flip the PR to ready.
+- A second reviewer gives the formal approval (author account cannot); QA per the posted instructions; rebase onto main once #9998 and #9988 merge.
 
 ## Blockers / open questions
 - none

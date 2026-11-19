@@ -18,7 +18,7 @@
 | 1 | 1.2 | Accept and persist externalReference and customerReference on sales.quotes.create | inline | done | 96328c4a0f |
 | 1 | 1.3 | Index sales_quotes and sales_orders by tenant and external reference | inline | done | 26515f137e |
 | 1 | 1.4 | Document the sales line validator widening in UPGRADE_NOTES | inline | done | 74e2b5f448 |
-| 1 | 1.5 | Cover POST /api/sales/quotes and /orders with snapshot-shaped lines in an integration spec | inline | done | (this commit) |
+| 1 | 1.5 | Cover POST /api/sales/quotes and /orders with snapshot-shaped lines in an integration spec | inline | done | 42b0c6b0b0 |
 
 ## Goal
 
