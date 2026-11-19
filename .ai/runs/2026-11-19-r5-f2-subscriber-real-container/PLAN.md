@@ -15,6 +15,7 @@
 | 1 | 1.3 | Promotions DI container-scope test | inline | done | 9beaba826e |
 | 2 | 2.1 | RL-11: no reminder e-mail for the create-time `forms.invitation.sent` | inline | done | a740cfc093 |
 | 2 | 2.2 | TC-FORMS-EXP-010 snapshot filter, example comment, UPGRADE_NOTES | inline | done | 7ffdde24fe |
+| 2 | 2.2-review-fix | Correct the forms pre-change behaviour in UPGRADE_NOTES; record the register() caller risk | inline | done | (this commit) |
 
 ## Goal
 
@@ -88,3 +89,7 @@ e-mail: the create path marks its emit `source: 'create'`.
 
 - risk-high: every subscriber/worker gets a new context field; the three `forms` subscribers start
   running in production.
+- Review finding (Low, for CH5b/AS4): an inline subscriber's `ctx.container` is the container that
+  bootstrapped the bus, which with `OM_BOOTSTRAP_CACHE` or the global bus may not be the current
+  request's. `register({ auth })` directly on it would persist the override, so callers should
+  `createScope()` first or use the per-job worker container.
