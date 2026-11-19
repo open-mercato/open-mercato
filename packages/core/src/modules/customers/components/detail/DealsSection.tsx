@@ -755,6 +755,7 @@ export function DealsSection({
           pipelineId: base.pipelineId ?? undefined,
           pipelineStageId: base.pipelineStageId ?? undefined,
           valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
+          valueAmountExact: base.valueAmountExact ?? undefined,
           valueCurrency: base.valueCurrency ?? undefined,
           probability: typeof base.probability === 'number' ? base.probability : undefined,
           expectedCloseAt: base.expectedCloseAt ?? undefined,

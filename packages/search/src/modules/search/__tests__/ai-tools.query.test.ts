@@ -32,6 +32,7 @@ function makeCtx(overrides: {
   userId?: string | null
   organizationId?: string | null
   orgScope?: { em: unknown; rbacService: unknown }
+  apiKeyId?: string | null
 } = {}) {
   const mockSearch = jest.fn().mockResolvedValue([
     { entityId: 'catalog:product', recordId: 'c1', score: 0.8, source: 'fulltext', presenter: { title: 'Widget' } },
@@ -47,6 +48,7 @@ function makeCtx(overrides: {
     userId: overrides.userId !== undefined ? overrides.userId : 'user-1',
     userFeatures: overrides.userFeatures ?? ['search.global', 'catalog.products.view'],
     isSuperAdmin: overrides.isSuperAdmin ?? false,
+    apiKeyId: overrides.apiKeyId ?? null,
     container: {
       resolve: (name: string) => {
         if (name === 'searchIndexer') return searchIndexer
@@ -117,6 +119,48 @@ describe('search_query tool', () => {
 
       expect(result.totalResults).toBe(1)
       expect(mockSearch).toHaveBeenCalledWith('widget', expect.objectContaining({ organizationIds: undefined }))
+    })
+  })
+
+  describe('per-record visibility viewer (PR #9648 B-8)', () => {
+    it('passes the calling user as the search viewer so filterResults entities are not dropped', async () => {
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: null })
+      const { ctx, mockSearch } = makeCtx({ orgScope })
+
+      await queryTool.handler({ query: 'widget' }, ctx)
+
+      const options = mockSearch.mock.calls[0][1]
+      expect(options.viewer).toEqual({
+        auth: {
+          sub: 'user-1',
+          userId: 'user-1',
+          tenantId: 'tenant-1',
+          orgId: 'org-1',
+          features: ['search.global', 'catalog.products.view'],
+          isSuperAdmin: false,
+        },
+        container: ctx.container,
+      })
+    })
+
+    it('runs an API-key caller as the key itself, with no user identity', async () => {
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: null })
+      const { ctx, mockSearch } = makeCtx({ orgScope, apiKeyId: 'key-1' })
+
+      await queryTool.handler({ query: 'widget' }, ctx)
+
+      const viewer = mockSearch.mock.calls[0][1].viewer
+      expect(viewer.auth).toMatchObject({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1' })
+      expect(viewer.auth).not.toHaveProperty('userId')
+    })
+
+    it('uses the re-validated organization, not the raw context organization', async () => {
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: ['org-2'] })
+      const { ctx, mockSearch } = makeCtx({ organizationId: 'org-9', orgScope })
+
+      await queryTool.handler({ query: 'widget' }, ctx)
+
+      expect(mockSearch.mock.calls[0][1].viewer.auth.orgId).toBeNull()
     })
   })
 })

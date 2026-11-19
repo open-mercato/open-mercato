@@ -32,6 +32,9 @@ describe('calculateUnitAmountsLocally', () => {
     { amount: 50, mode: 'net', taxRate: 'not-a-number' },
     { amount: 50, mode: 'gross', taxRate: -5 },
     { amount: 50, mode: 'net', taxRate: '' },
+    { amount: 1, amountExact: '1.000000000000000001', amountDecimalPlaces: 18, mode: 'net', taxRate: 23 },
+    { amount: 1, amountExact: '1', amountDecimalPlaces: 18, mode: 'gross', taxRate: 23 },
+    { amount: 12.345678, amountExact: '12.345678', amountDecimalPlaces: 2, mode: 'net', taxRate: '8.5' },
   ]
 
   it.each(cases)('matches the sales tax calculation for %o', async (input) => {
@@ -58,7 +61,29 @@ describe('calculatePriceUnitAmounts', () => {
   it('calculates locally when the sales module is disabled', async () => {
     await expect(
       calculatePriceUnitAmounts(containerWithoutSales, { amount: 100, mode: 'net', taxRate: 23, taxRateId: null, ...scope }),
-    ).resolves.toEqual({ netAmount: 100, grossAmount: 123, taxAmount: 23, taxRate: 23 })
+    ).resolves.toEqual({
+      netAmount: 100,
+      netAmountExact: '100',
+      grossAmount: 123,
+      grossAmountExact: '123',
+      taxAmount: 23,
+      taxAmountExact: '23',
+      taxRate: 23,
+    })
+  })
+
+  it('keeps exact amounts at the configured precision when the sales module is disabled', async () => {
+    const result = await calculatePriceUnitAmounts(containerWithoutSales, {
+      amount: 1,
+      amountExact: '1',
+      amountDecimalPlaces: 18,
+      mode: 'gross',
+      taxRate: 23,
+      taxRateId: null,
+      ...scope,
+    })
+    expect(result.grossAmountExact).toBe('1')
+    expect(result.netAmountExact).toBe('0.813008130081300813')
   })
 
   it('rejects a tax class with a translated 400 when the sales module is disabled', async () => {

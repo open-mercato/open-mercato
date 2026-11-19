@@ -2,6 +2,8 @@
   "payment_gateways.captureMethod.automatic": "Automatic",
   "payment_gateways.captureMethod.manual": "Manual",
   "payment_gateways.column.gatewayStatus": "Gateway status",
+  "payment_gateways.errors.amountMustBePositive": "Amount must be greater than zero",
+  "payment_gateways.errors.amountPrecisionExceeded": "Amount {amount} has more decimal places than {currencyCode} supports ({decimalPlaces})",
   "payment_gateways.errors.sessionAmountMismatch": "Payment session amount {amount} does not match the amount due for order {orderId}",
   "payment_gateways.errors.sessionCurrencyMismatch": "Payment session currency {currencyCode} does not match the currency of order {orderId}",
   "payment_gateways.errors.sessionOrderNotFound": "Order {orderId} was not found in the current scope",
