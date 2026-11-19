@@ -2,11 +2,11 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v2.3 — Release 5 spec revision 2026-10-26; Phases B.1–B.5 in eComm Release 5, B.6 out except the security minimum moved into B.1/B.3) |
+| **Status** | Specification (v2.4 — Release 5 re-landing remediation 2026-11-19 on top of the v2.3 revision of 2026-10-26; Phases B.1–B.5 in eComm Release 5, re-landed as steps CH0a–CH6b (§17); B.6 out except the security minimum moved into B.1/B.3) |
 | **Author** | Piotr Karwatka (v1), rescoped for the ecommerce suite (v2) |
 | **Created** | 2026-03-19 |
 | **Rescoped** | 2026-08-14 |
-| **Revised** | 2026-10-26 (Release 5: [pre-implementation analysis](./analysis/ANALYSIS-2026-10-26-checkout-release-5.md) C1–C26, [owner decisions](./analysis/ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md) D-R5-1…36, [cross-spec review](./analysis/ANALYSIS-2026-10-26-ecommerce-release-5-cross-spec.md) X1–X20) |
+| **Revised** | 2026-10-26 (Release 5: [pre-implementation analysis](./analysis/ANALYSIS-2026-10-26-checkout-release-5.md) C1–C26, [owner decisions](./analysis/ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md) D-R5-1…36, [cross-spec review](./analysis/ANALYSIS-2026-10-26-ecommerce-release-5-cross-spec.md) X1–X20); 2026-11-19 (re-landing audit [`pre-implement-2026-03-19-checkout-simple-checkout-release-5.md`](../analysis/pre-implement-2026-03-19-checkout-simple-checkout-release-5.md), owner decisions D-R5-CH1…CH7, §21) |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 7, Phase 3 |
 | **Package** | `@open-mercato/checkout` |
 | **Related** | [Phase A — Pay Links](./implemented/2026-03-19-checkout-pay-links.md) *(implemented)*, [Cart Module](./2026-08-14-cart-module.md), [Availability Contract](./2026-08-14-availability-contract.md), [Customer Groups & B2B Terms](./2026-08-14-customer-groups-and-b2b-terms.md), SPEC-055 Promotions (C5, D-R5-17 amendments), SPEC-029 (`storeContextService.resolveForBuyer`, D-R5-22), [SPEC-041 UMES](./implemented/SPEC-041-2026-02-24-universal-module-extension-system.md), [SPEC-044 Payment Gateways](./implemented/SPEC-044-2026-02-24-payment-gateway-integrations.md) |
@@ -21,25 +21,26 @@
 
 **Key Points:**
 - One funnel, two entry modes. A **merchant-initiated** checkout (simple checkout link) seeds a cart from link-defined lines through a trusted in-process context (D-R5-19); a **buyer-initiated** checkout (storefront API client, POS, agent) arrives with an existing cart token. From the moment a `CheckoutSession` exists, both are the same code path.
-- `CheckoutSession` holds `cart_id`, addresses, delivery selection, payment method and the resulting quote or order. It never holds lines (the cart does) and never holds an approval (the cart is the approval subject, D-R5-3).
+- `CheckoutSession` holds `cart_id`, addresses, delivery selection, payment method, PO number and the resulting quote or order. It never holds lines (the cart does) and never holds an approval (the cart is the approval subject, D-R5-3).
 - The session is addressed as `/api/checkout/sessions/current/*` with an `X-Checkout-Session-Token` header. Only a hash of the token is stored. A session on an identified cart also needs the buyer's own customer session on every route, otherwise `404` (D-R5-21, D-R5-33).
 - **The funnel core is a fixed state machine, not a workflow.** No workflow runs in Release 5. Approval resumes are event-driven from `customer_groups` (C11).
 - Submit is the only authoritative moment. In order:
   1. lock and re-price the cart (with a fresh visibility pass);
-  2. re-evaluate delivery promotions;
+  2. re-evaluate delivery promotions, check the cart's sales snapshot against `Cart.totals`, and have `sales` compute the payable amount (D-R5-CH6);
   3. reserve stock;
   4. reserve credit for the full payable amount;
-  5. create the document, idempotently, and check its totals;
+  5. create the order directly with `sales.orders.create` (or, for `request_quote`, the quote), idempotently under `external_reference`, and check its persisted totals (D-R5-CH1);
   6. commit stock, link the credit reservation and consume promotion codes and budgets;
-  7. only then take payment.
+  7. only then take payment, and record it on the order.
 
-  After the document exists, every failure is compensated by **cancelling the order** (§7.3).
-- B2B branches at submit: on account creates an **order** against reserved credit; the `request_quote` payment method creates a **quote** for the merchant to convert (D-R5-20).
-- `checkout` declares no new `requires`. Session features soft-resolve their peers, and Phase A pay links keep working with none of them installed (D-R5-18).
+  After the order exists, every failure is compensated by **cancelling the order** (§7.3).
+- B2B branches at submit: on account creates an **order** against reserved credit; the `request_quote` payment method creates a **quote** for the merchant to convert (D-R5-20). No checkout order passes through a quote.
+- `checkout` declares no new `requires`. Session features soft-resolve their peers, and Phase A pay links keep working with none of them installed (D-R5-18). Checkout reads other modules' data only through their services, never with queries on their tables (D-R5-CH5).
 
 **Scope:**
-- `CheckoutSession`, `CheckoutSessionEvent`; `CheckoutTransaction` extended with `session_id`, `quote_id`, `order_id`
-- Cart lock/extend/unlock protocol across payment; the submit sequence and its compensation; the recovery decision table
+- `CheckoutSession`, `CheckoutSessionEvent`; `CheckoutTransaction` extended with `session_id`, `quote_id`, `order_id` and the payment-recording markers (§4.4)
+- Cart lock/extend/unlock protocol across payment; the submit sequence and its compensation; payment recording on the order; the recovery decision table and the repair jobs
+- Three Phase A changes: fail-closed rate limits answer `503` without a limiter, and the gateway subscribers rethrow retryable failures and resume session payments (§3.2)
 - Address capture, delivery rate selection via `shipping_carriers` with a flat-rate fallback, delivery promotions, payment via `payment_gateways`
 - B2B: purchase on account, credit reservation, PO number capture, approval gating with event-driven resume, quote branch
 - Retirement of `CheckoutCartItem` in favour of cart-backed links
@@ -114,24 +115,44 @@ Purchase on account is not a payment method that skips payment — it consumes a
 | Simple checkout | Created from `CheckoutLinkCartTemplate` at first visit, channel `pay_link`, through the trusted context (§4.3) | Per template line (`is_quantity_editable`), default no |
 | Storefront API / POS / agent | Existing cart, `X-Cart-Token` supplied | Yes, until lock |
 
-Phase A pay links keep their existing path end to end. They create a `CheckoutTransaction` with no `session_id` and no cart, exactly as today. This spec adds nothing to them and removes nothing from them; a test boots an app with only `checkout` + `payment_gateways` and completes a pay link (D-R5-18).
+Phase A pay links keep their existing path end to end. They create a `CheckoutTransaction` with no `session_id` and no cart, exactly as today. A test boots an app with only `checkout` + `payment_gateways` and completes a pay link (D-R5-18). Release 5 changes Phase A in exactly these ways (each is Ask First under `packages/checkout/AGENTS.md` and approved; §14a rows 14–17):
+
+1. **Fail-closed without a limiter (CH0a).** A route whose rate limit is declared `fail-closed` answers `503` when no `rateLimiterService` is registered. Today `enforceCheckoutRateLimit` logs and skips the check in that case. This applies to `POST /api/checkout/pay/[slug]/submit` and `/verify-password` and to every fail-closed session route (§13). Fail-open routes keep today's behaviour.
+2. **Gateway subscribers (CH0b, D-R5-CH3).** The four `gateway-payment-{authorized,captured,failed,cancelled}` subscribers split failures in two. A `404`/`409` refusal from `checkout.transaction.updateStatus` cannot be fixed by a retry: it goes to `main`'s `reportGatewayStatusSyncFailure` (`checkout/lib/gateway-status-sync.ts`, #9597) and is swallowed. That helper logs the expected refusals at debug level and reports the terminal `409` ("captured on an expired transaction") as an error. Every other failure (a non-HTTP error, a `5xx`, a lock or connection timeout) is reported with `reportError` and rethrown, so the persistent event is redelivered. The helper's export stays. For a transaction with a `session_id`, the subscriber also resumes the session (§7.2 step 7, "Payment result").
+3. **Link-less transactions.** `checkout_transactions.link_id` becomes nullable, because a session-backed transaction has no link (§4.4). `checkout.transaction.updateStatus` accepts a row without a link instead of answering `404`; the Phase A link branch is unchanged.
 
 ### 3.3 Cross-module integration
 
 | Direction | Mechanism |
 |---|---|
-| → `cart` | DI `cartService`: `lock` (with `checkoutSessionId`, `lockTtlMs`, `purpose`, route context), `unlock`, `markConverted` (with `salesOrderId`/`salesQuoteId` and `lineMap`), the exact sales snapshot read (`SalesLineSnapshot[]` + adjustments, C7). Command `cart.approval.request` for `request-approval`. Commands `cart.create` and the line adds for link seeding (D-R5-19). |
+| → `cart` | DI `cartService`: `lock` (with `checkoutSessionId`, `lockTtlMs`, `purpose`, route context), `unlock`, `markConverted` (with `salesOrderId`/`salesQuoteId` and `lineMap`), and the read methods listed below (D-R5-CH5). Command `cart.approval.request` for `request-approval`. Commands `cart.create` and the line adds for link seeding (D-R5-19). |
 | → `availability` | `commandBus`: `availability.reserve`, `availability.release`, `availability.commit`, every input scoped by `{ tenantId, organizationId }` and keyed by `stock_reservation_key` |
 | → `customer_groups` | DI `customerGroupsService.resolveTerms` (terms incl. `approval_required_above`, `min_order_value`, `terms_currency_code`, `allow_purchase_on_account`, `allow_quote_requests`, `requires_po_number`). DI `customerCreditService`: `checkCredit`, `reserveCredit`, `releaseCredit`, `linkCreditReservationToOrder`. DI `customerPurchaseApprovalService`: `getApproval`, `getActiveApprovalForSubject` (read only; checkout creates no approval, D-R5-3). Subscribes to `customer_groups.approval.*` (§8.2). |
 | → `ecommerce` (SPEC-029) | DI `storeContextService.resolve(request, { fresh: true })` at the edge; `storeContextService.resolveForBuyer(...)` for pay-link buyer identity and recovery (D-R5-22) |
-| → `promotions` | DI `promotionsService`: `evaluate` with delivery context (D-R5-17), `useCode`, `registerUsage` before payment (C5, D-R4-26), `revertCodeUse({ cartId })` in compensation before the order links the use. Reversal after cancellation is **promotions-owned**: a promotions subscriber on `sales.order.cancelled` runs `revertUsage({ orderId })` and `revertCodeUse({ orderId })` idempotently (SPEC-055 amendment, C5). `sales` never calls promotions. |
+| → `promotions` | DI `promotionsService`: `evaluate` with delivery context (D-R5-17), `useCode` with the `orderId` (`UseCodeInput.orderId`), `registerUsage` before payment (C5, D-R4-26). Checkout calls no reversal itself. Reversal after cancellation is **promotions-owned**: a promotions subscriber on `sales.order.cancelled` runs `revertUsage({ orderId })` and `revertCodeUse({ orderId })` idempotently (SPEC-055 amendment, C5). Because `useCode` already carries the `orderId`, that subscriber covers every use checkout consumed. `revertCodeUse?` is an optional member of the service; a caller that needs it checks for it and fails closed when it is absent. `sales` never calls promotions. |
 | → `shipping_carriers` | DI `shippingCarrierService.calculateRates` (§5.3); selected method snapshotted onto the session |
+| → `wms` | Soft. The primary warehouse's address as the delivery origin (§5.3), through a new `wms` read method (below). Carrier quoting is gated on that method's availability, never on `wmsReservationService`. |
 | → `payment_gateways` | `paymentGatewayService.createPaymentSession` and status read, the Phase A surface, unchanged |
-| → `sales` | `commandBus`: `sales.quotes.create`, `sales.quotes.convert_to_order`, `sales.orders.update` (status `confirmed` at completion, `cancelled` in compensation). Lookup of a quote by `external_reference` (§7.2, D-R5-30). |
+| → `sales` | `commandBus`: `sales.orders.create` for the order outcome (D-R5-CH1), with `suppressStaffNotification: true` (D-R5-CH8), `sales.quotes.create` for the `request_quote` outcome only, `sales.orders.update` (status `confirmed` at completion, `canceled` in compensation), `sales.payments.create` for a captured or authorised gateway payment (§7.2 step 7). Reads through the `sales` lookup service listed below (D-R5-CH5). |
 | ← `sales` | UMES widget: "Created from checkout" badge when `metadata.sourceModule = 'checkout'` |
 | → `workflows` | **None in Release 5.** The four post-conversion definitions of §5.1 are B.6. Checkout emits its events (§10) either way, so a later definition subscribes without a checkout change. |
 
-The quote→order path through the command bus is retained from v1 and reused for both entry modes.
+**Peer reads go through services (D-R5-CH5).** Checkout never queries another module's tables, with an ORM or with Kysely. It reads through the services below. The ones marked *new* are cross-module requirements on the owning spec (§16, "Cross-module requirements").
+
+| Service | Method | Returns | Used by |
+|---|---|---|---|
+| `cartService` (*new reads*, cart spec) | `getCheckoutView({ cartId, tenantId, organizationId })` | status, lock holder (`checkoutSessionId`), `channel`, `storeId`, `salesChannelId`, `currencyCode`, `locale`, `customerId`, `customerUserId`, the company id, `approvalId`, `updatedAt`, `totals` (the `Cart.totals` keys as decimal strings) | session create, every `/current/*` binding check (§9.0), submit preconditions, recovery |
+| `cartService` (*new reads*, cart spec) | `getSalesSnapshot({ cartId, tenantId, organizationId, checkoutSessionId })` | the exact `SalesLineSnapshot[]` and `SalesAdjustmentDraft[]` behind `Cart.totals`, metadata included (`metadata.taxRate` on every discount draft, `metadata.cartLineId` on every line incl. gift lines), plus `appliedCodes: { codeId, codeString, promotionId }[]` | §7.2 steps 2 and 5, step 6c |
+| `salesDocumentLookupService` (*new*, `sales`) | `resolveOrderStatusEntryId({ tenantId, organizationId, value })` | the `sales.order_status` dictionary entry id for `draft`, `confirmed` or `canceled`, or null. Wraps `sales/lib/statusHelpers.ts` `resolveStatusEntryIdByValue` | §7.2 steps 5 and 7, §7.3 |
+| `salesDocumentLookupService` (*new*, `sales`) | `findOrderByExternalReference({ tenantId, organizationId, externalReference })` / `findQuoteByExternalReference(…)` | `{ id, number, statusValue, totals, lines: { id, cartLineId }[] }` or null; `totals` are the persisted document's total keys as decimal strings; `cartLineId` is read from each line's `metadata.cartLineId` | §7.2 step 5 (idempotency, totals check, `lineMap`), §12.1 |
+| `salesDocumentLookupService` (*new*, `sales`) | `findPaymentByReference({ tenantId, organizationId, orderId, paymentReference })` | the payment id or null | §7.2 step 7 payment recording, `repair-gateway-payments` |
+| `wmsWarehouseLookupService` (*new*, `wms`) | `getPrimaryWarehouseAddress({ tenantId, organizationId })` | `{ addressLine1, city, postalCode, country }` or null | §5.3 origin |
+| `storeContextService` (SPEC-029) | `resolve(request, { fresh: true })`, `resolveForBuyer(…)` | the store, its default sales channel id (from `ecommerce_store_channel_bindings` with `is_default`), buyer identity | §4.3, §7.1, §12.1 |
+| `customerGroupsService`, `customerCreditService`, `customerPurchaseApprovalService`, `promotionsService`, `shippingCarrierService`, `paymentGatewayService` | as in the table above | | |
+
+The reference reads `carts`, `cart_promotion_applications`, `promotions`, `sales_quotes`, `sales_orders`, `sales_order_lines`, `sales_payments`, `dictionaries` and `wms_warehouses` with raw Kysely (`lib/cartPeer.ts`, `lib/cartLinesPeer.ts`, `lib/warehousePeer.ts`, `commands/submit.ts`); the port replaces every such read with the service calls above.
+
+Checkout's own tables (`checkout_sessions`, `checkout_session_events`, `checkout_transactions`, `checkout_links`, `checkout_link_cart_templates`) are read with `findWithDecryption`/`findOneWithDecryption`.
 
 ### 3.4 Soft dependencies (D-R5-18)
 
@@ -140,11 +161,12 @@ The quote→order path through the command bus is retained from v1 and reused fo
 | Peer absent | Effect |
 |---|---|
 | `cart` (`cartService`) | Every `/api/checkout/sessions*` buyer route answers `503 checkout_sessions_unavailable`. Pay links unaffected. |
-| `sales` | Same as `cart`: no document can be created, so sessions are unavailable (`503 checkout_sessions_unavailable`). |
+| `sales` (`salesDocumentLookupService`) | Same as `cart`: no document can be created, so sessions are unavailable (`503 checkout_sessions_unavailable`). |
 | `customer_groups` (`customerCreditService`, `customerPurchaseApprovalService`) | `on_account` and `request_quote` are not offered; no approval gate beyond what `cart.lock` itself enforces; `min_order_value` and PO checks skipped (no terms). |
 | `availability` | Stock step skipped; every line reports `not_tracked` (D-R5-9). |
 | `promotions` | No delivery promotions, no code consumption or usage registration (the cart itself carries no promotions without it). |
-| `shipping_carriers` | Rates come only from the flat-rate fallback (§5.3); with no fallback configured, physical carts cannot pass `delivery` (`422 delivery_unavailable`). |
+| `shipping_carriers` | Rates come only from the flat-rate fallback (§5.3); with no fallback configured, carts cannot pass `delivery` (`422 delivery_unavailable`). |
+| `wms` (`wmsWarehouseLookupService`) | No origin address, so carriers are not quoted; only flat rates are offered (§5.3). |
 | `payment_gateways` | Only `on_account` / `request_quote` are offered. |
 | `ecommerce` (`storeContextService`) | Storefront-channel carts cannot be locked (no fresh context, C2) and sessions on them are refused with `503 checkout_sessions_unavailable`; link and API carts proceed without a store. |
 
@@ -169,22 +191,22 @@ Standard scoped columns (`id`, `tenant_id`, `organization_id`, `created_at`, `up
 | `locale` | text | |
 | `email` | text, nullable | Encrypted at rest |
 | `phone` | text, nullable | Encrypted at rest |
-| `customer_id` / `customer_user_id` | uuid, nullable | Copied from the cart at creation. A non-null `customer_user_id` binds every buyer route to that customer session (§9.0) |
+| `customer_id` / `customer_user_id` | uuid, nullable | Copied from the cart at creation, for the audit trail and events only. The binding of §9.0 is checked against the **live cart's** `customer_user_id` (`cartService.getCheckoutView`), never against this copy, so a token issued for a guest cart cannot act for a buyer who logged in and claimed the cart later |
 | `shipping_address` | jsonb, nullable | Encrypted at rest |
 | `billing_address` | jsonb, nullable | Encrypted at rest |
 | `billing_same_as_shipping` | boolean | |
 | `shipping_method` | jsonb, nullable | Snapshot: `providerKey`, service, `deliveryMethodCode`, price, ETA, `quotedAt`, `source: 'carrier' \| 'flat_rate'` |
-| `quoted_totals` | jsonb, nullable | The totals the buyer saw at review: `{ goodsGross, deliveryCost, deliveryDiscount, payableGross, currencyCode, appliedPromotionIds, cartUpdatedAt, evaluatedAt }`. Compared at submit (§7.2 step 2) |
+| `quoted_totals` | jsonb, nullable | The totals the buyer saw at review: `{ goodsGross, deliveryCost, deliveryDiscount, payableGross, currencyCode, appliedPromotionIds, cartUpdatedAt, evaluatedAt }`. Amounts are decimal strings computed by `sales` (D-R5-CH6). Written at delivery selection and on entering `review`; cleared when the cart's `updatedAt` differs from `cartUpdatedAt` on a session read, and when the address, delivery method or payment method changes. Compared at submit (§7.2 step 2) |
 | `delivery_window_id` | uuid, nullable | `sales.SalesDeliveryWindow.id` |
-| `payment_method_code` | text, nullable | A gateway method, `on_account` or `request_quote` (D-R5-20) |
+| `payment_method_code` | text, nullable | A gateway `providerKey`, `on_account` or `request_quote` (D-R5-20). Set by `POST /sessions/current/payment` (§5.5, D-R5-CH2) |
 | `payment_intent_ref` | text, nullable | Gateway reference |
 | `payment_expires_at` | timestamptz, nullable | Gateway session expiry; drives the lock extension and `expire-awaiting-payment` (§6, §12) |
-| `purchase_order_number` | text, nullable | B2B; written to `SalesQuote.customer_reference` |
+| `purchase_order_number` | text, nullable | B2B; set by `POST /sessions/current/payment` (D-R5-CH2); written to the document's `customer_reference` (`SalesOrder` for the order outcome, `SalesQuote` for `request_quote`) |
 | `credit_reservation_key` | text, nullable | Idempotency key used with `reserveCredit`; fresh per attempt |
 | `stock_reservation_key` | text, nullable | Idempotency key used with `availability.reserve`; fresh per attempt |
 | `submit_idempotency_key` | text, nullable | Client-supplied `Idempotency-Key` of the current attempt; the duplicate-submit guard |
 | `submit_attempt` | integer | Starts at 0, incremented when an attempt begins. Part of the document's `external_reference` (§7.2) |
-| `submit_progress` | text, nullable | Last completed submit step: `locked \| stock_reserved \| credit_reserved \| document_created \| finalized \| payment_initiated`. Read by recovery (§12.1) |
+| `submit_progress` | text, nullable | Last completed submit step: `locked \| stock_reserved \| credit_reserved \| document_created \| finalized \| payment_initiated`, or `compensating` while an order cancellation has not yet succeeded (§7.3). Read by recovery (§12.1) and `repair-order-compensation` (§12) |
 | `submit_started_at` | timestamptz, nullable | Start of the current attempt; recovery threshold |
 | `outcome_kind` | text, nullable | `order \| quote` |
 | `sales_order_id` / `sales_quote_id` | uuid, nullable | |
@@ -226,22 +248,24 @@ Replaces v1's `CheckoutCartItem`. Merchant-defined lines that seed a cart on fir
 | `description` | text, nullable | |
 | `sku` | text, nullable | |
 | `quantity` | integer | Default 1 |
-| `unit_price_override` | numeric(12,2), nullable | Null → resolve from catalog for the buyer |
+| `unit_price_override` | numeric, nullable, mapped with `ExactDecimalType` like Phase A's checkout money columns (#7324) | Null → resolve from catalog for the buyer |
 | `currency_code` | text | |
 | `image_url` | text, nullable | |
 | `is_quantity_editable` | boolean | Default `false` |
 | `sort_order` | integer | |
 
-Currency rules from v1 are retained: one currency per link; mixed-currency templates rejected at admin write; the currency must be supported by the link's gateway descriptor.
+Currency rules from v1 are retained: one currency per link; mixed-currency templates rejected at admin write; the currency must be supported by the link's gateway descriptor. Template rows are written only through the `checkout.cartTemplate.*` commands (§11) from the link's admin form; a port that ships rows without those commands, the form and the currency check does not pass the B.2 gate (CH3, §17).
+
+**Link settings added for cart-backed links (B.2, additive columns on `checkout_links` and `checkout_link_templates`).** `sales_channel_id` (uuid, nullable: the `sales.SalesChannel` a link cart's documents are scoped to) and the flat-rate fallback `flat_rate_shipping_amount` (`ExactDecimalType`), `flat_rate_shipping_currency_code`, `flat_rate_shipping_label` and `flat_rate_shipping_tax_rate` (all nullable). They are written through the existing `checkout.link.*`/`checkout.template.*` commands and the link admin form, like every other link field.
 
 `unit_price_override` matters: with a real cart behind it, a template line without an override resolves the buyer's own price, so a simple checkout link sent to a wholesale customer prices at their contract rate.
 
 **Optimistic locking (C20).** Template rows are a sub-resource edited inside the link's `CrudForm` and saved with it. They are guarded by the parent `CheckoutLink.updatedAt` (the AGENTS.md sub-resource exemption); they carry the standard `updated_at` but no header of their own.
 
 **Seeding a cart from a template (B.2, D-R5-19, D-R5-22).**
-1. The Phase A link checks pass first: active, not expired, usage limit, and the password access cookie (`readCheckoutAccessCookie`) where the link has a password.
-2. Checkout builds a context with `buildTrustedCommandContext({ tenantId: link.tenantId, organizationId: link.organizationId, actor: { type: 'system' }, reason: 'checkout.link.seed:' + link.id })`. The scope comes only from the link row, never from request input, and the audit entry is marked system-initiated.
-3. Buyer identity: when a customer session is present (`getCustomerAuthFromRequest`) and its tenant and organization equal the link's, checkout resolves `storeContextService.resolveForBuyer({ tenantId, organizationId, customerUserId })` with **no store**. It passes the resulting identity (`customerId`, `customerIds` with the company, `customerGroupIds`, `priceKindId`) to `cart.create` (channel `pay_link`), so template lines without an override price at the buyer's own rate and credit, approval and terms resolve to the company. Without a customer session, the cart is a guest cart.
+1. The Phase A link checks pass first: active, not expired, the password access cookie (`readCheckoutAccessCookie`) where the link has a password, and a **capacity probe**: a link whose `maxCompletions` is already reached is refused. The probe reserves nothing, so a tokenless `POST /sessions` cannot use up a link. The slot itself is reserved atomically at submit (a conditional increment that fails when the limit is reached) and released exactly once, on the session's status CAS to `failed`, `canceled` or `expired` after a reservation. A buyer who returns to the same link with the session token resumes that session instead of seeding a new cart.
+2. Checkout builds a context with `buildTrustedCommandContext({ tenantId: link.tenantId, organizationId: link.organizationId, actorType: 'system', reason: 'checkout.link.seed:' + link.id })` from `@open-mercato/shared/lib/commands/trusted-context` (D-R5-CH7). The scope comes only from the link row, never from request input, and the audit entry is marked system-initiated.
+3. Buyer identity: when a customer session is present (`getCustomerAuthFromRequest`) and its tenant and organization equal the link's, checkout resolves `storeContextService.resolveForBuyer({ tenantId, organizationId, customerUserId })` with **no store**. It passes the resulting identity (`customerId`, `customerIds` with the company, `customerGroupIds`, `priceKindId`) and the link's `sales_channel_id` to `cart.create` (channel `pay_link`), so template lines without an override price at the buyer's own rate and credit, approval and terms resolve to the company. Without a customer session, the cart is a guest cart.
 4. Lines are added through the cart's line-add command, only from the template. The request body never contributes lines.
 
 ### 4.4 `CheckoutTransaction` (extended, additive)
@@ -251,8 +275,13 @@ Currency rules from v1 are retained: one currency per link; mixed-currency templ
 | `session_id` | uuid, nullable | Null for Phase A pay links. Index `(tenant_id, session_id)` |
 | `quote_id` | uuid, nullable | New, additive. The real `CheckoutTransaction` entity has no such column today |
 | `order_id` | uuid, nullable | New, additive. Same as above |
+| `payment_recorded_at` | timestamptz, nullable | Set when the `sales` payment for this transaction exists (§7.2 step 7, "Payment recording") |
+| `payment_repair_attempted_at` | timestamptz, nullable | Last `repair-gateway-payments` attempt (§12) |
+| `link_id` | uuid, **now nullable** | Was NOT NULL. A session-backed transaction has no link |
 
-A session-backed gateway payment creates one `CheckoutTransaction` per attempt at §7.2 step 7, with `session_id`, `order_id` and `quote_id` set. Additive nullable columns only; Phase A rows keep all three null and Phase A behaviour is untouched.
+Partial index `(tenant_id, organization_id, payment_repair_attempted_at nulls first, updated_at, id) where payment_recorded_at is null and status = 'completed' and session_id is not null and order_id is not null`, so the repair sweep reads only outstanding rows.
+
+A session-backed gateway payment creates one `CheckoutTransaction` per attempt at §7.2 step 7, with `session_id` and `order_id` set and `link_id` null. Phase A rows keep `session_id`, `quote_id` and `order_id` null and always carry a `link_id`. Dropping NOT NULL on `link_id` changes the `CheckoutTransaction.linkId` type to `string | null` and lets `GET /api/checkout/transactions` return `linkId: null` for session rows: a BC warning recorded in §14a row 15 with an UPGRADE_NOTES entry.
 
 ---
 
@@ -328,9 +357,13 @@ contact ──► addresses ──► delivery ──► payment ──► revie
    └────────────┴─────────────┴────────────┴──────────┘   (free backward navigation)
 ```
 
-Steps are skippable by configuration: a digital-only cart skips `delivery`; a known logged-in buyer with one address skips `contact` and `addresses`; `on_account` and `request_quote` skip gateway selection in `payment` but not the step (the PO number is captured there, §8.4).
+Steps are skippable by configuration: a known logged-in buyer with one address skips `contact` and `addresses` (the session is prefilled from that address); `on_account` and `request_quote` skip gateway selection in `payment` but not the step (the PO number is captured there, §8.4). **`delivery` is never skipped in Release 5 (D-R5-CH4):** every cart is treated as physical, and submit requires a selected shipping method and a shipping address (`422 steps_incomplete`, `details.steps: ['delivery']`).
 
-Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** and returns the buyer to `delivery` with the reason stated — a stale rate is a shipping cost the merchant absorbs. Any cart change after review (the cart's `updatedAt` differs from `quoted_totals.cartUpdatedAt` on the next session read) clears `quoted_totals`, so `review` re-evaluates before submit is offered. When a tax provider is configured, tax can depend on the shipping address as well (`2026-10-03-tax-providers-roadmap.md`, ADR-3); under the default state `product-rate` (its ADR-5) nothing changes. That the lock's re-price (§6) computes with that address the figure the buyer confirms, and whether the funnel shows a tax estimate at the address step, are proposed to the owners of this spec in that roadmap (amendment 6a, §14 Q16) and are not decided here; the Release 5 lock input carries no address.
+> **Later (not Release 5): digital-only carts.** Skipping `delivery` needs a cart-level "requires shipping" fact derived from the lines, no shipping method, no shipping address and no shipping adjustment. It is deferred; Release 5 must not infer it.
+
+`POST /sessions/current/step` validates the step being left: `contact` needs `email`; `addresses` needs a shipping address (and a billing address unless `billing_same_as_shipping`); `delivery` needs `shipping_method`; `payment` needs `payment_method_code` and, when required, the PO number. Moving backward never validates. A forward move over an incomplete step answers `422 steps_incomplete` with `details.steps`.
+
+Backward navigation is always allowed before submit. Changing an address after selecting delivery **invalidates the rate quote** (clears `shipping_method` and `quoted_totals`) and returns the buyer to `delivery` with the reason stated (`details.reason: 'address_changed'` on the next `GET /current`) — a stale rate is a shipping cost the merchant absorbs. Any cart change after review (the cart's `updatedAt` differs from `quoted_totals.cartUpdatedAt` on the next session read) clears `quoted_totals`, so `review` re-evaluates before submit is offered. `quoted_totals` covers the goods as well as delivery: submit compares `goodsGross`, `deliveryCost`, `deliveryDiscount` and `payableGross`, not only the delivery figures (§7.2 step 2). The reference stores and compares only the delivery cost and discount, and never clears `quoted_totals` on a cart change; the port must implement the full rule. When a tax provider is configured, tax can depend on the shipping address as well (`2026-10-03-tax-providers-roadmap.md`, ADR-3); under the default state `product-rate` (its ADR-5) nothing changes. That the lock's re-price (§6) computes with that address the figure the buyer confirms, and whether the funnel shows a tax estimate at the address step, are proposed to the owners of this spec in that roadmap (amendment 6a, §14 Q16) and are not decided here; the Release 5 lock input carries no address.
 
 ### 5.3 Delivery rate quoting (C13, D-R5-35)
 
@@ -339,18 +372,21 @@ Backward navigation is always allowed before submit. Changing an address after s
 | Input | Source |
 |---|---|
 | `providerKey` | The providers enabled in the store settings (storefront carts) or the link settings (link carts); API/agent carts without a store use the tenant's enabled providers |
-| `origin` | The store's address; else the primary warehouse's address; else the tenant's default address |
+| `origin` | The primary warehouse's address from `wms` (`wmsWarehouseLookupService.getPrimaryWarehouseAddress`). `ecommerce` stores have no structured address today, so the store is not an origin source. No origin (no `wms`, or no primary warehouse with an address) → carriers are not called and only flat rates are offered |
 | `destination` | `shipping_address` |
 | `packages` | One parcel per cart, weight and dimensions summed from catalog product weight and dimensions; lines without data contribute a configured default (single-parcel default: 1 kg, 30×20×10 cm) |
 
 - Quotes are cached 5 min per `(address hash, cart hash)` (R10) and re-validated at submit (R5).
-- **Flat-rate fallback (D-R5-35).** When a carrier call fails or no provider is configured, the flat rates from the **store settings** (storefront carts) or the **link settings** (link carts) are offered instead, marked `source: 'flat_rate'`. Without a fallback configured, a carrier failure answers `422 delivery_unavailable`.
+- **Currency.** A carrier rate or a flat rate whose currency differs from the session's `currency_code` is dropped, never converted or relabelled.
+- **Net amounts and tax.** A rate's amount is a **net** amount in the session currency. The shipping charge reaches `sales` as a `kind: 'shipping'` adjustment with `amountNet = rate` and `metadata.taxRate` = the shipping tax rate (`settings.shipping.taxRate` of the store, or the link's `flat_rate_shipping_tax_rate`; unset = `0`, untaxed). `sales` derives the gross and the tax portion (`salesCalculationService`); checkout does no tax arithmetic. A delivery discount is a `kind: 'discount'` adjustment carrying the same `metadata.taxRate`, so `sales` reduces the tax with it (the #8425 rule).
+- **Flat-rate fallback (D-R5-35).** When a carrier call fails, no provider is configured, or no origin exists, the flat rates from the **store settings** (`settings.shipping.flatRate`, an **optional** key of `EcommerceStoreSettings`: storefront carts) or the **link settings** (the `flat_rate_shipping_*` columns of §4.3: link carts) are offered instead, marked `source: 'flat_rate'`. Without a fallback configured, the call answers `422 delivery_unavailable`.
 - Selecting a method (`POST …/current/delivery`) snapshots it into `shipping_method`.
 
 ### 5.4 Delivery promotions (D-R5-17, D-R4-24 (2)(3))
 
 The `delivery_method` rule and the `DELIVERY_DISCOUNT` effect are authorable in Release 5 (SPEC-055 amendment); checkout is their source.
-- **At delivery selection** and again on entering `review`, checkout calls `promotionsService.evaluate` with the cart's buyer context plus `deliveryMethodCode` and `deliveryCost`, and stores the result in `quoted_totals`.
+- **At delivery selection** and again on entering `review`, checkout calls `promotionsService.evaluate` with the cart's buyer context plus `deliveryMethodCode` and `deliveryCost`, and stores the result in `quoted_totals`. `deliveryCost` is the **gross** shipping charge (SPEC-055 D-R5-PR8, matching the gross payable of D-R5-24): the `amountGross` that `sales` computes for the `shipping` adjustment of §5.3 (`salesCalculationService`), never the net rate. `quoted_totals.deliveryCost` holds the same gross figure.
+- **Discount basis.** `promotions` returns the delivery discount as a gross amount. Checkout passes it to `sales` as the `kind: 'discount'` adjustment of §5.3 with `amountGross` set and the shipping `metadata.taxRate`; `sales` derives its net amount and tax. The same inputs, including the cart's applied code strings, are passed at selection, at review and at submit, so the three evaluations can only differ when the promotion data changed.
 - **At submit**, after the lock, it evaluates again (§7.2 step 2). A different delivery discount or a newly applicable promotion aborts with `409 price_changed`, reason `delivery_changed` or `promotion_newly_eligible` (the cart's vocabulary).
 - The delivery discount reaches the document as an adjustment on the shipping charge computed by `sales`, never by checkout arithmetic. Its budget is registered before payment (§7.2 step 6). Cart-stage totals still exclude delivery.
 
@@ -361,7 +397,7 @@ The `delivery_method` rule and the `DELIVERY_DISCOUNT` effect are authorable in 
 - `on_account` when the cart is identified (OQ1), the resolved terms have `allow_purchase_on_account`, and `customerCreditService.checkCredit` returns an account in the cart currency that is not on hold (D-R5-5). The response carries the `checkCredit` reason when it is not offered (`no_account`, `on_hold`, `not_permitted`), so the client can explain it;
 - `request_quote` when the resolved terms have `allow_quote_requests = true` (tenant default `false`, D-R5-20).
 
-`POST …/current/payment` stores the choice (and the PO number). A method that the list does not offer is refused with `422 payment_method_unavailable`; entitlement is never trusted from the client. The gateway intent is **not** created here: it is created by submit after the document exists (§7.2 step 7).
+`POST …/current/payment` stores the choice in `payment_method_code` and the PO number in `purchase_order_number` (D-R5-CH2). A method that the list does not offer is refused with `422 payment_method_unavailable`; entitlement is never trusted from the client. The PO number is checked for the tenant's format there when one is configured (`422 purchase_order_number_invalid`). Changing the method clears `quoted_totals`. Submit takes no payment method or PO number in its body: it re-runs the same listing and re-validates the stored method and PO number against it (§7.1 checks 7 and 10). The gateway intent is **not** created here: it is created by submit after the order exists (§7.2 step 7).
 
 ---
 
@@ -408,19 +444,24 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
 2. `Idempotency-Key` present; the §7.4 rules apply.
 3. Cart non-empty, `active`, and `cart.id = session.cart_id`.
 4. **Consistency (C9, X13, D-R4-24 (4)).** Tenant, organization, `cart.channel` and the cart currency equal the session's; when the cart has a `store_id`, it equals the store resolved for the request (`storeContextService.resolve(request, { fresh: true })`). Otherwise `409 cart_store_mismatch`. The same check runs at session creation.
-5. Required steps complete for the effective configuration (`422 steps_incomplete`); terms accepted where required.
-6. Payment method still offered (§5.5), otherwise `422 payment_method_unavailable`.
-7. **Approval (order purpose only).** Advisory read of the cart's approval state: if the cart requires approval (cart K1 basis: goods gross after promotions, excluding delivery, in the cart currency; a currency other than `terms_currency_code` always requires it, D-R5-4) and `Cart.approvalId` is not `approved` for at least the current total, answer `409 cart_requires_approval` with `request-approval` as the next action. A guest cart above the threshold answers `409 approval_requires_identified_buyer` (D-R5-12). `cart.lock` re-checks both authoritatively (K2).
-8. **`min_order_value` (order purpose only, D-R5-4).** Compared with the goods gross after promotions when the cart currency equals `terms_currency_code`; not checked otherwise. Below it: `409 below_min_order_value`.
-9. **PO number** present when the resolved `requires_po_number` is true (D-R5-28): otherwise `422 purchase_order_number_required`.
-10. `quoted_totals` present and computed for the current cart version (§5.2).
+5. **Sales channel (R-5, `sales/AGENTS.md`: every document is scoped to a channel).** The document's `channelId` resolves as: the cart's `salesChannelId`; else, for a storefront cart, the store's default channel binding (`storeContextService`); else, for a link cart, the link's `sales_channel_id` (§4.3). API, agent and POS carts must carry `salesChannelId` from `cart.create`. No channel → `422 sales_channel_unresolved`. The same check runs at session creation.
+6. Required steps complete for the effective configuration, including a shipping method and a shipping address for every cart (D-R5-CH4); otherwise `422 steps_incomplete`. Terms accepted where required.
+7. The stored `payment_method_code` is still offered by the §5.5 listing, re-run now (D-R5-CH2); otherwise `422 payment_method_unavailable`.
+8. **Approval (order purpose only).** Advisory read of the cart's approval state: if the cart requires approval (cart K1 basis: goods gross after promotions, excluding delivery, in the cart currency; a currency other than `terms_currency_code` always requires it, D-R5-4; `terms_currency_code` falls back to the organization's base currency, D-R5-37) and `Cart.approvalId` is not `approved` for at least the current total, answer `409 cart_requires_approval` with `request-approval` as the next action. A guest cart above the threshold answers `409 approval_requires_identified_buyer` (D-R5-12). `cart.lock` re-checks both authoritatively (K2).
+9. **`min_order_value` (order purpose only, D-R5-4).** Compared with the goods gross after promotions when the cart currency equals `terms_currency_code` (base-currency fallback, D-R5-37); not checked otherwise. Below it: `409 below_min_order_value`. Amounts compare as exact decimals, never floats.
+10. **PO number.** The stored `purchase_order_number` is present when the resolved `requires_po_number` is true (D-R5-28), otherwise `422 purchase_order_number_required`; it matches the tenant's format when one is configured, otherwise `422 purchase_order_number_invalid`.
+11. `quoted_totals` present and computed for the current cart version (`quoted_totals.cartUpdatedAt` equals the cart's `updatedAt`, §5.2); otherwise `409 price_changed` with reason `review_required`.
 
 ### 7.2 Sequence
 
-Each step is a separate transaction (every `commandBus.execute()` commits its own), idempotent under its key, and records `submit_progress` plus a `CheckoutSessionEvent` when it completes. `attempt = submit_attempt` after the `open → submitting` CAS increments it. `stock_reservation_key = 'checkout:' + sessionId + ':' + attempt + ':stock'` and `credit_reservation_key = 'checkout:' + sessionId + ':' + attempt + ':credit'`.
+Each step commits on its own (every `commandBus.execute()` commits its own transaction), is idempotent under its key, and records `submit_progress` plus a `CheckoutSessionEvent` when it completes. No step holds a database connection while it waits on another: a nested command runs on the caller's transaction (`ctx.transactionalEm`) when the caller has one, and never opens a second connection inside an open transaction (#8414). `attempt = submit_attempt` after the `open → submitting` CAS increments it. `stock_reservation_key = 'checkout:' + sessionId + ':' + attempt + ':stock'`, `credit_reservation_key = 'checkout:' + sessionId + ':' + attempt + ':credit'` and `documentRef = 'checkout:' + sessionId + ':' + attempt`.
+
+**Money.** Checkout does no money arithmetic (ADR-2, D-R5-CH6). Every total comes from `sales`: the cart's own totals, or `salesCalculationService.calculateDocumentTotals`. Checkout only compares, as exact decimal strings at the currency's decimal places; it never compares floats or uses an epsilon.
 
 ```
  0. CAS open → submitting; submit_attempt += 1; fresh keys; emit checkout.session.submitted
+    Pay-link session: reserve the link slot atomically (§4.3); limit reached → status open;
+    ABORT 409 link_usage_limit_reached
 
  1. cartService.lock({ cartId, tenantId, organizationId, checkoutSessionId: sessionId,
                        purpose: 'order' | 'quote', routeContext })                 [§6]
@@ -428,11 +469,21 @@ Each step is a separate transaction (every `commandBus.execute()` commits its ow
     ├─ cart refusal (409/423, §6)  → ABORT, code passed through
     └─ progress = locked
 
- 2. Delivery re-evaluation (D-R5-17): re-validate the shipping rate if older than its
-    validity; promotionsService.evaluate with deliveryMethodCode/deliveryCost;
-    compute payable = goods gross after promotions + delivery cost − delivery discount
-    └─ differs from quoted_totals → unlock; ABORT 409 price_changed
-                                    (delivery_changed | promotion_newly_eligible)
+ 2. Snapshot, totals and delivery (C7, D-R5-17, D-R5-24, D-R5-CH6). No document exists yet.
+    a. snapshot = cartService.getSalesSnapshot(...): the exact line snapshots and adjustment
+       drafts behind Cart.totals, metadata included (metadata.taxRate on discount drafts).
+       Self-check: salesCalculationService.calculateDocumentTotals(snapshot lines +
+       snapshot adjustments) equals Cart.totals on every key
+       └─ mismatch → unlock; ABORT 500 totals_mismatch + ops notification (nothing else taken)
+    b. Re-validate the shipping rate if older than its validity (§5.3);
+       promotionsService.evaluate with deliveryMethodCode/deliveryCost, deliveryCost = the
+       gross shipping charge computed by sales (same inputs as §5.4)
+    c. documentTotals = salesCalculationService.calculateDocumentTotals(snapshot lines +
+       snapshot adjustments + the shipping adjustment + the delivery-discount adjustment)
+       payable = documentTotals.grandTotalGrossAmount
+    d. goods gross, delivery cost, delivery discount or payable differ from quoted_totals
+       └─ unlock; ABORT 409 price_changed (delivery_changed | promotion_newly_eligible |
+                                           review_required)
 
  3. availability.reserve({ tenantId, organizationId, items, sourceType: 'checkout',
       sourceId: sessionId, idempotencyKey: stock_reservation_key, ttlSeconds: 900 })
@@ -446,24 +497,31 @@ Each step is a separate transaction (every `commandBus.execute()` commits its ow
       ├─ refused → release stock; unlock; ABORT 402 credit_refused (reason)
       └─ progress = credit_reserved
 
- 5. Document (idempotent, C3):
-    a. Look up SalesQuote by (tenantId, organizationId,
-       external_reference = 'checkout:' + sessionId + ':' + attempt). Found → reuse.
-       Not found → sales.quotes.create with:
-         external_reference, non-confirmed status (C17), customer_reference = PO number,
-         lines from cartService's exact SalesLineSnapshot[] + adjustments (C7),
-         metadata.cartLineId on every line incl. gift lines (C18),
-         shipping method + cost, DELIVERY_DISCOUNT as adjustment on the shipping charge,
-         metadata.sourceModule = 'checkout', metadata.checkoutSessionId
-    b. Totals invariant (C7, D-R5-24): quote goods totals = locked cart totals (4 dp per key,
-       D-R4-9) AND quote grand total gross = payable
-       └─ mismatch → compensate (§7.3); ABORT 500 totals_mismatch + ops notification
-    c. Order outcome: if the quote is not yet converted → sales.quotes.convert_to_order
-       (the order inherits the non-confirmed status and each line's metadata)
-    d. Write sales_quote_id / sales_order_id; progress = document_created
+ 5. Document (idempotent on the document itself, C3, D-R5-CH1):
+    ORDER OUTCOME (gateway or on_account)
+    a. salesDocumentLookupService.findOrderByExternalReference({ tenantId, organizationId,
+       externalReference: documentRef }). Found → reuse it, skip to 5c.
+    b. Not found → sales.orders.create per the field mapping below: statusEntryId of the
+       non-confirmed status `draft` (C17), externalReference = documentRef,
+       customerReference = PO number, channelId, the shipping and payment method fields,
+       customerSnapshot, the snapshot's exact lines and adjustments plus the shipping and
+       delivery-discount adjustments, suppressStaffNotification = true (D-R5-CH8)
+    c. Totals invariant (C7, D-R5-24): every total key of the persisted order (read back
+       through the lookup) equals documentTotals. That includes the goods keys (subtotals and
+       discount total equal Cart.totals) and the grand total gross (= payable). Checked for
+       every payment method
+       └─ mismatch → compensate (§7.3, cancel the order); ABORT 500 totals_mismatch
+                     + ops notification
+    d. lineMap from the persisted order lines' metadata.cartLineId (C18)
+    e. Write sales_order_id; progress = document_created
 
-    QUOTE OUTCOME (request_quote) — after 5a/5b:
-       availability.release(stock_reservation_key, reason 'quote')   (C16, A9)
+    QUOTE OUTCOME (request_quote) — instead of 5a–5e:
+       findQuoteByExternalReference(documentRef) → reuse, or sales.quotes.create with the
+       same mapping (status entry `draft`); the same 5c check
+       └─ mismatch → release stock; unlock; ABORT 500 totals_mismatch + ops
+          notification (the quote is left as an ordinary, visible draft quote)
+       Write sales_quote_id; availability.release(stock_reservation_key, reason 'quote')
+                                                                     (C16, A9)
        cartService.markConverted({ …, checkoutSessionId, salesQuoteId,
                                     lineMap: [{ cartLineId, salesQuoteLineId }] })   (D-R5-26)
        status = completed; emit checkout.session.completed. DONE (no payment, no credit)
@@ -471,42 +529,78 @@ Each step is a separate transaction (every `commandBus.execute()` commits its ow
  6. ORDER OUTCOME — finalize before payment:
     a. availability.commit({ tenantId, organizationId, idempotencyKey: stock_reservation_key,
        orderId })                                                     (D-R5-8)
-       └─ result 'stock_lost' (sweep won and the fresh reserve fell short; availability
-          raises its ops notification) → compensate (§7.3, cancel order);
-          ABORT 409 stock_shortfall. No payment is ever started on a stock_lost order.
+       └─ result 'stock_lost' (sweep won and the fresh reserve fell short) → compensate
+          (§7.3, cancel order); ops notification; ABORT 409 stock_shortfall. No payment is
+          ever started on a stock_lost order.
     b. IF on_account: customerCreditService.linkCreditReservationToOrder({ scope,
        idempotencyKey: credit_reservation_key, orderId })             (C6)
-    c. promotionsService.useCode({ codeId, codeString, cartId, customerId, type }) per applied
-       code; promotionsService.registerUsage({ orderId, orderType: 'order', customerId,
-       currency, appliedPromotions })                                 (C5, D-R4-26)
+    c. promotionsService.useCode({ codeId, codeString, cartId, orderId, customerId, type })
+       per snapshot.appliedCodes entry; promotionsService.registerUsage({ orderId,
+       orderType: 'order', customerId, currency, appliedPromotions })  (C5, D-R4-26)
        └─ refused code or non-empty budgetExceeded → compensate (§7.3);
           ABORT 409 promotion_unavailable (the next lock re-prices without it)
     d. progress = finalized
 
  7. IF gateway:
-       paymentGatewayService.createPaymentSession(...); CheckoutTransaction with session_id,
-       order_id; payment_intent_ref, payment_expires_at (provider expiry, default 60 min);
+       paymentGatewayService.createPaymentSession({ providerKey: payment_method_code,
+         amount: payable, currencyCode, successUrl, cancelUrl, ... }) (return URLs per §9.3);
+       CheckoutTransaction with session_id, order_id, link_id null;
+       payment_intent_ref, payment_expires_at (provider expiry, default 60 min);
        cartService.lock(same checkoutSessionId,
                         lockTtlMs = payment_expires_at − now + 15 min)          (C1 extend)
        status = awaiting_payment;
        progress = payment_initiated; emit checkout.payment.initiated
+       respond with the payment hand-off (§9.3)
        └─ intent creation fails → compensate (§7.3); ABORT 502 payment_unavailable
-    Payment result (webhook or polling, Phase A path):
-       success → sales.orders.update(status confirmed)  → emits sales.order.confirmed (C17)
-                 cartService.markConverted({ …, checkoutSessionId, salesOrderId,
-                   lineMap: [{ cartLineId, salesOrderLineId }] })     (C18, D-R5-16)
-                 status = completed; emit checkout.payment.succeeded, checkout.session.completed
-       failure → compensate (§7.3); status = failed; emit checkout.payment.failed
+    Payment result (below) → complete or compensate.
 
  8. IF on_account (no gateway):
-       sales.orders.update(status confirmed); markConverted with salesOrderId + lineMap;
-       status = completed. The credit reservation stands until a payment is settled through
-       /adjust or settleCredit (D-R5-2).
+       sales.orders.update(statusEntryId of `confirmed`) → emits sales.order.confirmed;
+       markConverted with salesOrderId + lineMap; status = completed;
+       emit checkout.session.completed. The credit reservation stands until a payment is
+       settled through /adjust or settleCredit (D-R5-2).
 ```
 
-**`lineMap` (C18).** `convert_to_order` copies each quote line's `metadata` onto its order line, so after conversion checkout reads the order's lines and builds `lineMap` from `metadata.cartLineId`. For the quote outcome it reads the quote's lines. No `sales` change is needed.
+**Field mapping: session and cart → document (D-R5-CH1, G2).** The same mapping serves `sales.orders.create` and, for `request_quote`, `sales.quotes.create`.
 
-**Why commit precedes payment (D-R5-8).** The checkout hold becomes an `order` reservation that nothing expires, so a payment longer than the hold TTL cannot lose the stock. Because the order is created non-confirmed and moves to `confirmed` only after commit, `sales.order.confirmed` never fires while a checkout hold still exists, and the `wms` auto-reservation finds the order's own reservation instead of reserving the same stock twice (C17; the Availability Contract §4.4 confirmed-first path remains only for integrators who confirm first).
+| Document field | Source |
+|---|---|
+| `externalReference` | `documentRef` = `'checkout:' + sessionId + ':' + attempt` |
+| `customerReference` | `session.purchase_order_number` (PO number, D-R5-28) |
+| `statusEntryId` | the `sales.order_status` entry `draft` (`salesDocumentLookupService.resolveOrderStatusEntryId`); `sales` uses that one dictionary for orders and quotes. No entry → `503 checkout_sessions_unavailable` and an ops notification; checkout never creates dictionary entries |
+| `channelId` | §7.1 check 5 |
+| `currencyCode` | session `currency_code` |
+| `customerEntityId` | the **locked** cart's company (or person) id, read after step 1, never the session's creation-time copy |
+| `customerSnapshot` | `{ email, phone, displayName }` from the session contact fields (encrypted by `sales`' own map) |
+| `billingAddressSnapshot` / `shippingAddressSnapshot` | session `billing_address` (or `shipping_address` when `billing_same_as_shipping`) / `shipping_address` |
+| `shippingMethodCode` / `shippingMethodSnapshot` | `shipping_method.deliveryMethodCode` / the whole `shipping_method` snapshot |
+| `deliveryWindowId` | session `delivery_window_id` |
+| `paymentMethodCode` / `paymentMethodSnapshot` | `payment_method_code` (`on_account` and `request_quote` included, so staff see how the buyer pays, #8413) / `{ kind, providerKey?, label }` |
+| `lines` | `snapshot.lines`, unchanged; each keeps `metadata.cartLineId` (gift lines included, C18) |
+| `adjustments` | `snapshot.adjustments` unchanged (metadata included), plus the `shipping` adjustment and the delivery-discount adjustment of §5.3 |
+| `metadata` | `{ sourceModule: 'checkout', checkoutSessionId, checkoutAttempt }` |
+| `suppressStaffNotification` | `true`, order outcome only (D-R5-CH8). Not sent to `sales.quotes.create` |
+
+`sales.orders.create` already accepts every field above on `main` (`sales/data/validators.ts` `orderCreateSchema`), except `suppressStaffNotification`. The line schemas must accept the `null` values a `SalesLineSnapshot` carries (`quantityUnit`, `unitPriceNet`, `productId`, `metadata` and the rest). The reference widened the shared line schemas (`linePricingSchema`, `lineSharedSchema`) that quote **and** order lines both use; the port keeps that widening for both (§14a row 3). `sales.quotes.create` gains `externalReference` and `customerReference` (absent from `quoteCreateSchema` on `main`). `sales.orders.create` notifies `sales.orders.manage` holders of a new order (`sales.order.created`). A checkout order is a `draft` until it is paid or, for `on_account`, finalized, and it may still be compensated. So `sales.orders.create` gains an additive optional input `suppressStaffNotification?: boolean` (default `false`, D-R5-CH8): when `true`, `sales` does not notify at create and sends the `sales.order.created` notification when the order is first confirmed (step 8 for `on_account`, "Captured or authorised" for a gateway). An order compensated before confirmation notifies nobody. No checkout order raises a quote notification.
+
+**The port must change (D-R5-CH1).** The reference creates every document as a quote and converts it with `sales.quotes.convert_to_order`. On `main` that command hard-deletes the quote and copies neither `external_reference` nor `customer_reference`, so the order outcome loses its idempotency key, its PO number and its status, and staff are notified of a quote. The re-land creates the order directly and never calls `convert_to_order`. The reference also checks totals by recomputing the snapshot after the quote exists, and compares the payable only for `on_account`; the port runs the self-check before any document and compares the persisted document for every payment method.
+
+**`lineMap` (C18).** Read from the persisted document's lines (`salesDocumentLookupService`, `metadata.cartLineId`): order lines for the order outcome, quote lines for the quote outcome. A cart line without a document line is an internal error (`500`, compensated).
+
+**Payment result (step 7).** The gateway's answer resumes the session through three paths that share one claim, so exactly one of them completes or compensates:
+1. **Webhook.** The Phase A `gateway-payment-*` subscribers update the `CheckoutTransaction` as today; for a transaction with a `session_id`, they then claim the `awaiting_payment` session (a CAS on `status`) and run the outcome below (§3.2 item 2).
+2. **Expiry.** `expire-awaiting-payment` reads the gateway status at `payment_expires_at` and runs the same outcome (§12).
+3. **Recovery.** `recover-stuck-submits` for a session found in `awaiting_payment` with a settled transaction (§12.1).
+
+Outcomes:
+- **Captured or authorised** → record the payment (below); `sales.orders.update(statusEntryId of confirmed)` → emits `sales.order.confirmed` (C17); `cartService.markConverted({ …, checkoutSessionId, salesOrderId, lineMap })` (C18, D-R5-16); status `completed`; emit `checkout.payment.succeeded`, `checkout.session.completed`.
+- **Failed, cancelled or expired** → compensate (§7.3); status `failed` with `payment_failed` or `payment_expired`; emit `checkout.payment.failed`.
+
+`GET /sessions/current/result` only reads this state. The client polls it after the buyer returns to its `successUrl`.
+
+**Payment recording (G4, #8423, #8821).** For every captured or authorised session payment, checkout executes `sales.payments.create({ orderId, amount, currencyCode, paymentMethodCode, paymentReference: <gateway transaction id>, receivedAt })`. It is idempotent per `(order, paymentReference)`: checkout first looks the payment up (`findPaymentByReference`), and `sales.payments.create` refuses a duplicate reference on the same order (a cross-spec requirement on `sales`). On success checkout sets `checkout_transactions.payment_recorded_at`. A failure does not block completion: it is reported (`reportError`) and left for `repair-gateway-payments` (§12). Phase A pay-link transactions are not recorded on any order.
+
+**Why commit precedes payment (D-R5-8).** The checkout hold becomes an `order` reservation that nothing expires, so a payment longer than the hold TTL cannot lose the stock. Because the order is created in `draft` and moves to `confirmed` only after commit, `sales.order.confirmed` never fires while a checkout hold still exists, and the `wms` auto-reservation finds the order's own reservation instead of reserving the same stock twice (C17; the Availability Contract §4.4 confirmed-first path remains only for integrators who confirm first).
 
 ### 7.3 Compensation
 
@@ -515,15 +609,16 @@ Reverse of acquisition, each action idempotent under the acquisition key and saf
 | Failure at | Compensation |
 |---|---|
 | 1 (lock refused / price changed) | Nothing |
-| 2 (delivery re-evaluation) | Unlock cart |
+| 2 (snapshot self-check, delivery re-evaluation) | Unlock cart |
 | 3 (stock shortfall) | `availability.release` (no-op if nothing held); unlock cart |
 | 4 (credit refused) | Release stock; unlock cart |
-| 5a/5b before conversion (quote created, totals mismatch or conversion failure) | Release credit (`releaseCredit({ scope, reserveIdempotencyKey, reason })`); release stock; unlock cart. The created quote is left in place as an ordinary, visible unconverted quote; checkout does not delete documents |
-| 5c–8 (order exists: totals mismatch after conversion, commit/link/code failure, intent failure, payment failure or expiry) | **Cancel the order** (`sales.orders.update` → `cancelled`, emitting `sales.order.cancelled`). That one event releases the order's stock hold (`wms`), the linked credit reservation (`customer_groups` subscriber, D-R5-2 via C6) and the promotion usage and code uses (`promotions` subscriber, C5). Checkout then calls `revertCodeUse({ cartId })` for code uses consumed before `registerUsage` linked them to the order, releases credit by key if step 6b did not run, releases stock by key if step 6a did not run, and unlocks the cart |
+| 5a/5b with no order (order creation failed) | Release credit (`releaseCredit({ scope, reserveIdempotencyKey, reason })`); release stock; unlock cart |
+| Quote outcome, 5c mismatch | As above; the draft quote stays as an ordinary, visible quote. Checkout does not delete documents |
+| 5c–8 (order exists: totals mismatch, commit/link/code failure, intent failure, payment failure or expiry) | **Cancel the order**: `submit_progress = compensating`, then `sales.orders.update(statusEntryId of canceled)`, emitting `sales.order.cancelled`. That one event releases the order's stock hold (`wms`), the linked credit reservation (`customer_groups` subscriber, D-R5-2 via C6) and the promotion usage and code uses (`promotions` subscriber, C5; every use carries the `orderId`, so checkout calls no `revertCodeUse` itself). Checkout then releases credit by key if step 6b did not run, releases stock by key if step 6a did not run, releases the pay-link slot, and unlocks the cart |
 
 Every compensation writes a `CheckoutSessionEvent` of kind `compensation` and emits `checkout.compensation.executed`.
 
-**A compensation that itself fails** is written as a `failure` event, emits `checkout.compensation.failed`, raises an operational notification, and enqueues `retry-failed-compensations`. It is never swallowed: a leaked stock or credit reservation is invisible inventory or invisible exposure, and both need a human.
+**A compensation that itself fails** is written as a `failure` event, reported with `reportError`, emits `checkout.compensation.failed` and raises the ops notification (§10.1). It is never swallowed: a leaked stock or credit reservation is invisible inventory or invisible exposure, and both need a human. An order cancellation is retried three times in-process; if it still fails, the session stays `failed` with `submit_progress = compensating`, and `repair-order-compensation` (§12) retries it until it succeeds.
 
 Submit-step commands are not undoable (§11, D-R5-10); compensation is the only reversal, and the audit-log Undo cannot return a committed order hold to `checkout` or release stock under a live session.
 
@@ -537,7 +632,9 @@ Submit-step commands are not undoable (§11, D-R5-10); compensation is the only 
 - A repeat with the same key while `awaiting_payment` returns the current payment hand-off (`200`).
 - A new key after failure starts a fresh attempt with fresh reservation keys and a new `submit_attempt`, so the document's `external_reference` is fresh as well.
 
-Concurrency is enforced by the conditional update `status = 'open' → 'submitting'` (row-level CAS on `status` plus `updated_at`). Exactly one caller wins. This is the guard against the double-tap and the retried-request duplicate order; the `external_reference` lookup-before-create (§7.2 step 5a) is the guard against a crash between document creation and the session write.
+Concurrency is enforced by the conditional update `status = 'open' → 'submitting'` (row-level CAS on `status` plus `updated_at`). Exactly one caller wins. This is the guard against the double-tap and the retried-request duplicate order. The `external_reference` lookup-before-create on the document itself (`sales_orders` for an order, `sales_quotes` for a quote, §7.2 step 5a) is the guard against a crash between document creation and the session write. The key lives on the document that survives, so no later step can delete it.
+
+A repeat request gets the same response body as the original (§9.3, `SubmitResponse`). The payment hand-off of a repeat is read again from the gateway transaction; checkout never stores a `clientSecret`.
 
 ---
 
@@ -565,14 +662,14 @@ The cart is the canonical approval subject (D-R5-3). Checkout creates no approva
    - `expired` / `withdrawn` → `open` (the buyer may request again or reduce the cart); emits `checkout.session.approval_rejected` with the outcome in the payload.
 
    No live session (expired, canceled, superseded) → the event is ignored.
-4. **The approval outlives the session (X6).** A session that expires in `awaiting_approval` leaves the approval on the cart. A new session on that cart starts in `awaiting_approval` when `customerPurchaseApprovalService.getActiveApprovalForSubject({ scope, subjectType: 'cart', subjectId: cartId })` returns a pending approval, and in `open` when the cart's approval is approved.
+4. **The approval outlives the session (X6).** A session that expires in `awaiting_approval` leaves the approval on the cart. A new session on that cart starts in `awaiting_approval` when `customerPurchaseApprovalService.getActiveApprovalForSubject({ scope, subjectType: 'cart', subjectId: cartId })` returns a pending approval, and in `open` when the cart's approval is approved. The reference never calls `getActiveApprovalForSubject` at session creation; the port must add it.
 5. **Price rise (R8, D-R5-3).** Approval is consent up to an amount in a currency. Line changes at the same or a lower total keep it. At submit, `cart.lock` (K2) compares the re-priced total with the approved amount; a higher total refuses with `409 cart_requires_approval`, and the buyer re-requests. Nothing is silently honoured.
 
 The engine-driven approval sub-flow, its stalled-instance monitor and `workflow_instance_id` are withdrawn from Release 5 (§14).
 
 ### 8.3 Credit (D-R5-2, D-R5-24, C6, C23)
 
-- Reserved at submit step 4 via `customerCreditService.reserveCredit`, for the **full payable amount**: goods gross after promotions + the selected delivery cost − the delivery discount, from the submit-time evaluation. The approval basis stays goods-only (K1).
+- Reserved at submit step 4 via `customerCreditService.reserveCredit`, for the **full payable amount**: goods gross after promotions + the selected delivery cost − the delivery discount, from the submit-time evaluation. `sales` computes that amount (`salesCalculationService.calculateDocumentTotals` over the snapshot plus the shipping and delivery-discount adjustments, §7.2 step 2c, D-R5-CH6); checkout adds nothing up. The same result is what the order's persisted grand total must equal (§7.2 step 5c). The approval basis stays goods-only (K1).
 - Concurrency is a `PESSIMISTIC_WRITE` row lock on `CustomerCreditAccount` inside `withAtomicFlush(…, { transaction: true })` (customer-groups §6, G1); no serializable transaction.
 - The credit is resolved for the company in every channel: storefront carts through the buyer's store context, link and API carts through `resolveForBuyer` identity (D-R5-22).
 - After the order exists, checkout links the reservation to it with `linkCreditReservationToOrder` (step 6b). If the order is later cancelled, by compensation or by the merchant, `customer_groups` releases the order's unsettled reservation automatically on `sales.order.cancelled` (D-R5-2).
@@ -581,24 +678,27 @@ The engine-driven approval sub-flow, its stalled-instance monitor and `workflow_
 
 ### 8.4 PO number (D-R5-28)
 
-Captured at the `payment` step. Required when the resolved `requires_po_number` term is true (nullable, inherited, tenant default `false`); validated for format if the tenant configures one; written to `SalesQuote.customer_reference`, which `convert_to_order` carries to the order. A B2B invoice without the buyer's PO number will not be paid.
+Captured at the `payment` step by `POST /sessions/current/payment` and stored in `purchase_order_number` (D-R5-CH2). Required when the resolved `requires_po_number` term is true (nullable, inherited, tenant default `false`); validated for format if the tenant configures one, both at `/payment` and again at submit. Written by `sales.orders.create` to `SalesOrder.customer_reference` for the order outcome, and by `sales.quotes.create` to `SalesQuote.customer_reference` for `request_quote` (§7.2 field mapping). No conversion is involved. A B2B invoice without the buyer's PO number will not be paid.
 
 ### 8.5 `min_order_value` (D-R5-4, D-R5-23)
 
-Checked by checkout as precondition 8 (§7.1), on the K1 basis (goods gross after promotions), in `terms_currency_code`. A cart in another currency is not checked. A `request_quote` submit skips it.
+Checked by checkout as precondition 9 (§7.1), on the K1 basis (goods gross after promotions), in `terms_currency_code`. A cart in another currency is not checked. A `request_quote` submit skips it.
 
 ### 8.6 Quote branch (D-R5-20, D-R5-23, D-R5-26, C16, C17)
 
 - Offered as the `request_quote` payment method only when `allow_quote_requests` resolves true.
 - Lock with `purpose: 'quote'`; the stock reservation still surfaces shortfalls and is released right after the quote exists (a quote is non-binding; stock is taken when the merchant converts and confirms, through the existing automation).
-- The quote is created in a non-confirmed status with `metadata.cartLineId` on every line; the cart is converted with `salesQuoteId` and a quote `lineMap`.
+- The quote is created by `sales.quotes.create`, the only checkout use of that command (D-R5-CH1), in the `draft` status entry (C17), with `externalReference = documentRef`, the PO number as `customerReference`, the §7.2 field mapping and `metadata.cartLineId` on every line. It is idempotent through `findQuoteByExternalReference` and the `sales_quotes (tenant_id, external_reference)` index (D-R5-30). The cart is converted with `salesQuoteId` and a quote `lineMap`.
+- Creating the quote notifies `sales.quotes.manage` holders (`sales.quote.created`). That is the intended signal here: the merchant has a quote to review.
 - No payment, no credit, no promotion code consumption or usage registration. Approval returns at quote acceptance (`subject_type: 'quote'`), which is outside Release 5: the merchant converts the quote.
 
 ---
 
 ## 9) API Contracts
 
-Base `/api/checkout`. All bodies validated with zod in `data/validators.ts`. Mutating buyer routes take the expected `updatedAt` (standard optimistic-lock header).
+Base `/api/checkout`. All bodies validated with zod in `data/validators.ts`; §9.3 gives each route's request and response schema. Mutating buyer routes take the session's expected `updatedAt` in the standard optimistic-lock header (`x-om-ext-optimistic-lock-expected-updated-at`); a stale value answers the standard optimistic-lock `409`.
+
+**Mutation guards (R-2).** These are custom write routes, not `makeCrudRoute` routes. Every buyer `POST`/`PATCH` calls `runMutationGuards(...)` (`@open-mercato/shared/lib/crud/mutation-guard-registry`) before it executes its command, with the session's scope, the target entity `checkout:checkout_session` and `userFeatures: []` (a buyer holds no staff features). A guard refusal is returned unchanged. The reference wires no guards on these routes; the port must add them.
 
 ### 9.0 Buyer authentication and session transport (C4, C12, D-R5-21, D-R5-33)
 
@@ -609,7 +709,7 @@ Base `/api/checkout`. All bodies validated with zod in `data/validators.ts`. Mut
 - *Merchant-initiated* (`{ source: 'link', slug }`, B.2): the Phase A link checks and the access cookie apply; the cart is seeded per §4.3.
 - **One live session per cart.** A new session on a cart cancels an earlier `open` or `awaiting_approval` session for it. If the earlier one is `submitting` or `awaiting_payment`, creation answers `409 submit_in_progress`.
 
-**Binding on every route (D-R5-33).** When the session has `customer_user_id`, every `/api/checkout/sessions/current/*` route requires the customer session whose `customerUserId` equals it; otherwise `404` with the same body as an unknown token. Guest sessions are token-only.
+**Binding on every route (D-R5-33).** The binding source is the **live cart's** `customer_user_id`, read on every request through `cartService.getCheckoutView`, not the session's creation-time copy. When it is set, every `/api/checkout/sessions/current/*` route requires the customer session whose `customerUserId` equals it; otherwise `404` with the same body as an unknown token. A guest cart that a buyer later claims by logging in therefore needs that buyer's session from then on. Guest sessions are token-only.
 
 **Scope on every route (C21).** Session, cart, link, store, customer and approval resolve to one tenant and organization; any disagreement is answered as `404` (unknown token).
 
@@ -617,20 +717,20 @@ Base `/api/checkout`. All bodies validated with zod in `data/validators.ts`. Mut
 
 | Method | Path | Purpose | Phase |
 |---|---|---|---|
-| POST | `/sessions` | Create from a cart token or a link; returns the plaintext token once | B.1 (cart), B.2 (link) |
-| GET | `/sessions/current` | Current state, step, available transitions, `quoted_totals` | B.1 |
-| PATCH | `/sessions/current` | Contact, addresses, consent, terms acceptance | B.1 |
-| POST | `/sessions/current/step` | Navigate; validates the step being left | B.1 |
-| POST | `/sessions/current/cancel` | Cancel an `open` or `awaiting_approval` session (nothing reserved; the cart's approval is kept, X6) | B.1 |
-| GET | `/sessions/current/delivery-options` | Rate quote for the current address and cart (§5.3); evaluates delivery promotions | B.3 |
-| POST | `/sessions/current/delivery` | Select a method; snapshots the rate and the evaluation | B.3 |
-| GET | `/sessions/current/payment-methods` | Gateway methods, `on_account` and `request_quote` eligibility (§5.5) | B.3 (gateway), B.5 (`on_account`, `request_quote`) |
-| POST | `/sessions/current/payment` | Select a method; PO number | B.3 / B.5 |
-| POST | `/sessions/current/submit` | §7. Requires `Idempotency-Key` | B.4 |
-| GET | `/sessions/current/result` | Post-submit outcome: `outcome_kind`, document ids and numbers, per-line stock outcomes, payment hand-off | B.4 |
-| POST | `/sessions/current/request-approval` | Delegates to `cart.approval.request` (§8.2) | B.5 |
+| POST | `/sessions` | Create from a cart token or a link; returns the plaintext token once | B.1 (cart, CH1b), B.2 (link, CH3) |
+| GET | `/sessions/current` | Current state, step, available transitions, `quoted_totals` | B.1 (CH1b) |
+| PATCH | `/sessions/current` | Contact, addresses, consent, terms acceptance | B.1 (CH1b) |
+| POST | `/sessions/current/step` | Navigate; validates the step being left (§5.2) | B.1 (CH1b) — new work, absent from the reference |
+| POST | `/sessions/current/cancel` | Cancel an `open` or `awaiting_approval` session (nothing reserved; the cart's approval is kept, X6) | B.1 (CH1b) — new work |
+| GET | `/sessions/current/delivery-options` | Rate quote for the current address and cart (§5.3); evaluates delivery promotions | B.3 (CH2a) |
+| POST | `/sessions/current/delivery` | Select a method; snapshots the rate and the evaluation | B.3 (CH2b) |
+| GET | `/sessions/current/payment-methods` | Gateway methods, `on_account` and `request_quote` eligibility (§5.5) | B.3 (gateway, CH2b), B.5 (`on_account`, `request_quote`, CH6a) |
+| POST | `/sessions/current/payment` | Select a method; PO number (D-R5-CH2) | B.3 (CH2b), PO number B.5 (CH6a) — new work |
+| POST | `/sessions/current/submit` | §7. Requires `Idempotency-Key`; the body carries only the return paths | B.4 (CH5a) |
+| GET | `/sessions/current/result` | Post-submit outcome: `outcome_kind`, document ids and numbers, per-line stock outcomes, payment hand-off | B.4 (CH5a) — new work |
+| POST | `/sessions/current/request-approval` | Delegates to `cart.approval.request` (§8.2) | B.5 (CH6b) |
 
-Admin (staff auth): `GET /api/checkout/sessions` and `GET /api/checkout/sessions/:id` under `checkout.sessions.view`, including the event trail; the admin-forced actions (force-expire, force re-price) under `checkout.sessions.manage`. The ACL features ship in B.1 (§9.1); the viewer routes and pages are B.6.
+Admin (staff auth): `GET /api/checkout/sessions` and `GET /api/checkout/sessions/:id` under `checkout.sessions.view` ship in B.1 (CH1b) as read-only routes. They return `CheckoutSessionView` (§9.3) and the event trail; PII fields only for a caller holding `checkout.viewPii`. The admin-forced actions (force-expire, force re-price) under `checkout.sessions.manage` and the viewer pages are B.6. The `current` segment is routed before `:id`.
 
 ### 9.1 ACL (C25, D-R5-34)
 
@@ -652,7 +752,7 @@ export const newFeatures = [
 ]
 ```
 
-Grants in `setup.ts` `defaultRoleFeatures`: `admin` gets both (covered by `checkout.*`); `employee` gets `checkout.sessions.view` only; `checkout.sessions.manage` stays with `admin` or is granted by hand (least privilege, D-R5-34). Existing tenants run `yarn mercato auth sync-role-acls`. Buyer routes are not ACL-gated; they are token-bound (§9.0).
+Grants in `setup.ts` `defaultRoleFeatures`: `superadmin` is covered by `checkout.*`; `admin` has an explicit feature list on `main`, which gains both ids; `employee` gets `checkout.sessions.view` only; `checkout.sessions.manage` stays with `admin` or is granted by hand (least privilege, D-R5-34). Existing tenants run `yarn mercato auth sync-role-acls`. Buyer routes are not ACL-gated; they are token-bound (§9.0).
 
 ### 9.2 Error codes
 
@@ -663,32 +763,123 @@ Every refusal body is `{ error: <code>, message, details? }`, with a translated 
 | `checkout_sessions_unavailable` | 503 | All session routes | `cart` or `sales` absent, or a storefront cart without `storeContextService` (§3.4) |
 | `cart_store_mismatch` | 409 | Create, submit | Tenant, organization, channel, currency or (when the cart has one) store differ (C9, X13) |
 | `session_not_open` | 409 | Mutations, submit | Session is not `open` |
-| `steps_incomplete` | 422 | Submit | Required step missing; `details.steps` |
-| `delivery_unavailable` | 422 | Delivery | No carrier rate and no flat-rate fallback (§5.3) |
+| `steps_incomplete` | 422 | Step, submit | Required step missing; `details.steps` |
+| `sales_channel_unresolved` | 422 | Create, submit | No sales channel resolves for the cart (§7.1 check 5) |
+| `delivery_unavailable` | 422 | Delivery | No carrier rate and no flat-rate fallback (§5.3), or an unknown `deliveryMethodCode` |
 | `payment_method_unavailable` | 422 | Payment, submit | Method not offered to this buyer (§5.5) |
 | `purchase_order_number_required` | 422 | Submit | `requires_po_number` term (§8.4) |
+| `purchase_order_number_invalid` | 422 | Payment, submit | PO number does not match the tenant's format (§8.4) |
+| `invalid_return_url` | 422 | Submit | `successUrl`/`cancelUrl` is not a safe relative path (§9.3) |
+| `link_usage_limit_reached` | 409 | Create (link), submit | The link's `maxCompletions` is reached (§4.3) |
+| `idempotency_key_required` | 400 | Submit | Header missing, or not 16–128 characters |
 | `below_min_order_value` | 409 | Submit | §8.5; `details.minOrderValue`, `currencyCode` |
 | `cart_requires_approval` | 409 | Submit (passthrough from cart) | Request approval |
 | `approval_requires_identified_buyer` | 409 | Submit (passthrough from cart) | Guest above threshold; sign in (D-R5-12) |
 | `cart_has_unavailable_lines` | 409 | Submit (passthrough from cart) | A line left the buyer's assortment; remove it (US-B4) |
 | `cart_not_active` | 409 | Create, submit (passthrough) | Cart merged, converted or abandoned; start from the current cart |
 | `cart_locked` | 423 | Create, submit (passthrough) | Another session holds the cart |
-| `price_changed` | 409 | Submit | `details.reasons` incl. cart reasons, `delivery_changed`, `promotion_newly_eligible`; `details.priceChanges`; re-confirm |
+| `price_changed` | 409 | Submit | `details.reasons` incl. cart reasons, `delivery_changed`, `promotion_newly_eligible`, `review_required`; `details.priceChanges`; re-confirm |
 | `stock_shortfall` | 409 | Submit | `details.lines` with the `shortfall` lines only |
 | `credit_refused` | 402 | Submit | `details.reason`: `no_account \| on_hold \| limit_exceeded \| not_permitted`; offered prepayment or `request_quote` |
 | `promotion_unavailable` | 409 | Submit | A code was refused or a budget is exhausted; the next lock re-prices without it |
-| `totals_mismatch` | 500 | Submit | Document totals differ from the cart or the payable; compensated; ops notified |
+| `totals_mismatch` | 500 | Submit | The cart's snapshot does not reproduce `Cart.totals`, or the persisted document's totals differ from the `sales` computation; compensated; ops notified. Used for nothing else (a missing cart is `cart_not_active`) |
 | `payment_unavailable` | 502 | Submit | Gateway intent creation failed; compensated |
 | `submit_in_progress` | 409 | Submit, create | An attempt is in flight (§7.4) |
 | `approval_not_required` | 409 | Request-approval (passthrough from cart) | Below the threshold |
 | — | 404 | All `/current/*` | Unknown token, binding mismatch (§9.0) or scope mismatch; one body for all |
 | — | 429 | Rate-limited routes | §13 |
+| — | 503 | Fail-closed rate-limited routes | The limiter is not registered or cannot decide (§3.2 item 1, §13) |
+
+`session.failure_code` uses the codes above plus `approval_rejected`, `payment_failed`, `payment_expired` and `submit_recovery_failed`.
+
+### 9.3 Request and response schemas
+
+The schemas are written as zod in `checkout/data/validators.ts`; the shapes below are their contract. Money is a decimal string at the currency's decimal places (`Money = z.string()`). Timestamps are ISO-8601 strings. Every `/current/*` request carries `X-Checkout-Session-Token`. Unknown body keys are rejected (`.strict()`), so a client cannot slip in lines, prices or entitlements.
+
+**Shared shapes.**
+
+```typescript
+type Step = 'contact' | 'addresses' | 'delivery' | 'payment' | 'review'
+type Address = {
+  name?: string; companyName?: string; addressLine1: string; addressLine2?: string
+  buildingNumber?: string; flatNumber?: string; city: string; region?: string
+  postalCode: string; country: string /* ISO 3166-1 alpha-2 */
+}
+type ShippingMethodSnapshot = {
+  deliveryMethodCode: string; providerKey: string | null; serviceCode: string | null
+  label: string; cost: Money /* net, §5.3 */; currencyCode: string
+  estimatedDays: number | null; quotedAt: string; source: 'carrier' | 'flat_rate'
+}
+type QuotedTotals = {
+  goodsGross: Money; deliveryCost: Money; deliveryDiscount: Money; payableGross: Money
+  currencyCode: string; appliedPromotionIds: string[]; cartUpdatedAt: string; evaluatedAt: string
+}
+type CheckoutSessionView = {
+  id: string; status: SessionStatus; step: Step; channel: string
+  cartId: string; storeId: string | null; linkId: string | null
+  currencyCode: string; locale: string | null
+  customerId: string | null; customerUserId: string | null
+  email: string | null; phone: string | null                 // buyer's own session; admin only with checkout.viewPii
+  shippingAddress: Address | null; billingAddress: Address | null; billingSameAsShipping: boolean
+  shippingMethod: ShippingMethodSnapshot | null; quotedTotals: QuotedTotals | null
+  paymentMethodCode: string | null; purchaseOrderNumber: string | null
+  requiredSteps: Step[]; completedSteps: Step[]; availableTransitions: Step[]
+  invalidation: { reason: 'address_changed' | 'cart_changed' } | null
+  submitAttempt: number; submitProgress: string | null
+  outcomeKind: 'order' | 'quote' | null; salesOrderId: string | null; salesQuoteId: string | null
+  failureCode: string | null; termsAcceptedAt: string | null; consentFlags: Record<string, boolean> | null
+  expiresAt: string; completedAt: string | null; createdAt: string; updatedAt: string
+}
+type PaymentHandoff = {
+  providerKey: string; transactionId: string
+  redirectUrl: string | null; clientSecret: string | null; expiresAt: string
+}
+```
+
+`CheckoutSessionView` never contains `token_hash`, the reservation or idempotency keys, `payment_intent_ref` or `failure_detail`.
+
+| Route | Request | Response |
+|---|---|---|
+| `POST /sessions` | Body `{ source: 'cart' }` with header `X-Cart-Token` (plus the customer session for an identified cart), or `{ source: 'link', slug: string }` with the link's access cookie | `201 { token: string, session: CheckoutSessionView }`. `token` appears only here |
+| `GET /sessions/current` | — | `200 { session: CheckoutSessionView }` |
+| `PATCH /sessions/current` | Body, every key optional: `{ email?: string \| null, phone?: string \| null, shippingAddress?: Address \| null, billingAddress?: Address \| null, billingSameAsShipping?: boolean, locale?: string, consentFlags?: Record<string, boolean>, termsAccepted?: boolean }`; optimistic-lock header | `200 { session }` |
+| `POST /sessions/current/step` | `{ to: Step }`; optimistic-lock header | `200 { session }`; `422 steps_incomplete` |
+| `POST /sessions/current/cancel` | `{}`; optimistic-lock header | `200 { session }` (status `canceled`) |
+| `GET /sessions/current/delivery-options` | — | `200 { options: { deliveryMethodCode, providerKey, serviceCode, label, cost: Money, costGross: Money, currencyCode, estimatedDays, source, deliveryDiscount: Money }[], evaluatedAt }`; `costGross` and `deliveryDiscount` are computed by `sales`/`promotions`, for display |
+| `POST /sessions/current/delivery` | `{ deliveryMethodCode: string, deliveryWindowId?: string }`; optimistic-lock header. Never a price: the route re-resolves the rate server-side | `200 { session }` with `shippingMethod` and `quotedTotals` set; `422 delivery_unavailable` for a code not just offered |
+| `GET /sessions/current/payment-methods` | — | `200 { methods: ({ kind: 'gateway', providerKey, label } \| { kind: 'on_account' } \| { kind: 'request_quote' })[], unavailable: { kind: 'on_account', reason: 'no_account' \| 'on_hold' \| 'not_permitted' }[], purchaseOrderNumber: { required: boolean, pattern: string \| null } }` |
+| `POST /sessions/current/payment` | `{ paymentMethodCode: string /* providerKey, 'on_account' or 'request_quote' */, purchaseOrderNumber?: string \| null }`; optimistic-lock header | `200 { session }`; `422 payment_method_unavailable`, `422 purchase_order_number_invalid` |
+| `POST /sessions/current/submit` | Header `Idempotency-Key` (16–128 characters); optimistic-lock header. Body `{ successUrl?: string, cancelUrl?: string }`. No payment method, PO number, line or amount: those come from the session and the cart (D-R5-CH2) | `200 SubmitResponse` (below), for the first call and for every same-key repeat (§7.4) |
+| `GET /sessions/current/result` | — | `200 ResultResponse` (below), in every session status; before any submit, `outcomeKind` is null |
+| `POST /sessions/current/request-approval` | `{}`; optimistic-lock header | `200 { session, approvalId: string }` (status `awaiting_approval`) |
+
+```typescript
+type SubmitResponse = {
+  session: CheckoutSessionView
+  outcomeKind: 'order' | 'quote'
+  salesOrderId: string | null; salesOrderNumber: string | null
+  salesQuoteId: string | null; salesQuoteNumber: string | null
+  next: 'pay' | 'done'                       // 'pay' only for a gateway method
+  paymentHandoff: PaymentHandoff | null      // set when next = 'pay'
+}
+type ResultResponse = Omit<SubmitResponse, 'outcomeKind' | 'next'> & {
+  outcomeKind: 'order' | 'quote' | null; next: 'pay' | 'done' | null   // null before any submit
+  status: SessionStatus                       // awaiting_payment, completed, failed, ...
+  lines: { cartLineId: string; outcome: 'held' | 'not_tracked' | 'preorder' | 'backorder';
+           heldQuantity: string; backorderedQuantity: string }[]
+  failureCode: string | null
+}
+```
+
+**Payment hand-off.** For a redirect gateway the client sends the buyer to `redirectUrl`; for an embedded gateway it mounts the provider's component with `clientSecret` and `providerKey`. The hand-off is read from the payment gateway's transaction each time it is returned (submit, a same-key repeat while `awaiting_payment`, `/result` while `awaiting_payment`); checkout stores no `clientSecret`. After the buyer returns, the client polls `GET /sessions/current/result` until `status` leaves `awaiting_payment`. The session itself resumes from the gateway webhook, the expiry job or recovery (§7.2, "Payment result"), never from the return request.
+
+**Return URLs.** `successUrl` and `cancelUrl` are **relative paths** (start with a single `/`, no scheme, no host, no `//`, no backslash or control character). The server resolves them against the **server-pinned origin** (`CHECKOUT_ALLOWED_ORIGINS`, `APP_URL` or `NEXT_PUBLIC_APP_URL`; loopback only in development), never against the request's `Host` or `X-Forwarded-Host` (`packages/checkout/AGENTS.md`, Security Notes). An absolute URL or an unsafe path answers `422 invalid_return_url`. Omitting them is valid for embedded presentations that need no return URL. A non-loopback deployment with no configured origin refuses submit with `500`, as Phase A does.
 
 ---
 
 ## 10) Events
 
-Declared with `createModuleEvents`. These are state signals: no checkout event sends a notification to a buyer or approver (D-R5-32), except `checkout.compensation.failed`, which raises the operational notification. Every payload carries `tenantId` and `organizationId`, carries ids and statuses only, and never PII (C22).
+Declared with `createModuleEvents`. These are state signals: no checkout event sends a notification to a buyer or approver (D-R5-32). The only notification checkout raises is the staff-facing ops notification of §10.1. Every payload carries `tenantId` and `organizationId`, carries ids and statuses only, and never PII (C22).
 
 | Event | Payload (besides `tenantId`, `organizationId`, `sessionId`) |
 |---|---|
@@ -712,6 +903,19 @@ Declared with `createModuleEvents`. These are state signals: no checkout event s
 The approval events are emitted by the §8.2 handlers. They are not the approval's own events, which are `customer_groups.approval.*`.
 
 **Relationship to Phase A's `checkout.transaction.*` events.** Phase A's `checkout.transaction.sessionStarted`/`.completed`/`.failed` are unchanged and continue to fire for every `CheckoutTransaction` row, session-backed or not. `checkout.payment.*` is additive and session-scoped, firing *alongside* the transaction-level events for a session-based checkout, not instead of them.
+
+Every event in the table is declared in `checkout/events.ts`, including `checkout.session.step_changed` and `checkout.cartTemplate.*`, which the reference does not declare; the port must add them. The payloads are exactly the table's: `checkout.session.submitted` carries `paymentMethodCode`, and `checkout.compensation.failed` carries one `action` per event.
+
+### 10.1 Ops notification (G6)
+
+| Field | Value |
+|---|---|
+| Type id | `checkout.session.attentionRequired`, declared in `checkout/notifications.ts` beside the Phase A types (additive, §14a row 20) |
+| Recipients | Staff holding `checkout.sessions.view` in the session's organization (`buildFeatureNotificationFromType`, `requiredFeature: 'checkout.sessions.view'`; wildcard grants match) |
+| Raised by | `checkout.compensation.failed` (after the in-process retries); `500 totals_mismatch` (both checks of §7.2); `availability.commit` returning `stock_lost`; `submit_recovery_failed`; a missing `draft`/`confirmed`/`canceled` status entry; `repair-gateway-payments` giving up on a transaction after 5 attempts |
+| Body | session id, failure code, order or quote number when one exists, attempt. Never PII |
+| Link | `/backend/sales/orders/:id` when an order exists (the session viewer is B.6); otherwise none |
+| Dedupe | One notification per `(sessionId, attempt, failureCode)` |
 
 ---
 
@@ -737,7 +941,11 @@ The approval events are emitted by the §8.2 handlers. They are not the approval
 | `checkout.session.compensate` | none |
 | `checkout.session.applyApprovalOutcome` | none |
 
-Session commands are registered with `isUndoable: false`, consistently with `availability.reserve/release/commit` and `wms.inventory.reserve/release` (D-R5-10). They exist so that every session write passes the same mutation guards, interceptors and audit trail as any other domain write. Reversal is the explicit compensation of §7.3, never an audit-log Undo. Template commands are admin mutations and stay undoable.
+Session commands are registered with `isUndoable: false`, consistently with `availability.reserve/release/commit` and `wms.inventory.reserve/release` (D-R5-10). They exist so that every session write passes the same interceptors and audit trail as any other domain write. Commands do not run mutation guards by themselves: the buyer routes call `runMutationGuards` before executing them (§9, R-2). Reversal is the explicit compensation of §7.3, never an audit-log Undo. Template commands are admin mutations and stay undoable.
+
+Every command file is imported by `commands/index.ts`, so workers and subscribers resolve the same registry as routes. The reference does not import `commands/approval.ts` there; the port must.
+
+Subscribers and workers that execute commands do so with a real request container (`SubscriberContext.container`, `WorkerJobContainer`), never a bare `em`, so nested commands find their DI peers. A caught error is reported with `reportError` before it is handled; HTTP errors are recognised with `isCrudHttpError`, never `instanceof CrudHttpError` (which fails across bundles).
 
 `checkout.transaction.updateStatus` enforces a strict transition state machine (`VALID_CHECKOUT_TRANSITIONS`) plus an atomic compare-and-swap via `tx.nativeUpdate` with the previous status pinned in the `WHERE` clause, returning `409` on a lost race between the submit route and the gateway webhook. The `open → submitting` guard on `CheckoutSession.status` (§7.4) is the same CAS pattern applied to the new entity.
 
@@ -745,30 +953,36 @@ Session commands are registered with `isUndoable: false`, consistently with `ava
 
 ## 12) Background Jobs
 
-All via the `queue` worker contract.
+All via the `queue` worker contract. Every worker reads checkout rows with `findWithDecryption`, runs commands with a real container (§11), and reports a caught error with `reportError`.
 
 | Job | Cadence | Purpose |
 |---|---|---|
 | `expire-checkout-sessions` | every 5 min | Expire `open` and `awaiting_approval` sessions past TTL. Nothing is reserved in either state, so nothing is released; the cart's approval is kept (X6) |
 | `recover-stuck-submits` | every minute | Sessions in `submitting` with `submit_started_at` older than 120 s: §12.1 |
-| `retry-failed-compensations` | every 5 min | Re-run failed compensations with backoff; ops notification after 5 attempts |
-| `expire-awaiting-payment` | every 5 min | `awaiting_payment` past `payment_expires_at`: read the gateway status; paid → complete (§7.2 step 7 success); otherwise compensate (cancel the order) and fail with `payment_expired`. Runs before the extended cart lock can lapse (§6) |
+| `expire-awaiting-payment` | every 5 min | `awaiting_payment` past `payment_expires_at`: read the gateway status; paid → complete (§7.2 "Payment result"); otherwise compensate (cancel the order) and fail with `payment_expired`. Runs before the extended cart lock can lapse (§6) |
+| `repair-gateway-payments` | every 15 min | Session transactions that are `completed` with `payment_recorded_at` null (the §4.4 partial index): record the `sales` payment idempotently (§7.2 "Payment recording"), set `payment_repair_attempted_at`; ops notification after 5 failed attempts on one transaction |
+| `repair-order-compensation` | every 10 min | Sessions `failed` with `submit_progress = compensating`: retry the order cancellation and the remaining releases of §7.3 until they succeed; ops notification on the first failure of each session |
+
+`repair-order-compensation` replaces v2.3's `retry-failed-compensations`: only an order cancellation can be left half done, because every earlier compensation is a keyed release retried in-process.
+
+**Schedules for every tenant (G5, #8822).** One helper, `ensureCheckoutSessionSchedules(ctx)`, registers the five schedules through `schedulerService` (skipped when it is not registered), next to Phase A's `ensureTransactionExpirySchedule`. Three callers use it: `setup.ts` `seedDefaults`, `onOrganizationCreated`, and a `configs` upgrade action `checkout.register-schedules` that an existing tenant runs once. `checkout` registers that action through the DI key `checkoutScheduleUpgradeRegistrar`, because `configs` lives in `@open-mercato/core` and must not import `checkout` (§14a row 21). The action runs at upgrade when `UPGRADE_ACTIONS_ENABLED` is set; UPGRADE_NOTES says so.
 
 ### 12.1 Recovery decision table (C24)
 
-Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, actor: { type: 'system' }, reason: 'checkout.recovery:' + sessionId })` with the session's own scope. Where it must re-lock, it builds the cart context through `resolveForBuyer` from the cart's stored identity (D-R5-22). Each probe reads by the attempt's key.
+Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, actorType: 'system', reason: 'checkout.recovery:' + sessionId })` (`@open-mercato/shared/lib/commands/trusted-context`, D-R5-CH7) with the session's own scope. Where it must re-lock, it builds the cart context through `resolveForBuyer` from the cart's stored identity (D-R5-22). Each probe reads by the attempt's key. The document probe is `salesDocumentLookupService.findOrderByExternalReference` (or `findQuoteByExternalReference` for `request_quote`) with `documentRef` (D-R5-CH1).
 
 | `submit_progress` | Probe | Action |
 |---|---|---|
-| null (crashed inside step 1) | Cart status and lock holder | Locked by this session → unlock; status `open`. Not locked → status `open` |
+| null (crashed inside step 0 or 1) | Cart status and lock holder | Locked by this session → unlock; release the pay-link slot if reserved; status `open`. Not locked → status `open` |
 | `locked` | Availability hold by `stock_reservation_key` | Hold exists → release it. Unlock; status `open` (the buyer resubmits and re-confirms) |
-| `stock_reserved` | Credit ledger by `credit_reservation_key` (on account) | Release credit if reserved; release stock; unlock; status `open` |
-| `credit_reserved` or crash in step 5 | Quote by `external_reference` | Quote absent → release credit, release stock, unlock, `open`. Quote present, not converted, order outcome → resume forward from 5b (idempotent). Quote outcome → resume 5b and the quote branch |
+| `stock_reserved` or `credit_reserved` (a crash in step 4 or 5) | First the **order** by `external_reference = documentRef`; then the credit ledger by `credit_reservation_key` (on account) | **Order absent** → no document was created: release credit if reserved, release stock, unlock, `open`. **Order present** → it is live and holds the attempt: write `sales_order_id`, set `document_created`, and resume forward from 5c (the totals check), never releasing anything first. Quote outcome: quote absent → release stock, unlock, `open`; quote present → resume the quote branch |
 | `document_created` | Hold status, credit entry `orderId`, promotion usage by `orderId` | Resume step 6 forward; each sub-step is idempotent under its key |
 | `finalized` | Gateway transaction by session | No intent → resume step 7 (extend lock, create intent). Intent exists → status `awaiting_payment` |
-| any, attempt older than the payment TTL without an intent | — | Compensate per §7.3 and fail with `submit_recovery_failed` |
+| `payment_initiated` / `awaiting_payment` with a settled transaction | Gateway status | Run the "Payment result" outcome (§7.2) |
+| `compensating` | — | Left to `repair-order-compensation` |
+| any, attempt older than the payment TTL without an intent | — | Compensate per §7.3 and fail with `submit_recovery_failed`; ops notification |
 
-A recovery that resumes forward never creates a second document: the quote lookup by `external_reference` and the `convert_to_order` check guarantee it (C3, D-R5-30).
+A recovery that resumes forward never creates a second document: the order (or quote) carries `external_reference = documentRef`, and the lookup runs before every create (C3, D-R5-CH1). A recovery never releases holds while an order for the attempt exists; only cancelling that order releases them (§7.3).
 
 ---
 
@@ -778,9 +992,9 @@ Everything in this section ships with the phase that introduces the route (C14);
 
 - **Token.** CSPRNG, carried only in `X-Checkout-Session-Token`, never in a URL path or query, never logged; stored as `token_hash` only (C4, D-R4-18). Not rotated (the session is short-lived).
 - **Buyer binding.** A session on an identified cart requires the matching customer session on every buyer route (§9.0). Creating a session requires proof of cart access: `X-Cart-Token` plus, for an identified cart, the matching customer session; or the link checks.
-- **Encryption (B.1).** `checkout/encryption.ts`'s `defaultEncryptionMaps` gains `{ entityId: 'checkout:checkout_session', fields: [{ field: 'email' }, { field: 'phone' }, { field: 'shipping_address' }, { field: 'billing_address' }] }`; reads go through `findWithDecryption`.
+- **Encryption (B.1).** `checkout/encryption.ts`'s `defaultEncryptionMaps` gains `{ entityId: 'checkout:checkout_session', fields: [{ field: 'email' }, { field: 'phone' }, { field: 'shipping_address' }, { field: 'billing_address' }] }`; reads go through `findWithDecryption`. `defaultEncryptionMaps` reaches only tenants created afterwards, so the same step ships a **backfill migration** (R-1, `packages/core/AGENTS.md` → Encryption): `this.addSql(buildEncryptionMapBackfillSql({ entityId: 'checkout:checkout_session', fields: [...] }))` from `@open-mercato/shared/lib/encryption/migration-backfill`, with the entity id and fields written literally and an empty `down()`, exactly as `checkout/migrations/Migration20261109120000.ts` does for the Phase A maps. A unit test modelled on `migrations/__tests__/Migration20261109120000.test.ts` asserts the generated SQL. The migration runs in the same release as the table, before any session row exists.
 - **Redaction (B.1).** `CheckoutSessionEvent.payload` is redacted at write time: never card data, addresses, e-mail, phone or gateway secrets.
-- **Rate limits** through the Phase A helper `enforceCheckoutRateLimit` (`readEndpointRateLimitConfig`):
+- **Rate limits** through the Phase A helper `enforceCheckoutRateLimit` (`readEndpointRateLimitConfig`). A `fail-closed` route answers `503` both when the limiter cannot decide and when no `rateLimiterService` is registered (§3.2 item 1). Per-session buckets are keyed by the token hash, never the token:
 
   | Route | Limit | Posture |
   |---|---|---|
@@ -793,7 +1007,9 @@ Everything in this section ships with the phase that introduces the route (C14);
 - **Card data** never touches the platform; the Phase A provider delegation is unchanged.
 - **Entitlement.** `on_account`, `request_quote` and PO rules are resolved server-side from group terms; a client asking for a method without entitlement is refused, never trusted.
 - **Cross-tenant (C21).** Session, cart, link, store, customer and approval resolve to one tenant and organization, checked on every request; a mismatch is a `404`.
-- **Trusted contexts.** Link seeding and recovery build their context with `buildTrustedCommandContext` from stored rows (link, session), never from request input; audit entries are marked system-initiated (D-R5-19, X10).
+- **Trusted contexts.** Link seeding and recovery build their context with `buildTrustedCommandContext` (`@open-mercato/shared/lib/commands/trusted-context`, also re-exported by `@open-mercato/shared/lib/commands`, D-R5-CH7) from stored rows (link, session), never from request input; audit entries are marked system-initiated (D-R5-19, X10).
+- **Return URLs.** Gateway return URLs are relative paths resolved against the server-pinned origin (§9.3).
+- **Mutation guards.** Every buyer write calls `runMutationGuards` (§9).
 
 ---
 
@@ -822,33 +1038,64 @@ None of these was implemented.
 | `registerUsage` after payment; `sales` calling `revertUsage` | `useCode` + `registerUsage` before payment; promotions-owned `sales.order.cancelled` subscriber reverts (C5) |
 | Credit "in a serializable transaction", held "until invoicing settles it" | Row lock (G1); held until settled through `/adjust` or `settleCredit` (D-R5-2) |
 
-Phase A is untouched: `CheckoutLinkTemplate`, `CheckoutLink` and `CheckoutTransaction` keep their behaviour, and the pay-link flow does not pass through `CheckoutSession`.
+### 14.3 Withdrawn from v2.3 (re-landing remediation, 2026-11-19)
+
+| v2.3 element | Disposition |
+|---|---|
+| Order outcome as `sales.quotes.create` + `sales.quotes.convert_to_order`; idempotency on the quote's `external_reference` | `sales.orders.create` directly, idempotent on `sales_orders.external_reference` (D-R5-CH1). `convert_to_order` deletes the quote and drops both references on `main` |
+| `retry-failed-compensations` | `repair-order-compensation` plus `repair-gateway-payments` (§12) |
+| Checkout calling `revertCodeUse({ cartId })` | Not called; every code use carries the `orderId` and the promotions cancellation subscriber reverts it (C5) |
+| Digital-only carts skipping `delivery` | Deferred (§5.2 "Later", D-R5-CH4) |
+| Store address as the delivery origin | The primary `wms` warehouse; stores have no structured address (§5.3) |
+
+Phase A keeps its behaviour except for the three changes of §3.2: `CheckoutLinkTemplate`, `CheckoutLink` and `CheckoutTransaction` keep their pay-link flow, and that flow does not pass through `CheckoutSession`.
 
 ---
 
 ## 14a) Migration & Backward Compatibility
 
-All checkout changes are new or additive. The contract changes in other modules are additive and specified in their own specs in the same revision pass.
+Checkout's session surface is new or additive. Phase A changes in four rows (14–17), each approved under the Ask First rules of `packages/checkout/AGENTS.md`. The contract changes in other modules are specified in their own specs; this table is the checklist they must match.
 
 | # | Surface (BACKWARD_COMPATIBILITY.md) | Change | Classification | Owner spec |
 |---|---|---|---|---|
 | 1 | Module metadata / generated (1, 13) | `checkout/index.ts` `requires` **unchanged** (C10, D-R5-18) | No change | this spec |
-| 2 | DB schema (8) | New `checkout_sessions`, `checkout_session_events`, `checkout_link_cart_templates`; nullable `session_id`/`quote_id`/`order_id` on `checkout_transactions` | Additive | this spec |
-| 3 | DB schema (8) | Index `sales_quotes (tenant_id, external_reference)` | Additive, approved (D-R5-30) | sales migration |
-| 4 | API routes (7) | New `/api/checkout/sessions`, `/sessions/current/*`, admin `/sessions/:id` | Additive | this spec |
-| 5 | Events (5) | New `checkout.session.*`, `checkout.payment.*`, `checkout.compensation.*`, `checkout.cartTemplate.*` | Additive | this spec |
-| 6 | ACL (10) | `checkout.sessions.view`, `checkout.sessions.manage`; Phase A features unchanged | Additive; run `yarn mercato auth sync-role-acls` | this spec |
-| 7 | Encryption map | `checkout:checkout_session` entry | Additive | this spec |
-| 8 | Signatures (3) | `cart.lock` gains `lockTtlMs`, `purpose`, idempotent same-session extend; `unlock`/`markConverted` require `checkoutSessionId`; `markConverted` gains `salesOrderId`, `salesQuoteId`, `lineMap`; storefront lock without context refused | Additive (C1, C2, K8, D-R5-16, D-R5-23, D-R5-26) | cart spec |
-| 9 | Signatures (3) | Trusted pay-link cart creation path | Additive, Ask First approved (D-R5-19) | cart spec §6a.4 |
-| 10 | Signatures / events (3, 5) | `promotionsService.revertCodeUse`; promotions subscriber on `sales.order.cancelled`; delivery promotions authorable | Additive (C5, D-R5-17) | SPEC-055 |
-| 11 | Signatures / DI (3, 9) | `customerCreditService.linkCreditReservationToOrder`; terms `allow_quote_requests`, `requires_po_number`, `terms_currency_code`, `approval_policy` | Additive (C6, D-R5-20, D-R5-28, D-R5-4, D-R5-1) | customer-groups spec |
-| 12 | Signatures (3) | `storeContextService.resolveForBuyer` with optional store | Additive (D-R5-22) | SPEC-029 |
-| 13 | Imports (4) | `buildTrustedCommandContext` in `@open-mercato/shared/lib/commands/trustedContext` | Additive (X10) | shared |
+| 2 | DB schema (8) | New `checkout_sessions`, `checkout_session_events`, `checkout_link_cart_templates`; nullable `session_id`/`quote_id`/`order_id`/`payment_recorded_at`/`payment_repair_attempted_at` on `checkout_transactions`, index `(tenant_id, session_id)` and the repair partial index (§4.4) | Additive | this spec |
+| 3 | Signatures (3) | `sales.quotes.create` gains `externalReference` and `customerReference`. `sales.orders.create` gains the optional `suppressStaffNotification` (D-R5-CH8); omitted, behaviour is unchanged. The shared line schemas (`linePricingSchema`, `lineSharedSchema`), used by order **and** quote lines, accept `null` wherever `SalesLineSnapshot` declares `\| null` | Warning (widening a validator); UPGRADE_NOTES entry listing every widened field | sales |
+| 4 | DB schema (8) | Index `sales_quotes (tenant_id, external_reference)` | Additive, approved (D-R5-30) | sales migration |
+| 5 | DB schema (8) | Index `sales_orders (tenant_id, external_reference)` | Additive, Ask First on `sales` approved (D-R5-CH1) | sales migration |
+| 6 | DI keys / signatures (9, 3) | New `salesDocumentLookupService` (`resolveOrderStatusEntryId`, `findOrderByExternalReference`, `findQuoteByExternalReference`, `findPaymentByReference`, §3.3); `sales.payments.create` refuses a duplicate `paymentReference` on the same order | Additive (new key); the duplicate refusal is a Warning with an UPGRADE_NOTES entry | sales |
+| 7 | API routes (7) | New `/api/checkout/sessions`, `/sessions/current/*`, admin `GET /sessions` and `GET /sessions/:id` | Additive | this spec |
+| 8 | Events (5) | New `checkout.session.*`, `checkout.payment.*`, `checkout.compensation.*`, `checkout.cartTemplate.*` | Additive | this spec |
+| 9 | ACL (10) | `checkout.sessions.view`, `checkout.sessions.manage`; Phase A features unchanged | Additive; run `yarn mercato auth sync-role-acls` | this spec |
+| 10 | Encryption map + data | `checkout:checkout_session` entry **and** a `buildEncryptionMapBackfillSql` migration for existing tenants (§13, R-1) | Additive | this spec |
+| 11 | Signatures (3) | `cart.lock` gains `lockTtlMs`, `purpose`, idempotent same-session extend; `unlock`/`markConverted` require `checkoutSessionId`; `markConverted` gains `salesOrderId`, `salesQuoteId`, `lineMap`; storefront lock without context refused | Additive (C1, C2, K8, D-R5-16, D-R5-23, D-R5-26) | cart spec |
+| 12 | Signatures (3) | `cartService.getCheckoutView` and `getSalesSnapshot` (§3.3); the snapshot's adjustment drafts are the exact drafts behind `Cart.totals`, metadata (`taxRate`) included | Additive (D-R5-CH5, G3) | cart spec §3.1a, `TC-CART-LOCK-06` |
+| 13 | Signatures (3) | Trusted pay-link cart creation path, with `salesChannelId` | Additive, Ask First approved (D-R5-19) | cart spec §6a.4 |
+| 14 | API routes (7), Phase A | Fail-closed routes (`POST /api/checkout/pay/[slug]/submit`, `/verify-password`, the session routes) answer `503` when no limiter is registered; reverses the skip tested by #5030 | Warning (behaviour change), approved 2026-11-19; UPGRADE_NOTES: configure the rate limiter | this spec |
+| 15 | Types / DB (2, 8), Phase A | `checkout_transactions.link_id` drops NOT NULL; `CheckoutTransaction.linkId: string \| null`; `GET /api/checkout/transactions` can return `linkId: null` | Warning; UPGRADE_NOTES for API consumers | this spec |
+| 16 | Subscribers (Phase A) | The four `gateway-payment-*` subscribers rethrow retryable failures and resume session payments; `reportGatewayStatusSyncFailure` and its import path stay | Behaviour change, approved (D-R5-CH3) | this spec |
+| 17 | Commands (Phase A) | `checkout.transaction.updateStatus` accepts a transaction without a link | Additive | this spec |
+| 18 | DB schema (8), Phase A tables | `checkout_links` and `checkout_link_templates` gain nullable `sales_channel_id` and `flat_rate_shipping_*` columns (§4.3) | Additive | this spec |
+| 19 | Signatures / events (3, 5) | `promotionsService.revertCodeUse?` **optional**; `UseCodeInput.orderId`; promotions subscriber on `sales.order.cancelled`; delivery promotions authorable | Additive (C5, D-R5-17); checkout never depends on `revertCodeUse` | SPEC-055 |
+| 20 | Notification type ids (11) | `checkout.session.attentionRequired` (§10.1) | Additive | this spec |
+| 21 | DI keys (9) | `checkoutScheduleUpgradeRegistrar` and the `configs` upgrade action `checkout.register-schedules` (§12) | Additive | this spec |
+| 22 | Signatures / DI (3, 9) | `customerCreditService.linkCreditReservationToOrder`; terms `allow_quote_requests`, `requires_po_number`, `terms_currency_code`, `approval_policy` | Additive (C6, D-R5-20, D-R5-28, D-R5-4, D-R5-1) | customer-groups spec |
+| 23 | Signatures / types (3, 2) | `storeContextService.resolveForBuyer` with optional store; the store context exposes its default sales channel id; `EcommerceStoreSettings.shipping` is an **optional** key holding `flatRate` and `taxRate` | Additive (D-R5-22, D-R5-35) | SPEC-029 |
+| 24 | DI keys (9) | `wmsWarehouseLookupService.getPrimaryWarehouseAddress` | Additive | wms |
+| 25 | Imports (4) | `buildTrustedCommandContext({ tenantId, organizationId, actorType, actorId?, reason })` in `@open-mercato/shared/lib/commands/trusted-context`, re-exported by `@open-mercato/shared/lib/commands` | Additive (X10, D-R5-CH7) | shared |
 
-**Phase A non-regression (C10).** A test boots an app with only `checkout` + `payment_gateways` and completes a pay link end to end; existing Phase A tests run unchanged.
+No row removes or renames a contract; no deprecation protocol applies.
 
-**Upgrade steps.** `yarn db:migrate` (new tables, nullable columns, sales index); `yarn mercato auth sync-role-acls` for the new grants. No data migration; no deprecation protocol applies.
+**Phase A non-regression (C10).** A test boots an app with only `checkout` + `payment_gateways` and completes a pay link end to end. The existing Phase A tests run unchanged, including the `update-transaction-status` suite, except the #5030 rate-limit tests, which assert the new `503` (row 14).
+
+**Upgrade steps.**
+1. `yarn db:migrate`: new tables, nullable columns, the two `sales` indexes, and the `checkout:checkout_session` encryption-map backfill (a data migration).
+2. `yarn mercato auth sync-role-acls` for the new grants.
+3. Run the `checkout.register-schedules` upgrade action (automatic when `UPGRADE_ACTIONS_ENABLED` is set), so existing tenants get the five schedules.
+4. Register a rate limiter (`RATE_LIMIT_*`) before upgrading: fail-closed routes answer `503` without one.
+5. Configure the checkout origin (`APP_URL`, `NEXT_PUBLIC_APP_URL` or `CHECKOUT_ALLOWED_ORIGINS`) for session return URLs.
+
+UPGRADE_NOTES carries one entry per Warning row (3, 6, 14, 15) and one for step 3.
 
 ---
 
@@ -856,10 +1103,10 @@ All checkout changes are new or additive. The contract changes in other modules 
 
 | # | Risk | Severity | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|
-| R1 | Payment captured without an order | **Critical** | Payment succeeds; the completion write fails; the buyer is charged and sees a failure. | The order is created and finalized **before** the intent (§7.2 steps 5–7), so a successful payment always has an order; `expire-awaiting-payment` and recovery read the gateway status before compensating | Low |
+| R1 | Payment captured without an order | **Critical** | Payment succeeds; the completion write fails; the buyer is charged and sees a failure. | The order is created and finalized **before** the intent (§7.2 steps 5–7), so a successful payment always has an order; the webhook resume, `expire-awaiting-payment` and recovery read the gateway status before compensating; the gateway subscribers rethrow retryable failures so the event is redelivered (D-R5-CH3) | Low |
 | R2 | Duplicate order from double submit | **Critical** | Double-tap or a retried request creates two orders and two charges. | Conditional `open → submitting` admits exactly one caller; `Idempotency-Key` per attempt; a repeat returns the original result (§7.4); concurrent-submit test is a merge gate | Low |
 | R3 | Leaked stock or credit reservation | **High** | The process dies mid-submit; stock and credit stay reserved against a session that will never complete. | `recover-stuck-submits` with the §12.1 table; checkout holds have a 900 s TTL as a backstop until commit; after commit, cancellation releases through `sales.order.cancelled`; `checkout.compensation.failed` raises an ops notification | Low |
-| R4 | Price changed between review and charge | **High** | A promotion expires or a delivery promotion changes during checkout; the buyer is charged more than the reviewed total. | `cart.lock` re-price and the submit-time delivery evaluation abort with `409 price_changed` before any side effect (§6, §7.2 step 3) | Low |
+| R4 | Price changed between review and charge | **High** | A promotion expires or a delivery promotion changes during checkout; the buyer is charged more than the reviewed total. | `cart.lock` re-price and the submit-time delivery evaluation abort with `409 price_changed` before any side effect (§6, §7.2 step 2) | Low |
 | R5 | Stale shipping rate | Medium | The buyer changes the address after selecting delivery; the merchant absorbs the difference. | An address change invalidates the quote (§5.2); the snapshot carries `quotedAt` and is re-validated at submit | Low |
 | R6 | Cart stranded in `locked` | Medium | Submit crashes after locking. | Recovery unlocks (§12.1); every compensation unlocks; the cart's `release-stale-locks` sweeper remains the backstop | Low |
 | R7 | Credit overshoot via concurrent checkouts | **High** | Two on-account checkouts for one company jointly exceed the limit. | `reserveCredit` takes a `PESSIMISTIC_WRITE` row lock on the credit account (G1); the eligibility check is advisory and the reservation authoritative; N=20 parallel test | Low |
@@ -867,11 +1114,15 @@ All checkout changes are new or additive. The contract changes in other modules 
 | R9 | Compensation failure swallowed | **High** | A release call fails and is logged but not surfaced. | Never swallowed: `failure` event, `checkout.compensation.failed`, ops notification, retry job (§7.3) | Low |
 | R10 | Rate-quote API abuse | Medium | Scripted `delivery-options` calls incur carrier cost. | 30/min per session; 5 min cache; flat-rate fallback on carrier failure (§5.3) | Low |
 | R11 | Cart unlocked mid-payment (C1) | **Critical** | The 30 min cart lock lapses during a slow payment; the buyer edits or re-buys the basket while the first order completes. | Lock extended to the payment expiry + 15 min under the same session id; `unlock`/`markConverted` require the session id; `expire-awaiting-payment` resolves first (§6) | Low |
-| R12 | Duplicate document after a crash (C3) | **Critical** | A crash after `sales.quotes.create` and before the session write; recovery creates a second quote and order. | `external_reference` lookup-before-create, indexed (D-R5-30); `convert_to_order` only if not converted | Low |
+| R12 | Duplicate or orphan order after a crash (C3) | **Critical** | A crash after `sales.orders.create` and before the session write; recovery releases the holds of a live order, or creates a second one, and the buyer pays twice. | The order itself carries `external_reference = documentRef`, indexed on `sales_orders` (D-R5-CH1); recovery looks it up first and resumes forward when it exists, releasing nothing (§12.1); a kill test placed exactly after order creation | Low |
 | R13 | Codes reused or budgets overrun (C5) | **High** | A single-use code is never consumed, or a budget overrun is found after capture. | `useCode` + `registerUsage` before payment; abort with `409 promotion_unavailable`; promotions-owned reversal on cancellation | Low |
 | R14 | Visibility pass skipped at submit (C2) | **High** | A product that left the buyer's assortment is bought. | Storefront lock without a fresh context is refused by the cart; checkout always passes the request (or the `resolveForBuyer` context in recovery) | Low |
 | R15 | Phase A regression (C10) | **High** | Hard `requires` stop pay-link-only apps from booting. | No new `requires`; soft peers; non-regression boot test | Low |
-| R16 | Totals drift between cart, review and document (C7, D-R5-24) | Medium | The buyer accepts one amount and is invoiced another, or credit is reserved for a different amount. | One draft source (the cart's exact snapshot); post-create equality on goods and payable; `500 totals_mismatch` compensates and notifies ops | Low |
+| R16 | Totals drift between cart, review and document (C7, D-R5-24) | Medium | The buyer accepts one amount and is invoiced another, or credit is reserved for a different amount; a percentage code with tax loses its tax reduction (#9389, #8425). | One draft source (the cart's exact snapshot, metadata included); a pre-document self-check against `Cart.totals`; payable computed by `sales` (D-R5-CH6); post-create equality of every persisted total for every payment method; `500 totals_mismatch` compensates and notifies ops | Low |
+| R18 | Connection-pool exhaustion under parallel submits (#8414) | **High** | Nested commands each open a connection inside an open transaction; last-unit buyers get `500` and the N=20 test fails. | Nested commands run on the caller's transaction (`ctx.transactionalEm`); no step waits on another while holding a connection (§7.2); the N=20 test sized to the pool and run against real Postgres in CI (#9183) | Low |
+| R19 | False `totals_mismatch` from rounding | Medium | Floats or 2 dp vs 4 dp comparisons refuse valid orders. | Exact decimal strings at the currency's decimal places; `sales` computes every figure; one comparison rule (§7.2 "Money") | Low |
+| R20 | Subscribers or workers without a real container | Medium | A recovery or webhook resume dispatches commands that cannot resolve their peers; a promoted order ends cancelled. | Real container hand-off (`SubscriberContext.container`, `WorkerJobContainer`) as a B.4 prerequisite (§11) | Low |
+| R21 | Payment captured but not recorded on the order (#8423, #8821) | **High** | The order shows nothing paid; the transaction stays `processing`. | `sales.payments.create` at every completion site, idempotent per `(order, paymentReference)`; `repair-gateway-payments` sweep (§12) | Low |
 | R17 | Session token replay by a third party | Medium | A leaked session token on an identified cart is replayed. | Binding to the customer session (§9.0); `404` on mismatch; token never in URLs or logs | Low (guest sessions remain token-only by design) |
 
 ---
@@ -882,31 +1133,40 @@ Integration tests are self-contained: each creates its tenant, store, products, 
 
 **API paths (every new route):**
 - `POST /api/checkout/sessions` — from a cart token (guest, identified with matching customer session, identified without it → 404, identified with another buyer's session → 404); from a link (B.2); token returned once and only its hash stored; second session on the same cart supersedes an `open` one and is refused while `submitting`; `503 checkout_sessions_unavailable` with `cart` disabled.
-- `GET /api/checkout/sessions/current` — token in header works; token in path or query is not accepted; unknown token, binding mismatch and other-tenant token answer the same 404.
+- `GET /api/checkout/sessions/current` — token in header works; token in path or query is not accepted; unknown token, binding mismatch and other-tenant token answer the same 404; a guest-cart token stops working without the buyer's session once that buyer claims the cart (binding to the live cart, §9.0); the response matches `CheckoutSessionView` and never carries `tokenHash` or reservation keys.
 - `PATCH /api/checkout/sessions/current` — contact and addresses saved and encrypted at rest; stale `updatedAt` → 409; binding 404.
-- `POST /api/checkout/sessions/current/step` — transition table exhaustively; binding 404.
+- `POST /api/checkout/sessions/current/step` — transition table exhaustively; a forward move over an incomplete step → `422 steps_incomplete`; binding 404.
 - `POST /api/checkout/sessions/current/cancel` — `open` and `awaiting_approval` canceled; the cart's approval survives; binding 404.
-- `GET /api/checkout/sessions/current/delivery-options` — carrier rate with origin and package defaults; carrier failure → flat rate from store settings (storefront cart) and from link settings (link cart); no fallback → `422 delivery_unavailable`; delivery promotion evaluated; rate limit 30/min; binding 404.
+- `GET /api/checkout/sessions/current/delivery-options` — carrier rate with the primary-warehouse origin and package defaults; no `wms` → flat rates only; carrier failure → flat rate from store settings (storefront cart) and from link settings (link cart); a rate in another currency is dropped; no fallback → `422 delivery_unavailable`; delivery promotion evaluated; rate limit 30/min; binding 404.
 - `POST /api/checkout/sessions/current/delivery` — snapshot and `quoted_totals` written; binding 404.
 - `GET /api/checkout/sessions/current/payment-methods` — `on_account` offered only with entitlement and an account in the currency (reasons `no_account`, `on_hold`); `request_quote` only with `allow_quote_requests`; binding 404.
-- `POST /api/checkout/sessions/current/payment` — unoffered method → `422 payment_method_unavailable`; PO stored; binding 404.
-- `POST /api/checkout/sessions/current/submit` — the submit cases below; binding 404.
-- `GET /api/checkout/sessions/current/result` — order and quote outcomes, per-line stock outcomes; binding 404.
+- `POST /api/checkout/sessions/current/payment` — unoffered method → `422 payment_method_unavailable`; method and PO stored on the session; bad PO format → `422 purchase_order_number_invalid`; changing the method clears `quoted_totals`; binding 404.
+- `POST /api/checkout/sessions/current/submit` — the submit cases below; missing or short `Idempotency-Key` → `400`; an absolute or `//` return URL → `422 invalid_return_url`; a relative one is resolved against the configured origin, never the request `Host`; a body with `paymentMethodCode` is rejected (strict schema); a gateway submit returns a `paymentHandoff` with `redirectUrl` or `clientSecret`; binding 404.
+- `GET /api/checkout/sessions/current/result` — order and quote outcomes, per-line stock outcomes, the hand-off while `awaiting_payment`, `completed` after the webhook; binding 404.
 - `POST /api/checkout/sessions/current/request-approval` — session parks in `awaiting_approval`, `Cart.approvalId` set, no session approval id; below threshold → `409 approval_not_required`; binding 404.
-- Admin ACL: `checkout.sessions.view` granted to `employee` and `admin`; `checkout.sessions.manage` to `admin` only (asserted on the role grants; the viewer routes are B.6).
+- Admin `GET /api/checkout/sessions` and `/sessions/:id` — `checkout.sessions.view` required; PII only with `checkout.viewPii`; another tenant's session is `404`.
+- Admin ACL: `checkout.sessions.view` granted to `employee` and `admin`; `checkout.sessions.manage` to `admin` only (asserted on the role grants).
+- Every buyer `POST`/`PATCH` runs the registered mutation guards: a test guard that refuses blocks the write (R-2).
 
 **Submit correctness:**
-- Happy-path B2C: order created non-confirmed, stock committed before the intent, codes consumed and usage registered before the intent, payment captured, order `confirmed` only after commit, cart converted with `salesOrderId` and a `lineMap` covering every cart line incl. gifts (C17, C18).
-- Happy-path B2B on account: credit reserved for goods + delivery − delivery discount (D-R5-24), linked to the order, standing after completion; no gateway call.
+- Happy-path B2C: order created directly by `sales.orders.create` in `draft`, with `externalReference`, `channelId`, the method fields, `customerSnapshot` and both addresses (the full §7.2 field mapping asserted); no `sales.quote.created` notification is sent and no quote exists; no `sales.order.created` notification is sent at create, and exactly one is sent when the order is confirmed (D-R5-CH8); a gateway order compensated before payment sends none; stock committed before the intent, codes consumed with the `orderId` and usage registered before the intent, payment captured, a `sales` payment recorded with `paymentReference` = the gateway transaction id and `payment_recorded_at` set, order `confirmed` only after commit, cart converted with `salesOrderId` and a `lineMap` covering every cart line incl. gifts (C17, C18, G2, G4).
+- Happy-path B2B on account: credit reserved for the `sales`-computed payable (goods + delivery − delivery discount, D-R5-24, D-R5-CH6), linked to the order, standing after completion; `paymentMethodCode: 'on_account'` and the PO number in `customerReference` on the order; no gateway call.
 - Quote outcome (`request_quote`): quote created with PO in `customer_reference`; no payment, no credit, stock released; cart converted with `salesQuoteId` and a quote `lineMap`; approval and `min_order_value` not applied (D-R5-23).
 - Concurrent double submit creates exactly one order (R2); repeat after success returns the original ids; repeat in flight → `409 submit_in_progress`; new key after failure → fresh keys and a fresh `external_reference`.
 - Goods totals and payable equality; a forced mismatch compensates with `500 totals_mismatch` and the ops notification (C7).
+- **Percentage code with tax (G3, #9389):** a cart with a percentage promotion code and a taxed product submits successfully, for a gateway and for `on_account`; the order's tax total equals the cart's reduced tax; the snapshot self-check fails before any document exists when the snapshot drops `metadata.taxRate` (no orphan document).
+- Taxed shipping: the shipping adjustment's tax comes from `metadata.taxRate`; the order's grand total gross equals the payable.
+- A cart without a shipping method or address cannot submit (`422 steps_incomplete`, D-R5-CH4).
+- No resolvable sales channel → `422 sales_channel_unresolved`.
 - Backorder line holds `min(requested, sellable)` and does not abort; a shortfall line aborts with only the shortfall lines listed; `not_tracked` with `availability` disabled (D-R5-9).
 
 **Compensation and recovery (C26):**
 - `availability.commit` returning `stock_lost` (expiry sweep forced to win before step 6a, stock taken by another order): the order is cancelled, no payment intent is created, submit answers `409 stock_shortfall` (D-R5-8).
 - Injected failure at each of steps 1, 2, 3, 4, 5a, 5b, 5c, 6a, 6b, 6c, 7 (intent) and payment failure: no stock held, no credit reserved, codes and usage reverted, the order (if any) cancelled, and the cart unlocked.
 - A process killed after each of steps 1–7 is reconciled by `recover-stuck-submits` per §12.1 **without a duplicate quote or order** (C3, C24).
+- **Kill right after `sales.orders.create`, before the session write (G1):** recovery finds the order by `external_reference`, releases nothing, and completes or compensates it; a second submit by the buyer creates no second order.
+- A payment recording failure is repaired by `repair-gateway-payments` exactly once (G4); an order cancellation that fails three times is finished by `repair-order-compensation`.
+- A gateway subscriber whose command fails with a `5xx` rethrows and the event is redelivered; a terminal `409` is reported and swallowed (D-R5-CH3).
 - A failing compensation raises the notification and is retried (R9).
 - Credit released by `customer_groups` when the order is cancelled (C6).
 - Code reuse refused; code returned on payment failure; budget overrun aborts with `409 promotion_unavailable` before payment (C5).
@@ -928,62 +1188,108 @@ Integration tests are self-contained: each creates its tenant, store, products, 
 - Approval, re-price upward, `409 cart_requires_approval` at lock (R8).
 - `approval_policy = both` resolves only after both sides approve (driven through `customer_groups` routes; checkout observes the event only).
 - Credit refused → `402 credit_refused` with reason; offered prepayment and, where allowed, `request_quote`.
-- N=20 parallel on-account submits respect the limit exactly (R7).
+- N=20 parallel on-account submits respect the limit exactly (R7), and N=20 parallel submits for the last unit give one order and 19 `409 stock_shortfall`, never a `500` (R18). Both run against real Postgres in suites named so CI selects them (#9183).
 - `requires_po_number` blocks submit without a PO and the PO reaches the order.
 - Below `min_order_value` blocked; another currency not checked.
 
 **Entry modes:**
 - Phase A pay link unaffected with `cart` disabled, in an app with only `checkout` + `payment_gateways` (C10, D-R5-18).
+- A tokenless `POST /sessions` on a link at `maxCompletions − 1` does not consume the last slot; two parallel submits on it complete one and refuse the other with `409 link_usage_limit_reached`; a failed submit releases its slot once.
 - A simple checkout link seeds a `pay_link` cart through the trusted context; a template line without `unit_price_override` prices at a logged-in buyer's own rate and credit resolves to the company (D-R5-19, D-R5-22); the request body cannot add lines.
 - `is_quantity_editable = false` rejects a quantity change.
 
 **Security:**
 - Cross-tenant session/cart/link/store/approval combinations rejected on every public route (C21).
-- `checkout:checkout_session` fields encrypted at rest; event payloads redacted (C14).
+- `checkout:checkout_session` fields encrypted at rest; event payloads redacted (C14). The backfill migration's unit test asserts its SQL; a tenant created before the migration encrypts session PII after it runs (R-1).
+- A fail-closed route answers `503` with no rate limiter registered; a fail-open route proceeds (§3.2 item 1).
+- Schedules: a tenant upgraded with `checkout.register-schedules` has all five session schedules (G5).
 - Rate limits on `POST /sessions`, `/current` mutations, submit and `delivery-options` enforced (C14).
+
+**Cross-module requirements.** Checkout's steps depend on these changes in other modules. Each belongs to the owning spec, which is edited separately; the step that needs it is named.
+
+| Module (spec) | Requirement | Needed by |
+|---|---|---|
+| `cart` (cart spec) | `cartService.getCheckoutView` (§3.3): the live cart's status, lock holder, identity incl. `customerUserId` and company, `storeId`, `channel`, `salesChannelId`, `currencyCode`, `approvalId`, `updatedAt`, `totals` | CH1a |
+| `cart` (cart spec §3.1a, `TC-CART-LOCK-06`) | `cartService.getSalesSnapshot`: the **exact** adjustment drafts behind `Cart.totals`, metadata (`taxRate`) included, plus `metadata.cartLineId` on every line and the applied codes. `TC-CART-LOCK-06` uses a percentage code with tax. The reference's `cart/lib/toSalesSnapshots.ts` rebuilds the drafts from `CartPromotionApplication` rows without metadata and must change | CH4 |
+| `cart` (cart spec) | Lock contract of §6 (`lockTtlMs`, `purpose`, same-session extend, `checkoutSessionId` on `unlock`/`markConverted`, `lineMap`); trusted pay-link creation with `salesChannelId` | CH1a, CH3, CH4 |
+| `sales` | `salesDocumentLookupService` (§3.3); index `sales_orders (tenant_id, external_reference)` (D-R5-CH1); index `sales_quotes (tenant_id, external_reference)` (D-R5-30); `quoteCreateSchema` gains `externalReference`/`customerReference`; `orderCreateSchema` gains `suppressStaffNotification?: boolean`, and an order created with it sends its `sales.order.created` staff notification at first confirmation instead of at create (D-R5-CH8); the shared line schemas accept snapshot `null`s for order and quote lines; `sales.payments.create` idempotent per `(order, paymentReference)`; `sales.order.cancelled` emitted on every cancellation path, including an undo that re-cancels (#8404, #8406) | CH4, CH5a |
+| `promotions` (SPEC-055) | `UseCodeInput.orderId`; the `sales.order.cancelled` subscriber running `revertUsage`/`revertCodeUse` by `orderId`; `revertCodeUse?` optional; delivery promotions authorable | CH2b, CH4 |
+| `customer_groups` (customer-groups spec) | `linkCreditReservationToOrder`, the row-locked `reserveCredit`, approval service and events, the new terms | CH6a, CH6b |
+| `ecommerce` (SPEC-029) | `resolveForBuyer` with optional store; the store context's default sales channel id; `EcommerceStoreSettings.shipping` optional with `flatRate` and `taxRate` | CH1a, CH2a, CH3 |
+| `wms` | `wmsWarehouseLookupService.getPrimaryWarehouseAddress` | CH2a |
+| `shared` | `buildTrustedCommandContext` in `lib/commands/trusted-context.ts`, re-exported by `lib/commands` (D-R5-CH7); subscriber and worker container hand-off (`SubscriberContext.container`, `WorkerJobContainer.register`) | CH3, CH4, CH5b |
 
 ---
 
 ## 17) Implementation Plan
 
-Release 5 order (cross-spec review, final implementation order): B.1 and B.3 in wave 2, B.2 in wave 3, B.4 in wave 4, B.5 in wave 5.
+Release 5 order (cross-spec review, final implementation order): B.1 and B.3 in wave 2, B.2 in wave 3, B.4 in wave 4, B.5 in wave 5. The phases are re-landed as one-PR steps from closed PR #8268 (`bdb747c36a`). Each step ports the reference's code for its files together with the review fixes made to them, applies the "port must change" rules stated in this spec, and ships its §16 tests in the same PR. A step starts only when its cross-module prerequisites (§16, "Cross-module requirements") are merged.
 
-### Phase B.1 — Session and step machine
-`CheckoutSession` (with `token_hash`), `CheckoutSessionEvent`, `POST /sessions` from a cart token, `GET`/`PATCH /sessions/current`, `/step`, `/cancel`, the §9.0 transport, binding and scope checks, the step machine, optimistic locking, `expire-checkout-sessions`, soft peer resolution and `503 checkout_sessions_unavailable`. **Security minimum (C14):** token hash, session encryption map, payload redaction, rate limits on `POST /sessions` and `/current` mutations, cross-tenant check. ACL features and grants.
+| Phase | Steps |
+|---|---|
+| Phase A changes | CH0a, CH0b |
+| B.1 Session and step machine | CH1a, CH1b |
+| B.3 Delivery and payment | CH2a, CH2b |
+| B.2 Cart-backed links | CH3 |
+| B.4 Submit | CH4, CH5a, CH5b |
+| B.5 B2B | CH6a, CH6b |
 
-**Depends on:** nothing new in other modules.
-**Gate:** transition table exhaustively tested; binding and cross-tenant 404s; Phase A non-regression boot test.
+### CH0a — Phase A: fail-closed rate limit
+`enforceCheckoutRateLimit` answers `503` under `fail-closed` when no `rateLimiterService` is registered (§3.2 item 1); the #5030 tests assert it; UPGRADE_NOTES entry (§14a row 14).
+**Prerequisites:** none. **Gate:** pay-link submit and `/verify-password` answer `503` without a limiter; fail-open routes unchanged; the Phase A suite passes.
 
-### Phase B.2 — Cart-backed links
-`CheckoutLinkCartTemplate`, `checkout.cartTemplate.*` commands, admin `CrudForm` group, currency and gateway-descriptor validation, `POST /sessions` from a link with trusted seeding (§4.3).
+### CH0b — Phase A: gateway subscribers (D-R5-CH3)
+The four `gateway-payment-*` subscribers rethrow retryable failures and keep `reportGatewayStatusSyncFailure` for `404`/`409` refusals (§3.2 item 2). The session-resume call is added in CH5a.
+**Prerequisites:** none. **Gate:** a `5xx` from `updateStatus` is rethrown and redelivered; the terminal `409` is reported and swallowed; the `update-transaction-status` suite runs unchanged.
 
-**Depends on:** cart trusted pay-link path (D-R5-19), `resolveForBuyer` with optional store (D-R5-22), `buildTrustedCommandContext` (X10).
-**Gate:** a template line without an override prices per buyer; mixed-currency templates rejected; request body cannot add lines.
+### CH1a — Session aggregate
+`CheckoutSession`, `CheckoutSessionEvent`, their migration, the session status machine, `token_hash`, payload redaction, `checkout.session.create/update/cancel` commands (all imported by `commands/index.ts`), the §10 events, the encryption map **and its backfill migration** (§13, R-1), ACL features and grants (§9.1), the soft-peer helper and `503 checkout_sessions_unavailable` (§3.4).
+**Prerequisites:** `cartService.getCheckoutView` (cart); the store context's default sales channel (SPEC-029). **Gate:** status-machine unit tests; the backfill migration test; encryption at rest.
 
-### Phase B.3 — Delivery and payment
-`delivery-options` with rate inputs, caching and the flat-rate fallback (§5.3), delivery promotion evaluation and `quoted_totals` (§5.4), method selection and snapshotting, gateway payment-method resolution (§5.5), `delivery-options` rate limit.
+### CH1b — Session routes, C14 minimum, expiry worker
+`POST /sessions` from a cart token, `GET`/`PATCH /sessions/current`, `/step`, `/cancel`, admin `GET /sessions` and `/sessions/:id`, with the §9.3 schemas; the §9.0 transport, binding to the live cart, scope `404`s; `runMutationGuards` on every write; optimistic locking; rate limits on `POST /sessions` and `/current` mutations; `expire-checkout-sessions` with `ensureCheckoutSessionSchedules` and the `checkout.register-schedules` upgrade action (§12). `/step` and `/cancel` are new work.
+**Prerequisites:** CH0a, CH1a. **Gate:** transition table exhaustively tested; binding and cross-tenant `404`s; schedules present after the upgrade action; Phase A non-regression boot test.
 
-**Depends on:** SPEC-055 delivery promotions un-hidden (D-R5-17).
-**Gate:** stale-rate invalidation; carrier failure degrades to the flat rate.
+### CH2a — Delivery rate quoting and flat rate
+`GET /sessions/current/delivery-options` with the §5.3 inputs (primary-warehouse origin, packages, currency filter, net amounts and `metadata.taxRate`), the 5-minute cache, the flat-rate fallback from store settings and the link's `flat_rate_shipping_*` columns (§4.3, migration), and its rate limit.
+**Prerequisites:** CH1b; `wmsWarehouseLookupService` (wms); optional `EcommerceStoreSettings.shipping` (SPEC-029). **Gate:** carrier failure degrades to the flat rate; another-currency rate dropped; no `wms` → flat rates only; `422 delivery_unavailable` without a fallback.
 
-### Phase B.4 — Submit
-The §7 sequence for the gateway outcome, compensation, idempotency, concurrency guard, `recover-stuck-submits` with §12.1, `retry-failed-compensations`, `expire-awaiting-payment`, `/result`, submit rate limits, `CheckoutTransaction` columns.
+### CH2b — Delivery selection, delivery promotions, payment methods and `/payment`
+`POST /delivery` with the snapshot and `quoted_totals` (payable from `salesCalculationService`, D-R5-CH6); the §5.2 invalidation rules; delivery promotion evaluation with identical inputs (§5.4); `GET /payment-methods` for gateway methods; `POST /payment` storing the method and PO number (D-R5-CH2), new work.
+**Prerequisites:** CH2a; SPEC-055 delivery promotions un-hidden (D-R5-17). **Gate:** stale-rate invalidation; `quoted_totals` cleared on a cart change; unoffered method → `422`.
 
-**Depends on:** availability Phase 3 (`reserve`/`release`/`commit`, per-line outcomes, D-R5-8…10); cart lock contract (C1, C2, `markConverted` inputs K8/D-R5-16/D-R5-26); promotions `revertCodeUse` and the cancellation subscriber (C5); the `sales_quotes` index (D-R5-30).
-**Gate:** every submit-correctness and compensation test passes, including a killed process at each step without duplicates.
+### CH3 — Cart-backed links
+`CheckoutLinkCartTemplate`, the `checkout.cartTemplate.*` commands and the link `CrudForm` group, currency and gateway-descriptor validation, the link's `sales_channel_id`, `POST /sessions` from a link with trusted seeding and the capacity probe (§4.3).
+**Prerequisites:** CH1b; the cart's trusted pay-link path (D-R5-19); `resolveForBuyer` with optional store (D-R5-22); `buildTrustedCommandContext` (shared, D-R5-CH7). **Gate:** a template line without an override prices per buyer; mixed-currency templates rejected through the command; the request body cannot add lines; a tokenless create consumes no slot.
 
-### Phase B.5 — B2B
-`on_account` with `customerCreditService` (reserve, link, release), approval request and the event-driven resume (§8.2), PO capture, `min_order_value`, `request_quote` and the quote branch (§8.6).
+### CH4 — Submit saga I: direct order creation and compensation
+The §7.2 steps 0–6 as commands: the pay-link slot reservation, lock, snapshot self-check and `sales`-computed payable, stock reserve, document creation with `sales.orders.create` and the field mapping (D-R5-CH1), the persisted-totals check, commit, code use with `orderId`, usage registration; the §7.3 compensation with `compensating`; the ops notification type (§10.1). Exact decimals; nested commands on the caller's transaction.
+**Prerequisites:** CH2b; availability Phase 3 (`reserve`/`release`/`commit`, D-R5-8…10); the cart lock contract and `getSalesSnapshot` with metadata; `salesDocumentLookupService`, both `sales` indexes, the line-schema widening and the quote-create fields; promotions `UseCodeInput.orderId` and the cancellation subscriber; the container hand-off (shared). **Gate:** the percentage-code-with-tax case for every payment method; the full field mapping on the order; no quote notification; an injected failure at each of steps 1–6 compensates completely.
 
-**Depends on:** B.4; customer-groups Phases 3–4 (credit service with the row lock, approval service and events, new terms); cart approval gate K1–K5 with `purpose` (D-R5-23).
-**Gate:** the N=20 parallel on-account test; re-approval on a price increase; quote outcome with a quote `lineMap`.
+### CH5a — Submit route, replay, return URLs, payment recording
+`POST /sessions/current/submit` and `GET /sessions/current/result` with the §9.3 schemas; `Idempotency-Key` replay (§7.4); step 7 (intent, lock extension, hand-off); the return-URL rule; the `checkout_transactions` columns, nullable `link_id` and the link-less `updateStatus` branch (§14a rows 15, 17); the session resume in the gateway subscribers; payment recording with `sales.payments.create`; submit rate limits. `/result` is new work.
+**Prerequisites:** CH0b, CH4; `sales.payments.create` idempotent per `(order, paymentReference)`. **Gate:** the B2C happy path end to end with a recorded payment; concurrent double submit creates one order; same-key replay returns the same body; unsafe return URLs refused.
+
+### CH5b — Recovery and repair workers
+`recover-stuck-submits` (§12.1, order-level probe), `expire-awaiting-payment`, `repair-gateway-payments`, `repair-order-compensation`, all registered by `ensureCheckoutSessionSchedules`; reads with `findWithDecryption`, errors with `isCrudHttpError` and `reportError`.
+**Prerequisites:** CH5a; the container hand-off for workers. **Gate:** a process killed after each step, including right after order creation, is reconciled without a duplicate order and without releasing a live order's holds; a payment-recording failure and a failed cancellation are each repaired.
+
+### CH6a — On-account credit, PO number, minimum order, quote requests
+`on_account` and `request_quote` in `/payment-methods`; credit reserve, link and release (§8.3); PO required and format checks (§8.4); `min_order_value` (§8.5); the quote branch with `sales.quotes.create` (§8.6).
+**Prerequisites:** CH5b; customer-groups Phases 3–4 (row-locked credit service, new terms); the cart's `purpose: 'quote'` (D-R5-23). **Gate:** the N=20 parallel on-account test on real Postgres; the PO number on the order; the quote outcome with a quote `lineMap`.
+
+### CH6b — Approvals
+`POST /request-approval`, the four `customer_groups.approval.*` subscribers (§8.2), a new session starting in `awaiting_approval` for a pending cart approval (§8.2 item 4), re-approval on a price rise.
+**Prerequisites:** CH6a; the customer-groups approval service and events; the cart approval gate K1–K5. **Gate:** every approval outcome moves the session as §8.2 states; a new session picks up a pending approval; a higher re-priced total refuses with `409 cart_requires_approval`.
 
 ### Phase B.6 — Admin viewer and workflows (not Release 5)
-Admin session viewer with the event trail and the `checkout.sessions.manage` actions; the four seeded workflow definitions of §5.1. The security minimum already shipped in B.1/B.3/B.4.
+Admin session viewer pages with the event trail and the `checkout.sessions.manage` actions; the four seeded workflow definitions of §5.1. The security minimum and the read-only admin routes already shipped in CH1b.
 
 ---
 
 ## 18) Open Questions
+
+None blocks Release 5. Each item states the assumption Release 5 runs on, or is out of scope.
 
 1. **Guest checkout for on-account** — assumed impossible: purchase on account requires an authenticated `CustomerUser` linked to a company. Confirm no tenant needs a magic-link variant.
 2. **Partial fulfilment of non-backorder lines at submit** — narrowed by D-R5-9: backorder-enabled lines already hold what is sellable and admit the rest. What remains open is a split for lines **without** backorder (ship what is available, cancel or defer the rest), which needs its own design.
@@ -996,23 +1302,24 @@ Admin session viewer with the event trail and the `checkout.sessions.manage` act
 
 | Requirement | Status |
 |---|---|
-| No cross-module ORM relations | All references are FK ids; peers reached via DI (`tryResolve`) or `commandBus` |
-| No reimplemented arithmetic | Goods totals come from the cart's exact snapshot; the shipping charge and delivery discount are computed by `sales`; checkout only compares (§7.2 step 5b) |
+| No cross-module ORM relations | All references are FK ids; peers reached via DI (`tryResolve`) or `commandBus`; other modules' data read only through their services, never their tables (§3.3, D-R5-CH5) |
+| No reimplemented arithmetic | Goods totals come from the cart's exact snapshot; the payable, the shipping charge, its tax and the delivery discount are computed by `sales` (D-R5-CH6); checkout only compares exact decimals (§7.2 steps 2 and 5c) |
 | Tenant/organization scoping | Session, cart, link, store, customer and approval agree on every request; recovery and seeding use the stored scope (§13) |
 | Optimistic locking | `CheckoutSession.updatedAt` via `enforceCommandOptimisticLockWithGuards`; `open → submitting` CAS; template rows guarded by `CheckoutLink.updatedAt`; event rows append-only (C20) |
-| Encryption | Email, phone and both addresses via the `checkout:checkout_session` map in B.1; `findWithDecryption`; payloads redacted (C14) |
+| Encryption | Email, phone and both addresses via the `checkout:checkout_session` map in B.1, with the backfill migration for existing tenants (R-1); `findWithDecryption` in routes and workers; payloads redacted (C14) |
 | Bearer credentials | Session token only in a header, only its hash at rest (C4) |
 | Rate limiting | Public mutation routes rate-limited from the phase that introduces them (C14) |
 | Zod validation | All routes; `z.infer` types |
 | No `any` | State machine, session and payload contracts fully typed |
-| Mutation guards / commands | Session transitions are command-routed and not undoable (D-R5-10); admin template mutations undoable (§11) |
+| Mutation guards / commands | Every buyer write calls `runMutationGuards` before its command (§9, R-2); session transitions are command-routed and not undoable (D-R5-10); admin template mutations undoable (§11) |
 | i18n | Step labels, error codes and validation messages translated |
-| Queue usage | All four jobs via the `queue` worker contract |
+| Queue usage | All five jobs via the `queue` worker contract, scheduled for new and existing tenants (§12) |
 | ACL | Phase A features reused; `checkout.sessions.view` (employee, admin) and `.manage` (admin) new; sync-role-acls documented (D-R5-34) |
 | Module dependencies (`requires`) | Unchanged from Phase A. `cart`, `sales`, `availability`, `customer_groups`, `promotions`, `shipping_carriers`, `payment_gateways`, `ecommerce` are soft peers (§3.4, D-R5-18). No `workflows` use in Release 5 |
 | Cross-module coupling | Upstream never depends on downstream: promotions and customer groups react to `sales.order.cancelled` themselves; `sales` calls neither (C5, D-R5-2) |
 | Events | Every payload carries `tenantId`/`organizationId`; state signals only; approval notifications owned by `customer_groups` (D-R5-32) |
-| Backward compatibility | §14a; Phase A non-regression test |
+| Backward compatibility | §14a, including the four Phase A rows and the UPGRADE_NOTES entries; Phase A non-regression test |
+| Error reporting | Every catch that records an error calls `reportError` (§11, §12) |
 | Integration coverage | §16, every new API path, shipping in the same change as each phase |
 
 ---
@@ -1024,7 +1331,7 @@ Added 2026-09-16 to support the `om-mockup-prototype` click-through; revised 202
 ### Epic A — Completing a checkout
 
 - **US-A1** — As a buyer, I want to move through contact, addresses, delivery, payment and review, so that I can complete an order without losing what I have already entered.
-  - AC: steps the effective configuration does not need are skipped, not shown disabled — a digital-only cart has no `delivery` step, a known buyer with one address skips `contact` and `addresses` (§5.2).
+  - AC: steps the effective configuration does not need are skipped, not shown disabled — a known buyer with one address skips `contact` and `addresses` (§5.2). Every Release 5 cart has a `delivery` step (D-R5-CH4).
   - AC: backward navigation is always allowed before submit.
   - AC: changing an address after selecting delivery invalidates the rate quote and returns the buyer to `delivery` **with the reason stated** (§5.2, R5).
   - AC: the step list is returned by the session, never hard-coded in the client.
@@ -1067,7 +1374,7 @@ Every refusal names what went wrong and what the buyer can do instead (§9.2).
   - AC: the trail is append-only and redacted at write time, and the screen says so (§13).
   - AC: force re-price and force-expire are command-routed admin mutations, gated on `checkout.sessions.manage` separately from `checkout.sessions.view` (§9.1).
 - **US-E2** — As an operator, I want a failed compensation surfaced rather than logged (R9).
-  - AC: a `failure` event, `checkout.compensation.failed`, an operational notification and a retry — never swallowed.
+  - AC: a `failure` event, `checkout.compensation.failed`, the `checkout.session.attentionRequired` notification (§10.1) and a retry by `repair-order-compensation` — never swallowed.
 
 ### Cross-cutting rules
 
@@ -1082,6 +1389,32 @@ Every refusal names what went wrong and what the buyer can do instead (§9.2).
 ---
 
 ## 21) Changelog
+
+### 2026-11-19 — v2.4 (Re-landing audit — remediation of `.ai/analysis/pre-implement-2026-03-19-checkout-simple-checkout-release-5.md`)
+
+Remediation of the pre-implementation audit of the re-land from closed PR #8268 (verdict no-go: 6 Critical, 19 Important). Verified against `main` and the reference `bdb747c36a`.
+
+- **Header, TLDR, §3.** The order outcome is created directly; peer reads go through services. §3.2 lists the three Phase A changes (fail-closed `503`, gateway subscribers, link-less transactions). §3.3 names `sales.orders.create`, `sales.payments.create`, the optional `revertCodeUse?`, `wms` as a soft peer, and a table of the peer read methods, new ones marked. §3.4 adds `wms`.
+- **§4.** Binding reads the live cart's `customer_user_id`. `quoted_totals` lifecycle stated. `submit_progress` gains `compensating`. Template money uses `ExactDecimalType`. Link capacity: probe at seeding, atomic slot at submit, single release. Link columns `sales_channel_id` and `flat_rate_shipping_*`. `CheckoutTransaction` gains the payment-recording columns and the repair index; `link_id` becomes nullable.
+- **§5.** `delivery` is never skipped (digital-only carts deferred). `/step` validation rules. Rate origin from the primary `wms` warehouse; other-currency rates dropped; rates are net, taxed by `sales` through `metadata.taxRate`; the store `shipping` setting is optional. `/payment` stores the method and the PO number; submit re-validates them.
+- **§7.** New precondition for the sales channel; stored method and PO re-validated; exact decimals. §7.2 rewritten: snapshot self-check against `Cart.totals` before any document; payable computed by `sales`; the order created with `sales.orders.create`, idempotent on its own `external_reference`; persisted-totals check for every payment method; a session/cart → document field mapping; `lineMap` from the order lines; how a gateway result resumes the session; payment recording on the order. §7.3: cancellation with `compensating` and `repair-order-compensation`; no `revertCodeUse` call.
+- **§8.** PO number written by `sales.orders.create`; credit reserved for the `sales`-computed payable; a new session picks up a pending approval; the quote branch is the only `sales.quotes.create` use.
+- **§9.** Mutation guards on every buyer write; the optimistic-lock header named; binding to the live cart; route phases and the four routes that are new work; read-only admin routes in CH1b; §9.1 grants match `setup.ts`; new error codes; new §9.3 request/response schemas, payment hand-off and return-URL rule.
+- **§10–§13.** Event declarations and payloads fixed; new §10.1 ops notification. §11: command registration, real containers, `reportError`, `isCrudHttpError`. §12: five jobs, schedules for existing tenants through one helper and an upgrade action; recovery probes the order first and never releases a live order's holds. §13: encryption backfill migration, fail-closed `503`, trusted-context import path.
+- **§14, §14a.** New §14.3 withdrawals. §14a rewritten: 25 rows including the `sales` changes, the `sales_orders` index, the four Phase A rows, the notification type and DI key; upgrade steps now include the backfill, the schedule upgrade action, the rate limiter and the origin.
+- **§15–§20.** Risks R18–R21; R1, R12, R16 updated. §16 adds the G1–G4 cases, the percentage-code-with-tax case, the field mapping, return URLs, mutation guards, schedules, real-Postgres suites in CI, and a cross-module requirements table. §17 re-cut into steps CH0a–CH6b with prerequisites and gates. §18–§20 aligned.
+
+#### Owner decisions (2026-11-19)
+
+- **D-R5-CH1** — The order outcome is created directly with `sales.orders.create` (status `draft`, `externalReference`, `customerReference`, `channelId`, method fields, `customerSnapshot`), idempotent on a new `sales_orders (tenant_id, external_reference)` index; `sales.quotes.create` only for `request_quote`; `lineMap` from order-line `metadata.cartLineId`. Findings: Blockers 1–2, G1, G2, R6, C17, #9390, #8413. Owner, 2026-11-19.
+- **D-R5-CH2** — Payment method and PO number are selected by `POST /sessions/current/payment` and stored on the session; submit re-validates them; `/step`, `/cancel` and `/result` stay as specified. Finding: D2, S5, S6. Owner, 2026-11-19.
+- **D-R5-CH3** — The four Phase A `gateway-payment-*` subscribers rethrow retryable failures and keep `reportGatewayStatusSyncFailure` for the swallowed terminal-`409` branch; a Phase A change approved under Ask First. Finding: D3, S23, BC 8, R-3. Owner, 2026-11-19.
+- **D-R5-CH4** — Digital-only carts are not in Release 5: submit requires a shipping method and address. Finding: D4, S15. Owner, 2026-11-19.
+- **D-R5-CH5** — Checkout reads other modules' data through their services (`cartService` reads; a `sales` status-entry resolver and order-by-reference lookup), never with raw queries on their tables. Finding: D5, S19. Owner, 2026-11-19.
+- **D-R5-CH6** — The payable amount for the D-R5-24 credit reservation and the C7 totals guard is computed by `sales` (`salesCalculationService.calculateDocumentTotals` with the shipping line and the delivery-discount adjustment), not by checkout. Finding: roadmap audit, ADR-2; G3. Owner, 2026-11-19.
+- **D-R5-CH7** — The trusted-context helper is imported from `@open-mercato/shared/lib/commands/trusted-context` (`trusted-context.ts`), with the barrel `@open-mercato/shared/lib/commands` as a second entry point. Finding: R6 (6), S22. Owner, 2026-11-19.
+- **D-R5-CH8** — `sales.orders.create` gains the additive optional input `suppressStaffNotification?: boolean`, which checkout sets on every order outcome. Such an order is not announced at create; `sales` sends the `sales.order.created` staff notification when the order is first confirmed (paid, or finalized for `on_account`). Owner, 2026-11-19.
+- **D-R5-CH9** — Names approved: the status entry `draft` for new checkout orders and quotes, `422 sales_channel_unresolved`, the link column `sales_channel_id`, the store setting `settings.shipping.taxRate` and the notification `checkout.session.attentionRequired`. Owner, 2026-11-19.
 
 ### 2026-10-26 — v2.3 (Release 5 spec revision)
 
