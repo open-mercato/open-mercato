@@ -646,9 +646,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-`POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
-
-**Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+`POST /api/auth/logout` returns `303` even without cookies ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). This supersedes the October 13 status. Clients expecting `307` must accept `303` and follow `Location` with GET. The shared redirect helper defaults to `307`. [Compatibility and migration](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility).
 
 ## #7809 2026-11-06
 
@@ -673,4 +671,4 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## 2026-11-19 — Custom-domain ownership (#9146)
 
-STABLE verification behavior. Shared routing records alone no longer verify a mapping. Continuing to accept them would leave cross-tenant ownership unproven, so the emergency waiver of steps 1–3 requires a named maintainer acknowledgment before merge. Staff clients must publish the mapping-specific TXT record. The additive migration returns in-flight legacy TLS candidates to pending and leaves active domains available for operator audit. See the [domain spec](.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md#migration--backward-compatibility--mapping-ownership-9146) and [upgrade notes](UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146).
+STABLE verification. Shared-target-only checks permit cross-tenant claims. Waiver of steps 1–3 awaits named maintainer approval. Publish the mapping’s TXT record. [Migration](UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146).
