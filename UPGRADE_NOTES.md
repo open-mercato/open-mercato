@@ -1,5 +1,18 @@
 # Upgrade Notes
 
+## `StoreContextService` gains an optional `resolveForBuyer` (SPEC-029 §6.3, Release 5)
+
+- **`StoreContextService`** (`packages/core/src/modules/ecommerce/lib/storeContextService.ts`)
+  adds an optional `resolveForBuyer?(input): Promise<ResolveForBuyerResult>` method
+  to the DI-replaceable service interface. Existing `StoreContextService`
+  overrides keep compiling unchanged. **Module authors providing a custom
+  override** should implement `resolveForBuyer` to support trusted buyer
+  resolution (cart reprice, proposals, pay-link seeding); when it is absent,
+  callers treat the identity refresh as unavailable and fail closed (the
+  storefront assortment scope is not resolved and the operation is refused or
+  runs without a buyer-scoped refresh, as each caller documents). **Callers**
+  must check `service.resolveForBuyer` before invoking it.
+
 ## CRM preset enables the scheduler (#8804)
 
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
