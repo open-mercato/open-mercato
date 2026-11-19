@@ -8,7 +8,7 @@ import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DomainMappingService, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -51,6 +51,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     result = await service.verify(id)
   } catch (err) {
+    if (err instanceof DomainMappingUnavailableError) {
+      return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+    }
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : 'DNS verification failed' },
       { status: 500 },
@@ -94,7 +97,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Trigger DNS verification',
       description:
-        'Runs DNS verification (CNAME → A → reverse-resolve fallback) for the domain mapping. Returns diagnostics on failure.',
+        'Checks the mapping-specific TXT record and the CNAME, A, or reverse-resolve routing configuration. Returns diagnostics on failure.',
       responses: [
         {
           status: 200,

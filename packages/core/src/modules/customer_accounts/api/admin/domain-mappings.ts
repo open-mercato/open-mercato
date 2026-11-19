@@ -16,10 +16,19 @@ import { registerDomainSchema } from '@open-mercato/core/modules/customer_accoun
 import {
   DomainMappingService,
   DomainMappingOrgScopeError,
+  DomainMappingRegistrationConflict,
   type ResolveResult,
 } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import { DomainMapping } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import {
+  DOMAIN_UNAVAILABLE_MESSAGE,
+  MAX_VERIFIABLE_HOSTNAME_LENGTH,
+  UNVERIFIED_DOMAIN_STATUSES,
+  domainOwnershipRecord,
+  domainVerificationDeadline,
+  liveDomainMappings,
+} from '../../lib/domainMappingLifecycle'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -40,6 +49,7 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 function serializeRecord(record: DomainMapping) {
+  const pending = UNVERIFIED_DOMAIN_STATUSES.includes(record.status)
   return {
     id: record.id,
     hostname: record.hostname,
@@ -54,6 +64,8 @@ function serializeRecord(record: DomainMapping) {
     tlsRetryCount: record.tlsRetryCount,
     cnameTarget: process.env.CUSTOM_DOMAIN_CNAME_TARGET ?? null,
     aRecordTarget: process.env.CUSTOM_DOMAIN_A_RECORD_TARGET ?? null,
+    ownershipRecord: pending && record.hostname.length <= MAX_VERIFIABLE_HOSTNAME_LENGTH ? domainOwnershipRecord(record) : null,
+    verificationExpiresAt: pending ? domainVerificationDeadline(record.createdAt).toISOString() : null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt?.toISOString() ?? null,
   }
@@ -81,7 +93,7 @@ export async function GET(req: Request) {
   }
 
   const em = container.resolve('em') as EntityManager
-  const where: FilterQuery<DomainMapping> = { tenantId: auth.tenantId }
+  const where: FilterQuery<DomainMapping> = { tenantId: auth.tenantId, ...liveDomainMappings() }
   if (orgFilter) {
     where.organizationId = orgFilter
   } else {
@@ -161,9 +173,12 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     if (isUniqueViolation(err)) {
       return NextResponse.json(
-        { ok: false, error: 'This domain is not available. Please choose a different hostname.' },
+        { ok: false, error: DOMAIN_UNAVAILABLE_MESSAGE },
         { status: 409 },
       )
+    }
+    if (err instanceof DomainMappingRegistrationConflict) {
+      return NextResponse.json({ ok: false, error: err.message }, { status: 409 })
     }
     if (err instanceof DomainMappingOrgScopeError) {
       return NextResponse.json(
@@ -260,6 +275,8 @@ const domainMappingSchema = z.object({
   tlsRetryCount: z.number().int().nonnegative(),
   cnameTarget: z.string().nullable(),
   aRecordTarget: z.string().nullable(),
+  ownershipRecord: z.object({ name: z.string(), value: z.string() }).nullable().optional(),
+  verificationExpiresAt: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string().nullable(),
 })
@@ -292,7 +309,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Register a custom domain',
-      description: 'Registers a new custom domain mapping for an organization. Verifies via DNS asynchronously.',
+      description: 'Registers a custom domain mapping and returns its DNS ownership record. Unverified registrations expire after 48 hours.',
       requestBody: {
         contentType: 'application/json',
         schema: z.object({

@@ -215,7 +215,7 @@ describe('custom-domain routes with real organization-scoped RBAC', () => {
     )
     expect(mockEm.find).toHaveBeenCalledWith(
       DomainMapping,
-      { tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_A] } },
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_A] }, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } },
     )
   })
@@ -234,7 +234,7 @@ describe('custom-domain routes with real organization-scoped RBAC', () => {
     })
     expect(mockEm.find).toHaveBeenCalledWith(
       DomainMapping,
-      { tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_A, childOrganizationId] } },
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: { $in: [ORGANIZATION_A, childOrganizationId] }, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } },
     )
   })
@@ -249,7 +249,7 @@ describe('custom-domain routes with real organization-scoped RBAC', () => {
     expect(mockEm.find).not.toHaveBeenCalledWith(Organization, expect.anything(), expect.anything())
     expect(mockEm.find).toHaveBeenCalledWith(
       DomainMapping,
-      { tenantId: TENANT_ID },
+      expect.objectContaining({ tenantId: TENANT_ID, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } },
     )
   })

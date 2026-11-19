@@ -14,6 +14,8 @@ export type DomainMappingRow = {
   tlsRetryCount: number
   cnameTarget: string | null
   aRecordTarget: string | null
+  ownershipRecord?: { name: string; value: string } | null
+  verificationExpiresAt?: string | null
   createdAt: string
   updatedAt: string | null
 }

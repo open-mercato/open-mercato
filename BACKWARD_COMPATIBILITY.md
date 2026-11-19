@@ -670,3 +670,7 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## 2026-11-19 — Custom-domain ownership (#9146)
+
+STABLE verification behavior. Shared routing records alone no longer verify a mapping. Continuing to accept them would leave cross-tenant ownership unproven, so the emergency waiver of steps 1–3 requires a named maintainer acknowledgment before merge. Staff clients must publish the mapping-specific TXT record. The additive migration returns in-flight legacy TLS candidates to pending and leaves active domains available for operator audit. See the [domain spec](.ai/specs/implemented/2026-04-08-portal-custom-domain-routing.md#migration--backward-compatibility--mapping-ownership-9146) and [upgrade notes](UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146).

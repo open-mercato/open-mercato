@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Custom domains require DNS ownership proof (#9146)
+
+New and in-progress custom-domain registrations must publish the TXT record shown in **Settings → Customer Portal → Custom Domain** alongside their routing records. API clients can read the `ownershipRecord` and `verificationExpiresAt` fields from the staff domain-mappings create and list responses. Publish the name and value exactly as returned. If a registration expires after 48 hours, register again and use the new TXT value. An organization can hold up to two live mappings. A released, verified hostname stays reserved to its prior tenant for seven days.
+
+**Operator rollout.** Stop older app and DNS/TLS worker instances before applying the customer accounts migration and starting the new versions. The migration moves legacy mappings awaiting TLS back to pending. Re-register any that are already past the 48-hour deadline. An unverified hostname longer than 242 characters requires a shorter hostname to accommodate the TXT record name. Existing active mappings continue serving. Confirm their assignments with the DNS owners and release any unexpected mappings. Remove old routing records after a hostname is retired.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.

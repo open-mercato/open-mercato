@@ -8,7 +8,7 @@ import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DomainMappingService, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -51,6 +51,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     updated = await service.healthCheck(id)
   } catch (err) {
+    if (err instanceof DomainMappingUnavailableError) {
+      return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+    }
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : 'Health check failed' },
       { status: 500 },

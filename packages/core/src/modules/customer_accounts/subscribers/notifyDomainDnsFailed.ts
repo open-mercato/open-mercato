@@ -1,4 +1,5 @@
 import type { EventBus } from '@open-mercato/events/types'
+import { DOMAIN_OWNERSHIP_UNVERIFIED } from '../lib/domainMappingLifecycle'
 
 export const metadata = {
   event: 'customer_accounts.domain_mapping.dns_failed',
@@ -15,7 +16,7 @@ export default async function handle(
   const tenantId = typeof data.tenantId === 'string' ? data.tenantId : null
   const organizationId = typeof data.organizationId === 'string' ? data.organizationId : null
   const hostname = typeof data.hostname === 'string' ? data.hostname : ''
-  const reason = typeof data.reason === 'string' ? data.reason : ''
+  const reason = typeof data.reason === 'string' && data.reason !== DOMAIN_OWNERSHIP_UNVERIFIED ? data.reason : ''
   if (!id || !tenantId || !organizationId) return
 
   try {

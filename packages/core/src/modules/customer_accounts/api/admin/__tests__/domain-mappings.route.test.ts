@@ -46,6 +46,8 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
 
 jest.mock('@open-mercato/core/modules/customer_accounts/services/domainMappingService', () => ({
   DomainMappingOrgScopeError: class extends Error {},
+  DomainMappingRegistrationConflict: class extends Error {},
+  DomainMappingUnavailableError: class extends Error {},
 }))
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -133,6 +135,10 @@ describe('domain mapping list authorization', () => {
     expect(response.status).toBe(200)
     expect(body.domainMappings).toHaveLength(1)
     expect(body.domainMappings[0].organizationId).toBe(organizationA)
+    expect(body.domainMappings[0]).toMatchObject({
+      ownershipRecord: { name: '_om-verify.portal.example.test', value: `open-mercato-verification=${mappingId}` },
+      verificationExpiresAt: '2026-10-03T00:00:00.000Z',
+    })
     expect(mockResolveFeatureOrganizationAccess).toHaveBeenCalledTimes(1)
     expect(mockResolveFeatureOrganizationAccess).toHaveBeenCalledWith(userId, [feature], { tenantId })
     expect(mockUserHasAllFeatures).toHaveBeenCalledTimes(1)
@@ -142,7 +148,7 @@ describe('domain mapping list authorization', () => {
     )
     expect(mockFilterOrganizationIds).toHaveBeenCalledWith(organizations)
     expect(mockFind).toHaveBeenNthCalledWith(2,
-      expect.anything(), expect.anything(), { tenantId, organizationId: { $in: [organizationA] } },
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId, organizationId: { $in: [organizationA] }, deletedAt: null, $or: expect.any(Array) }),
       { orderBy: { createdAt: 'desc' } }, { tenantId, organizationId: null },
     )
   })
@@ -157,7 +163,7 @@ describe('domain mapping list authorization', () => {
     expect((await response.json()).domainMappings).toHaveLength(2)
     expect(mockFind).toHaveBeenCalledTimes(1)
     expect(mockFind).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), { tenantId }, { orderBy: { createdAt: 'desc' } },
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId, deletedAt: null }), { orderBy: { createdAt: 'desc' } },
       { tenantId, organizationId: null },
     )
   })
@@ -170,7 +176,7 @@ describe('domain mapping list authorization', () => {
     expect(response.status).toBe(200)
     expect((await response.json()).domainMappings).toEqual([])
     expect(mockFind).toHaveBeenLastCalledWith(
-      expect.anything(), expect.anything(), { tenantId, organizationId: { $in: [] } },
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId, organizationId: { $in: [] }, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } }, { tenantId, organizationId: null },
     )
   })
@@ -190,7 +196,7 @@ describe('domain mapping list authorization', () => {
     expect(response.status).toBe(200)
     expect(mockResolveFeatureOrganizationAccess).not.toHaveBeenCalled()
     expect(mockFind).toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), { tenantId, organizationId: organizationA },
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId, organizationId: organizationA, deletedAt: null }),
       { orderBy: { createdAt: 'desc' } }, { tenantId, organizationId: organizationA },
     )
   })

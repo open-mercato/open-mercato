@@ -1,12 +1,13 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
-import { DomainMappingService, DomainMappingOrgScopeError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DomainMappingService, DomainMappingOrgScopeError, DomainMappingRegistrationConflict, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import {
   DomainMapping,
   type DomainStatus,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { DOMAIN_OWNERSHIP_UNVERIFIED, domainOwnershipRecord } from '../../lib/domainMappingLifecycle'
 
 // Silence the "Event bus not available" console warnings emitted by
 // emitCustomerAccountsEvent in tests; the events themselves are fire-and-forget
@@ -42,6 +43,8 @@ type Row = {
   replacesDomain: { id: string } | null
   createdAt: Date
   updatedAt: Date | null
+  deletedAt: Date | null
+  reservedUntil: Date | null
 }
 
 type OrgRow = { id: string; slug: string | null; tenantId: string }
@@ -73,26 +76,33 @@ function rowMatches(row: Row, where: WhereClause): boolean {
       if (!ok) return false
       continue
     }
+    if (key === '$and' && Array.isArray(raw)) {
+      if (!raw.every((clause) => rowMatches(row, clause as WhereClause))) return false
+      continue
+    }
     const inValues = valuesIn(raw)
     const fieldValue = (row as unknown as Record<string, unknown>)[key]
     if (inValues) {
       if (!inValues.includes(fieldValue)) return false
       continue
     }
-    if (raw && typeof raw === 'object' && '$lt' in (raw as Record<string, unknown>)) {
-      const cmp = (raw as Record<string, unknown>).$lt
-      if (!(fieldValue !== null && fieldValue !== undefined && (fieldValue as Date | number) < (cmp as Date | number))) {
-        return false
-      }
-      continue
+    if (raw && typeof raw === 'object') {
+      const operators = raw as { $nin?: unknown[]; $lt?: Date; $lte?: Date; $gt?: Date; $ne?: unknown }
+      if (operators.$nin?.includes(fieldValue)) return false
+      if (operators.$lt && !(fieldValue != null && (fieldValue as Date) < operators.$lt)) return false
+      if (operators.$lte && !(fieldValue != null && (fieldValue as Date) <= operators.$lte)) return false
+      if (operators.$gt && !(fieldValue != null && (fieldValue as Date) > operators.$gt)) return false
+      if ('$ne' in operators && fieldValue === operators.$ne) return false
+      if (Object.keys(operators).some((operator) => operator.startsWith('$'))) continue
     }
+    if (key === 'replacesDomain' && typeof raw === 'string' && row.replacesDomain?.id === raw) continue
     if (fieldValue !== raw) return false
   }
   return true
 }
 
 type FakeEm = jest.Mocked<
-  Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'remove' | 'flush' | 'getConnection'>
+  Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'remove' | 'flush' | 'getConnection' | 'transactional' | 'execute' | 'count' | 'nativeUpdate' | 'nativeDelete'>
 > & {
   __store: Map<string, Row>
   __orgs: Map<string, OrgRow>
@@ -172,6 +182,8 @@ function createFakeEm(seed: { domains?: Row[]; orgs?: OrgRow[] } = {}): FakeEm {
       replacesDomain: data.replacesDomain ?? null,
       createdAt: data.createdAt ?? new Date(),
       updatedAt: data.updatedAt ?? null,
+      deletedAt: data.deletedAt ?? null,
+      reservedUntil: data.reservedUntil ?? null,
     }
     return row as unknown as DomainMapping
   })
@@ -198,6 +210,19 @@ function createFakeEm(seed: { domains?: Row[]; orgs?: OrgRow[] } = {}): FakeEm {
     remove,
     flush,
     getConnection,
+    transactional: jest.fn(async (work: (tx: FakeEm) => Promise<unknown>) => work(em)),
+    execute: jest.fn(async () => []),
+    count: jest.fn(async (_entity: unknown, where: WhereClause) => [...store.values()].filter((row) => rowMatches(row, where)).length),
+    nativeUpdate: jest.fn(async (_entity: unknown, where: WhereClause, changes: Partial<Row>) => {
+      const records = [...store.values()].filter((row) => rowMatches(row, where))
+      for (const row of records) Object.assign(row, changes)
+      return records.length
+    }),
+    nativeDelete: jest.fn(async (_entity: unknown, where: WhereClause) => {
+      const records = [...store.values()].filter((row) => rowMatches(row, where))
+      for (const row of records) store.delete(row.id)
+      return records.length
+    }),
     __store: store,
     __orgs: orgs,
     __removed: removed,
@@ -219,8 +244,10 @@ function seedDomain(overrides: Partial<Row> = {}): Row {
     dnsFailureReason: overrides.dnsFailureReason ?? null,
     tlsFailureReason: overrides.tlsFailureReason ?? null,
     replacesDomain: overrides.replacesDomain ?? null,
-    createdAt: overrides.createdAt ?? new Date('2026-01-01T00:00:00Z'),
+    createdAt: overrides.createdAt ?? new Date(),
     updatedAt: overrides.updatedAt ?? null,
+    deletedAt: overrides.deletedAt ?? null,
+    reservedUntil: overrides.reservedUntil ?? null,
   }
 }
 
@@ -384,11 +411,56 @@ describe('DomainMappingService.register', () => {
 // ---------------------------------------------------------------------------
 
 describe('DomainMappingService.verify', () => {
-  it('transitions pending → verified when CNAME matches the expected target', async () => {
+  it.each(['missing', 'different', 'split across records'])(
+    'keeps a mapping unverified when the expected TXT answer is %s', async (scenario) => {
+      const row = seedDomain()
+      const em = createFakeEm({ domains: [row] })
+      const { value } = domainOwnershipRecord(row)
+      const records = {
+        missing: [],
+        different: [[`${value}-different`]],
+        'split across records': [[value.slice(0, 20)], [value.slice(20)]],
+      }
+      const dnsResolver = {
+        resolveTxt: async () => records[scenario as keyof typeof records],
+        resolveCname: jest.fn(async () => []),
+        resolve4: jest.fn(async () => []),
+      }
+      const service = new DomainMappingService(em as unknown as EntityManager, { dnsResolver })
+
+      const result = await service.verify(row.id)
+
+      expect(result.domainMapping).toMatchObject({ status: 'dns_failed', dnsFailureReason: DOMAIN_OWNERSHIP_UNVERIFIED })
+      expect(dnsResolver.resolveCname).not.toHaveBeenCalled()
+      expect(await service.isAllowedForTls(row.hostname)).toBeNull()
+    },
+  )
+
+  it('discards DNS verification when the mapping is removed during lookup', async () => {
+    process.env.CUSTOM_DOMAIN_CNAME_TARGET = 'edge.openmercato.com'
+    const row = seedDomain()
+    const em = createFakeEm({ domains: [row] })
+    const dnsResolver = {
+      resolveTxt: async () => [[domainOwnershipRecord(row).value]],
+      resolveCname: async () => {
+        await service.remove(row.id, { tenantId: TENANT_A })
+        return ['edge.openmercato.com']
+      },
+      resolve4: async () => [],
+    }
+    const service = new DomainMappingService(em as unknown as EntityManager, { dnsResolver })
+
+    await expect(service.verify(row.id)).rejects.toBeInstanceOf(DomainMappingUnavailableError)
+    expect(row.verifiedAt).toBeNull()
+  })
+
+  it('verifies a matching routing target and a mapping TXT record split into DNS character strings', async () => {
     process.env.CUSTOM_DOMAIN_CNAME_TARGET = 'edge.openmercato.com'
     const row = seedDomain({ hostname: 'shop.example.com', status: 'pending' })
     const em = createFakeEm({ domains: [row] })
+    const ownership = domainOwnershipRecord(row)
     const dnsResolver = {
+      resolveTxt: jest.fn(async () => [[ownership.value.slice(0, 20), ownership.value.slice(20)]]),
       resolveCname: jest.fn(async () => ['edge.openmercato.com']),
       resolve4: jest.fn(async () => []),
     }
@@ -397,6 +469,7 @@ describe('DomainMappingService.verify', () => {
     const result = await service.verify(row.id)
 
     expect(result.domainMapping.status).toBe('verified')
+    expect(dnsResolver.resolveTxt).toHaveBeenCalledWith(ownership.name)
     expect(result.domainMapping.verifiedAt).toBeInstanceOf(Date)
     expect(result.domainMapping.dnsFailureReason).toBeNull()
     expect(em.__store.get(row.id)?.status).toBe('verified')
@@ -407,6 +480,7 @@ describe('DomainMappingService.verify', () => {
     const row = seedDomain({ hostname: 'shop.example.com', status: 'dns_failed', dnsFailureReason: 'old reason' })
     const em = createFakeEm({ domains: [row] })
     const dnsResolver = {
+      resolveTxt: jest.fn(async () => [[domainOwnershipRecord(row).value]]),
       resolveCname: jest.fn(async () => ['edge.openmercato.com']),
       resolve4: jest.fn(async () => []),
     }
@@ -421,6 +495,7 @@ describe('DomainMappingService.verify', () => {
     const row = seedDomain({ hostname: 'shop.example.com', status: 'pending' })
     const em = createFakeEm({ domains: [row] })
     const dnsResolver = {
+      resolveTxt: jest.fn(async () => [[domainOwnershipRecord(row).value]]),
       resolveCname: jest.fn(async () => ['attacker.example.net']),
       resolve4: jest.fn(async () => []),
     }
@@ -432,12 +507,7 @@ describe('DomainMappingService.verify', () => {
     expect(result.diagnostics?.suggestion).toContain('edge.openmercato.com')
   })
 
-  it('does NOT transition active → verified on a re-verify (active stays active until persisted otherwise)', async () => {
-    // verify() always re-runs DNS and sets state from the result. If a record
-    // is currently 'active' (already promoted) and DNS still resolves OK, the
-    // current implementation will downgrade it back to 'verified'. Document
-    // that behavior here so any future change to skip verify on active is a
-    // deliberate decision and not an unnoticed regression.
+  it('keeps the status of an already active mapping on a verification request', async () => {
     process.env.CUSTOM_DOMAIN_CNAME_TARGET = 'edge.openmercato.com'
     const row = seedDomain({ hostname: 'shop.example.com', status: 'active' })
     const em = createFakeEm({ domains: [row] })
@@ -448,13 +518,14 @@ describe('DomainMappingService.verify', () => {
     const service = new DomainMappingService(em as unknown as EntityManager, { dnsResolver })
 
     const result = await service.verify(row.id)
-    expect(['active', 'verified']).toContain(result.domainMapping.status)
+    expect(result.domainMapping.status).toBe('active')
+    expect(dnsResolver.resolveCname).not.toHaveBeenCalled()
   })
 
   it('throws when the mapping does not exist', async () => {
     const em = createFakeEm()
     const service = new DomainMappingService(em as unknown as EntityManager)
-    await expect(service.verify('does-not-exist')).rejects.toThrow(/not found/)
+    await expect(service.verify('does-not-exist')).rejects.toBeInstanceOf(DomainMappingUnavailableError)
   })
 })
 
@@ -487,7 +558,7 @@ describe('DomainMappingService.activate', () => {
     const em = createFakeEm({ domains: [row] })
     const service = new DomainMappingService(em as unknown as EntityManager)
 
-    await expect(service.activate(row.id)).rejects.toThrow(/cannot transition to active from pending/)
+    await expect(service.activate(row.id)).rejects.toThrow(/cannot activate from pending/)
   })
 
   it('rejects activation from dns_failed', async () => {
@@ -495,7 +566,7 @@ describe('DomainMappingService.activate', () => {
     const em = createFakeEm({ domains: [row] })
     const service = new DomainMappingService(em as unknown as EntityManager)
 
-    await expect(service.activate(row.id)).rejects.toThrow(/cannot transition to active from dns_failed/)
+    await expect(service.activate(row.id)).rejects.toThrow(/cannot activate from dns_failed/)
   })
 
   it('allows activation from tls_failed (retry path)', async () => {
@@ -531,8 +602,9 @@ describe('DomainMappingService.activate', () => {
     await service.activate(replacementRow.id)
 
     expect(em.__store.get(replacementRow.id)?.status).toBe('active')
-    expect(em.__store.has(replacedRow.id)).toBe(false)
-    expect(em.__removed.has(replacedRow.id)).toBe(true)
+    expect(replacedRow.deletedAt).toBeInstanceOf(Date)
+    expect(replacedRow.reservedUntil).toBeInstanceOf(Date)
+    expect(await service.findById(replacedRow.id)).toBeNull()
   })
 
   it.each([
@@ -565,7 +637,7 @@ describe('DomainMappingService.activate', () => {
   it('throws when the mapping does not exist', async () => {
     const em = createFakeEm()
     const service = new DomainMappingService(em as unknown as EntityManager)
-    await expect(service.activate('does-not-exist')).rejects.toThrow(/not found/)
+    await expect(service.activate('does-not-exist')).rejects.toBeInstanceOf(DomainMappingUnavailableError)
   })
 })
 
@@ -660,6 +732,24 @@ describe('DomainMappingService.healthCheck', () => {
 // ---------------------------------------------------------------------------
 
 describe('DomainMappingService.remove', () => {
+  it('preserves the releasing tenant reservation when its fresh registration ends before proof', async () => {
+    const row = seedDomain({ status: 'active' })
+    const em = createFakeEm({
+      domains: [row],
+      orgs: [{ id: ORG_A, slug: null, tenantId: TENANT_A }, { id: ORG_B, slug: null, tenantId: TENANT_B }],
+    })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+    const register = (tenantId: string, organizationId: string) => service.register({ hostname: row.hostname, tenantId, organizationId })
+
+    await service.remove(row.id, { tenantId: TENANT_A })
+    await expect(register(TENANT_B, ORG_B)).rejects.toBeInstanceOf(DomainMappingRegistrationConflict)
+    const renewal = await register(TENANT_A, ORG_A)
+    expect(renewal.reservedUntil).toEqual(row.reservedUntil)
+    expect(domainOwnershipRecord(renewal).value).not.toEqual(domainOwnershipRecord(row).value)
+    await service.remove(renewal.id, { tenantId: TENANT_A })
+    await expect(register(TENANT_B, ORG_B)).rejects.toBeInstanceOf(DomainMappingRegistrationConflict)
+  })
+
   it('invalidates an anonymous hostname resolution when its mapping is deleted by an admin', async () => {
     const row = seedDomain({ status: 'active', tenantId: TENANT_A, organizationId: ORG_A })
     const em = createFakeEm({ domains: [row], orgs: [{ id: ORG_A, slug: 'acme', tenantId: TENANT_A }] })
@@ -691,8 +781,8 @@ describe('DomainMappingService.remove', () => {
 
     await service.remove(row.id, { tenantId: TENANT_A })
 
-    expect(em.__store.has(row.id)).toBe(false)
-    expect(em.__removed.has(row.id)).toBe(true)
+    expect(row.deletedAt).toBeInstanceOf(Date)
+    expect(row.reservedUntil).toBeNull()
   })
 
   it('does NOT remove a mapping owned by a different tenant (tenant scoping)', async () => {
@@ -719,7 +809,7 @@ describe('DomainMappingService.remove', () => {
     const service = new DomainMappingService(em as unknown as EntityManager)
 
     await service.remove(row.id)
-    expect(em.__store.has(row.id)).toBe(false)
+    expect(row.deletedAt).toBeInstanceOf(Date)
   })
 })
 
@@ -877,11 +967,13 @@ describe('DomainMappingService.findByOrganization', () => {
     const a = seedDomain({
       hostname: 'a.example.com',
       organizationId: ORG_A,
+      status: 'active',
       createdAt: new Date('2026-01-02'),
     })
     const b = seedDomain({
       hostname: 'b.example.com',
       organizationId: ORG_A,
+      status: 'active',
       createdAt: new Date('2026-01-01'),
     })
     const c = seedDomain({ hostname: 'c.example.com', organizationId: ORG_A2 })

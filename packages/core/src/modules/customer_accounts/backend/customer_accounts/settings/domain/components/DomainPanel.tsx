@@ -71,6 +71,8 @@ export function DomainPanel(props: DomainPanelProps) {
           hostname={mapping.hostname}
           cnameTarget={mapping.cnameTarget ?? cnameTarget}
           aRecordTarget={mapping.aRecordTarget ?? aRecordTarget}
+          ownershipRecord={mapping.ownershipRecord}
+          verificationExpiresAt={mapping.verificationExpiresAt}
         />
       ) : null}
 

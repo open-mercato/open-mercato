@@ -20,7 +20,7 @@
 - `DomainMapping` entity in `customer_accounts` module with hostname (normalized + Punycode), tenant/org references, status lifecycle, provider, and DNS diagnostics
 - Next.js **Node** Middleware (`apps/mercato/src/middleware.ts`, `runtime: 'nodejs'`, Next.js ≥ 15.2) with stale-while-revalidate cache and batch warm-up for host resolution
 - Back office settings page with guided stepper wizard, auto-polling DNS verification, DNS diagnostics, multi-org switcher, and domain swap flow
-- DNS verification flow with **CNAME-first, then A-record fallback, then reverse-resolve over HTTPS** (handles apex domains and Cloudflare-proxied DNS), with diagnostic error reporting and background auto-verification worker
+- Mapping-specific TXT ownership proof followed by a **CNAME, A-record, or reverse-resolve** routing check, with diagnostics and background verification
 - Hostname normalization (lowercase, trailing-dot trim, IDN → Punycode, 253-char limit) at validator and service layer
 - Per-domain host-only customer cookies — login on `shop.acme.com` is independent from login on the platform domain
 - Traefik docker-compose configuration with ACME/Let's Encrypt on-demand TLS
@@ -59,13 +59,12 @@ This feature introduces a complete custom domain lifecycle — from registration
 **Studied:** Shopify Custom Domains, Vercel Domains API, Caddy on-demand TLS
 
 **Adopted:**
-- CNAME-based verification (Shopify, Vercel) — simple, well-understood by non-technical users
+- CNAME-based routing for subdomains and a mapping-specific DNS TXT record for ownership verification
 - On-demand TLS certificate provisioning with application-level gating (Caddy pattern, adapted to Traefik)
 - Host-header middleware rewriting (Vercel multi-tenant pattern)
 - Single lookup table for domain → tenant + org resolution (Shopify)
 
 **Rejected:**
-- TXT record verification — more complex for tenants, unnecessary when CNAME already proves ownership
 - Wildcard certificates — doesn't scale to unique tenant domains
 - DNS-01 ACME challenge — requires DNS API integration per registrar; TLS-ALPN-01 is simpler with Traefik
 - Per-domain Traefik router config — would require Traefik restart; on-demand TLS avoids this entirely
@@ -95,7 +94,7 @@ Introduce a `DomainMapping` entity in the `customer_accounts` module and a Next.
 | 3 | Custom domain path scope | **Domain IS the portal** — all non-internal paths rewrite to portal | `shop.acme.com/products` → `/{orgSlug}/portal/products`. No `/portal` prefix on the branded domain. `/api/*` and `/_next/*` paths pass through without rewrite. |
 | 4 | Domain cache in middleware | **Stale-while-revalidate in-memory Map** with batch warm-up | Even on the Node runtime, middleware has no DI/ORM access at the request hot path — the cache is populated via internal fetch to a secret-protected endpoint. Module-scoped Map persists across requests inside a single Node.js process. On process start, batch-fetches all active domains via `/domain-resolve/all`. Stale entries served immediately while background refresh occurs — no request blocks on a cache miss after warm-up. Negative lookups cached with longer TTL (5 min) to absorb unknown-hostname probing. |
 | 5 | TLS provisioning | **Traefik on-demand TLS** with Let's Encrypt | Certificates provisioned automatically on first request. Application verification endpoint gates issuance. No Traefik restart per domain. |
-| 6 | DNS verification | **CNAME check** via Node.js `dns.resolveCname()` | Tenant points domain to `portal.openmercato.com` (configurable). Server-side verification triggered manually ("Verify Now") or periodically. |
+| 6 | DNS verification | **Mapping-specific TXT record and routing check** | The tenant publishes the TXT record shown for the mapping and configures the routing target. The server checks both manually or on the worker schedule. |
 | 7 | Reverse proxy | **Concrete Traefik config** as a deliverable | Docker-compose additions, `traefik.yml`, ACME config. Not proxy-agnostic — Traefik is the specified target. |
 | 8 | Internal rewrite vs. redirect | **Rewrite** (not redirect) | Browser URL stays as `shop.acme.com/products`. Server processes it as `/{orgSlug}/portal/products`. Essential for white-label experience. |
 | 9 | Organization entity | **Not modified** | Domain concerns fully encapsulated in `DomainMapping`. No columns added to Organization. |
@@ -301,12 +300,19 @@ The last two map to the same row — registering `shop.café.com` after a compet
 
 ### DNS Verification Algorithm
 
-Verification supports both subdomains (CNAME) and apex domains (A record), and tolerates proxied DNS (Cloudflare orange-cloud, Fastly, etc.). The verifier runs in three phases:
+Verification requires a TXT record at `_om-verify.<hostname>` with value `open-mercato-verification=<mapping-id>`. The mapping ID is a fresh random UUID per registration. Join character strings within each TXT answer and compare a complete answer with the expected value. The staff API exposes the expected record after checking tenant and organization access. Failure stops verification before any routing probe.
+
+After ownership verification, the routing check supports subdomains (CNAME), apex domains (A record), and proxied DNS (reverse resolve).
 
 ```
 domainMappingService.verify(id):
 
   hostname = normalize(record.hostname)   // already canonical, but defensive
+
+  ── Ownership: TXT ──
+  answers = await dns.resolveTxt("_om-verify." + hostname)
+  if no complete answer matches the value for this mapping:
+    return failure('domain_ownership_txt_unverified', detectedRecords: [])
 
   ── Phase 1: CNAME ──
   cnames = await dns.resolveCname(hostname)
@@ -506,7 +512,7 @@ The change is backward compatible: existing callers that don't pass `expectedTen
 
 **Domain swap behavior:**
 - Customers actively using the old domain stay logged in on it (their cookie is host-only on the old domain).
-- When the replacement reaches `active` and the old domain is auto-removed, the old cookie continues to be sent to `old.acme.com` for up to its `Max-Age`, but DNS no longer points there → request never reaches us. No security exposure.
+- When the replacement reaches `active`, routing for the previous mapping drains within the cache TTL and its hostname is reserved to the releasing tenant for seven days. The browser may continue sending the old cookie to the old hostname until `Max-Age` expires. Operators should remove the discarded routing records from DNS.
 - Customers who first visit the new domain log in fresh on the new domain.
 - The settings page documents this in the swap copy: *"Customers using the previous domain will need to log in again when they switch."*
 
@@ -1404,6 +1410,14 @@ These handles are declared via `useRegisteredComponent(handle, FallbackComponent
 
 ## Migration & Compatibility
 
+### Migration & Backward Compatibility — mapping ownership (#9146)
+
+- Staff create and list responses can include `ownershipRecord` with a TXT `name` and `value` and `verificationExpiresAt` for unverified mappings. Clients publish the record and keep their routing configuration. Registrations expire 48 hours after creation and the existing two-domain organization limit is enforced transactionally.
+- A released verified or active hostname is unavailable to other tenants for seven days. The releasing tenant may register it again with a new mapping ID and TXT record. A failed attempt carries the original reservation through to its deadline. Unverified registrations without a prior reservation are reclaimed on expiry or deletion.
+- New hostnames must leave room for the `_om-verify.` label within the 253-character DNS limit. Existing active mappings stay routed. The migration returns `verified` and `tls_failed` rows to pending. Rows more than 48 hours old must be registered again. Operators should audit existing active assignments with their domain owners during rollout.
+- Retaining shared-target-only verification would preserve the security defect. See [the compatibility exception](../../../BACKWARD_COMPATIBILITY.md) and [upgrade instructions](../../../UPGRADE_NOTES.md#custom-domains-require-dns-ownership-proof-9146). Pause older app and worker writers during migration and cutover.
+- Regression coverage exercises TXT success and failure, concurrent registration, expired mappings, replacement reservations, staff list scoping, and migration of legacy TLS candidates. The settings panel shows copyable DNS instructions and the registration deadline.
+
 ### Migration & Backward Compatibility — bundled edge ports (#7833)
 
 The opt-in `starters/docker/compose.fullapp.traefik.yml` overlay resets the
@@ -1452,6 +1466,8 @@ CREATE TABLE domain_mappings (
   tls_retry_count INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ,
+  reserved_until TIMESTAMPTZ,
   CONSTRAINT domain_mappings_hostname_unique UNIQUE (hostname),
   CONSTRAINT domain_mappings_replaces_domain_id_unique UNIQUE (replaces_domain_id),
   CONSTRAINT domain_mappings_hostname_normalized_chk
@@ -1737,8 +1753,8 @@ Custom-domain integration tests need to drive requests with arbitrary `Host` hea
 - **Scenario**: A CNAME is temporarily cached by the DNS resolver but the tenant hasn't actually configured it. Domain transitions to `verified` prematurely.
 - **Severity**: Low
 - **Affected area**: Domain lifecycle, TLS certificate issuance
-- **Mitigation**: Traefik's own TLS-ALPN-01 challenge independently validates domain control before issuing a certificate. Even if our DNS check gives a false positive, Let's Encrypt won't issue a cert unless the domain actually resolves to our server.
-- **Residual risk**: Negligible — dual verification (our DNS check + ACME challenge).
+- **Mitigation**: Require the mapping-specific TXT value before checking routing or authorizing TLS. A cached routing record alone cannot verify a registration.
+- **Residual risk**: DNS changes may remain cached. A fresh mapping ID on each registration prevents reuse of a previous mapping's cached TXT record.
 
 ### Tenant & Data Isolation Risks
 
@@ -1746,8 +1762,8 @@ Custom-domain integration tests need to drive requests with arbitrary `Host` hea
 - **Scenario**: Tenant B registers a domain that belongs to Tenant A's brand, attempting to phish Tenant A's customers.
 - **Severity**: High
 - **Affected area**: End customer trust, platform reputation
-- **Mitigation**: CNAME verification ensures the domain actually points to our server. The domain owner (DNS admin) must explicitly create the CNAME record. Without DNS control, registration stays in `pending` and no traffic is served. The `hostname` unique constraint prevents claiming a domain already in use.
-- **Residual risk**: A domain owner could point their domain at our server maliciously. This is inherent to CNAME-based verification and accepted by Shopify, Vercel, and all major platforms. Abuse can be handled operationally by revoking domain mappings.
+- **Mitigation**: Require a mapping-specific TXT record, retain recently released hostnames for the prior tenant, and expire and cap unverified registrations. The globally unique hostname constraint remains the final arbiter of concurrent claims.
+- **Residual risk**: Active hostnames from before the upgrade require an operator ownership audit. A pending claim may hold a hostname for up to 48 hours while its DNS is being configured.
 
 #### Domain Mapping Leaks Organization Data Cross-Tenant
 - **Scenario**: A bug in the resolve endpoint returns org data for a different tenant.
@@ -1935,6 +1951,11 @@ None.
 10. Canonical URLs + email-domain awareness.
 
 ## Changelog
+
+### 2026-11-19 — Mapping ownership (#9146)
+
+- Require a mapping-specific TXT record before checking the routing target or allowing TLS.
+- Reserve released verified hostnames for seven days, expire unverified mappings after 48 hours, and enforce the two-domain organization limit at registration.
 
 ### 2026-10-26 — Private ports behind bundled Traefik (#7833)
 - Reset app and optional collaboration host-port publications in the canonical
