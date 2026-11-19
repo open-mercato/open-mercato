@@ -12,6 +12,7 @@ import {
 } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import { getMessageEmailAttachments } from '../lib/attachments'
+import { recordExternalDeliverySummary } from '../lib/externalParticipants'
 import {
   sendMessageEmailToExternal,
   sendMessageEmailToRecipient,
@@ -284,25 +285,6 @@ export async function recordExternalParticipantResults(
   return { sent, failed }
 }
 
-async function updateExternalDeliverySummary(
-  em: EntityManager,
-  payload: SendMessageEmailToExternalParticipantsJob,
-  outcome: { sentAt: Date } | { error: string },
-): Promise<void> {
-  await em.nativeUpdate(
-    Message,
-    {
-      id: payload.messageId,
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId ?? null,
-      externalEmailSentAt: null,
-    },
-    'sentAt' in outcome
-      ? { externalEmailSentAt: outcome.sentAt, externalEmailFailedAt: null, externalEmailError: null }
-      : { externalEmailFailedAt: new Date(), externalEmailError: outcome.error },
-  )
-}
-
 type ExternalDeliveryContext = {
   sender: { name: string | null; email: string | null }
   objects: MessageObject[]
@@ -366,7 +348,7 @@ async function deliverToExternalParticipants(
   const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null }
   const claimUntil = await claimExternalParticipants(em, payload)
   if (!claimUntil) {
-    // Messages without participant rows (drafts sent later, replies, pre-upgrade rows) keep the single-address path.
+    // Messages without participant rows (legacy drafts and replies, pre-upgrade rows) keep the single-address path.
     const participantCount = await em.count(MessageExternalParticipant, { messageId: message.id, ...scope })
     const externalEmail = message.externalEmail?.trim()
     if (participantCount === 0 && externalEmail) {
@@ -405,7 +387,7 @@ async function deliverToExternalParticipants(
       ...delivery,
     })
     const { sent, failed } = await recordExternalParticipantResults(em, payload, claimUntil, participants, result)
-    if (sent.length > 0) await updateExternalDeliverySummary(em, payload, { sentAt: new Date() })
+    if (sent.length > 0) await recordExternalDeliverySummary(em, { messageId: payload.messageId, ...scope }, { sentAt: new Date() })
     for (const participant of sent) {
       await emitEmailDeliveryEvent(ctx, 'messages.message.email_sent', { ...eventBase, ...participantEventFields(participant) })
     }
@@ -415,7 +397,7 @@ async function deliverToExternalParticipants(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     await releaseExternalParticipantsClaim(em, payload, claimUntil, errorMessage)
-    await updateExternalDeliverySummary(em, payload, { error: errorMessage })
+    await recordExternalDeliverySummary(em, { messageId: payload.messageId, ...scope }, { error: errorMessage })
     for (const participant of participants) {
       await emitEmailDeliveryEvent(ctx, 'messages.message.email_failed', {
         ...eventBase,

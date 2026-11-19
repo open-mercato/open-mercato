@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { sendAsUser } from '../../../lib/send-as-user'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findSendSeparatelyCopyFields, sendAsUser } from '../../../lib/send-as-user'
 import { validateRouteMutationGuard } from '../../../lib/route-mutation-guard'
 
 export const metadata = {
@@ -13,6 +14,8 @@ export const metadata = {
     requireFeatures: ['communication_channels.manage'],
   },
 }
+
+const SEND_SEPARATELY_WITH_COPIES = 'messages.errors.sendSeparatelyWithCopies'
 
 const bodySchema = z.object({
   /** ID of the user-owned channel to send from. Caller MUST own the channel. */
@@ -38,6 +41,12 @@ const bodySchema = z.object({
    * not interpret them.
    */
   channelMetadata: z.record(z.string(), z.unknown()).optional(),
+  /** One email per "to" address; with more than one "to" it cannot be combined with cc/bcc (400). */
+  sendSeparately: z.boolean().optional(),
+}).superRefine((value, ctx) => {
+  for (const field of findSendSeparatelyCopyFields(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: SEND_SEPARATELY_WITH_COPIES })
+  }
 })
 
 /**
@@ -58,6 +67,20 @@ export async function POST(req: Request): Promise<Response> {
   try {
     body = bodySchema.parse(await readJsonSafe(req, null))
   } catch (err) {
+    const copyIssues = err instanceof z.ZodError
+      ? err.issues.filter((issue) => issue.message === SEND_SEPARATELY_WITH_COPIES)
+      : []
+    if (copyIssues.length > 0) {
+      const { t } = await resolveTranslations()
+      const error = t(
+        SEND_SEPARATELY_WITH_COPIES,
+        'Send separately cannot be combined with CC or BCC when there is more than one recipient.',
+      )
+      return NextResponse.json(
+        { error, fieldErrors: Object.fromEntries(copyIssues.map((issue) => [String(issue.path[0]), error])) },
+        { status: 400 },
+      )
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Invalid request body' },
       { status: 422 },
@@ -113,6 +136,7 @@ export const openApi = {
       tags: ['CommunicationChannels'],
       responses: [
         { status: 202, description: 'Message persisted; outbound delivery enqueued' },
+        { status: 400, description: 'sendSeparately combined with cc/bcc for more than one recipient' },
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Cannot send through a channel you don\'t own' },
         { status: 404, description: 'Channel not found' },

@@ -1,6 +1,6 @@
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
-  findWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(async () => []),
 }))
 
 jest.mock('../../events', () => ({
@@ -23,11 +23,12 @@ jest.mock('../../lib/thread-token', () => ({
 import deliverOutboundMessageCommand, {
   COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID,
 } from '../deliver-outbound-message'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../../events'
 import { ExternalMessage } from '../../data/entities'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockFind = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 const mockEmit = emitCommunicationChannelsEvent as jest.MockedFunction<typeof emitCommunicationChannelsEvent>
 
 describe('deliverOutboundMessageCommand metadata', () => {
@@ -416,12 +417,14 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
 
   it('hands a threading adapter the parent message external id', async () => {
     primeFinds(PARENT_MSG)
-    mockFindOne
-      .mockResolvedValueOnce({
+    mockFind
+      .mockResolvedValueOnce([] as never) // participants of the delivered message
+      .mockResolvedValueOnce([{
         id: 'link-parent',
         externalMessageId: PARENT_EXTERNAL_ROW,
         externalConversationId: 'conv-1',
-      } as never) // parent link
+      }] as never) // parent links
+    mockFindOne
       .mockResolvedValueOnce({
         id: PARENT_EXTERNAL_ROW,
         externalMessageId: PARENT_SNOWFLAKE,
@@ -484,6 +487,13 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
 
   it('does not let caller-supplied link metadata override the hub-resolved parent', async () => {
     mockFindOne.mockReset()
+    mockFind
+      .mockResolvedValueOnce([] as never) // participants of the delivered message
+      .mockResolvedValueOnce([{
+        id: 'link-parent',
+        externalMessageId: PARENT_EXTERNAL_ROW,
+        externalConversationId: 'conv-1',
+      }] as never) // parent links
     mockFindOne
       .mockResolvedValueOnce({
         id: 'msg-1',
@@ -513,11 +523,6 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
         userId: 'u-1',
         credentialsRef: null,
         status: 'connected',
-      } as never)
-      .mockResolvedValueOnce({
-        id: 'link-parent',
-        externalMessageId: PARENT_EXTERNAL_ROW,
-        externalConversationId: 'conv-1',
       } as never)
       .mockResolvedValueOnce({
         id: PARENT_EXTERNAL_ROW,

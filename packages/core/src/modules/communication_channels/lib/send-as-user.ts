@@ -1,7 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { MessageExternalParticipant } from '../../messages/data/entities'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -52,6 +54,11 @@ export type SendAsUserInput = {
    * caller-specified visibility flag. The hub does not interpret these keys.
    */
   channelMetadata?: Record<string, unknown>
+  /**
+   * Deliver one email per "to" address so recipients do not see each other.
+   * Cannot be combined with cc/bcc when there is more than one "to" address.
+   */
+  sendSeparately?: boolean
 }
 
 export type SendAsUserResult =
@@ -88,6 +95,9 @@ export async function sendAsUser(
   if (!Array.isArray(input.to) || input.to.length === 0) {
     return { ok: false, status: 422, error: 'At least one recipient is required' }
   }
+  const copiesError = await validateSendSeparately(input)
+  if (copiesError) return copiesError
+  const sendSeparately = input.sendSeparately === true && input.to.length > 1
 
   const em = (container.resolve('em') as EntityManager).fork()
   const { tenantId } = actor
@@ -136,6 +146,13 @@ export async function sendAsUser(
     sourceEntityType: 'communication_channels.send_as_user',
     sourceEntityId: channel.id,
     externalEmail: input.to[0],
+    // Every addressee becomes a participant: they are what delivery addresses.
+    externalParticipants: [
+      ...input.to.map((email) => ({ email, role: 'to' as const })),
+      ...(input.cc ?? []).map((email) => ({ email, role: 'cc' as const })),
+      ...(input.bcc ?? []).map((email) => ({ email, role: 'bcc' as const })),
+    ],
+    sendSeparately,
     externalName: input.subject,
     recipients: [],
     subject: input.subject,
@@ -172,6 +189,18 @@ export async function sendAsUser(
   const messageId = result.result.id
   const messageThreadId = result.result.threadId ?? messageId
   const externalThreadRef = `outbound:${messageThreadId}`
+  const separateParticipants = sendSeparately
+    ? await findWithDecryption(
+        em,
+        MessageExternalParticipant,
+        { messageId, role: 'to', tenantId, organizationId },
+        { orderBy: { createdAt: 'asc' } },
+        dscope,
+      )
+    : []
+  const deliveries: Array<{ externalParticipantId: string | null; to: string[] }> = sendSeparately
+    ? separateParticipants.map((participant) => ({ externalParticipantId: participant.id, to: [participant.email] }))
+    : [{ externalParticipantId: null, to: input.to }]
 
   // Persist the conversation, thread mapping, and channel link as one unit. The
   // conversation's id is DB-generated (`gen_random_uuid()`), so it must be
@@ -239,44 +268,50 @@ export async function sendAsUser(
       em.persist(mapping)
     }
 
-    const channelLink = em.create(MessageChannelLink, {
-      messageId,
-      externalConversationId: conversation.id,
-      providerKey: channel.providerKey,
-      channelType: channel.channelType,
-      direction: 'outbound',
-      deliveryStatus: 'pending',
-      channelPayload: {
-        text: input.body.plain ?? messageBody,
-        ...(input.body.html ? { html: input.body.html } : {}),
-      },
-      channelContentType: input.body.html ? 'text/html' : 'text/plain',
-      channelMetadata: {
-        // Caller-supplied pass-through metadata merged FIRST so the validated
-        // routing fields below always win — a caller cannot override the
-        // recipients/subject/threading headers via `channelMetadata`.
-        ...(input.channelMetadata ?? {}),
-        to: input.to,
-        cc: input.cc ?? [],
-        bcc: input.bcc ?? [],
-        subject: input.subject,
-        inReplyTo: input.inReplyTo ?? null,
-        references: input.references ?? [],
-      },
-      tenantId,
-      organizationId,
-    })
-    em.persist(channelLink)
+    for (const delivery of deliveries) {
+      const channelLink = em.create(MessageChannelLink, {
+        messageId,
+        externalParticipantId: delivery.externalParticipantId,
+        externalConversationId: conversation.id,
+        providerKey: channel.providerKey,
+        channelType: channel.channelType,
+        direction: 'outbound',
+        deliveryStatus: 'pending',
+        channelPayload: {
+          text: input.body.plain ?? messageBody,
+          ...(input.body.html ? { html: input.body.html } : {}),
+        },
+        channelContentType: input.body.html ? 'text/html' : 'text/plain',
+        channelMetadata: {
+          // Caller-supplied pass-through metadata merged FIRST so the validated
+          // routing fields below always win — a caller cannot override the
+          // recipients/subject/threading headers via `channelMetadata`.
+          ...(input.channelMetadata ?? {}),
+          to: delivery.to,
+          cc: delivery.externalParticipantId ? [] : input.cc ?? [],
+          bcc: delivery.externalParticipantId ? [] : input.bcc ?? [],
+          subject: input.subject,
+          inReplyTo: input.inReplyTo ?? null,
+          references: input.references ?? [],
+        },
+        tenantId,
+        organizationId,
+      })
+      em.persist(channelLink)
+    }
     await em.flush()
   })
 
   const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
-  const deliveryJob: OutboundDeliveryPayload = {
-    messageId,
-    scope: dscope,
-    attempt: 1,
+  for (const delivery of deliveries) {
+    const deliveryJob: OutboundDeliveryPayload = {
+      messageId,
+      scope: dscope,
+      attempt: 1,
+      ...(delivery.externalParticipantId ? { externalParticipantId: delivery.externalParticipantId } : {}),
+    }
+    await queue.enqueue(deliveryJob as unknown as Record<string, unknown>)
   }
-  await queue.enqueue(deliveryJob as unknown as Record<string, unknown>)
 
   return {
     ok: true,
@@ -285,6 +320,28 @@ export async function sendAsUser(
     channelId: channel.id,
     providerKey: channel.providerKey,
   }
+}
+
+/**
+ * "Send separately" gives every "to" address its own copy, so a cc/bcc copy
+ * would have to go out once per recipient — refused rather than guessed.
+ */
+export function findSendSeparatelyCopyFields(
+  input: Pick<SendAsUserInput, 'to' | 'cc' | 'bcc' | 'sendSeparately'>,
+): Array<'cc' | 'bcc'> {
+  if (input.sendSeparately !== true || input.to.length <= 1) return []
+  return (['cc', 'bcc'] as const).filter((field) => (input[field]?.length ?? 0) > 0)
+}
+
+async function validateSendSeparately(input: SendAsUserInput): Promise<SendAsUserResult | null> {
+  const fields = findSendSeparatelyCopyFields(input)
+  if (fields.length === 0) return null
+  const { t } = await resolveTranslations()
+  const error = t(
+    'messages.errors.sendSeparatelyWithCopies',
+    'Send separately cannot be combined with CC or BCC when there is more than one recipient.',
+  )
+  return { ok: false, status: 400, error, fieldErrors: Object.fromEntries(fields.map((field) => [field, error])) }
 }
 
 /** DI service type for cross-module callers (resolve `communicationChannelsSendAsUser`). */

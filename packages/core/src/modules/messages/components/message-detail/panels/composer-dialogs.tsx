@@ -31,6 +31,10 @@ export function MessageDetailComposerDialogs(props: ComposerDialogsProps) {
         sourceEntityType: props.detail.sourceEntityType ?? null,
         sourceEntityId: props.detail.sourceEntityId ?? null,
         externalEmail: props.detail.externalEmail ?? null,
+        externalEmails: (props.detail.externalParticipants ?? [])
+          .filter((participant) => participant.role === 'to')
+          .map((participant) => participant.email),
+        sendSeparately: props.detail.emailSendSeparately ?? false,
         externalName: props.detail.externalName ?? null,
         attachmentIds: props.attachments?.map((attachment) => attachment.id) ?? [],
       }}

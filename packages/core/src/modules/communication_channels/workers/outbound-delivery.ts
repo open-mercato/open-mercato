@@ -27,6 +27,8 @@ export type OutboundDeliveryPayload = {
   attempt?: number
   /** Force credential refresh on this attempt — used after a 401 from the provider. */
   forceCredentialRefresh?: boolean
+  /** Participant of a "send separately" link; omitted for the joint link. */
+  externalParticipantId?: string | null
 }
 
 export const OUTBOUND_DELIVERY_MAX_ATTEMPTS = 3
@@ -66,7 +68,7 @@ export default async function handle(
   job: QueuedJob<OutboundDeliveryPayload>,
   ctx: HandlerContext,
 ): Promise<void> {
-  const { messageId, scope, attempt = 1, forceCredentialRefresh } = job.payload
+  const { messageId, scope, attempt = 1, forceCredentialRefresh, externalParticipantId } = job.payload
 
   const commandBus = ctx.resolve<CommandBus>('commandBus')
   const containerProxy = { resolve: ctx.resolve.bind(ctx) }
@@ -86,7 +88,7 @@ export default async function handle(
     >(
       COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID,
       {
-        input: { messageId, scope, forceCredentialRefresh },
+        input: { messageId, scope, forceCredentialRefresh, externalParticipantId },
         ctx: commandCtx as never,
       },
     )

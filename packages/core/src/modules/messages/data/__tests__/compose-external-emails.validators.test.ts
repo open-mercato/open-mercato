@@ -1,4 +1,4 @@
-import { composeMessageRequestSchema, composeMessageSchema } from '../validators'
+import { composeMessageRequestSchema, composeMessageSchema, forwardMessageSchema, replyMessageSchema, updateDraftSchema } from '../validators'
 
 const base = {
   visibility: 'public' as const,
@@ -49,5 +49,24 @@ describe('compose validators — externalEmails', () => {
       externalParticipants: [{ email: 'cc@example.com', role: 'cc' }],
     })
     expect(command.externalParticipants).toEqual([{ email: 'cc@example.com', role: 'cc' }])
+  })
+})
+
+describe('draft, reply and forward validators — externalEmails', () => {
+  it('accepts a draft update replacing the addressees and rejects mixing both address fields', () => {
+    expect(updateDraftSchema.safeParse({ externalEmails: ['a@example.com', 'b@example.com'], sendSeparately: true }).success).toBe(true)
+    const mixed = updateDraftSchema.safeParse({ externalEmail: 'a@example.com', externalEmails: ['b@example.com'] })
+    expect(mixed.success).toBe(false)
+  })
+
+  it('accepts reply-all addressees with sendSeparately', () => {
+    const result = replyMessageSchema.safeParse({ body: 'Thanks', replyAll: true, externalEmails: ['a@example.com'], sendSeparately: true })
+    expect(result.success).toBe(true)
+  })
+
+  it('lets a forward go to external addresses only, but not to nobody', () => {
+    expect(forwardMessageSchema.safeParse({ recipients: [], externalEmails: ['a@example.com'] }).success).toBe(true)
+    const nobody = forwardMessageSchema.safeParse({ recipients: [] })
+    expect(nobody.success).toBe(false)
   })
 })

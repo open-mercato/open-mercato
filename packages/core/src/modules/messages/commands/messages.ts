@@ -22,7 +22,7 @@ import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID 
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
-import { planComposeExternalParticipants } from '../lib/externalParticipants'
+import { planComposeExternalParticipants, type PlannedExternalParticipant } from '../lib/externalParticipants'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
@@ -267,6 +267,26 @@ async function buildComposeResultFromExisting(
   }
 }
 
+function persistExternalParticipants(
+  em: EntityManager,
+  messageId: string,
+  participants: PlannedExternalParticipant[],
+  scope: { tenantId: string; organizationId?: string | null },
+): void {
+  for (const participant of participants) {
+    em.persist(em.create(MessageExternalParticipant, {
+      messageId,
+      role: participant.role,
+      email: participant.email,
+      emailHash: participant.emailHash,
+      name: participant.name,
+      deliveryStatus: participant.deliveryStatus,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+    }))
+  }
+}
+
 /**
  * `parentMessageId` is trusted: the thread is derived from it without a read
  * check, because the acting `userId` is itself an input and server-side callers
@@ -388,18 +408,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         }
       }
 
-      for (const participant of externalAddressing.participants) {
-        trx.persist(trx.create(MessageExternalParticipant, {
-          messageId: message.id,
-          role: participant.role,
-          email: participant.email,
-          emailHash: participant.emailHash,
-          name: participant.name,
-          deliveryStatus: participant.deliveryStatus,
-          tenantId: input.tenantId,
-          organizationId: input.organizationId,
-        }))
-      }
+      persistExternalParticipants(trx, message.id, externalAddressing.participants, input)
 
       await trx.flush()
 
@@ -571,6 +580,10 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
     }
 
+    const draftAddressing = input.externalEmails !== undefined || input.externalEmail !== undefined
+      ? planComposeExternalParticipants({ externalEmail: input.externalEmail, externalEmails: input.externalEmails, isDraft: true })
+      : null
+
     // Validate the send transition BEFORE the atomic-flush block so a rejected
     // send never mutates or flushes anything (everything checked here is known
     // from the parsed input + the loaded message).
@@ -599,7 +612,8 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       if (input.visibility !== undefined) message.visibility = input.visibility
       if (input.sourceEntityType !== undefined) message.sourceEntityType = input.sourceEntityType
       if (input.sourceEntityId !== undefined) message.sourceEntityId = input.sourceEntityId
-      if (input.externalEmail !== undefined) message.externalEmail = input.externalEmail
+      if (draftAddressing) message.externalEmail = draftAddressing.externalEmail
+      if (input.sendSeparately !== undefined) message.emailSendSeparately = input.sendSeparately
       if (input.externalName !== undefined) message.externalName = input.externalName
       if (input.subject !== undefined) message.subject = input.subject
       if (input.body !== undefined) message.body = input.body
@@ -608,6 +622,16 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       if (input.actionData !== undefined) message.actionData = input.actionData
       if (input.sendViaEmail !== undefined) message.sendViaEmail = input.sendViaEmail
     }, async () => {
+      const participantScope = { messageId: message.id, tenantId: input.tenantId, organizationId: input.organizationId }
+      if (draftAddressing) {
+        await em.nativeDelete(MessageExternalParticipant, participantScope)
+        persistExternalParticipants(em, message.id, draftAddressing.participants, input)
+        await em.flush()
+      }
+      if (isSending) {
+        await em.nativeUpdate(MessageExternalParticipant, { ...participantScope, deliveryStatus: null }, { deliveryStatus: 'pending' })
+      }
+
       if (input.recipients) {
         await em.nativeDelete(MessageRecipient, { messageId: message.id })
         for (const recipient of input.recipients) {
@@ -834,6 +858,10 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       throw new Error('No recipients available for reply')
     }
 
+    const replyAddressing = input.externalEmails
+      ? planComposeExternalParticipants({ externalEmails: input.externalEmails })
+      : null
+
     let messageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {
@@ -842,8 +870,9 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         visibility: original.visibility ?? null,
         sourceEntityType: original.sourceEntityType,
         sourceEntityId: original.sourceEntityId,
-        externalEmail: original.externalEmail,
-        externalName: original.externalName,
+        externalEmail: replyAddressing ? replyAddressing.externalEmail : original.externalEmail,
+        externalName: replyAddressing ? null : original.externalName,
+        emailSendSeparately: replyAddressing ? input.sendSeparately ?? false : false,
         threadId: original.threadId ?? original.id,
         parentMessageId: original.id,
         senderUserId: input.userId,
@@ -859,6 +888,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         organizationId: input.organizationId,
       })
       await trx.persist(message).flush()
+      if (replyAddressing) persistExternalParticipants(trx, message.id, replyAddressing.participants, input)
       for (const recipientUserId of recipientIds) {
         trx.persist(trx.create(MessageRecipient, {
           messageId: message.id,
@@ -998,6 +1028,9 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     // thread, not the source, and some public messages on a channel thread
     // carry no source type (an AI or parented compose), so the thread decides.
     const keepsExternalCorrespondent = !(await isOnChannelThread(ctx, input, original))
+    const forwardAddressing = input.externalEmails
+      ? planComposeExternalParticipants({ externalEmails: input.externalEmails })
+      : null
     let newMessageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {
@@ -1006,8 +1039,11 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         visibility: keepsExternalCorrespondent ? original.visibility ?? null : 'internal',
         sourceEntityType: original.sourceEntityType,
         sourceEntityId: original.sourceEntityId,
-        externalEmail: keepsExternalCorrespondent ? original.externalEmail : null,
-        externalName: keepsExternalCorrespondent ? original.externalName : null,
+        externalEmail: forwardAddressing
+          ? forwardAddressing.externalEmail
+          : keepsExternalCorrespondent ? original.externalEmail : null,
+        externalName: !forwardAddressing && keepsExternalCorrespondent ? original.externalName : null,
+        emailSendSeparately: forwardAddressing ? input.sendSeparately ?? false : false,
         threadId: original.threadId ?? original.id,
         parentMessageId: original.id,
         senderUserId: input.userId,
@@ -1023,6 +1059,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
         organizationId: input.organizationId,
       })
       await trx.persist(newMessage).flush()
+      if (forwardAddressing) persistExternalParticipants(trx, newMessage.id, forwardAddressing.participants, input)
       for (const recipient of input.recipients) {
         trx.persist(trx.create(MessageRecipient, {
           messageId: newMessage.id,

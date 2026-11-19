@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../events'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { classifyOutboundError, isReauthError } from '../lib/error-classification'
@@ -16,7 +16,8 @@ import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
 import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
-import { Message } from '../../messages/data/entities'
+import { Message, MessageExternalParticipant } from '../../messages/data/entities'
+import { recordExternalDeliverySummary } from '../../messages/lib/externalParticipants'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -44,6 +45,11 @@ const deliverInputSchema = z.object({
    * after a 401 from the provider.
    */
   forceCredentialRefresh: z.boolean().optional(),
+  /**
+   * Delivers the "send separately" link of this participant. Omitted/null
+   * delivers the message's joint link (one send to every participant).
+   */
+  externalParticipantId: z.string().uuid().nullable().optional(),
 })
 
 export type DeliverOutboundMessageInput = z.infer<typeof deliverInputSchema>
@@ -81,6 +87,35 @@ function omitRawMessage(metadata: Record<string, unknown> | undefined): Record<s
   return Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== 'rawMessage'))
 }
 
+function addressSet(value: unknown): Set<string> {
+  if (!Array.isArray(value)) return new Set()
+  return new Set(
+    value
+      .map((entry) => (typeof entry === 'string' ? entry : (entry as { address?: unknown } | null)?.address))
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim().toLowerCase()),
+  )
+}
+
+/**
+ * Splits the link's participants by the provider's verdict. Adapters that report
+ * per-address results (SMTP/IMAP `metadata.accepted`/`rejected`) decide per
+ * participant; a whole-message acceptance (Gmail, test-seed) marks all of them sent.
+ */
+export function splitParticipantsByDeliveryResult<T extends { email: string }>(
+  participants: T[],
+  resultMetadata: Record<string, unknown> | undefined,
+): { sent: T[]; rejected: T[] } {
+  const rejectedAddresses = addressSet(resultMetadata?.rejected)
+  const sent: T[] = []
+  const rejected: T[] = []
+  for (const participant of participants) {
+    if (rejectedAddresses.has(participant.email.trim().toLowerCase())) rejected.push(participant)
+    else sent.push(participant)
+  }
+  return { sent, rejected }
+}
+
 type CredentialsServiceLike = {
   resolve: (
     integrationId: string,
@@ -105,7 +140,8 @@ type IntegrationLogLike = {
  * Steps (SPEC-045d §7):
  *   1. Re-fetch the Message by ID. Bail if internal-only (no ChannelThreadMapping).
  *   2. Resolve channel + adapter + credentials.
- *   3. Idempotently upsert a 'pending' MessageChannelLink (unique on `messageId`).
+ *   3. Idempotently upsert a 'pending' MessageChannelLink — one joint link per
+ *      message, or one per participant for a "send separately" delivery.
  *      Skip if a 'sent'/'delivered' link already exists.
  *   4. Refresh credentials when OAuth + near expiry (or when caller forces it).
  *   5. Call `adapter.convertOutbound(...)` → channel-native content.
@@ -115,8 +151,9 @@ type IntegrationLogLike = {
  *      emit `.delivery_failed`. The worker decides whether to retry based on
  *      `result.transient`.
  *
- * Idempotency: the unique constraint on `message_channel_links.message_id`
- * prevents the same Message being sent twice through the channel even if the
+ * Idempotency: the partial unique indexes on `message_channel_links`
+ * (`message_id` for the joint link, `(message_id, external_participant_id)` per participant)
+ * prevent the same Message being sent twice through the channel even if the
  * subscriber fires repeatedly. Combined with the link's lifecycle state
  * (pending → sent | failed), we get safe retries.
  */
@@ -155,17 +192,13 @@ const deliverOutboundMessageCommand: CommandHandler<
       return NO_THREAD_MAPPING_RESULT
     }
 
-    let link = await findOneWithDecryption(
-      em,
-      MessageChannelLink,
-      {
-        messageId: message.id,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
+    const linkFilter = {
+      messageId: message.id,
+      externalParticipantId: input.externalParticipantId ?? null,
+      tenantId: input.scope.tenantId,
+      organizationId: input.scope.organizationId ?? null,
+    }
+    let link = await findOneWithDecryption(em, MessageChannelLink, linkFilter, undefined, dscope)
 
     const mapping = await findOneWithDecryption(
       em,
@@ -234,6 +267,7 @@ const deliverOutboundMessageCommand: CommandHandler<
     if (!link) {
       link = em.create(MessageChannelLink, {
         messageId: message.id,
+        externalParticipantId: input.externalParticipantId ?? null,
         externalConversationId: mapping.externalConversationId,
         providerKey: channel.providerKey,
         channelType: channel.channelType,
@@ -249,22 +283,13 @@ const deliverOutboundMessageCommand: CommandHandler<
         // Concurrency guard: the link lookup above is not atomic with this
         // insert, so two deliveries of the same message (a replayed
         // `messages.message.sent`, or an overlapping worker retry) can both
-        // reach here. The `message_channel_links_message_uq` index rejects the
+        // reach here. The partial unique index on `(message_id)` for a joint
+        // link, or `(message_id, external_participant_id)` for a separate one, rejects the
         // loser with a 23505. Defer to the winning job — re-read its link on a
         // fresh fork and report `already_delivered` — instead of re-invoking the
         // adapter (double send) or letting the raw error dead-letter the job.
         if (isUniqueViolation(flushErr)) {
-          const winner = await findOneWithDecryption(
-            em.fork(),
-            MessageChannelLink,
-            {
-              messageId: message.id,
-              tenantId: input.scope.tenantId,
-              organizationId: input.scope.organizationId ?? null,
-            },
-            undefined,
-            dscope,
-          )
+          const winner = await findOneWithDecryption(em.fork(), MessageChannelLink, linkFilter, undefined, dscope)
           if (winner) {
             return {
               status: 'already_delivered',
@@ -276,6 +301,27 @@ const deliverOutboundMessageCommand: CommandHandler<
         throw flushErr
       }
     }
+
+    // Participants are the source of truth for addressing: one for a separate
+    // link, all of them for a joint link. Legacy messages without participant
+    // rows keep the recipients stored on the link.
+    const participants = await findWithDecryption(
+      em,
+      MessageExternalParticipant,
+      {
+        messageId: message.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+        ...(link.externalParticipantId ? { id: link.externalParticipantId } : {}),
+      },
+      { orderBy: { createdAt: 'asc' } },
+      dscope,
+    )
+    const participantAddresses = (role: MessageExternalParticipant['role']) =>
+      participants.filter((participant) => participant.role === role).map((participant) => participant.email)
+    const participantRouting = participants.length > 0
+      ? { to: participantAddresses('to'), cc: participantAddresses('cc'), bcc: participantAddresses('bcc') }
+      : null
 
     // (2 cont.) Decrypted credentials via the integrations module (if available).
     let credentialsService: CredentialsServiceLike | null = null
@@ -442,6 +488,7 @@ const deliverOutboundMessageCommand: CommandHandler<
           // or a parent that does not resolve — is exactly the one a caller
           // controls.
           ...stripCallerReplyTargeting(baseMetadata),
+          ...(participantRouting ?? {}),
           references: mergedReferences,
           ...(threadToken ? { omThreadToken: threadToken } : {}),
           ...(replyToExternalId ? { replyToExternalId } : {}),
@@ -450,7 +497,7 @@ const deliverOutboundMessageCommand: CommandHandler<
 
       // NOTE — at-least-once delivery (accepted v1 semantics). This provider
       // send is a non-transactional external side effect. The terminal-status
-      // short-circuit above and the `message_channel_links_message_uq` index
+      // short-circuit above and the per-link partial unique indexes
       // prevent duplicate link records and re-sends after a *completed*
       // delivery, but if the process crashes in the narrow window between this
       // call returning and the success flush below, the link stays `pending`
@@ -469,7 +516,13 @@ const deliverOutboundMessageCommand: CommandHandler<
         metadata: converted.metadata,
       })
 
-      if (sendResult.status === 'failed') {
+      const resultMetadata = sendResult.metadata as Record<string, unknown> | undefined
+      const participantOutcome = splitParticipantsByDeliveryResult(participants, resultMetadata)
+      // A partial rejection (SMTP/IMAP report the accepted/rejected split) is a
+      // send: the accepted participants got the mail, only the rejected ones fail.
+      const partiallyAccepted =
+        sendResult.status === 'failed' && addressSet(resultMetadata?.accepted).size > 0 && participantOutcome.sent.length > 0
+      if (sendResult.status === 'failed' && !partiallyAccepted) {
         throw new Error(sendResult.error ?? `Adapter '${adapter.providerKey}' reported send failure`)
       }
 
@@ -502,11 +555,18 @@ const deliverOutboundMessageCommand: CommandHandler<
         channel.status = 'connected'
       }
 
-      link.deliveryStatus = sendResult.status === 'sent' ? 'sent' : 'queued'
+      link.deliveryStatus = sendResult.status === 'queued' ? 'queued' : 'sent'
       link.externalMessageId = externalMessageRowId
-      link.channelMetadata = {
+      // The actual per-link to/cc stay on the link as a snapshot for the CRM
+      // enricher (`toAddresses`/`ccAddresses`); bcc is never written back.
+      const deliveredMetadata: Record<string, unknown> = {
         ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
         ...omitRawMessage(converted.metadata),
+        ...(participantRouting ? { to: participantRouting.to, cc: participantRouting.cc } : {}),
+      }
+      if (participantRouting) delete deliveredMetadata.bcc
+      link.channelMetadata = {
+        ...deliveredMetadata,
         externalMessageId: sendResult.externalMessageId,
         // Always persist the RFC2822 Message-ID so inbound reply matching (JWZ
         // strategy in lib/thread-matcher) and sent-folder dedup can resolve this
@@ -524,6 +584,34 @@ const deliverOutboundMessageCommand: CommandHandler<
         ),
       }
       await em.flush()
+
+      const participantScope = {
+        messageId: message.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      }
+      const sentAt = new Date()
+      if (participantOutcome.sent.length > 0) {
+        await em.nativeUpdate(
+          MessageExternalParticipant,
+          { ...participantScope, id: { $in: participantOutcome.sent.map((participant) => participant.id) } },
+          { deliveryStatus: 'sent', sentAt, deliveryError: null, nextAttemptAt: null },
+        )
+      }
+      if (participantOutcome.rejected.length > 0) {
+        await em.nativeUpdate(
+          MessageExternalParticipant,
+          { ...participantScope, id: { $in: participantOutcome.rejected.map((participant) => participant.id) } },
+          {
+            deliveryStatus: 'failed',
+            deliveryError: sendResult.error ?? 'Rejected by the mail server',
+            nextAttemptAt: null,
+          },
+        )
+      }
+      if (participants.length > 0) {
+        await recordExternalDeliverySummary(em, participantScope, { sentAt })
+      }
 
       await emitCommunicationChannelsEvent(
         'communication_channels.message.sent',
@@ -578,6 +666,20 @@ const deliverOutboundMessageCommand: CommandHandler<
         channel.status = 'requires_reauth'
       }
       await em.flush()
+
+      if (participants.length > 0) {
+        const failureScope = {
+          messageId: message.id,
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId ?? null,
+        }
+        await em.nativeUpdate(
+          MessageExternalParticipant,
+          { ...failureScope, id: { $in: participants.map((participant) => participant.id) }, deliveryStatus: 'pending' },
+          { deliveryError: classification.message },
+        )
+        await recordExternalDeliverySummary(em, failureScope, { error: classification.message })
+      }
 
       try {
         await integrationLog?.error?.({

@@ -143,6 +143,7 @@
   "messages.errors.noSubject": "Wpisz temat.",
   "messages.errors.parentMessageNotFound": "Nie znaleziono wiadomości, na którą odpowiadasz",
   "messages.errors.sendFailed": "Nie udało się wysłać wiadomości.",
+  "messages.errors.sendSeparatelyWithCopies": "Opcji „Wyślij osobno” nie można łączyć z DW ani UDW, gdy adresatów jest więcej niż jeden.",
   "messages.errors.senderDraftSendUnsupported": "Wysyłka zapisanego szkicu przez połączoną skrzynkę nie jest jeszcze obsługiwana.",
   "messages.errors.senderPayloadUnsupported": "Wysyłka z własnej skrzynki nie obsługuje jeszcze załączników ani powiązanych rekordów.",
   "messages.errors.senderRequiresExternalRecipient": "Skrzynki nadawcy można użyć tylko w wiadomości do odbiorcy zewnętrznego.",

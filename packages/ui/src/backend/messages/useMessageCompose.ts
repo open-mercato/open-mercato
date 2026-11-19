@@ -15,6 +15,8 @@ import type {
 import type { MessagePriority } from './message-priority'
 import type { TagsInputOption } from '../inputs/TagsInput'
 import {
+  buildReplyAllExternalEmails,
+  type ReplyAllSource,
   useComposeDraftOperation,
   useComposeSendOperation,
   useForwardSubmitOperation,
@@ -313,8 +315,12 @@ export function useMessageCompose({
     setBodyFormat(defaultValues?.bodyFormat ?? 'text')
     setPriority(defaultValues?.priority ?? 'normal')
     setVisibility(defaultValues?.visibility ?? 'internal')
-    setExternalEmails(defaultValues?.externalEmail ? [defaultValues.externalEmail] : [])
-    setSendSeparately(false)
+    setExternalEmails(
+      defaultValues?.externalEmails?.length
+        ? defaultValues.externalEmails
+        : defaultValues?.externalEmail ? [defaultValues.externalEmail] : [],
+    )
+    setSendSeparately(Boolean(defaultValues?.sendSeparately))
     setAttachmentIds(
       Array.isArray(defaultValues?.attachmentIds)
         ? defaultValues.attachmentIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
@@ -374,6 +380,32 @@ export function useMessageCompose({
     submitLockReleaseRef.current?.()
     submitLockReleaseRef.current = null
   }, [])
+
+  const [replyAllSource, setReplyAllSource] = React.useState<ReplyAllSource | null>(null)
+
+  React.useEffect(() => {
+    setReplyAllSource(null)
+    if (!isOpen || variant !== 'reply' || !messageId) return
+    let isActive = true
+    void apiCall<ReplyAllSource & { visibility?: string | null }>(`/api/messages/${encodeURIComponent(messageId)}`)
+      .then((call) => {
+        if (isActive && call.ok && call.result?.visibility === 'public') setReplyAllSource(call.result)
+      })
+      .catch(() => null)
+    return () => {
+      isActive = false
+    }
+  }, [isOpen, messageId, variant])
+
+  const ownMailboxAddresses = React.useMemo(
+    () => (senderOptions ?? []).map((option) => option.description ?? '').filter(Boolean),
+    [senderOptions],
+  )
+
+  React.useEffect(() => {
+    if (variant !== 'reply') return
+    setExternalEmails(replyAll && replyAllSource ? buildReplyAllExternalEmails(replyAllSource, ownMailboxAddresses) : [])
+  }, [ownMailboxAddresses, replyAll, replyAllSource, variant])
 
   React.useEffect(() => {
     if (!isOpen) return
@@ -573,6 +605,8 @@ export function useMessageCompose({
     priority,
     visibility,
     externalEmail,
+    externalEmails,
+    sendSeparately,
     recipientIds,
     subject,
     body,
@@ -595,6 +629,8 @@ export function useMessageCompose({
     replyAll,
     recipientIds,
     sendViaEmail,
+    externalEmails,
+    sendSeparately,
   })
 
   const forwardOperation = useForwardSubmitOperation({
@@ -614,6 +650,8 @@ export function useMessageCompose({
     priority,
     visibility,
     externalEmail,
+    externalEmails,
+    sendSeparately,
     recipientIds,
     subject,
     body,
@@ -636,6 +674,8 @@ export function useMessageCompose({
     priority,
     visibility,
     externalEmail,
+    externalEmails,
+    sendSeparately,
     recipientIds,
     subject,
     body,

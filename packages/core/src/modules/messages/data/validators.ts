@@ -181,6 +181,19 @@ type ComposeMessageRefinementValue = Omit<
   'sourceChannelType' | 'sentAt' | 'externalParticipants'
 > & { sourceChannelType?: string; sentAt?: Date | null }
 
+function refineExternalEmailsExclusive(
+  value: { externalEmail?: string; externalEmails?: string[] },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.externalEmail !== undefined && value.externalEmails !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['externalEmails'],
+      message: 'externalEmails cannot be combined with externalEmail',
+    })
+  }
+}
+
 function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.RefinementCtx): void {
   const isDraft = value.isDraft ?? false
   const visibility = value.visibility ?? 'internal'
@@ -236,13 +249,7 @@ function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.Refin
     }
   }
 
-  if (value.externalEmail !== undefined && value.externalEmails !== undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['externalEmails'],
-      message: 'externalEmails cannot be combined with externalEmail',
-    })
-  }
+  refineExternalEmailsExclusive(value, ctx)
 
   const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
   if (duplicateRecipientIds.length > 0) {
@@ -283,6 +290,9 @@ export const updateDraftSchema = z.object({
   sourceEntityType: z.string().min(1).optional(),
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
+  /** Replaces the draft's external addressees ("to"). */
+  externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  sendSeparately: z.boolean().optional(),
   externalName: z.string().min(1).max(255).optional(),
   recipients: z.array(messageRecipientSchema).optional(),
   subject: z.string().max(500).optional(),
@@ -297,6 +307,7 @@ export const updateDraftSchema = z.object({
   /** Accepted only so the route can refuse it explicitly; zod would otherwise strip it and the send would fall back to the platform sender unnoticed. */
   senderChannelId: z.string().uuid().optional(),
 }).superRefine((value, ctx) => {
+  refineExternalEmailsExclusive(value, ctx)
   if (value.recipients) {
     const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
     if (duplicateRecipientIds.length > 0) {
@@ -330,12 +341,21 @@ export const listMessagesSchema = z.object({
 })
 
 export const forwardMessageSchema = z.object({
-  recipients: z.array(messageRecipientSchema).min(1).max(100),
+  recipients: z.array(messageRecipientSchema).max(100),
+  externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  sendSeparately: z.boolean().optional(),
   body: z.string().max(50000).optional(),
   additionalBody: z.string().max(10000).optional(),
   includeAttachments: z.boolean().optional().default(true),
   sendViaEmail: z.boolean().optional().default(false),
 }).superRefine((value, ctx) => {
+  if (value.recipients.length === 0 && !value.externalEmails) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['recipients'],
+      message: 'at least one recipient is required',
+    })
+  }
   const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
   if (duplicateRecipientIds.length > 0) {
     ctx.addIssue({
@@ -353,6 +373,9 @@ export const replyMessageSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).optional(),
   attachmentRecordId: z.string().min(1).max(255).optional(),
   replyAll: z.boolean().optional().default(false),
+  /** Overrides the inherited external counterpart; reply-all pre-fills it from the source participants. */
+  externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  sendSeparately: z.boolean().optional(),
   sendViaEmail: z.boolean().optional().default(false),
 }).superRefine((value, ctx) => {
   if (!value.recipients) return

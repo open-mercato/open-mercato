@@ -1,5 +1,6 @@
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(async () => []),
 }))
 
 jest.mock('../../events', () => ({
@@ -125,6 +126,7 @@ function makeFixture(options: {
   const link = Object.assign(new MessageChannelLink(), {
     id: 'reply-link',
     messageId: message.id,
+    externalParticipantId: null,
     externalConversationId: selectedMapping.externalConversationId,
     providerKey: selectedChannel.providerKey,
     channelType: selectedChannel.channelType,
@@ -252,7 +254,7 @@ describe('deliverOutboundMessageCommand selected mailbox routing', () => {
       }), { persistent: true })
       const linkReads = mockFindOne.mock.calls.filter((call) => call[1] === MessageChannelLink)
       expect(linkReads).toHaveLength(1)
-      expect(linkReads[0][2]).toEqual({ messageId: MESSAGE_ID, ...fixture.scope })
+      expect(linkReads[0][2]).toEqual({ messageId: MESSAGE_ID, externalParticipantId: null, ...fixture.scope })
       expect(linkReads[0][4]).toEqual(fixture.scope)
       const mappingRead = mockFindOne.mock.calls.find((call) => call[1] === ChannelThreadMapping)
       expect(mappingRead?.[2]).toEqual({

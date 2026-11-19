@@ -105,6 +105,9 @@ export type MessageComposerProps = {
     sourceEntityType?: string | null
     sourceEntityId?: string | null
     externalEmail?: string | null
+    /** All "to" addresses of a saved draft; takes precedence over `externalEmail`. */
+    externalEmails?: string[] | null
+    sendSeparately?: boolean
     externalName?: string | null
     attachmentIds?: string[]
     sendViaEmail?: boolean

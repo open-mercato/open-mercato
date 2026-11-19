@@ -1,4 +1,4 @@
-import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { Message, MessageExternalParticipant, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 
 type RegisteredCommand = {
   id: string
@@ -71,6 +71,7 @@ function createHarness(messageOverrides: Partial<Message> = {}, recipients: Arra
     find: jest.fn(async () => []),
     findOne: jest.fn(async () => null),
     nativeDelete: jest.fn(async () => {}),
+    nativeUpdate: jest.fn(async () => 0),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),
     begin: jest.fn(async () => {}),
@@ -222,5 +223,47 @@ describe('messages.messages.update_draft command send transition', () => {
     expect(emFork.commit).not.toHaveBeenCalled()
     expect(eventBus.emitEvent).not.toHaveBeenCalled()
     expect(emitMessagesEventMock).not.toHaveBeenCalled()
+  })
+
+  it('replaces the draft participant set when the addressees change', async () => {
+    const { command, draft, emFork, ctx } = createHarness({ visibility: 'public' })
+
+    await command.execute(
+      updateInput({ isDraft: undefined, externalEmails: ['a@example.com', 'b@example.com'], sendSeparately: true }),
+      ctx,
+    )
+
+    expect(draft.externalEmail).toBe('a@example.com')
+    expect(draft.emailSendSeparately).toBe(true)
+    expect(emFork.nativeDelete).toHaveBeenCalledWith(MessageExternalParticipant, { messageId, tenantId, organizationId })
+    const created = emFork.create.mock.calls
+      .filter(([entity]) => entity === MessageExternalParticipant)
+      .map(([, data]) => data)
+    expect(created).toEqual([
+      expect.objectContaining({ messageId, role: 'to', email: 'a@example.com', deliveryStatus: null }),
+      expect.objectContaining({ messageId, role: 'to', email: 'b@example.com', deliveryStatus: null }),
+    ])
+    expect(emFork.nativeUpdate).not.toHaveBeenCalled()
+    expect(emFork.nativeDelete.mock.invocationCallOrder[0]).toBeLessThan(emFork.create.mock.invocationCallOrder[0])
+  })
+
+  it('keeps the participant set when the addressees are not part of the update', async () => {
+    const { command, emFork, ctx } = createHarness({ visibility: 'public' })
+
+    await command.execute(updateInput({ isDraft: undefined, subject: 'Changed' }), ctx)
+
+    expect(emFork.nativeDelete).not.toHaveBeenCalledWith(MessageExternalParticipant, expect.anything())
+  })
+
+  it('marks the draft participants pending when the draft is sent', async () => {
+    const { command, emFork, ctx } = createHarness({ visibility: 'public', externalEmail: 'a@example.com' })
+
+    await command.execute(updateInput(), ctx)
+
+    expect(emFork.nativeUpdate).toHaveBeenCalledWith(
+      MessageExternalParticipant,
+      { messageId, tenantId, organizationId, deliveryStatus: null },
+      { deliveryStatus: 'pending' },
+    )
   })
 })

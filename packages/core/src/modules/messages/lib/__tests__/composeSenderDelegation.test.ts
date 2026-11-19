@@ -230,4 +230,32 @@ describe('delegateComposeToSender', () => {
       fieldErrors: { [COMPOSE_SENDER_FIELD]: 'Sending from your own mailbox is not available.' },
     })
   })
+
+  it('passes every "to" address and the separate flag to the mailbox send', async () => {
+    const sendAsUser = jest.fn(async () => ({ ok: true, messageId: 'm-1', threadId: 't-1', channelId: CHANNEL_ID, providerKey: 'imap' }))
+    const { externalEmail: _single, ...multiCompose } = publicCompose
+
+    const result = await delegateComposeToSender(containerWith(sendAsUser), actor, {
+      ...multiCompose,
+      externalEmails: ['a@example.com', 'b@example.com'],
+      sendSeparately: true,
+    })
+
+    expect(result).toEqual({ ok: true, messageId: 'm-1', threadId: 't-1' })
+    expect(sendAsUser).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ to: ['a@example.com', 'b@example.com'], sendSeparately: true }),
+    )
+  })
+
+  it('still refuses a public compose without any external address', async () => {
+    const sendAsUser = jest.fn()
+    const { externalEmail: _single, ...noAddress } = publicCompose
+
+    const result = await delegateComposeToSender(containerWith(sendAsUser), actor, noAddress)
+
+    expect(result).toMatchObject({ ok: false, status: 422 })
+    expect(sendAsUser).not.toHaveBeenCalled()
+  })
 })

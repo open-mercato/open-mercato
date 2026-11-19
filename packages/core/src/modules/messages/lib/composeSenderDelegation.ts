@@ -42,6 +42,7 @@ type SendAsUserService = (
     body: { plain?: string; html?: string; bodyFormat?: 'text' | 'markdown' }
     parentMessageId?: string
     channelMetadata?: Record<string, unknown>
+    sendSeparately?: boolean
   },
 ) => Promise<SendAsUserResult>
 
@@ -62,6 +63,8 @@ export type ComposeSenderRequest = {
   senderChannelId?: string
   visibility?: string | null
   externalEmail?: string
+  externalEmails?: string[]
+  sendSeparately?: boolean
   subject?: string
   body?: string
   bodyFormat?: string
@@ -117,7 +120,8 @@ export async function delegateComposeToSender(
     fieldErrors: { [COMPOSE_SENDER_FIELD]: error },
   })
 
-  if (input.visibility !== 'public' || !input.externalEmail) {
+  const toAddresses = input.externalEmails ?? (input.externalEmail ? [input.externalEmail] : [])
+  if (input.visibility !== 'public' || toAddresses.length === 0) {
     return fail(
       422,
       t(
@@ -161,7 +165,8 @@ export async function delegateComposeToSender(
     },
     {
       userChannelId: senderChannelId,
-      to: [input.externalEmail],
+      to: toAddresses,
+      sendSeparately: input.sendSeparately,
       subject: input.subject ?? '',
       body: await buildSenderBody(input.body ?? '', input.bodyFormat),
       parentMessageId: input.parentMessageId,

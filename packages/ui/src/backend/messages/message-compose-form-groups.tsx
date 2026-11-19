@@ -347,6 +347,18 @@ function ComposeModeFields({ compose }: ComposeProps) {
 function ReplyModeFields({ compose }: ComposeProps) {
   return (
     <>
+      {compose.replyAll && compose.externalEmails.length > 0 ? (
+        <div className="space-y-2">
+          <ExternalEmailsInput compose={compose} />
+          <SwitchField
+            containerClassName="rounded border px-3 py-2"
+            label={compose.t('messages.compose.sendSeparately', 'Send separately')}
+            description={compose.t('messages.compose.sendSeparatelyHint', 'Each recipient gets their own copy and does not see the others.')}
+            checked={compose.sendSeparately}
+            onCheckedChange={compose.setSendSeparately}
+          />
+        </div>
+      ) : null}
       <MarkdownBodySection
         compose={compose}
         label={compose.t('messages.replyBody', 'Reply')}

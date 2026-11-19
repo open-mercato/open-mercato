@@ -1,5 +1,6 @@
 import { Message, MessageExternalParticipant } from '@open-mercato/core/modules/messages/data/entities'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type RegisteredCommand = {
   id: string
@@ -62,6 +63,8 @@ function createHarness() {
   }
   const emFork = {
     fork: () => emFork,
+    findOne: jest.fn(async () => null),
+    find: jest.fn(async () => []),
     transactional: jest.fn(async (work: (t: typeof trx) => Promise<void>) => work(trx)),
   }
   const ctx = {
@@ -136,12 +139,65 @@ describe('messages.messages.compose — external participants', () => {
     ])
   })
 
-  it('writes no participants for a draft', async () => {
+  it('stores draft addressees without a delivery status', async () => {
     const { command, ctx, message, participants } = createHarness()
 
-    await command.execute(composeInput({ isDraft: true, externalEmails: ['a@example.com'] }), ctx)
+    await command.execute(composeInput({ isDraft: true, externalEmails: ['a@example.com', 'b@example.com'] }), ctx)
 
     expect(message()?.externalEmail).toBe('a@example.com')
-    expect(participants()).toHaveLength(0)
+    expect(participants()).toEqual([
+      expect.objectContaining({ role: 'to', email: 'a@example.com', deliveryStatus: null }),
+      expect.objectContaining({ role: 'to', email: 'b@example.com', deliveryStatus: null }),
+    ])
+  })
+
+  describe('reply', () => {
+    const originalId = '99999999-9999-4999-8999-999999999999'
+
+    function primeOriginal() {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce({
+        id: originalId,
+        type: 'default',
+        visibility: 'public',
+        senderUserId: userId,
+        externalEmail: 'origin@example.com',
+        externalName: 'Origin',
+        threadId: originalId,
+        subject: 'Offer',
+        priority: 'normal',
+        tenantId,
+        organizationId,
+      })
+    }
+
+    function replyInput(overrides: Record<string, unknown> = {}) {
+      return { messageId: originalId, body: 'Thanks', tenantId, organizationId, userId, ...overrides }
+    }
+
+    it('keeps the inherited single counterpart and writes no participants without externalEmails', async () => {
+      const { ctx, message, participants } = createHarness()
+      primeOriginal()
+
+      await mockRegisteredCommands.get('messages.messages.reply')!.execute(replyInput(), ctx)
+
+      expect(message()).toMatchObject({ externalEmail: 'origin@example.com', externalName: 'Origin', emailSendSeparately: false })
+      expect(participants()).toHaveLength(0)
+    })
+
+    it('addresses reply-all participants as pending "to" with the separate flag', async () => {
+      const { ctx, message, participants } = createHarness()
+      primeOriginal()
+
+      await mockRegisteredCommands.get('messages.messages.reply')!.execute(
+        replyInput({ replyAll: true, externalEmails: ['origin@example.com', 'cc@example.com'], sendSeparately: true }),
+        ctx,
+      )
+
+      expect(message()).toMatchObject({ externalEmail: 'origin@example.com', emailSendSeparately: true })
+      expect(participants()).toEqual([
+        expect.objectContaining({ role: 'to', email: 'origin@example.com', deliveryStatus: 'pending' }),
+        expect.objectContaining({ role: 'to', email: 'cc@example.com', deliveryStatus: 'pending' }),
+      ])
+    })
   })
 })

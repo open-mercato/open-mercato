@@ -63,6 +63,9 @@ type ReplyOperationParams = {
   replyAll: boolean
   recipientIds: string[]
   sendViaEmail: boolean
+  /** Reply-all external addressees pre-filled from the source message's participants. */
+  externalEmails: string[]
+  sendSeparately: boolean
 }
 
 type ForwardOperationParams = {
@@ -74,7 +77,7 @@ type ForwardOperationParams = {
   sendViaEmail: boolean
 }
 
-type DraftOperationParams = Omit<ComposeOperationParams, 'createableMessageTypes' | 'externalEmails' | 'sendSeparately'>
+type DraftOperationParams = Omit<ComposeOperationParams, 'createableMessageTypes'>
   & { messageId?: string }
 
 export function isValidEmailAddress(value: string): boolean {
@@ -139,7 +142,8 @@ function buildComposePayload(
     type: params.messageType,
     priority: params.priority,
     visibility: params.visibility,
-    externalEmail: publicMessage ? params.externalEmail.trim() : undefined,
+    externalEmails: publicMessage && params.externalEmails.length > 0 ? params.externalEmails : undefined,
+    sendSeparately: publicMessage ? params.sendSeparately : undefined,
     externalName: undefined,
     recipients: publicMessage ? [] : mapRecipients(params.recipientIds),
     subject: params.subject.trim(),
@@ -195,16 +199,11 @@ export function useComposeSendOperation(params: ComposeOperationParams): BaseOpe
       }
       return null
     },
-    buildRequest: ({ attachmentIds }) => {
-      const { externalEmail: _singleAddress, ...payload } = buildComposePayload(params, { attachmentIds, isDraft: false })
-      return {
-        endpoint: '/api/messages',
-        method: 'POST',
-        payload: params.visibility === 'public'
-          ? { ...payload, externalEmails: params.externalEmails, sendSeparately: params.sendSeparately }
-          : payload,
-      }
-    },
+    buildRequest: ({ attachmentIds }) => ({
+      endpoint: '/api/messages',
+      method: 'POST',
+      payload: buildComposePayload(params, { attachmentIds, isDraft: false }),
+    }),
     successMessage: params.t('messages.flash.sentSuccess', 'Message sent.'),
     requiresAttachmentRefresh: true,
   }), [params])
@@ -254,6 +253,9 @@ export function useReplySubmitOperation(params: ReplyOperationParams): BaseOpera
         body: params.body,
         bodyFormat: params.bodyFormat,
         replyAll: params.replyAll,
+        ...(params.replyAll && params.externalEmails.length > 0
+          ? { externalEmails: params.externalEmails, sendSeparately: params.sendSeparately }
+          : {}),
         recipients: params.recipientIds.length > 0 ? mapRecipients(params.recipientIds) : undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
         sendViaEmail: params.sendViaEmail,
@@ -301,7 +303,10 @@ export function useSendDraftOperation(params: SendDraftOperationParams): BaseOpe
       if (params.visibility !== 'public' && params.recipientIds.length === 0) {
         return params.t('messages.errors.noRecipients', 'Please add at least one recipient.')
       }
-      if (params.visibility === 'public' && !isValidEmailAddress(params.externalEmail.trim())) {
+      if (
+        params.visibility === 'public'
+        && (params.externalEmails.length === 0 || !params.externalEmails.every(isValidEmailAddress))
+      ) {
         return params.t('messages.errors.noExternalEmail', 'Please enter a valid external email.')
       }
       if (!params.subject.trim()) {
@@ -341,3 +346,31 @@ export function useUpdateDraftOperation(params: UpdateDraftOperationParams): Bas
 }
 
 export type MessageComposeSubmitOperation = BaseOperation
+
+export type ReplyAllSource = {
+  externalEmail?: string | null
+  externalParticipants?: Array<{ role: 'to' | 'cc' | 'bcc'; email: string }> | null
+}
+
+/**
+ * Reply-all addressees: the source's counterpart plus its "to"/"cc" participants
+ * (never "bcc"), without the replying user's own mailbox addresses, de-duplicated.
+ */
+export function buildReplyAllExternalEmails(source: ReplyAllSource, ownAddresses: string[] = []): string[] {
+  const excluded = new Set(ownAddresses.map((address) => address.trim().toLowerCase()).filter(Boolean))
+  const candidates = [
+    source.externalEmail ?? '',
+    ...(source.externalParticipants ?? [])
+      .filter((participant) => participant.role === 'to' || participant.role === 'cc')
+      .map((participant) => participant.email),
+  ]
+  const result: string[] = []
+  for (const candidate of candidates) {
+    const address = candidate.trim()
+    const key = address.toLowerCase()
+    if (!address || excluded.has(key) || !isValidEmailAddress(address)) continue
+    excluded.add(key)
+    result.push(address)
+  }
+  return result
+}

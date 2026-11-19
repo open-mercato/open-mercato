@@ -117,6 +117,22 @@ address throws `EMAIL_TRANSPORT_MULTI_RECIPIENT_UNSUPPORTED` unless the transpor
 `payload.recipients` (`payload.to` is the first). `send()` may now return an `EmailSendResult` to
 report a partial rejection; returning `void` still means every address was accepted.
 
+### Mailbox sends: one channel link per recipient for "send separately"
+
+`message_channel_links` gains `external_participant_id`, and the unique constraint
+`message_channel_links_message_uq (message_id)` is replaced by two partial unique indexes: one link
+per message when `external_participant_id IS NULL` (joint send, unchanged for every existing row)
+and one per `(message_id, external_participant_id)` otherwise. A message sent separately through a
+mailbox therefore has one link (and one `communication_channels.message.sent` event, so one CRM
+interaction) per recipient. Code that looks a link up by `message_id` alone and expects a single row
+should list the links or filter on `externalParticipantId: null` for the joint link.
+
+`sendAsUser` / `POST /api/communication_channels/send-as-user` accept `sendSeparately?: boolean`
+(400 with `fieldErrors.cc` / `fieldErrors.bcc` when combined with copies for more than one "to"), and
+CC/BCC addressees now become message participants. Outbound delivery addresses the adapter from the
+participants and no longer fails the whole send on an SMTP/IMAP partial rejection: accepted
+participants are `sent`, rejected ones `failed`.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

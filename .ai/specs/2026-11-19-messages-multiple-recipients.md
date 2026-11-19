@@ -377,6 +377,11 @@ Read at call time with positive-int validation and built-in fallback (pattern: `
 ### 2026-11-19
 - Initial specification (decision record: https://claude.ai/artifact/N1wktbwtGagsRac7C3ujfV, sections H–L).
 
+### 2026-11-19 — Phase 4 implemented
+- `message_channel_links.external_participant_id` + partial unique indexes; `sendAsUser` passes to/cc/bcc as participants, supports `sendSeparately` (N links, N outbound jobs, 400 with copies); `deliver-outbound-message` addresses from participants per link, writes per-participant results, treats SMTP/IMAP partial rejection as sent.
+- Link lookups made N-link safe: outbound bridge (all links + per-participant fan-out for `email_send_separately`), outbound reply reference; CRM thread inheritance skips separate links; Person thread view shows a message once.
+- Follow-up gaps for scheduling: drafts store participants (`delivery_status` NULL until sent) and draft PATCH replaces them; reply/forward accept `externalEmails` + `sendSeparately`; reply-all pre-fill in the composer.
+
 ### Review — 2026-11-19
 - **Reviewer**: Agent (fresh context)
 - **Security**: Passed

@@ -130,6 +130,14 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
   }
 
   /** Container the subscriber runs against — a shared channel with nothing delivered yet. */
+  // The bridge lists every link of the message; the fixtures queue a single link (or none) on `findOne`.
+  function linkListFromFindOne(findOne: jest.Mock) {
+    return jest.fn(async (...args: unknown[]) => {
+      const link = await findOne(...args)
+      return link ? [link] : []
+    })
+  }
+
   function makeBridgeContainer(composed: Record<string, unknown>) {
     const findOne = jest.fn()
     findOne.mockResolvedValueOnce(composed) // Message re-fetch
@@ -138,7 +146,7 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
     findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // shared channel
     return {
       container: {
-        resolve: ((name: string) => (name === 'em' ? { fork: () => ({ findOne }) } : null)) as <T>(name: string) => T,
+        resolve: ((name: string) => (name === 'em' ? { fork: () => ({ findOne, find: linkListFromFindOne(findOne) }) } : null)) as <T>(name: string) => T,
       },
     }
   }
