@@ -20,6 +20,8 @@
 | 1 | 1.4 | Login merge and merge undo lock both carts and re-check under the locks | inline | done | 2eee8ae23a |
 | 2 | 2.1 | Real-PostgreSQL status-transition races and cart in test:pg-integration | inline | done | f2f4631ba5 |
 | 2 | 2.2 | TC-CART-PRICE-01-02 assertion hunks | inline | done | 733ffc83e5 |
+| 3 | 1.4-review-fix | Merge reads lines and builds its outcome under the locks; undo check order | inline | done | (this commit) |
+| 3 | 1.2-review-fix | lines.update tier check and re-price under the lock | inline | todo | — |
 
 ## Goal
 
@@ -68,6 +70,14 @@ As in Scope. Tests in `lock.test.ts`: "re-reads the cart inside the advisory loc
 
 #### Step 2.2 — TC-CART-PRICE-01-02 assertion hunks
 Port the two `priceChanges` assertion hunks; verify against the dev app.
+
+### Phase 3 — Review fixes (om-auto-review-pr)
+
+#### Step 1.4-review-fix — Merge reads lines and builds its outcome under the locks; undo check order
+Review major #1: the merge read both carts' lines and built the outcome before the lock. Line reads, max quantities, visibility, outcome and merge log now run inside the lock phase. Undo checks `undone_at` before the absorbed status; the generic undo also swallows `cart_locked`.
+
+#### Step 1.2-review-fix — lines.update tier check and re-price under the lock
+Review major #2: the same-tier check and re-price ran against the pre-lock line; they move into the locked phase after the guard.
 
 ## Spec vs reference vs card — differences (rule R4: the spec wins)
 
