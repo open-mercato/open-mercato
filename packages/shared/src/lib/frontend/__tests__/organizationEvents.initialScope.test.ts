@@ -80,4 +80,17 @@ describe('organization scope bootstrap', () => {
     expect(events.getCurrentOrganizationScope()).toEqual({ organizationId: 'organization-one', tenantId: 'tenant%bad' })
     expect(events.getCurrentOrganizationScopeVersion()).toBe(0)
   })
+
+  it('names the scope a request runs under only when an organization cookie exists', () => {
+    const events = loadEvents()
+    expect(events.readRequestOrganizationScope()).toBeNull()
+    document.cookie = 'om_selected_tenant=tenant-one; path=/'
+    expect(events.readRequestOrganizationScope()).toBeNull()
+    document.cookie = 'om_selected_org=organization%2Done; path=/'
+    expect(events.readRequestOrganizationScope()).toEqual({ organizationId: 'organization-one', tenantId: 'tenant-one' })
+    document.cookie = 'om_selected_org=__all__; path=/'
+    expect(events.readRequestOrganizationScope()).toEqual({ organizationId: null, tenantId: 'tenant-one' })
+    document.cookie = 'om_selected_org=; path=/'
+    expect(events.readRequestOrganizationScope()).toEqual({ organizationId: null, tenantId: 'tenant-one' })
+  })
 })
