@@ -16,7 +16,7 @@ for (const locale of ['en', 'pl']) {
     const origin = new URL(baseURL ?? 'http://localhost:3000').origin
     await page.context().addCookies([
       { name: 'om_test_browser_telemetry', value: 'on', url: origin },
-      { name: 'om_locale', value: locale, url: origin },
+      { name: 'locale', value: locale, url: origin },
     ])
     if (locale === 'pl') await page.setViewportSize({ width: 390, height: 844 })
     const batches: string[] = []
@@ -33,7 +33,9 @@ for (const locale of ['en', 'pl']) {
       }
     })
     await login(page, 'admin')
+    await page.context().addCookies([{ name: 'locale', value: locale, url: origin }])
     await page.goto('/backend')
+    await expect(page.locator('html')).toHaveAttribute('lang', locale)
     await expect.poll(() => apiUrls.length).toBeGreaterThan(0)
     await expect.poll(() => page.evaluate(() => Object.getOwnPropertySymbols(globalThis)
       .some((symbol) => symbol.toString().includes('opentelemetry.js.api')))).toBe(true)
