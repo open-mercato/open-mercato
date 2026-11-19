@@ -126,8 +126,8 @@ yarn test:integration:ephemeral --app-only
 
 Installed `@open-mercato/*` packages ship their own integration specs, and a standalone app discovers them by default. They need many environment variables and take hours on a small CI runner. `--app-only` limits the run to specs outside `node_modules/`, such as `src/modules/<module>/__integration__/*.spec.ts`.
 
-- The app-owned list is computed before anything starts, from the same roots the generated Playwright config runs: `__integration__` folders outside `node_modules/`. Specs directly under `.ai/qa/tests/` are not counted, because that config does not run them. When the list is empty, the command prints `No app-owned integration specs found` and exits 0 without starting Docker or building the app.
-- `requiredModules` and `requiredEnvVars` metadata is evaluated only after the environment starts, against the environment Playwright receives. A spec that needs a runtime-provided variable such as `BASE_URL` still runs. When the metadata skips every app spec, the command says so and exits 0 instead of failing with "No tests found".
+- Before anything starts, the command asks the app's own Playwright config (`playwright test --list`) which specs outside `node_modules/` it would run, ignoring `requiredModules` and `requiredEnvVars` metadata. So the list uses exactly the folders that config discovers: the plain template config skips `.ai/qa/tests/`, the agentic one includes it. When the list is empty, the command prints `No app-owned integration specs found` and exits 0 without starting Docker or building the app.
+- After the environment starts, the config is listed again with the environment Playwright receives, so metadata is judged against the real runtime. A spec that needs a runtime-provided variable such as `BASE_URL` still runs. When the metadata skips every app spec, the command says so and exits 0 instead of failing with "No tests found".
 - `--filter` still works and narrows the app-owned list. A filter that matches none of the app's specs is an error.
 - Keep app specs in `src/modules/<module>/__integration__/`.
 - Without the flag, discovery is unchanged.

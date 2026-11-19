@@ -2,7 +2,8 @@ import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import { createHash, randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
@@ -15,6 +16,7 @@ import { resolveInitSuperadminCredentials } from '../init-secrets'
 import { resolveSpawnCommand } from '../spawn'
 import {
   APP_ONLY_INTEGRATION_ENV_VAR,
+  SKIP_METADATA_FILTERS_INTEGRATION_ENV_VAR,
   discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared,
   isAppOwnedIntegrationSpecPath,
 } from './integration-discovery'
@@ -2588,15 +2590,6 @@ export function resolveAppOwnedIntegrationSpecPaths(
   return matching
 }
 
-export async function resolveRunnableAppOwnedSpecPaths(
-  appOnlySpecPaths: readonly string[],
-  environment: NodeJS.ProcessEnv,
-  discoverRunnableSpecs: (environment: NodeJS.ProcessEnv) => Promise<ReadonlyArray<{ path: string }>> = discoverRunnableAppOwnedIntegrationSpecs,
-): Promise<string[]> {
-  const runnable = new Set((await discoverRunnableSpecs(environment)).map((entry) => entry.path))
-  return appOnlySpecPaths.filter((specPath) => runnable.has(specPath))
-}
-
 export function buildAppOnlyPlaywrightFileFilters(specPaths: readonly string[]): string[] {
   return specPaths.map((specPath) => `/${specPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
 }
@@ -2898,30 +2891,94 @@ async function discoverIntegrationSpecFiles(): Promise<DiscoveredIntegrationSpec
   return discoverIntegrationSpecFilesShared(projectRootDirectory, LEGACY_INTEGRATION_TEST_ROOT)
 }
 
-function buildAppOnlyDiscoveryEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export type PlaywrightSpecLister = (environment: NodeJS.ProcessEnv) => Promise<string[]>
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function parsePlaywrightListedSpecPaths(report: unknown, projectRoot: string): string[] {
+  if (!isRecord(report) || !Array.isArray(report.suites)) {
+    throw new Error('[internal] Playwright --list report has no suites')
+  }
+  const rootDir = isRecord(report.config) && typeof report.config.rootDir === 'string'
+    ? report.config.rootDir
+    : projectRoot
+  const listed = new Set<string>()
+  for (const suite of report.suites) {
+    if (!isRecord(suite) || typeof suite.file !== 'string' || suite.file.length === 0) continue
+    listed.add(normalizePath(path.relative(projectRoot, path.resolve(rootDir, suite.file))))
+  }
+  return Array.from(listed).sort((left, right) => left.localeCompare(right))
+}
+
+function runQuietNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<void> {
+  const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  return new Promise((resolve, reject) => {
+    const resolvedSpawn = resolveSpawnCommand(binary, args)
+    const command = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+      cwd: projectRootDirectory,
+      env: environment,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      ...resolvedSpawn.spawnOptions,
+    })
+    let stderr = ''
+    command.stderr?.on('data', (chunk: Buffer | string) => {
+      stderr += chunk.toString()
+    })
+    command.on('error', reject)
+    command.on('exit', (code) => {
+      if (code === 0) {
+        resolve()
+        return
+      }
+      reject(new Error(`Command failed: npx ${args.join(' ')} (exit ${code ?? 'unknown'})\n${stderr.trim()}`))
+    })
+  })
+}
+
+async function listPlaywrightSelectedSpecPaths(environment: NodeJS.ProcessEnv): Promise<string[]> {
+  const outputDirectory = await mkdtemp(path.join(os.tmpdir(), 'om-integration-list-'))
+  const outputFile = path.join(outputDirectory, 'list.json')
+  try {
+    await runQuietNpxCommand(
+      ['playwright', 'test', '--config', PLAYWRIGHT_INTEGRATION_CONFIG_PATH, '--list', '--reporter=json', '--pass-with-no-tests'],
+      { ...environment, PLAYWRIGHT_JSON_OUTPUT_FILE: outputFile },
+    )
+    return parsePlaywrightListedSpecPaths(JSON.parse(await readFile(outputFile, 'utf8')), projectRootDirectory)
+  } finally {
+    await rm(outputDirectory, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+function buildAppOnlyEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...environment, [APP_ONLY_INTEGRATION_ENV_VAR]: '1' }
 }
 
-function resolvePlaywrightConfigLegacyIntegrationRoot(projectRoot: string): string {
-  return path.join(projectRoot, '.ai', 'qa', 'tests', '__legacy_disabled__')
+export async function listAppOwnedIntegrationSpecCandidates(
+  listSpecs: PlaywrightSpecLister = listPlaywrightSelectedSpecPaths,
+): Promise<Array<{ path: string }>> {
+  const environment = { ...buildAppOnlyEnvironment(process.env), [SKIP_METADATA_FILTERS_INTEGRATION_ENV_VAR]: '1' }
+  return (await listSpecs(environment)).map((specPath) => ({ path: specPath }))
 }
 
-export async function discoverAppOwnedIntegrationSpecCandidates(
-  projectRoot: string = projectRootDirectory,
-): Promise<DiscoveredIntegrationSpecFile[]> {
-  return discoverIntegrationSpecFilesShared(projectRoot, resolvePlaywrightConfigLegacyIntegrationRoot(projectRoot), {
-    environment: buildAppOnlyDiscoveryEnvironment(process.env),
-    applyMetadataFilters: false,
-  })
+export type AppOnlySuiteRun = {
+  fileFilters: string[]
+  commandEnvironment: NodeJS.ProcessEnv
 }
 
-export async function discoverRunnableAppOwnedIntegrationSpecs(
-  environment: NodeJS.ProcessEnv,
-  projectRoot: string = projectRootDirectory,
-): Promise<DiscoveredIntegrationSpecFile[]> {
-  return discoverIntegrationSpecFilesShared(projectRoot, resolvePlaywrightConfigLegacyIntegrationRoot(projectRoot), {
-    environment: buildAppOnlyDiscoveryEnvironment(environment),
-  })
+export async function resolveAppOnlySuiteRun(
+  appOnlySpecPaths: readonly string[],
+  environment: Pick<EphemeralEnvironmentHandle, 'commandEnvironment'>,
+  listSpecs: PlaywrightSpecLister = listPlaywrightSelectedSpecPaths,
+): Promise<AppOnlySuiteRun | null> {
+  const commandEnvironment = buildAppOnlyEnvironment(environment.commandEnvironment)
+  const runnable = new Set(await listSpecs(commandEnvironment))
+  const selected = appOnlySpecPaths.filter((specPath) => runnable.has(specPath))
+  if (selected.length === 0) {
+    return null
+  }
+  return { fileFilters: buildAppOnlyPlaywrightFileFilters(selected), commandEnvironment }
 }
 
 async function extractSpecDescription(relativePath: string): Promise<string> {
@@ -3477,19 +3534,18 @@ async function runIntegrationTestSuiteOnce(
   options: IntegrationSuiteOptions,
 ): Promise<void> {
   const testArgs = ['test:integration']
+  let commandEnvironment = environment.commandEnvironment
   if (options.appOnlySpecPaths) {
-    const runnableSpecPaths = await resolveRunnableAppOwnedSpecPaths(options.appOnlySpecPaths, environment.commandEnvironment)
-    if (runnableSpecPaths.length === 0) {
+    const appOnlyRun = await resolveAppOnlySuiteRun(options.appOnlySpecPaths, environment)
+    if (!appOnlyRun) {
       console.log(`[integration] ${NO_RUNNABLE_APP_OWNED_INTEGRATION_SPECS_MESSAGE}.`)
       return
     }
-    testArgs.push(...buildAppOnlyPlaywrightFileFilters(runnableSpecPaths))
+    testArgs.push(...appOnlyRun.fileFilters)
+    commandEnvironment = appOnlyRun.commandEnvironment
   } else if (options.filter) {
     testArgs.push(options.filter)
   }
-  const commandEnvironment = options.appOnlySpecPaths
-    ? buildAppOnlyDiscoveryEnvironment(environment.commandEnvironment)
-    : environment.commandEnvironment
   await runYarnCommandWithOutputMonitoring(testArgs, commandEnvironment, {
     detectEnvironmentUnavailable: true,
     abortOnEnvironmentUnavailable: true,
@@ -4040,7 +4096,7 @@ export async function runIntegrationTestsInEphemeralEnvironment(
   }
   let appOnlySpecPaths: string[] | null = null
   if (options.appOnly) {
-    const discoverSpecs = dependencies.discoverSpecs ?? (() => discoverAppOwnedIntegrationSpecCandidates())
+    const discoverSpecs = dependencies.discoverSpecs ?? (() => listAppOwnedIntegrationSpecCandidates())
     appOnlySpecPaths = resolveAppOwnedIntegrationSpecPaths(await discoverSpecs(), options.filter)
     if (appOnlySpecPaths.length === 0) {
       console.log(NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE)

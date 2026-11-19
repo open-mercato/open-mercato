@@ -1,15 +1,12 @@
-import os from 'node:os'
-import path from 'node:path'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import {
   INTEGRATION_TEST_USAGE,
   NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE,
   buildAppOnlyPlaywrightFileFilters,
-  discoverAppOwnedIntegrationSpecCandidates,
-  discoverRunnableAppOwnedIntegrationSpecs,
+  listAppOwnedIntegrationSpecCandidates,
   parseOptions,
+  parsePlaywrightListedSpecPaths,
+  resolveAppOnlySuiteRun,
   resolveAppOwnedIntegrationSpecPaths,
-  resolveRunnableAppOwnedSpecPaths,
   runIntegrationTestsInEphemeralEnvironment,
 } from '../integration'
 import type { EphemeralEnvironmentHandle, IntegrationTestRunDependencies } from '../integration'
@@ -19,12 +16,6 @@ type RunSuiteWithRecovery = NonNullable<IntegrationTestRunDependencies['runSuite
 const APP_SPEC = 'src/modules/orders/__integration__/TC-APP-001.spec.ts'
 const SECOND_APP_SPEC = 'src/modules/orders/__integration__/admin/TC-APP-002.spec.ts'
 const PLATFORM_SPEC = 'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts'
-
-async function writeTestFile(projectRoot: string, relativePath: string, content = 'export {}\n'): Promise<void> {
-  const absolutePath = path.join(projectRoot, relativePath)
-  await mkdir(path.dirname(absolutePath), { recursive: true })
-  await writeFile(absolutePath, content, 'utf8')
-}
 
 function createRunSuiteMock() {
   const stop = jest.fn(async () => {})
@@ -106,50 +97,75 @@ describe('mercato test:integration --app-only', () => {
     })
   })
 
-  describe('app-owned discovery', () => {
-    const RUNTIME_ENV_KEY = 'OM_TEST_APP_ONLY_RUNTIME_KEY'
-    let tempRoot = ''
-
-    beforeEach(async () => {
-      tempRoot = await mkdtemp(path.join(os.tmpdir(), 'om-integration-app-only-'))
-      delete process.env[RUNTIME_ENV_KEY]
+  describe('parsePlaywrightListedSpecPaths', () => {
+    it('returns the listed spec files relative to the project root', () => {
+      const report = {
+        config: { rootDir: '/repo' },
+        suites: [
+          { file: SECOND_APP_SPEC, specs: [] },
+          { file: APP_SPEC, specs: [] },
+          { file: APP_SPEC, specs: [] },
+          { title: 'no file' },
+        ],
+      }
+      expect(parsePlaywrightListedSpecPaths(report, '/repo')).toEqual([SECOND_APP_SPEC, APP_SPEC])
     })
 
-    afterEach(async () => {
-      await rm(tempRoot, { recursive: true, force: true })
+    it('resolves files against the report rootDir when it differs from the project root', () => {
+      const report = { config: { rootDir: '/repo/src' }, suites: [{ file: 'modules/orders/__integration__/TC-APP-001.spec.ts' }] }
+      expect(parsePlaywrightListedSpecPaths(report, '/repo')).toEqual([APP_SPEC])
     })
 
-    it('keeps a lone spec that needs a runtime-provided variable and runs it with the runtime environment', async () => {
-      await writeTestFile(tempRoot, APP_SPEC)
-      await writeTestFile(
-        tempRoot,
-        'src/modules/orders/__integration__/TC-APP-001.meta.ts',
-        `export const integrationMeta = { requiredEnvVars: ['${RUNTIME_ENV_KEY}'] }\n`,
+    it('rejects output that is not a Playwright report', () => {
+      expect(() => parsePlaywrightListedSpecPaths({ errors: [] }, '/repo')).toThrow('Playwright --list report has no suites')
+    })
+  })
+
+  describe('listAppOwnedIntegrationSpecCandidates', () => {
+    it('asks the Playwright config for app-only specs with metadata filters skipped', async () => {
+      const listSpecs = jest.fn(async () => [APP_SPEC])
+
+      await expect(listAppOwnedIntegrationSpecCandidates(listSpecs)).resolves.toEqual([{ path: APP_SPEC }])
+
+      expect(listSpecs).toHaveBeenCalledTimes(1)
+      expect(listSpecs.mock.calls[0][0]).toMatchObject({
+        OM_INTEGRATION_APP_ONLY: '1',
+        OM_INTEGRATION_SKIP_METADATA_FILTERS: '1',
+      })
+    })
+  })
+
+  describe('resolveAppOnlySuiteRun', () => {
+    const listSpecsNeedingBaseUrl = jest.fn(async (environment: NodeJS.ProcessEnv) =>
+      environment.BASE_URL ? [APP_SPEC] : [],
+    )
+
+    beforeEach(() => {
+      listSpecsNeedingBaseUrl.mockClear()
+    })
+
+    it('runs a lone spec that requires a variable the runtime environment provides', async () => {
+      const run = await resolveAppOnlySuiteRun(
+        [APP_SPEC],
+        { commandEnvironment: { BASE_URL: 'http://127.0.0.1:5001' } },
+        listSpecsNeedingBaseUrl,
       )
-      await writeTestFile(tempRoot, PLATFORM_SPEC)
 
-      const candidates = await discoverAppOwnedIntegrationSpecCandidates(tempRoot)
-      const appOnlySpecPaths = resolveAppOwnedIntegrationSpecPaths(candidates, null)
-      expect(appOnlySpecPaths).toEqual([APP_SPEC])
-
-      const discoverInFixture = (environment: NodeJS.ProcessEnv) =>
-        discoverRunnableAppOwnedIntegrationSpecs(environment, tempRoot)
-      await expect(
-        resolveRunnableAppOwnedSpecPaths(appOnlySpecPaths, { [RUNTIME_ENV_KEY]: 'from-runtime' }, discoverInFixture),
-      ).resolves.toEqual([APP_SPEC])
-      await expect(resolveRunnableAppOwnedSpecPaths(appOnlySpecPaths, {}, discoverInFixture)).resolves.toEqual([])
+      expect(run).toEqual({
+        fileFilters: buildAppOnlyPlaywrightFileFilters([APP_SPEC]),
+        commandEnvironment: { BASE_URL: 'http://127.0.0.1:5001', OM_INTEGRATION_APP_ONLY: '1' },
+      })
+      expect(listSpecsNeedingBaseUrl.mock.calls[0][0]).not.toHaveProperty('OM_INTEGRATION_SKIP_METADATA_FILTERS')
     })
 
-    it('ignores specs under .ai/qa/tests, which the generated Playwright config does not run', async () => {
-      await writeTestFile(tempRoot, '.ai/qa/tests/TC-LEGACY-001.spec.ts')
-      await writeTestFile(tempRoot, PLATFORM_SPEC)
+    it('returns null when the runtime environment still skips every app spec', async () => {
+      await expect(resolveAppOnlySuiteRun([APP_SPEC], { commandEnvironment: {} }, listSpecsNeedingBaseUrl)).resolves.toBeNull()
+    })
 
-      expect(resolveAppOwnedIntegrationSpecPaths(await discoverAppOwnedIntegrationSpecCandidates(tempRoot), null)).toEqual([])
-
-      await writeTestFile(tempRoot, APP_SPEC)
-      expect(resolveAppOwnedIntegrationSpecPaths(await discoverAppOwnedIntegrationSpecCandidates(tempRoot), null)).toEqual([
-        APP_SPEC,
-      ])
+    it('keeps only the preflight specs that Playwright selects', async () => {
+      const listSpecs = jest.fn(async () => [SECOND_APP_SPEC, PLATFORM_SPEC])
+      const run = await resolveAppOnlySuiteRun([APP_SPEC, SECOND_APP_SPEC], { commandEnvironment: {} }, listSpecs)
+      expect(run?.fileFilters).toEqual(buildAppOnlyPlaywrightFileFilters([SECOND_APP_SPEC]))
     })
   })
 
