@@ -73,13 +73,17 @@ export async function enforceCheckoutRateLimit(options: {
   const { req, container, config, namespace, errorMessage, posture } = options
   const rateLimiter = resolveOptionalRateLimiter(container)
   if (!rateLimiter) {
-    logger.error('Rate limiter service is not registered — check RATE_LIMIT_* configuration; checkout rate limiting is not enforced', {
+    if (posture === 'fail-closed') {
+      logger.error('Rate limiter service is not registered — check RATE_LIMIT_* configuration; rejecting fail-closed checkout request', {
+        namespace,
+        posture,
+      })
+      return NextResponse.json({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK }, { status: 503 })
+    }
+    logger.error('Rate limiter service is not registered — check RATE_LIMIT_* configuration; serving fail-open checkout request without rate limiting', {
       namespace,
       posture,
     })
-    if (posture === 'fail-closed') {
-      return NextResponse.json({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK }, { status: 503 })
-    }
     return null
   }
 
