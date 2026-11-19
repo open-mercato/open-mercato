@@ -90,6 +90,8 @@ Review major #2: the same-tier check and re-price ran against the pre-lock line;
 | 5 | Visibility pass under the lock | Not run under the lock (the forced re-price ran it before) | Same as reference; §9.1 "Order of checks" lists the visibility pass under the lock — the flagged-line re-read under the lock is what CA0 ports; recorded as a residual for CA6 |
 | 6 | `cart.unlock` / `markConverted` | No lock | No lock in CA0 (rewritten by CA1, which owns them) |
 | 7 | `test:pg-integration` | Adds `cart|assisted_selling|availability|promotions|sales` and `test:pg-concurrency` | Adds `cart` only (CA0 row) |
+| 8 | Merge line reads | Lines read and outcome built before the lock; only the carts re-read inside it | Lines, max quantities, visibility, outcome and merge log built inside the locked phase (§8.1 "re-reads … lines … inside the lock, never before it"); found by the review pass |
+| 9 | `lines.update` tier check | Same-tier check and re-price before the lock | Inside the lock after the guard (same §8.1 rule); found by the review pass |
 
 ## Audit findings and decisions that concern this step
 
