@@ -117,4 +117,13 @@ PR: #9837
 - [x] Cancel implicit HEAD response bodies within the API ownership boundary, preserving status and headers; mirror the standalone template.
 - [x] Own CLI per-job caller/helper/nested scopes through success and failure, preserving EntityManager cleanup and independent background work.
 - [x] Add actual-entrypoint disposal regressions and independently cross-review both fixes. API focused tests pass 65/65; worker tests pass 13/13 and CLI typecheck passes.
-- [ ] Run the configured gate and both runtime modes, publish evidence and request re-review.
+- [x] Run the configured gate and both runtime modes, publish evidence and request re-review. — c12842d253
+
+### Review 5981218119 results (2026-11-19)
+- c12842d253 handles implicit HEAD inside the API ownership boundary: cancellation completes before returning a bodyless response with the original status and headers. Cancellation/diagnostic errors do not replace the selected response. The standalone template matches.
+- Normal CLI jobs now own caller, helper and nested scopes through successful and throwing handlers. Primary EntityManager clearing precedes disposal; independent background owners remain separate, and ignored worker Response values cannot extend job ownership.
+- Actual-entrypoint regressions verify retired-generation singleton disposal exactly once, async/rejecting HEAD cancellation, authorization denial, worker failure and detached work. API focused tests pass 65/65; worker tests pass 13/13. Independent cross-review found no blocker.
+- Complete configured local gate passes on Node 24.22.3: build/generate/build, translations, workspace typecheck, full units and production app build. Units: 50,797 passed, zero failed, 456 existing skips; 51/51 tasks, five cached build dependencies and no cached test jobs. Original 1 GiB heap and Turbo concurrency 2 retained. CLASSIC DI (28 files/254 keys), template, lessons and diff checks pass.
+- Native runtime integration passes 13/13 enabled and 13/13 disabled without test retries, flakes or skips. Authenticated real Next.js GET/HEAD smoke passes in both modes: status 200 and matching JSON Content-Type, with zero HEAD body bytes. Disposable apps and databases were stopped and verified absent.
+- Configured production build passed directly. Each native environment build repeated the identical command once after the existing Next.js advisory using its normal receipt mechanism; no dependency, security-setting or receipt modifications.
+- Base 4ee923350e is unchanged. Guard/CLA pass; this stacked base has no main CI run, so the complete gate is local fallback evidence. Feature remains default-off; external re-review and QA approval remain pending. No merge performed.
