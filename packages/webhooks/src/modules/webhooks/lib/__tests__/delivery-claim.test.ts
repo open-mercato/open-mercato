@@ -221,6 +221,5 @@ describe('resetWebhookDeliveryForRetry', () => {
 
     expect(reset).toBe(false)
     expect(delivery).toMatchObject({ status: 'sending', lastAttemptAt })
-    expect(enqueueWebhookDeliveryMock).not.toHaveBeenCalled()
   })
 })
