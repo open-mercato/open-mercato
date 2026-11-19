@@ -231,7 +231,7 @@
     "fast-uri": "3.1.7",
     "serialize-javascript": "7.0.5",
     "svgo": "3.3.5",
-    "qs": "6.15.2",
+    "qs": "6.16.1",
     "flatted": "3.4.2",
     "socket.io-parser": "4.2.7",
     "engine.io": "6.6.11",
