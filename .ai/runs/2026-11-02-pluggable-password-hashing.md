@@ -42,7 +42,7 @@ Route every user and customer-portal password hash/verify through one `passwordH
 ## Risks
 
 - Timing equalizer: superseded — `verify` now spends one outcome-independent work profile per configured algorithm (see spec Risks).
-- Downgrading OM below this version after enabling Argon2id breaks login for migrated users; documented (switch back to `bcrypt` first and let users log in, or reset passwords).
+- Older Open Mercato versions require bcrypt hashes. Before downgrading, set `OM_PASSWORD_HASH=bcrypt` and `OM_PASSWORD_ARGON2_LEGACY_VERIFY=true` on a version that supports both settings. Each successful login converts that user’s stored Argon2id hash to bcrypt. Reset the passwords of users whose Argon2id hashes remain before downgrading.
 - Native module availability: `@node-rs/argon2` ships prebuilt binaries for linux gnu/musl x64/arm64, macOS, Windows; loaded lazily, so bcrypt-only installs never load it.
 
 ## Progress

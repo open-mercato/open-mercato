@@ -72,7 +72,7 @@ No route, request or response change. New public helpers in `@open-mercato/share
 - Existing hashes keep working under both settings; no migration, no forced reset.
 - Turning `argon2id` on: new and changed passwords use Argon2id; bcrypt hashes upgrade on the next successful login.
 - Turning it back off: a bcrypt-only process does not load Argon2, so stored Argon2id hashes are rejected within the uniform bcrypt work profile — an account-existence timing oracle is not introduced by a mixed rollback state. Operators can reset those passwords or set `OM_PASSWORD_ARGON2_LEGACY_VERIFY=true` while running in bcrypt mode. With legacy verification enabled, Argon2 joins the profile for every outcome and hashes are re-hashed to bcrypt on the next successful login.
-- Downgrading Open Mercato to a version without this service after users were migrated breaks their login (old code only understands bcrypt). Switch back to `bcrypt` and let users log in first, or reset their passwords.
+- Older Open Mercato versions require bcrypt hashes. Before downgrading, set `OM_PASSWORD_HASH=bcrypt` and `OM_PASSWORD_ARGON2_LEGACY_VERIFY=true` on a version that supports both settings. Each successful login converts that user’s stored Argon2id hash to bcrypt. Reset the passwords of users whose Argon2id hashes remain before downgrading.
 - Enterprise change-password and sudo re-authentication resolve the same shared hasher, so both bcrypt and Argon2id hashes work and password changes use the configured algorithm.
 - No contract surface in `BACKWARD_COMPATIBILITY.md` is removed, renamed or narrowed.
 
