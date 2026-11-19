@@ -347,6 +347,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 - 2026-11-19 — Implemented Phases 1–3 (see Implementation Status). Added the `@open-mercato/shared/lib/money` entry point, listed the extra exported types (`MoneyScope`, `CurrencyLookup`) and constants in the BC tables, and excluded `lib/money/internal` from the contract.
 - 2026-11-19 — Code-review follow-ups: added `fitsCurrencyPrecision` (over-precise client amounts stay exact in `resolveMoney`; handlers that need minor units check it), `allocateMoney` reports out-of-range ratios as `InvalidAllocationError`, documented the decimal size caps, and narrowed `money:check-new-code`'s `<field>Exact` rule to declarations (object-literal writes are no longer flagged) with pinned `a/`/`b/` diff prefixes.
 - 2026-11-19 — Re-review follow-ups: blocked the `@open-mercato/shared/lib/money/internal` subpath in the package `exports` (`null` target), added the `fitsCurrencyPrecision` rule to the standalone harness Money Contract, and ran the create-app suite in a Linux container with bubblewrap (HEAD and base `b0f3d1c64`: 1243 pass, 0 fail, 15 skipped each).
+- 2026-11-19 — Second-review follow-ups: `CurrencyPrecisionService.getCurrency` returns frozen details, so a caller cannot change the cached precision; `divideMoney` reports an oversized quotient as `Decimal result out of range`; `money:check-new-code` reads a property declared on the same line as its decorator; the OMH-243 focused test became `agent-money-harness.test.ts` so the create-app suite runs it in CI.
 
 ## Implementation Status
 
@@ -379,7 +380,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 - `@open-mercato/shared` jest — 285 suites, 3565 tests pass (includes 92 new money / `MoneyColumns` tests)
 - `packages/core` currencies, payment_gateways, warranty_claims, staff and sales precision tests — 65 suites pass
 - `yarn test:scripts` — the 27 new money-check tests pass; 18 unrelated failures in this environment (docker/Traefik compose, Linux binary detection, npm snapshot tarball retries, PR-scope git history)
-- create-app harness: `agent-money-harness.test.mjs`, source-link inventory/links checks and the knowledge-change validator pass; the evaluator/coverage suites' sandbox and live-adapter tests abort with SIGABRT under nested `sandbox-exec` here (environmental)
+- create-app harness: `agent-money-harness.test.ts` (run by the create-app `test` script), source-link inventory/links checks and the knowledge-change validator pass; the evaluator/coverage suites' sandbox and live-adapter tests abort with SIGABRT under nested `sandbox-exec` here (environmental)
 
 ### Implementation notes
 - The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract.
