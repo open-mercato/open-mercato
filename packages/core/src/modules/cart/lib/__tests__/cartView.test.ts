@@ -296,6 +296,7 @@ describe('buildCartResponseEnvelope', () => {
     expect(envelope.cart.lines[0].nextTier).toEqual({
       minQuantity: 10,
       unitAmount: 9.6,
+      unitAmountExact: '9.6',
       formatted: expect.any(String),
       saving: '20%',
     })

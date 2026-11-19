@@ -18,6 +18,7 @@
  */
 
 import {
+  deriveExactLineNetFromGross,
   deriveLineNetFromGross,
   reconcileLinePersistedTotals,
 } from '../shared'
@@ -132,5 +133,19 @@ describe('#3036 return-credit mechanism', () => {
     expect(credit.gross).toBe(-110)
     // Net now moves in lockstep with gross — the net grand total no longer freezes.
     expect(credit.net).toBe(-100)
+  })
+})
+
+describe('deriveExactLineNetFromGross', () => {
+  it('rounds a gross-derived net to the configured currency precision', () => {
+    expect(deriveExactLineNetFromGross(null, '1', '23', 18)).toBe('0.813008130081300813')
+  })
+
+  it('keeps four decimals when no precision is given', () => {
+    expect(deriveExactLineNetFromGross(null, '1', '23')).toBe('0.813')
+  })
+
+  it('never rounds below the decimals the gross price was entered with', () => {
+    expect(deriveExactLineNetFromGross(null, '1.230000001', '23', 2)).toBe('1.000000001')
   })
 })

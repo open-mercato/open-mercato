@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "packageManager": "yarn@4.17.1+sha512.ccbfabf7d7b6b32075088be9386fb9a2e00bb6887ef07fa56effabc890a56d53da1ccc4128d62db245fcbd3961b236d75335bdf7d5320ed6eafb7588b7ad4697",
   "engines": {
@@ -161,7 +161,7 @@
     "dotenv": "^17.4.2",
     "lucide-react": "^1.34.0",
     "newrelic": "^14.3.9",
-    "next": "16.4.1",
+    "next": "16.4.5",
     "pdfjs-dist": "^6.2.108",
     "pg": "8.23.0",
     "react": "19.2.8",
