@@ -172,7 +172,7 @@ Option A is documentation only. It changes no API, schema, feature id, event, DI
 | Enterprise scope in the enterprise specs directory | Compliant | The operator procedure is specified in the OSS deployment-docs spec; this record holds the decision. Option B would touch OSS for the guard and the enricher, and says so |
 | Required spec sections | Compliant | Overview, Problem Statement, Proposed Solution, Architecture, Data Models and API Contracts present; the last three are "None — documentation only" |
 
-**Verdict:** G5 owns the proposed operator procedure and publishes the `restriction-and-objection` page in Stage 1. No technical implementation is authorized from this record. DEC-14 requires written acceptance of the substitution or shipped technical acceptance evidence before #8593 closes.
+**Verdict:** G5 owns the proposed operator procedure and publishes the `restriction-and-objection` page in Stage 1. No technical implementation is authorized from this record. DEC-14 requires written acceptance of the substitution or shipped technical acceptance evidence before #8593 closes. A technical carrier inventories each covered read, write, automation and disclosure path. Its acceptance exercises permitted preservation and verifies that disallowed processing refuses for the restricted subject while an unrelated control subject remains available.
 
 ## Changelog
 

@@ -155,7 +155,7 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 | Integration coverage | Not applicable to B | No API/UI path; G5 content checks assert the section; A's tests are not delivered because A is not built |
 | Honest limits | Compliant design | The disclosure names OpenCode/MCP, embeddings, text extraction, web research, moderation, agent context and every other route; the G5 inventory guards the listed recognizers and the owner reviews uncovered routes; provider permission is not field minimisation |
 
-**Verdict:** G5 owns the proposed disclosure in DEC-11. DEC-14 requires written upstream acceptance of that substitution or shipped acceptance evidence for the technical requirement before #8593 closes.
+**Verdict:** G5 owns the proposed disclosure in DEC-11. DEC-14 requires written upstream acceptance of that substitution or shipped acceptance evidence for the technical requirement before #8593 closes. A technical carrier inventories the approved model-bound tool-result paths, including supported OpenCode/MCP and direct dispatches in scope. Its acceptance captures actual outbound inputs and distinguishes withheld protected fields from allowed field controls.
 
 ## Changelog
 

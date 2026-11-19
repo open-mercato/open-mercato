@@ -14,7 +14,7 @@ The baseline has auth and MFA events and sign-in/alert proposals. An emitted eve
 
 The staff `auth`, `customer_accounts` and Enterprise `security` mutation owners provide committed receipts for staff and portal logout, password change and reset completion, and each shipped MFA enrollment, removal, reset/recovery and bypass. Include controller-initiated operations and list which MFA methods are shipped before claiming coverage. The authenticated scope comes from the owning operation. Use a stable producer occurrence id. No receipt is based on raw request or event payloads and no delivered notification stands in for proof.
 
-When protection is configured, use an approved transaction-aware optional seam for a durable owner receipt in the same transaction as the operation, or enqueue the receipt through an owner outbox written in that transaction. A committed receipt never depends on the collector being available. A failed operation cannot record successful evidence. Document how logout still clears credentials and safely revokes the session according to its owning contract when the store itself is unavailable. An emergency exception requires owner and maintainer approval under the program compatibility rules and must surface an observable incomplete audit state. Legacy OSS without the Enterprise carrier reports the history as unavailable. Do not silently switch an activated protected collector to a best-effort event.
+When protection is configured, use an approved transaction-aware optional seam for a durable owner receipt in the same transaction as the operation, or enqueue the receipt through an owner outbox written in that transaction. A committed receipt never depends on the collector being available. A covered MFA mutation uses one owner occurrence for G1b and the [G2 signal recovery adapter](2026-11-16-security-event-alerting.md#security-module-events-additive), when the same tenant, organization, operation, occurrence time and failure handling apply. Each required consumer acknowledges its own durable processing independently. Owner cleanup waits for both. A queued notice cannot substitute for an acknowledgement. A failed operation cannot record successful evidence. Document how logout still clears credentials and safely revokes the session according to its owning contract when the store itself is unavailable. An emergency exception requires owner and maintainer approval under the program compatibility rules and must surface an observable incomplete audit state. Legacy OSS without the Enterprise carrier reports the history as unavailable. Do not silently switch an activated protected collector to a best-effort event.
 
 ## Architecture and data models
 
@@ -49,13 +49,17 @@ A state change and receipt in separate transactions can leave permanent audit ga
 
 1. Inventory the real successful operation paths and shipped MFA variants with their owners. Obtain any written edition, route or failure-handling approvals required by the program. Ship the transaction-aware receipt, collection and idempotency before claiming durable coverage.
 2. Deliver the additive migration and restrictive feature. Wire scheduled retention through the D3 base runner, then test default, audited scope, expiry and hold behavior. Test the actual C5 classification, effective bound, durable owner receipt state and C8 reader/exclusion scope, including missing reader or unconsumed receipt evidence. Document the audit and its availability in the G5 breach runbook.
-3. TC-PRIVACY-AUTH-AUDIT-001 drives each applicable staff, portal and MFA operation through its real entry point. Exercise committed receipt with collector failure, duplicate deliveries and refused operations, scoped historical reads and scheduled expiry with current, held and unconsumed evidence preserved. Each integration test creates and cleans up its own tenants, organizations, users, credentials and records. Phase 7 requires all applicable operation families or written upstream disposition naming a narrower scope.
+3. TC-PRIVACY-AUTH-AUDIT-001 drives each applicable staff, portal and MFA operation through its real entry point. Exercise committed receipt with collector failure, duplicate deliveries and refused operations, scoped historical reads and scheduled expiry with current, held and unconsumed evidence preserved. PR-176 verifies the lifecycle consumer with an owner receipt fixture. Repeat with the actual G2 adapter in PR-179A. Interrupt each MFA consumer acknowledgement independently and verify one owner receipt and retention until both settle. Each integration test creates and cleans up its own tenants, organizations, users, credentials and records. Phase 7 requires all applicable operation families or written upstream disposition naming a narrower scope.
 
 ## Final compliance report
 
 Design only. The proposed owner-local seams and Enterprise collector await the program’s approval and delivery gates. G1 and G2 retain their existing coverage and precedence.
 
 ## Changelog
+
+### 2026-11-19
+
+- Share each overlapping MFA owner receipt with G2 through a scoped adapter. Track durable consumer acknowledgements independently.
 
 ### 2026-11-18
 

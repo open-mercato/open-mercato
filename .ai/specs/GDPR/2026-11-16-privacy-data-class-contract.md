@@ -384,15 +384,6 @@ export const privacyModuleDeclarationSchema = z.object({
 }).passthrough()
 export type PrivacyModuleDeclaration = z.infer<typeof privacyModuleDeclarationSchema>
 
-// optional member of the default object, carried by passthrough (R3-2):
-// downstreamCleanup?: PrivacyDownstreamCleanup[]
-export type PrivacyDownstreamCleanup = {
-  id: string
-  sourceEntity: string
-  plan(input: { scope: PrivacyScope; recordIds: string[] }): Promise<{ historyRecords: PrivacyHistoryRecord[] }>
-  run(input: { scope: PrivacyScope; recordIds: string[]; origin: PrivacyErasureOrigin }): Promise<{ pending: number; failed: number }>
-}
-
 export type PrivacyScope = { tenantId: string; organizationId?: string }
 export type PrivacySubjectReference = { kind: string; id: string }
 export type PrivacySubjectIdentifier = { kind: 'email' | 'phone' | 'name'; value: string }
@@ -448,7 +439,7 @@ export type PrivacyDataClassHandler = {
 `validatePrivacySettingBounds` rejects a default below `minimum` and fractional minimums/defaults for integer settings. A missing default means unset, not zero. This validator is added in Phase 7. The envelope is extended with each later optional member schema; validated results are reused by collectors, not reparsed. Before Phase 7, the envelope carries unknown optional members intact.
 
 - **Aliases.** `resolveAliases` and `aliases` are specified under "Aliases" below and ship in Phase 6. Until then the service passes no `aliases`.
-- **Downstream cleanup.** `downstreamCleanup` is the optional member through which a module that keeps copies of another class's records joins a C4 erasure run; its first user is `form_to_deals.deal_projections` with `sourceEntity: 'forms:form_submission'`. `PrivacyHistoryRecord` and `PrivacyErasureOrigin` are C4's types in this same module (R3-14). C4's run owns when `plan` and `run` are awaited and how a non-zero `pending` or `failed` keeps a subject incomplete (erasure spec, The run). The registry carries the member unchanged under R3-2, with no generator special case; C4 validates it when it reads `Module.privacy`. Absence changes nothing.
+- **Downstream cleanup.** The R3-2 registry carries the optional `downstreamCleanup` member unchanged until C4 adds its member validator. The [C4 API contract](2026-11-16-privacy-subject-erasure.md#-api-contracts) is the sole definition of `PrivacyDownstreamCleanup`, its shared types and guarded call shape. Only C4 defines and validates the member. Its first consumer, `form_to_deals.deal_projections`, declares `sourceEntity: 'forms:form_submission'` and requires C4’s guarded contract before registration. An installation without a copier has no downstream cleanup to run.
 
 - **Scope.** `organizationId` absent means every organization in the tenant. Present, it means that organization plus rows that have no organization. There is no `null`: elsewhere in the codebase a null organization means "global rows only", and the contract avoids that ambiguity.
 - **Actions and methods.** A class is called for an action only if it lists the action and its handler has the method. A listed action with no method is reported as failed with `ACTION_NOT_IMPLEMENTED`.
@@ -704,14 +695,14 @@ All changes are additive. Classification from `BACKWARD_COMPATIBILITY.md`:
 | Surface | Section | Rule |
 |---|---|---|
 | `privacy.ts` convention file | §1 | "New convention files may be added." Add a row to the table, as `extension-points.ts` has. Frozen once released |
-| `Module.privacy`, `PrivacyModuleDeclaration`, derived `Module.privacyDataClasses`; optional `downstreamCleanup` and `PrivacyDownstreamCleanup` | §2 | New optional fields; preserve the legacy alias derived from the same object; member validation is shared; C4 consumes the downstream-cleanup member |
+| `Module.privacy`, `PrivacyModuleDeclaration`, derived `Module.privacyDataClasses`; optional `downstreamCleanup` and `PrivacyDownstreamCleanup` | §2 | New optional fields; preserve the legacy alias derived from the same object; C4 alone defines and validates downstream cleanup. C1's registry carries the optional member |
 | `@open-mercato/shared/modules/privacy` | §4 | New path; stable once documented. `packages/shared` uses wildcard exports, so no `package.json` edit |
 | DI keys `authUserPrivacyHandler`, `customerPeoplePrivacyHandler`, `customerAccountUserPrivacyHandler` | §9 | New keys; stable once released. C4 adds `lockSubject`/`eraseSubject` to the handlers and `verifyPortalErasureRequest` to the account-owned `customerAccountUserPrivacyHandler` |
 | `mercato privacy …` | §13 | New commands may be added |
 | Generated registries | §14 | A new optional field; export names unchanged |
 | Export document | — | Carries `documentVersion`; a breaking shape change increments it. `scopeNarrowed` and `notices` are part of unreleased version 1 |
 | `resolveAliases`, `aliases`, `PrivacySubjectAliases`, `providedAliases`, the alias names; `PrivacyLinkedSubject` and account `resolveLinkedPortalSubjects` | §2, §3, §9 | Additive owner methods and common linked-subject envelope; no foreign-kind alias declaration; names stable once released |
-| `privacySubjectService` including C1 `exportSubjects`, `resolveAliases`, `deriveIdentifierSubjectId` and C4 `eraseSubjects`/`resumeErasureRun`/`recordFailedHandoff` (the factory's CLI-only `runErasure` is not on the key); `privacySettingsService`; `privacyExportEvidenceRetentionHandler`; `customerPortalLinkResolver` | §9 | New keys/members, stable once released; one subject-service registration, C4 owns separate portal recovery and retention child recovery; optional internal export budgets leave CLI defaults intact and impose no portal bootstrap dependency |
+| `privacySubjectService` including C1 `exportSubjects`, `resolveAliases`, `deriveIdentifierSubjectId` and C4 `eraseSubjects`/`resumeErasureRun`/`recordFailedHandoff` (the factory's CLI confirmation methods `runErasure` and `resumeErasureRunWithConfirmation` stay private); `privacySettingsService`; `privacyExportEvidenceRetentionHandler`; `customerPortalLinkResolver` | §9 | New keys/members, stable once released; one subject-service registration, C4 owns separate portal recovery and retention child recovery; optional internal export budgets leave CLI defaults intact and impose no portal bootstrap dependency |
 | `@open-mercato/shared/lib/privacy/identifier`, `normalizePhoneDigits` | §4 | New file subpath through existing wildcard exports; stable once released; normalization precedes B1 Phase D |
 | `moduleConfigService.setValue` expected-version option; `createModuleConfigSettingsCounter`; `createPrivacyRetentionSettingsCounter`; `createModuleConfigPrivacyReader`; `createReadOnlyPrivacySettingsService` | §3, §4, §9 | Optional trailing argument preserves existing callers; aggregate/get-only factories use the caller’s read-only manager and tenant scope |
 | `privacy.settings.view`, `privacy.settings.manage`, `privacy.settings.set` | §10, §3 | Additive feature ids and settings command; wildcard-aware checks and safe audit; existing export CLI unaffected |
@@ -1024,3 +1015,5 @@ One stated naming deviation: module id `privacy`, decided by DEC-10. The propose
 - Pinned the byte construction of `deriveLookupPurposeKey`, shared with the search-index keyed tokens; the dispatcher also redacts the non-personal `--reference` for `export`.
 - Settings evidence carries the clear-text related pair `privacy.settings_command` / `privacy.settings.set`, which its expiry selects because `command_id` is encrypted; both evidence sets declare `unmatchedHoldsOptOut: 'forbidden'`.
 - Added the optional `downstreamCleanup` member for C4's erasure run (with `plan`/`run` declared in C4's method syntax, so both specs state one type), C4's `recordFailedHandoff`, CLI-only `runErasure` and `verifyPortalErasureRequest`, the email-change approval digest and fields to the account omit list, and C4's narrowed participant removal.
+
+- 2026-11-19 — Cite the C4-owned guarded downstream-cleanup contract as the single definition used by the registry and its consumers.

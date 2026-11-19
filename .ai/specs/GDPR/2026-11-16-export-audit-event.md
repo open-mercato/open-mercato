@@ -8,7 +8,7 @@ Extends: .ai/specs/GDPR/2026-11-15-gdpr-ready-deployments-program.md
 
 ## 📝 TLDR
 
-Any list in the product can be exported in full — up to a thousand pages — by adding two query parameters. Afterwards nothing says it happened. In the query-engine export branch the access log gets rows for the first page only, marked as an ordinary list read, and those rows are deleted after eight hours. No event is emitted, so nothing can react. **Proposed (future):** with `audit_logs` enabled, every export the server produces attempts one audit entry — who, which kind of record, which format, how many rows — and one event with the same facts. A successful entry is durable; either sink can fail without failing the export, and the failure is reported. The ten routes that build an export without the shared factory, nine in OSS and one in the enterprise package, use the same helper, and a guard test holds every route that hands out a file to a classified list.
+Any list in the product can be exported in full — up to a thousand pages — by adding two query parameters. Afterwards nothing says it happened. In the query-engine export branch the access log gets rows for the first page only, marked as an ordinary list read, and those rows are deleted after eight hours. No event is emitted, so nothing can react. **Proposed (future):** a protected export commits one durable action-log entry and its dispatch receipt before releasing the response. Both use the export occurrence id and hold only trusted actor, scope, kind, format and row count. A scheduled retry recovers a committed receipt after a crash or queue failure. Ten custom routes use the same helper and the classified-route guard.
 
 **Not in this spec:** exports assembled in the browser from rows a list already fetched, which never reach an export route and cannot be told from reading the list; alerting on exports (the enterprise spec); limiting or approving exports; outbound synchronisation runs.
 
@@ -18,7 +18,7 @@ The boundary is the server: an export is a response built by an API route to han
 
 The design has two parts. One shared helper, `exportResponse`, builds the response and records the export as an action-log entry plus an internal persistent event carrying the same generated id; the CRUD factory calls it in both export branches and every custom export route calls it instead of building its own response. A guard test keeps a hand-kept classified list of every route under the repository's module roots that could hand out a file, so a new one is classified when it is written.
 
-Recording is best effort. The entry and the event are independent sinks; a failure or a slow write of either is reported and never fails the export, and with `audit_logs` disabled neither is attempted. Recording is OSS; the only consumer specified so far is the enterprise large-export alert, and one enterprise route adopts the OSS helper. Export entries get a finite lifetime through the dedicated `audit_logs.export_evidence` retention set, which waits for the contract's tenant settings, the erasure spec's `applyRetention` and the record-retention runner before it ships.
+Durable recording is enforced by `OM_EXPORT_AUDIT_POLICY=require`. A compatibility minor initially defaults to `report`, which attempts the same receipt and preserves existing file responses during an audit outage. It emits an explicit incomplete-audit diagnostic and cannot satisfy the production coverage gate. Audit ownership remains OSS and the large-export consumer remains optional. The dedicated `audit_logs.export_evidence` retention set provides finite expiry for settled evidence after its named dependencies ship.
 
 ## 📝 Resolved assumptions (autonomous defaults)
 
@@ -29,7 +29,7 @@ Recording is best effort. The entry and the event are independent sinks; a failu
 | 3 | What counts as an export | A server response whose purpose is to hand a staff user or an API key a file of records: a list, one record, or one person's records. A respondent's copy of their own submission is not one | A small export is still data leaving. The count lets a consumer decide what is large. The respondent receives their own data, and the action log has no actor for a respondent or a holder of a submission token. |
 | 4 | What the entry and event carry | Tenant, organization, actor, resource kind, format, scope, row count, and a generated id. No filters, no content | Filters can contain search text about a person. |
 | 5 | Edition | OSS | It corrects a gap in OSS audit; the consumer is optional. |
-| 6 | Recording guarantee | Best effort, independent sinks; exports succeed if recording fails | An audit outage must not become an outage of reads the caller is already allowed. Each sink failure is logged and reported. This spec claims no guarantee that every completed export has a record. |
+| 6 | Recording guarantee | Require the atomic durable receipt before delivery in protected production. Existing deployments get one minor of report-only compatibility by default. | A queue or collector outage can delay alert evaluation. It cannot remove the committed evidence. A receipt-store failure refuses protected export without handing out the body. |
 | 7 | Raw export event forwarding | Internal event with `excludeFromTriggers: true`, including organization-scoped exports | Metadata must not leave through every organization's webhooks for tenant-wide exports. Enterprise alert forwarding uses its own organization-scoped event. |
 | 8 | Lifetime of export evidence | 365 days, minimum 30; an active hold delays expiry | The program's one age for privacy evidence, as for the subject-export contract's EVIDENCE-AGE. A year leaves time to investigate an export; the floor stops a tenant setting from removing evidence before it can be used. It is a product choice, not a statutory period. No indefinite evidence exemption is claimed. |
 
@@ -69,12 +69,12 @@ One helper in the shared package, `exportResponse`, builds the file response and
 
 The helper:
 
-1. generates the export's id, a UUID;
-2. writes an action-log entry under the command id `audit_logs.export.record`, with resource kind `audit_logs.export`, the export's id as its resource id, the exported kind as its parent resource kind, `parent_resource_id = null` for a list or subject export (and the exported record id for a record export), and the format, scope, count and organization scope in its context — and starts the action-log sink independently of event publication;
-3. independently emits `audit_logs.export.completed` with `{ persistent: true, tenantId, organizationId, skipPersistentSubscribersInline: true }`, carrying the same facts and the export's id, so that a consumer can recognise a redelivery;
-4. waits for the two independently started sink attempts to settle, up to a single five-second recording deadline (`EXPORT_AUDIT_TIMEOUT_MS = 5000`) measured from before either starts, then returns the response. That bound includes taps, inline listeners and queue enqueue in the event path. Report each timed-out sink once using `export_audit_entry_timeout` or `export_audit_event_timeout`. Observe late settlement without a second attempt, unhandled rejection or duplicate failure report. Late completion keeps the original export id in either sink; it never delays the response.
+1. Generate an export UUID after fully preparing the authorized body and validating trusted actor, organization, format and final count. Build and validate the response headers before the receipt call. Keep the body in memory until the delivery decision.
+2. Call the audit-owned `auditExportReceiptService.recordForDelivery(facts)`. In one owner transaction it writes the existing action-log entry under command id `audit_logs.export.record` and resource kind `audit_logs.export`, its encrypted context and a unique `audit_export_dispatches` receipt referencing the entry. Reuse the transaction-aware audit owner writer and roll back both if either fails. The export id is the entry’s resource id. Preserve the parent record only for the authorized single-record case. The same id and immutable facts must match on retry. A conflicting id is an error. Store no body, filters, query values or raw request.
+3. After unique commit is positively confirmed, return the built response. The action-log entry records that the server authorized and released a response, without promising that the client received all bytes. A crash after commit but before response can conservatively leave evidence for an attempted release. It never authorizes a second operation under the same id with different facts.
+4. Use one bounded five-second deadline across recording and exact-id commit reconciliation. With a definite rollback, unavailable owner, missing tenant/scope or an unresolved commit at the deadline, log and report a closed reason and release no export bytes in `require`. Return generic HTTP 503 with code `EXPORT_AUDIT_UNAVAILABLE` via the shared response path. In `report`, return the existing response and record an explicit incomplete-audit result. A late commit preserves its original occurrence id and remains dispatchable. It cannot change a response already withheld. A client retry is a separate authorized request with its own generated id.
 
-The helper first checks that `audit_logs` is enabled in the module registry. If disabled, it attempts neither sink, emits no event, and returns the same response. With the module enabled each sink is attempted independently, including enqueue after an entry failure. A failure of either sink is logged and sent to `reportError` without content or filter values, and does not fail the export. The export's id is generated before both, so the event carries it even when the entry could not be written.
+**Durable dispatch.** The audit owner runs a bounded worker through the existing queue/scheduler conventions and an idempotent schedule registration and upgrade path. It leases pending receipts, revalidates entry/receipt scope and facts, and emits the same internal `audit_logs.export.completed` occurrence after commit with `persistent: true` and `skipPersistentSubscribersInline: true`. Failed or uncertain publish releases/ages out the lease to retry the same id. Normal dispatch accepts possible duplicate transport and uses conditional state changes. A queue success alone cannot prove that an enabled protected alert consumer committed. The Enterprise alert worker also pulls ready receipts through the audit owner’s cursor service, including a receipt already published to the bus, until its durable rule decision acknowledges it. Both paths deduplicate the same occurrence. Mark an alert receipt settled only on the owner-validated acknowledgement after durable evaluation, or when the trusted rule configuration persisted at receipt creation proves no protected consumer was required. Missing or unreadable adapter state never substitutes for that determination. Unknown coverage leaves the receipt pending. Pending receipt rows never expire by age alone. Report bounded aggregate stale-pending and absent-runner counts using closed diagnostic codes and document retry/repair. Do not expose the receiving route or accept consumer acknowledgement from an HTTP caller.
 
 The factory uses it in both export branches, once per response: after the query-engine page loop, or after the fallback's complete list has been prepared. Both count final exported rows after hooks, not the first-page count or requested total. Each route classified as an export below uses it in place of building its own response. The timesheet route keeps its own event as well. The one enterprise route adopts the OSS helper in the same change; nothing enterprise-only is specified here.
 
@@ -99,7 +99,7 @@ A route found by the scan and absent from the list fails the test, so a new rout
 | Detect exports by the attachment header alone | Half the routes that set it are not exports, two exports set none, and types are computed at run time. The header is one trigger for classification instead. |
 | Guard by route name alone | Misses the submission PDF and every export not under an `export` path. |
 | Record the respondent's own copy | The action log has no actor for a respondent or a submission token, and an entry about a person reading their own submission is not an export by staff. |
-| A transactional outbox with a fail-closed response | Every export would depend on audit availability, under a new response contract. See assumption 6. |
+| Turn on fail-closed delivery immediately for existing clients | Existing integrations need the ordinary compatibility minor before their successful download can depend on audit availability. |
 | Require a controller-chosen age before recording | Recording would stay off wherever nobody chose. The 365-day default is finite and a tenant can change it. See assumption 8. |
 
 ### Export-evidence expiry
@@ -118,8 +118,8 @@ OSS operators schedule the record-retention command by the configured deadline; 
 
 ### Capability: export-audit
 
-#### ADDED Requirement: Exports attempt recording
-With `audit_logs` enabled, the system SHALL attempt one durable audit entry and one persistent event enqueue for every export the server produces for a staff user or API key. Each carries actor, record kind, format, scope and row count, with no content. It SHALL report a sink failure and still return the export. With `audit_logs` disabled it attempts neither. This is best effort, not a guarantee that every completed export has a record. Custom export routes are held to the helper by a guard over this repository's module roots; routes outside the repository are recorded only if they call it.
+#### ADDED Requirement: Protected exports require durable recording
+In `require` the system SHALL commit one scoped audit entry and its dispatch receipt before releasing a classified export for a staff user or API key. The worker SHALL retry dispatch failures without changing occurrence identity. The compatibility `report` mode records degradation and does not qualify as protected coverage. Custom routes inside this repository are held to the helper by the source guard, and standalone add-ons must use that helper to claim coverage.
 
 ##### Scenario: Full export
 - WHEN a user exports a list in full
@@ -143,27 +143,27 @@ With `audit_logs` enabled, the system SHALL attempt one durable audit entry and 
 
 ##### Scenario: A portal subject's own copy
 - WHEN the authenticated portal download is present
-- THEN the guard classifies it as a mandatory C1 subject copy. The portal's C1 evidence must complete before an attachment is sent. The route emits no generic best-effort record or event.
+- THEN the guard classifies it as a mandatory C1 subject copy. The portal’s C1 evidence must complete before an attachment is sent. The route uses only the C1 contract and emits no generic export event.
 
 ##### Scenario: An unclassified route
 - WHEN an API route sets an attachment header, lies under an `export` path or reads `exportScope`, and is not in the classified list
 - THEN the guard test fails
 
 ##### Scenario: Recording fails
-- WHEN either sink fails
-- THEN the export still succeeds, that failure is logged and reported, and the other sink is independently attempted
+- WHEN the owner cannot confirm the atomic receipt before the deadline in `require`
+- THEN the caller receives sanitized 503 with no export bytes. A proven rollback leaves neither artifact. In compatibility `report`, the response is unchanged and explicitly counts as unprotected.
 
-##### Scenario: A recording sink stalls
-- WHEN the entry write or event publication has not finished by the shared five-second deadline
-- THEN the helper reports each pending sink timeout, the other attempt has already started independently, and the export returns
+##### Scenario: Publication crashes after the receipt commits
+- WHEN the process dies after the receipt commits or the queue refuses or drops its event
+- THEN the scheduled retry or protected consumer pull sees the same occurrence and evaluation is acknowledged once after commit. An unacknowledged attempt remains pending across restart.
 
 ##### Scenario: An export across several organizations
 - WHEN a user allowed organizations A and B, but not every organization, exports with all organizations selected
 - THEN the entry and event carry a null organization, and the entry's encrypted context records `organizationScope: 'several'` with both ids
 
 ##### Scenario: Audit module disabled
-- WHEN an export completes with `audit_logs` disabled
-- THEN no entry or event is attempted; the large-export alert rule has no signal
+- WHEN a classified route is called with `audit_logs` disabled or its required service missing
+- THEN `require` withholds the file and reports unavailable. Compatibility `report` preserves the response and cannot satisfy the protected gate.
 
 ##### Scenario: Raw export event is internal
 - WHEN a webhook subscribes to `audit_logs.export.completed`, including a tenant-wide export
@@ -184,7 +184,7 @@ Successful export entries SHALL expire through the dedicated set after their con
 
 ## 📝 Architecture
 
-- **`packages/shared/src/lib/crud/export-response.ts`**: the helper and `resolveExportRequestContext`. It resolves the action-log service and the event bus softly from the container.
+- **`packages/shared/src/lib/crud/export-response.ts`**: helper and `resolveExportRequestContext`. It resolves the narrow `auditExportReceiptService` DI seam. It does not write audit tables or enqueue from the HTTP path.
 - **`packages/shared/src/lib/crud/factory.ts`**: both export branches.
 - **`audit_logs/events.ts`**: new; declares the internal event with `excludeFromTriggers: true`. Generators are re-run.
 - **The ten export routes**: use the helper. Nine are in OSS packages; the agent eval-case export is in `packages/enterprise`.
@@ -193,17 +193,17 @@ Successful export entries SHALL expire through the dedicated set after their con
 
 | Touchpoint | Mechanism | Absent |
 |---|---|---|
-| Helper → action log and event | `actionLogService` and the bus by DI key | Audit module disabled: neither; the export is unaffected |
-| Consumers | Subscribe to the event; the enterprise alerting spec is the first | Nobody listens |
+| Helper → audit owner | `auditExportReceiptService.recordForDelivery` | Protected mode withholds without durable confirmation. Report mode exposes incomplete audit. |
+| Protected consumer → audit owner | Scoped receipt reads and owner-validated stable acknowledgement after durable processing. Event is a wake-up signal. | A disabled or absent consumer is observable and cannot claim alert coverage. |
 
 ## 📝 Data Models
 
-None. One new `resource_kind` value in the action log.
+Add `audit_export_dispatches`, with `id` (export UUID), tenant and nullable organization, unique owner audit entry reference, created timestamp, lease/version and bounded attempt state, publication/alert acknowledgement timestamps, and the immutable protected-consumer requirement from trusted configuration. The audit owner validates exact scope and occurrence id on write, lease and acknowledgement. The existing encrypted action-log entry owns event facts. Classify receipt rows in C5 as runtime state with an owner scan/cleanup contract and a C8 runtime-state exclusion. Use the exact tenant resource-kind scope throughout. Terminal dispatch rows follow the action-log retention policy and holds. The export evidence handler keeps the tenant set while any eligible evidence is unresolved and removes eligible settled receipt and entry in an audit-owned transaction. No routine history delete or cascade can remove a pending receipt. If the existing generic action-log deletion helper cannot preserve that fence, the audit owner implements a dedicated narrow grouped expiry method with the same exact kind/cutoff/guard and atomicity.
 
 ## 📝 API Contracts
 
 - **Event** `audit_logs.export.completed` — `{ id, tenantId, organizationId: string | null, actorKind: 'user' | 'api_key', actorUserId?, apiKeyId?, resourceKind, format, scope: 'view' | 'full' | 'record' | 'subject', rowCount, occurredAt }`, emitted with `{ persistent: true, tenantId, organizationId, skipPersistentSubscribersInline: true }` and declared `excludeFromTriggers: true`. Internal subscribers receive it; webhooks and workflow triggers do not. `organizationId` is the one organization the export's effective filter covers, or null when it covers every organization or several. `id` is the export's generated id and the entry's resource id. Additive; frozen once released. The scope values were checked against the factory, whose exports are `view` and `full` (`factory.ts:1706-1708, 1930-1939`).
-- **`exportResponse(container, input)`** from `@open-mercato/shared/lib/crud/export-response`. New input contract below; zod validates facts, UUID scope, nonnegative integer count and the actor discriminant. It accepts only the route's trusted resolved context, never a client-populated actor or scope object. `auth.keyId` selects `actorKind: api_key` and `apiKeyId`; otherwise `auth.sub` selects `user` and `actorUserId`. `resourceId` is always the generated export UUID. The helper maps the trusted actor to the action-log service's existing actor fields; the context preserves the typed actor facts when the actor is a key. List and subject exports set `parentResourceId` to null; record exports pass only an already authorized record id. Additive.
+- **`exportResponse(container, input)`** from `@open-mercato/shared/lib/crud/export-response`. New input contract below; zod validates facts, UUID scope, nonnegative integer count and the actor discriminant. It accepts only the route's trusted resolved context, never a client-populated actor or scope object. `auth.keyId` selects `actorKind: api_key` and `apiKeyId`; otherwise `auth.sub` selects `user` and `actorUserId`. `resourceId` is always the generated export UUID. The helper maps the trusted actor to the action-log service's existing actor fields; the context preserves the typed actor facts when the actor is a key. List and subject exports set `parentResourceId` to null; record exports pass only an already authorized record id. Additive. Contract outcome in protected mode: only a positively confirmed receipt permits the requested success response. Sanitized 503 uses the project error envelope and translated message. The audit owner’s internal `recordForDelivery`, cursor reads of pending occurrences and receipt acknowledgement accept trusted exact scoped inputs. Acknowledgement is idempotent by occurrence id and consumer identity. It follows commit of the consumer decision, rejects changed tenant/organization/id and requires a registered consumer adapter. No public append/ack API ships.
 
 ```ts
 type ExportFacts = {
@@ -224,12 +224,12 @@ The body is fully built before the call; zod rejects a `ReadableStream` or any o
 |---|---|
 | The export fails part-way | Nothing is recorded if the body cannot be built; recording happens once the response body is fully built, and a transport abort after that is not detected |
 | A route passes a streaming body | zod refuses it before anything is recorded; exports hand the helper a built body |
-| The action-log write or event path stalls | The other sink is already in progress. After the common deadline, the response returns and the pending sink is reported. Late completion retains the original occurrence id |
+| Receipt transaction stalls | The single recording deadline applies. The protected route withholds the file unless exact-id commit is proved. Late committed receipts remain dispatchable. |
 | An export whose filter covers several organizations but not all | Null organization on the entry and event; the encrypted context records `organizationScope: 'several'` and the ids. The alert consumer treats it as tenant-wide |
 | An export by an API key | `actorKind` is `api_key` and the actor is the key |
 | A client that pages by hand through JSON, or a table exported in the browser | Not an export to the server; stated as a limit |
-| The entry cannot be written or the event enqueue fails | Each failure logged and reported; the other sink still attempted; response unaffected |
-| Audit module disabled | No entry and no event, even if a bus is present; export alerts have no source |
+| Entry or receipt cannot be written, or dispatch fails after commit | A pre-delivery failure withholds in require and reports in both modes. A post-commit dispatch failure keeps the pending receipt and retries the same id. |
+| Audit module disabled | Protected export returns 503 without attachment. Report mode exposes unprotected export behavior and the alert rule is unavailable. |
 | Tenant-wide export with no organization | Entry retains its trusted null organization with `organizationScope: 'all'`; the trigger-excluded event reaches internal subscribers only |
 | A document or a single record | Recorded with scope "record" and a count of one |
 | A filtered export of many pages | Recorded once with scope "view" and the number of rows sent, never as a page |
@@ -242,27 +242,28 @@ The body is fully built before the call; zod rejects a `ReadableStream` or any o
 
 ## 📝 Migration & Backward Compatibility
 
-Additive: an event, a helper, a resource kind, a new `events.ts`. With the audit module enabled, the action log attempts one entry per export. The ten routes keep their paths, parameters, file formats and headers. Existing responses are not made dependent on audit availability. The new event is excluded from triggers from first release, and persistent alert subscribers stay queued even with single delivery off; no existing event contract changes. Audit disablement and enqueue failures limit large-export detection, and are documented with the consumer. The optional setting/set declarations and audit-owned expiry handler are additive; only new `audit_logs.export` evidence is affected by the 365-day finite-age default of assumption 8, once the named prerequisites ship. General-history exclusions stay in force.
+The helper, event, owner receipt table, metadata and policy are additive. Existing paths, successful output and headers stay stable. Audit-dependent 503 is a behavior change for existing callers. Ship one release minor with `OM_EXPORT_AUDIT_POLICY=report` when unset, documented opt-in `require` and explicit diagnostics. After the compatibility minor and acceptance in both modes, flip unset production to `require` in a separate approved default change. Keep explicit deprecated `report` and document that it is unprotected. Ordinary migration and release notes explain audit availability, safe retry and disabled-module remediation. No Emergency Security Exception is pre-authorized. The event retains its id/payload and trigger exclusion from first release. The new evidence expiry preserves pending receipts and existing C1 evidence.
 
 ## 📋 Implementation Plan
 
 1. **Characterize** that a query-engine multi-page export leaves access-log rows for the first page only and nothing else. Commit alone.
-2. Add `exportResponse` and `resolveExportRequestContext` with named suite `export-response.test.ts`: both sinks; either failing, with the event still carrying the export's id; both sinks independently started before waiting; stalled database write, event tap and queue enqueue each bounded by the same deadline, including when both stall; assert timeout codes, response returned, and late success or rejection uses the original occurrence id without a retry or duplicate report; a `ReadableStream` body refused before either sink; one, several and all organizations mapped to the organization id and `organizationScope`, and a custom-route context that never falls back to the home `auth.orgId`; the skip-inline emit options with single delivery off; trigger exclusion; no content; trusted auth/scope and parent id mapping; disabled audit module; each scope; no attachment header without a file name.
+2. Add the owner transaction, receipt schema/migration/snapshot and resumption worker, and the shared `exportResponse`/context adapters. Unit tests prove atomic action-log/receipt rollback, no release before commit proof, unavailable owner, timeout with delayed commit, conflicting duplicate occurrence, queue rejection and crash/restart retry, no streams or protected bytes on refusal, one/several/all scopes, trusted actor/parent mapping, safe no-content facts and unchanged successful headers. Add scoped C5/C8 declarations in the owner’s change.
 3. Use it in the factory's two branches. `factory-export-audit.test.ts`, with a small configured batch, for `view` scope with filters and `full` scope, each across several pages, and for a non-export response; assert all full-export aliases use `exportFullRequested`. Add a user allowed two of three organizations who selects all (null organization, `organizationScope: 'several'` with both ids), one selected organization, and an unrestricted user (`'all'`).
 4. Add `audit_logs/events.ts`; run the generators.
 5. Move each of the ten routes to the helper, one step per module: `entities`; `audit_logs`; `staff`; `forms`, its two exports and the staff PDF; `packages/documents`; `eudr`, the annual report and the statement packet; `agent_orchestrator` in `packages/enterprise`. One unit test per route, asserting its scope and unchanged response, plus the matching table-driven integration case TC-AUD-EXPORT-002 below. Each case observes the actual event in the test queue and the audit entry, rather than only mocking the helper.
 6. The guard test with its classified list: exports, the own copy, mandatory C1 subject copies, plain downloads and the factory route, scanning the package, app, create-app template and present official-module roots. Unit tests that an unlisted route found by each trigger fails it under each root, that an absent official-module checkout is skipped rather than failed, and that a listed export without the helper fails it. The audit page's filter and its i18n keys; do not change default action-type filters. Check that the portal class uses the C1 operation and refuses use of the generic helper when the portal route exists. TC-PORTAL-PRIVACY-002 exercises the C1 success and audit failure paths.
-7. Integration tests TC-AUD-EXPORT-001 and TC-AUD-EXPORT-002 (enterprise eval export case runs in the enterprise environment); the audit-logs docs page; the dated entry.
-8. Add the evidence-expiry setting, set, DI handler and docs after their named prerequisites, including the record-retention owner's shared aggregate writer and `retentionEvidenceSummary.test.ts` in step 7. `exportEvidenceRetention.test.ts`: exact kind and cutoff mapping to DEC-B, helper `scope: 'subject'` entries expiring with the set while C1 `privacy.subject_export` / `privacy.subject_export_request` entries are untouched, the `unmatchedHoldsOptOut: 'forbidden'` declaration, current setting minimum, version-change refusal, dry-run/keyset batches of at most 100, old/recent/foreign-kind and foreign-tenant entries, whole-entry removal of actor/resource/parent/related/context, any subject hold even under engine opt-out, guard failure/release, active replay incomplete then successful retry, declaration-selected `PrivacyRetentionAggregateSummary` only and null-tenant evidence reported outside this set. Add TC-AUD-EXPORT-003. The feature ships with this expiry path and operator scheduling instructions; it never claims a running job from a declaration alone.
+7. At PR-088 run TC-AUD-EXPORT-001, 002 and the owner-local part of 004 with explicit policy modes. Verify receipt-before-response, outbox recovery and degraded report mode. Ship the audit docs and the dated compatibility entry. PR-179 exercises consumer pull and acknowledgement with explicit protected mode. PR-179A verifies the unset production default after the bridge.
+8. Add the evidence-expiry setting, set, DI handler and docs after their named prerequisites, including the record-retention owner's shared aggregate writer and `retentionEvidenceSummary.test.ts` in step 7. `exportEvidenceRetention.test.ts`: exact kind and cutoff mapping to DEC-B, helper `scope: 'subject'` entries expiring with the set while C1 `privacy.subject_export` / `privacy.subject_export_request` entries are untouched, the `unmatchedHoldsOptOut: 'forbidden'` declaration, current setting minimum, version-change refusal, dry-run/keyset batches of at most 100, old/recent/foreign-kind and foreign-tenant entries, whole-entry removal of actor/resource/parent/related/context, any subject hold even under engine opt-out, guard failure/release, active replay incomplete then successful retry, declaration-selected `PrivacyRetentionAggregateSummary` only and null-tenant evidence reported outside this set. Add TC-AUD-EXPORT-003. The feature ships with this expiry path and operator scheduling instructions; it never claims a running job from a declaration alone. Also cover expiry retaining unresolved dispatch and atomic settled receipt/entry expiry under the same scoped hold checks.
 9. Archive this Delta into `.ai/specs/capabilities/export-audit.md` if that directory has been adopted by then.
 
 | File | Action |
 |---|---|
 | `packages/shared/src/lib/crud/{export-response.ts,factory.ts}` and tests | Create / modify |
 | `packages/core/src/modules/audit_logs/{events.ts,privacy.ts,di.ts,lib/exportEvidenceRetention.ts}` and audit-page filter component/i18n files | Create / modify |
+| Audit owner receipt entity/migration/snapshot, receipt service, dispatch worker/schedule and tests under `audit_logs` | Create |
 | The ten export routes in `entities`, `audit_logs`, `staff`, `forms`, `eudr`, `packages/documents` and `packages/enterprise/src/modules/agent_orchestrator/api/eval-cases/export/route.ts` | Modify |
 | `packages/core/src/__tests__/export-route-coverage.test.ts` | Create |
-| `packages/core/src/modules/audit_logs/__integration__/TC-AUD-EXPORT-00{1,2,3}.spec.ts` | Create |
+| `packages/core/src/modules/audit_logs/__integration__/TC-AUD-EXPORT-00{1,2,3,4}.spec.ts` | Create |
 
 ## 🧪 Integration Coverage
 
@@ -273,6 +274,7 @@ Tests own disposable tenants/organizations, users, API keys, data and generated 
 | TC-AUD-EXPORT-001 | Factory list full CSV and filtered view export, event capture plus `GET /api/audit_logs/audit-logs/actions`, full aliases, exact counts and user actor. Ordinary list read adds neither. Exercise the audit-page export filter in the browser. An API-key-authenticated export verifies `api_key` actor mapping |
 | TC-AUD-EXPORT-002 | Table-driven custom-route cases below, one case for every changed API path; each owns its prerequisites and asserts the real entry and event plus unchanged response headers |
 | TC-AUD-EXPORT-003 | Create own export entries through the helper and backdate only owned fixtures; set the tenant age, preview then apply `audit_logs.export_evidence` through the command, and verify old evidence gone, including an old helper entry with `scope: 'subject'` from the forms subject export, and recent/other-tenant evidence kept. A separate C1 fixture, an old `privacy.subject_export` entry written by `exportSubjects`, survives this set unchanged. Use distinct caller actor/reference/export/subject markers; preview writes no summary, and apply's only run evidence uses exactly `PrivacyRetentionAggregateSummary`, the validated set id as resource id and null actor/parent/related fields, with every marker absent from all persisted audit fields and no competing identifying run entry. Enterprise profile creates an own subject hold through the DSR API: apply skips; release then apply expires the old row. Remove holds, settings, fixture rows and summaries in `finally` |
+| TC-AUD-EXPORT-004 | PR-088 exercises real factory and custom-route receipt-first responses and the owner worker in explicit report and require modes. Inject receipt insert failure, commit timeout, absent audit owner and restart after commit before enqueue. Assert no protected attachment without a proved receipt and one recoverable occurrence on success. PR-179 injects lost transport and duplicate wake-up with the real G2 consumer. PR-179A verifies the unset production policy after the bridge. |
 
 | TC-AUD-EXPORT-002 case | Path | Own fixture and expected scope/count |
 |---|---|---|
@@ -288,7 +290,7 @@ Tests own disposable tenants/organizations, users, API keys, data and generated 
 | Approved eval cases | `/api/agent_orchestrator/eval-cases/export` | Enterprise fixture agent and approved cases; `view`; count of cases; JSON keeps its lack of attachment header |
 | DSR subject export | `/api/data_erasure/subjects/export` | Enterprise profile, after the DSR engine's Phase 2: own person with records and a tenant-wide administrator; `subject`; count of exported records; null organization with `organizationScope: 'all'`; download header kept |
 
-The respondent public submission PDF and one classified plain download have negative cases: neither produces an entry or event. Both tests drain/capture the queue before and after the request to avoid attributing fixture events to the export, and unregister the capture in teardown. A disabled-audit test app profile verifies a successful export emits neither sink; sink-failure injection remains in unit tests.
+The respondent public submission PDF and one classified plain download have negative cases: neither produces an entry or event. Both tests drain/capture the queue before and after the request to avoid attributing fixture events to the export, and unregister the capture in teardown. The disabled-audit profiles and fault cases run in TC-AUD-EXPORT-004 for both modes.
 
 The dedicated expiry has no new API path; its command case runs after the settings and retention prerequisites. Null-tenant rows and event copies are outside that test's claim.
 
@@ -311,11 +313,11 @@ Counting across several pages is unit-tested: the batch size cannot be set by a 
 - **Residual risk**: A route that hands out records as a plain JSON body, under no `export` path and without an attachment header, and every export assembled in the browser. A route misclassified as a plain download is caught only in review. Custom routes in a standalone app or an official module that is not checked out are outside the guard.
 
 #### Export evidence is missing
-- **Scenario**: The audit module is disabled, a log write fails, or event enqueue fails after a successful export.
+- **Scenario**: The audit owner is unavailable before release, or dispatch fails after a durable receipt commits.
 - **Severity**: High
 - **Affected area**: audit evidence and large-export alerting
-- **Mitigation**: Independent sink attempts, structured logging and `reportError`; rule shown unavailable with the audit module off; docs state the best-effort guarantee.
-- **Residual risk**: Both sinks may be absent, and a successful entry without an event does not trigger the alert rule. No outbox or recovery guarantee is claimed.
+- **Mitigation**: Receipt-first release, scheduled recovery, idempotent consumer acknowledgement and visible pending age. The pre-delivery transaction supplies durable evidence before a queued notification is possible.
+- **Residual risk**: Report mode permits unprotected compatibility responses. Protected mode can decline an otherwise authorized export during audit outage. A consumer outage delays alerts and keeps receipts pending without changing committed evidence.
 
 #### The audit page fills with export entries
 - **Scenario**: An integration exports a list every minute.
@@ -332,7 +334,7 @@ Counting across several pages is unit-tested: the batch size cannot be set by a 
 |---|---|---|
 | Event ids: module, singular entity, past tense | Compliant | `audit_logs.export.completed` |
 | Additive contract change | Compliant | One event, one helper |
-| A catch that records an error also reports it | Compliant | Both sinks |
+| A catch that records an error also reports it | Compliant | Receipt, timeout and dispatch failures |
 | Tenant scoping | Compliant | The scope comes from the request |
 | Integration coverage | Compliant | Three suites: factory entry/event and audit-filter UI; table-driven entry/event cases for all ten custom routes plus the DSR subject export once it ships; dedicated expiry command and holds; unit tests for sink failures and multi-page counting; classification guard |
 | Enterprise scope in the OSS specs directory | Compliant | One enterprise route adopts the OSS helper; nothing enterprise-only is specified |
@@ -340,6 +342,10 @@ Counting across several pages is unit-tested: the batch size cannot be set by a 
 **Verdict:** design ready, subject to the settings, retention, erasure and scheduling prerequisites. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval.
 
 ## Changelog
+
+### 2026-11-19
+
+- Supersede independent best-effort recording with an atomic release receipt, recoverable dispatch and protected-mode activation following an ordinary compatibility minor.
 
 ### 2026-11-18 — Follow-up review
 

@@ -367,7 +367,7 @@ type GmailHistorySyncJobPayload = {
 }
 ```
 
-The merged program's Track B/B6 row, API Contracts and Phase 3 step 3 now preserve persistent event fields, use the N/N+1/N+2 address-job bridge and cite this expanded module-owned queue inventory, its Delay bounds table, `payload-status`'s oldest stored job per queue and state, and the id-based no-op rule. Its Known limits now records the actual failed-age lifecycle, and its final gate consumes G6's retained-copy evidence. Its carrier approval gate and closing step disclose assumption 8's retained queue copies, with no subject purge. Do not restore the earlier “three content queues” count or treat storage-time sealing as backlog migration.
+The merged program's Track B/B6 row, API Contracts and Phase 3 step 3 now preserve persistent event fields, use the N/N+1/N+2 address-job bridge and cite this expanded module-owned queue inventory, its Delay bounds table, `payload-status`'s oldest stored job per queue and state, and the id-based no-op rule. Its Known limits now records the actual failed-age lifecycle, and its final gate consumes G6's retained-copy evidence. Its carrier approval gate records assumption 8's retained copies. B6 ships no subject purge. TC-QUEUE-ERASURE-001 and G6 TC-011 prove the retained-copy lifecycle and cannot establish DEC-15 closure while required copies or late-delivery behavior are unresolved. Queue-owner absence and replay/redelivery evidence for that scope, or written upstream acceptance of the exact narrower result on #8593, is required for PR-197. Do not restore the earlier “three content queues” count or treat storage-time sealing as backlog migration.
 
 ## 📝 Edge Cases & Failure Scenarios
 
@@ -549,6 +549,10 @@ Reviewed root/spec rules, queue/worker contract, shared module and dependency bo
 **Verdict:** design settled. Under program DEC-2, work proposed for OSS requires written upstream maintainer approval naming the carrier before implementation. An independent security fix may proceed on its own named, explicitly approved carrier. The design verdict and ordinary PR review do not grant that approval. Sealing uses an explicit, validated `QUEUE_PAYLOAD_ENCRYPTION_KEY` (assumption 2); queue copies left after an erasure are disclosed, not purged (assumption 8); a sealing-on enqueue before readiness throws `SealedQueueRegistryNotReadyError` (R5-5). The merged program, erasure and verification specs carry the inventory/rollout and retained-copy evidence. Implementation requires the distinct stored-copy and index-drain evidence.
 
 ## Changelog
+
+### 2026-11-19
+
+- Separate B6 retained-copy acceptance from DEC-15 program closure.
 
 ### 2026-11-18 — Follow-up review
 

@@ -152,7 +152,7 @@ No database table or user-editable entity. Meilisearch documents gain the intern
 | Default/related maps excluded under the opt-in | Defect fix with documented fail-safe over-exclusion; source encryption stays unchanged |
 | Shared driver and resolver factory | Additive helper; preserve both exported resolver/config signatures and singleton opt-out |
 | `encryptionMapEntityIds`, optional inspection and status command | Additive contracts; no required fields removed |
-| Exclusion on by default | Ordinary protocol: announce in the bridge minor, flip in the next, explicit false honored; not backported to a patch line |
+| Exclusion on by default | Use the ordinary protocol for the mainline default. Announce in the bridge minor, flip in the next and honor explicit false. DEC-16 keeps the requested release-line protection open pending a tested compatible carrier or written release-maintainer disposition. |
 | Existing plaintext documents | Required full-tenant API rebuild after the last old writer, then provider status scan; no configuration-only success claim |
 | Reindex by a restricted caller | Defect fix: the route no longer recreates the whole tenant index for a caller limited to some organizations; it preserves the existing scoped purge and rebuilds only that caller's authorized organizations, one reindex call per organization in `filterIds`. Additive `privacyRebuild` response field; documented in `UPGRADE_NOTES.md` |
 
@@ -239,7 +239,7 @@ No database table or user-editable entity. Meilisearch documents gain the intern
 
 | Rule | Status | Notes |
 |---|---|---|
-| Behaviour-changing default follows the protocol | Compliant | Ordinary protocol (DEC-5): flip one minor later, explicit false honoured, no backport |
+| Behaviour-changing default follows the protocol | Compliant | Ordinary protocol (DEC-5) governs the mainline flip and explicit false. DEC-16 separately gates the requested release-line outcome. |
 | Additive contract change | Specified | Named optional config/inspection members and live factory; old resolver and config signatures preserved |
 | No encryption policy kept across units of work | Compliant | The resolver reads the map per call and keeps the all-scope union |
 | Integration coverage | Specified | Named Meilisearch test service (CI change behind maintainer approval), real DI, raw stored documents and exact identity coverage across organizations, full-tenant rebuild, restricted-scope rebuild, search API and key UI paths |
