@@ -97,7 +97,8 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
+import { parseLocaleDecimal, parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
+import { addDecimals, decimalToString } from '@open-mercato/shared/lib/decimal'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -252,6 +253,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'checkbox'
     | 'select'
     | 'number'
+    | 'decimal'
     | 'date'
     | 'datepicker'
     | 'datetime-local'
@@ -4102,13 +4104,13 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
                   <SortableContext items={col1Sortable.map(({ id }) => id)} strategy={verticalListSortingStrategy}>
-                    <div className={densityStackMd}>{col1Content}</div>
+                    <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className={densityStackMd}>{col1Content}</div>
+                <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className={`min-w-0 ${densityStackMd}`} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
@@ -4416,15 +4418,17 @@ function NumberInput({
   placeholder,
   autoFocus,
   onSubmit,
+  exact = false,
   disabled,
   readOnly,
 }: {
   id?: string
   value: number | string | null | undefined
-  onChange: (v: number | undefined) => void
+  onChange: (v: number | string | undefined) => void
   placeholder?: string
   autoFocus?: boolean
   onSubmit?: () => void
+  exact?: boolean
   disabled?: boolean
   readOnly?: boolean
 }) {
@@ -4439,11 +4443,11 @@ function NumberInput({
   // Users type the separator the surrounding UI displays, which follows the application
   // locale — `110,70` under Polish. `Number()` only ever accepted `.` (issue #5552).
   const parse = React.useCallback(
-    (raw: string): number | undefined => {
+    (raw: string): number | string | undefined => {
       if (raw === '') return undefined
-      return parseLocaleNumber(raw, locale) ?? undefined
+      return (exact ? parseLocaleDecimal(raw, locale) : parseLocaleNumber(raw, locale)) ?? undefined
     },
-    [locale],
+    [exact, locale],
   )
   const commitIfChanged = React.useCallback(() => {
     if (local === serializedValue) return
@@ -4477,14 +4481,17 @@ function NumberInput({
       // Binary floating point puts 8.2 - 1 at 7.199999999999999; the native spinner
       // re-serialized against the step rather than committing that to form state.
       const base = parse(local) ?? 0
-      const stepped = Number((base + (e.key === 'ArrowUp' ? 1 : -1)).toFixed(10))
+      const step = e.key === 'ArrowUp' ? 1 : -1
+      const stepped = exact
+        ? decimalToString(addDecimals(base, step))
+        : Number((Number(base) + step).toFixed(10))
       // The box must keep showing the separator the rest of the UI displays, which is
       // the application locale's — not the dot String() always emits (issue #5552).
       const { decimal } = resolveLocaleNumberSeparators(locale)
       setLocal(decimal === '.' ? String(stepped) : String(stepped).replace('.', decimal))
       onChange(stepped)
     }
-  }, [commitIfChanged, local, locale, onChange, onSubmit, parse])
+  }, [commitIfChanged, exact, local, locale, onChange, onSubmit, parse])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -4710,7 +4717,8 @@ function supportsWrapperBlurValidation(field: CrudField): boolean {
     field.type === 'textarea' ||
     field.type === 'checkbox' ||
     field.type === 'select' ||
-    field.type === 'number'
+    field.type === 'number' ||
+    field.type === 'decimal'
   )
 }
 
@@ -4871,6 +4879,7 @@ const FieldControl = React.memo(function FieldControlImpl({
     field.type === 'text' ||
     field.type === 'password' ||
     field.type === 'number' ||
+    field.type === 'decimal' ||
     field.type === 'textarea' ||
     field.type === 'combobox' ||
     (field.type === 'select' && !builtin?.multiple)
@@ -4926,7 +4935,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           inputType="password"
         />
       )}
-      {field.type === 'number' && (
+      {(field.type === 'number' || field.type === 'decimal') && (
         <NumberInput
           id={controlId}
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
@@ -4934,6 +4943,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={fieldSetValue}
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
+          exact={field.type === 'decimal'}
           disabled={disabled}
           readOnly={readOnly}
         />

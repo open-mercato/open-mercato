@@ -8,7 +8,9 @@ import {
   composeToolOverrideMap,
   type AiToolOverrideConfigEntry,
 } from './ai-overrides'
-import type { McpToolDefinition, McpToolContext } from './types'
+import type { AiToolDefinition, McpToolDefinition, McpToolContext } from './types'
+import type { AiAgentDefinition } from './ai-agent-definition'
+import { getAgent, listAgents, loadAgentRegistry } from './agent-registry'
 import { ToolSearchService } from './tool-search'
 import {
   findGeneratedFile,
@@ -237,6 +239,85 @@ export async function loadGeneratedModuleAiTools(): Promise<number> {
   }
 }
 
+const DEFAULT_AGENT_TOOL_INPUT_SCHEMA = z.object({ input: z.string().min(1).max(8000) })
+
+function defaultAgentToolPrompt(input: unknown): string {
+  return (input as z.infer<typeof DEFAULT_AGENT_TOOL_INPUT_SCHEMA>).input
+}
+
+async function synthesizeAgentTool(agent: AiAgentDefinition): Promise<boolean> {
+  const mcpTool = agent.mcpTool
+  if (!mcpTool) return false
+  const toolName = mcpTool.name ?? `${agent.id}.run`
+  if (agent.executionMode !== 'object') {
+    logger.error('Rejected agent mcpTool: the agent is not an object-mode agent', { agentId: agent.id, toolName })
+    return false
+  }
+  if (!agent.output) {
+    logger.error('Rejected agent mcpTool: the agent declares no output schema', { agentId: agent.id, toolName })
+    return false
+  }
+  const { defineAgentTool, isAgentToolFeatureSuperset } = await import('./agent-tool')
+  if (mcpTool.requiredFeatures && !isAgentToolFeatureSuperset(mcpTool.requiredFeatures, agent.requiredFeatures)) {
+    logger.error('Rejected agent mcpTool: requiredFeatures must cover every feature the agent requires', {
+      agentId: agent.id,
+      toolName,
+    })
+    return false
+  }
+  if (toolRegistry.getTool(toolName)) {
+    logger.error('Rejected agent mcpTool: a tool with this name is already registered', { agentId: agent.id, toolName })
+    return false
+  }
+  const usesDefaultInput = !mcpTool.inputSchema
+  const tool = defineAgentTool({
+    name: toolName,
+    description: mcpTool.description ?? (agent.description || agent.label),
+    agentId: agent.id,
+    inputSchema: mcpTool.inputSchema ?? DEFAULT_AGENT_TOOL_INPUT_SCHEMA,
+    outputSchema: agent.output.schema,
+    toPrompt: mcpTool.toPrompt ?? (usesDefaultInput ? defaultAgentToolPrompt : undefined),
+    requiredFeatures: mcpTool.requiredFeatures ?? agent.requiredFeatures,
+  })
+  tool.tags = ['agent', agent.moduleId]
+  if (mcpTool.expose !== undefined) {
+    tool.mcp = { ...tool.mcp, expose: mcpTool.expose }
+  }
+  registerMcpTool(tool as McpToolDefinition, { moduleId: agent.moduleId })
+  return true
+}
+
+function materializeAgentToolFeatures(): void {
+  for (const registered of toolRegistry.getTools().values()) {
+    const tool = registered as AiToolDefinition
+    if (!tool.agentRef || tool.requiredFeatures !== undefined) continue
+    const agentFeatures = getAgent(tool.agentRef.agentId)?.requiredFeatures
+    if (agentFeatures) tool.requiredFeatures = [...agentFeatures]
+  }
+}
+
+/**
+ * Load the agent registry, register one tool per agent that declares
+ * `mcpTool`, and give every agent tool without explicit `requiredFeatures`
+ * its agent's features so `tools/list` filtering is deterministic. Agent
+ * ids unknown to the registry (owned by a dispatcher) keep what they declared.
+ *
+ * Returns the number of synthesized tools.
+ */
+export async function registerAgentTools(): Promise<number> {
+  await loadAgentRegistry()
+  let synthesized = 0
+  for (const agent of listAgents()) {
+    try {
+      if (await synthesizeAgentTool(agent)) synthesized += 1
+    } catch (error) {
+      logger.error('Could not synthesize agent tool', { agentId: agent.id, err: error })
+    }
+  }
+  materializeAgentToolFeatures()
+  return synthesized
+}
+
 /**
  * Dynamically load tools from known module paths.
  * This is called during MCP server startup.
@@ -268,7 +349,16 @@ async function loadAllModuleToolsUncached(): Promise<void> {
     logger.error('Could not load module AI tools', { err: error })
   }
 
-  // 4. Register the API route manifest so API-backed module tools can run.
+  // 4. Synthesize agent tools from `mcpTool` declarations and give agent
+  // tools their agent's feature gate.
+  try {
+    const agentToolCount = await registerAgentTools()
+    logger.info('Registered agent tools', { toolCount: agentToolCount })
+  } catch (error) {
+    logger.error('Could not register agent tools', { err: error })
+  }
+
+  // 5. Register the API route manifest so API-backed module tools can run.
   // Their handlers delegate to createAiApiOperationRunner, which fails closed
   // with "No API route manifest registered" outside the Next.js bootstrap.
   try {
