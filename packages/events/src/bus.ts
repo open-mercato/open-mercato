@@ -1,5 +1,6 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
+import type { ScopedResolveContainer } from '@open-mercato/shared/lib/di/scopedContainer'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from './single-delivery'
@@ -441,6 +442,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             },
             () => subscriber.handler(payload, {
               resolve: opts.resolve,
+              container: opts.container,
               eventName: event,
               tenantId: options?.tenantId ?? null,
               organizationId: options?.organizationId ?? null,
@@ -515,6 +517,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions,
     resolve?: <T = unknown>(name: string) => T,
+    container?: ScopedResolveContainer,
   ): Promise<QueuedDispatchResult[]> {
     const subscribers = selectQueuedSubscribers(event)
     if (subscribers.length === 0) {
@@ -522,6 +525,10 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     }
 
     const resolver = resolve ?? opts.resolve
+    // Same reasoning as `resolver` above: prefer the caller's own per-job
+    // container (the events worker passes `ctx.container`) over the bus's own,
+    // since under `OM_BOOTSTRAP_CACHE` those can diverge.
+    const containerOverride = container ?? opts.container
 
     const settled = await Promise.allSettled(
       subscribers.map((subscriber) =>
@@ -534,6 +541,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
           },
           () => subscriber.handler(payload, {
             resolve: resolver,
+            container: containerOverride,
             eventName: event,
             tenantId: options?.tenantId ?? null,
             organizationId: options?.organizationId ?? null,
