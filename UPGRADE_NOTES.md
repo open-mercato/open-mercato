@@ -353,6 +353,27 @@ quota. Now:
 media time out on slow links. Check the integration log for `sync_akeneo.media_rejected` warnings
 after the first sync.
 
+### `GET` time-project employees now enforces project membership (#8885)
+
+`GET /api/staff/timesheets/time-projects/{id}/employees` only required the global
+`staff.timesheets.projects.view` feature. A staff member holding that feature, but not an
+active member of the project in the URL and without `staff.timesheets.projects.manage`, could
+read that project's membership roster — roles, status, assignment start/end dates — the same
+way the sibling `time-projects` list route already prevents for the project itself.
+
+The route now resolves the caller's project access the same way (`resolveFeatureAccess` +
+`resolveProjectAccess` + `assertProjectAccess` from `lib/time-tracking/{featureAccess,access}.ts`)
+and denies a non-member with the same non-enumerable `404 { "error": "...", "reason":
+"no_project_access" }` the project-list route answers for a project the caller cannot see — so
+the response cannot be used to tell "exists but forbidden" apart from "doesn't exist." A caller
+with `staff.timesheets.projects.manage` is unaffected. `?timeProjectId=` on the query string can
+no longer override the URL's project id either way.
+
+**Action for integrators:** a caller that was relying on this endpoint to read a project it is
+not a member of (and does not manage) now gets `404` instead of `200`. This was always a bug —
+treat it as the fix it is, not as a behavior to route around. No route path, request shape, or
+response schema changed for an authorized caller.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
