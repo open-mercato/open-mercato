@@ -273,6 +273,7 @@
   "staff.leaveRequests.detail.summary": "Detalles de la solicitud",
   "staff.leaveRequests.empty.profileRequired": "Crea tu perfil de miembro para enviar solicitudes de ausencia.",
   "staff.leaveRequests.errors.accept": "No se pudo aprobar la solicitud de ausencia.",
+  "staff.leaveRequests.errors.alreadyFinalized": "La solicitud de ausencia ya está finalizada.",
   "staff.leaveRequests.errors.forbidden": "Prohibido",
   "staff.leaveRequests.errors.load": "No se pudieron cargar las solicitudes de ausencia.",
   "staff.leaveRequests.errors.notFound": "Solicitud de ausencia no encontrada.",
@@ -2087,11 +2088,14 @@
   "staff.timesheets.errors.assignerNeedsUser": "Solo los miembros del equipo con cuenta de usuario pueden ser asignadores, porque deben iniciar sesión y recibir notificaciones.",
   "staff.timesheets.errors.bulkSave": "No se pudieron guardar en lote los registros de tiempo.",
   "staff.timesheets.errors.bulkTagsUnsupported": "Las etiquetas no se pueden cambiar desde la cuadrícula de la hoja de horas. Abre el registro de tiempo para editar sus etiquetas.",
+  "staff.timesheets.errors.capacity": "No se pudo cargar el objetivo.",
+  "staff.timesheets.errors.capacityForbidden": "No puedes ver el objetivo de esta persona.",
   "staff.timesheets.errors.copyDaySameDate": "El día de origen y el de destino deben ser diferentes.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "El día de destino ya tiene registros de tiempo. Revísalos primero o confirma para añadir estas copias de todos modos.",
   "staff.timesheets.errors.defaultAssigneeNotMember": "El responsable predeterminado debe ser un miembro activo de este proyecto.",
   "staff.timesheets.errors.entryNotFound": "Registro de tiempo no encontrado, eliminado o no asignado a ti.",
   "staff.timesheets.errors.invalidBody": "Cuerpo de la solicitud no válido.",
+  "staff.timesheets.errors.invalidCapacityQuery": "Periodo de objetivo no válido.",
   "staff.timesheets.errors.invalidProjectId": "Identificador de proyecto no válido.",
   "staff.timesheets.errors.loadPreference": "No se pudo cargar la preferencia de hoja de horas.",
   "staff.timesheets.errors.memberNotFound": "Miembro del proyecto de tiempo no encontrado o no accesible.",
@@ -2393,5 +2397,6 @@
   "staff.timesheets.widgets.timeReporting.stop": "Detener temporizador",
   "staff.timesheets.widgets.timeReporting.stopError": "No se pudo detener el temporizador",
   "staff.timesheets.widgets.timeReporting.taskNote": "Tarea / Nota",
-  "staff.timesheets.widgets.timeReporting.unknownProject": "Proyecto desconocido"
+  "staff.timesheets.widgets.timeReporting.unknownProject": "Proyecto desconocido",
+  "staff.validation.nonNegativeAmount": "Introduce un importe válido."
 }

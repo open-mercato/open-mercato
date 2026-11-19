@@ -24,7 +24,7 @@ type EntryList = {
     entryCount: number
     durationMinutes: number
     roundedMinutes: number
-    money?: Array<{ currencyCode: string | null; amount: number }>
+    money?: Array<{ currencyCode: string | null; amount: number; amountExact?: string }>
   }
 }
 
@@ -107,7 +107,7 @@ test('TC-STAFF-048: live totals enforce rates, self-entry and project guards aga
     expect(baseline.total).toBe(2)
     expect(baseline.totals).toEqual({
       entryCount: 2, durationMinutes: 180, roundedMinutes: 180,
-      money: [{ currencyCode: 'EUR', amount: 120 }, { currencyCode: 'PLN', amount: 150 }],
+      money: [{ currencyCode: 'EUR', amount: 120, amountExact: '120' }, { currencyCode: 'PLN', amount: 150, amountExact: '150' }],
     })
 
     await withCredentialIsolatedRequest(async (provisionRequest) => {
@@ -160,7 +160,7 @@ test('TC-STAFF-048: live totals enforce rates, self-entry and project guards aga
             expect(allowed.total).toBe(1)
             expect(allowed.totals).toEqual({
               entryCount: 1, durationMinutes: 60, roundedMinutes: 60,
-              money: [{ currencyCode: 'EUR', amount: 120 }],
+              money: [{ currencyCode: 'EUR', amount: 120, amountExact: '120' }],
             })
             const forbiddenQuery = advancedFilter('time_project_id', projectIds[1])
             forbiddenQuery.set('filter[logic]', 'or')
@@ -170,7 +170,7 @@ test('TC-STAFF-048: live totals enforce rates, self-entry and project guards aga
             forbiddenQuery.set('filter[conditions][1][join]', 'or')
             const authorized = await readEntries(request, adminToken, forbiddenQuery)
             expect(authorized.items.map((entry) => entry.id)).toEqual([entryIds[1]])
-            expect(authorized.totals.money).toEqual([{ currencyCode: 'PLN', amount: 150 }])
+            expect(authorized.totals.money).toEqual([{ currencyCode: 'PLN', amount: 150, amountExact: '150' }])
             const forbidden = await readEntries(viewerRequest, viewerToken, forbiddenQuery)
             expectEmpty(forbidden)
             expect(forbidden.totals.money).toEqual([])

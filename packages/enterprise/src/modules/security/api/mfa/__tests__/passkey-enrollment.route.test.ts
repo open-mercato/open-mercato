@@ -18,6 +18,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({ translate: (_key: string, fallback: string) => fallback })),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn((em: EntityManager, ...parameters: Parameters<EntityManager['findOne']>) => em.findOne(...parameters)),
+}))
+
 jest.mock('../../../events', () => ({ emitSecurityEvent: jest.fn() }))
 
 jest.mock('@simplewebauthn/server', () => ({
@@ -46,6 +50,8 @@ describe('passkey enrollment route with the real service and provider', () => {
     }
     const pending = { ...method }
     const em = {
+      transactional: jest.fn(async (callback: (transaction: unknown) => Promise<unknown>): Promise<unknown> => callback(em)),
+      execute: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => query.secret === setup.setupId ? method : null),
       flush: jest.fn(),
     }

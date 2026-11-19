@@ -72,6 +72,7 @@ write time.
   reference resolver (#8891). The trusted `attachmentService.createScoped()`
   path used by a module's own dedicated upload route never reaches this check;
   it only covers the generic HTTP route.
+- Document section search records MUST be written only through `section-search` queue jobs and the entity's `shouldIndex` gate (live extraction + opted-in partition); purge, supersede and partition toggle-off enqueue the matching deletes.
 
 ## Never
 
