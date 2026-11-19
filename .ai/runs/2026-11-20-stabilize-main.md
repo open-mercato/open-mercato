@@ -35,13 +35,21 @@ Non-goals: merge into main, suppress tests, weaken assertions, change public con
 
 Engine: om-auto-create-pr (steps: 5, --loop: no)
 
+## Evidence
+
+- PR #10037 opened as a draft, labeled `ci-full`; branch prefix independently guarantees full scope.
+- Historical main failure 44492039926 was a payment-edit timeout; merged #9867 already replaced transient menu interaction with the existing row edit action. No duplicate patch is needed.
+- Runner: local for 45 focused routing/concurrency/coverage tests, all passing with `env -u BASH_ENV -u ENV timeout 60 node --test scripts/__tests__/ci-{full-label,concurrency,merge-coverage}.test.mjs`. An initial inherited-shell run invoked real Yarn inside five temporary fixtures; the isolated rerun passed without repository changes.
+- Hosted PR CI is the full validation source; lint, DS lint and audit-scope passed on the initial plan commit, while preparation remains pending. No complete local build/typecheck/unit gate is claimed.
+
 ## Progress
+PR: #10037
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence
 
-- [ ] 1.1 Inspect main failures and establish the full-suite draft PR.
+- [x] 1.1 Inspect main failures and establish the full-suite draft PR. — a350cc7960
 
 ### Phase 2: Correct and validate
 
