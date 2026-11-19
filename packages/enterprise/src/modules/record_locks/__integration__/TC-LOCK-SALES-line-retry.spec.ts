@@ -3,6 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import {
+  buildScopeCookieFromToken,
   cleanupOrder,
   cleanupQuote,
   createOrderFixture,
@@ -21,6 +22,8 @@ test.describe('TC-LOCK-SALES line draft conflict retry', () => {
       test(`${role} handles a stale ${kind} line draft according to override permission`, async ({ page, request }) => {
         const adminToken = await getAuthToken(request, 'admin')
         const superadminToken = await getAuthToken(request, 'superadmin')
+        const organizationScope = buildScopeCookieFromToken(adminToken)
+        expect(organizationScope).toBeTruthy()
         const settings = await getRecordLockSettings(request, superadminToken)
         const createDocument = kind === 'order' ? createOrderFixture : createQuoteFixture
         const cleanupDocument = kind === 'order' ? cleanupOrder : cleanupQuote
@@ -61,7 +64,10 @@ test.describe('TC-LOCK-SALES line draft conflict retry', () => {
           const competingLine = `Competing line ${documentId}`
           const competingSave = await apiRequest(request, 'POST', linePath, {
             token: superadminToken,
-            headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: parentVersion ?? '' },
+            headers: {
+              cookie: organizationScope ?? '',
+              [OPTIMISTIC_LOCK_HEADER_NAME]: parentVersion ?? '',
+            },
             data: {
               [`${kind}Id`]: documentId,
               name: competingLine,
@@ -72,7 +78,7 @@ test.describe('TC-LOCK-SALES line draft conflict retry', () => {
               metadata: { customLine: true, lineMode: 'custom' },
             },
           })
-          expect(competingSave.ok()).toBeTruthy()
+          expect(competingSave.status()).toBe(201)
 
           const lineWriteStatuses: number[] = []
           page.on('response', (response) => {

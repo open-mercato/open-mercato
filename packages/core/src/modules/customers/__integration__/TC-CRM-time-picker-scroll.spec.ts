@@ -16,8 +16,7 @@ test('the meeting start-time picker scrolls without handing wheel or touch movem
     await login(page, 'admin')
     await page.goto(`/backend/customers/people-v2/${personId}`)
     await page.getByRole('tab', { name: 'Activities', exact: true }).click()
-    await page.getByRole('button', { name: 'Add new', exact: true }).click()
-    await page.getByRole('button', { name: 'New meeting', exact: true }).click()
+    await page.getByRole('tabpanel').getByRole('button', { name: 'Schedule', exact: true }).click()
 
     const meeting = page.getByRole('dialog', { name: 'New meeting' })
     const startTime = meeting.locator('button[aria-haspopup="dialog"]').nth(1)
