@@ -361,6 +361,24 @@ describe('payment gateway write routes reject sub-minor amounts', () => {
     expect(service.refundPayment).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['capture', capturePayment],
+    ['refund', refundPayment],
+  ] as const)('preserves the exact %s amount after checking transaction visibility', async (action, handler) => {
+    const amount = '9007199254740993.01'
+    const scope = { organizationId: 'o1', tenantId: 't1' }
+    const response = await handler(buildRequest({ transactionId: TXN_ID, amount, operationId: OPERATION_ID }))
+
+    expect(response.status).toBe(200)
+    expect(service.findTransaction).toHaveBeenCalledWith(TXN_ID, scope)
+    if (action === 'capture') {
+      expect(service.capturePayment).toHaveBeenCalledWith(TXN_ID, amount, scope, OPERATION_ID)
+    } else {
+      expect(service.refundPayment).toHaveBeenCalledWith(TXN_ID, amount, undefined, scope, OPERATION_ID)
+    }
+    expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
+  })
+
   it('skips the lookup when no capture amount is given', async () => {
     const response = await capturePayment(buildRequest({ transactionId: TXN_ID }))
     expect(response.status).toBe(200)

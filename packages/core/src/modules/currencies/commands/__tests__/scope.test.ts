@@ -190,6 +190,41 @@ describe('currency command tenant and organization scope', () => {
     }))
   })
 
+  it.each([
+    ['exchangeRateUpdateSchema', 'update', 'delete'],
+    ['exchangeRateDeleteSchema', 'delete', 'update'],
+  ] as const)('applies %s ID restrictions only to %s preparation', async (schemaName, restrictedAction, allowedAction) => {
+    jest.doMock('../../data/validators', () => {
+      const validators = jest.requireActual<typeof import('../../data/validators')>('../../data/validators')
+      return {
+        ...validators,
+        [schemaName]: validators[schemaName].safeExtend({
+          id: validators[schemaName].shape.id.refine((id) => id !== RECORD_ID, 'ID restricted for this operation'),
+        }),
+      }
+    })
+
+    try {
+      const restrictedCommand = loadCommand('exchange-rates', `currencies.exchange_rates.${restrictedAction}`)
+      const em = buildEm({ ...foreignExchangeRate, tenantId: ACTOR_TENANT, organizationId: ACTOR_ORG })
+      const { ctx } = buildCtx(em)
+
+      await expect(restrictedCommand.prepare?.({ id: RECORD_ID }, ctx)).rejects.toMatchObject({
+        name: 'ZodError',
+        issues: [expect.objectContaining({ code: 'custom', message: 'ID restricted for this operation' })],
+      })
+      expect(ctx.container.resolve).not.toHaveBeenCalled()
+      expect(em.findOne).not.toHaveBeenCalled()
+
+      const allowedCommand = loadCommand('exchange-rates', `currencies.exchange_rates.${allowedAction}`)
+      await expect(allowedCommand.prepare?.({ id: RECORD_ID }, ctx)).resolves.toMatchObject({
+        before: { id: RECORD_ID, tenantId: ACTOR_TENANT, organizationId: ACTOR_ORG },
+      })
+    } finally {
+      jest.dontMock('../../data/validators')
+    }
+  })
+
   it('rejects creating a currency in a foreign tenant before persistence', async () => {
     const command = loadCommand('currencies', 'currencies.currencies.create')
     const em = buildEm()

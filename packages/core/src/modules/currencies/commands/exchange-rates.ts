@@ -211,7 +211,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
   id: 'currencies.exchange_rates.update',
   async prepare(input, ctx) {
     requireId(input.id, 'Exchange rate ID is required')
-    exchangeRateDeleteSchema.shape.id.parse(input.id)
+    exchangeRateUpdateSchema.shape.id.parse(input.id)
     const em = ctx.container.resolve('em') as EntityManager
     const before = await loadExchangeRateSnapshot(em, input.id, ctx)
     return { before }
