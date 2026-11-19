@@ -331,6 +331,9 @@ export class SalesTaxRate {
 @Index({ name: 'sales_orders_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
 @Index({ name: 'sales_orders_fulfillment_status_idx', properties: ['organizationId', 'tenantId', 'fulfillmentStatus'] })
 @Index({ name: 'sales_orders_payment_status_idx', properties: ['organizationId', 'tenantId', 'paymentStatus'] })
+// Checkout's idempotent order creation looks the order up by (tenant_id, external_reference)
+// before calling sales.orders.create (D-R5-CH1). Non-unique: most orders never set it.
+@Index({ name: 'sales_orders_tenant_external_reference_idx', properties: ['tenantId', 'externalReference'] })
 @Unique({ name: 'sales_orders_number_unique', properties: ['organizationId', 'tenantId', 'orderNumber'] })
 export class SalesOrder {
   // Optional so existing `em.create(SalesOrder, ...)` callers keep compiling.
@@ -845,6 +848,9 @@ export class SalesDocumentSequence {
 @Entity({ tableName: 'sales_quotes' })
 @Index({ name: 'sales_quotes_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'sales_quotes_status_idx', properties: ['organizationId', 'tenantId', 'status'] })
+// Checkout's idempotent quote creation looks the quote up by (tenant_id, external_reference)
+// before calling sales.quotes.create (D-R5-30). Non-unique: most quotes never set it.
+@Index({ name: 'sales_quotes_tenant_external_reference_idx', properties: ['tenantId', 'externalReference'] })
 @Unique({ name: 'sales_quotes_number_unique', properties: ['organizationId', 'tenantId', 'quoteNumber'] })
 @Unique({ name: 'sales_quotes_acceptance_token_unique', properties: ['acceptanceToken'] })
 export class SalesQuote {
