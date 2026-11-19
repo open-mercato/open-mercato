@@ -5,3 +5,9 @@ export const RESOURCES_CAPACITY_UNIT_DEFAULTS: Array<{ value: string; label: str
   { value: 'units', label: 'Units' },
   { value: 'quantity', label: 'Quantity' },
 ]
+
+export function normalizeCapacityInput(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'string' && value.trim().length === 0) return null
+  return Number(value)
+}
