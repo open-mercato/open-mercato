@@ -3,6 +3,11 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
+import {
+  TENANT_MODULE_AVAILABILITY_DI_KEY,
+  resolveTenantModuleAvailability,
+  type TenantModuleAvailability,
+} from '@open-mercato/shared/security/tenantModuleAvailability'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
@@ -47,17 +52,28 @@ export function register(container: AppContainer) {
       )
     }).scoped().proxy(),
   })
+  // Per-tenant module availability is opt-in: it resolves to null unless an
+  // app registers a `tenantModuleAvailabilityProvider`.
+  container.register({
+    [TENANT_MODULE_AVAILABILITY_DI_KEY]: asFunction(function tenantModuleAvailabilityFactory() {
+      return resolveTenantModuleAvailability(container)
+    }).scoped().proxy(),
+  })
   // Resolve optional infrastructure lazily so Auth still works when Directory
   // is disabled and in lean CLI/test containers without a CacheStrategy.
   // Setting `OM_RBAC_DEFAULT_CACHE=on` opts into the in-process fallback;
   // an explicitly registered cache always wins.
   container.register({
-    rbacService: asFunction(function rbacServiceFactory(cradle: { em: EntityManager }) {
+    rbacService: asFunction(function rbacServiceFactory(cradle: {
+      em: EntityManager
+      [TENANT_MODULE_AVAILABILITY_DI_KEY]: TenantModuleAvailability | null
+    }) {
       const configuredCache = resolveOptionalCache(container)
       return new RbacService(
         cradle.em,
         configuredCache ?? (isRbacDefaultCacheEnabled() ? createRbacFallbackCache() : undefined),
         resolveOptionalOrganizationHierarchyService(container),
+        cradle[TENANT_MODULE_AVAILABILITY_DI_KEY],
       )
     }).scoped().proxy(),
   })

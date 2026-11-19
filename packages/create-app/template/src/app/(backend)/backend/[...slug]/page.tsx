@@ -97,6 +97,10 @@ export default async function BackendCatchAll(props: BackendParams) {
       }
       const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: tenantIdForCheck, organizationId: organizationIdForCheck })
       if (!ok) return renderAccessDenied()
+      if (typeof rbac.getUnavailableModuleIds === 'function') {
+        const unavailableModuleIds = await rbac.getUnavailableModuleIds(tenantIdForCheck, auth.sub)
+        if (unavailableModuleIds.includes(match.route.moduleId)) return renderAccessDenied()
+      }
     }
   }
   const middlewareRedirect = await resolvePageMiddlewareRedirect({

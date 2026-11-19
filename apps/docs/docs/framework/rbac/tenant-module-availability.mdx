@@ -1,0 +1,101 @@
+---
+title: Per-Tenant Module Availability
+description: Deny, per tenant, the features of enabled modules — for example modules outside a tenant's plan — through one optional provider honoured by the RBAC feature guards.
+---
+
+# Per-Tenant Module Availability
+
+Modules are enabled per deployment in `modules.ts`. A multi-tenant app often needs to vary that per tenant: a module belongs to some subscription plans but not others, or it only applies to some kinds of tenant. Register a **tenant module availability provider** and the platform denies the features of a module the provider marks unavailable for a tenant, wherever those features are checked by the RBAC services in that tenant.
+
+Without a provider nothing changes.
+
+## What it covers
+
+For a tenant where a module is unavailable, its features are denied — including to **super admins**, portal admins and `*` / `module.*` grants — in:
+
+- page guards and API route guards (`requireFeatures` on CRUD and custom routes, `requireCustomerFeatures` on portal pages); a route or page owned by the module is refused even when its guard names another module's feature;
+- the backend sidebar, settings and profile menus and browser `hasFeature` checks (effective features), and portal navigation;
+- `POST /api/auth/feature-check` and `POST /api/customer_accounts/portal/feature-check`;
+- every `rbacService.userHasAllFeatures` / `customerRbacService.userHasAllFeatures` check, and CRUD interceptors, enrichers, mutation guards and command interceptors that declare features;
+
+Availability is evaluated per tenant in scope: a super admin acting in a tenant where the module is unavailable cannot use it there, and still can in tenants where it is available. When a check carries no tenant, the principal's own tenant is used. Stored grants are never modified.
+
+## What it does not cover
+
+This is **feature-guard enforcement, not data isolation and not an entitlement boundary**. The module keeps running and its data stays reachable through:
+
+- the module's subscribers, workers, schedules, webhooks and CLI commands;
+- routes and pages that declare no feature guard, and enrichers or interceptors that declare no `features`;
+- server code that authorizes from an already-loaded ACL snapshot without passing the unavailable set — search, dashboard widget lists, entities, communication channels, notification recipients, documents, staff readers, workflow portal tasks, the organization switcher and some enterprise modules;
+- audit-log undo and redo (follow-up);
+- the AI assistant's tools, agents and MCP servers (follow-up);
+- audit-log snapshot reads and attachments fetched by id.
+
+Gate anything a tenant must not reach with features, and keep data separation in your own module where you need it.
+
+## Registering a provider
+
+Register the provider from any module's `di.ts`. Registrars can run per request, so keep provider state outside the factory; the platform shares in-flight calls and failure back-off across provider instances:
+
+```ts
+import { asValue } from 'awilix'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { TenantModuleAvailabilityProvider } from '@open-mercato/shared/security/tenantModuleAvailability'
+
+const planProvider: TenantModuleAvailabilityProvider = {
+  governedModuleIds: ['sales', 'catalog'],
+  async getUnavailableModuleIds({ tenantId }) {
+    return lookUpModulesOutsideThePlan(tenantId)
+  },
+  cacheTtlMs: 60_000,
+  timeoutMs: 2_000,
+}
+
+export function register(container: AppContainer) {
+  container.register({ tenantModuleAvailabilityProvider: asValue(planProvider) })
+}
+```
+
+- `governedModuleIds` lists the modules the provider decides. Every other module is always available and never waits on the provider. Do not govern modules every tenant needs to sign in and administer itself (`auth`, `directory`, …).
+- `getUnavailableModuleIds` returns the governed module ids unavailable to the tenant. Ids it does not govern are ignored.
+- `cacheTtlMs` (default 60 s, at most 10 minutes) and `timeoutMs` (default 2 s, at most 30 s) are optional.
+
+## Caching and invalidation
+
+Each tenant's answer is cached in the DI `cache` service for at most `cacheTtlMs`. The RBAC service keeps the answer it read for at most one second, so a request reads it about once. When a tenant's plan changes, invalidate it:
+
+```ts
+const availability = container.resolve('tenantModuleAvailability')
+await availability?.invalidate(tenantId)
+```
+
+`tenantModuleAvailability` is `null` when no provider is registered. After an invalidation the same process applies the new answer on the next check, including in long-lived services; an answer that was being fetched while you invalidated is not cached, though callers already waiting on that fetch still receive it (at most `timeoutMs` later). The cached admin navigation payload is keyed by the tenant's unavailable modules, so it follows the change on the next request. With `CACHE_STRATEGY=redis` other processes apply the change within about one second plus `timeoutMs`: the invalidation deletes the shared entry and stamps the tenant, so an answer another process was fetching at that moment is not cached either. With a per-process cache, other processes converge within `cacheTtlMs` plus one second plus `timeoutMs`.
+
+## When the provider fails
+
+A provider that throws, rejects, times out or returns something other than an array **fails closed for the modules it governs**: they are unavailable for that tenant until the provider answers again. Each process retries a failed tenant after 5 s and serves the fail-closed answer in between. Modules it does not govern are unaffected. Failures are reported to the telemetry backend (`tenant_module_availability.provider_failed`) and never cached in the shared cache. An invalid provider registration is reported once and ignored.
+
+## Keeping a route reachable while its module is unavailable
+
+A guarded route or page is refused when its own module is unavailable to the tenant, whichever module's feature the guard names. A governed module's own feature-guarded routes and pages therefore go dark together with the module — including any upgrade, purchase or "request access" page you host inside it.
+
+To keep such a route reachable, drop `requireFeatures` from its metadata (keep `requireAuth`) and authorize in the handler instead, for example with `rbacService.userHasAllFeatures(auth.sub, ['billing.manage'], scope)` for a feature of an available module. The owning-module check only runs where a feature guard is declared.
+
+Portal API routes authorize in their handlers (`requireCustomerAuth` / `customerRbacService`), not through route metadata features, so the owning-module check does not apply to them; portal pages with `requireCustomerFeatures` are covered.
+
+## Checks that start from an ACL snapshot
+
+Pass the tenant's unavailable modules when you call `authorizeFeatures` yourself:
+
+```ts
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+
+const acl = await rbacService.loadAcl(userId, { tenantId, organizationId })
+const allowed = authorizeFeatures(['sales.orders.view'], {
+  grantedFeatures: acl.features,
+  unrestricted: acl.isSuperAdmin,
+  unavailableModuleIds: await rbacService.getUnavailableModuleIds(tenantId, userId),
+})
+```
+
+Prefer `rbacService.userHasAllFeatures` where a user and tenant are at hand.

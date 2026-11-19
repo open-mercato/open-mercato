@@ -9,6 +9,7 @@ import {
   authorizeFeatures,
   resolveEffectiveFeatures,
 } from '@open-mercato/shared/security/featurePolicy'
+import type { TenantModuleAvailability } from '@open-mercato/shared/security/tenantModuleAvailability'
 
 interface CustomerAclData {
   isPortalAdmin: boolean
@@ -27,8 +28,28 @@ export class CustomerRbacService {
   private cacheTtlMs: number = 5 * 60 * 1000
   private cache: CacheStrategy | null = null
 
-  constructor(private em: EntityManager, cache?: CacheStrategy) {
+  constructor(
+    private em: EntityManager,
+    cache?: CacheStrategy,
+    private readonly tenantModuleAvailability?: TenantModuleAvailability | null,
+  ) {
     this.cache = cache || null
+  }
+
+  /**
+   * Module ids unavailable to a tenant through the optional per-tenant module
+   * availability provider; their portal features are denied. Empty when no
+   * provider is registered.
+   */
+  async getUnavailableModuleIds(tenantId: string | null | undefined): Promise<string[]> {
+    if (!this.tenantModuleAvailability || !tenantId) return []
+    return Array.from(await this.tenantModuleAvailability.getUnavailableModuleIds({ tenantId }))
+  }
+
+  private async resolveUnavailableModules(tenantId: string): Promise<ReadonlySet<string> | undefined> {
+    if (!this.tenantModuleAvailability || !tenantId) return undefined
+    const unavailable = await this.tenantModuleAvailability.getUnavailableModuleIds({ tenantId })
+    return unavailable.size > 0 ? unavailable : undefined
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string; organizationId: string }): string {
@@ -135,6 +156,9 @@ export class CustomerRbacService {
     return authorizeFeatures(required, {
       grantedFeatures: acl.features,
       unrestricted: acl.isPortalAdmin,
+      unavailableModuleIds: this.tenantModuleAvailability
+        ? await this.resolveUnavailableModules(scope.tenantId)
+        : undefined,
     })
   }
 
@@ -143,7 +167,13 @@ export class CustomerRbacService {
     scope: { tenantId: string; organizationId: string },
   ): Promise<string[]> {
     const acl = await this.loadAcl(userId, scope)
-    return resolveEffectiveFeatures(acl.isPortalAdmin ? ['portal.*'] : acl.features)
+    const grantedFeatures = acl.isPortalAdmin ? ['portal.*'] : acl.features
+    const unavailableModuleIds = this.tenantModuleAvailability
+      ? await this.resolveUnavailableModules(scope.tenantId)
+      : undefined
+    return unavailableModuleIds
+      ? resolveEffectiveFeatures(grantedFeatures, { unavailableModuleIds })
+      : resolveEffectiveFeatures(grantedFeatures)
   }
 
   async invalidateUserCache(userId: string): Promise<void> {
