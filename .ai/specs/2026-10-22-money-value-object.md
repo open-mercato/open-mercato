@@ -348,6 +348,17 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 - 2026-11-19 — Code-review follow-ups: added `fitsCurrencyPrecision` (over-precise client amounts stay exact in `resolveMoney`; handlers that need minor units check it), `allocateMoney` reports out-of-range ratios as `InvalidAllocationError`, documented the decimal size caps, and narrowed `money:check-new-code`'s `<field>Exact` rule to declarations (object-literal writes are no longer flagged) with pinned `a/`/`b/` diff prefixes.
 - 2026-11-19 — Re-review follow-ups: blocked the `@open-mercato/shared/lib/money/internal` subpath in the package `exports` (`null` target), added the `fitsCurrencyPrecision` rule to the standalone harness Money Contract, and ran the create-app suite in a Linux container with bubblewrap (HEAD and base `b0f3d1c64`: 1243 pass, 0 fail, 15 skipped each).
 - 2026-11-19 — Second-review follow-ups: `CurrencyPrecisionService.getCurrency` returns frozen details, so a caller cannot change the cached precision; `divideMoney` reports an oversized quotient as `Decimal result out of range`; `money:check-new-code` reads a property declared on the same line as its decorator; the OMH-243 focused test became `agent-money-harness.test.ts` so the create-app suite runs it in CI.
+- 2026-11-19 — PR #9978 review (`haxiorz`) follow-ups:
+  - `convertMoney` rounds the exact, uncapped product once (`1e-1000 × 0.1` with mode `up` gives `0.01`).
+  - Every `Money` is checked against the decimal toolkit's caps when it is created, so a rounding carry past 300 integer digits (`roundMoney`, `rescaleMoney`, `convertMoney`) throws `Decimal result out of range` instead of producing a value `restoreMoney` rejects.
+  - `allocateMoney` computes scaled units, products and remainders with exact, uncapped integer arithmetic; only the returned parts must fit the stored-amount range, so a `1e299` total splits correctly.
+  - `resolveCurrency` rejects a lookup without a tenant or an organization before calling any resolver override.
+  - `CurrencyPrecisionService.getCurrency` returns `null` for an inactive currency (so `resolveCurrency`/`resolveMoney` refuse new money in it); `getDecimalPlaces` keeps reporting its precision, and stored snapshots still restore.
+  - `moneyInputSchema` accepts the amount only as a decimal string; JSON numbers are rejected because they may have lost digits during parsing.
+  - The `lib/money/internal.ts` spelling is blocked in `exports` as well; a resolution test covers both spellings and the public paths.
+  - A PostgreSQL-backed test (`moneyColumns.integration.test.ts`, run by `test:pg-integration`) flushes, clears and reloads `MoneyColumns` values beyond JS number precision, a nullable embedding, and a last-digit-only update.
+  - `money:check-new-code` resolves the repository's default branch (`upstream/HEAD`, `origin/HEAD`, then `main`/`develop`/`master`) before falling back to `HEAD~1`.
+  - Guidance names the shape per layer: `Money` in domain code, `MoneyInput` in request/response payloads, `MoneySnapshot` in trusted messages, `MoneyColumns` in entities.
 
 ## Implementation Status
 

@@ -19,9 +19,15 @@ Both are frozen, branded plain objects. Every operation is a free function, so
 it works directly as a `map` or `reduce` callback. Arithmetic across currencies
 throws `CurrencyMismatchError`.
 
-Existing modules keep their `number` + `<field>Exact` contracts. `Money` is
-required for every **new** monetary value: a new entity column, validator field,
-command input, service signature or API field.
+Existing modules keep their `number` + `<field>Exact` contracts. Every **new**
+monetary value uses the shape that fits its layer:
+
+| Layer | Shape |
+|-------|-------|
+| Domain code: service signatures, command internals, calculations | `Money` |
+| Validated request and response payloads (validators, API fields) | `MoneyInput` (`moneyInputSchema`, read with `resolveMoney`, written with `serializeMoney`) |
+| Trusted messages: queues, caches, events, workflow or JSON state | `MoneySnapshot` (`snapshotMoney` / `restoreMoney`) |
+| Persisted entity fields | `MoneyColumns` (`moneyToColumns` / `moneyFromColumns`) |
 
 ## Resolving a currency
 
@@ -34,9 +40,11 @@ const usd = await resolveCurrency(container, { code: 'USD', tenantId, organizati
 ```
 
 The call does not fall back to the ISO table. It throws `CurrencyNotResolvedError`
-when the `currencies` module is disabled, the code is unknown or soft-deleted, the
-lookup has no organization, or the lookup itself fails (the original error is kept
-as `cause`).
+when the `currencies` module is disabled, the code is unknown, soft-deleted or
+inactive, the lookup has no tenant or organization (checked before any resolver
+runs), or the lookup itself fails (the original error is kept as `cause`). An
+inactive currency still restores from a stored snapshot; it only cannot be used
+for new money.
 
 ## Arithmetic
 
@@ -59,9 +67,13 @@ const inEur = convertMoney(subtotal, rate, eur, { decimalPlaces: eur.decimalPlac
 - `allocateMoney` uses the largest-remainder method on exact integer remainders.
   The parts always sum exactly to the total. The amount must already have at most
   `decimalPlaces` decimals.
-- Results stay within the decimal toolkit's size caps: a value with more than
-  1000 significant digits is rounded half-up to fit, and one with 300 or more
-  integer digits throws. Real money never comes close.
+- Every `Money` stays within the decimal toolkit's size caps (300 integer digits,
+  1000 significant digits), so snapshots always round-trip. `addMoney` and
+  `multiplyMoney` round a result with more than 1000 significant digits half-up to
+  fit; any result beyond 300 integer digits, including a rounding carry, throws
+  `Decimal result out of range`. `convertMoney` and `allocateMoney` compute their
+  intermediates exactly and only check the final result. Real money never comes
+  close.
 - `convertMoney` takes the rate from its caller (for example `exchangeRateService`)
   and rejects a target with the same code. `rescaleMoney` moves an amount between
   two currencies with the same code and different decimal places.
@@ -72,6 +84,10 @@ const inEur = convertMoney(subtotal, rate, eur, { decimalPlaces: eur.decimalPlac
 |-------|-------------|----------------|
 | `MoneyInput` `{ amount, currencyCode }` (untrusted) | Clients: request bodies, imports, webhooks | `moneyInputSchema` then `await resolveMoney(container, scope, input)` (the tenant's current precision) |
 | `MoneySnapshot` `{ amount, currencyCode, currencyDecimalPlaces }` (trusted) | This system: `snapshotMoney(money)` | `restoreMoney(snapshot)`, synchronous, keeps the precision at snapshot time |
+
+`moneyInputSchema` accepts the amount only as a decimal **string**. A JSON number
+may already have lost digits when the body was parsed (`90071992547409.93` arrives
+as `90071992547409.94`), so numbers are rejected.
 
 `resolveMoney` keeps a client amount exact, so `0.001` USD stays `0.001`. Where a
 field must be in the currency's minor units (a price, a payment amount), check
