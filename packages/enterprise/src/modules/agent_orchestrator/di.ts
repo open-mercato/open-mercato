@@ -38,8 +38,14 @@ import {
   verifyIdJagAssertion,
 } from './lib/identity/agentAuthMdService'
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
+import { createAiAgentRunDispatcher } from './lib/runtime/aiAgentRunDispatcher'
+import { AI_AGENT_RUN_DISPATCHER_DI_KEY } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-run-dispatcher'
+import { warnIfAgentInvokeEnforcementDisabled } from './lib/access/agentInvokeAccess'
+import { warnIfAgentIntegrityShadowMode } from './lib/guardrails/integrity/integritySets'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
+import { createMcpToolObservationBinder } from './lib/runtime/mcpToolObservationBinder'
+import { MCP_TOOL_EXECUTION_OBSERVER_DI_KEY } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/mcp-tool-execution-observer'
 import { AgentWorkspaceManager } from './lib/runtime/agentWorkspaceManager'
 import { DispositionServiceImpl } from './lib/disposition/dispositionService'
 import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
@@ -47,6 +53,11 @@ import { ContextResolverImpl } from './lib/context/contextResolver'
 import { DocumentIngestServiceImpl } from './lib/context/documentIngest'
 import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
 import { buildWebSearchEngine } from './lib/webSearch/registry'
+import {
+  OTEL_EXPORT_HEALTH_CHECK_SERVICE,
+  createOtelExportHealthCheck,
+} from './lib/trace/otel/exportIntegration'
+import { createOtelExportHealthDestinationResolver } from './lib/trace/otel/exportDestination'
 import type { DispositionService } from './lib/disposition/dispositionService'
 import { registerWorkInboxSources } from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
 import {
@@ -70,6 +81,8 @@ registerWorkInboxSources([
 ])
 
 function registerLegacy(container: AppContainer) {
+  warnIfAgentInvokeEnforcementDisabled()
+  warnIfAgentIntegrityShadowMode()
   container.register({
     AgentRun: asValue(AgentRun),
     AgentProposal: asValue(AgentProposal),
@@ -135,6 +148,7 @@ function registerLegacy(container: AppContainer) {
         commandBus,
       }),
     ).proxy().scoped()).resolve(container)),
+    [AI_AGENT_RUN_DISPATCHER_DI_KEY]: asScopedService((scope) => createAiAgentRunDispatcher(scope)),
     dispositionService: asScopedService((container) => (asFunction(() => new DispositionServiceImpl(container)).scoped()).resolve(container)),
     // Phase 1 runtime guardrails: deterministic output schema + tool-scope
     // backstop checks. Pure/stateless aside from the container it persists through.
@@ -144,6 +158,7 @@ function registerLegacy(container: AppContainer) {
     // both backed by the same DB — the in-process Map seam does not work because
     // the runner and the submit_outcome MCP tool run in different processes.
     agentRunSessionStore: asScopedService((container) => (asFunction(() => new DbAgentRunSessionStore(container)).scoped()).resolve(container)),
+    [MCP_TOOL_EXECUTION_OBSERVER_DI_KEY]: asScopedService((scope) => createMcpToolObservationBinder(scope)),
     // File plane (#12): per-run sandbox lifecycle + serialized container lease.
     // SINGLETON so the concurrency semaphore (OM_OPENCODE_POOL_SIZE, default 1) is
     // process-wide — every tool-enabled OpenCode run shares the one shared container.
@@ -168,6 +183,9 @@ function registerLegacy(container: AppContainer) {
     // (allowed net), never the sandbox. A deployment can re-register
     // `webSearchEngineFactory` to wrap or replace the chain.
     webSearchEngineFactory: asFunction(() => buildWebSearchEngine).scoped(),
+    [OTEL_EXPORT_HEALTH_CHECK_SERVICE]: asValue(
+      createOtelExportHealthCheck({ resolveDestination: createOtelExportHealthDestinationResolver() }),
+    ),
     agentDocumentIngestService: asScopedService((container) => (asFunction(
       () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),
     ).scoped()).resolve(container)),

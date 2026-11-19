@@ -85,9 +85,9 @@ function primeFinds(link: Record<string, unknown>, channelUserId: string | null 
     [ChannelThreadMapping, {
       messageThreadId: 'thread-1',
       channelId: 'ch-1',
+      providerKey: 'gmail',
       externalConversationId: 'conv-1',
       externalThreadRef: 'outbound:thread-1',
-      providerKey: 'gmail',
       ...scope,
     }],
     [ExternalConversation, {

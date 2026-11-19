@@ -39,4 +39,13 @@ describe('agent_orchestrator defaultRoleFeatures ACL coverage', () => {
     expect(engineer).toContain('agent_orchestrator.workflows.author')
     expect(engineer).not.toContain('agent_orchestrator.proposals.dispose')
   })
+
+  it('declares trace.view_content depending on trace.view and grants it only via the admin wildcard', () => {
+    const feature = aclFeatures.find((entry) => entry.id === 'agent_orchestrator.trace.view_content')
+    expect(feature?.dependsOn).toEqual(['agent_orchestrator.trace.view'])
+    for (const role of ['employee', 'operator', 'engineer']) {
+      expect(roleGrants[role] ?? []).not.toContain('agent_orchestrator.trace.view_content')
+    }
+    expect(roleGrants.admin).toContain('agent_orchestrator.*')
+  })
 })

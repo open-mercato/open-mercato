@@ -1,10 +1,17 @@
-import { createContainer } from 'awilix'
+import { asValue, createContainer } from 'awilix'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { getProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import type { AgentWorkspaceManager } from '../lib/runtime/agentWorkspaceManager'
 import { register } from '../di'
+
+jest.mock('../lib/runtime/aiAgentRunDispatcher', () => ({ createAiAgentRunDispatcher: (container: unknown) => ({ container }) }))
+jest.mock('../lib/runtime/mcpToolObservationBinder', () => ({ createMcpToolObservationBinder: (container: unknown) => ({ container }) }))
+jest.mock('../lib/access/agentInvokeAccess', () => ({ warnIfAgentInvokeEnforcementDisabled: jest.fn() }))
+jest.mock('../lib/guardrails/integrity/integritySets', () => ({ warnIfAgentIntegrityShadowMode: jest.fn() }))
+jest.mock('../lib/trace/otel/exportIntegration', () => ({ OTEL_EXPORT_HEALTH_CHECK_SERVICE: 'otelHealth', createOtelExportHealthCheck: () => ({}) }))
+jest.mock('../lib/trace/otel/exportDestination', () => ({ createOtelExportHealthDestinationResolver: () => ({}) }))
 
 jest.mock('../data/entities', () => ({}))
 jest.mock('../lib/identity/agentPrincipalService', () => ({}))
@@ -86,4 +93,20 @@ describe('agent workspace process ownership', () => {
     expect(first.resolve('agentWorkspaceManager')).not.toBe(second.resolve('agentWorkspaceManager'))
     expect(globals[managerKey]).toBeUndefined()
   })
+})
+
+
+it('binds merged dispatcher and MCP observer services to their resolving callers', async () => {
+  const { AI_AGENT_RUN_DISPATCHER_DI_KEY } = await import('@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-run-dispatcher')
+  const { MCP_TOOL_EXECUTION_OBSERVER_DI_KEY } = await import('@open-mercato/ai-assistant/modules/ai_assistant/lib/mcp-tool-execution-observer')
+  const root = createContainer()
+  getProcessDiRegistrar(register)!(root)
+  const first = root.createScope().register({ auth: asValue('first') })
+  const second = root.createScope().register({ auth: asValue('second') })
+  for (const key of [AI_AGENT_RUN_DISPATCHER_DI_KEY, MCP_TOOL_EXECUTION_OBSERVER_DI_KEY]) {
+    expect(first.resolve<{ container: unknown }>(key).container).toBe(first)
+    expect(second.resolve<{ container: unknown }>(key).container).toBe(second)
+    expect(first.resolve(key)).not.toBe(second.resolve(key))
+  }
+  await Promise.all([first.dispose(), second.dispose(), root.dispose()])
 })
