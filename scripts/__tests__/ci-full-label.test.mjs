@@ -10,14 +10,12 @@ const workflow = parse(fs.readFileSync(new URL('../../.github/workflows/ci.yml',
 const scope = workflow.jobs.prepare.steps.find((step) => step.id === 'integration-scope')
 const repository = 'open-mercato/open-mercato'
 
-function forcesFullSuite({ eventName = 'pull_request', branch, headRepository = repository }) {
-  const expression = workflow.env.FORCE_FULL_SUITE
-  const match = /^\$\{\{ github\.event_name == '([^']+)' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && startsWith\(github\.head_ref, '([^']+)'\) \}\}$/.exec(expression)
-  assert.ok(match, `Unsupported full-suite expression: ${expression}`)
-  return eventName === match[1] && headRepository === repository && branch.startsWith(match[2])
+function forcesFullSuite({ eventName = 'pull_request', branch, headRepository = repository, labels = [] }) {
+  assert.equal(workflow.env.FORCE_FULL_SUITE, "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'stabilize/') || contains(github.event.pull_request.labels.*.name, 'ci-full')) }}")
+  return eventName === 'pull_request' && headRepository === repository && (branch.startsWith('stabilize/') || labels.includes('ci-full'))
 }
 
-function executeScript(script, { eventName = 'pull_request', fullSuite = false, changedPath = 'README.md', workflowChanged = false } = {}) {
+function executeScript(script, { eventName = 'pull_request', fullSuite = false, changedPath = 'README.md', workflowChanged = false, baseMissing = false } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-scope-'))
   try {
     const output = path.join(directory, 'output')
@@ -31,6 +29,7 @@ function executeScript(script, { eventName = 'pull_request', fullSuite = false, 
         FORCE_FULL_SUITE: String(fullSuite),
         CHANGED_PATH: changedPath,
         WORKFLOW_CHANGED: String(workflowChanged),
+        BASE_MISSING: String(baseMissing),
       },
       encoding: 'utf8',
       timeout: 5000,
@@ -54,7 +53,7 @@ test('PR label changes cannot schedule CI or publish new skipped required checks
     assert.equal(workflow.jobs[jobName].if, undefined, `${jobName} must run for every scheduled event`)
   }
   assert.equal(scope.env?.FORCE_FULL_SUITE, undefined)
-  assert.ok(!workflow.env.FORCE_FULL_SUITE.includes('labels'))
+  assert.ok(!workflow.on.pull_request.types.includes('labeled'))
 })
 
 for (const [branch, headRepository, expected] of [
@@ -103,16 +102,39 @@ test('ordinary shared-code changes still select all 15 integration shards', () =
 })
 
 for (const [stepName, command] of [['Checking types', 'typecheck'], ['Test', 'test']]) {
-  for (const [scenario, options, expected] of [
+  for (const [scenario, options, expected, warns = false] of [
     ['stabilization PR', { fullSuite: forcesFullSuite({ branch: 'stabilize/main-2026-11-05' }) }, command],
-    ['ordinary PR', {}, `turbo run ${command} --filter=[origin/main]...`],
+    ['ordinary PR', {}, `turbo run ${command} --filter=[HEAD^1]...`],
     ['workflow change', { workflowChanged: true }, command],
+    ['missing PR base commit', { baseMissing: true }, command, true],
     ['protected branch push', { eventName: 'push' }, command],
   ]) {
     test(`${stepName} executes the correct command for ${scenario}`, () => {
       const step = workflow.jobs.test.steps.find((candidate) => candidate.name === stepName)
-      const script = `git() { [ "$WORKFLOW_CHANGED" != "true" ]; }\nyarn() { echo "$*"; }\n${step.run}`
-      assert.equal(executeScript(script, options).stdout, expected)
+      const gitStub = 'git() { if [ "$1" = rev-parse ]; then [ "$BASE_MISSING" != "true" ]; else [ "$WORKFLOW_CHANGED" != "true" ]; fi; }'
+      const script = `${gitStub}\nyarn() { echo "$*"; }\n${step.run}`
+      const lines = executeScript(script, options).stdout.split('\n')
+      assert.equal(lines.at(-1), expected)
+      assert.equal(lines.length > 1 && lines[0].startsWith('::warning::'), warns)
     })
   }
 }
+
+for (const [eventName, headRepository, labels, expected] of [
+  ['pull_request', repository, ['ci-full'], true],
+  ['pull_request', repository, ['bug'], false],
+  ['pull_request', 'contributor/fork', ['ci-full'], false],
+  ['push', repository, ['ci-full'], false],
+]) {
+  test(`ci-full scope is ${expected} for ${eventName} from ${headRepository} with ${labels}`, () => {
+    assert.equal(forcesFullSuite({ eventName, headRepository, labels, branch: 'fix/ordinary-pr' }), expected)
+  })
+}
+
+test('ci-full selects all shards for an ordinary documentation PR', () => {
+  const { values } = executeScript(`git() { exit 99; }\n${scope.run}`, {
+    fullSuite: forcesFullSuite({ branch: 'fix/docs', labels: ['ci-full'] }),
+  })
+  assert.equal(values.skip, 'false')
+  assert.deepEqual(JSON.parse(values.shard_matrix), Array.from({ length: 15 }, (_, index) => `${index + 1}/15`))
+})

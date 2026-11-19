@@ -339,32 +339,35 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     }
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let user: User
-    try {
-      user = await de.createOrmEntity({
-        entity: User,
-        data: {
-          email: parsed.email,
-          name: parsed.name,
-          emailHash,
-          passwordHash,
-          isConfirmed: true,
-          organizationId: parsed.organizationId,
-          tenantId,
-        },
-      })
-    } catch (error) {
-      if (isUniqueViolation(error)) await throwDuplicateEmailError()
-      throw error
-    }
-
+    let user!: User
     let assignedRoles: string[] = []
-    if (Array.isArray(parsed.roles) && parsed.roles.length) {
-      await withAtomicFlush(em, [
-        async () => syncUserRoles(em, user, parsed.roles ?? [], tenantId),
-      ], { transaction: true, label: 'auth.users.create.roles' })
-      assignedRoles = await loadUserRoleNames(em, String(user.id))
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        try {
+          user = await de.createOrmEntity({
+            entity: User,
+            data: {
+              email: parsed.email,
+              name: parsed.name,
+              emailHash,
+              passwordHash,
+              isConfirmed: true,
+              organizationId: parsed.organizationId,
+              tenantId,
+            },
+          })
+        } catch (error) {
+          if (isUniqueViolation(error)) await throwDuplicateEmailError()
+          throw error
+        }
+      },
+      async () => {
+        if (Array.isArray(parsed.roles) && parsed.roles.length) {
+          await syncUserRoles(em, user, parsed.roles, tenantId)
+          assignedRoles = await loadUserRoleNames(em, String(user.id))
+        }
+      },
+    ], { transaction: true, label: 'auth.users.create' })
 
     await setCustomFieldsIfAny({
       dataEngine: de,
@@ -1640,6 +1643,11 @@ async function resolveRole(
   return findOneWithDecryption(em, Role, { name: value, tenantId: normalizedTenantId }, {}, { tenantId: normalizedTenantId, organizationId: null })
 }
 
+function throwRolesNotFound(values: string[]): never {
+  const labels = values.map((n) => `"${n}"`).join(', ')
+  throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
+}
+
 async function syncUserRoles(
   em: EntityManager,
   user: User,
@@ -1652,6 +1660,7 @@ async function syncUserRoles(
   const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
 
   const resolvedRoles: Role[] = []
+  const resolvedValues = new Map<string, string>()
   const missingRoles: string[] = []
   for (const value of unique) {
     const role = await resolveRole(em, value, normalizedTenantId)
@@ -1659,13 +1668,11 @@ async function syncUserRoles(
       missingRoles.push(value)
     } else {
       resolvedRoles.push(role)
+      resolvedValues.set(String(role.id), value)
     }
   }
 
-  if (missingRoles.length) {
-    const labels = missingRoles.map((n) => `"${n}"`).join(', ')
-    throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
-  }
+  if (missingRoles.length) throwRolesNotFound(missingRoles)
 
   const discoveredLinks = await findWithDecryption(
     em,
@@ -1683,6 +1690,25 @@ async function syncUserRoles(
       userIds: [userId],
       roleIds: [...desiredIds, ...discoveredRoleIds],
     })
+  }
+  if (desiredIds.size) {
+    const lockedRoles = await findWithDecryption(
+      em,
+      Role,
+      { id: { $in: [...desiredIds] } } as FilterQuery<Role>,
+      { refresh: true },
+      { tenantId: null, organizationId: null },
+    )
+    const validRoleIds = new Set(
+      lockedRoles
+        .filter((role) => role.deletedAt == null)
+        .filter((role) => normalizedTenantId === null || normalizeTenantId(role.tenantId ?? null) === normalizedTenantId)
+        .map((role) => String(role.id)),
+    )
+    const driftedRoleIds = [...desiredIds].filter((roleId) => !validRoleIds.has(roleId))
+    if (driftedRoleIds.length) {
+      throwRolesNotFound(driftedRoleIds.map((roleId) => resolvedValues.get(roleId) ?? roleId))
+    }
   }
   const currentLinks = await findWithDecryption(
     em,

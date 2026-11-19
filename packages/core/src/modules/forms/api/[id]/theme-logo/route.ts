@@ -56,7 +56,7 @@ export async function POST(
   context: { params: { id: string } | Promise<{ id: string }> },
 ) {
   try {
-    const { ctx, organizationId, tenantId } = await buildFormsRouteContext(req)
+    const { ctx, organizationId, tenantId, translate } = await buildFormsRouteContext(req)
     const em = ctx.container.resolve('em') as EntityManager
     const params = await Promise.resolve(context.params)
     const formId = String(params.id)
@@ -68,6 +68,10 @@ export async function POST(
       ...(tenantId ? { tenantId } : {}),
     })
     if (!form) return jsonError(404, 'forms.errors.not_found')
+
+    if (!ctx.container.hasRegistration('attachmentService')) {
+      return jsonError(503, translate('forms.errors.logo_storage_unavailable'))
+    }
 
     const contentType = req.headers.get('content-type') ?? ''
     if (!contentType.includes('multipart/form-data')) {
@@ -138,6 +142,7 @@ const postMethodDoc: OpenApiMethodDoc = {
     { status: 404, description: 'Form not found in scope', schema: errorSchema },
     { status: 413, description: 'File too large', schema: errorSchema },
     { status: 422, description: 'Missing file or not a valid image', schema: errorSchema },
+    { status: 503, description: 'Logo storage is unavailable', schema: errorSchema },
   ],
 }
 

@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Copy, Hash, Info, MessageSquare, Pencil, RefreshCw, Trash2, UserRound } from 'lucide-react'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -1720,10 +1719,10 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       options: buildDispositionOptions(allowedDispositions, currentLineDisposition, t),
       layout: 'half',
     },
-    { id: 'creditAmount', label: t('warranty_claims.form.creditAmount'), type: 'number', layout: 'third' },
-    { id: 'restockingFee', label: t('warranty_claims.form.restockingFee'), type: 'number', layout: 'third' },
-    { id: 'coreChargeAmount', label: t('warranty_claims.form.coreChargeAmount'), type: 'number', layout: 'third' },
-    { id: 'coreCreditAmount', label: t('warranty_claims.form.coreCreditAmount'), type: 'number', layout: 'third' },
+    { id: 'creditAmount', label: t('warranty_claims.form.creditAmount'), type: 'decimal', layout: 'third' },
+    { id: 'restockingFee', label: t('warranty_claims.form.restockingFee'), type: 'decimal', layout: 'third' },
+    { id: 'coreChargeAmount', label: t('warranty_claims.form.coreChargeAmount'), type: 'decimal', layout: 'third' },
+    { id: 'coreCreditAmount', label: t('warranty_claims.form.coreCreditAmount'), type: 'decimal', layout: 'third' },
     { id: 'conditionOnReceipt', label: t('warranty_claims.form.conditionOnReceipt'), type: 'textarea', rows: 3, layout: 'full' },
     { id: 'inspectionNotes', label: t('warranty_claims.form.inspectionNotes'), type: 'textarea', rows: 3, layout: 'full' },
   ], [allowedDispositions, currentLineDisposition, loadDictionaryOptions, t])
