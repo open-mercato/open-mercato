@@ -1,0 +1,1617 @@
+# Calendar Sync Hub + Google Calendar Provider
+
+| Field | Value |
+|-------|-------|
+| **Status** | Draft (rev 3.10) — independent verification approved (rev 3.9); awaiting maintainer approval |
+| **Created** | 2026-11-19 |
+| **Builds on** | [CRM Calendar](./2026-06-11-crm-calendar.md), [Configurable Calendar Event Types](./2026-09-28-configurable-calendar-event-types.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md), [CRM Email Integration](./implemented/2026-05-27-crm-email-integration.md), [Email Integration Foundation](./2026-05-21-email-integration-foundation.md) |
+| **Reuses** | `communication_channels` hub OAuth flow + token refresh, `@open-mercato/channel-gmail` Google OAuth client, `customers` interaction/person commands + `syncOrigin`, `findPeopleByAddresses`, `hashForLookup`, the `communication_channels` adapter-registry pattern (`registerChannelAdapter`) |
+| **Reference implementations** | `packages/create-app/template/src/modules/example_customers_sync` (two-way interaction sync, `syncOrigin` loop-breaker, queue workers); `packages/core/src/modules/communication_channels/lib/registry.ts` (`registerChannelAdapter`: throws on duplicate, returns unregister) |
+| **New code** | `packages/core/src/modules/calendar_sync` (provider-neutral hub), `@open-mercato/google-auth` (library), `@open-mercato/channel-google-calendar` (first provider; module `channel_google_calendar`, provider key `google_calendar`) |
+| **Scope** | OSS |
+
+## TLDR
+
+**Key Points:**
+- **Provider-neutral calendar sync.** A new core hub, `calendar_sync`, owns everything provider-neutral: tables, the placement engine, sharing one CRM record for a meeting several users attend, privacy redaction, people creation and promotion, two-way orchestration, settings, APIs and UI. Providers implement a small **`CalendarProviderAdapter`** contract. **Google Calendar** is the first adapter. Outlook / Microsoft 365, CalDAV (iCloud, Fastmail) or booking tools can be added later without touching the hub's tables or logic.
+- **Connecting.** A user connects a calendar in **Profile → Communication channels**. The connection goes through the existing hub OAuth flow; for Google it reuses Gmail's tenant OAuth client by default.
+- **Every event is imported, in one of two places.**
+  - An event with ≥1 CRM Person among its attendees, and not private, becomes a `CustomerInteraction` (customer timelines, two-way sync).
+  - Every other event becomes a hub-owned **external calendar event**, shown on the CRM calendar through the customers extension point `calendar:customers.item-sources`. This covers internal meetings, personal blocks, **private events**, **focus time** and **out-of-office**.
+- **Private events** show full details only to the owner. Everyone else sees a server-redacted **"Busy"** block.
+- **People.**
+  - An organization setting **auto-creates CRM People** from unknown attendees (default off).
+  - When it is off, users **create a person** or **link an existing customer** from the event; the event is then promoted to an interaction.
+  - A person created later is linked to the meeting automatically.
+- **One meeting, one CRM record.** When several connected users attend the same meeting, even across providers, the copies are deduplicated by the meeting's iCalendar UID (`iCalUID`) into **one** interaction. Exactly one primary link writes content.
+- **Meeting links.** First-class `meetingUrl` / `meetingProvider` / `meetingDetails` fields on `CustomerInteraction`. Google Meet links can be generated when creating CRM events.
+
+**Scope.** The work is split into three parts.
+
+| Part | Contents |
+|---|---|
+| **A — customers (provider-independent)** | meeting fields + Join, person-email matcher DI service, `includeLinked` filter, calendar item-source extension point, participant "Create person", email-only composer filters |
+| **B — `calendar_sync` hub** | `communication_channels` prerequisites (client-config fallback, a `channel.connected` event from both connect paths, a mailbox guard scoped by `channelType`, cross-type primary rejection), provider contract + registry, connections, link and external-event store, placement + shared-meeting identity, redacted events API, people creation and promotion, outbound orchestration, change-notification webhook + renewal, settings, UI widgets |
+| **C — Google provider** | `@open-mercato/google-auth` extraction (Gmail re-exports), OAuth channel adapter, Google `CalendarProviderAdapter` (API client, normalize/denormalize, watch, Meet) |
+
+**Concerns:**
+- **Team visibility.** Importing everything turns the CRM calendar into a team availability view. Mitigations: busy-only redaction for private events, and a per-user "share event details" switch.
+- **Auto-created people.** Auto-creation can add colleagues or vendors as customers. Mitigations: it is off by default, excluded domains (with a warning when empty), a per-event attendee cap, resource/self exclusion.
+- **Matching gap.** Person matching scans ≤ 500 recent people on encrypted tenants (`findPeopleByAddresses`). Missed matches stay external until linked or created. The 2026-09-04 email blind index removes this.
+- **Contract surface.** The provider contract becomes a public, versioned surface (`calendar-provider.v1`). It must be designed for at least Google, Microsoft Graph and CalDAV from day one (see Provider Contract → fit check).
+
+## Resolved Assumptions
+
+| # | Question | Decision | Decided by | Why |
+|---|----------|----------|------------|-----|
+| R1 | One spec or split? | One spec, Parts A / B / C, 9 phases | autonomous default | Shared identity, link table and loop-breaker; parts stay separately mergeable |
+| R2 | Meaning of "push and pull" | Two-way sync; change notifications **and** polling for provider → CRM | autonomous default | Goal 4 needs writes; notifications alone are unreliable |
+| R3 | Which events are imported | **All.** Placement: ≥1 CRM Person and not private → interaction; otherwise → external event | requester (rev 2) | Full availability without breaking the mandatory customer link |
+| R4 | Several matched invitees | One interaction; first match = `entity`, others in `linkedEntities` | autonomous default | "Linked with an event" |
+| R5 | Unknown attendees | Org setting auto-creates People (default off); otherwise manual "Create person" / "Link to existing customer" | requester (rev 2) | Requested |
+| R6 | Which CRM events go to the provider | Opt-in per event in the editor; on by default for meeting/event kinds | autonomous default | Explicit intent before invitations go out |
+| R7 | Meeting-link providers | Conference capability per provider adapter (Google → Meet); provider-neutral meeting fields | autonomous default | Teams and Zoom fit the same seam |
+| R8 | Google connection model | Separate `google_calendar` connection, reusing Gmail's OAuth client via fallback | autonomous default | Calendar must not depend on Gmail |
+| R9 | Which calendars | Primary only; keyed by `externalCalendarId` | autonomous default | Smallest useful scope |
+| R10 | Private events | Owner sees details; others see Busy; never auto-promoted; owner may "Add to CRM" | requester (rev 2) | Requested |
+| R11 | Focus time / out-of-office | Imported as external kinds; working-location and birthday events skipped | requester (rev 2) + autonomous | Requested |
+| R12 | Where non-customer events live | Hub-owned external event store, rendered via the customers item-source extension point | autonomous default | A nullable customer link touches 37 files and changes a response contract |
+| R13 | Reuse for future providers | **Provider-neutral `calendar_sync` hub in core + `CalendarProviderAdapter` contract now**; Google is a thin adapter | requester delegated (rev 3), recommended option | Tables are a frozen contract; renaming provider-named tables later costs migrations + deprecation |
+| R14 | Same meeting seen by several connected users | Deduplicated by `(organization, iCalUID, instance)` into one interaction; one primary link writes content | autonomous default (rev 3) | Prevents duplicate interactions per attendee; works across providers because the iCalendar UID is RFC 5545 standard |
+
+> **Open maintainer decision (non-blocking):** the scope-cohesion review returned **SPLIT** (see Changelog → Review). Part A is useful without any provider and can be lifted into an amendment of the [CRM Calendar](./2026-06-11-crm-calendar.md) spec. Parts B and C could also be separate specs, joined by the provider contract. The parts are labelled for that purpose.
+
+## Overview
+
+The CRM Calendar (2026-06-11) renders `CustomerInteraction` records and deferred external sync to "the integrations framework as a future provider package". Sales users plan their day in external calendars. Without sync, the CRM calendar shows neither customer meetings booked elsewhere nor the user's real availability, and meetings planned in the CRM never reach invitees. Google Calendar is the first provider; Microsoft 365 is the obvious second. This spec therefore builds the provider-neutral hub once, following the existing hub pattern (`communication_channels` for messaging, `data_sync` for imports).
+
+> **Market Reference**:
+> - **Nylas** and **Cronofy** (unified calendar APIs) normalize Google, Microsoft and CalDAV into one event model with per-provider drivers. **Adopted:** a normalized event model and a narrow provider contract. **Rejected:** depending on a third-party SaaS for core CRM data.
+> - **Twenty CRM** (open source) uses a provider-agnostic calendar channel with per-provider drivers, imports all events, has "metadata only" vs "share everything" visibility, and optional contact auto-creation. **Adopted:** full import, busy-only mode, optional auto-create.
+> - **Odoo** (open source) does two-way sync and email matching. **Adopted.**
+> - **HubSpot** and **Salesforce Einstein Activity Capture** log meetings only when attendees match contacts. **Adopted** as the interaction placement rule. Salesforce also deduplicates a meeting logged by several reps. **Adopted** as R14.
+> - **Pipedrive** adds video links through provider apps. **Adopted:** a per-adapter conference capability.
+
+### Existing building blocks (verified in code)
+
+| Block | Location | Reuse |
+|-------|----------|-------|
+| Google OAuth client | `packages/channel-gmail/src/modules/channel_gmail/lib/oauth.ts` | Moved to `@open-mercato/google-auth`; Gmail re-exports |
+| Generic OAuth initiate/callback, state, token storage | `communication_channels/api/{post,get}/oauth/[provider]/…`, `lib/oauth-state.ts`, `lib/oauth-client-config.ts` | Each calendar provider is also a `ChannelAdapter` (OAuth only) |
+| Token refresh | `communication_channels/lib/credential-refresh.ts` → `refreshCredentialsIfNeeded` | The hub gets a fresh token before every adapter call |
+| Adapter registry pattern | `communication_channels/lib/registry.ts` → `registerChannelAdapter` (throws on duplicate, returns an unregister function); `data_sync/lib/adapter-registry.ts` (globalThis-backed map) | `registerCalendarProviderAdapter` follows `registerChannelAdapter` semantics |
+| Connect UI | `/backend/profile/communication-channels`, spot `profile:communication-channels:connect` | Each provider contributes a connect widget |
+| Interaction/person commands with `syncOrigin` | `customers/commands/{interactions,people}.ts` | All CRM writes; loop-breaker |
+| People by email | `customers/lib/findPeopleByAddresses.ts` | Wrapped in a DI service |
+| Person create dialog | `customers/components/detail/CreatePersonDialog.tsx` | Participant "Create person" (customers side) |
+| Calendar extension host pattern | `customers/extension-points.ts` → `calendarEventTypes`, `calendarEventTypePanel` | Mirrored for item sources |
+| Lookup hash | `@open-mercato/shared/lib/encryption/aes` → `hashForLookup(value, context)` | Attendee-email hashes |
+| Editor injection | `CalendarEventEditor` = `CrudForm` (`crud-form:customers.customer_interaction` + `:fields`), widget `onAfterSave` | Sync toggles widget |
+
+## Problem Statement
+
+1. Meetings booked in an external calendar are invisible in the CRM calendar and on customer timelines.
+2. The CRM calendar shows no real availability, so conflict warnings miss most double-bookings.
+3. Meetings scheduled in the CRM do not reach external calendars or invitees.
+4. No meeting link can be attached or generated from the CRM.
+5. Invitees are not connected to CRM People.
+6. Every future calendar provider would otherwise re-implement the same placement, privacy, identity and sync logic.
+
+## Proposed Solution
+
+### Layering
+
+| Layer | Owns | Knows nothing about |
+|-------|------|---------------------|
+| `customers` (Part A) | interactions, people, meeting fields, calendar UI, item-source extension point | providers, sync |
+| `calendar_sync` hub (Part B) | connections, event links, external events, placement, shared-meeting identity, redaction, promotion, auto-create, outbound orchestration, notifications endpoint, settings, sync UI | any provider API |
+| `channel-google-calendar` (Part C) | Google OAuth (via the hub OAuth flow), Google Calendar REST, normalize/denormalize, watch channels, Meet | customers, placement, privacy |
+| `communication_channels` | OAuth, credentials, token refresh | calendars (only the `channel.connected` event and the type-scoped guards change) |
+
+`calendar_sync` is a **soft-optional consumer of `customers`** (`tryResolve`). When `customers` is absent, everything is placed as external.
+
+### Placement rule (hub, applied to every normalized event)
+
+```
+event.kind ∈ {working_location, birthday, other}            → skip ('event_type')
+event ended before import lookback                          → skip ('before_lookback')
+event.isSeriesMaster and provider-owned series              → skip ('series_master'); instances are placed
+shared = existing link in the org with the same meeting key (icalUid, instanceKey) on ANOTHER connection,
+         else (instances only) a CRM-owned series-master link with the same icalUid
+if shared.placement = 'interaction'                         → ATTACH (re-elect primary if this link outranks it; see Shared meetings)
+if event.kind ∈ {focus_time, out_of_office}                 → EXTERNAL
+if event.isPrivate                                          → EXTERNAL (private; never auto-promoted)
+if link.auto_promote_suppressed_at and attendee hashes unchanged since suppression → EXTERNAL (stays non-customer)
+matched = matchPeopleByEmails(eligible attendees)
+autoCreate = matched = ∅ and settings.auto_create_enabled and 0 < eligible ≤ settings.auto_create_max_attendees
+if matched ≠ ∅ or autoCreate:
+    RESERVE the primary link (unique primary-per-meeting index; on violation → ATTACH to the winner)
+    if autoCreate:   # only the reserve winner ever creates People
+        for each eligible unmatched attendee IN ASCENDING attendeeEmailHash ORDER (deadlock-free),
+        under pg_advisory_xact_lock(org, attendeeEmailHash):
+            re-match that email; create the Person only if still unmatched
+    CREATE the interaction (customers command, reserved id) → FINALIZE (attach siblings, add their participants)
+    if no Person resulted (all creations skipped/failed) → release the reservation and place EXTERNAL
+else → EXTERNAL (kind meeting if other attendees exist, else event)
+```
+
+*Eligible attendee*: not a resource, not self, valid email, and domain not in the organization's `auto_create_excluded_domains`. The domain filter applies to auto-creation only.
+
+### Shared meetings (R14)
+
+- **Meeting key** = `(organization_id, ical_uid, instance_key)`. Provider adapters MUST supply `icalUid`; all three target protocols expose it (Google `iCalUID`, Graph `iCalUId`, CalDAV `UID`). An event without one gets a synthetic key `provider:<providerKey>:<externalId>`, **stored in the `ical_uid` column** (so every index sees it), and is never shared.
+- **`instance_key` canonical form.** Adapters MUST build it with the hub helper `buildInstanceKey({ originalStart, allDay, timezone })`, exported with the contract, so keys are byte-equal across providers:
+  - `''` for non-recurring events and for series masters;
+  - timed instances: original start converted to UTC, second precision, `YYYY-MM-DDTHH:mm:ssZ`;
+  - all-day instances: `YYYY-MM-DD`.
+  - Each provider's source is converted to this form: Google `originalStartTime.dateTime` / `.date`, Graph `originalStart` (DateTimeOffset), CalDAV `RECURRENCE-ID` (TZID / `VALUE=DATE`).
+- **Interaction-placed meeting.** At most **one primary link**, ranked: (1) the organizer's own connection, (2) the CRM-origin link, (3) the earliest linked.
+  - Other connections' links are **attached**: they share the `interaction_id`, have `is_primary = false`, and only maintain their own user's participant entry and RSVP via `customers.interactions.update` (`syncOrigin`). **Watermark rule:** every hub write to an interaction, from any link, advances the **primary** link's `synced_interaction_updated_at` to the interaction's new `updatedAt` in the same provider transaction that records the write. Attendee RSVP updates therefore never look like CRM edits (pristine checks and the conflict rule stay correct).
+  - **Eligibility:** a link whose copy is private (`is_private = true`) is **never eligible** to *become* primary, whatever its rank. The single exception is an organizer primary whose copy turns private on a non-pristine interaction: it stays primary with content writes frozen (see Private organizer copy).
+  - **Primary swap mechanics:** Postgres checks the partial unique indexes per statement, so a swap is two-phase inside one transaction: clear `is_primary` on the old primary, flush, then set it on the new one (the trap documented in `communication_channels/lib/connect-channel.ts`). Every swap (re-election or handover) copies **only** `synced_interaction_updated_at` (an interaction-level fact) to the new primary. Each link keeps its own `external_updated_at` and `content_hash`, which describe *its* calendar copy. On its **first apply as primary**, a link uses **its own** change signal (`event.updatedAt > link.externalUpdatedAt`, or a `content_hash` change) and the normal conflict rule. Genuine provider changes, such as the organizer moving the meeting, are applied (or resolved last-writer-wins against a concurrent CRM edit). An unchanged copy never overwrites a CRM edit. Only a link with **no watermark of its own** (never applied) falls back to pristine-only.
+  - **Re-election while `promoting`:** re-election is deferred while the current primary is `promoting`. The attaching link is stored as attached, and the winner's finalize runs the election over all attached links.
+  - **Re-election on attach:** when an attaching *eligible* link outranks the current primary (for example, the organizer connects after an attendee's copy was promoted), it **becomes primary** in the same transaction (the old primary is demoted to attached). Its copy is then applied as content subject to the first-apply-as-primary rule (own change signal + normal conflict rule).
+  - **Private organizer copy:**
+    - If the organizer's copy is private when it **attaches**, it attaches as a participant only and contributes no content.
+    - If the organizer's existing primary copy **turns** private, the demotion check runs **once, on that transition** (`is_private` false → true), not on every apply.
+      - Pristine → demote.
+      - Not pristine → the link **stays primary**, so no attendee's copy can start writing content. Its content writes are **frozen** (`last_error = 'privacy_changed_kept'`, owner warned) until the copy becomes non-private again.
+    - After an admin undo of a demotion, the restore advances the primary's watermark to the restored interaction's `updatedAt` and records the current `is_private`, so the organizer's next unchanged sync does not re-demote it.
+- **CRM-pushed meetings (UID window).** When a CRM-origin link is created (the editor turns push on), the hub assigns its meeting key **in the same transaction**: `ical_uid = <hex(sha256(idempotency key))[0..32]>@open-mercato` (the key is `<link id>:<insert_generation>`), `instance_key = ''`, as primary. When the adapter has `clientSuppliedIcalUid`, the insert sends that UID. When it implements `predictIcalUid`, the predicted UID is used as the key instead. Either way, colleagues' invitations already match and their inbound sync attaches. **In every case** the hub overwrites `ical_uid` with the UID the provider actually returns from the insert. A provider without either (Graph) holds a provisional synthetic key until then. If the returned UID differs from the key and collides with a primary created in the window (a colleague's copy promoted first), the hub **merges**:
+  - the CRM-origin interaction survives;
+  - the colleague-side links attach to it, with their linked persons unioned into `linkedEntities`;
+  - the duplicate interaction is deleted via `customers.interactions.delete` (`syncOrigin`);
+  - then the primary key is updated.
+  This runs in one hub transaction ordered so that the unique index is never violated: the duplicate's primary is cleared first.
+- **Series attach.** An incoming recurring instance (`instance_key ≠ ''`) with no exact match also looks for a link with the same `ical_uid` and `instance_key = ''` whose placement is `interaction` (a **CRM-owned series master**). If found, the instance link attaches to that series interaction: its user is added once as a participant, and every instance link of that connection points to the same interaction. A colleague whose provider materializes a CRM-pushed series per instance therefore never creates per-instance duplicates. The same applies on the **organizer's own connection**: modified instances of a CRM-pushed series come back as separate events with the same `iCalUID`, and they attach to the series interaction as non-primary instance links. Re-election only compares links of *other* connections, so the series master stays primary.
+- **Content and pushes.** Content changes (title, time, description, attendees, meeting) are applied **only from the primary link**, so stale attendee copies can never overwrite the organizer's version. Outbound pushes also go only through the primary.
+- **Primary handover.** When the primary link is unlinked (disconnect, event deleted from that calendar), the next candidate becomes primary in the same transaction.
+  - **Candidates** (for handover and re-election alike): only eligible links whose `(ical_uid, instance_key)` equals the interaction's **own meeting key**. For a series interaction that means `instance_key = ''` (series-master links); occurrence links attached through Series attach are **never** candidates and never write content to a series interaction. They only maintain their user's participant entry.
+  - The hub copies `synced_interaction_updated_at` (only) from the old primary to the new one in the same transaction, and the new primary's first apply uses its own change signal (Primary swap mechanics), so the handover never fakes a CRM edit or a conflict and never drops a genuine provider change.
+  - If no candidate remains, the interaction stays as normal CRM history with no primary.
+- **External-placed meeting** (no customer). Each attendee's connection keeps its **own** external row; it is that user's availability, with that user as owner. When the meeting is promoted, every external sibling with the same key is attached to the one new interaction in the same promote job.
+- **Privacy.** A private copy never writes content (see Eligibility). A connection whose copy is private but whose sibling is already an interaction attaches as a participant only. When the private copy is the **organizer's**, the demotion rule runs; an attendee's private copy alone never demotes.
+- **First-import race.** Two connections can see a brand-new shared meeting in the same tick. A **unique partial index** on `(organization_id, ical_uid, instance_key) WHERE is_primary AND placement = 'interaction' AND deleted_at IS NULL` guarantees at most one primary per meeting. The placement transaction inserts the primary link (reserving the interaction id) **before** calling the customers create command. On a unique violation, the loser rolls back and re-runs placement as **ATTACH** to the winner. Because the reservation happens first, the loser never reaches the create command or People auto-creation, so it creates no duplicate interaction and no duplicate People. **Attach while the winner is still `promoting`:** the loser stores its link as attached (non-primary, the winner's `interaction_id`) but skips its own `customers.interactions.update`, because the interaction may not exist yet. The winner's **finalize** step adds the participants of *every* link attached to that interaction, whatever state it was in when attached. If the winner's reservation is **released** (no Person resulted), the release step explicitly re-places every link attached to it: each gets its own external row, built from its latest normalized copy (`adapter.getEvent` when not cached), exactly like demotion step (c). Nothing waits for the provider to resend an unchanged event, which incremental sync would not do.
+- **Concurrent auto-creation across meetings:** two *different* new meetings with the same new prospect are serialized per attendee by `pg_advisory_xact_lock(hashtext(org_id || attendee_email_hash))`. Locks are always taken in ascending hash order, so two meetings sharing prospects in a different order cannot deadlock. Each re-matches inside the lock, so one email yields one Person.
+
+### Transitions
+
+- **Promotion (external → interaction):**
+  - when attendees change so that a match exists;
+  - when a person whose email is an attendee is created or updated (the subscriber);
+  - when a user chooses "Create person" or "Link to existing customer" (`promote { entityId }`);
+  - when the owner chooses "Add to CRM" (required for private events).
+- **User deletes an interaction (CRM-side delete) — state machine:**
+  - **Handler:** the **only** handler of `customers.interaction.deleted` is a hub subscriber, and it acts only when `syncOrigin` is **not** `calendar_sync`. In one hub transaction it:
+    1. Picks the **owning link**: the interaction's primary link if `push_enabled` and (`origin = 'crm'` or `is_organizer`); the CRM then owns the provider event. It sets `state = 'deleting'` (keeping `interaction_id`) and enqueues outbound **after** commit.
+    2. **Detaches** every other link with this `interaction_id` and `state NOT IN ('unlinked','deleting')`: each is re-placed as external from its latest normalized copy (the user's availability stays on the calendar), gets `auto_promote_suppressed_at`, and records `detached_from_interaction_id`.
+  - **Worker (owning link):**
+    - It acts on a soft-deleted interaction **only when the link is `deleting`**. A pending outbound job that meets a soft-deleted interaction while the link is still `linked` is a **no-op**: the handler has not committed yet and will enqueue its own job. So the worker can never run "before the handler".
+    - With the connection `active`, it deletes or cancels the provider event, then performs the **delete-flow unlink** with a compare-and-set: `UPDATE … SET state = 'unlinked', unlink_reason = 'crm_delete', is_primary = false WHERE id = ? AND state = 'deleting' AND state_changed_at = :readAt`. `interaction_id` is kept, there is **no handover** (the interaction is deleted), and no external row is created.
+    - If the CAS fails because undo restored the link meanwhile, the provider event is already gone. The worker then applies the **CRM-only outcome** in one transaction: owning link `unlinked` / `crm_delete` with push off; colleague links that undo re-attached are detached again and their markers cleared.
+    - With the connection **not** `active`, the worker exits without provider calls and the link stays `deleting`. Reactivation re-enqueues it; this includes the undo of a channel disconnect **or** delete, which emits `channel.connected`.
+    - **Abandonment:** a `deleting` link that cannot complete is abandoned by the sweep. This covers a connection inactive since `connection.status_changed_at < now() − OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS`, or the link itself `deleting` for longer than that window on **any** connection (a permanent provider error such as `403`). The sweep runs one compare-and-set: `UPDATE … SET state = 'unlinked', unlink_reason = 'provider_delete_abandoned', is_primary = false WHERE id = ? AND state = 'deleting' AND state_changed_at = :readAt`. It uses the `(state, state_changed_at)` index, and the hub emits `calendar_sync.connection.failed` (reason `provider_delete_abandoned`).
+  - **`unlink_reason`:** every unlink records one of `crm_delete`, `provider_delete_abandoned`, `disconnect`, `channel_deleted`, `provider_cancelled`, `sweep`, `not_organizer`. Only `crm_delete` and `provider_delete_abandoned` take part in undo.
+  - **Undo:** undoing the delete emits `customers.interaction.created`.
+    - **Single handler, fixed order:** one hub subscriber on that event handles every restore. It first re-reads the interaction (`findOneWithDecryption`) and **no-ops** when it is soft-deleted or missing. That covers a stale `created` delivery arriving after a quick re-delete; the re-delete's own handler owns the state then.
+    - **Owning-delete key:** it first looks up the owning link: `interaction_id = :id AND (state = 'deleting' OR (state = 'unlinked' AND unlink_reason IN ('crm_delete','provider_delete_abandoned')))`. There is at most one by construction, because only the primary can be owning; if several match, it takes the latest `state_changed_at`.
+    - It branches on **link state only**, never on connection status:
+      - **`deleting`** (provider event never touched; colleague copies alive). If the connection is `active`, `requires_reauth` or `error` (still the user's live connection), it does a CAS (`WHERE state = 'deleting'`) back to `linked` primary. If the connection is `paused` (disconnected or channel-deleted), the CAS instead gives the link the **disconnect outcome**: `unlinked`, `unlink_reason = 'disconnect'` (or `'channel_deleted'` when the connection is soft-deleted), `is_primary = false`. A dead connection's link is never made primary; a later reconnect on the same channel re-attaches it through the `(connection_id, external_event_id)` reuse. Either way, it then runs the **generic marker restore** re-attaches the colleague links. No provider write is needed. If the CAS loses (the worker unlinked first), re-read and take the matching `unlinked` branch.
+      - **`unlinked` + `crm_delete`** (provider event deleted, colleague copies cancelled with it): restore **the CRM record only**.
+        - The owning link stays `unlinked`, with `push_enabled` set to false.
+        - Colleague links are **not** re-attached: their markers are cleared, and their external rows go when the provider's cancellations arrive.
+        - The interaction has no primary until the user re-enables push (see below).
+      - **`unlinked` + `provider_delete_abandoned`** (the provider event and colleague copies are still live; only the owning connection is gone): the owning link stays `unlinked` with push off. The **generic marker restore** re-attaches the colleague links and elects a primary among them.
+      - **No owning link** (demotion, or delete of a meeting the CRM did not own): generic marker restore only.
+  - **Re-enabling push after a CRM-only restore:**
+    - To put the meeting back on calendars, the user turns "Add to Google Calendar" on again in the editor.
+    - **Precondition:** the identity reset below applies **only** to `unlink_reason = 'crm_delete'`, where the old provider event is confirmed gone. For `provider_delete_abandoned`, the old event may still be live. Re-enable there requires the owning connection to be `active` again (409 `connection_inactive` otherwise) and keeps the identity: the link is re-linked to its interaction and patched, never duplicated. On reactivation, abandoned rows are re-evaluated. Interaction still deleted → back to `deleting`, completing the delete. Interaction live → re-linked as attached, then re-election.
+    - `event_link.update` reuses the owning link, bumps `insert_generation`, and **clears the old provider identity** (`external_event_id`, `external_series_id`, `external_version`, `external_updated_at`, `content_hash`, `conference_pending`, `html_link`, `unlink_reason`). It assigns a fresh key, sets the link `linked` primary, and enqueues outbound.
+    - The worker sees no `external_event_id`, so it **inserts** a new provider event (new client id and UID) with new invitations. Colleagues' new copies attach through the new key. Their old `unlinked` rows don't block that, thanks to the `state <> 'unlinked'` index predicate.
+  - **Not reversible by undo:** an executed provider delete is not undone automatically. This matches the stance that external provider writes are not reversible by undo, and the editor states it.
+- **Missing or deleted interaction (any path):**
+  - Undoing a hub-created interaction (`customers.interactions.create` undo hard-removes the row and emits no `deleted` event), or any other out-of-band removal, can leave links pointing at a missing row.
+  - Apply, RSVP and attach **skip** links in `state = 'deleting'` and links whose interaction is soft-deleted; those belong to the user-delete flow.
+  - Whenever apply, RSVP, attach or outbound finds a non-owning link whose interaction is **hard-missing**, or soft-deleted without a `deleting` sibling (an out-of-band delete), it treats the link as detached: it re-places the link as external from its latest normalized copy, clears `is_primary`, and sets `auto_promote_suppressed_at`. When the row is soft-deleted, it also sets `detached_from_interaction_id`, so undo can restore the link. The removal is therefore not silently undone by re-import.
+- **Demotion (interaction → external):**
+  - **When:** the organizer's copy becomes private **and** the interaction is sync-pristine (`origin = 'provider'` and `interaction.updatedAt = link.syncedInteractionUpdatedAt`).
+  - **How:** it runs as one `demote` job, the reverse of promote's finalize:
+    - **(a)** in one hub (`calendar_sync`) database transaction, mark every link whose `interaction_id` equals the interaction (primary, attached and series-instance links alike) `state = 'demoting'` and record `detached_from_interaction_id`;
+    - **(b)** `customers.interactions.delete` (undoable, `syncOrigin`);
+    - **(c)** for every link marked in (a), set `placement = 'external'`, clear `interaction_id` and `is_primary`, and upsert that connection's own `CalendarExternalEvent` from its latest normalized copy (refetched via `adapter.getEvent` if needed). Each attendee keeps their own availability row, and no link points at a deleted interaction.
+  - **Recovery:** resumable from `demoting`.
+  - **Undo:** undoing `customers.interactions.delete` re-creates the row and emits **`customers.interaction.created`** (the delete command's undo uses `emitCrudUndoSideEffects({ action: 'created' })`; `customers.interaction.reverted` is only emitted by the complete/cancel undos). The single `customers.interaction.created` restore handler (see User deletes an imported interaction → Undo for its branch order) checks idempotently for links with `detached_from_interaction_id = payload.id` **that are still `placement = 'external'` and `state <> 'unlinked'`**. A colleague copy cancelled meanwhile (`provider_cancelled`) is never re-attached; cancellation also clears its marker. Links re-promoted since the demotion have had the marker cleared, so an old undo can never pull links off a newer live interaction. If any qualify, it restores them to `placement = 'interaction'`, re-elects the primary, soft-deletes their external rows, and clears `detached_from_interaction_id`. For any other `created` event it is a no-op (one indexed point lookup).
+  - **Who can undo:** demotion is executed by `system:calendar_sync`, so undoing it is another actor's action and requires `audit_logs.undo_tenant` (admins only). The **user-facing reversal** is making the event non-private again in the provider, after which normal placement re-promotes it, or the owner's "Add to CRM".
+  - **Otherwise** (not pristine) the interaction is kept, `last_error = 'privacy_changed_kept'` is set, and the owner is warned.
+- Interactions are never demoted because people disappear (history is preserved).
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Provider-neutral hub in core (`calendar_sync`) now** | Roughly 70% of the logic is provider-neutral: placement, privacy, identity, people, outbound orchestration, UI. Tables are a FROZEN contract surface, so provider-named tables would force a migration + deprecation when the second provider arrives. Mirrors `communication_channels` / `data_sync`. |
+| **Narrow `CalendarProviderAdapter` + normalized event model** | Providers translate protocol to `NormalizedCalendarEvent` and back; they never see CRM concepts. The contract was fit-checked against Google, Microsoft Graph and CalDAV. |
+| **Providers are also `ChannelAdapter`s (`channelType: 'calendar'`) for OAuth** | Reuses OAuth, credentials, refresh, reauth and connect UI (goal 1). The hub keys connections by `communication_channels` channel id. Non-OAuth providers (CalDAV app passwords) use `validateCredentials` on the same hub. |
+| **Hub never polled by `communication_channels`** | Calendar `ChannelAdapter`s declare `realtimePush: true` and implement no `fetchHistory`; message methods throw `[internal]`. |
+| **Shared-meeting identity by iCalendar UID + single primary writer** | One customer meeting = one CRM record, even with several connected attendees on different providers. A single writer removes cross-copy write conflicts. |
+| **Two homes for imported events** (interaction vs hub external store) | Customer timelines, projections, deals and AI tools assume a customer (37 files). Non-customer availability is a provider mirror, purged on disconnect and after retention. |
+| **Customers item-source extension point** (`calendar:customers.item-sources`) | Customers never imports the hub. The hub is one source; any module can be another. |
+| **Server-side redaction** | Details never reach non-owners' browsers. |
+| **Private events never auto-promote** | Customer timelines cannot be redacted per viewer. |
+| **People via `customers.people.create` with `syncOrigin`** | Audit, undo, events, indexing; tagged `source` for review. |
+| **Attendee-email hashes on the link row** | Encrypted attendees stay searchable by `hashForLookup`. They cover external and interaction placements, so people created later are linked either way. |
+| **Org settings in a hub-owned, org-scoped table (`calendar_sync_settings`)** | One auto-create policy for all providers, per organization. `ModuleConfigService` was rejected: its rows, unique index (`module_configs_scoped_unique (module_id, name, tenant_id)`) and cache are **tenant**-scoped, so organizations in one tenant would overwrite each other's policy, and `setValue` flushes on its own EntityManager (no compare-and-set inside a caller transaction). |
+| **All CRM writes via customers commands with `syncOrigin: 'calendar_sync'`** | Loop-breaker for every provider at once. |
+| **Opt-in push recorded by the editor widget** | Deterministic outbound; API/workflow-created interactions never leak. |
+| **Client-supplied external ids where the provider allows** | Idempotent inserts per idempotency key `<link id>:<insert_generation>` (Google: `id` = hex digest of that key). Providers without client ids (Graph) use `transactionId` (Graph's idempotency field) or a search on the hub id stored in provider extended properties. The adapter owns this; the hub only requires idempotency. |
+| **Provider-owned recurring series materialized as instances; CRM-owned series pushed as an RRULE master** | Provider RRULE/EXDATE/override semantics exceed the CRM expander subset. |
+| **Shared `@open-mercato/google-auth`; client-config fallback to Gmail** | No provider-to-provider import. Gmail's credentials form and rows stay untouched. |
+
+### Alternatives Considered
+
+| Alternative | Why rejected |
+|-------------|--------------|
+| Google-only package now (rev 2) | A second provider copies placement, privacy, identity and people logic, or forces a later refactor with table renames (FROZEN surface) and the deprecation process |
+| Middle ground: one Google package with provider-neutral table names | Avoids renames, but a second provider still copies the logic and would have to import the Google package's internals |
+| Nullable `CustomerInteraction.entity` | 37 files and a response-contract change; mixes personal availability into CRM history |
+| Third-party unified calendar API (Nylas / Cronofy) | External SaaS dependency for core CRM data; per-seat cost; data residency |
+| Per-attendee duplicate interactions (no shared identity) | The same customer meeting appears N times on timelines |
+| Client-side redaction | Leaks details to every browser |
+| Unconditional auto-create | Floods the CRM; the requester asked for an option |
+
+## User Stories / Use Cases
+
+| As | I want to | So that | Delivered by |
+|----|-----------|---------|--------------|
+| A sales rep | connect my Google Calendar and see all my events in the CRM calendar | conflict warnings reflect my real availability | Phases 3, 4, 7 |
+| A sales manager | see colleagues' private appointments as Busy | I can plan without seeing private details | Phase 4 |
+| A sales rep | have customer meetings appear on customer timelines with meeting links | I can join and keep history from the CRM | Phases 2, 4 |
+| Two reps | attend the same customer meeting with both calendars connected | the customer has one meeting record listing both of us | Phase 4 |
+| An admin | enable auto-creation of People, excluding our domains | new prospects become People automatically | Phase 5 |
+| A sales rep | create a person or link an existing customer from an imported meeting | the meeting moves onto the right timeline | Phases 2, 5 |
+| A sales rep | schedule a CRM meeting with "Add Google Meet link" | the invitee gets an invitation with a working link | Phases 6, 7 |
+| A platform developer | add Microsoft 365 by writing one adapter package | placement, privacy, people and UI work unchanged | Provider Contract |
+
+## Architecture
+
+```
+      Google / (future) Microsoft Graph / CalDAV
+            ▲ REST                    │ change notifications
+            │                         ▼
+  ┌─────────┴──────────────┐   /api/calendar_sync/webhook/[provider]  (public)
+  │ channel-google-calendar│          │ adapter.parseNotification → enqueue inbound:<connectionId>
+  │  ChannelAdapter (OAuth)│          ▼
+  │  CalendarProviderAdapter ◄──── calendar_sync hub (core) ─────────────────────────────────────┐
+  │  google-auth           │   registry: registerCalendarProviderAdapter                          │
+  └────────────────────────┘   data: CalendarConnection, CalendarEventLink, CalendarExternalEvent │
+                               engine: placement · shared-meeting identity · redaction · conflict │
+                               workers: inbound-sync, outbound-sync, promote, notifications-renew,│
+                                        horizon-roll (+retention), poll-tick                      │
+                               subscribers: communication_channels.channel.connected/disconnected/deleted
+                                            customers.interaction.* → outbound
+                                            customers.person.created/updated → promote / link
+                               api: connections, settings, events (redacted), events/[id]/promote,
+                                    interactions/[id]/link, webhook/[provider]
+                               widgets: calendar item source · external details panel · editor field widget
+                                        · user settings page · org settings page
+                                    │ tryResolve('customerPersonEmailMatcher'), commandBus('customers.*')
+                                    ▼
+  communication_channels (+fallback keys, channel.connected,      customers (Part A)
+   type-scoped mailbox guard, cross-type primary rejection)        + meeting fields, matcher, includeLinked,
+                                                                   item-source extension point, Create person
+```
+
+### Inbound flow
+
+1. **Triggers:** a webhook, a poll tick (`OM_CALENDAR_SYNC_POLL_INTERVAL`), "Sync now", or a connect.
+2. **Coalesce and lock:** the `calendar-sync-inbound` queue is built with `coalesceBy: (p) => \`connection:${p.connectionId}\`` (`@open-mercato/queue` coalescing: a burst of triggers runs once, and a trigger landing mid-run still gets one follow-up run). Across processes the worker takes a **lease**, not a row lock held across network calls: a short transaction runs `UPDATE … SET sync_lease_until = now() + interval '5 minutes', sync_lease_owner = :me WHERE id = ? AND (sync_lease_until IS NULL OR sync_lease_until < now())`. Renewals, cursor writes and the final clear add `AND sync_lease_owner = :me`, so a stalled worker whose lease was taken over can no longer write. Zero rows updated means another worker holds it, so this one exits. The lease is renewed per page and cleared at the end. No database connection or row lock is held during provider calls, and `PUT /connections` never waits on a running sync. The job payload is only `{ connectionId }`. The mode is read from state: `full` when `full_resync_requested_at` is set or the cursor is missing, otherwise `incremental`. Workers stay idempotent (queue `AGENTS.md`).
+3. **Token:** `refreshCredentialsIfNeeded` returns a fresh token. Reauth errors route to the hub's `requires_reauth`.
+4. **Listing:**
+   - `adapter.listChanges({ state: connection.providerState, mode: 'incremental' | 'full', horizon, pageBudget })` returns `{ events, deletedExternalIds, nextState, hasMore, fullResyncRequired }`.
+   - `fullResyncRequired` (Google `410`, Graph expired delta link, CalDAV invalid sync-token) triggers a full sync.
+   - Provider-owned series masters fan out through `adapter.listInstances` within the horizon.
+5. **Placement:** each event is validated against the hub's zod schema for `NormalizedCalendarEvent` and goes through `applyNormalizedEvent` (placement, shared-meeting identity, § Mapping). **Echo skip:** the event is skipped only when **all** of these hold: the hub-computed `content_hash` (SHA-256 of the normalized, mapped fields) equals `link.contentHash`, the link is `state = 'linked'`, its placement is live (an external row exists for `external`, or `interaction_id` is current for `interaction`), and the run is `incremental`. A `full` run **always re-evaluates placement** (attach, promote, re-create external rows, auto-create), so reconnects and "enable auto-create, then full resync" take effect on unchanged events. `content_hash` is cleared whenever a link is unlinked or re-placed.
+   - **Placement re-evaluation is separate from content application.** Provider content is written to an interaction **only when the provider copy changed** since the last apply: `content_hash ≠ link.content_hash` (link not freshly cleared) or `event.updatedAt > link.externalUpdatedAt`.
+   - When only the CRM side changed, the CRM version is kept. Outbound is enqueued if push is enabled; otherwise the edit stays CRM-only, as the editor states. A full sync, `410` or reconnect therefore never overwrites CRM edits with unchanged provider content.
+   - For a freshly cleared hash (unlink/re-place) **on a link with no `external_updated_at` of its own**, content is applied only when the interaction is sync-pristine. A link that still has its own watermark uses `event.updatedAt > link.externalUpdatedAt` as the change signal, with the normal conflict rule. This matches the first-apply-as-primary rule. The check is provider-independent: it works for CalDAV, where one ETag covers a whole series. `version` is used only for `If-Match` concurrency.
+6. **Cursor and paging:**
+   - The connection keeps two pieces of state: the **committed cursor** `provider_state` (the adapter's `nextState`, persisted only when a listing finishes, `hasMore = false`) and the **in-progress page state** `provider_page_state` (the adapter's `nextPageState`, persisted after **every** page).
+   - When the page budget is exhausted with `hasMore = true`, the worker persists the page state and enqueues a follow-up inbound job, so the next run resumes from that page instead of page 1. A listing of any size converges.
+   - A full sync stamps a fresh `full_sync_run_id` on the connection and sets `last_seen_run_id` on every link it sees. On completion it **marks and sweeps**: links of the connection whose `starts_at` is inside the horizon and that were not seen are treated as deleted. Excluded from the sweep: **owning** links (`push_enabled` and (`origin = 'crm'` or `is_organizer`)) with `external_event_id IS NULL` (first push or re-insert still pending), and links in `deleting` (their delete flow owns them). Only links with `state NOT IN ('unlinked','deleting')` are considered. Each unseen link is unlinked (`unlink_reason = 'sweep'`, with primary handover) and its external row soft-deleted. The sweep never overwrites an existing `unlink_reason`, so a `crm_delete` row keeps its reason for undo. This sweep is needed because providers return deletions only for a limited time.
+   - Failed events are retried on the next tick (`pendingRetryExternalIds`, ≤ 50).
+
+### Outbound flow (interactions only)
+
+1. **Subscriber** on `customers.interaction.{created,updated,canceled,reverted}` (**not** `deleted`: the user-delete subscriber in Transitions is the **only** handler of `customers.interaction.deleted`. It commits the owning link's `deleting` state first and only then enqueues outbound, so the worker can never see a deleted interaction before the delete intent is recorded):
+   - drops events whose `syncOrigin` is `calendar_sync`;
+   - requires the **primary** link with `pushEnabled` that is either CRM-origin or organized by the connection's user;
+   - enqueues to `calendar-sync-outbound` (`coalesceBy: (p) => \`link:${p.linkId}\``) with payload **`{ linkId }` only**. The worker re-derives the action from state, checked in this order: (1) link not `linked`/`deleting`, or push off → **no-op**; (1b) link `deleting` while the interaction is live (undo in progress) → **no-op**, the restore handler owns it; (2) interaction soft-deleted and link `deleting` → provider delete/cancel + delete-flow CAS unlink (see User deletes an interaction); (3) interaction soft-deleted and link still `linked` → **no-op** (the delete handler will enqueue); (4) interaction hard-missing → detach (see Missing interaction); (5) `canceled` → cancel; (6) no `external_event_id` → insert; (7) otherwise patch. Coalescing can therefore never drop a delete intent.
+2. **Worker:** builds an `OutboundCalendarEvent` from the interaction (`findOneWithDecryption`) and calls the adapter:
+   - `insertEvent` (idempotent per adapter; `conference` requested when `conferenceRequested` and the adapter has the capability);
+   - `patchEvent` with `expectedVersion`; a `CalendarVersionConflictError` re-reads the event (`getEvent`), re-applies inbound for it, then re-evaluates the conflict rule. With `versionScope: 'series'` (CalDAV), `expectedVersion` is the series resource version stored on every instance link of that series;
+   - `cancelEvent` / `deleteEvent` (organizer only; otherwise unlink with `unlink_reason = 'not_organizer'`).
+3. **Conference:** a `conferencePending` result is polled through `getEvent` with backoff (max 5). Meeting fields are then written back via `customers.interactions.update` (`syncOrigin`).
+4. **Shared meetings:** colleagues' calendars receive the provider's invitation. Their inbound sync sees the same iCalendar UID and attaches, so no duplicate is created.
+
+### Promotion flow
+
+1. **Triggers:**
+   - **person subscriber:** reads the person's primary email via the matcher and computes `hashForLookup(email, 'calendar_sync:event_link.attendee_email')`. It looks up non-private links in the org with `attendee_email_hashes @> ARRAY[:hash]`:
+     - `placement = 'external'` → `promote`;
+     - `placement = 'interaction'` on the primary link without the person → re-apply that adds the person to `linkedEntities` (`managedPersonIds`);
+   - a placement change during inbound sync.
+   - These **automatic** triggers enqueue the coalesced `promote` job described below. Its payload carries **no intent** (`{ organizationId, meetingKey }` only), so the job re-derives everything from current state, as queue `AGENTS.md` rule 4 requires.
+   - **Manual** promotion (`POST /api/calendar_sync/events/[id]/promote`: Create person, Link to existing customer, Add to CRM) never goes through the queue. If its reserve loses the race, it attaches, adds the requested `entityId` to the winner's `linkedEntities`, and returns the winner's `interactionId`. **Undo of a manual promotion is sticky:** it sets `auto_promote_suppressed_at` on the event's links. Automatic promotion skips suppressed links until the event's attendee set changes or a user promotes manually again, so undo is not silently reversed by the next person update. It runs **synchronously inside the `calendar_sync.external_event.promote` command**, using the same reserve → create → finalize steps, so the chosen `entityId` cannot be dropped by coalescing, the undo snapshot is captured at execution time, and the API returns the created `interactionId`.
+2. **Reserve → create → finalize** (shared by the `promote` worker on queue `calendar-sync-promote`, `coalesceBy: (p) => \`meeting:${p.organizationId}:${p.meetingKey}\``, and the manual command). It re-matches attendees (the worker) or uses the request's `entityId` (the command), then runs:
+   - **(a) Reserve:** in one transaction, set the chosen primary link to `placement = 'interaction'`, `is_primary = true`, `state = 'promoting'` and a new `interaction_id`. A unique violation on the primary-per-meeting index means another job won, so this job re-runs as ATTACH (see First-import race);
+   - **(b) Create:** `customers.interactions.create` with that caller-supplied `id` and `syncOrigin`;
+   - **(c) Finalize:** set the primary to `state = 'linked'`, attach every external sibling link with the same meeting key, add the participants of **every** link attached to this interaction (including links that attached while it was `promoting`), soft-delete all their external rows, and advance the primary's watermark.
+3. **Recovery:**
+   - **Staleness:** a `promoting`/`demoting`/`deleting` link counts as **stale** only when `state_changed_at < now − OM_CALENDAR_SYNC_STALE_STATE_MINUTES` (default 15).
+   - **Sweep:** `poll-tick` sweeps stale rows (indexed on `(state, state_changed_at)`) and resumes them. Stale `deleting` links are resumed only when their connection is `active`; otherwise reactivation re-enqueues them. The same sweep performs delete **abandonment** (see User deletes an interaction). An existing interaction with the reserved id skips (b); a missing one re-runs it.
+   - **Fresh rows:** any promote job or inbound tick that meets a **fresh** `promoting` link treats it as in-flight and no-ops, so a live reservation is never "recovered" concurrently.
+   - All paths are idempotent.
+
+### Conflict rule
+
+Applied on the primary link only, and only when the provider copy changed (see Inbound step 5; a CRM-only change is never a conflict and never overwritten). A conflict exists when `event.updatedAt > link.externalUpdatedAt` **and** `interaction.updatedAt > link.syncedInteractionUpdatedAt`. Last writer wins; the worker sets `link.lastConflictAt` and emits `calendar_sync.event_link.conflict_resolved`.
+
+### Commands & Events
+
+| Kind | Id | Notes |
+|------|----|-------|
+| Command | `calendar_sync.connection.update` | Per-user connection settings; undo restores the snapshot |
+| Command | `calendar_sync.settings.update` | Upserts the organization's `CalendarSyncSettings` row (compare-and-set on `updated_at`); undo restores the previous snapshot. Already auto-created people are not removed (documented). |
+| Command | `calendar_sync.event_link.update` | Push intent. Bumps `intent_updated_at` and **enqueues `calendar-sync-outbound` for the link whenever the effective intent changes** (push turned on, conference requested). This is the path by which a newly created CRM meeting first reaches the provider, because `customers.interaction.created` fires before the editor's `onAfterSave` creates the link. Undo restores the intent and enqueues outbound to reconcile. The external provider write is not reversible. |
+| Command | `calendar_sync.external_event.promote` | Manual promotion, executed synchronously (reserve → create → finalize). **Undo** deletes the interaction (via customers command, `syncOrigin`). It then selects links by `interaction_id` **at undo time**, which includes links attached after the promotion, and re-places each one as external from its latest normalized copy (the same procedure as demotion step (c)). It sets `auto_promote_suppressed_at` on each. |
+| Reused | `customers.interactions.create/update/cancel/delete`, `customers.people.create` | System context `auth.sub = 'system:calendar_sync'`, `syncOrigin: 'calendar_sync'`, owner/author = the primary connection's user |
+| Event (hub) | `calendar_sync.connection.synced` | `{ connectionId, providerKey, mode, applied, external, attached, promoted, peopleCreated, skipped, failed }` |
+| Event (hub) | `calendar_sync.connection.failed` | `{ connectionId, providerKey, reason }` |
+| Event (hub) | `calendar_sync.external_event.promoted` | `{ meetingKey, interactionId, trigger: 'match'\|'person_created'\|'manual'\|'link_existing' }` |
+| Event (hub) | `calendar_sync.event_link.conflict_resolved` | `{ linkId, interactionId, winner }` |
+| Event (hub) | `calendar_sync.interaction.demoted` | `{ meetingKey, interactionId, linkCount }`; emitted after demotion finalizes |
+| Event (hub, new) | `communication_channels.channel.connected` | `{ channelId, providerKey, channelType, userId, tenantId, organizationId }`; emitted by the OAuth callback, the credential connect command, and the undo of channel disconnect/delete |
+
+## Provider Contract (`calendar-provider.v1`)
+
+Exported from `@open-mercato/core/modules/calendar_sync/lib/provider` and registered through `registerCalendarProviderAdapter(adapter): () => void`. This follows `registerChannelAdapter` exactly:
+- the registry is a `globalThis`-scoped `Map` (survives module re-evaluation under hot reload);
+- the adapter is structurally validated at registration: `changeNotifications` ⇔ `startNotifications`/`stopNotifications`/`parseNotification` are all present. **Behavioural** rules (for example: when `conference ≠ null`, `insertEvent` MUST honour `requestConference`; inserts MUST be idempotent per `idempotencyKey`) cannot be checked at registration. They are enforced by the exported **conformance suite** `runCalendarProviderConformanceSuite(createAdapter, fixtures)`, which every provider package MUST run in its unit tests;
+- a duplicate `providerKey` throws;
+- the returned function unregisters (used by tests);
+- companion functions `hasCalendarProviderAdapter(key)`, `getCalendarProviderAdapter(key)` and `listCalendarProviderAdapters()`;
+- **hot reload:** provider `setup.ts` guards with `if (hasCalendarProviderAdapter('google_calendar')) return` before registering, the same pattern as `channel_gmail/setup.ts` with `hasChannelAdapter`.
+
+ The `providerKey` MUST equal the provider's `ChannelAdapter.providerKey`; that is how a connected channel maps to an adapter.
+
+```ts
+type CalendarProviderCapabilities = {
+  changeNotifications: boolean                  // Google watch, Graph subscriptions; CalDAV: false
+  conference: { key: string; labelKey: string } | null   // Google: { key: 'google_meet' }, Graph: { key: 'teams' }
+  eventKinds: Array<'focus_time' | 'out_of_office'>       // Google: both; Graph: ['out_of_office']; CalDAV: []
+  clientSuppliedIds: boolean                    // Google true, Graph false (uses transactionId)
+  clientSuppliedIcalUid: boolean                // provider honours a hub-chosen UID on insert: CalDAV (`UID`) true; Google false (create accepts
+                                                // `id` OR `iCalUID`, and the client `id` is needed for idempotency); Graph false
+  // optional: predictIcalUid?(idempotencyKey) — a deterministic UID the provider will assign
+  // (Google: `<id>@google.com`, to be verified in Phase 7); lets the hub pre-assign the key without supplying it
+  versionScope: 'event' | 'series'              // CalDAV: 'series' (one ETag per resource incl. overrides)
+}
+
+type CalendarProviderAuthContext = {
+  accessToken: string | null                    // fresh, from refreshCredentialsIfNeeded (OAuth providers)
+  credentials: Record<string, unknown>          // provider credentials (e.g. CalDAV server URL + app password)
+  signal: AbortSignal
+}
+
+type CalendarProviderContext = CalendarProviderAuthContext & {
+  externalCalendarId: string
+}
+
+type NormalizedCalendarEvent = {
+  externalId: string
+  seriesExternalId: string | null               // parent series for instances
+  isSeriesMaster: boolean
+  icalUid: string | null
+  instanceKey: string                           // MUST come from buildInstanceKey(); '' for single events and masters
+  version: string                               // concurrency token: etag / changeKey / CalDAV resource ETag (series-wide when versionScope = 'series')
+  updatedAt: string
+  status: 'confirmed' | 'tentative' | 'cancelled'
+  kind: 'default' | 'focus_time' | 'out_of_office' | 'working_location' | 'birthday' | 'other'
+  isPrivate: boolean
+  isBusy: boolean
+  title: string | null
+  description: { format: 'html' | 'text'; value: string } | null
+  location: string | null
+  start: string; end: string; allDay: boolean; timezone: string | null
+  recurrence: string[] | null                   // RFC 5545 lines, masters only
+  organizer: { email: string | null; name: string | null; self: boolean } | null
+  attendees: Array<{ email: string; name: string | null; status: 'accepted' | 'declined' | 'tentative' | 'needs_action'; self: boolean; resource: boolean; organizer: boolean }>
+  conference: { url: string | null; provider: string | null; details: MeetingDetails | null; pending: boolean } | null
+  htmlLink: string | null
+  crmInteractionId: string | null               // round-tripped hub marker (extended properties / X- property)
+}
+
+type OutboundCalendarEvent = Omit<NormalizedCalendarEvent,
+  'externalId' | 'version' | 'updatedAt' | 'seriesExternalId' | 'isSeriesMaster' | 'instanceKey' | 'htmlLink'
+  | 'isPrivate' | 'isBusy' | 'kind'>
+  // privacy/availability fields are provider-owned: inserts use provider defaults (default visibility, busy,
+  // normal event); patches never send them, so a CRM edit can never un-private or re-type a provider event.
+  // icalUid is set on insert when capabilities.clientSuppliedIcalUid
+
+interface CalendarProviderAdapter {
+  providerKey: string
+  labelKey: string
+  capabilities: CalendarProviderCapabilities
+  providerStateSchema: z.ZodType                // validates connection.providerState (cursor, page token, …)
+  resolvePrimaryCalendar(authCtx: CalendarProviderAuthContext):          // discovery (CalDAV principal / calendar-home) lives here
+    Promise<{ externalCalendarId: string; timezone: string | null }>
+  listChanges(ctx, input: { state: unknown; pageState: unknown | null; mode: 'incremental' | 'full'; horizon: { from: Date; to: Date } }):
+    Promise<{ events: NormalizedCalendarEvent[]; deletedExternalIds: string[]; hasMore: boolean;
+              nextPageState: unknown | null;            // when hasMore — persisted by the hub after every page
+              nextState: unknown | null;                // when !hasMore — the new committed cursor
+              fullResyncRequired?: boolean }>
+    // ONE page per call; the hub loops and enforces the page budget
+    // MUST return fullResyncRequired when the stored cursor cannot cover `horizon`
+    // (e.g. a Graph calendarView delta link is bound to the window it was created with)
+  listInstances(ctx, input: { seriesExternalId: string; from: Date; to: Date }): Promise<NormalizedCalendarEvent[]>
+    // providers without server-side expansion (CalDAV) expand RFC 5545 inside the adapter
+  getEvent(ctx, externalId: string): Promise<NormalizedCalendarEvent | null>
+  insertEvent(ctx, input: { idempotencyKey: string; event: OutboundCalendarEvent; requestConference: boolean; notifyAttendees: boolean }):
+    Promise<NormalizedCalendarEvent>             // MUST be idempotent per idempotencyKey (= `<link id>:<insert_generation>`; a new
+                                                 // generation MUST create a new event, never dedupe against an older one)
+  patchEvent(ctx, input: { externalId: string; expectedVersion: string; event: OutboundCalendarEvent; notifyAttendees: boolean }):
+    Promise<NormalizedCalendarEvent>             // throws CalendarVersionConflictError
+  cancelEvent(ctx, input: { externalId: string; notifyAttendees: boolean }): Promise<void>
+  deleteEvent(ctx, input: { externalId: string; notifyAttendees: boolean }): Promise<void>
+  startNotifications?(ctx, input: { channelId: string; token: string; address: string }): Promise<{ resource: string; expiresAt: Date }>
+  stopNotifications?(ctx, input: { channelId: string; resource: string }): Promise<void>
+  parseNotification?(request: { headers: Headers; body: string; query: URLSearchParams }):
+    | { kind: 'validation'; response: { status: number; body: string; contentType: string } }   // Graph handshake
+    | { kind: 'changes'; items: Array<{ lookup: { by: 'channelId' | 'resource'; value: string }; token: string }> }
+    //   one POST may batch several notifications (Graph `value[]`); Google maps X-Goog-Channel-ID → by 'channelId',
+    //   Graph maps subscriptionId → by 'resource' and clientState → token
+    | { kind: 'sync' } | { kind: 'ignore' }
+}
+
+// exported helper (same import path) — the only sanctioned way to build NormalizedCalendarEvent.instanceKey
+function buildInstanceKey(input: { originalStart: string | null; allDay: boolean; timezone: string | null }): string
+```
+
+Errors are typed: `CalendarVersionConflictError`, `CalendarAuthError` (→ reauth), `CalendarRateLimitError` (→ backoff), `CalendarNotFoundError`. Adapters never log payloads.
+
+**Fit check (design-time):**
+
+| Contract need | Google Calendar v3 | Microsoft Graph | CalDAV (RFC 4791/6578) |
+|---|---|---|---|
+| Incremental changes | `syncToken`, `410` → full | `calendarView/delta` link (window-bound → `fullResyncRequired` on horizon roll), expiry → full | `sync-collection` token, invalid → full |
+| Primary calendar discovery | `events.list?calendarId=primary&maxResults=1` (`timeZone` in the response; works with `calendar.events` scope); id = account email from the OAuth userinfo | `/me/calendar` | principal → `calendar-home-set` → default calendar (`resolvePrimaryCalendar(authCtx)`) |
+| Meeting identity | `iCalUID` + `originalStartTime` | series-wide identity: the `uid` property where available, else the **series master's** `iCalUId` (fetched via `seriesMasterId`; the per-occurrence `iCalUId` differs per occurrence), + `originalStart` | `UID` + `RECURRENCE-ID` (all via `buildInstanceKey`) |
+| Version / concurrency | per-event `etag` + `If-Match` | per-event `@odata.etag` + `If-Match` | per-resource `ETag` (`versionScope: 'series'`) + `If-Match` |
+| Echo detection | hub `content_hash` | hub `content_hash` | hub `content_hash` (per-instance despite series ETag) |
+| Instance expansion | server (`events.instances`) | server (`instances`) | in-adapter RFC 5545 expansion |
+| Notifications | `events.watch`; one notification per POST, `X-Goog-Channel-ID/Token` | subscriptions; batched `value[]`, `subscriptionId` + `clientState`, validation handshake | none → polling |
+| Idempotent insert | client `id` | `transactionId` | client-chosen resource name |
+| Conference | `conferenceData.createRequest` (Meet) | `isOnlineMeeting` (Teams) | none |
+| Focus / OOO | `eventType` (`focusTime`, `outOfOffice`) | `showAs: 'oof'` only (no native focus kind) | none |
+| Privacy / busy | `visibility`, `transparency` | `sensitivity`, `showAs` | `CLASS`, `TRANSP` |
+
+All three fit the contract through capability flags (`changeNotifications`, `conference`, `eventKinds`, `versionScope`) and adapter-side responsibilities (expansion, `fullResyncRequired`, batched notifications).
+
+## Data Models
+
+### `calendar_sync` module (Part B, new)
+
+#### `CalendarConnection` → `calendar_sync_connections`
+
+One row per (communication channel, external calendar). User-editable → `updated_at` for optimistic locking.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | |
+| `tenant_id`, `organization_id` | uuid | `organization_id` is **pinned at first creation**: the channel's `organizationId`; when that is null (the OAuth state had no active org), the connecting user's home organization from `auth`; if neither exists, the connection is created with `status = 'error'`, `last_error = 'organization_required'` and the settings page asks the user to reconnect from inside an organization. Reconnects never change it. |
+| `provider_key` | text | e.g. `google_calendar` |
+| `channel_id` | uuid | FK id → `communication_channels` |
+| `user_id` | uuid | connected user |
+| `external_calendar_id` | text | |
+| `status` | text | `active` \| `paused` \| `error` \| `requires_reauth` |
+| `provider_state` | jsonb null | committed cursor owned by the adapter (validated by `providerStateSchema`); no PII |
+| `full_sync_run_id` | uuid null | id of the running or most recent full sync |
+| `provider_page_state` | jsonb null | in-progress page token of an unfinished listing; persisted per page, cleared when the listing completes |
+| `sync_lease_until` | timestamptz null | inbound worker lease (see Inbound flow step 2) |
+| `sync_lease_owner` | uuid null | random id of the lease holder; renewals, the final clear, and every `provider_state` / `provider_page_state` write are conditional on `sync_lease_owner = :me` |
+| `pending_retry_external_ids` | jsonb null | ≤ 50 |
+| `notification_channel_id` | uuid null | unique; our id for the provider subscription |
+| `notification_resource` | text null | provider resource / subscription id |
+| `notification_token_hash` | text null | SHA-256 of the per-subscription secret |
+| `notification_expires_at`, `horizon_until` | timestamptz null | |
+| `share_event_details` | boolean default true | false → this user's non-customer events are busy-only to others |
+| `import_interaction_type` | text default `'meeting'` | |
+| `push_default_enabled`, `notify_attendees_default` | boolean default true | |
+| `last_full_sync_at`, `last_incremental_sync_at` | timestamptz null | |
+| `status_changed_at` | timestamptz | set whenever `status` changes; drives delete abandonment for inactive connections |
+| `full_resync_requested_at` | timestamptz null | persisted intent from "Full resync"; the inbound worker runs `mode: 'full'` when set and clears it on completion |
+| `settings_updated_at` | timestamptz | **optimistic-lock version** for user settings, bumped only by `connection.update` (sync writes never touch it); returned as `updatedAt` by the connections API |
+| `last_error` | text null | machine code |
+| `created_at`, `updated_at`, `deleted_at` | timestamptz | |
+
+Indexes:
+- unique `(channel_id, external_calendar_id) WHERE deleted_at IS NULL`;
+- unique `(notification_channel_id) WHERE notification_channel_id IS NOT NULL`;
+- `(tenant_id, organization_id, user_id)`;
+- `(status, notification_expires_at)`.
+
+#### `CalendarEventLink` → `calendar_sync_event_links`
+
+Identity and sync state per (connection, external event or instance). Holds no content.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | |
+| `unlink_reason` | text null | `crm_delete` \| `provider_delete_abandoned` \| `disconnect` \| `channel_deleted` \| `provider_cancelled` \| `sweep` \| `not_organizer`; set on every unlink, cleared on re-link. Only the first two take part in undo (owning-delete key) |
+| `insert_generation` | int default 0 | bumped when push is re-enabled on a link whose provider event was deleted (for example after undoing a CRM delete). The outbound **idempotency key is `<link id>:<insert_generation>`**, and the Google client `id` and the hub UID are derived from that key, so a re-insert is a new event, while retries within one generation stay idempotent |
+| `tenant_id`, `organization_id` | uuid | |
+| `connection_id` | uuid | ManyToOne → `CalendarConnection` |
+| `provider_key` | text | denormalized for diagnostics |
+| `placement` | text | `interaction` \| `external` \| `skipped` |
+| `is_primary` | boolean | for `interaction` placement: the single content writer for this meeting |
+| `interaction_id` | uuid null | FK id → `customers` |
+| `external_event_id`, `external_series_id` | text null | |
+| `ical_uid` | text null | meeting identity (plaintext; opaque identifier) |
+| `instance_key` | text | `''` for single events |
+| `origin` | text | `provider` \| `crm` |
+| `state` | text | `linked` \| `promoting` \| `demoting` \| `deleting` \| `unlinked` \| `error` |
+| `starts_at` | timestamptz null | event or instance start (scheduling metadata, not content); used by the full-sync sweep window |
+| `last_seen_run_id` | uuid null | last full-sync run that listed this event (mark-and-sweep) |
+| `state_changed_at` | timestamptz | set whenever `state` changes; separates a live `promoting`/`demoting` row from a crashed one |
+| `auto_promote_suppressed_at` | timestamptz null | set by undo of a manual promotion, by a user-delete detach and by the missing-interaction detach; suppresses automatic promotion until the attendee set changes or a manual promote |
+| `auto_promote_suppressed_hashes` | text[] null | attendee-email hashes at suppression time; placement compares against them to detect an attendee change |
+| `detached_from_interaction_id` | uuid null | set when the link is detached from an interaction by demotion or by a user delete; lets the `customers.interaction.created` subscriber restore the meeting's links when that delete is undone. **Cleared** by promote finalize and by any later re-placement of the link to `interaction`. Re-placement to `external` by demotion or detach keeps it, which is what undo needs. |
+| `skip_reason` | text null | `event_type` \| `before_lookback` \| `series_master` |
+| `is_organizer`, `is_private` | boolean | |
+| `push_enabled`, `conference_requested`, `notify_attendees` | boolean | outbound intent (primary only). Defaults: CRM-origin links take the editor widget's values (initialised from the connection's `push_default_enabled` / `notify_attendees_default`). **Provider-origin links default to `push_enabled = false`** and keep it after re-election, so CRM edits to an imported meeting never send provider updates or invitations until a user opts in through the editor widget (R6). |
+| `intent_updated_at` | timestamptz | **optimistic-lock version** for push intent, bumped only by `event_link.update`; returned as `updatedAt` by the link API |
+| `conference_pending` | boolean default false | set when the provider returned a pending conference; cleared on write-back or failure |
+| `content_hash` | text null | hub-computed SHA-256 of the last applied normalized content (echo skip) |
+| `managed_person_ids` | jsonb null | ≤ 50 |
+| `attendee_email_hashes` | text[] | `hashForLookup(email, 'calendar_sync:event_link.attendee_email')`, ≤ 200, non-resource, non-self |
+| `external_version`, `external_updated_at`, `synced_interaction_updated_at` | text / timestamptz | watermarks |
+| `html_link` | text null | |
+| `last_conflict_at`, `last_synced_at` | timestamptz null | |
+| `last_error` | text null | |
+| `created_at`, `updated_at`, `deleted_at` | timestamptz | |
+
+Indexes:
+- unique `(connection_id, external_event_id) WHERE external_event_id IS NOT NULL AND deleted_at IS NULL`;
+- unique `(connection_id, interaction_id, instance_key) WHERE interaction_id IS NOT NULL AND deleted_at IS NULL AND state <> 'unlinked'` (several instance links of one series may point at the same series interaction — Series attach);
+- unique `(interaction_id) WHERE is_primary AND deleted_at IS NULL` (one primary per meeting);
+- `(organization_id, ical_uid, instance_key) WHERE ical_uid IS NOT NULL AND deleted_at IS NULL` (shared-meeting lookup);
+- **unique** `(organization_id, ical_uid, instance_key) WHERE is_primary AND placement = 'interaction' AND deleted_at IS NULL` (at most one primary per meeting; arbitrates the first-import race);
+- `(detached_from_interaction_id) WHERE detached_from_interaction_id IS NOT NULL` (undo lookup);
+- `(tenant_id, organization_id, interaction_id)`;
+- `(connection_id, external_series_id)`;
+- `(state, state_changed_at) WHERE state IN ('promoting','demoting','deleting')` (stale-state sweep);
+- `(connection_id, last_seen_run_id)` (full-sync sweep);
+- GIN `(attendee_email_hashes) WHERE deleted_at IS NULL AND placement <> 'skipped'`.
+
+#### `CalendarExternalEvent` → `calendar_sync_external_events`
+
+Content of external placements (1:1 with a link). It is a provider mirror, purged on disconnect and after retention.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | |
+| `tenant_id`, `organization_id` | uuid | |
+| `link_id` | uuid | OneToOne → link (same module; unique) |
+| `connection_id`, `owner_user_id` | uuid | |
+| `provider_key` | text | for the source glyph/label |
+| `kind` | text | `meeting` \| `event` \| `focus_time` \| `out_of_office` |
+| `is_private`, `is_busy`, `all_day` | boolean | |
+| `starts_at`, `ends_at` | timestamptz | |
+| `timezone` | text null | |
+| `title`, `description`, `location`, `meeting_url`, `organizer_email` | text null | **encrypted** |
+| `meeting_provider` | text null | |
+| `meeting_details`, `attendees` | jsonb null | **encrypted**; attendees ≤ 200 `[{ email, name, status, isOrganizer, isResource }]` |
+| `attendee_count` | int | |
+| `html_link` | text null | |
+| `created_at`, `updated_at`, `deleted_at` | timestamptz | |
+
+Indexes:
+- unique `(link_id) WHERE deleted_at IS NULL`;
+- `(tenant_id, organization_id, starts_at) WHERE deleted_at IS NULL`;
+- `(tenant_id, organization_id, owner_user_id, starts_at)`.
+
+`calendar_sync/encryption.ts` declares the encrypted fields; reads use `findWithDecryption`.
+
+#### `CalendarSyncSettings` → `calendar_sync_settings`
+
+One row per organization. User-editable → `updated_at` for optimistic locking. A missing row means the defaults apply.
+
+| Column | Type | Default | Validation |
+|--------|------|---------|------------|
+| `id` | uuid PK | | |
+| `tenant_id`, `organization_id` | uuid | | unique `(tenant_id, organization_id) WHERE deleted_at IS NULL` |
+| `auto_create_enabled` | boolean | `false` | |
+| `auto_create_excluded_domains` | jsonb | `[]` | ≤ 50 lower-cased domains |
+| `auto_create_max_attendees` | int | `15` | 1–100 |
+| `created_at`, `updated_at`, `deleted_at` | timestamptz | | |
+
+**Writes and locking:** `calendar_sync.settings.update` upserts the row in a command transaction (`withAtomicFlush`, transactional). It reads the row `FOR UPDATE` and compares `updated_at` with the lock header (409 on mismatch). A first-insert race between two admins surfaces as a unique-index violation, which is mapped to 409. Placement reads the row once per inbound job.
+
+### `customers` module (Part A, additive)
+
+`CustomerInteraction` gains three nullable columns:
+
+| Column | Type | Validator |
+|--------|------|-----------|
+| `meeting_url` | text null | http(s) URL ≤ 2048; rejects `javascript:` and `data:`. Join anchors use `rel="noopener noreferrer"` + `target="_blank"`. |
+| `meeting_provider` | text null | `^[a-z0-9_]{1,50}$` (`google_meet`, `teams`, `zoom`, `webex`, `other`) |
+| `meeting_details` | jsonb null | strict `{ conferenceId?: ≤200, entryPoints?: max 10 × { type: video\|phone\|sip\|more, uri ≤2048, label? ≤200, pin? ≤50, regionCode? ≤10 }, notes? ≤2000 }` |
+
+- **Encryption:** `meeting_url`, `meeting_details` **and `participants`** (jsonb: attendee names and emails, which sync writes at volume) are added to the `customers:customer_interaction` map, with a `buildEncryptionMapBackfillSql` migration (empty `down()`) that also backfills existing `participants`. Every reader already loads interactions through `findWithDecryption` (list route, detail routes, conflict check, calendar), and no SQL filters on `participants`; Phase 2 verifies both with a grep plus the existing conflict/visibility tests.
+- **Index:** GIN `jsonb_path_ops` on `linked_entities`, built `CONCURRENTLY` (precedent: `sales/migrations/Migration20260916120000_sales_payment_allocation_order_idx.ts`).
+- **Applicability:** `meetingUrl` is applicable to the `meeting` and `event` base kinds.
+
+### Mapping (`NormalizedCalendarEvent` → stored record)
+
+| Normalized field | `CustomerInteraction` (primary link only) | `CalendarExternalEvent` | Rule |
+|---|---|---|---|
+| `title` | `title` | `title` | |
+| `description` | `body` | `description` | HTML → plain text with links kept |
+| `start/end/allDay` | `scheduledAt`, `durationMinutes`, `allDay` | `starts_at`, `ends_at`, `all_day` | |
+| `timezone` | `timezone` | `timezone` | |
+| `location` | `location` (≤500) | `location` | |
+| `conference` | `meetingUrl/Provider/Details` | same | without a conference: first known-platform URL in location/description |
+| `attendees` | `participants[]` (`self` → connection user id); attached links add their own user | `attendees` + link hashes | resources excluded from matching |
+| matched persons | `entity` + `linkedEntities` (`managedPersonIds`) | — | entity is stable once set |
+| `kind` | — | `kind` | `focus_time` / `out_of_office`; `default` → `meeting` / `event` |
+| `isPrivate` / `isBusy` | — | `is_private` / `is_busy` | |
+| `status: cancelled` | **only** when the cancelled copy is the **organizer's** (`is_organizer`), or every linked copy of the meeting is cancelled → `customers.interactions.cancel`. Otherwise (an attendee deleted or declined their own copy) → unlink that link, remove its user from `participants`, hand over the primary if it was primary. | soft-delete | |
+| ended before import | `status: 'done'`, `occurredAt = start` | — | creation only |
+| `recurrence` | CRM-owned: `recurrenceRule`; provider-owned: per instance | per instance | |
+| — | `interactionType` = connection setting; `source = 'calendar_sync:<providerKey>'`; `visibility = 'team'`; owner/author = primary connection user | `owner_user_id` = connection user | |
+
+**Auto-created Person.** Created with `customers.people.create`:
+- `displayName` = attendee name ?? email local part;
+- first/last name split on the last space when the name has two or more tokens;
+- `primaryEmail`;
+- `source: 'calendar_sync:<providerKey>'`.
+
+## API Contracts
+
+All routes:
+- export `openApi` and validate with zod;
+- scope by tenant + org (+ `user_id = auth.sub` for user-owned rows);
+- custom authenticated writes wire `runMutationGuards`.
+
+### Hub — `calendar_sync` (Part B)
+
+| Route | Auth | Contract |
+|-------|------|----------|
+| `GET /api/calendar_sync/connections` | `calendar_sync.connect` | `makeCrudRoute` list of the caller's connections: `{ id, providerKey, providerLabelKey, externalCalendarId, status, shareEventDetails, importInteractionType, pushDefaultEnabled, notifyAttendeesDefault, lastFullSyncAt, lastIncrementalSyncAt, lastError, notificationsActive, updatedAt }`; `pageSize ≤ 100` |
+| `PUT /api/calendar_sync/connections` | same | Settings + lock on `settings_updated_at` (the route configures the shared optimistic-lock reader with `updatedAtField: 'settingsUpdatedAt'`; the link route uses `'intentUpdatedAt'`) → `connection.update` (sync activity never causes 409). 400 unknown activity type; 404 not owned; 409 stale. |
+| `POST /api/calendar_sync/connections/run` | same | `{ id, mode }`. `mode: 'full'` first **persists** `full_resync_requested_at` on the connection, then enqueues the coalesced inbound job, so a waiting incremental job cannot swallow the full-resync request (the worker reads the mode from state). Response `202 { queued: true }`. 409 `requires_reauth`. Full resync ≤ 1 per 10 min. |
+| `GET/PUT /api/calendar_sync/settings` | `calendar_sync.configure` | The caller's organization row `{ autoCreateEnabled, autoCreateExcludedDomains, autoCreateMaxAttendees, updatedAt }`, with defaults when absent; PUT + lock → `settings.update`. Turning auto-create on is not retroactive; the response hints to run a full resync. |
+| `GET /api/calendar_sync/events?from&to[&ownerUserId][&cursor][&limit≤100]` | `calendar_sync.view` | Keyset `(starts_at, id)`; range `starts_at < :to AND ends_at > :from`. Items = `CalendarExternalItem` + `updatedAt`. **Redaction:** owner ≠ viewer and (`is_private` or the owner's `share_event_details = false`) → busy-only shape; focus/OOO for others → kind + times only. |
+| `GET /api/calendar_sync/events/[id]` | same | Details (owner, or shared non-private) incl. `attendees: [{ email, name, status, personId \| null, canCreatePerson }]` (one batched matcher call). Redacted → `{ redacted: true }`. |
+| `POST /api/calendar_sync/events/[id]/promote` | `calendar_sync.view` + `customers.interactions.manage` | `{ entityId?: uuid, confirmSharePrivate?: boolean }`. **Authorization follows the redaction rule:** a caller who would receive the redacted shape for this event (any non-owner of a private event, or of an event whose owner has `share_event_details = false`) gets 403 `details_hidden`. **Focus-time and out-of-office events cannot be promoted by anyone** (409 `kind_not_promotable`): they are availability, not meetings. Other errors: 409 `no_person`, 409 `confirmation_required` (owner promoting their own private event without `confirmSharePrivate`); a foreign `entityId` → 404 from the customers command. Idempotent. The details panel hides the actions whenever the API would refuse them. |
+| `GET/PUT /api/calendar_sync/interactions/[interactionId]/link` | GET `calendar_sync.connect` + `customers.interactions.view`; PUT + `customers.interactions.manage` | **Record-level authorization (GET and PUT):** the hub resolves the customers DI service `customerInteractionAccess` (`tryResolve`) and calls `describeForUser({ interactionId, userId, tenantId, organizationId })`. That applies the same visibility rules as the interactions read path (`customers/lib/visibilityFilter.ts`, including owner-only private email rows) and returns `{ visible, baseKind }`. Not visible → 404. A base kind other than `meeting`/`event` → 409 `kind_not_syncable` (email/call/note/task interactions are never pushed). The outbound worker re-checks the base kind before every provider write (defense in depth). `{ connections: [{ id, providerKey, providerLabelKey, conference: {key,labelKey}\|null }], link: null \| { id, connectionId, origin, isPrimary, isOrganizer, pushEnabled, conferenceRequested, conferencePending, notifyAttendees, htmlLink, lastError, updatedAt /* = intent_updated_at */ }, defaults }` / PUT `{ connectionId, pushEnabled, conferenceRequested?, notifyAttendees? }` + lock on `intent_updated_at` (sync ticks never bump it). The interaction itself is already saved when this runs; a 409 is surfaced via `surfaceRecordConflict` and leaves the interaction edit intact, with only the push intent unsaved. Errors: 409 `not_organizer`, `not_primary`, `not_connected`, `conference_unsupported`. |
+| `POST /api/calendar_sync/webhook/[provider]` | `requireAuth: false`, rate limited | Unknown provider or no `parseNotification` → 404. `validation` → the adapter's status and body, served by the hub **always** as `text/plain; charset=utf-8` with `X-Content-Type-Options: nosniff` (the adapter cannot choose the content type). `changes` → for each item, look up the connection by `notification_channel_id` or `notification_resource` (per `lookup.by`) and do a constant-time `sha256(token)` compare. Matching items enqueue the coalesced inbound job for their connection. Unknown or bad-token items are dropped and counted in metrics/logs. The response is a **uniform `202`** regardless of item validity, so callers cannot probe which channel ids exist. `sync`/`ignore` → 200. Scope comes only from the stored connection. |
+
+**Response enricher** `calendar_sync.interaction-link` on `customers.interaction`: `_calendarSync: { linked, providerKey, htmlLink, origin, isOrganizer, conferencePending, sharedWith: number }`. One batched query, gated on `calendar_sync.connect`, `cacheableOnListHit: false`.
+
+### Customers (Part A)
+
+**Item-source extension point.** Hosts in `customers/extension-points.ts`:
+- `calendarItemSources`: spot `calendar:customers.item-sources`, headless widget, data contract `customers.calendar.item-sources.v1`;
+- `calendarExternalItemDetails`: component `section:customers.calendar-peek.external-details`, props `customers.calendar.external-item-details.v1`.
+
+Exported types:
+
+```ts
+type CalendarExternalItem = {
+  key: string; sourceId: string; id: string
+  startsAt: string; endsAt: string; allDay: boolean; timezone?: string | null
+  ownerUserId: string | null
+  kind: 'meeting' | 'event' | 'focus_time' | 'out_of_office' | 'busy'
+  busy: boolean; redacted: boolean
+  isPrivate?: boolean                      // only sent to the owner
+  title?: string | null; location?: string | null
+  meetingUrl?: string | null; meetingProvider?: string | null
+  attendeeCount?: number; externalUrl?: string | null
+  sourceLabelKey?: string | null           // e.g. provider label for the glyph tooltip
+}
+type CalendarItemSource = {
+  id: string; labelKey: string
+  fetchItems(range: { from: Date; to: Date }, ctx: { signal: AbortSignal }): Promise<{ items: CalendarExternalItem[]; truncated: boolean }>
+}
+```
+
+Calendar behavior:
+- sources are fetched in parallel with interactions (500-item cap per source; a failing source shows a non-blocking `Alert`);
+- external items are read-only in all views;
+- tabs: `meeting` → Meetings, `event` → Events, others → All;
+- the owner filter, client search and conflicts (busy items by owner) apply;
+- the peek shows Join / "Open in {provider}" plus the details component handle;
+- with no sources, the calendar is unchanged.
+
+**Other customers changes:**
+- `meetingUrl` / `meetingProvider` / `meetingDetails` on the interactions API;
+- `includeLinked=true` (opt-in; `entity_id = ? OR linked_entities @> ?::jsonb`, with the second parameter bound as `JSON.stringify([{ type: 'person', id }])`; never string-interpolated);
+- DI `customerPersonEmailMatcher` (`matchPeopleByEmails`, `getPrimaryEmails`);
+- DI `customerInteractionAccess.describeForUser({ interactionId, userId, tenantId, organizationId }) → { visible: boolean; baseKind: string | null }`. It reuses `lib/visibilityFilter.ts` and the event-type resolver, so other modules never re-implement interaction visibility;
+- participant "Create person" in `CalendarEventEditor` (`CreatePersonDialog`, adds a `person` linked entity on save);
+- `EmailCardActions.tsx` / `PersonEmailThreadsTab.tsx` filter `channelType === 'email'`.
+
+### Hub seams — `communication_channels`
+
+- `ChannelAdapter.oauthClientFallbackProviderKeys?: readonly string[]` in `resolveOAuthClientCredentials` (own row first);
+- the mailbox guard compares only channels of the same `channelType`;
+- `communication_channels.channel.connected` is emitted after the row is persisted by **both** connect paths that call `createConnectedChannelRow`: the OAuth callback (`api/get/oauth/[provider]/callback/route.ts`) and the credential connect command (`commands/connect-credential-channel.ts`). Credential-based providers (CalDAV app passwords) therefore get a `CalendarConnection` too;
+- `set-primary-channel` rejects cross-type promotion.
+
+These are needed because calendar channels would otherwise be offered as email senders and could be promoted to primary mailbox. The two customers composers filter only on `status === 'connected'`. Discord channels (`channelType: 'discord'`) are already user-scoped and exposed the same way today, so the email-only filter also fixes that existing exposure.
+
+### Google provider — `@open-mercato/channel-google-calendar` (Part C)
+
+- **`ChannelAdapter`:**
+  - `providerKey 'google_calendar'`, `channelType 'calendar'`;
+  - OAuth via `@open-mercato/google-auth`, `oauthClientFallbackProviderKeys: ['gmail']`;
+  - fixed scopes `calendar.events`, `userinfo.email`, `userinfo.profile`. `resolvePrimaryCalendar` uses `events.list?calendarId=primary&maxResults=1` (time zone) plus the userinfo email (id), so no calendar-read scope is needed. TC-GCAL-001 asserts the exact scope list;
+  - `realtimePush: true`;
+  - message methods throw `[internal]`.
+- **`CalendarProviderAdapter`:**
+  - `listChanges`: `events.list` with `syncToken` / full, `singleEvents=false`, `showDeleted=true`, 250 per page, `410` → `fullResyncRequired`;
+  - `listInstances`: `events.instances`;
+  - `insertEvent`: client `id` = base32hex-safe hex digest of the idempotency key `<link id>:<insert_generation>`, `conferenceDataVersion=1`, `createRequest` `hangoutsMeet`, `extendedProperties.private.omInteractionId`;
+  - `patchEvent`: `If-Match` → `CalendarVersionConflictError` on `412`;
+  - notifications: `events.watch` / `channels.stop`; `parseNotification` maps `X-Goog-Channel-ID/Token/Resource-State`;
+  - normalize: `eventType` → kind, `visibility ∈ {private, confidential}` → `isPrivate`, `transparency` → `isBusy`, `conferenceData` → conference (`hangoutsMeet` → `google_meet`, add-ons by name).
+- **No API routes or tables of its own.** It contributes `integration.ts` (optional `clientId` / `clientSecret`; empty → Gmail's), a connect widget and i18n.
+
+## Internationalization (i18n)
+
+- **`calendar_sync.*`** (all platform locales: `en`, `pl`, `es`, `de`, `ko`; same for `channel_google_calendar.*` and the new `customers.calendar.*` keys):
+  - `connections` (user settings page, statuses, sync actions, share-details help)
+  - `settings` (org auto-create, excluded domains, warning, resync hint)
+  - `external` (Busy, Focus time, Out of office, Open in {provider}, Create person, Link to existing customer, Add to CRM, private confirmation, promoted flash)
+  - `editor` (Add to {provider}, Add {conference} link, Notify attendees, not organizer, not primary, conference pending/failed)
+  - `errors`
+- **`channel_google_calendar.*`:** integration, connect + consent explainer, provider label "Google Calendar", conference label "Google Meet".
+- **`customers.calendar.*`:** meeting field, Join, external source failure notice, participant Create person.
+- Machine codes map to i18n keys; internal throws are prefixed `[internal]`.
+
+## UI/UX
+
+1. **Connect** (per provider, `profile:communication-channels:connect`): a "Google Calendar" item (lucide `CalendarDays`) with a consent explainer dialog (`Cmd/Ctrl+Enter` / `Escape`) → `useConnectChannel({ providerKey: 'google_calendar' })`.
+2. **User settings page** `/backend/profile/calendar-sync` (hub, `calendar_sync.connect`):
+   - one section per connection with the provider label, a `StatusBadge`, last-sync times, and "Sync now" / "Full resync" (`useGuardedMutation`, `useConfirmDialog`);
+   - a `CrudForm` for share details, activity type, push/notify defaults;
+   - `Alert` for `privacy_changed_kept`;
+   - `EmptyState` with connect hints when nothing is connected.
+3. **Org settings page** `/backend/calendar-sync/settings` (hub, settings sidebar, `calendar_sync.configure`):
+   - an auto-create `Switch`, an excluded-domains `TagInput` (warning `Alert` when empty and enabled), and the attendee limit;
+   - a post-save flash about full resync.
+4. **Calendar rendering of external items** (customers, Part A):
+   - Busy: neutral hatch + `Lock` + "Busy";
+   - focus: `Target`;
+   - OOO: `Plane`;
+   - shared: neutral tint + provider glyph (`aria-label` from `sourceLabelKey`);
+   - free items: dashed border, no conflicts;
+   - the owner's private events: details + `Lock`;
+   - DS tokens only.
+5. **External details panel** (hub component for `section:customers.calendar-peek.external-details`):
+   - attendees with match `StatusBadge`;
+   - "Create person" (`customers.people.manage`; embedded `CrudForm` → `POST /api/customers/people` → promote; hint `Alert` pointing to Link to existing customer);
+   - "Link to existing customer" (combobox over `/api/customers/people` + `/api/customers/companies`, `pageSize ≤ 20`, debounced → `promote { entityId }`; also for events with no attendees);
+   - "Add to CRM" for the owner's private events (confirmation dialog);
+   - redacted items get no panel.
+6. **Editor widget** (hub, `crud-form:customers.customer_interaction:fields`):
+   - a `CollapsibleSection` "Calendar sync", rendered when the user has ≥1 connection;
+   - a connection `Select` when there is more than one;
+   - `Switch` "Add to {provider}";
+   - `Switch` "Add {conference} link", only when the adapter has a conference capability and the Meeting link field is empty;
+   - `Switch` "Notify attendees";
+   - `Alert`s for not organizer / not primary ("Synced from {colleague}'s calendar; changes stay in the CRM");
+   - `Spinner` while a conference is pending;
+   - persists via `onAfterSave` → `PUT …/link` (`useGuardedMutation`, lock header, `surfaceRecordConflict`).
+7. **Meeting link field, Join and participant "Create person"** (customers, Part A), as described in API Contracts. Touched lines follow the Boy Scout rule.
+
+## Frontend Architecture Contract
+
+### Server/Client Boundary Map
+
+| Route / surface | Server root | Client islands | Data owner |
+|---|---|---|---|
+| `/backend/profile/calendar-sync` | `page.tsx` (metadata, `resolveTranslations`) | `CalendarConnectionsSettings` | hub API |
+| `/backend/calendar-sync/settings` | `page.tsx` | `CalendarSyncOrgSettings` | hub API |
+| `/backend/calendar` (existing) | unchanged | `CalendarScreen`; `fetchExternalCalendarItems` helper (no new root) | interactions API + sources |
+| Item source | — (headless) | `widgets/injection/calendar-source/widget.ts` | hub events API |
+| Details panel / editor widget / connect widget | — (injected) | one client file each | hub API / hub OAuth |
+
+### `"use client"` Ledger
+
+| File | Reason | Heavy deps |
+|---|---|---|
+| `calendar_sync/components/CalendarConnectionsSettings.tsx` | forms, guarded mutations | none |
+| `calendar_sync/components/CalendarSyncOrgSettings.tsx` | form | none |
+| `calendar_sync/components/ExternalEventDetails.tsx` | attendee actions, dialogs | none |
+| `calendar_sync/widgets/injection/editor-sync/widget.client.tsx` | CrudForm field widget | none |
+| `channel_google_calendar/widgets/injection/connect/widget.client.tsx` | OAuth trigger | none |
+
+### Budgets & Evidence
+
+- 0 new unallowlisted page-root `"use client"` files and no new browser dependencies.
+- Touched files ≤ 300 LOC.
+- Evidence: `yarn check:client-boundaries`, plus a `yarn build:app` note (calendar route delta ≤ 5 kB gz).
+- Hydration: TC-CALSYNC-004, TC-CALSYNC-009.
+
+### Provider / Bootstrap Scope
+
+None touched.
+
+## Configuration
+
+| Env | Default | Owner | Purpose |
+|-----|---------|-------|---------|
+| `OM_CALENDAR_SYNC_WEBHOOK_BASE_URL` | unset | hub | public HTTPS origin for change notifications; unset → polling only |
+| `OM_CALENDAR_SYNC_POLL_INTERVAL` | `15m` (`5m` without notifications) | hub | poll tick |
+| `OM_CALENDAR_SYNC_IMPORT_LOOKBACK_DAYS` | `90` | hub | full-sync lookback + horizon start |
+| `OM_CALENDAR_SYNC_HORIZON_DAYS` | `180` | hub | instance horizon |
+| `OM_CALENDAR_SYNC_EXTERNAL_RETENTION_DAYS` | `365` | hub | external-event retention |
+| `OM_CALENDAR_SYNC_PAGE_BUDGET` | `8` | hub | pages per job run (a follow-up job continues the listing) |
+| `OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS` | `7` | hub | a `deleting` link on a connection inactive this long is abandoned (`provider_delete_abandoned`, reported) |
+| `OM_CALENDAR_SYNC_STALE_STATE_MINUTES` | `15` | hub | age after which `promoting`/`demoting` links are swept and resumed |
+| `OM_GOOGLE_CALENDAR_REQUEST_TIMEOUT_MS` | `30000` | Google | per request |
+| `OM_GOOGLE_CALENDAR_API_BASE_URL` | Google | Google | test-only override, ignored in production |
+
+**ACL** (sync with `yarn mercato auth sync-role-acls`):
+
+| Feature | Granted to | Allows |
+|---|---|---|
+| `calendar_sync.view` | admin + employee | external items |
+| `calendar_sync.connect` | admin + employee | own connections |
+| `calendar_sync.configure` | admin | org settings |
+| `channel_google_calendar.view`, `.configure` | admin | integration credentials, like Gmail |
+
+**Schedules:** `poll-tick`, `notifications-renew` (`0 3 * * *`) and `horizon-roll` (`0 2 * * *`, plus retention) are registered by the hub in `setup.ts` behind `hasRegistration('schedulerService')`.
+
+**Google Cloud prerequisites (docs):**
+- enable the Calendar API;
+- add the consent-screen scope;
+- add the redirect URI `<origin>/api/communication_channels/oauth/google_calendar/callback`.
+
+## Migration & Compatibility
+
+- **DB:** three new hub tables; customers additive columns + GIN index + encryption backfill. No provider tables.
+- **New contract surfaces (STABLE once released):**
+  - `calendar-provider.v1` types and `registerCalendarProviderAdapter` (import path `@open-mercato/core/modules/calendar_sync/lib/provider`);
+  - `customers.calendar.item-sources.v1`;
+  - spot `calendar:customers.item-sources`, component `section:customers.calendar-peek.external-details`;
+  - events `calendar_sync.*`, `communication_channels.channel.connected`;
+  - DI `customerPersonEmailMatcher`, `customerInteractionAccess`, `calendarProviderRegistry`;
+  - ACL `calendar_sync.*`.
+  - The provider contract evolves additively; breaking changes need `calendar-provider.v2` with a bridge (`BACKWARD_COMPATIBILITY.md`).
+- **Existing surfaces:**
+  - Gmail `lib/oauth` exports re-exported;
+  - `ChannelAdapter` gains an optional field;
+  - narrow behavior changes: type-scoped mailbox guard, cross-type primary rejection, email-only composers, calendar types rejected by the messaging webhook;
+  - **person timelines** (person detail activities) start passing `includeLinked=true`, so interactions that link the person through `linkedEntities` (including ones linked manually before this change) begin to appear on that person's timeline. The API default is unchanged.
+- **Rollback:** disable the provider module, and connections go idle. Disable `calendar_sync`, and the calendar renders interactions only. Interactions and people created by sync remain as normal CRM records.
+
+## Implementation Plan
+
+Each phase is its own PR and leaves the app working.
+
+| Part | Phases |
+|------|--------|
+| **A** (customers) | 2, plus its rows of Phase 8 |
+| **B** (hub) | 1, 3–6, 9, plus its rows of Phase 8 |
+| **C** (Google) | 7, plus its rows of Phase 8 |
+
+Phase 8 is cross-cutting: integration tests and docs for whatever has landed. Each Part's tests ship with that Part's last phase if the Parts are split into separate specs.
+
+Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connected`) and are developed against an in-repo **fake adapter** (test-only, `calendar_sync/__tests__/fakeProvider.ts`). Phase 7 plugs Google in.
+
+### Phase 1 — `communication_channels` prerequisites (B)
+
+1. `resolveOAuthClientCredentials` fallback keys, plus its callers (`lib/credential-refresh.ts`, the OAuth initiate and callback routes).
+2. The type-scoped mailbox guard (`lib/connect-channel.ts`).
+3. `channel.connected` from the OAuth callback, `commands/connect-credential-channel.ts`, **and the `undo()` handlers of `commands/disconnect-channel.ts` and `commands/delete-channel.ts`** (a restored channel must reactivate its calendar connection).
+4. Cross-type primary rejection.
+4a. **Issuing-client refresh:** the OAuth callback stores `oauthClientId` (the client that issued the tokens) in the user credentials. `oauthClientId` is a declared optional field of `googleUserCredentialsSchema` (and so of the `gmailUserCredentialsSchema` alias, which `.strip()`s unknown keys). Every refresh writes it back, so it survives re-parsing. `refreshCredentialsIfNeeded` refreshes with the client config whose `clientId` matches it, searching the provider's own row, then its fallback rows. An admin later configuring a dedicated calendar client therefore does not break refresh for tokens issued by Gmail's client; users reconnect at their own pace.
+4b. The generic messaging webhook `POST /api/communication_channels/webhook/[provider]` returns 404 for adapters with `channelType: 'calendar'`, instead of calling a `verifyWebhook` that throws.
+5. Unit tests for all of the above.
+
+*Exit:* Gmail/IMAP tests unchanged and green.
+
+### Phase 2 — Customers seams (A)
+
+6. Meeting columns/validators/encryption/backfill/applicability/API.
+7. Meeting link field; Join prefers `meetingUrl`.
+8. `customerPersonEmailMatcher`; `customerInteractionAccess` (visibility + base kind); `includeLinked` + GIN (bound `?::jsonb` parameter); person activities use `includeLinked=true`.
+9. Item-source + details hosts and types; `fetchExternalCalendarItems`; external rendering; conflicts; peek.
+10. Participant "Create person"; email-only composer filters.
+
+*Exit:* the fake source renders, conflicts, and shows redacted items as Busy; with no source the calendar is unchanged.
+
+### Phase 3 — Hub foundation (B)
+
+11. Module scaffold (`acl`, `setup`, `di`, `events`, `encryption`), provider contract + `registerCalendarProviderAdapter` (`registerChannelAdapter` semantics) + typed errors + `buildInstanceKey`. Ship the exported **conformance suite** `runCalendarProviderConformanceSuite` (`calendar_sync/lib/provider/conformance.ts`, test-time only). It checks idempotent insert per `idempotencyKey`, `requestConference` honoured when `conference ≠ null`, `CalendarVersionConflictError` on a stale `expectedVersion`, `buildInstanceKey` usage, `fullResyncRequired` semantics, `parseNotification` shapes and `predictIcalUid` accuracy. Add the fake adapter, which passes the suite.
+12. Entities + migrations (all indexes in Data Models, including the primary-per-meeting unique index).
+13. The `channel.connected` subscriber (the channel's adapter resolves to a registered calendar provider) **upserts** the connection by `(channel_id, external_calendar_id)` via `resolvePrimaryCalendar`:
+   - **new** → create;
+   - **existing** `paused` / `requires_reauth` / `error` (a reconnect reuses the same channel id) → reactivate (`status = 'active'`, clear `last_error`), set `full_resync_requested_at`, enqueue inbound, and **re-enqueue outbound for its `deleting` links**, so a provider delete lost while the connection needed reauth is completed. Its `provider_delete_abandoned` rows are re-evaluated as described under Re-enabling push.
+   - The full resync reuses the connection's existing, unlinked link rows by `(connection_id, external_event_id)`, re-attaches them to shared meetings, and re-elects the primary where this connection outranks the current one.
+   - Disconnect/delete subscribers pause the connection, unlink its links, hand over primaries, and purge its external rows.
+     - **Disconnect and channel delete** (both are undoable, and their undo emits `channel.connected`): links in `deleting` are kept and completed on reactivation, or abandoned by the sweep after `OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS`. All other links are unlinked with `unlink_reason = 'disconnect'` / `'channel_deleted'`.
+14. Connections + settings APIs, user and org settings pages, i18n; `yarn generate`.
+15. Add the hub env vars (`OM_CALENDAR_SYNC_*`) to `apps/mercato/.env.example` and mirror them into the create-app template with `yarn template:sync:fix` (root `AGENTS.md` → Template Sync).
+
+*Exit:* a fake-provider connection appears with settings round-trip.
+
+### Phase 4 — Inbound engine (B)
+
+16. `lib/apply-normalized-event.ts`: placement, shared-meeting identity (reserve-first primary, unique-violation → attach, eligibility, re-election, series attach, handover), mapping, external upsert + hashes, cancel, conflict, echo skip, demotion (all links → external, undo restore). Exhaustive unit tests with the fake adapter.
+17. Workers on coalesced queues (`calendar-sync-inbound`, `-promote`, `-outbound`, plus `poll-tick` and `horizon-roll` with retention); redacted events API; item-source widget; details panel (read-only).
+
+*Exit:* fake-provider events land correctly, including two connections racing on one new meeting.
+
+### Phase 5 — People and promotion (B)
+
+18. Auto-create in placement.
+19. `external_event.promote` command + API (redaction-based authorization, `kind_not_promotable`) + worker (reserve/create/finalize, sibling attach).
+20. Person subscriber (external promote + interaction link).
+21. Details panel actions (Create person, Link to existing customer, Add to CRM), hidden whenever the API would refuse them.
+
+### Phase 6 — Outbound and notifications (B)
+
+22. Link API + `event_link.update`, enricher, editor widget; outbound subscribers + worker (insert/patch/cancel/delete via adapter, conference polling + write-back).
+23. Webhook route, notification start/renew/stop orchestration.
+
+*Exit:* the fake adapter receives idempotent inserts, version-checked patches and notification registration.
+
+### Phase 7 — Google provider (C)
+
+24. `@open-mercato/google-auth`: OAuth client, endpoints, `googleUserCredentialsSchema`, and `parseScopes(value, defaults?)` (**`defaults` optional**). Gmail's `lib/credentials.ts` keeps its one-argument `parseScopes(value)` export as a wrapper defaulting to `GMAIL_DEFAULT_SCOPES`, so the Gmail import path and signature are unchanged. Gmail also keeps exporting `gmailUserCredentialsSchema` and `gmailClientCredentialsSchema` under those names, as aliases of the `google-auth` schemas. Gmail re-exports the rest; tests move. *Gmail tests must stay green.*
+25. `@open-mercato/channel-google-calendar`: `integration.ts`, OAuth `ChannelAdapter`, `CalendarProviderAdapter` (client with timeout/backoff, normalize/denormalize fixtures, `buildInstanceKey` usage, watch, Meet), connect widget, i18n, `AGENTS.md`; the package's unit tests run `runCalendarProviderConformanceSuite` against the Google adapter with recorded fixtures.
+26. Add `OM_GOOGLE_CALENDAR_*` to `apps/mercato/.env.example` and run `yarn template:sync:fix`.
+
+*Exit:* end-to-end with a stub Google server.
+
+### Phase 8 — Integration tests, docs, spec sync (A + B + C)
+
+27. Integration tests below.
+28. Docs, following the existing layout of `framework/modules/building-communication-channel-provider.mdx` and `user-guide/communication-channels-gmail.mdx`:
+   - `apps/docs/docs/framework/modules/building-calendar-sync-provider.mdx` ("How to add a calendar provider", contract, fit check, conformance suite);
+   - `apps/docs/docs/user-guide/calendar-sync-google.mdx`.
+29. CRM Calendar spec changelog. Cross-reference `2026-03-29-google-workspace-integration.md` so its connector consumes `@open-mercato/google-auth` instead of adding a third Google OAuth implementation.
+
+### Phase 9 — Second-provider readiness check (B, test-only)
+
+30. Run the conformance suite (shipped in Phase 3) against the two profiles below.
+31. Add two more fake-adapter profiles in unit tests, with no production code:
+   - **CalDAV-like:** no notifications, no conference, no client ids, `versionScope: 'series'`, in-adapter expansion, credential connect path;
+   - **Graph-like:** batched notifications looked up by resource, window-bound cursor returning `fullResyncRequired` on horizon roll, `eventKinds: ['out_of_office']`.
+   - Each proves the hub degrades correctly.
+
+### File Manifest
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `packages/google-auth/**` | Create | Shared Google OAuth |
+| `packages/channel-gmail/src/modules/channel_gmail/lib/{oauth,credentials}.ts` | Modify | Re-export |
+| `packages/core/src/modules/communication_channels/{lib/adapter.ts,lib/oauth-client-config.ts,lib/credential-refresh.ts,lib/connect-channel.ts,events.ts,api/post/oauth/[provider]/initiate/route.ts,api/get/oauth/[provider]/callback/route.ts,commands/connect-credential-channel.ts,commands/disconnect-channel.ts,commands/delete-channel.ts,commands/set-primary-channel.ts,api/post/webhook/[provider]/route.ts}` | Modify | Seams (fallback keys reach every `resolveOAuthClientCredentials` caller; `channel.connected` from both connect paths and both undo handlers; issuing-client refresh; calendar channel types rejected by the messaging webhook) |
+| `apps/mercato/.env.example`, create-app template (via `yarn template:sync:fix`) | Modify | New `OM_CALENDAR_SYNC_*` / `OM_GOOGLE_CALENDAR_*` variables |
+| `apps/mercato/src/modules.ts`, `packages/create-app/template/src/modules.ts` | Modify | Enable `{ id: 'calendar_sync', from: '@open-mercato/core' }` and `{ id: 'channel_google_calendar', from: '@open-mercato/channel-google-calendar' }` (same pattern as `channel_gmail`) |
+| `apps/mercato/package.json`, `packages/create-app/template/package.json.template` | Modify | Add `@open-mercato/channel-google-calendar` and `@open-mercato/google-auth` |
+| `packages/channel-gmail/package.json` | Modify | Depend on `@open-mercato/google-auth` |
+| `packages/core/src/modules/customers/**` (entities, validators, encryption, migrations, di, extension-points, `lib/personEmailMatcher.ts`, `lib/interactionAccess.ts`, `lib/calendar/*`, calendar components, interactions route, email components) | Modify/Create | Part A |
+| `packages/core/src/modules/calendar_sync/**` | Create | Hub (contract, registry, entities, engine, workers, subscribers, API, widgets, pages, i18n, tests, fake adapter) |
+| `packages/channel-google-calendar/src/modules/channel_google_calendar/**` | Create | Google provider |
+| `apps/docs/docs/framework/modules/building-calendar-sync-provider.mdx`, `apps/docs/docs/user-guide/calendar-sync-google.mdx` | Create | Docs |
+
+### Testing Strategy
+
+- **Unit (hub, fake adapter):**
+  - placement matrix: customer / internal / private / focus / OOO / transparent / skipped kinds;
+  - auto-create: eligible, excluded domain, cap, resource/self;
+  - shared meetings:
+    - second connection attaches;
+    - an attendee copy never overwrites content;
+    - primary = organizer;
+    - handover on disconnect;
+    - private sibling attaches as participant only;
+    - two connections racing on first import of the same new meeting → exactly one interaction (unique violation → attach);
+    - organizer's private copy never becomes primary and triggers demotion only when pristine;
+    - demotion with attached siblings → every link external with its own row; undo restores all links;
+    - two modified instances of one CRM-owned series on the same connection → no unique-index violation;
+    - promote authorization: `share_event_details = false` → 403 `details_hidden`; focus/OOO → 409 `kind_not_promotable`;
+    - registry: duplicate `providerKey` throws; unregister then re-register works;
+    - auto-create under the race: two connections importing the same new meeting with `auto_create_enabled` → exactly one Person per unknown attendee (only the reserve winner creates), and two different new meetings with the same new prospect → one Person (advisory lock + re-match);
+    - attach while the winner is `promoting` → the loser's participant appears after the winner's finalize;
+    - demotion undo: an undo emitting `customers.interaction.created` restores every link (subscriber keyed on `detached_from_interaction_id`); an unrelated `created` event is a no-op;
+    - manual promote while an automatic promote job is waiting → the manual `entityId` wins (synchronous command, no queue);
+    - full resync requested while an incremental job is waiting → the next run is `full` (`full_resync_requested_at`);
+    - a sync tick between loading and saving connection settings or link intent → no 409 (dedicated version columns);
+    - an attendee's RSVP update followed by the organizer making the meeting private → still demotes (watermark advanced);
+    - editor-created meeting with push on → exactly one provider insert (`event_link.update` enqueues outbound);
+    - re-elected imported link keeps `push_enabled = false` → CRM edits do not push;
+    - reconnect reactivates the existing connection and re-elects its primaries;
+    - a released reservation with attached links → each attached link gets its own external row immediately (no provider resend needed);
+    - the sweep resumes a stale `promoting` link but ignores a fresh one; a promote job meeting a fresh `promoting` link no-ops;
+    - a full sync of 3× the page budget converges (page state persisted per page, follow-up job), and the mark-and-sweep removes events that disappeared while disconnected;
+    - a CRM push followed immediately by a colleague's inbound tick → one interaction, both with a client-supplied UID (Google/CalDAV profiles) and via the merge path (Graph-like profile);
+    - re-promotion followed by an admin undo of the old demotion → the live interaction keeps its links (marker cleared);
+    - an attendee primary's copy cancelled while the organizer still attends → unlink + handover, not cancel;
+    - disconnect then Undo → the connection is reactivated (`channel.connected` from the undo);
+    - a primary swap never violates the unique index (two-phase flush);
+    - re-election during `promoting` is deferred to finalize;
+    - parallel RSVP updates from two connections both persist (interaction advisory lock);
+    - outbound coalescing of update + delete → delete executed (payload `{ linkId }`, action from state);
+    - a manual promote that loses the reserve race adds its `entityId` to the winner and returns the winner's id;
+    - undo of a manual promote is not reversed by the next person update (`auto_promote_suppressed_at`);
+    - refresh after a dedicated calendar client is configured still uses the issuing (Gmail) client;
+    - Graph-like recurring occurrences produce the same meeting key as the Google and CalDAV fixtures (series-master UID);
+    - reconnect with unchanged provider events restores the external rows and re-elects primaries (full mode bypasses the echo skip); enabling auto-create, then a full resync, creates People for unchanged events;
+    - undo of a manual promotion after a colleague attached → every link attached at undo time is re-placed as external (none dangling);
+    - a user deleting an imported interaction → all its links detached to external rows with auto-promotion suppressed; undoing the delete restores them;
+    - the organizer of a CRM-pushed series disconnects while a colleague holds occurrence links → no occurrence link becomes primary; the series rule and start time are unchanged;
+    - a stalled worker whose lease was taken over cannot write the cursor (owner token);
+    - a handover copies only `synced_interaction_updated_at` → no spurious `conflict_resolved`; a genuine organizer change right after handover is still applied;
+    - the organizer's primary copy turns private on a non-pristine interaction → stays primary with writes frozen; the demotion check fires only on the transition;
+    - per-attendee advisory locks taken in sorted order (no deadlock with reversed attendee order);
+    - a null-org channel pins the connection to the user's home org, and `organization_required` when there is none;
+    - `oauthClientId` survives a refresh round-trip through the stripping schema;
+    - Google insert: the provider-returned `iCalUID` overwrites the predicted key, and a mismatch runs the merge rule;
+    - CRM delete of a push-enabled CRM-origin meeting → exactly one provider delete, no external row, owning link `unlinked` / `crm_delete` with `interaction_id` kept; a pending outbound job running between the delete and the handler's commit is a no-op;
+    - undo while `deleting` → the owning link is restored first (CAS), colleagues re-attach, no provider write; undo after `crm_delete` → CRM record only, colleague markers cleared, push off; re-enabling push → identity reset → **insert** of a new event that colleagues' new copies attach to; undo after `provider_delete_abandoned` → colleagues re-attached and a primary elected among them;
+    - organizer disconnects (handover to colleague B, organizer row `unlinked` / `disconnect`), then CRM delete, then undo → the stale disconnect row is **not** matched by the owning-delete key, and B's link is restored by the generic marker restore;
+    - disconnect and channel delete keep `deleting` links; their undo (`channel.connected`) completes the provider delete; after `OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS` the sweep abandons and reports;
+    - a stale `deleting` link (connection needed reauth) is completed by the sweep or on reactivation;
+    - handover followed by a CRM edit → the edit is kept and no `conflict_resolved` is raised (the new primary's own copy is unchanged, so no content write);
+    - re-enabling push after an `unlinked` undo → **insert, not patch** (old provider identity cleared); a full sync between re-enable and insert does not sweep the owning link;
+    - undo racing an in-flight provider delete → the worker's CAS (`state = 'deleting' AND state_changed_at = :readAt`) fails and it applies the CRM-only outcome; the end state is never a CRM record bound to a cancelled provider event;
+    - full sync skips `deleting` links and owning links awaiting an insert; undo of a CRM delete while the connection is `requires_reauth` → the `deleting` branch (full restore, colleagues re-attached, no provider write until reauth);
+    - undo of a `deleting` link after the connection was disconnected or channel-deleted → the link gets the disconnect outcome (never primary on a paused connection), and a colleague is elected through the generic restore;
+    - abandoned undo branch → the old link has `is_primary = false`, and a colleague is elected without an index violation; abandonment also fires for a `deleting` link stuck on an active connection (permanent provider error);
+    - a stale `created` restore arriving after a quick re-delete → no-op (interaction soft-deleted);
+    - full-sync sweep after `crm_delete` → the `unlink_reason` is preserved, and a later undo still finds the owning link;
+    - the generic restore skips cancelled (`unlinked`) colleague links;
+    - re-enable for `provider_delete_abandoned` → 409 while the connection is inactive; after reactivation, the row is re-linked and patched, with no duplicate event or interaction;
+    - a reconnected link with its own watermark applies a genuine provider change made while disconnected, via the conflict rule against a non-pristine interaction;
+    - full sync with an unchanged provider copy and an edited CRM interaction → the CRM body is kept, with no `conflict_resolved` event;
+    - a suppressed link with unchanged attendees edited in the provider → stays external; an attendee change lifts the suppression;
+    - admin undo of a hub-created interaction → its links are detached on the next touch (missing-interaction rule);
+    - organizer connecting after an attendee's promotion is re-elected primary;
+    - instances of a CRM-owned series attach to the series interaction (series attach);
+    - `buildInstanceKey` yields identical keys for Google `originalStartTime`, Graph `originalStart` and CalDAV `RECURRENCE-ID` (timed + all-day);
+    - cross-provider (two fake provider keys, same UID);
+    - promotion attaches all external siblings;
+  - demotion; recurrence (provider-owned instances, CRM-owned echo); conflict; echo; `managedPersonIds`;
+  - redaction serializer; hash context;
+  - outbound payload; idempotent insert retry; version conflict;
+  - webhook parse (validation / change / bad token);
+  - notification renewal ordering;
+  - CalDAV-like profile degradation.
+- **Unit (Google):** normalize/denormalize fixtures (Meet, Zoom add-on, focus, OOO, private, all-day, multi-day, recurring exception, cancelled), `410` → full, `412` → conflict, watch headers.
+- **Unit (hub seams / customers):** fallback, guard, matcher, `includeLinked`, item-source fan-out.
+- **Integration:** a stub Google server via `OM_GOOGLE_CALENDAR_API_BASE_URL`, skipped (and reported) when unreachable from the app container.
+
+## Integration Test Coverage (required)
+
+Self-contained Playwright specs in `calendar_sync/__integration__/`, `channel_google_calendar/__integration__/` and `customers/__integration__/`. Fixtures are created through the API and cleaned up in teardown.
+
+| Id | Covers |
+|----|--------|
+| TC-CALSYNC-001 | Connections/settings APIs: 401, 403 (`connect`/`configure`), foreign connection 404, stale 409, invalid domain 400; **two organizations in one tenant** keep separate auto-create settings (each GET returns only its own values); a sync tick between GET and PUT of connection settings does not cause 409 |
+| TC-CALSYNC-002 | Webhook: unknown provider → 404; unknown channel id, bad token and valid change all → uniform 202 (only the valid one enqueues a job, asserted via the job count); a `validation` response is served as `text/plain` with `X-Content-Type-Options: nosniff`; `POST /api/communication_channels/webhook/google_calendar` → 404 |
+| TC-CALSYNC-003 | Placement: matched meeting with an unknown email + Meet → interaction (entity, participants, meeting fields, `source = calendar_sync:google_calendar`); internal meeting → external item; cancelled → `canceled` |
+| TC-CALSYNC-004 | User settings page hydration + settings round-trip |
+| TC-CALSYNC-005 | Multi-match → one interaction; `includeLinked=true` for the second person |
+| TC-CALSYNC-006 | Loop-breaker: inbound update → no outbound; CRM edit → exactly one version-checked patch |
+| TC-CALSYNC-007 | `PUT …/link`: not organizer / not primary → 409; another user's **private email** interaction → 404 (GET too); a `task`/`call` interaction → 409 `kind_not_syncable` |
+| TC-CALSYNC-008 | Privacy: user B sees A's private event only as `{kind:'busy', redacted:true}` in raw JSON; details `{redacted:true}`; `shareEventDetails=false`; focus/OOO kind + times only |
+| TC-CALSYNC-009 | Calendar UI: Busy and OOO blocks without titles; conflict ring against A's busy block |
+| TC-CALSYNC-010 | Auto-create: excluded domain not created; other attendee created with `source`; over-cap event stays external |
+| TC-CALSYNC-011 | Manual: Create person X → promoted; Y created elsewhere → linked to the same interaction; "Link to existing customer" with a company on an attendee-less event; foreign `entityId` → 404 |
+| TC-CALSYNC-012 | Promotion authorization: non-owner of a private event → 403 `details_hidden`; non-owner of an event whose owner set `shareEventDetails=false` → 403 `details_hidden`; owner without confirmation → 409 `confirmation_required`; confirmed → interaction; a focus-time event → 409 `kind_not_promotable` |
+| TC-CALSYNC-013 | **Shared meeting:** A (organizer) and B (attendee) both connected, same iCalUID → one interaction, both user ids in participants, `_calendarSync.sharedWith = 1`; B's stale copy does not overwrite A's title change; A disconnects → B's link becomes primary; A reconnects → A is re-elected primary; an internal shared meeting promoted via B attaches A's external copy (A's external row gone) |
+| TC-CALSYNC-014 | **Shared-meeting edge cases:** <br>• a user deletes an imported shared meeting in the CRM → both users keep their availability as external rows, and undo restores one interaction with both links <br>• a user deletes a CRM-pushed meeting (push on) → exactly one provider delete in the stub and no external row <br>• with a connected colleague: delete + undo after the provider delete → the CRM record is restored without a primary; re-enabling push inserts a new stub event that the colleague's new copy attaches to <br>• a CRM edit to an imported meeting's body survives a forced full sync (stub returns `410`) <br>• two connections whose stub calendars return the same new meeting, synced concurrently → exactly one interaction <br>• the organizer's copy turns private on a pristine interaction → demotion: no interaction, both users get their own external row, undo of the delete restores one interaction with both links <br>• a CRM-pushed weekly series with two instances modified in the organizer's calendar → a single series interaction, no unique-index error <br>• the same new meeting in both calendars with auto-create on and one unknown attendee → exactly one Person <br>• after demotion, an admin undo (`audit_logs.undo_tenant`) restores one interaction with both links; making the event non-private again re-promotes it without undo <br>• A disconnects and reconnects → the existing connection is reactivated (no unique-index error) and A is primary again |
+| TC-GCAL-001 | OAuth initiate for `google_calendar`; with only `channel_gmail` client config, the authorize URL uses Gmail's `client_id` + calendar scopes |
+| TC-GCAL-002 | Google normalization end to end (stub): Meet conference, focus time, OOO, private visibility, all-day → correct hub records |
+| TC-GCAL-003 | Editor widget + Meet: insert with `createRequest` and the client id; `meetingUrl` written back; a retried insert (`409`) creates no duplicate |
+| TC-GCAL-004 | Watch registration with `OM_CALENDAR_SYNC_WEBHOOK_BASE_URL`; `X-Goog-*` headers parsed by the generic webhook route |
+| TC-CAL-016 (customers) | `meetingUrl` validation; Join prefers `meetingUrl`; participant "Create person" |
+| TC-CAL-017 (customers) | Item-source extension: test source renders; failure notice; no source → no change |
+| TC-CHANNEL-EMAIL-033 (hub) | A calendar channel is not offered as an email sender |
+
+## Risks & Impact Review
+
+### Data Integrity Failures
+
+- **Idempotent inserts:** each adapter guarantees idempotency per key `<link id>:<insert_generation>`; tested for Google (`409`) and for the fake adapter's search-based profile.
+- **Cursors and replay:** `providerState` advances only after the final page; replays are echo-skipped by `content_hash`.
+- **Promotion:** reserve → create → finalize with a caller-supplied id; resumable from `promoting`; sibling attach is part of finalize.
+- **One writer per meeting:** a partial unique index (`interaction_id WHERE is_primary`) guarantees a single primary. Handover runs in one transaction with the unlink.
+- **Concurrency:**
+  - Queues coalesce per entity (`connection:<id>`, `link:<id>`, `meeting:<org>:<key>`), and every worker is idempotent (queue `AGENTS.md`).
+  - The owner-tokened connection lease (`sync_lease_until` + `sync_lease_owner`) guards against cross-process overlap without holding a row lock across provider calls.
+  - **Shared meetings:** the unique primary-per-meeting index makes the first-import race safe. The reserve step inserts the primary before any customers write, and the loser retries as ATTACH, so at most one interaction is ever created per meeting.
+  - **Every** hub read-modify-write of an interaction (attach, RSVP, participants, linked persons, content) runs under `pg_advisory_xact_lock(hashtext('calendar_sync:interaction:' || interaction_id))`, with the customers command executed on the same transactional EntityManager where the command supports it. Parallel inbound jobs from different connections therefore never lose participant updates.
+
+### Cascading Failures & Side Effects
+
+- **Provider outage:** isolated per connection and adapter; backoff; `error` after 5 failures.
+- **Auto-create:** bounded per event and per tick; individually undoable; tagged `source`.
+- **Item source failure:** isolated; interactions still render.
+- **`customers` absent:** everything is placed external; promotion and auto-create no-op (`customers_unavailable`).
+- **A bad adapter (third party):** contained. Typed errors only, zod-validated `providerState`, normalized events validated by a hub zod schema before placement (invalid → link `error`, never a crash), timeouts enforced by the hub around every adapter call.
+- **Outbound invitations:** irreversible, hence per-event opt-in.
+
+### Tenant & Data Isolation Risks
+
+- Webhook scope comes only from the stored connection, with a hashed token.
+- Every query is scoped by tenant/org.
+- **Shared-meeting lookup is per organization**, so iCalendar UIDs never join across tenants or organizations.
+- Redaction is server-side, with a raw-JSON test.
+- Consent explainer at connect; per-user share switch.
+
+### Migration & Deployment Risks
+
+- Additive only; concurrent GIN index; encryption backfill.
+- Provider prerequisites are documented per provider.
+
+### Operational Risks
+
+- External store: ~40k rows per org at 50 users; range-indexed; nightly retention.
+- Notification expiry: daily renewal + polling.
+- Blast radius: the new hub and provider; additive customers seams; narrow `communication_channels` changes.
+
+### Risk Register
+
+#### Provider contract too narrow for the next provider
+
+- **Scenario:** Microsoft Graph or CalDAV needs a capability the v1 contract lacks, forcing a breaking change.
+- **Severity:** Medium
+- **Mitigation:**
+  - design-time fit check against Google, Graph and CalDAV (Provider Contract);
+  - capability flags;
+  - opaque `providerState`;
+  - Phase 9 CalDAV-like degradation tests;
+  - additive evolution policy.
+- **Residual risk:** Edge features (Graph room lists, CalDAV scheduling inbox) are out of v1 scope and additive later.
+
+#### Shared-meeting misattribution
+
+- **Scenario:** Two different meetings share an iCalendar UID (buggy client), so unrelated attendees get attached to one interaction.
+- **Severity:** Medium
+- **Mitigation:**
+  - the key includes `instance_key` and is scoped per organization;
+  - an attach is rejected when start times differ by > 24h (the link records `last_error = 'uid_collision'`, and the event is placed independently with the synthetic key `uid_collision:<connectionId>:<externalId>` stored in `ical_uid`);
+  - covered by unit tests.
+- **Residual risk:** Low.
+
+#### Colleagues or vendors auto-created as customers
+
+- **Severity:** High
+- **Mitigation:** off by default; empty-domains warning; self/resource excluded; cap; `source` tag; never for private events.
+- **Residual risk:** Personal-domain colleagues are not caught (documented).
+
+#### Private details leaking
+
+- **Severity:** High
+- **Mitigation:**
+  - external events are not indexed for search or AI tools in v1;
+  - the redaction serializer is the only read path;
+  - no auto-promotion of private events;
+  - privacy is decided by the primary copy;
+  - TC-CALSYNC-008.
+- **Residual risk:** Low.
+
+#### Matching misses and manual duplicates
+
+- **Severity:** Medium
+- **Mitigation:** "Link to existing customer"; the subscriber links later-created people; the blind-index swap.
+- **Residual risk:** Remains until the blind index ships.
+
+#### Sync loop
+
+- **Severity:** High
+- **Mitigation:** `syncOrigin` filter, `content_hash` echo skip, watermark, single primary writer, TC-CALSYNC-006.
+- **Residual risk:** Low.
+
+#### Demotion destroys an interaction
+
+- **Severity:** Medium
+- **Mitigation:** pristine-only, undoable delete; otherwise kept + warning.
+- **Residual risk:** Recoverable.
+
+#### Webhook spoofing
+
+- **Severity:** Medium
+- **Mitigation:** uniform 202 (no id probing); hashed token compare; rate limit; a ping triggers only a read with the user's token; validation responses forced to `text/plain` + `nosniff`.
+- **Residual risk:** Bounded extra polling.
+
+#### Recurrence limits
+
+- **Severity:** Low
+- **Detail:** provider-owned series are edited per instance; exceptions to CRM-owned series are ignored and logged.
+- **Residual risk:** Accepted.
+
+#### Token or secret leakage
+
+- **Severity:** High
+- **Mitigation:**
+  - tokens stay in encrypted integration credentials;
+  - only hashed notification tokens are stored;
+  - external content and meeting fields are encrypted;
+  - errors are machine codes only;
+  - adapters are forbidden to log payloads (reviewed in the adapter checklist in the docs).
+- **Residual risk:** Low.
+
+## Final Compliance Report — 2026-11-19
+
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root): Task Router rows for integration provider, module development, cross-module coupling, encryption, optimistic locking, events, widget injection, response enrichers, queue/scheduler, integration tests, DS rules
+- `packages/core/AGENTS.md`, `packages/core/src/modules/customers/AGENTS.md`, `packages/core/src/modules/data_sync/AGENTS.md`, `packages/channel-gmail/AGENTS.md`
+- `packages/ui/AGENTS.md`, `packages/ui/src/backend/AGENTS.md`, `packages/queue/AGENTS.md`, `packages/events/AGENTS.md`
+- `.ai/specs/AGENTS.md`, `.ai/qa/AGENTS.md`, `.ai/ds-rules.md`, `.ai/ui-components.md`, `BACKWARD_COMPATIBILITY.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|---|---|---|---|
+| root | Core platform features in `packages/<pkg>/src/modules/<module>/`; providers in dedicated packages | Compliant | `calendar_sync` in core (provider-neutral hub, like `data_sync`); Google in its own package with no tables or routes |
+| root | No direct ORM relationships between modules | Compliant | FK ids; ManyToOne only intra-module |
+| root | Tenant/org scoping | Compliant | Shared-meeting identity scoped per org; webhook scope from the stored row |
+| root | zod validation | Compliant | Including hub validation of adapter output and `providerState` |
+| core → Encryption | Encryption maps, `findWithDecryption`, backfill | Compliant | Hub external content; customers meeting fields **and `participants`** (encrypted with backfill in Part A, because the hub scales up this PII) |
+| root | Optimistic locking | Compliant | Connections, org settings, link intent |
+| core → Cross-Module Coupling | Optional consumer owns glue; no reverse dependency | Compliant | Hub → customers via `tryResolve`, commands, extension point; providers → hub via the registry; customers never imports the hub; hub never imports providers |
+| core → Events / Commands | `createModuleEvents`; undoable commands; side effects documented | Compliant | |
+| core → API Routes | `makeCrudRoute`, `openApi`, mutation guards | Compliant | |
+| core → Access Control | Feature guards + ACL sync | Compliant | |
+| core → Response Enrichers | `enrichMany`, namespace, features, `cacheableOnListHit: false` | Compliant | |
+| queue | Idempotent jobs | Compliant | |
+| ui / ds-rules | CrudForm, `apiCall`, `useGuardedMutation`, tokens, dialogs, `aria-label` | Compliant | |
+| BACKWARD_COMPATIBILITY | Additive surfaces; versioned provider contract | Compliant | `calendar-provider.v1`, evolution policy stated |
+| .ai/qa | Integration coverage for new API/UI paths | Compliant | TC-CALSYNC-001…014, TC-GCAL-001…004, TC-CAL-016/017, TC-CHANNEL-EMAIL-033 |
+
+### Internal Consistency Check
+
+| Check | Status |
+|---|---|
+| Data models match API contracts | Pass |
+| API contracts match UI/UX | Pass |
+| Risks cover all write paths (placement, attach/handover, auto-create, promote, demote, outbound, settings, link intent, webhook) | Pass |
+| Commands defined for all mutations | Pass |
+| Cache strategy | N/A |
+
+### Non-Compliant Items
+
+None blocking. (`CustomerInteraction.participants` encryption, previously a follow-up, is now part of Part A.)
+
+### Verdict
+
+**Compliant — no blocking AGENTS.md gaps.** This is an author self-assessment, not an approval: implementation approval is a maintainer decision, as is the open Part A/B/C split.
+
+## Changelog
+
+- 2026-11-19 — Skeleton with Open Questions Q1–Q9.
+- 2026-11-19 — Rev 1: Open Questions resolved with the recommended defaults; full Google-only design.
+- 2026-11-19 — Rev 1 review fixes:
+  - Part labels;
+  - hub hardening rationale;
+  - mutation guards, encryption backfill, concurrent index, Join XSS rule.
+- 2026-11-19 — Rev 2 (requester):
+  - import all events; external store + item-source extension point;
+  - private events → Busy; focus time / OOO;
+  - org auto-create; manual Create person + promotion.
+- 2026-11-19 — Rev 2.1: attendee hashes on the link row (people created after promotion get linked); "Link to existing customer"; duplicate-person risk.
+- 2026-11-19 — **Rev 3 (requester delegated the reuse decision; recommended option applied):**
+  - **Restructured** into a provider-neutral `calendar_sync` hub in core with a versioned `CalendarProviderAdapter` contract (`calendar-provider.v1`, fit-checked against Google, Microsoft Graph, CalDAV) and a registry mirroring `data_sync`;
+  - Google reduced to a thin provider package with no tables or routes;
+  - tables renamed `calendar_sync_*` with `provider_key`, opaque `provider_state` and generic notification columns;
+  - generic webhook `/api/calendar_sync/webhook/[provider]` with validation-handshake support;
+  - org auto-create settings moved to the hub (one policy for all providers);
+  - **shared-meeting identity (R14):** deduplication by `(org, iCalUID, instanceKey)`, a single primary writer, attach and handover — fixes duplicate interactions when several connected users attend one meeting;
+  - Phases re-cut to 9 (Part A/B/C), including a CalDAV-like degradation check;
+  - tests renamed to TC-CALSYNC / TC-GCAL and TC-CALSYNC-013 added.
+
+- 2026-11-19 — **Rev 3.1 (fixes for the `om-code-review` findings, request changes, 5 major / 7 minor / 4 nits):**
+  - **Major fixes:**
+    - the series-attach index is now `(connection_id, interaction_id, instance_key)`;
+    - a unique primary-per-meeting index plus reserve-first placement removes the first-import race (unique violation → attach);
+    - private links are never eligible as primary, and a private organizer copy triggers demotion;
+    - promote authorization follows the redaction rule (`details_hidden`), and focus/OOO events are not promotable;
+    - demotion converts every sibling link to its own external row, and undo restores them (`detached_from_interaction_id`, `calendar_sync.interaction.demoted`).
+  - **Minor fixes:**
+    - queue job-id dedupe restated as `coalesceBy` keys;
+    - TC-CAL-013/014 renumbered to 016/017;
+    - registry semantics follow `registerChannelAdapter` (throw on duplicate, unregister function, `globalThis` map);
+    - `parseScopes` keeps Gmail's one-argument export;
+    - file manifest completed;
+    - template-sync steps for the new env vars;
+    - `includeLinked` uses a bound `?::jsonb` parameter.
+  - **Nits:**
+    - status made consistent (no self-approval);
+    - phase steps renumbered 1–30 and Phase 8 assigned to the Parts;
+    - `link_id` is OneToOne;
+    - google-workspace spec cross-reference.
+  - TC-CALSYNC-014 and new unit cases added.
+
+- 2026-11-19 — **Rev 3.2 (fixes for the rev 3.1 independent review):**
+  - **Major fixes:**
+    - Demotion undo listens on `customers.interaction.created` (what the delete-undo actually emits), keyed by `detached_from_interaction_id`. Undoing it is admin-only (`audit_logs.undo_tenant`); the user-facing reversal is un-privating the event or "Add to CRM".
+    - Manual promotion runs synchronously inside the `external_event.promote` command. The coalesced `promote` job serves only automatic triggers and carries no intent. Full resync intent is persisted (`full_resync_requested_at`).
+    - Placement reserves the primary **before** auto-creating People; only the reserve winner creates them, serialized per attendee by an advisory lock with re-match.
+    - A link attaching while the winner is still `promoting` defers its participant write to the winner's finalize.
+  - **Minor fixes:**
+    - dedicated lock version columns (`settings_updated_at`, `intent_updated_at`);
+    - org settings stored as a single `autoCreate` value with compare-and-set;
+    - the watermark advances on every hub write (attached RSVP no longer breaks pristine);
+    - `event_link.update` enqueues outbound;
+    - provider-origin links default `push_enabled = false`;
+    - Google primary-calendar discovery via `events.list` + userinfo (no extra scope; TC-GCAL-001 asserts scopes);
+    - Discord statement corrected;
+    - manifest gains `modules.ts` / `package.json` entries;
+    - header registry rows corrected;
+    - reconnect upserts and reactivates the connection;
+    - Gmail schema-name aliases kept.
+  - **Nits:**
+    - behavioural rules moved to an exported conformance suite;
+    - uniform `202` webhook response;
+    - demotion selects by `interaction_id` (covers series);
+    - synthetic and collision keys stored in `ical_uid`.
+  - Unit cases and TC-CALSYNC-014 extended.
+- 2026-11-19 — **Rev 3.3 (fixes for the rev 3.2 independent review):**
+  - **Blockers:**
+    - org settings moved from the tenant-only `ModuleConfigService` to an org-scoped hub table `calendar_sync_settings`, locked on `updated_at`;
+    - the link API gains record-level authorization via the new customers DI service `customerInteractionAccess` (visibility rules + base kind; private email → 404, non-meeting kinds → 409 `kind_not_syncable`), re-checked by the outbound worker.
+  - **Major fixes:**
+    - stale-state sweep (`state_changed_at`) and explicit re-placement of attached links on a released reservation;
+    - per-page persisted page state with follow-up jobs, plus a full-sync mark-and-sweep;
+    - CRM-pushed meetings get their UID at link creation (`clientSuppliedIcalUid`), with a merge rule for providers that assign the UID late;
+    - the demotion marker is cleared on re-promotion, and undo restores only still-external links;
+    - only the organizer's cancelled copy (or all copies cancelled) cancels the interaction;
+    - `channel.connected` is also emitted from the disconnect/delete undo handlers.
+  - **Minor fixes:**
+    - stale webhook test and risk text aligned with the uniform 202;
+    - `ko` locale;
+    - Graph uses the series master's `iCalUId`;
+    - registry `has`/`get`/`list` functions and the hot-reload guard;
+    - two-phase primary swap;
+    - re-election deferred while `promoting`;
+    - per-interaction advisory lock for every hub write;
+    - lease instead of a row lock across network calls;
+    - outbound payload `{ linkId }` with the action re-derived from state, and privacy fields provider-owned;
+    - a manual promote that loses the race attaches and returns the winner;
+    - sticky undo of manual promotion;
+    - refresh with the issuing OAuth client;
+    - forced `text/plain` + `nosniff` on validation responses;
+    - the `includeLinked` person-timeline change documented.
+  - **Nits:**
+    - `confidential` maps to private;
+    - the messaging webhook rejects calendar types;
+    - changelog ordering fixed;
+    - review records added for every round.
+  - **Considered, unchanged:** `share_event_details` defaults to `true`. The requester specified that only *private* events are hidden from colleagues; the consent explainer at connect states that non-private event details are visible to the team, and users can switch it off.
+
+- 2026-11-19 — **Rev 3.4 (fixes for the rev 3.3 independent review):**
+  - **Major fixes:**
+    - The echo skip applies only to live, linked, incremental cases, and full runs always re-place (reconnect and auto-create resync work).
+    - Promote undo selects links by `interaction_id` at undo time and re-places them.
+    - A new `customers.interaction.deleted` subscriber detaches links when a user deletes an imported interaction (undo restores them). The marker is renamed `demoted_from_interaction_id` → `detached_from_interaction_id` (earlier changelog entries were updated to the new name).
+    - Handover and re-election candidates are restricted to links with the interaction's own meeting key, so occurrence links never write series content.
+  - **Minor fixes:**
+    - Google `clientSuppliedIcalUid = false`, with an optional `predictIcalUid`; the provider-returned UID always wins, and the merge rule applies to every provider.
+    - Risks text now describes the lease; the lease gets an owner token.
+    - Advisory locks are taken in sorted order.
+    - Watermarks are copied on every swap.
+    - A private organizer copy on a non-pristine interaction stays primary with frozen writes, and the demotion check fires on the transition only.
+    - Sweep window via link `starts_at`; pending CRM links are excluded.
+    - The conformance suite moved to Phase 3.
+    - Connection organization pinning rule.
+    - `oauthClientId` declared in the credentials schema.
+    - `customerInteractionAccess` listed as a contract surface.
+    - `participants` encryption (with backfill) moved into Part A.
+  - **Nits:**
+    - docs paths follow the existing layout;
+    - stale `autoCreate.enabled` fixed;
+    - the first-insert settings race maps to 409;
+    - lock-reader `updatedAtField` configured;
+    - Graph `uid` noted.
+
+- 2026-11-19 — **Rev 3.5 (fixes for the rev 3.4 verification review):**
+  - **Major fixes:**
+    - Deleting a CRM-pushed meeting keeps its owning link in a new `deleting` state, so the outbound job deletes the provider event; only other links are detached. Undo re-inserts the event.
+    - Placement re-evaluation is now separate from content application: provider content is written only when the provider copy changed, so full syncs, `410` and reconnects never overwrite CRM edits.
+  - **Minor fixes:**
+    - the placement pseudocode honours `auto_promote_suppressed_at` (+ `auto_promote_suppressed_hashes`);
+    - the marker-clearing note is corrected;
+    - a missing-interaction rule covers undo of hub-created interactions;
+    - integration coverage added for the delete and detach paths.
+  - **Nits:**
+    - suppression note completed;
+    - garbled sweep sentence fixed;
+    - Eligibility exception stated.
+
+- 2026-11-19 — **Rev 3.6 (fixes for the rev 3.5 delta verification):**
+  - **Major fixes:**
+    - `customers.interaction.deleted` now has a single handler that commits `deleting` before enqueuing outbound; the worker derives "owning" from link flags, not state; apply/RSVP/attach skip deleting and soft-deleted links.
+    - Undo of a CRM delete explicitly restores the owning link (before re-election). It bumps a new `insert_generation` that feeds the idempotency key, client id and UID, so the re-insert really creates a new provider event.
+  - **Minor fixes:**
+    - swaps copy only `synced_interaction_updated_at`, and a link's first apply as primary is pristine-only;
+    - `deleting` is covered by the stale sweep and re-enqueued on reactivation;
+    - `auto_promote_suppressed_hashes` has its own column row.
+  - Unit cases added.
+
+- 2026-11-19 — **Rev 3.7 (fixes for the rev 3.6 delta verification):**
+  - **Major fix:** undo of a CRM delete is simplified and made deterministic by the owning link's state.
+    - `deleting` (job not run) → full restore, owning link first.
+    - `unlinked` (provider event deleted) → only the CRM record is restored: no re-attach of cancelled colleague copies, push off, and re-enabling push inserts a new event via `insert_generation`.
+    - The delete-flow unlink keeps `interaction_id` and does no handover.
+    - The series/connection unique index excludes `unlinked` links.
+  - **Minor fixes:**
+    - the delete subscriber ignores an already-unlinked owning link;
+    - disconnect keeps `deleting` links, and the sweep skips inactive connections;
+    - a link's first apply as primary uses its own change signal + the normal conflict rule (pristine-only only without its own watermark);
+    - the idempotency key `<link id>:<insert_generation>` is stated everywhere, including the contract.
+  - **Nit:** handover test text.
+
+- 2026-11-19 — **Rev 3.8 (fixes for the rev 3.7 delta verification):**
+  - **Major fixes:**
+    - An explicit **owning-delete key** (no `is_primary` requirement) is used by the delete subscriber and the undo restore. "Every other link" excludes `unlinked`.
+    - Re-enabling push clears the old provider identity, so the worker inserts, not patches. The sweep spares owning links awaiting an insert.
+  - **Minor fixes:**
+    - compare-and-set transitions between undo and the in-flight delete worker;
+    - a single `created` restore handler with fixed branch order;
+    - the full sync skips `deleting`; channel delete abandons pending provider deletes with a reported error; undo never revives a dead connection's link;
+    - the freshly-cleared-hash rule is aligned with the first-apply rule.
+  - **Nits:** test wording.
+
+- 2026-11-19 — **Rev 3.9 (fixes for the rev 3.8 delta verification):** the CRM-delete flow was rewritten as an explicit state machine.
+  - **Major fixes:**
+    - The owning-delete key now requires `unlink_reason ∈ {crm_delete, provider_delete_abandoned}` (new column), so stale ordinary unlinks never match.
+    - Undo branches on link state only, never on connection status. A `deleting` link on a `requires_reauth` connection is fully restored.
+    - `provider_delete_abandoned` restores colleagues through the generic marker restore.
+  - **Minor fixes:**
+    - Channel delete is treated like disconnect (both undoable); pending provider deletes are abandoned only after `OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS`.
+    - The worker acts on a soft-deleted interaction only when the link is `deleting`, so it can never run before the handler. Its CAS uses `state_changed_at`.
+    - The action derivation lists the no-op cases first.
+
+- 2026-11-19 — **Rev 3.10 (precision fixes from the rev 3.9 verification, verdict approve):**
+  - **Minor fixes:**
+    - The `deleting` undo branch gives a paused connection's link the disconnect outcome instead of making it primary.
+    - Abandonment is a CAS that clears `is_primary`, driven by the new `connection.status_changed_at`, and also applies to links stuck on active connections.
+    - The restore handler no-ops when the interaction is no longer live.
+    - The full-sync sweep and the generic marker restore ignore `unlinked` rows, and the sweep never overwrites `unlink_reason`.
+    - The re-enable identity reset is limited to `crm_delete`; abandoned rows are re-linked on reactivation.
+  - **Nits:**
+    - explicit no-op for `deleting` + live interaction;
+    - `not_organizer` unlink reason.
+
+### Review — 2026-11-19 (rev 3)
+
+- **Reviewer:** Agent (author pass, checklist §§2–7) + fresh-context agent (checklist §1 + consistency, given only this file)
+- **Scope cohesion (§1):** **SPLIT** (fresh-context reviewer).
+  - **Proposed boundaries:**
+    1. Customers calendar seams (Part A), with seam `customers.calendar.item-sources.v1`;
+    2. the hub plus the `communication_channels` prerequisites (Part B), with seam `calendar-provider.v1`;
+    3. the Google provider plus `google-auth` (Part C).
+  - The reviewer notes that B ships no user value without C, so splitting only A is a reasonable alternative.
+  - **Resolution:** kept as one spec under R1; Part labels allow a verbatim split. This stays an open, non-blocking maintainer decision.
+- **Consistency and contract fixes applied from the same review:**
+  - **Fields and labels:** added `conference_pending` + `content_hash` link columns; `communication_channels` prerequisites relabelled as Part B (Phase 1); `google-auth` moved to Phase 7.
+  - **Shared-meeting rules:**
+    - primary **re-election on attach** (an organizer connecting later takes over);
+    - **series attach** (instances of a CRM-owned series attach to the series interaction; no per-instance duplicates);
+    - canonical **`buildInstanceKey`** so keys match byte-for-byte across providers.
+  - **Credential-based providers:** `channel.connected` is emitted by the credential connect command too.
+  - **Provider contract:**
+    - `CalendarVersionConflictError` naming;
+    - `versionScope` capability plus a hub-computed `content_hash` echo skip (CalDAV series-wide ETags);
+    - in-adapter RFC 5545 expansion for CalDAV;
+    - batched `parseNotification` `changes[]` with lookup by channel id or resource (Graph);
+    - `fullResyncRequired` for window-bound cursors (Graph delta);
+    - Graph `eventKinds` corrected (no native focus);
+    - `resolvePrimaryCalendar(authCtx)` without a calendar id (CalDAV discovery).
+  - **Phase 9:** test-only, with CalDAV-like and Graph-like fake profiles.
+- **Security:** Passed.
+  - Server-side redaction.
+  - Webhook scope from the stored row, with a hashed token and a provider handshake hook.
+  - Per-org identity keys.
+  - Encrypted external content and meeting fields.
+  - Hub validation of adapter output.
+  - Adapters forbidden to log payloads.
+- **Performance:**
+  - **Passed:** range and keyset reads; GIN hash lookup; shared-meeting point lookup index; page budgets; batched enricher and matcher calls.
+  - **Known limitation:** the matcher scan.
+- **Cache:** N/A.
+- **Commands:** Passed. Four hub commands with undo; irreversible effects documented.
+- **Risks:** Passed. Contract narrowness, UID collision, plus all rev 2 risks.
+- **Verdict:** Author pass complete. Superseded by the rev 3.1 `om-code-review` findings and fixes below.
+
+### Review — 2026-11-19 (rev 3, first `om-code-review`)
+
+- **Verdict:** request changes. 5 major, 7 minor, 4 nits. All addressed in rev 3.1 (see Changelog).
+- **Major findings:**
+  - series-attach index conflict;
+  - first-import race;
+  - private copy as primary;
+  - colleagues promoting redacted events;
+  - demotion leaving sibling links dangling.
+
+### Review — 2026-11-19 (rev 3.1, independent `om-code-review`)
+
+- **Verdict:** **request changes.** 3 major, 11 minor, 4 nits. **All addressed in rev 3.2** (see Changelog).
+- **Major:**
+  1. **Demotion undo listens for the wrong event.** Undoing `customers.interactions.delete` emits `customers.interaction.created` (`emitCrudUndoSideEffects({ action: 'created' })`), not `reverted` (verified in `customers/commands/interactions.ts`). Also, undoing a system actor's command needs `audit_logs.undo_tenant`.
+  2. **Promote is both a command and a coalesced async job.** Undo capture and the response code are undefined. Coalescing (BullMQ `deduplication` + `keepLastIfActive`) can drop a manual `promote { entityId }` or a full-resync `mode` that carries intent in its payload.
+  3. **The first-import race is still leaky.** Auto-created People are made before the reserve, so the race loser duplicates them. Attaching while the winner is still `promoting` can hit a not-yet-created interaction.
+- **Minor:**
+  - **Locking:**
+    - false 409s, because sync writes bump the lock column;
+    - org settings have no compare-and-set;
+    - attached links' RSVP writes break the "pristine" watermark.
+  - **Outbound:**
+    - `event_link.update` must enqueue outbound;
+    - the push default for imported links is undefined;
+    - the Google scope may not cover `calendars.get` (unconfirmed).
+  - **Inaccurate statements:**
+    - "first user-scoped non-email channel" is false (Discord already exists);
+    - the header still names the `data_sync` registry.
+  - **Gaps:**
+    - the manifest misses `modules.ts` / `package.json` entries;
+    - reconnect needs an upsert/reactivate;
+    - Gmail must keep its `gmail*CredentialsSchema` names as aliases.
+- **Nits:**
+  - the registration-time conference "check" can't actually be checked;
+  - webhook 401 vs 404 reveals which channel ids exist;
+  - demotion link selection differs for series;
+  - where synthetic/collision keys are stored is unstated.
+
+### Review — 2026-11-19 (rev 3.2, independent `om-code-review`)
+
+- **Verdict:** request changes. 3 blockers, 6 major, 15 minor, 5 nits. All design findings addressed in rev 3.3 (see Changelog).
+- **Gate:** the reviewer ran the full gate after `yarn install`. `build:packages`, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `build:app` and `template:sync` passed. `yarn test` failed only in `create-mercato-app#test` (81/1259): agent-harness sandbox tests that timed out or were blocked by nested macOS sandboxing. That is environmental; no test reads `.ai/specs`. It must be confirmed green in CI before merge.
+
+### Review — 2026-11-19 (rev 3.3, independent `om-code-review`)
+
+- **Verdict:** request changes. 3 major, 12 minor, 5 nits. The only Blocker was the environmental `yarn test` failure.
+- All design findings were addressed in rev 3.4 (see Changelog).
+- **Gate (local, full):** `build:packages`, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `build:app` and `template:sync` passed. `yarn test` failed only in `create-mercato-app#test` (81/1259; nested-sandbox `libllhttp` load failures in agent-harness tests; not diff-related). It must be confirmed green in CI.
+
+### Review — 2026-11-19 (rev 3.4, verification `om-code-review`)
+
+- **Verdict:** request changes. 2 major (both regressions introduced by rev 3.4: a CRM delete never reached the provider, and full syncs overwrote CRM edits), 4 minor, 3 nits.
+- All findings were addressed in rev 3.5.
+- The gate was not re-run (markdown-only diff; earlier full runs green except the environmental `create-mercato-app#test`).
+
+### Review — 2026-11-19 (rev 3.5, delta verification `om-code-review`)
+
+- **Verdict:** request changes. 2 major in the new delete flow (subscriber race; undo vs idempotency), 2 minor, 1 nit.
+- Every rev 3.5 change was confirmed to resolve its rev 3.4 finding on the main path.
+- All new findings were addressed in rev 3.6. The gate was not re-run (markdown-only diff).
+
+### Review — 2026-11-19 (rev 3.6, delta verification `om-code-review`)
+
+- **Verdict:** request changes. 1 major (the undo re-insert path re-attached cancelled colleague copies and collided with the series index), 4 minor, 1 nit.
+- Both rev 3.5 majors were confirmed resolved. All new findings were addressed in rev 3.7 by simplifying the undo semantics.
+
+### Review — 2026-11-19 (rev 3.7, delta verification `om-code-review`)
+
+- **Verdict:** request changes. 2 major (the `unlinked` undo branch was unreachable because "owning" required `is_primary`; re-enable patched instead of inserting), 4 minor, 1 nit.
+- The rev 3.6 Major was confirmed addressed in direction. All findings were fixed in rev 3.8.
+
+### Review — 2026-11-19 (rev 3.8, delta verification `om-code-review`)
+
+- **Verdict:** request changes. 2 major (undo on a non-active connection took the CRM-only branch even though the provider delete never happened; the owning-delete key matched stale ordinary `unlinked` rows), 2 minor (channel delete is undoable; the worker CAS did not fit the worker-before-handler path).
+- Both rev 3.7 majors were confirmed resolved. All findings were addressed in rev 3.9.
+
+### Review — 2026-11-19 (rev 3.9, delta verification `om-code-review`)
+
+- **Verdict: approve.** Every rev 3.9 change resolves its finding, and no new Blocker or Major was introduced.
+- 5 minor precision gaps and 3 nits on rare paths were folded into rev 3.10.
+- The gate was not re-run (markdown-only diff). The earlier full runs were green except the environmental `create-mercato-app#test` failure, which must be confirmed green in CI before merge.
