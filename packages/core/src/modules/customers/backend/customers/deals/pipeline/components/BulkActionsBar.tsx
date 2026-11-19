@@ -7,6 +7,17 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
+const COUNT_PLACEHOLDER = '{count}'
+
+function splitAroundCount(template: string): { before: string; after: string } {
+  const index = template.indexOf(COUNT_PLACEHOLDER)
+  if (index === -1) return { before: '', after: template.trim() }
+  return {
+    before: template.slice(0, index).trim(),
+    after: template.slice(index + COUNT_PLACEHOLDER.length).trim(),
+  }
+}
+
 type BulkActionsBarProps = {
   count: number
   totalLabel: string | null
@@ -52,6 +63,10 @@ export function BulkActionsBar({
 
   if (count === 0) return null
 
+  const selectedLabel = splitAroundCount(
+    translateWithFallback(t, 'customers.deals.kanban.bulk.selectedCount', '{count} selected'),
+  )
+
   return (
     <div
       role="region"
@@ -76,15 +91,16 @@ export function BulkActionsBar({
         <X className="size-4" aria-hidden="true" />
       </IconButton>
 
-      <span className="inline-flex size-7 items-center justify-center rounded-md bg-background/10 text-xs font-semibold">
-        {count}
-      </span>
-      <span className="text-sm font-medium">
-        {translateWithFallback(
-          t,
-          'customers.deals.kanban.bulk.selectedCount',
-          'selected',
-        )}
+      <span className="inline-flex items-center gap-3" data-testid="kanban-bulk-selected-count">
+        {selectedLabel.before ? (
+          <span className="text-sm font-medium">{selectedLabel.before}</span>
+        ) : null}
+        <span className="inline-flex size-7 items-center justify-center rounded-md bg-background/10 text-xs font-semibold">
+          {count}
+        </span>
+        {selectedLabel.after ? (
+          <span className="text-sm font-medium">{selectedLabel.after}</span>
+        ) : null}
       </span>
       {totalLabel ? (
         <span className="hidden text-sm text-background/80 sm:inline">

@@ -1349,7 +1349,7 @@
   "customers.deals.kanban.bulk.delete.title": "Usunąć {count} szans?",
   "customers.deals.kanban.bulk.dragOverlayBadge": "Zaznaczonych dodatkowo: {count}",
   "customers.deals.kanban.bulk.exportCsv": "Eksport CSV",
-  "customers.deals.kanban.bulk.selectedCount": "{count} zaznaczonych",
+  "customers.deals.kanban.bulk.selectedCount": "Zaznaczono: {count}",
   "customers.deals.kanban.bulk.totalValue": "Łącznie {value}",
   "customers.deals.kanban.card.action.call": "Zadzwoń",
   "customers.deals.kanban.card.action.disabledNoCompany": "Powiąż firmę z tą szansą, zanim zaczniesz rejestrować aktywności.",
