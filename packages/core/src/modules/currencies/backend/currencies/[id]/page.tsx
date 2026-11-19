@@ -17,6 +17,7 @@ import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { MAX_CURRENCY_DECIMAL_PLACES } from '../../../data/validators'
 
 type CurrencyData = {
   id: string
@@ -75,6 +76,8 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     loadCurrency()
   }, [params, t])
 
+  const isCurrentBase = currency?.isBase === true
+
   const groups = React.useMemo<CrudFormGroup[]>(
     () => [
       {
@@ -115,8 +118,9 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
             id: 'decimalPlaces',
             type: 'number',
             label: t('currencies.form.field.decimalPlaces'),
+            description: t('currencies.form.field.decimalPlacesHelp'),
             min: 0,
-            max: 8,
+            max: MAX_CURRENCY_DECIMAL_PLACES,
           },
           {
             id: 'thousandsSeparator',
@@ -136,6 +140,8 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
             id: 'isBase',
             type: 'checkbox',
             label: t('currencies.form.field.isBase'),
+            disabled: isCurrentBase,
+            description: isCurrentBase ? t('currencies.form.field.isBaseLocked') : undefined,
           },
           {
             id: 'isActive',
@@ -145,7 +151,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         ],
       },
     ],
-    [t]
+    [t, isCurrentBase]
   )
 
   const handleDelete = React.useCallback(async () => {
@@ -251,6 +257,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
       <PageBody>
         <CrudForm
           title={t('currencies.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/currencies"
           versionHistory={{ resourceKind: 'currencies.currency', resourceId: currency.id }}
           extraActions={(
@@ -301,7 +308,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
               code,
               name: String(values.name || '').trim(),
               symbol: values.symbol ? String(values.symbol).trim() : null,
-              decimalPlaces: values.decimalPlaces ? parseInt(String(values.decimalPlaces)) : 2,
+              decimalPlaces: values.decimalPlaces === undefined || values.decimalPlaces === null ? 2 : parseInt(String(values.decimalPlaces)),
               thousandsSeparator: values.thousandsSeparator ? String(values.thousandsSeparator) : null,
               decimalSeparator: values.decimalSeparator ? String(values.decimalSeparator) : null,
               isBase: !!values.isBase,

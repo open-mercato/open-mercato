@@ -2,6 +2,8 @@ import type {
   ChannelNativeContent,
   ConvertOutboundInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
+import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
+import { sanitizeRichTextHtml } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DISCORD_MAX_BODY_LENGTH } from './capabilities'
 
@@ -10,26 +12,18 @@ const logger = createLogger('channel_discord').child({ component: 'convert-outbo
 /**
  * Very small HTML → markdown down-converter for the common inline tags the hub's
  * `html` body format produces. Discord content is markdown-native, so we map the
- * handful of tags that have a markdown equivalent and strip the rest rather than
- * pulling in a full HTML parser dependency.
+ * handful of tags that have a markdown equivalent, then reuse the shared HTML
+ * sanitizer and parser for the remainder.
  */
 function htmlToMarkdown(html: string): string {
-  return html
-    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
-    .replace(/<\s*\/\s*p\s*>/gi, '\n\n')
-    .replace(/<\s*p[^>]*>/gi, '')
-    .replace(/<\s*(strong|b)\s*>(.*?)<\s*\/\s*\1\s*>/gis, '**$2**')
-    .replace(/<\s*(em|i)\s*>(.*?)<\s*\/\s*\1\s*>/gis, '*$2*')
-    .replace(/<\s*code\s*>(.*?)<\s*\/\s*code\s*>/gis, '`$1`')
-    .replace(/<\s*a[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\s*\/\s*a\s*>/gis, '[$2]($1)')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  const markdownHtml = sanitizeRichTextHtml(html)
+    .replace(/<(strong|b)>(.*?)<\/\1>/gis, '**$2**')
+    .replace(/<(em|i)>(.*?)<\/\1>/gis, '*$2*')
+    .replace(/<code>(.*?)<\/code>/gis, '`$1`')
+    .replace(/<a href="([^"]+)"[^>]*>(.*?)<\/a>/gis, '[$2]($1)')
+    .replace(/<img\b[^>]*>/gi, '')
+
+  return htmlToPlainText(markdownHtml)
 }
 
 /**

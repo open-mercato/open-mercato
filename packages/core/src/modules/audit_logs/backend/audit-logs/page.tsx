@@ -1,15 +1,18 @@
 'use client'
 
 import React from 'react'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from '../../components/AuditLogsActions'
 import { AuditLogsActions } from '../../components/AuditLogsActions'
+import { ActionLogDetailsDialog } from '../../components/ActionLogDetailsDialog'
 import type { AccessLogItem } from '../../components/AccessLogsTable'
 import { AccessLogsTable } from '../../components/AccessLogsTable'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('audit_logs').child({ component: 'audit-logs-page' })
@@ -37,6 +40,13 @@ type AccessLogResponse = {
 type TabOption = 'actions' | 'access'
 
 const DEFAULT_PAGE_SIZE = 50
+const ACCESS_ACTOR_SCOPE_ALL = 'all'
+const ACCESS_ACTOR_SCOPE_SELF = 'self'
+
+function readFilterText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+const LOG_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export default function AuditLogsPage() {
   const t = useT()
@@ -58,6 +68,41 @@ export default function AuditLogsPage() {
   const [accessTotalPages, setAccessTotalPages] = React.useState(1)
   const [accessTotalIsCapped, setAccessTotalIsCapped] = React.useState(false)
   const accessPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
+  const [accessFilters, setAccessFilters] = React.useState<FilterValues>({})
+  const [canViewTenantAccess, setCanViewTenantAccess] = React.useState(false)
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const requestedLogId = searchParams?.get('logId') ?? null
+  const [linkedEntry, setLinkedEntry] = React.useState<ActionLogItem | null>(null)
+
+  React.useEffect(() => {
+    if (!requestedLogId || !LOG_ID_PATTERN.test(requestedLogId)) {
+      setLinkedEntry(null)
+      return
+    }
+    let cancelled = false
+    const params = new URLSearchParams({ ids: requestedLogId, pageSize: '1' })
+    readApiResultOrThrow<ActionLogResponse>(
+      `/api/audit_logs/audit-logs/actions?${params.toString()}`,
+      undefined,
+      { errorMessage: t('audit_logs.error.load') },
+    )
+      .then((result) => {
+        if (cancelled) return
+        const entry = (result.items ?? []).find((item) => item.id === requestedLogId) ?? null
+        setLinkedEntry(entry)
+        if (!entry) setError(t('audit_logs.error.entry_not_found'))
+      })
+      .catch((err) => {
+        if (cancelled) return
+        logger.error('Failed to load linked audit entry', { err })
+        setError(t('audit_logs.error.load'))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [requestedLogId, t])
 
   const fetchActions = React.useCallback(async (page: number, pageSize: number) => {
     const params = new URLSearchParams()
@@ -75,12 +120,19 @@ export default function AuditLogsPage() {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
+    if (readFilterText(accessFilters.actorScope) === ACCESS_ACTOR_SCOPE_ALL) {
+      params.set('actorScope', ACCESS_ACTOR_SCOPE_ALL)
+    }
+    const resourceKind = readFilterText(accessFilters.resourceKind)
+    if (resourceKind) params.set('resourceKind', resourceKind)
+    const accessType = readFilterText(accessFilters.accessType)
+    if (accessType) params.set('accessType', accessType)
     return readApiResultOrThrow<AccessLogResponse>(
       `/api/audit_logs/audit-logs/access?${params.toString()}`,
       undefined,
       { errorMessage: t('audit_logs.error.load') },
     )
-  }, [t])
+  }, [accessFilters, t])
 
   const loadAll = React.useCallback(async (
     actionPage: number, actionPageSize: number,
@@ -101,6 +153,7 @@ export default function AuditLogsPage() {
     setActionsTotalPages(actionsRes.totalPages ?? 1)
     setActionsTotalIsCapped(actionsRes.totalIsCapped === true)
     setAccessLogs(accessRes.items ?? [])
+    setCanViewTenantAccess(accessRes.canViewTenant === true)
     const resolvedPage = accessRes.page ?? accessPageNum
     const resolvedPageSize = accessRes.pageSize ?? accessPageSizeNum
     const resolvedTotal = accessRes.total ?? (accessRes.items?.length ?? 0)
@@ -171,6 +224,49 @@ export default function AuditLogsPage() {
     void loadWithState(actionsPage, actionsPageSizeRef.current, normalized, accessPageSizeRef.current)
   }, [accessTotalPages, loadWithState, actionsPage])
 
+  const accessFilterDefs = React.useMemo<FilterDef[]>(() => {
+    const defs: FilterDef[] = []
+    if (canViewTenantAccess) {
+      defs.push({
+        id: 'actorScope',
+        label: t('audit_logs.access.filters.actor_scope'),
+        type: 'select',
+        options: [
+          { value: ACCESS_ACTOR_SCOPE_SELF, label: t('audit_logs.access.filters.actor_scope_self') },
+          { value: ACCESS_ACTOR_SCOPE_ALL, label: t('audit_logs.access.filters.actor_scope_all') },
+        ],
+      })
+    }
+    defs.push(
+      {
+        id: 'resourceKind',
+        label: t('audit_logs.access.filters.resource_kind'),
+        type: 'text',
+        placeholder: t('audit_logs.access.filters.resource_kind_placeholder'),
+      },
+      {
+        id: 'accessType',
+        label: t('audit_logs.access.filters.access_type'),
+        type: 'text',
+      },
+    )
+    return defs
+  }, [canViewTenantAccess, t])
+
+  const accessFilterValues = React.useMemo<FilterValues>(() => {
+    if (!canViewTenantAccess || readFilterText(accessFilters.actorScope)) return accessFilters
+    return { ...accessFilters, actorScope: ACCESS_ACTOR_SCOPE_SELF }
+  }, [accessFilters, canViewTenantAccess])
+
+  const handleLinkedEntryClose = React.useCallback(() => {
+    setLinkedEntry(null)
+    if (!searchParams?.has('logId')) return
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.delete('logId')
+    const query = nextParams.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [pathname, router, searchParams])
+
   const headerExtras = (
     <>
       {renderRefreshButton()}
@@ -188,6 +284,7 @@ export default function AuditLogsPage() {
 
   return (
     <Page>
+      <PageHeader title={t('audit_logs.nav.title')} />
       <PageBody>
         <Tabs
           value={tab}
@@ -227,6 +324,10 @@ export default function AuditLogsPage() {
             items={accessLogs}
             isLoading={loading}
             actions={renderRefreshButton()}
+            filters={accessFilterDefs}
+            filterValues={accessFilterValues}
+            onFiltersApply={setAccessFilters}
+            onFiltersClear={() => setAccessFilters({})}
             pagination={{
               page: accessPage,
               pageSize: accessPageSize,
@@ -237,6 +338,9 @@ export default function AuditLogsPage() {
             }}
           />
         )}
+        {linkedEntry ? (
+          <ActionLogDetailsDialog item={linkedEntry} onClose={handleLinkedEntryClose} />
+        ) : null}
       </PageBody>
     </Page>
   )

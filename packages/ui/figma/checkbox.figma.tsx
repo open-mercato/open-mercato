@@ -3,26 +3,28 @@ import figma from '@figma/code-connect'
 import { Checkbox } from '../src/primitives/checkbox'
 import { CheckboxField } from '../src/primitives/checkbox-field'
 
-// TODO(figma): resolve the real node id in the DS file before ds:code-connect:publish.
-figma.connect(Checkbox, 'https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/Design-System?node-id=0-1', {
+// Hover/focus are runtime states; checked includes Figma's indeterminate axis.
+figma.connect(Checkbox, 'https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS-Open-Mercato?node-id=227-2002', {
   imports: ["import { Checkbox } from '@open-mercato/ui/primitives/checkbox'"],
-  variant: { Label: 'False' },
   props: {
-    checked: figma.boolean('Checked'),
-    disabled: figma.boolean('Disabled'),
+    checked: figma.enum('❓ Indeterminate', { On: 'indeterminate', Off: figma.enum('🟢 Active', { Off: false, On: true }) }),
+    disabled: figma.enum('📌 State', { Default: false, Hover: false, Focused: false, Disabled: true }),
+    size: figma.enum('📏 Size', { Medium: 'md', Small: 'sm' }),
   },
-  example: ({ checked, disabled }) => <Checkbox checked={checked} disabled={disabled} />,
+  example: ({ checked, disabled, size }) => <Checkbox checked={checked} disabled={disabled} size={size} />,
 })
 
-figma.connect(CheckboxField, 'https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/Design-System?node-id=0-1', {
+// The label set has no Disabled property. Nested badge/link content is not hardcoded.
+figma.connect(CheckboxField, 'https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/DS-Open-Mercato?node-id=231-4897', {
   imports: ["import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'"],
-  variant: { Label: 'True' },
   props: {
-    checked: figma.boolean('Checked'),
-    disabled: figma.boolean('Disabled'),
-    label: figma.string('Label text'),
+    checked: figma.enum('🟢 Active', { Off: false, On: true }),
+    label: figma.string('✏️ Edit Label'),
+    sublabel: figma.boolean('💬 Sublabel', { true: figma.string('✏️ Edit Sublabel'), false: undefined }),
+    description: figma.enum('📝 Description', { Off: undefined, On: figma.string('✏️ Edit Description') }),
+    flip: figma.enum('🔄 Flip', { Off: false, On: true }),
   },
-  example: ({ checked, disabled, label }) => (
-    <CheckboxField checked={checked} disabled={disabled} label={label} />
+  example: ({ checked, label, sublabel, description, flip }) => (
+    <CheckboxField defaultChecked={checked} label={label} sublabel={sublabel} description={description} flip={flip} />
   ),
 })

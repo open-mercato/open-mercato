@@ -1,10 +1,11 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ModuleConfigService } from './lib/module-config-service'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, NOTIFICATIONS_DELIVERY_CONFIG_KEY } from '../notifications/lib/deliveryConfig'
+import { STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG, NOTIFICATIONS_DELIVERY_CONFIG_KEY } from '../notifications/lib/deliveryConfig'
 import { Tenant } from '../directory/data/entities'
 import {
   collectCacheStats,
@@ -28,22 +29,7 @@ type CacheScope = {
 }
 
 function parseArgs(rest: string[]): ParsedArgs {
-  const args: ParsedArgs = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part?.startsWith('--')) continue
-    const [rawKey, rawValue] = part.slice(2).split('=')
-    if (!rawKey) continue
-    if (rawValue !== undefined) {
-      args[rawKey] = rawValue
-    } else if (i + 1 < rest.length && !rest[i + 1]!.startsWith('--')) {
-      args[rawKey] = rest[i + 1]!
-      i += 1
-    } else {
-      args[rawKey] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { skipEmptyKeys: true, consumeEmptyValues: true })
 }
 
 function stringOption(args: ParsedArgs, ...keys: string[]): string | undefined {
@@ -145,6 +131,10 @@ function resolveCachePurgeRequest(args: ParsedArgs): CachePurgeRequest {
   throw new Error(
     'Choose a purge target: `--all`, `--segment <id>`, `--tag <tag1,tag2>`, `--key <key1,key2>`, `--id <token1,token2>`, or `--pattern <glob>`.',
   )
+}
+
+export function isCacheHelpFlag(arg: string): boolean {
+  return arg === 'help' || arg === '--help' || arg === '-h'
 }
 
 function printCacheHelp() {
@@ -325,7 +315,7 @@ const restoreDefaults: ModuleCli = {
           {
             moduleId: 'notifications',
             name: NOTIFICATIONS_DELIVERY_CONFIG_KEY,
-            value: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+            value: STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
           },
         ],
         { force: true },
@@ -360,11 +350,16 @@ const help: ModuleCli = {
 
 const cacheCommand: ModuleCli = {
   command: 'cache',
+  // Prints subcommand-aware help itself, so the dispatcher must forward --help/-h here.
+  handlesHelp: true,
   async run(rest) {
     const [subcommand, ...subRest] = rest
     const args = parseArgs(subRest)
 
-    if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
+    // `handlesHelp` makes this command responsible for the guarantee the dispatcher gives
+    // everywhere else, so a help flag anywhere wins over the subcommand — otherwise
+    // `configs cache purge --help` would purge the cache it was only asked to describe.
+    if (!subcommand || rest.some(isCacheHelpFlag)) {
       printCacheHelp()
       return
     }

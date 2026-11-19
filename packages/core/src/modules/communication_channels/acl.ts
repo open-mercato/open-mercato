@@ -13,6 +13,14 @@ export const features = [
    */
   { id: 'communication_channels.connect_user_channel', title: 'Connect own communication channel', module: 'communication_channels' },
   /**
+   * Mark YOUR OWN personal channel as a shared team mailbox, so the CRM email it
+   * ingests becomes readable by teammates. Owner-only by construction: the route
+   * loads the channel by `userId = caller` and accepts no owner field, so holding
+   * this feature grants no access to anyone else's mailbox. Deliberately does NOT
+   * depend on `communication_channels.admin`, which stays inert.
+   */
+  { id: 'communication_channels.share_own_channel', title: 'Share own channel with the team', module: 'communication_channels' },
+  /**
    * Connect a tenant-wide channel (`CommunicationChannel.user_id IS NULL`) that
    * serves every user in the tenant — used for push providers (FCM/APNs/Expo)
    * whose service account / signing key is shared tenant infrastructure. Gates

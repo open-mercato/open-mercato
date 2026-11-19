@@ -9,6 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { MAX_CURRENCY_DECIMAL_PLACES } from '../../../data/validators'
 
 export default function CreateCurrencyPage() {
   const t = useT()
@@ -57,7 +58,7 @@ export default function CreateCurrencyPage() {
             label: t('currencies.form.field.decimalPlaces'),
             defaultValue: 2,
             min: 0,
-            max: 8,
+            max: MAX_CURRENCY_DECIMAL_PLACES,
           },
           {
             id: 'thousandsSeparator',
@@ -95,6 +96,7 @@ export default function CreateCurrencyPage() {
       <PageBody>
         <CrudForm
           title={t('currencies.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/currencies"
           fields={[]}
           groups={groups}
@@ -110,12 +112,12 @@ export default function CreateCurrencyPage() {
             }
 
             const payload = {
-              organizationId,
-              tenantId,
+              organizationId: organizationId ?? undefined,
+              tenantId: tenantId ?? undefined,
               code,
               name: String(values.name || '').trim(),
               symbol: values.symbol ? String(values.symbol).trim() : null,
-              decimalPlaces: values.decimalPlaces ? parseInt(String(values.decimalPlaces)) : 2,
+              decimalPlaces: values.decimalPlaces === undefined || values.decimalPlaces === null ? 2 : parseInt(String(values.decimalPlaces)),
               thousandsSeparator: values.thousandsSeparator ? String(values.thousandsSeparator) : null,
               decimalSeparator: values.decimalSeparator ? String(values.decimalSeparator) : null,
               isBase: !!values.isBase,

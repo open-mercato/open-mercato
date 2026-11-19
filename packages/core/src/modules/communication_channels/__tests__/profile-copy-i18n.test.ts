@@ -10,19 +10,12 @@ const locales: Record<string, Record<string, string>> = { en, es, pl, de, ko }
 
 const SUBTITLE_KEY = 'communication_channels.profile.subtitle'
 const EMPTY_KEY = 'communication_channels.profile.empty'
-
-const PROVIDER_NAMES = ['Gmail', 'IMAP', 'Discord', 'SMTP']
+const CONNECT_TRIGGER_KEY = 'communication_channels.profile.connect.menu'
 
 // The connect area is an open injection spot (extension-points.ts → profileConnect),
-// so any channel-* package can add a button. Copy that names a fixed control or a
-// fixed provider set goes stale the moment a new provider is injected (#4981).
-const NONEXISTENT_CONTROL_LITERALS: Record<string, string[]> = {
-  en: ['Connect channel'],
-  es: ['Conectar canal'],
-  pl: ['Połącz kanał'],
-  de: ['Kanal verbinden'],
-  ko: ['채널 연결'],
-}
+// so any channel-* package can add a control there. Copy that enumerates the
+// providers goes stale the moment a new one is injected (#4981).
+const PROVIDER_NAMES = ['Gmail', 'IMAP', 'Discord', 'SMTP']
 
 const EMAIL_ONLY_LITERALS: Record<string, string[]> = {
   en: ['mailbox'],
@@ -48,11 +41,20 @@ describe('communication channels profile copy i18n (#4981)', () => {
     }
   })
 
-  it('does not point the empty state at a "Connect channel" control that no provider renders', () => {
+  // Since #5595 the connect control is hub-owned: ConnectChannelMenu renders one
+  // fixed trigger whatever is installed, so naming *a* control no longer goes
+  // stale. Repeating that trigger's translated label inside the empty state does:
+  // it copies one string into a second key, and the two drift apart as soon as
+  // either is reworded in a single locale. The empty state points at the trigger
+  // by position instead, and this guard reads the label from the locale rather
+  // than hard-coding it so it cannot itself go stale when the trigger is renamed.
+  it('does not duplicate the connect trigger label inside the empty state', () => {
     for (const [locale, dict] of Object.entries(locales)) {
-      for (const literal of NONEXISTENT_CONTROL_LITERALS[locale]) {
-        expect(`${locale}:${dict[EMPTY_KEY]}`).not.toContain(literal)
-      }
+      const triggerLabel = dict[CONNECT_TRIGGER_KEY]
+      // Without this the guard would silently pass on a locale that never
+      // translated the trigger, which is the one case it needs to catch.
+      expect({ locale, triggerLabel }).toEqual({ locale, triggerLabel: expect.stringMatching(/\S/) })
+      expect(`${locale}:${dict[EMPTY_KEY]}`).not.toContain(triggerLabel)
     }
   })
 

@@ -16,6 +16,7 @@ const recordLike = z.union([
 
 export const actionLogCreateSchema = baseScopeSchema.extend({
   commandId: z.string().min(1),
+  onBehalfOfUserId: uuid.nullish(),
   actionLabel: z.string().min(1).optional(),
   resourceKind: z.string().min(1).optional(),
   resourceId: z.string().min(1).optional(),
@@ -35,6 +36,7 @@ export const actionLogCreateSchema = baseScopeSchema.extend({
 export const actionLogListSchema = z.object({
   tenantId: uuid.optional(),
   organizationId: uuid.optional(),
+  actorSubject: z.union([uuid, z.string().regex(/^api_key:[0-9a-fA-F-]{36}$/)]).optional(),
   actorUserId: uuid.optional(),
   actorUserIds: z.array(uuid).optional(),
   undoableOnly: z.boolean().optional(),
@@ -45,6 +47,8 @@ export const actionLogListSchema = z.object({
   actionTypes: z.array(z.enum(['create', 'edit', 'delete', 'assign'])).optional(),
   fieldName: z.string().min(1).optional(),
   fieldNames: z.array(z.string().min(1)).optional(),
+  correlationKeys: z.array(z.string().min(1).max(300)).max(100).optional(),
+  ids: z.array(uuid).max(100).optional(),
   sortField: z.enum(['createdAt', 'user', 'action', 'field', 'source']).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   limit: z.number().int().positive().max(1000).optional(),
@@ -66,6 +70,7 @@ export const accessLogCreateSchema = baseScopeSchema.extend({
 export const accessLogListSchema = z.object({
   tenantId: uuid.optional(),
   organizationId: uuid.optional(),
+  organizationIds: z.array(uuid).max(1000).optional(),
   actorUserId: uuid.optional(),
   resourceKind: z.string().optional(),
   accessType: z.string().optional(),

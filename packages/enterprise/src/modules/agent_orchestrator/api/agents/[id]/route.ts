@@ -1,0 +1,215 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../../../lib/sdk/defineAgent'
+import { resolveAgentDefinitionSource } from '../../../lib/sdk/agentDefinitionSource'
+import { getSkillEntry, ensureSkillsLoaded } from '../../../lib/sdk/defineSkill'
+import { getAgentSkill } from '../../../lib/runtime/fileAgentSkills'
+import { getAgentSettingRow } from '../../../lib/settings/agentSettings'
+import { AGENT_ICON_NAMES, isAgentIconName } from '../../../data/agentIcons'
+import { normalizeAgentTags } from '../../../data/agentTags'
+import { agentTypeSchema } from '../../../data/validators'
+import { integrityRuleListItemSchema, listIntegrityRules } from '../../../lib/guardrails/integrity/ruleList'
+import { resolveIntegritySet } from '../../../lib/guardrails/integrity/integritySets'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
+import { loadInvokerAcl } from '../../../lib/access/agentInvokeAccess'
+import { invokerFromAuth } from '../../../lib/access/invokeDenial'
+import {
+  agentPrincipalSummarySchema,
+  loadAgentPrincipalStates,
+  summarizeAgentPrincipal,
+  type AgentPrincipalSummary,
+} from '../../../lib/identity/agentPrincipalSummary'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
+}
+
+const skillDetailSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string(),
+  instructions: z.string(),
+  tools: z.array(z.string()),
+})
+
+const tokenizedFileSchema = z.object({ path: z.string(), tokens: z.number() })
+const tokenUsageSchema = z.object({
+  total: z.number(),
+  self: z.number(),
+  agent: z.number(),
+  outcome: z.number(),
+  skills: z.array(z.object({ id: z.string(), tokens: z.number(), files: z.array(tokenizedFileSchema) })),
+  tools: z.array(z.object({ name: z.string(), path: z.string(), tokens: z.number() })),
+  subAgents: z.array(z.object({ id: z.string(), tokens: z.number() })),
+})
+
+const agentDetailSchema = z.object({
+  id: z.string(),
+  moduleId: z.string(),
+  resultKind: z.enum(['research', 'proposal', 'artifact']),
+  // Declared type + effective action vocabulary — see the list route for the
+  // null semantics (undeclared type, un-narrowed catalogue).
+  agentType: agentTypeSchema.nullable(),
+  allowedActions: z.array(z.string()).nullable(),
+  runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
+  // Where the agent is authored (`file` = an agents/<id>/ directory), independent
+  // of the runtime it executes on — file agents run natively by default.
+  source: z.enum(['code', 'file']),
+  tools: z.array(z.string()),
+  skills: z.array(z.string()),
+  skillDetails: z.array(skillDetailSchema),
+  subAgents: z.array(z.string()),
+  label: z.string(),
+  description: z.string(),
+  icon: z.enum(AGENT_ICON_NAMES).nullable(),
+  // Per-tenant operator tags, normalized; empty when untagged.
+  tags: z.array(z.string()),
+  // Settings-row version for optimistic locking on the icon picker and the tag
+  // editor (they share the row); null when the tenant has never customised this
+  // agent (no row yet).
+  iconUpdatedAt: z.string().nullable(),
+  instructions: z.string(),
+  defaultProvider: z.string().nullable(),
+  defaultModel: z.string().nullable(),
+  loop: z.object({ maxSteps: z.number().optional() }).nullable(),
+  // Baked token-usage estimate for file-defined (opencode) agents; null otherwise.
+  tokenUsage: tokenUsageSchema.nullable(),
+  // Declared output-integrity rules (pipeline order; empty when none) and the
+  // integrity set's content-hash version (null when the agent declares none).
+  integrityRules: z.array(integrityRuleListItemSchema),
+  integritySetVersion: z.string().nullable(),
+  // The agent's principal summary (see the list route) — agents.manage holders
+  // only; null when the agent has no principal.
+  principal: agentPrincipalSummarySchema.optional(),
+})
+
+const errorSchema = z.object({ error: z.string() })
+
+const AGENTS_MANAGE_FEATURE = 'agent_orchestrator.agents.manage'
+
+type RouteContext = { params: Promise<{ id: string }> }
+
+type RequestAuth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
+
+async function loadPrincipalForManager(
+  req: Request,
+  auth: RequestAuth,
+  entry: Pick<AgentRegistryEntry, 'id' | 'principal'>,
+): Promise<AgentPrincipalSummary | undefined> {
+  const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const organizationId = scope?.selectedId ?? null
+  const acl = await loadInvokerAcl(container, invokerFromAuth(auth), { tenantId: auth.tenantId ?? null, organizationId })
+  if (!authorizeFeatures([AGENTS_MANAGE_FEATURE], { grantedFeatures: acl.features, unrestricted: acl.isSuperAdmin })) {
+    return undefined
+  }
+  const em = (container.resolve('em') as EntityManager).fork()
+  const states = await loadAgentPrincipalStates(em, { tenantId: auth.tenantId ?? null, organizationId }, [entry.id])
+  return summarizeAgentPrincipal(entry, states.get(entry.id))
+}
+
+export async function GET(req: Request, ctx: RouteContext) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { id } = await ctx.params
+  await Promise.all([ensureAgentsLoaded(), ensureSkillsLoaded()])
+  const entry = getAgentEntry(id)
+  if (!entry) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
+
+  // Tenant presentation overrides + the row's lock version (best-effort — never
+  // fails the definition read).
+  let icon: string | null = null
+  let tags: string[] = []
+  let iconUpdatedAt: string | null = null
+  if (auth.tenantId && auth.orgId) {
+    try {
+      const container = await createRequestContainer()
+      const em = (container.resolve('em') as EntityManager).fork()
+      const row = await getAgentSettingRow(em, { tenantId: auth.tenantId, organizationId: auth.orgId }, entry.id)
+      if (row) {
+        icon = isAgentIconName(row.icon) ? row.icon : null
+        tags = normalizeAgentTags(row.tags)
+        iconUpdatedAt = row.updatedAt.toISOString()
+      }
+    } catch {
+      icon = null
+      tags = []
+      iconUpdatedAt = null
+    }
+  }
+  const principal = await loadPrincipalForManager(req, auth, entry)
+  const skillDetails = entry.skills.map((skillId) => {
+    const skill = getSkillEntry(skillId)
+    if (skill) {
+      return {
+        id: skillId,
+        label: skill.label,
+        description: skill.description,
+        instructions: skill.instructions,
+        tools: skill.tools,
+      }
+    }
+    // File-defined (OpenCode) agents carry agent-local skills (their SKILL.md
+    // content) in `fileAgentSkills`, NOT the in-process `defineSkill` registry —
+    // so resolve those from there, else the drawer shows the empty-default fallback.
+    const fileSkill = getAgentSkill(entry.id, skillId)
+    return {
+      id: skillId,
+      label: skillId,
+      description: '',
+      instructions: fileSkill?.instructions ?? '',
+      tools: fileSkill?.tools ?? [],
+    }
+  })
+  return NextResponse.json({
+    id: entry.id,
+    moduleId: entry.moduleId,
+    resultKind: entry.resultKind,
+    agentType: entry.agentType ?? null,
+    allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
+    runtime: entry.runtime,
+    source: resolveAgentDefinitionSource(entry),
+    tools: entry.tools,
+    skills: entry.skills,
+    skillDetails,
+    subAgents: entry.subAgents,
+    label: entry.label,
+    description: entry.description,
+    icon,
+    tags,
+    iconUpdatedAt,
+    instructions: entry.instructions,
+    defaultProvider: entry.defaultProvider ?? null,
+    defaultModel: entry.defaultModel ?? null,
+    loop: entry.loop ?? null,
+    tokenUsage: entry.tokenUsage ?? null,
+    integrityRules: listIntegrityRules(entry.integrity),
+    integritySetVersion: resolveIntegritySet(entry)?.version ?? null,
+    ...(principal !== undefined ? { principal } : {}),
+  })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Agent Orchestrator',
+  summary: 'Get agent definition',
+  methods: {
+    GET: {
+      summary: 'Get the full definition of a registered agent',
+      description:
+        'Returns the full in-module agent definition (id, module, result kind, tools, skills, instructions, provider/model, loop, declared integrity rules and integrity set version) for an agent declared via defineAgent. Callers holding agent_orchestrator.agents.manage also receive the principal summary (declared, provisioned and enabled in the selected organization, tool ACL mode, required flag, declared role features; null when the agent has no principal). Gated by agent_orchestrator.agents.view.',
+      responses: [
+        { status: 200, description: 'Agent definition', schema: agentDetailSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Missing agent_orchestrator.agents.view', schema: errorSchema },
+        { status: 404, description: 'Unknown agent id', schema: errorSchema },
+      ],
+    },
+  },
+}

@@ -204,7 +204,8 @@ export default function CustomerRolesPage() {
     <Page>
       <PageBody>
         <DataTable<RoleRow>
-          title={t('customer_accounts.admin.roles.title', 'Customer Roles')}
+        title={t('customer_accounts.admin.roles.title', 'Customer Roles')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/customer_accounts/roles/create">

@@ -130,7 +130,8 @@ export default function RolesListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('auth.roles.list.title', 'Roles')}
+        title={t('auth.roles.list.title', 'Roles')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/roles/create">{t('auth.roles.list.actions.create', 'Create')}</Link>

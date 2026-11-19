@@ -62,6 +62,7 @@ export type AmountInputProps = Omit<
     currencies?: AmountCurrency[]
     /** Hide the currency picker entirely — single-currency surfaces (e.g. settings page). */
     showCurrency?: boolean
+    renderCurrencyIcon?: (currency: AmountCurrency) => React.ReactNode
     /** Optional className on the wrapper. */
     className?: string
     /** Optional className on the inner `<input>`. */
@@ -91,6 +92,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
       onChange,
       currencies: currenciesProp,
       showCurrency = true,
+      renderCurrencyIcon,
       placeholder,
       disabled,
       ...props
@@ -149,15 +151,17 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
             <div aria-hidden="true" className="w-px self-stretch bg-input" />
             <Select value={current.code} onValueChange={handleCurrencyChange} disabled={disabled}>
               <SelectTrigger
+                size={typeof size === 'number' ? size : undefined}
                 aria-label={t('ui.inputs.amountInput.currencyLabel', 'Currency')}
                 className={cn(
                   'h-auto w-auto shrink-0 gap-1.5 rounded-none border-0 bg-transparent px-2.5 py-2 shadow-none',
                   'hover:bg-muted/40 focus:bg-muted/40 focus-visible:shadow-none focus-visible:border-0',
                   'disabled:bg-transparent disabled:hover:bg-transparent',
+                  typeof size === 'number' && 'h-full py-0',
                 )}
               >
-                {current.flag ? (
-                  <span className="text-base leading-none" aria-hidden="true">{current.flag}</span>
+                {renderCurrencyIcon || current.flag ? (
+                  <span className={cn("text-base leading-none", typeof size === 'number' && 'inline-flex size-5 items-center justify-center text-xl [&_img]:size-full')} aria-hidden="true">{renderCurrencyIcon ? renderCurrencyIcon(current) : current.flag}</span>
                 ) : null}
                 <span className="text-sm text-foreground tabular-nums">{current.code}</span>
               </SelectTrigger>

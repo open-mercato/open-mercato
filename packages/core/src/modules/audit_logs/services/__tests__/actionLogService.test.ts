@@ -1,5 +1,9 @@
 import { ActionLogService, SCHEMA_UUID_REGEX } from '../actionLogService'
 import { uuid } from '@open-mercato/core/modules/audit_logs/data/validators'
+import {
+  buildActionLogQueryHarness,
+  type ActionLogQueryRow,
+} from './actionLogServiceQueryHarness'
 
 type OrGroup = { __group: 'or'; children: unknown[] }
 type ExpressionBuilderMock = ((...args: unknown[]) => unknown) & {
@@ -142,6 +146,21 @@ describe('ActionLogService normalizeInput', () => {
     expect(normalized.relatedResourceId).toBeNull()
   })
 
+  it('normalizes onBehalfOfUserId: keeps a valid uuid, defaults null otherwise (Wave 4 P2)', () => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivateAccess = service as unknown as {
+      normalizeInput: (input: Record<string, unknown> | null) => Record<string, unknown>
+    }
+
+    // Additive default: absent on-behalf-of is null (existing rows/readers unaffected).
+    expect(serviceWithPrivateAccess.normalizeInput(null).onBehalfOfUserId).toBeNull()
+    expect(serviceWithPrivateAccess.normalizeInput({ commandId: 'cmd' }).onBehalfOfUserId).toBeNull()
+    expect(serviceWithPrivateAccess.normalizeInput({
+      commandId: 'cmd',
+      onBehalfOfUserId: '33333333-3333-4333-8333-333333333333',
+    }).onBehalfOfUserId).toBe('33333333-3333-4333-8333-333333333333')
+  })
+
   it('normalizes only UUID actor ids into the uuid-backed actor column', () => {
     const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
     const serviceWithPrivateAccess = service as unknown as {
@@ -236,7 +255,7 @@ describe('ActionLogService normalizeInput', () => {
     })
   })
 
-  it('leaves real user and api key actors untouched and adds no system actor context', () => {
+  it('persists canonical user and api-key subjects without changing the UUID actor column', () => {
     const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
     const serviceWithPrivateAccess = service as unknown as {
       parseCreateInput: (input: Record<string, unknown>) => Record<string, unknown>
@@ -247,14 +266,14 @@ describe('ActionLogService normalizeInput', () => {
       actorUserId: '11111111-1111-4111-8111-111111111111',
     })
     expect(realUser.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
-    expect(realUser.context).toBeUndefined()
+    expect(realUser.context).toEqual({ actorSubject: '11111111-1111-4111-8111-111111111111' })
 
     const apiKey = serviceWithPrivateAccess.parseCreateInput({
       commandId: 'api.something',
       actorUserId: 'api_key:22222222-2222-4222-8222-222222222222',
     })
     expect(apiKey.actorUserId).toBe('22222222-2222-4222-8222-222222222222')
-    expect(apiKey.context).toBeUndefined()
+    expect(apiKey.context).toEqual({ actorSubject: 'api_key:22222222-2222-4222-8222-222222222222' })
   })
 
   it('marks a system-originated entry as a system source while keeping the actor column null', () => {
@@ -301,7 +320,7 @@ describe('ActionLogService normalizeInput', () => {
       })
 
       expect(parsed.actorUserId).toBe(actorUserId)
-      expect(parsed.context).toBeUndefined()
+      expect(parsed.context).toEqual({ actorSubject: actorUserId })
     }
   })
 
@@ -325,7 +344,7 @@ describe('ActionLogService normalizeInput', () => {
 
     expect(created.actorUserId).toBe(schedulerSystemActorId)
     expect(created.sourceKey).toBe('ui')
-    expect(created.contextJson).toBeNull()
+    expect(created.contextJson).toEqual({ actorSubject: schedulerSystemActorId })
   })
 
   it('drops an unrecognized actor instead of recording it as an automated principal', () => {
@@ -372,7 +391,7 @@ describe('ActionLogService normalizeInput', () => {
       })
 
       expect(parsed.actorUserId).toBe(actorUserId)
-      expect(parsed.context).toBeUndefined()
+      expect(parsed.context).toEqual({ actorSubject: `api_key:${actorUserId}` })
     }
   })
 
@@ -388,7 +407,7 @@ describe('ActionLogService normalizeInput', () => {
     })
 
     expect(parsed.actorUserId).toBe('11111111-1111-4111-8111-111111111111')
-    expect(parsed.context).toBeUndefined()
+    expect(parsed.context).toEqual({ actorSubject: '11111111-1111-4111-8111-111111111111' })
   })
 
   it('caps the preserved system actor identifier so a corrupted subject cannot bloat the context column', () => {
@@ -472,6 +491,281 @@ describe('ActionLogService normalizeInput', () => {
     expect(created.primaryChangedField).toBe('entity.displayName')
     expect(created.relatedResourceKind).toBe('customers.deal')
     expect(created.relatedResourceId).toBe('deal-1')
+    expect(created.correlationKeys).toEqual([])
+  })
+
+  it('populates correlation keys from context.correlation when creating a log entity', () => {
+    const service = new ActionLogService(
+      {} as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    const serviceWithPrivateAccess = service as unknown as {
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    const created = serviceWithPrivateAccess.createLogEntity({
+      create: (_entity, payload) => payload,
+    }, {
+      commandId: 'customers.deals.update',
+      context: {
+        source: 'agent',
+        correlation: { proposalId: 'prop-1', agentRunId: 'run-1', note: 'free text here' },
+      },
+      executionState: 'done',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    })
+
+    expect(created.correlationKeys).toEqual(['agentRunId:run-1', 'proposalId:prop-1'])
+    expect(created.contextJson).toEqual({
+      source: 'agent',
+      correlation: { proposalId: 'prop-1', agentRunId: 'run-1', note: 'free text here' },
+    })
+  })
+})
+
+describe('ActionLogService.backfillProjections - correlation keys', () => {
+  function buildBackfillService(rows: Record<string, unknown>[]) {
+    const updates: Array<{ values: Record<string, unknown>; id: unknown }> = []
+    let served = false
+    const selectBuilder = {
+      select: () => selectBuilder,
+      where: () => selectBuilder,
+      orderBy: () => selectBuilder,
+      limit: () => selectBuilder,
+      execute: async () => {
+        if (served) return []
+        served = true
+        return rows
+      },
+    }
+    const fakeKysely = {
+      selectFrom: () => selectBuilder,
+      updateTable: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (_column: string, _operator: string, id: unknown) => ({
+            execute: async () => {
+              updates.push({ values, id })
+            },
+          }),
+        }),
+      }),
+    }
+    const service = new ActionLogService(
+      { getKysely: () => fakeKysely } as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    return { service, updates }
+  }
+
+  const baseRow = {
+    tenant_id: 'tenant-1',
+    organization_id: 'org-1',
+    actor_user_id: null,
+    command_id: 'customers.deals.update',
+    action_label: null,
+    snapshot_before: null,
+    changes_json: null,
+    action_type: 'edit',
+    source_key: 'agent',
+    changed_fields: [],
+    primary_changed_field: null,
+    created_at: new Date('2026-10-01T00:00:00.000Z'),
+  }
+
+  it('fills correlation_keys for rows whose context carries correlation ids', async () => {
+    const { service, updates } = buildBackfillService([
+      {
+        ...baseRow,
+        id: 'log-1',
+        correlation_keys: null,
+        context_json: { source: 'agent', correlation: { agentRunId: 'run-1' } },
+      },
+    ])
+
+    const result = await service.backfillProjections()
+
+    expect(result).toEqual({ errors: 0, scanned: 1, skipped: 0, updated: 1 })
+    expect(updates).toHaveLength(1)
+    expect(updates[0].id).toBe('log-1')
+    expect(updates[0].values.correlation_keys).toEqual(['agentRunId:run-1'])
+  })
+
+  it('skips rows whose correlation keys already match and marks uncorrelated rows as computed', async () => {
+    const { service, updates } = buildBackfillService([
+      {
+        ...baseRow,
+        id: 'log-2',
+        correlation_keys: ['agentRunId:run-2'],
+        context_json: { source: 'agent', correlation: { agentRunId: 'run-2' } },
+      },
+      {
+        ...baseRow,
+        id: 'log-3',
+        correlation_keys: null,
+        context_json: { source: 'agent' },
+      },
+    ])
+
+    const result = await service.backfillProjections({ batchSize: 10 })
+
+    expect(result).toEqual({ errors: 0, scanned: 2, skipped: 1, updated: 1 })
+    expect(updates).toHaveLength(1)
+    expect(updates[0].id).toBe('log-3')
+    expect(updates[0].values.correlation_keys).toEqual([])
+  })
+
+  it('leaves an uncorrelated row alone once its empty projection is stored', async () => {
+    const { service, updates } = buildBackfillService([
+      {
+        ...baseRow,
+        id: 'log-4',
+        correlation_keys: [],
+        context_json: { source: 'agent' },
+      },
+    ])
+
+    const result = await service.backfillProjections()
+
+    expect(result).toEqual({ errors: 0, scanned: 1, skipped: 1, updated: 0 })
+    expect(updates).toHaveLength(0)
+  })
+})
+
+describe('ActionLogService.backfillProjections - query scoping and cursor', () => {
+  type Pred = (row: Record<string, unknown>) => boolean
+
+  function compare(cell: unknown, op: string, value: unknown): boolean {
+    const left = cell instanceof Date ? cell.getTime() : cell
+    const right = value instanceof Date ? value.getTime() : value
+    if (op === 'is') return cell === null || cell === undefined
+    if (op === '=') return left === right
+    if (op === '>') return (left as number | string) > (right as number | string)
+    throw new Error(`[internal] unsupported operator ${op}`)
+  }
+
+  function columnPred(column: string, op: string, value: unknown): Pred {
+    const key = column.replace('action_logs.', '')
+    return (row) => compare(row[key], op, value)
+  }
+
+  function buildImmutableKysely(rows: Record<string, unknown>[]) {
+    const selectCalls: number[] = []
+    const updates: Array<{ values: Record<string, unknown>; id: unknown }> = []
+    const expressionBuilder = Object.assign(
+      (column: string, op: string, value: unknown) => columnPred(column, op, value),
+      {
+        or: (list: Pred[]): Pred => (row) => list.some((fn) => fn(row)),
+        and: (list: Pred[]): Pred => (row) => list.every((fn) => fn(row)),
+      },
+    )
+    const makeBuilder = (preds: Pred[], limit: number | null): Record<string, unknown> => ({
+      select: () => makeBuilder(preds, limit),
+      where: (arg: unknown, op?: string, value?: unknown) => {
+        const pred = typeof arg === 'function'
+          ? (arg as (eb: typeof expressionBuilder) => Pred)(expressionBuilder)
+          : columnPred(arg as string, op as string, value)
+        return makeBuilder([...preds, pred], limit)
+      },
+      orderBy: () => makeBuilder(preds, limit),
+      limit: (next: number) => makeBuilder(preds, next),
+      execute: async () => {
+        const matched = rows
+          .filter((row) => preds.every((fn) => fn(row)))
+          .sort((left, right) => {
+            const byDate = (left.created_at as Date).getTime() - (right.created_at as Date).getTime()
+            return byDate !== 0 ? byDate : String(left.id).localeCompare(String(right.id))
+          })
+        selectCalls.push(matched.length)
+        if (selectCalls.length > 50) throw new Error('[internal] backfill did not terminate')
+        return limit === null ? matched : matched.slice(0, limit)
+      },
+    })
+    const fakeKysely = {
+      selectFrom: () => makeBuilder([], null),
+      updateTable: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (_column: string, _operator: string, id: unknown) => ({
+            execute: async () => {
+              updates.push({ values, id })
+            },
+          }),
+        }),
+      }),
+    }
+    const service = new ActionLogService(
+      { getKysely: () => fakeKysely } as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    return { service, updates, selectCalls }
+  }
+
+  const completeRow = {
+    tenant_id: 'tenant-1',
+    organization_id: 'org-1',
+    actor_user_id: null,
+    command_id: 'customers.deals.update',
+    action_label: null,
+    snapshot_before: null,
+    changes_json: null,
+    action_type: 'edit',
+    source_key: 'agent',
+    changed_fields: [],
+    primary_changed_field: null,
+    correlation_keys: ['agentRunId:run-1'],
+    context_json: { source: 'agent', correlation: { agentRunId: 'run-1' } },
+    deleted_at: null,
+  }
+
+  function rowAt(id: string, minute: number, overrides: Record<string, unknown> = {}) {
+    return {
+      ...completeRow,
+      id,
+      created_at: new Date(Date.UTC(2026, 9, 1, 0, minute)),
+      ...overrides,
+    }
+  }
+
+  it('applies tenant and organization scope filters', async () => {
+    const { service, updates } = buildImmutableKysely([
+      rowAt('in-scope', 1, { correlation_keys: null }),
+      rowAt('other-tenant', 2, { tenant_id: 'tenant-2', correlation_keys: null }),
+      rowAt('other-org', 3, { organization_id: 'org-2', correlation_keys: null }),
+      rowAt('deleted', 4, { correlation_keys: null, deleted_at: new Date() }),
+    ])
+
+    const result = await service.backfillProjections({ tenantId: 'tenant-1', organizationId: 'org-1' })
+
+    expect(result).toEqual({ errors: 0, scanned: 1, skipped: 0, updated: 1 })
+    expect(updates.map((update) => update.id)).toEqual(['in-scope'])
+  })
+
+  it('only scans rows with missing projections when not forced', async () => {
+    const { service, updates } = buildImmutableKysely([
+      rowAt('complete', 1),
+      rowAt('missing-correlation', 2, { correlation_keys: null }),
+      rowAt('missing-type', 3, { action_type: null }),
+    ])
+
+    const result = await service.backfillProjections()
+
+    expect(result.scanned).toBe(2)
+    expect(updates.map((update) => update.id)).toEqual(['missing-correlation', 'missing-type'])
+  })
+
+  it('advances the cursor so a forced run processes each row once and terminates', async () => {
+    const { service, updates, selectCalls } = buildImmutableKysely([
+      rowAt('log-c', 2),
+      rowAt('log-a', 1),
+      rowAt('log-b', 1),
+      rowAt('log-d', 3),
+    ])
+
+    const result = await service.backfillProjections({ force: true, batchSize: 2 })
+
+    expect(result).toEqual({ errors: 0, scanned: 4, skipped: 0, updated: 4 })
+    expect(updates.map((update) => update.id)).toEqual(['log-a', 'log-b', 'log-c', 'log-d'])
+    expect(selectCalls).toEqual([4, 2, 0])
   })
 })
 
@@ -524,6 +818,47 @@ describe('ActionLogService.list pagination', () => {
     expect(result.totalPages).toBe(5)
   })
 
+  it('sizes the envelope from limit when no page size is given', async () => {
+    const { service } = buildServiceWithSpies([], 480)
+
+    const result = await service.list({
+      tenantId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      limit: 200,
+      offset: 0,
+      sortField: 'createdAt',
+      sortDir: 'asc',
+    })
+
+    expect(result.pageSize).toBe(200)
+    expect(result.totalPages).toBe(3)
+  })
+
+  it.each([
+    [{}, { limit: 50, offset: 0 }],
+    [{ page: 3, pageSize: 25 }, { limit: 25, offset: 50 }],
+    [{ page: 2 }, { limit: 50, offset: 50 }],
+    [{ limit: 20 }, { limit: 20, offset: 0 }],
+    [{ limit: 1000 }, { limit: 1000, offset: 0 }],
+    [{ limit: 200, offset: 0 }, { limit: 200, offset: 0 }],
+    [{ limit: 50, offset: 100 }, { limit: 50, offset: 100 }],
+    [{ page: 3, limit: 20 }, { limit: 20, offset: 40 }],
+    [{ pageSize: 10, limit: 500 }, { limit: 10, offset: 0 }],
+    [{ page: 4, pageSize: 10, offset: 7 }, { limit: 10, offset: 7 }],
+  ])('resolves the query window for %j', (query, expected) => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivate = service as unknown as {
+      parseListQuery: (query: Record<string, unknown>) => Record<string, unknown>
+      resolvePagination: (parsed: Record<string, unknown>) => { limit: number; offset: number }
+    }
+    const window = serviceWithPrivate.resolvePagination(serviceWithPrivate.parseListQuery(query))
+    expect({ limit: window.limit, offset: window.offset }).toEqual(expected)
+  })
+
+  it('rejects a page size above the documented maximum', async () => {
+    const { service } = buildServiceWithSpies([], 0)
+    await expect(service.list({ pageSize: 201 })).rejects.toThrow()
+  })
+
   it('returns totalPages=1 when total is 0', async () => {
     const { service } = buildServiceWithSpies([], 0)
 
@@ -532,6 +867,161 @@ describe('ActionLogService.list pagination', () => {
     })
 
     expect(result.totalPages).toBe(1)
+  })
+})
+
+describe('ActionLogService API-key replay freshness queries', () => {
+  const keyId = '22222222-2222-4222-8222-222222222222'
+  const keySubject = `api_key:${keyId}`
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '33333333-3333-4333-8333-333333333333'
+  const baseTime = new Date('2026-10-04T10:00:00.000Z')
+
+  const row = (
+    id: string,
+    overrides: Partial<ActionLogQueryRow> = {},
+  ): ActionLogQueryRow => ({
+    id,
+    actorUserId: keyId,
+    commandId: 'auth.users.update',
+    contextJson: { actorSubject: keySubject },
+    createdAt: baseTime,
+    deletedAt: null,
+    executionState: 'done',
+    organizationId,
+    resourceId: 'user-1',
+    resourceKind: 'auth.user',
+    tenantId,
+    undoToken: `${id}-token`,
+    updatedAt: baseTime,
+    ...overrides,
+  })
+
+  const queries = [
+    {
+      name: 'latestUndoableForActor',
+      executionState: 'done',
+      invoke: (service: ActionLogService) => service.latestUndoableForActor(keySubject, { tenantId, organizationId }),
+    },
+    {
+      name: 'latestUndoableForResource',
+      executionState: 'done',
+      invoke: (service: ActionLogService) => service.latestUndoableForResource({
+        actorUserId: keySubject,
+        tenantId,
+        organizationId,
+        resourceKind: 'auth.user',
+        resourceId: 'user-1',
+      }),
+    },
+    {
+      name: 'latestUndoneForActor',
+      executionState: 'undone',
+      invoke: (service: ActionLogService) => service.latestUndoneForActor(keySubject, { tenantId, organizationId }),
+    },
+  ] as const
+  const queryCases = queries.flatMap((query) => [
+    { ...query, encryptionEnabled: false, storage: 'plaintext' },
+    { ...query, encryptionEnabled: true, storage: 'encrypted' },
+  ])
+
+  it.each(queryCases)('$name ($storage) keeps canonical key history ahead of newer same-UUID user and malformed rows', async ({ encryptionEnabled, executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
+    const rows = [
+      row('canonical', { executionState, undoToken }),
+      row('newer-legacy', {
+        contextJson: { source: 'api' },
+        createdAt: new Date('2026-10-04T10:03:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:03:00.000Z'),
+      }),
+      row('same-uuid-user', {
+        contextJson: { actorSubject: keyId },
+        createdAt: new Date('2026-10-04T10:02:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:02:00.000Z'),
+      }),
+      row('malformed', {
+        contextJson: { actorSubject: `${keySubject}:malformed` },
+        createdAt: new Date('2026-10-04T10:01:00.000Z'),
+        executionState,
+        undoToken,
+        updatedAt: new Date('2026-10-04T10:01:00.000Z'),
+      }),
+    ]
+    const { service } = buildActionLogQueryHarness(rows, { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'canonical' })
+  })
+
+  it.each(queryCases)('$name ($storage) retains the bounded legacy row fallback', async ({ encryptionEnabled, executionState, invoke }) => {
+    const legacy = row('legacy', {
+      contextJson: { source: 'api' },
+      executionState,
+      undoToken: executionState === 'done' ? 'legacy-token' : null,
+    })
+    const { service } = buildActionLogQueryHarness([legacy], { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'legacy' })
+  })
+
+  it.each(queryCases)('$name ($storage) fails closed when only same-UUID user and malformed rows exist', async ({ encryptionEnabled, executionState, invoke }) => {
+    const undoToken = executionState === 'undone' ? null : 'token'
+    const { service } = buildActionLogQueryHarness([
+      row('same-uuid-user', { contextJson: { actorSubject: keyId }, executionState, undoToken }),
+      row('malformed', { contextJson: { actorSubject: null }, executionState, undoToken }),
+      row('malformed-context', { contextJson: [] as never, executionState, undoToken }),
+    ], { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toBeNull()
+  })
+
+  it.each(queries)('$name uses deletion-safe encrypted keyset scanning when an eligible row leaves the first page', async ({ executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
+    const legacyRows = Array.from({ length: 100 }, (_, index) => row(`legacy-${index}`, {
+      contextJson: { source: 'api' },
+      createdAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+      executionState,
+      undoToken,
+      updatedAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+    }))
+    const rows = [
+      ...legacyRows,
+      row('canonical', { executionState, undoToken }),
+    ]
+    const { find, service } = buildActionLogQueryHarness(rows, {
+      encryptionEnabled: true,
+      afterFind: (mutableRows, callCount) => {
+        if (callCount !== 1) return
+        const firstPageRow = mutableRows.find((entry) => entry.id === 'legacy-99')
+        if (firstPageRow) firstPageRow.executionState = executionState === 'done' ? 'undone' : 'redone'
+      },
+    })
+
+    await expect(invoke(service))
+      .resolves.toMatchObject({ id: 'canonical' })
+    expect(find).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(queries)('$name preserves the direct plaintext canonical-first query', async ({ executionState, invoke }) => {
+    const undoToken = executionState === 'done' ? 'token' : null
+    const legacyRows = Array.from({ length: 100 }, (_, index) => row(`legacy-${index}`, {
+      contextJson: { source: 'api' },
+      createdAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+      executionState,
+      undoToken,
+      updatedAt: new Date(baseTime.getTime() + (index + 1) * 1_000),
+    }))
+    const { find, findOne, service } = buildActionLogQueryHarness([
+      ...legacyRows,
+      row('canonical', { executionState, undoToken }),
+    ])
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'canonical' })
+    expect(find).not.toHaveBeenCalled()
+    expect(findOne).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -572,5 +1062,217 @@ describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () =
     const [, filter, update] = nativeUpdate.mock.calls[0]
     expect(filter).toMatchObject({ id: 'log-1', executionState: 'undoing', deletedAt: null })
     expect(update).toEqual({ executionState: 'done' })
+  })
+
+  it('uses the supplied transactional EntityManager for an undo claim', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+    const transactionalEm = { nativeUpdate: transactionalUpdate }
+
+    expect(await service.claimForUndo('log-1', transactionalEm as never)).toBe(true)
+    expect(transactionalUpdate).toHaveBeenCalledTimes(1)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('claimForRedo atomically consumes only an undone source on the supplied transaction', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+    const transactionalEm = { nativeUpdate: transactionalUpdate }
+
+    expect(await service.claimForRedo('log-1', transactionalEm as never)).toBe(true)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+    const [, filter, update] = transactionalUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'log-1', executionState: 'undone', deletedAt: null })
+    expect(update).toEqual({ executionState: 'redone', undoToken: null })
+  })
+
+  it('releaseRedoClaim reverts only a redone source back to undone on a forked EntityManager', async () => {
+    const forkedUpdate = jest.fn(async () => 1)
+    const requestUpdate = jest.fn(async () => 1)
+    const fakeEm = {
+      nativeUpdate: requestUpdate,
+      isInTransaction: () => false,
+      fork: jest.fn(() => ({ nativeUpdate: forkedUpdate })),
+    }
+    const service = new ActionLogService(
+      fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+
+    expect(await service.releaseRedoClaim('log-1')).toBe(true)
+    expect(requestUpdate).not.toHaveBeenCalled()
+    const [, filter, update] = forkedUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'log-1', executionState: 'redone', deletedAt: null })
+    expect(update).toEqual({ executionState: 'undone' })
+  })
+
+  it('releaseRedoClaim stays on the request EntityManager while it holds an open transaction', async () => {
+    const requestUpdate = jest.fn(async () => 1)
+    const fork = jest.fn()
+    const fakeEm = { nativeUpdate: requestUpdate, isInTransaction: () => true, fork }
+    const service = new ActionLogService(
+      fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+
+    expect(await service.releaseRedoClaim('log-1')).toBe(true)
+    expect(fork).not.toHaveBeenCalled()
+    expect(requestUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('releaseRedoClaim uses the supplied transactional EntityManager', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+
+    expect(await service.releaseRedoClaim('log-1', { nativeUpdate: transactionalUpdate } as never)).toBe(true)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+    expect(transactionalUpdate).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ActionLogService transactional return isolation', () => {
+  it('decrypts a detached copy instead of mutating the transaction-managed log', async () => {
+    const service = new ActionLogService({} as never)
+    const managed = { id: 'log-1', executionState: 'done' }
+    const detached = await (
+      service as unknown as {
+        decryptDetachedEntry: (entry: typeof managed) => Promise<typeof managed>
+      }
+    ).decryptDetachedEntry(managed)
+
+    expect(detached).toEqual(managed)
+    expect(detached).not.toBe(managed)
+  })
+})
+
+describe('ActionLogService markRedone', () => {
+  it('finalizes the redo source on a forked EntityManager instead of the shared request EM', async () => {
+    const log = { id: 'log-1', executionState: 'undone', undoToken: 'token' }
+    const fork = { findOne: jest.fn().mockResolvedValue(log), flush: jest.fn().mockResolvedValue(undefined) }
+    const em = { fork: jest.fn(() => fork), findOne: jest.fn(), flush: jest.fn() }
+    const service = new ActionLogService(em as unknown as ConstructorParameters<typeof ActionLogService>[0])
+
+    await expect(service.markRedone('log-1')).resolves.toBe(log)
+
+    expect(log).toMatchObject({ executionState: 'redone', undoToken: null })
+    expect(fork.flush).toHaveBeenCalledTimes(1)
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('ActionLogService correlation key filter', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '22222222-2222-4222-8222-222222222222'
+  const runKey = 'agentRunId:33333333-3333-4333-8333-333333333333'
+  const proposalKey = 'proposalId:44444444-4444-4444-8444-444444444444'
+
+  function captureWheres(query: Record<string, unknown>): unknown[] {
+    const wheres: unknown[] = []
+    const builder: Record<string, unknown> = {}
+    builder.selectAll = () => builder
+    builder.where = (...args: unknown[]) => {
+      wheres.push(args)
+      return builder
+    }
+    builder.orderBy = () => builder
+    const fakeEm = { getKysely: () => ({ selectFrom: () => builder }) }
+    const service = new ActionLogService(fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const internals = service as unknown as {
+      buildListQuery: (parsed: Record<string, unknown>) => unknown
+      parseListQuery: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+    internals.buildListQuery(internals.parseListQuery(query))
+    return wheres
+  }
+
+  function serializeWheres(wheres: unknown[]): string {
+    return JSON.stringify(wheres.map((args) => (args as unknown[]).map((arg) => {
+      if (arg && typeof arg === 'object' && 'toOperationNode' in arg) {
+        return (arg as { toOperationNode: () => unknown }).toOperationNode()
+      }
+      return arg
+    })))
+  }
+
+  it('adds an array-overlap predicate over correlation_keys with every requested key', () => {
+    const serialized = serializeWheres(captureWheres({ tenantId, organizationId, correlationKeys: [runKey, proposalKey, runKey] }))
+    expect(serialized).toContain('action_logs.correlation_keys && array[')
+    expect(serialized).toContain(runKey)
+    expect(serialized).toContain(proposalKey)
+    expect(serialized.split(runKey)).toHaveLength(2)
+  })
+
+  it('adds no correlation predicate when no keys are requested', () => {
+    expect(serializeWheres(captureWheres({ tenantId }))).not.toContain('correlation_keys')
+  })
+
+  function buildServiceWithListSpy() {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const list = jest.spyOn(service, 'list').mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 })
+    return { service, list }
+  }
+
+  it('lists by correlation keys within the tenant and organization scope', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    await service.listByCorrelationKeys({ tenantId, organizationId, keys: [runKey, ' ', proposalKey], page: 2, pageSize: 25 })
+
+    expect(list).toHaveBeenCalledWith({ tenantId, organizationId, correlationKeys: [runKey, proposalKey], page: 2, pageSize: 25 })
+  })
+
+  it('caps the page size at 100', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    await service.listByCorrelationKeys({ tenantId, organizationId, keys: [runKey], pageSize: 500 })
+
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 100, page: 1 }))
+  })
+
+  it('returns an empty page without querying when the scope or keys are missing', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    const missingOrg = await service.listByCorrelationKeys({ tenantId, organizationId: '', keys: [runKey] })
+    const missingKeys = await service.listByCorrelationKeys({ tenantId, organizationId, keys: [] })
+
+    expect(list).not.toHaveBeenCalled()
+    expect(missingOrg).toEqual({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 })
+    expect(missingKeys.total).toBe(0)
+  })
+})
+
+describe('ActionLogService id filter', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const logId = '55555555-5555-4555-8555-555555555555'
+
+  function captureWheres(query: Record<string, unknown>): unknown[][] {
+    const wheres: unknown[][] = []
+    const builder: Record<string, unknown> = {}
+    builder.selectAll = () => builder
+    builder.where = (...args: unknown[]) => {
+      wheres.push(args)
+      return builder
+    }
+    builder.orderBy = () => builder
+    const fakeEm = { getKysely: () => ({ selectFrom: () => builder }) }
+    const service = new ActionLogService(fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const internals = service as unknown as {
+      buildListQuery: (parsed: Record<string, unknown>) => unknown
+      parseListQuery: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+    internals.buildListQuery(internals.parseListQuery(query))
+    return wheres
+  }
+
+  it('narrows to the requested ids on top of the tenant scope', () => {
+    const wheres = captureWheres({ tenantId, ids: [logId, logId] })
+    expect(wheres).toContainEqual(['action_logs.tenant_id', '=', tenantId])
+    expect(wheres).toContainEqual(['action_logs.id', 'in', [logId]])
+  })
+
+  it('adds no id predicate when no ids are requested', () => {
+    expect(captureWheres({ tenantId }).some((args) => args[0] === 'action_logs.id')).toBe(false)
+  })
+
+  it('rejects non-uuid ids', () => {
+    expect(() => captureWheres({ tenantId, ids: ['not-a-uuid'] })).toThrow()
   })
 })

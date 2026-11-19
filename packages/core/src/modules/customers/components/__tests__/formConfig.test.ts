@@ -9,6 +9,7 @@ jest.mock('../detail/RolesSection', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useOptionalLocale: () => undefined,
 }))
 
 import React from 'react'
@@ -23,13 +24,21 @@ import {
   createCompanyEditSchema,
   createCompanyFormFields,
   createCompanyFormSchema,
+  createDisplayNameSection,
   createPersonEditSchema,
   createPersonFormFields,
   createPersonPersonalDataGroups,
   mapCompanyOverviewToFormValues,
   mapPersonOverviewToFormValues,
   type Translator,
+  createCompanyEditFields,
 } from '../formConfig'
+import { COMPANY_TAX_ID_MAX_LENGTH, COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY, companyCreateSchema } from '../../data/validators'
+import enLocale from '../../i18n/en.json'
+import plLocale from '../../i18n/pl.json'
+import deLocale from '../../i18n/de.json'
+import esLocale from '../../i18n/es.json'
+import koLocale from '../../i18n/ko.json'
 
 const t: Translator = (_key, fallback) => fallback ?? _key
 
@@ -299,6 +308,29 @@ describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
     expect(payload.description).toBe('B2B widgets')
   })
 
+  it('keeps an exact revenue with more than two decimals so an unrelated edit still saves', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      websiteUrl: 'https://acme.example',
+      annualRevenue: '2500000.125',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.annualRevenue).toBe('2500000.125')
+  })
+
+  it('still rejects a negative or non-numeric revenue', () => {
+    for (const annualRevenue of ['-5', 'abc', '1.2.3']) {
+      const parsed = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', annualRevenue })
+      expect(parsed.success).toBe(true)
+      if (!parsed.success) continue
+      expect(() => buildCompanyEditPayload(parsed.data as any)).toThrow('ANNUAL_REVENUE_INVALID')
+    }
+  })
+
   it('leaves create-mode blanks as omitted (no clear semantics on create)', () => {
     const parsed = createCompanyFormSchema().safeParse({
       displayName: 'Acme',
@@ -316,6 +348,57 @@ describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
     expect('sizeBucket' in payload).toBe(false)
     expect('annualRevenue' in payload).toBe(false)
     expect('description' in payload).toBe(false)
+  })
+})
+
+describe('annual revenue comma-decimal parsing (#8642)', () => {
+  it('locale-parses a comma-decimal amount instead of stripping the comma as a thousands separator', () => {
+    const payload = buildCompanyPayload(
+      { displayName: 'Acme', annualRevenue: '1 234,50' } as any,
+      undefined,
+      'pl-PL',
+    )
+    expect(payload.annualRevenue).toBe('1234.5')
+  })
+
+  it('still reads a plain-locale thousands-grouped amount correctly', () => {
+    const payload = buildCompanyPayload(
+      { displayName: 'Acme', annualRevenue: '1,500,000' } as any,
+      undefined,
+      'en-US',
+    )
+    expect(payload.annualRevenue).toBe('1500000')
+  })
+
+  it('rejects unparseable annual revenue input instead of silently corrupting it', () => {
+    expect(() =>
+      buildCompanyPayload({ displayName: 'Acme', annualRevenue: 'abc' } as any, undefined, 'pl-PL'),
+    ).toThrow('ANNUAL_REVENUE_INVALID')
+  })
+
+  it('threads the locale through buildCompanyEditPayload', () => {
+    const payload = buildCompanyEditPayload(
+      { id: COMPANY_ID, displayName: 'Acme', annualRevenue: '1 234,50' } as any,
+      undefined,
+      'pl-PL',
+    )
+    expect(payload.annualRevenue).toBe('1234.5')
+  })
+})
+
+describe('display name preview overflow (#8642)', () => {
+  it('wraps a long unbroken display name instead of overflowing the page', () => {
+    const DisplayNameSection = createDisplayNameSection(t)
+    const longWord = 'a'.repeat(300)
+    const html = renderToStaticMarkup(
+      React.createElement(DisplayNameSection, {
+        values: { displayName: longWord, firstName: '', lastName: '' },
+        setValue: () => {},
+        errors: {},
+      }),
+    )
+    expect(html).toContain('min-w-0')
+    expect(html).toContain('break-words')
   })
 })
 
@@ -358,5 +441,92 @@ describe('PhoneNumberField defaultCountryIso2 forwarding', () => {
 
     const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
     expect(html).toContain('+1')
+  })
+})
+
+
+describe('CRM contributed form data', () => {
+  it('hydrates person/company namespaces and excludes them from native payloads', () => {
+    const namespace = { priority: 'high', priorityId: 'priority-1', priorityUpdatedAt: '2026-10-01T10:00:00.000Z' }
+    const person = mapPersonOverviewToFormValues({ person: { id: PERSON_ID, displayName: 'Ada', _example: namespace }, profile: null, customFields: {} } as unknown as Parameters<typeof mapPersonOverviewToFormValues>[0])
+    const company = mapCompanyOverviewToFormValues({ company: { id: COMPANY_ID, displayName: 'Acme', _example: namespace }, profile: null, customFields: {} } as unknown as Parameters<typeof mapCompanyOverviewToFormValues>[0])
+    expect(person._example).toEqual(namespace)
+    expect(company._example).toEqual(namespace)
+    expect(buildPersonPayload({ ...person, displayName: 'Ada', '_example.priority': 'critical' })).not.toHaveProperty('_example')
+    expect(buildCompanyPayload({ ...company, displayName: 'Acme', '_example.priority': 'critical' })).not.toHaveProperty('_example')
+  })
+})
+
+describe('company VAT / tax ID (required company field)', () => {
+  it('sends the VAT ID with a new company and prefills it on edit', () => {
+    const payload = buildCompanyPayload({ displayName: 'Acme', taxId: ' PL1234567890 ' } as any)
+    expect(payload.taxId).toBe('PL1234567890')
+
+    const values = mapCompanyOverviewToFormValues({
+      company: { id: 'company-1', displayName: 'Acme' },
+      profile: { taxId: 'PL1234567890' },
+      customFields: {},
+    } as any)
+    expect(values.taxId).toBe('PL1234567890')
+  })
+
+  it('transmits the edited VAT ID and an explicit clear', () => {
+    const kept = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', taxId: 'DE123456789' })
+    expect(kept.success).toBe(true)
+    if (!kept.success) return
+    expect(buildCompanyEditPayload(kept.data as any).taxId).toBe('DE123456789')
+
+    const blanked = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', taxId: '' })
+    expect(blanked.success).toBe(true)
+    if (!blanked.success) return
+    expect(buildCompanyEditPayload(blanked.data as any).taxId).toBeNull()
+  })
+
+  it('keeps the VAT ID optional on both the create and the edit form by default', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const createField = createCompanyFormFields(t as any).find((entry) => entry.id === 'taxId')
+    expect(createField).toMatchObject({ required: false, type: 'text' })
+    const editField = createCompanyEditFields(t as any).find((entry) => entry.id === 'taxId')
+    expect(editField).toMatchObject({ required: false, type: 'text' })
+  })
+
+  it('refuses a VAT ID longer than the API accepts in both form schemas, with a translatable message', () => {
+    const atLimit = 'X'.repeat(COMPANY_TAX_ID_MAX_LENGTH)
+    const overLimit = `${atLimit}X`
+    const schemas = [
+      { schema: createCompanyFormSchema(), base: { displayName: 'Acme' } },
+      { schema: createCompanyEditSchema(), base: { id: COMPANY_ID, displayName: 'Acme' } },
+    ]
+    for (const { schema, base } of schemas) {
+      expect(schema.safeParse({ ...base, taxId: atLimit }).success).toBe(true)
+      const refused = schema.safeParse({ ...base, taxId: overLimit })
+      expect(refused.success).toBe(false)
+      if (refused.success) continue
+      const issue = refused.error.issues.find((entry) => entry.path.join('.') === 'taxId')
+      expect(issue?.message).toBe(COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY)
+    }
+    expect(companyCreateSchema.shape.taxId.safeParse(atLimit).success).toBe(true)
+    expect(companyCreateSchema.shape.taxId.safeParse(overLimit).success).toBe(false)
+  })
+
+  it('keeps the too-long message translated in every locale', () => {
+    for (const dictionary of [enLocale, plLocale, deLocale, esLocale, koLocale]) {
+      expect((dictionary as Record<string, string>)[COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY]).toEqual(expect.stringContaining(String(COMPANY_TAX_ID_MAX_LENGTH)))
+    }
+  })
+
+  it('lets a host opt into a required VAT ID on either form', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const createField = createCompanyFormFields(t as any, { requireTaxId: true }).find((entry) => entry.id === 'taxId')
+    expect(createField).toMatchObject({ required: true })
+    const editField = createCompanyEditFields(t as any, { requireTaxId: true }).find((entry) => entry.id === 'taxId')
+    expect(editField).toMatchObject({ required: true })
+  })
+
+  it('accepts a new company without a VAT ID', () => {
+    const parsed = createCompanyFormSchema().safeParse({ displayName: 'Acme', addresses: [] })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(buildCompanyPayload(parsed.data as any)).not.toHaveProperty('taxId')
   })
 })

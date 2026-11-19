@@ -1,6 +1,7 @@
-import type { FilterQuery } from '@mikro-orm/core'
+import { raw, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
+import { z } from 'zod'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   actionLogCreateSchema,
@@ -22,8 +23,22 @@ import {
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY,
+  actionLogBelongsToSubject,
+  canonicalizeActorSubject,
+} from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 
 const logger = createLogger('audit_logs').child({ component: 'action-log-service' })
+
+const DEFAULT_LIST_PAGE_SIZE = 50
+
+const actionLogListQuerySchema = actionLogListSchema.extend({
+  page: z.number().int().positive().optional(),
+  pageSize: z.number().int().positive().max(200).optional(),
+})
+
+type ParsedActionLogListQuery = z.infer<typeof actionLogListQuerySchema>
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -39,7 +54,6 @@ const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][
 // max UUIDs — and is used only when the zod runtime is unavailable, so the actor
 // sanitizer can never reject a value `actionLogCreateSchema` would have accepted.
 export const SCHEMA_UUID_REGEX = /^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
-const API_KEY_ACTOR_PREFIX = 'api_key:'
 const SYSTEM_ACTOR_PREFIX = 'system:'
 // `context.systemActor` names the automated principal behind an entry; `context.source`
 // (read by `deriveActionLogSource`) names the channel it arrived through. They are
@@ -47,6 +61,13 @@ const SYSTEM_ACTOR_PREFIX = 'system:'
 // has a null actor column, which already derives the `system` source.
 const SYSTEM_ACTOR_CONTEXT_KEY = 'systemActor'
 const SYSTEM_ACTOR_REFERENCE_MAX_LENGTH = 255
+const REPLAY_QUERY_BATCH_SIZE = 100
+export const REPLAY_ENCRYPTED_SCAN_MAX_PAGES = 10
+export const CORRELATION_LIST_MAX_PAGE_SIZE = 100
+const CORRELATION_KEY_MAX_LENGTH = 300
+const CORRELATION_KEYS_MAX_COUNT = 100
+
+type ApiKeyReplayEntryKind = 'canonical' | 'legacy' | 'invalid'
 
 function toNullableUuid(value: unknown): string | null {
   return typeof value === 'string' && UUID_REGEX.test(value) ? value : null
@@ -70,13 +91,8 @@ function readActorCandidate(value: unknown): string | null {
 }
 
 function normalizeActorUserId(value: unknown): string | null {
-  const candidate = readActorCandidate(value)
-  if (!candidate) return null
-  const unwrapped = candidate.startsWith(API_KEY_ACTOR_PREFIX)
-    ? candidate.slice(API_KEY_ACTOR_PREFIX.length)
-    : candidate
-
-  return isSchemaUuid(unwrapped) ? unwrapped : null
+  const canonical = canonicalizeActorSubject(value)
+  return canonical && isSchemaUuid(canonical.storageId) ? canonical.storageId : null
 }
 
 function toSystemActorReference(candidate: string): string | null {
@@ -107,6 +123,7 @@ type BackfillRow = {
   changed_fields: string[] | null
   changes_json: Record<string, unknown> | null
   command_id: string
+  correlation_keys: string[] | null
   context_json: Record<string, unknown> | null
   created_at: Date
   id: string
@@ -197,6 +214,7 @@ export class ActionLogService {
         entry,
         tenantId,
         organizationId,
+        { em: this.em },
       )
 
       const merged = {
@@ -242,11 +260,17 @@ export class ActionLogService {
     }
   }
 
-  async log(input: ActionLogCreateInput): Promise<ActionLog | null> {
+  private async decryptDetachedEntry(entry: ActionLog): Promise<ActionLog> {
+    const detached = { ...(entry as unknown as Record<string, unknown>) }
+    return await this.decryptEntryPayload(detached) as unknown as ActionLog
+  }
+
+  async log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null> {
     const data = this.parseCreateInput(input)
-    const fork = this.em.fork()
-    const log = this.createLogEntity(fork, data)
-    await fork.persist(log).flush()
+    const operationEm = transactionalEm ?? this.em.fork()
+    const log = this.createLogEntity(operationEm, data)
+    await operationEm.persist(log).flush()
+    if (transactionalEm) return this.decryptDetachedEntry(log)
     await this.decryptEntries(log)
     return log
   }
@@ -280,13 +304,17 @@ export class ActionLogService {
   private sanitizeActor(input: ActionLogCreateInput): ActionLogCreateInput {
     if (!input) return input
     const candidate = readActorCandidate(input.actorUserId)
-    const actorUserId = normalizeActorUserId(candidate)
+    const actor = canonicalizeActorSubject(candidate)
+    const actorUserId = actor?.storageId ?? null
     const systemActorReference = candidate && !actorUserId ? toSystemActorReference(candidate) : null
 
-    if (!systemActorReference) {
-      if (actorUserId === (input.actorUserId ?? null)) return input
-      return { ...input, actorUserId }
+    if (actor) {
+      const context = isRecord(input.context) ? { ...input.context } : {}
+      context[ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY] = actor.subject
+      return { ...input, actorUserId, context }
     }
+
+    if (!systemActorReference) return { ...input, actorUserId: null }
 
     const context = isRecord(input.context) ? { ...input.context } : {}
     if (context[SYSTEM_ACTOR_CONTEXT_KEY] === undefined) {
@@ -310,6 +338,7 @@ export class ActionLogService {
       tenantId: data.tenantId ?? null,
       organizationId: data.organizationId ?? null,
       actorUserId: data.actorUserId ?? null,
+      onBehalfOfUserId: data.onBehalfOfUserId ?? null,
       commandId: data.commandId,
       actionLabel: data.actionLabel ?? null,
       actionType: projection.actionType,
@@ -327,6 +356,7 @@ export class ActionLogService {
       changesJson: isRecord(data.changes) ? data.changes : null,
       changedFields: projection.changedFields,
       primaryChangedField: projection.primaryChangedField,
+      correlationKeys: projection.correlationKeys,
       contextJson: isRecord(data.context) ? data.context : null,
       sourceKey: projection.sourceKey,
       createdAt: new Date(),
@@ -340,6 +370,7 @@ export class ActionLogService {
         tenantId: null,
         organizationId: null,
         actorUserId: null,
+        onBehalfOfUserId: null,
         commandId: 'unknown',
         actionLabel: undefined,
         resourceKind: undefined,
@@ -373,6 +404,7 @@ export class ActionLogService {
       tenantId: toNullableUuid(input.tenantId),
       organizationId: toNullableUuid(input.organizationId),
       actorUserId: normalizeActorUserId(input.actorUserId),
+      onBehalfOfUserId: toNullableUuid(input.onBehalfOfUserId),
       commandId: typeof input.commandId === 'string' && input.commandId.length > 0 ? input.commandId : 'unknown',
       actionLabel: toOptionalString(input.actionLabel) ?? undefined,
       resourceKind: toOptionalString(input.resourceKind) ?? undefined,
@@ -392,26 +424,26 @@ export class ActionLogService {
   }
 
   private parseListQuery(query: Partial<ActionLogListQuery>) {
-    return actionLogListSchema.parse({
+    return actionLogListQuerySchema.parse({
       ...query,
     })
   }
 
-  private resolveActorUserIds(parsed: ActionLogListQuery): string[] {
+  private resolveActorUserIds(parsed: ParsedActionLogListQuery): string[] {
     const values = [...(parsed.actorUserIds ?? [])]
     if (parsed.actorUserId) values.push(parsed.actorUserId)
 
     return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
   }
 
-  private resolveFieldNames(parsed: ActionLogListQuery): string[] {
+  private resolveFieldNames(parsed: ParsedActionLogListQuery): string[] {
     const values = [...(parsed.fieldNames ?? [])]
     if (parsed.fieldName) values.push(parsed.fieldName)
 
     return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
   }
 
-  private resolveActionTypes(parsed: ActionLogListQuery): ActionLogFilterType[] {
+  private resolveActionTypes(parsed: ParsedActionLogListQuery): ActionLogFilterType[] {
     const values = [...(parsed.actionTypes ?? [])]
     if (parsed.actionType) values.push(parsed.actionType)
 
@@ -419,22 +451,14 @@ export class ActionLogService {
       .filter((value): value is ActionLogFilterType => ACTION_LOG_FILTER_TYPES.includes(value as ActionLogFilterType))
   }
 
-  private resolvePagination(parsed: ActionLogListQuery): { page: number; pageSize: number; offset: number; limit: number } {
-    const pageSize =
-      typeof parsed.pageSize === 'number' && parsed.pageSize > 0
-        ? parsed.pageSize
-        : typeof parsed.limit === 'number' && parsed.limit > 0
-          ? parsed.limit
-          : 50
-    const page = typeof parsed.page === 'number' && parsed.page > 0 ? parsed.page : 1
-    const offset =
-      typeof parsed.offset === 'number' && parsed.offset >= 0
-        ? parsed.offset
-        : (page - 1) * pageSize
+  private resolvePagination(parsed: ParsedActionLogListQuery): { page: number; pageSize: number; offset: number; limit: number } {
+    const pageSize = parsed.pageSize ?? parsed.limit ?? DEFAULT_LIST_PAGE_SIZE
+    const page = parsed.page ?? 1
+    const offset = parsed.offset ?? (page - 1) * pageSize
     return { page, pageSize, offset, limit: pageSize }
   }
 
-  private async loadEntries(parsed: ActionLogListQuery, options?: { paginate?: boolean }) {
+  private async loadEntries(parsed: ParsedActionLogListQuery, options?: { paginate?: boolean }) {
     let query = (this.buildListQuery(parsed) as any).select('action_logs.id as id')
 
     if (options?.paginate !== false) {
@@ -453,12 +477,17 @@ export class ActionLogService {
     await this.decryptEntries(results)
 
     const byId = new Map(results.map((entry: any) => [entry.id, entry]))
-    return ids
+    const entries = ids
       .map((id: any) => byId.get(id))
       .filter((entry: any): entry is ActionLog => Boolean(entry))
+    const apiKeyActor = parsed.actorSubject ? canonicalizeActorSubject(parsed.actorSubject) : null
+    if (apiKeyActor?.kind !== 'api_key') return entries
+    return entries.filter((entry: ActionLog) => (
+      this.classifyApiKeyReplayEntry(entry, apiKeyActor.subject) !== 'invalid'
+    ))
   }
 
-  private buildListQuery(parsed: ActionLogListQuery): any {
+  private buildListQuery(parsed: ParsedActionLogListQuery): any {
     let query = (this.em.getKysely<any>() as any)
       .selectFrom('action_logs')
       .selectAll()
@@ -466,6 +495,28 @@ export class ActionLogService {
 
     if (parsed.tenantId) query = query.where('action_logs.tenant_id', '=', parsed.tenantId)
     if (parsed.organizationId) query = query.where('action_logs.organization_id', '=', parsed.organizationId)
+
+    const ids = Array.from(new Set(parsed.ids ?? []))
+    if (ids.length > 0) query = query.where('action_logs.id', 'in', ids)
+
+    if (parsed.actorSubject) {
+      const actor = canonicalizeActorSubject(parsed.actorSubject)
+      if (!actor) return query.where(sql<boolean>`false`)
+      query = query.where('action_logs.actor_user_id', '=', actor.storageId)
+      if (actor.kind === 'api_key') {
+        query = query.where(sql<boolean>`(
+          action_logs.context_json is null
+          or jsonb_typeof(action_logs.context_json) = 'string'
+          or (
+            jsonb_typeof(action_logs.context_json) = 'object'
+            and (
+              not jsonb_exists(action_logs.context_json, ${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY})
+              or action_logs.context_json ->> ${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY} = ${actor.subject}
+            )
+          )
+        )`)
+      }
+    }
 
     const actorUserIds = this.resolveActorUserIds(parsed)
     if (actorUserIds.length === 1) query = query.where('action_logs.actor_user_id', '=', actorUserIds[0])
@@ -500,6 +551,11 @@ export class ActionLogService {
     const fieldNames = this.resolveFieldNames(parsed)
     if (fieldNames.length === 1) query = query.where('action_logs.primary_changed_field', '=', fieldNames[0])
     if (fieldNames.length > 1) query = query.where('action_logs.primary_changed_field', 'in', fieldNames)
+
+    const correlationKeys = Array.from(new Set(parsed.correlationKeys ?? []))
+    if (correlationKeys.length > 0) {
+      query = query.where(sql<boolean>`action_logs.correlation_keys && array[${sql.join(correlationKeys)}]::text[]`)
+    }
 
     const actionTypes = this.resolveActionTypes(parsed)
     if (actionTypes.length === 1) query = query.where('action_logs.action_type', '=', actionTypes[0])
@@ -559,23 +615,140 @@ export class ActionLogService {
     return { items, total, page, pageSize, totalPages }
   }
 
+  async listByCorrelationKeys(params: {
+    tenantId: string
+    organizationId: string
+    keys: string[]
+    page?: number
+    pageSize?: number
+  }) {
+    const keys = Array.from(new Set(params.keys.map((key) => key.trim())))
+      .filter((key) => key.length > 0 && key.length <= CORRELATION_KEY_MAX_LENGTH)
+      .slice(0, CORRELATION_KEYS_MAX_COUNT)
+    const page = params.page && params.page > 0 ? Math.floor(params.page) : 1
+    const pageSize = Math.min(CORRELATION_LIST_MAX_PAGE_SIZE, params.pageSize && params.pageSize > 0 ? Math.floor(params.pageSize) : 50)
+    if (!params.tenantId || !params.organizationId || keys.length === 0) {
+      return { items: [] as ActionLog[], total: 0, page, pageSize, totalPages: 1 }
+    }
+    return this.list({
+      tenantId: params.tenantId,
+      organizationId: params.organizationId,
+      correlationKeys: keys,
+      page,
+      pageSize,
+    })
+  }
+
+  private classifyApiKeyReplayEntry(entry: ActionLog, actorSubject: string): ApiKeyReplayEntryKind {
+    if (entry.contextJson === null || entry.contextJson === undefined) return 'legacy'
+    if (!isRecord(entry.contextJson)) return 'invalid'
+    if (!Object.prototype.hasOwnProperty.call(entry.contextJson, ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY)) {
+      return 'legacy'
+    }
+    return actionLogBelongsToSubject(entry, actorSubject) ? 'canonical' : 'invalid'
+  }
+
+  private async findLatestReplayEntry(
+    actorUserId: string,
+    filter: Record<string, unknown>,
+    orderField: 'createdAt' | 'updatedAt',
+  ): Promise<ActionLog | null> {
+    const actor = canonicalizeActorSubject(actorUserId)
+    if (!actor) return null
+    const where: Record<string, unknown> = {
+      actorUserId: actor.storageId,
+      ...filter,
+    }
+    const orderBy = orderField === 'createdAt'
+      ? { createdAt: 'desc' as const, id: 'desc' as const }
+      : { updatedAt: 'desc' as const, id: 'desc' as const }
+
+    if (actor.kind === 'user') {
+      const entry = await this.em.findOne(ActionLog, where as FilterQuery<ActionLog>, { orderBy })
+      await this.decryptEntries(entry)
+      return entry
+    }
+
+    if (this.tenantEncryptionService?.isEnabled()) {
+      let legacyEntry: ActionLog | null = null
+      let cursor: { id: string; orderedAt: Date } | null = null
+      for (let pageIndex = 0; ; pageIndex += 1) {
+        if (pageIndex >= REPLAY_ENCRYPTED_SCAN_MAX_PAGES) {
+          logger.warn('Stopped encrypted API-key replay scan at the page limit', {
+            maxRows: REPLAY_ENCRYPTED_SCAN_MAX_PAGES * REPLAY_QUERY_BATCH_SIZE,
+            hasLegacyFallback: legacyEntry !== null,
+          })
+          return legacyEntry
+        }
+        const pageWhere: Record<string, unknown> = cursor
+          ? {
+              $and: [
+                where,
+                {
+                  $or: [
+                    { [orderField]: { $lt: cursor.orderedAt } },
+                    { [orderField]: cursor.orderedAt, id: { $lt: cursor.id } },
+                  ],
+                },
+              ],
+            }
+          : where
+        const entries: ActionLog[] = await this.em.find(ActionLog, pageWhere as FilterQuery<ActionLog>, {
+          limit: REPLAY_QUERY_BATCH_SIZE,
+          orderBy,
+        })
+        await this.decryptEntries(entries)
+        for (const entry of entries) {
+          const entryKind = this.classifyApiKeyReplayEntry(entry, actor.subject)
+          if (entryKind === 'canonical') return entry
+          if (entryKind === 'legacy' && !legacyEntry) legacyEntry = entry
+        }
+        if (entries.length < REPLAY_QUERY_BATCH_SIZE) return legacyEntry
+        const lastEntry: ActionLog | undefined = entries.at(-1)
+        if (!lastEntry) return legacyEntry
+        cursor = {
+          id: String(lastEntry.id),
+          orderedAt: orderField === 'createdAt' ? lastEntry.createdAt : lastEntry.updatedAt,
+        }
+      }
+    }
+
+    const canonicalEntry = await this.em.findOne(ActionLog, {
+      ...where,
+      [raw(`"context_json" ->> '${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY}'`)]: actor.subject,
+    } as FilterQuery<ActionLog>, { orderBy })
+    if (canonicalEntry) {
+      await this.decryptEntries(canonicalEntry)
+      return this.classifyApiKeyReplayEntry(canonicalEntry, actor.subject) === 'canonical'
+        ? canonicalEntry
+        : null
+    }
+
+    const legacyEntry = await this.em.findOne(ActionLog, {
+      ...where,
+      [raw(`("context_json" is null or (jsonb_typeof("context_json") = 'object' and not jsonb_exists("context_json", '${ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY}')))`)]: true,
+    } as FilterQuery<ActionLog>, { orderBy })
+    await this.decryptEntries(legacyEntry)
+    return legacyEntry && this.classifyApiKeyReplayEntry(legacyEntry, actor.subject) === 'legacy'
+      ? legacyEntry
+      : null
+  }
+
   async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
-    const where: FilterQuery<ActionLog> = {
-      actorUserId,
-      undoToken: { $ne: null } as any,
+    const where: Record<string, unknown> = {
+      undoToken: { $ne: null },
       executionState: 'done',
       deletedAt: null,
     }
     if (scope.tenantId) where.tenantId = scope.tenantId
     if (scope.organizationId) where.organizationId = scope.organizationId
 
-    const entry = await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
-    await this.decryptEntries(entry)
-    return entry
+    return this.findLatestReplayEntry(actorUserId, where, 'createdAt')
   }
 
-  async claimForUndo(id: string): Promise<boolean> {
-    const affected = await this.em.nativeUpdate(
+  async claimForUndo(id: string, transactionalEm?: EntityManager): Promise<boolean> {
+    const operationEm = transactionalEm ?? this.em
+    const affected = await operationEm.nativeUpdate(
       ActionLog,
       { id, executionState: 'done', deletedAt: null },
       { executionState: 'undoing' },
@@ -583,8 +756,9 @@ export class ActionLogService {
     return affected === 1
   }
 
-  async releaseUndoClaim(id: string): Promise<boolean> {
-    const affected = await this.em.nativeUpdate(
+  async releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean> {
+    const operationEm = transactionalEm ?? this.em
+    const affected = await operationEm.nativeUpdate(
       ActionLog,
       { id, executionState: 'undoing', deletedAt: null },
       { executionState: 'done' },
@@ -592,20 +766,21 @@ export class ActionLogService {
     return affected === 1
   }
 
-  async markUndone(id: string, traceInput?: ActionLogCreateInput) {
-    const fork = this.em.fork()
-    const log = await fork.findOne(ActionLog, { id, deletedAt: null })
+  async markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager) {
+    const operationEm = transactionalEm ?? this.em.fork()
+    const log = await operationEm.findOne(ActionLog, { id, deletedAt: null })
     if (!log) return null
 
     log.executionState = 'undone'
     log.undoToken = null
 
-    const traceLog = traceInput ? this.createLogEntity(fork, this.parseCreateInput(traceInput)) : null
+    const traceLog = traceInput ? this.createLogEntity(operationEm, this.parseCreateInput(traceInput)) : null
     if (traceLog) {
-      fork.persist(traceLog)
+      operationEm.persist(traceLog)
     }
 
-    await fork.flush()
+    await operationEm.flush()
+    if (transactionalEm) return this.decryptDetachedEntry(log)
     await this.decryptEntries(log)
     if (traceLog) await this.decryptEntries(traceLog)
 
@@ -631,9 +806,8 @@ export class ActionLogService {
     resourceKind?: string | null
     resourceId?: string | null
   }) {
-    const where: FilterQuery<ActionLog> = {
-      actorUserId: params.actorUserId,
-      undoToken: { $ne: null } as any,
+    const where: Record<string, unknown> = {
+      undoToken: { $ne: null },
       executionState: 'done',
       deletedAt: null,
     }
@@ -642,33 +816,61 @@ export class ActionLogService {
     if (params.resourceKind) where.resourceKind = params.resourceKind
     if (params.resourceId) where.resourceId = params.resourceId
 
-    const entry = await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
-    await this.decryptEntries(entry)
-    return entry
+    return this.findLatestReplayEntry(params.actorUserId, where, 'createdAt')
   }
 
   async latestUndoneForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
-    const where: FilterQuery<ActionLog> = {
-      actorUserId,
+    const where: Record<string, unknown> = {
       executionState: 'undone',
       deletedAt: null,
     }
     if (scope.tenantId) where.tenantId = scope.tenantId
     if (scope.organizationId) where.organizationId = scope.organizationId
 
-    const entry = await this.em.findOne(ActionLog, where, { orderBy: { updatedAt: 'desc' } })
-    await this.decryptEntries(entry)
-    return entry
+    return this.findLatestReplayEntry(actorUserId, where, 'updatedAt')
   }
 
   async markRedone(id: string) {
-    const log = await this.em.findOne(ActionLog, { id, deletedAt: null })
+    const operationEm = this.em.fork()
+    const log = await operationEm.findOne(ActionLog, { id, deletedAt: null })
     if (!log) return null
 
     log.executionState = 'redone'
     log.undoToken = null
-    await this.em.flush()
+    await operationEm.flush()
     return log
+  }
+
+  /**
+   * Compare-and-set the source of a redo from `undone` to its final `redone`
+   * state. When supplied, `transactionalEm` is the same EntityManager used by
+   * the replayed command and its new action log, so a later failure restores
+   * the source row to `undone` automatically.
+   */
+  async claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean> {
+    const operationEm = transactionalEm ?? this.em
+    const affected = await operationEm.nativeUpdate(
+      ActionLog,
+      { id, executionState: 'undone', deletedAt: null },
+      { executionState: 'redone', undoToken: null },
+    )
+    return affected === 1
+  }
+
+  /**
+   * Reverts a non-transactional `claimForRedo` after the replayed command failed,
+   * so the source log stays redoable. Uses `transactionalEm` or an open request
+   * transaction when the claim ran inside one; otherwise a fork, so a failed
+   * command's request EntityManager state cannot block the compensation.
+   */
+  async releaseRedoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean> {
+    const operationEm = transactionalEm ?? (this.em.isInTransaction() ? this.em : this.em.fork())
+    const affected = await operationEm.nativeUpdate(
+      ActionLog,
+      { id, executionState: 'redone', deletedAt: null },
+      { executionState: 'undone' },
+    )
+    return affected === 1
   }
 
   async backfillProjections(options: ActionLogProjectionBackfillOptions = {}): Promise<ActionLogProjectionBackfillResult> {
@@ -685,7 +887,7 @@ export class ActionLogService {
     let cursorId: string | null = null
 
     while (true) {
-      const rowsQuery = (this.em.getKysely<any>() as any)
+      let rowsQuery = (this.em.getKysely<any>() as any)
         .selectFrom('action_logs')
         .select([
           'action_logs.id',
@@ -701,25 +903,27 @@ export class ActionLogService {
           'action_logs.source_key',
           'action_logs.changed_fields',
           'action_logs.primary_changed_field',
+          'action_logs.correlation_keys',
           'action_logs.created_at',
         ])
         .where('action_logs.deleted_at', 'is', null) as any
 
-      if (options.tenantId) rowsQuery.where('action_logs.tenant_id', '=', options.tenantId)
-      if (options.organizationId) rowsQuery.where('action_logs.organization_id', '=', options.organizationId)
+      if (options.tenantId) rowsQuery = rowsQuery.where('action_logs.tenant_id', '=', options.tenantId)
+      if (options.organizationId) rowsQuery = rowsQuery.where('action_logs.organization_id', '=', options.organizationId)
 
       if (!options.force) {
-        rowsQuery.where((eb: any) =>
+        rowsQuery = rowsQuery.where((eb: any) =>
           eb.or([
             eb('action_logs.action_type', 'is', null),
             eb('action_logs.source_key', 'is', null),
             eb('action_logs.changed_fields', 'is', null),
+            eb('action_logs.correlation_keys', 'is', null),
           ])
         )
       }
 
       if (cursorCreatedAt && cursorId) {
-        rowsQuery.where((eb: any) =>
+        rowsQuery = rowsQuery.where((eb: any) =>
           eb.or([
             eb('action_logs.created_at', '>', cursorCreatedAt),
             eb.and([
@@ -730,10 +934,11 @@ export class ActionLogService {
         )
       }
 
-      const rows = await rowsQuery
-        .orderBy('created_at', 'asc')
-        .orderBy('id', 'asc')
+      const rows: BackfillRow[] = await rowsQuery
+        .orderBy('action_logs.created_at', 'asc')
+        .orderBy('action_logs.id', 'asc')
         .limit(batchSize)
+        .execute()
 
       if (rows.length === 0) break
 
@@ -756,6 +961,7 @@ export class ActionLogService {
             || row.source_key !== projection.sourceKey
             || row.primary_changed_field !== projection.primaryChangedField
             || !stringArraysEqual(row.changed_fields, projection.changedFields)
+            || !stringArraysEqual(row.correlation_keys, projection.correlationKeys)
 
           if (!needsUpdate) {
             result.skipped += 1
@@ -768,6 +974,7 @@ export class ActionLogService {
               action_type: projection.actionType,
               changed_fields: projection.changedFields,
               primary_changed_field: projection.primaryChangedField,
+              correlation_keys: projection.correlationKeys,
               source_key: projection.sourceKey,
             })
             .where('id', '=', row.id)

@@ -113,7 +113,8 @@ export default function CheckoutTemplatesPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('checkout.admin.templates.title')}
+        title={t('checkout.admin.templates.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           isLoading={loading}

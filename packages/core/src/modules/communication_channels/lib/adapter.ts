@@ -11,6 +11,16 @@ export interface TenantScope {
   tenantId: string
 }
 
+/**
+ * The scope of a concrete channel row. `organizationId` is `null` for a
+ * tenant-wide channel (`communication_channels.organization_id IS NULL`); it is
+ * never replaced by the tenant id.
+ */
+export interface ChannelScope {
+  organizationId: string | null
+  tenantId: string
+}
+
 // ── Capabilities ──────────────────────────────────────────────
 
 export interface ChannelCapabilities {
@@ -19,6 +29,12 @@ export interface ChannelCapabilities {
   richText: boolean
   fileSharing: boolean
   maxFileSize?: number
+  /**
+   * Largest total of raw attachment bytes in one outbound message, as a
+   * positive number of bytes. When unset the hub caps a message at 25 MB
+   * (`OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES`).
+   */
+  maxTotalBytes?: number
   supportedMimeTypes?: string[]
   readReceipts: boolean
   deliveryReceipts: boolean
@@ -89,7 +105,7 @@ export interface MessageContent {
   text?: string
   html?: string
   bodyFormat?: 'text' | 'markdown' | 'html'
-  attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>
+  attachments?: NormalizedAttachment[]
   raw?: Record<string, unknown>
 }
 
@@ -164,7 +180,10 @@ export interface NormalizedInboundMessage {
   body: string
   bodyFormat: 'text' | 'markdown' | 'html'
   attachments?: NormalizedAttachment[]
-  timestamp: Date
+  /** Best meaningful occurrence time selected by the adapter; null when unknown. */
+  timestamp: Date | null
+  /** Provider-native transport or storage time when separately available. */
+  providerTimestamp?: Date | null
   replyToExternalId?: string
   channelPayload: Record<string, unknown>
   channelContentType: string
@@ -178,6 +197,12 @@ export interface NormalizedAttachment {
   fileName: string
   fileSize?: number
   inline?: boolean
+  /**
+   * The file bytes, set by the hub for outbound attachments it read from the
+   * attachments module. Adapters prefer it over `url`, decode `data:` URLs
+   * otherwise, and never fetch a remote URL.
+   */
+  content?: Uint8Array
 }
 
 export interface InboundReaction {
@@ -226,7 +251,7 @@ export interface SendReactionInput {
   conversationId: string
   emoji: string
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
 }
 
 export interface RemoveReactionInput {
@@ -234,7 +259,7 @@ export interface RemoveReactionInput {
   conversationId: string
   emoji: string
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
 }
 
 // ── Edit / delete ─────────────────────────────────────────────
@@ -261,7 +286,7 @@ export interface FetchHistoryInput {
   credentials: Record<string, unknown>
   cursor?: string
   limit?: number
-  scope: TenantScope
+  scope: ChannelScope
   /**
    * Provider-specific resumption state opaque to the hub. Provider adapters
    * encode their own incremental cursor (Gmail historyId, IMAP
@@ -346,7 +371,7 @@ export interface UnregisterPushInput {
  */
 export interface ApplyPushNotificationInput {
   credentials: Record<string, unknown>
-  scope: TenantScope
+  scope: ChannelScope
   channelState: Record<string, unknown>
   /** Provider-shaped notification payload. */
   notification: Record<string, unknown>
@@ -368,7 +393,17 @@ export interface ApplyPushNotificationInput {
 export interface ImportHistoryInput {
   credentials: Record<string, unknown>
   scope: TenantScope
-  /** Look back at most this many days. Clamped 1..365 by the hub. */
+  /**
+   * Provider conversation identifier, typically `channel.externalIdentifier`
+   * (for email channels this is the mailbox address). Optional for back-compat:
+   * adapters whose history import needs a channel identity must fail closed
+   * when it is absent rather than guessing from the credential scope.
+   */
+  conversationId?: string
+  /**
+   * Look back at most this many days. The hub accepts 1..`OM_IMPORT_HISTORY_MAX_SINCE_DAYS`
+   * (default ceiling 3650, i.e. ten years) and defaults to 30 when omitted.
+   */
   sinceDays: number
   /**
    * Optional sender-filter hint. Adapters SHOULD use it for server-side
@@ -376,7 +411,10 @@ export interface ImportHistoryInput {
    * import scans the entire `SINCE` window.
    */
   contactEmails?: string[]
-  /** Total cap across all pages. Hub default 1000. Adapter MUST respect. */
+  /**
+   * Total cap across all pages. Hub default 1000, accepted up to
+   * `OM_IMPORT_HISTORY_MAX_MESSAGES` (default ceiling 50000). Adapter MUST respect.
+   */
   maxMessages?: number
   /** Opaque resumption cursor returned by the previous page. */
   cursor?: string
@@ -490,8 +528,8 @@ export interface RefreshCredentialsInput {
    * - For OAuth providers (Gmail): MUST be present; the adapter uses
    *   `clientId` + `clientSecret` to call the provider's token endpoint.
    * - For static-credential providers (IMAP, WhatsApp): ignored.
-   * - When `undefined`: legacy `credentials._client` path is read by the
-   *   adapter (deprecated; will be removed in the next minor release).
+   * - When `undefined`: Gmail refresh fails with a clear error (legacy
+   *   `credentials._client` fallback was removed — see #3828 / UPGRADE_NOTES).
    */
   oauthClient?: OAuthClientConfig
 }
@@ -519,6 +557,14 @@ export interface ValidateCredentialsResult {
    * that don't emit codes keep working and callers fall back to `errors`.
    */
   errorCodes?: Record<string, string>
+  /**
+   * Stable identity of the connected account, for providers whose credentials
+   * carry no email-shaped `username` / `email` / `fromAddress` (e.g. a Discord
+   * bot). When present on a successful validation the connect flow uses it as
+   * `CommunicationChannel.externalIdentifier`, so reconnecting the same account
+   * heals the existing channel instead of inserting a duplicate row.
+   */
+  externalIdentifier?: string
 }
 
 // ── The adapter contract ─────────────────────────────────────

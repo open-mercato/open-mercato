@@ -14,11 +14,22 @@ import {
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { ViewTabsRow } from '../pipeline/components/ViewTabsRow'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import {
+  ViewTabsRow,
+  VIEW_TABS_ROW_COMPONENT_ID,
+  type ViewTabsRowProps,
+} from '../pipeline/components/ViewTabsRow'
 import { DealsMapView } from './components/DealsMapView'
 
 export default function DealsMapPage(): React.ReactElement {
   const t = useT()
+  // Resolved through the component registry so downstream apps can hide a view
+  // (or replace the whole switcher) without forking this page.
+  const DealsViewTabsRow = useRegisteredComponent<ViewTabsRowProps>(
+    VIEW_TABS_ROW_COMPONENT_ID,
+    ViewTabsRow,
+  )
   const [search, setSearch] = React.useState('')
 
   return (
@@ -68,7 +79,7 @@ export default function DealsMapPage(): React.ReactElement {
           </div>
         </div>
 
-        <ViewTabsRow active="map" className="mt-4" />
+        <DealsViewTabsRow active="map" className="mt-4" />
 
         <DealsMapView search={search} />
       </PageBody>

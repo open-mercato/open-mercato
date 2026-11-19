@@ -237,6 +237,11 @@ function encodeBodyPart(content: string): { cte: string; body: string } {
  * message directly, e.g. Gmail `users.messages.send`). Emits a
  * `multipart/alternative` body when both html and text are present, otherwise a
  * single-part text or html body.
+ *
+ * @deprecated Since 0.10.0. Use the async `composeEmailMessage`, which carries
+ * attachments and folds long encoded headers. Kept unchanged through the next
+ * minor release; removal no earlier than 0.11.0 (`AssembleRfc2822Input` stays,
+ * because `ComposeEmailMessageInput` extends it).
  */
 export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   const boundary = `omc_${crypto.randomUUID()}`
@@ -259,7 +264,6 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
     const textPart = encodeBodyPart(input.text)
     const htmlPart = encodeBodyPart(input.html)
     const body = [
-      '',
       `--${boundary}`,
       'Content-Type: text/plain; charset=utf-8',
       `Content-Transfer-Encoding: ${textPart.cte}`,
@@ -273,7 +277,7 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
       `--${boundary}--`,
       '',
     ].join('\r\n')
-    return Buffer.from(headers.join('\r\n') + body, 'utf-8')
+    return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + body, 'utf-8')
   }
 
   if (input.html) {
@@ -287,6 +291,87 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   headers.push('Content-Type: text/plain; charset=utf-8')
   headers.push(`Content-Transfer-Encoding: ${textPart.cte}`)
   return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + textPart.body, 'utf-8')
+}
+
+export interface ComposeEmailAttachment {
+  fileName: string
+  mimeType: string
+  content: Uint8Array
+  inline?: boolean
+  contentId?: string
+}
+
+export interface ComposeEmailMessageInput extends AssembleRfc2822Input {
+  attachments?: ComposeEmailAttachment[]
+}
+
+type MailComposerBuild = {
+  keepBcc?: boolean
+  build: (callback: (err: Error | null, output: Buffer) => void) => void
+}
+
+type MailComposerCtor = new (mail: Record<string, unknown>) => { compile: () => MailComposerBuild }
+
+let mailComposerPromise: Promise<MailComposerCtor> | null = null
+
+function loadMailComposer(): Promise<MailComposerCtor> {
+  if (!mailComposerPromise) {
+    mailComposerPromise = import('nodemailer/lib/mail-composer').then((mod) => {
+      const loaded = mod as unknown as { default?: MailComposerCtor } & MailComposerCtor
+      const ctor = loaded.default ?? loaded
+      if (typeof ctor !== 'function') throw new Error('[internal] nodemailer MailComposer is unavailable')
+      return ctor
+    })
+    mailComposerPromise.catch(() => {
+      mailComposerPromise = null
+    })
+  }
+  return mailComposerPromise
+}
+
+/**
+ * Build a raw RFC 5322 message with nodemailer's `MailComposer`: folded RFC 2047
+ * headers, RFC 2231 attachment filenames, `multipart/mixed` around the
+ * text/html alternative when attachments are present, and the caller's
+ * Message-ID kept as is so threading can rely on it.
+ *
+ * Bcc stays in the headers because transports that take the encoded message
+ * (Gmail `users.messages.send`) read the recipients from them. Attachments are
+ * passed as bytes only; file and URL access are disabled so a crafted value can
+ * never make the composer read the local disk or fetch a URL.
+ */
+export async function composeEmailMessage(input: ComposeEmailMessageInput): Promise<Buffer> {
+  const MailComposer = await loadMailComposer()
+  const hasBody = Boolean(input.text) || Boolean(input.html)
+  const composer = new MailComposer({
+    from: sanitizeHeaderValue(input.from),
+    to: input.to.map(sanitizeHeaderValue),
+    cc: input.cc.length ? input.cc.map(sanitizeHeaderValue) : undefined,
+    bcc: input.bcc.length ? input.bcc.map(sanitizeHeaderValue) : undefined,
+    subject: input.subject ? sanitizeHeaderValue(input.subject) : undefined,
+    messageId: ensureBrackets(input.messageId),
+    inReplyTo: input.inReplyTo ? ensureBrackets(input.inReplyTo) : undefined,
+    references: input.references?.length ? input.references.map(ensureBrackets) : undefined,
+    text: hasBody ? input.text : '',
+    html: input.html,
+    attachments: (input.attachments ?? []).map((attachment) => ({
+      filename: sanitizeHeaderValue(attachment.fileName) || 'attachment',
+      content: Buffer.from(attachment.content.buffer, attachment.content.byteOffset, attachment.content.byteLength),
+      contentType: attachment.mimeType,
+      contentDisposition: attachment.inline ? 'inline' : 'attachment',
+      ...(attachment.contentId ? { cid: sanitizeHeaderValue(attachment.contentId) } : {}),
+    })),
+    disableFileAccess: true,
+    disableUrlAccess: true,
+  })
+  const compiled = composer.compile()
+  compiled.keepBcc = true
+  return new Promise<Buffer>((resolve, reject) => {
+    compiled.build((err, output) => {
+      if (err) reject(err)
+      else resolve(output)
+    })
+  })
 }
 
 // ── Inbound MIME parsing ──────────────────────────────────────
@@ -414,12 +499,73 @@ export interface NormalizeMimeInboundOptions {
   fallbackMessageId: string
   /** Compute the conversation grouping id from the resolved message id + references. */
   resolveConversationId: (context: { messageId: string; references: string[] }) => string
-  /** Fallback timestamp when the parsed message has no Date header. */
-  fallbackDate?: Date
+  /**
+   * When the provider received the message (Gmail `internalDate`, IMAP
+   * `INTERNALDATE`). Preferred over the MIME `Date` header for the message
+   * timestamp: the header is written by the sender's client and can be forged
+   * or skewed, and since #6095 the timestamp also dates the platform message
+   * and the CRM interaction, so a bad header would pin a message in the future
+   * or hide it in the past.
+   */
+  receivedAt?: Date
+  /**
+   * Fallback timestamp when neither `receivedAt` nor a usable Date header is
+   * available.
+   */
+  fallbackDate?: Date | null
   /** Provider-specific fields merged into `channelMetadata`. */
   channelMetadata?: (parsed: ParsedMail) => Record<string, unknown>
   /** Provider-specific fields merged into `channelPayload`. */
   channelPayload?: (parsed: ParsedMail) => Record<string, unknown>
+}
+
+function validDate(value: Date | string | null | undefined): Date | null {
+  if (value == null) return null
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+/**
+ * A MIME `Date` header this far ahead of the clock is treated as bogus. Clock
+ * skew between real mail servers is seconds to minutes; a day of tolerance
+ * keeps legitimate mail while stopping a forged header from pinning a message
+ * to the top of a `sent_at`-sorted inbox for weeks.
+ */
+const MAX_MIME_DATE_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000
+
+function isValidDate(value: unknown): value is Date {
+  return value instanceof Date && !Number.isNaN(value.getTime())
+}
+
+/**
+ * Pick the timestamp for an inbound message.
+ *
+ * Order: the provider's receipt time; then the sender's MIME `Date` header,
+ * unless it is unparsable or more than a day in the future; then the caller's
+ * fallback; unknown remains null.
+ */
+function resolveKnownInboundTimestamp(input: {
+  receivedAt?: Date
+  mimeDate?: Date
+  fallbackDate?: Date | null
+  now?: Date
+}): Date | null {
+  if (isValidDate(input.receivedAt)) return input.receivedAt
+  const now = input.now ?? new Date()
+  if (isValidDate(input.mimeDate) && input.mimeDate.getTime() <= now.getTime() + MAX_MIME_DATE_FUTURE_SKEW_MS) {
+    return input.mimeDate
+  }
+  if (isValidDate(input.fallbackDate)) return input.fallbackDate
+  return null
+}
+
+export function resolveInboundTimestamp(input: {
+  receivedAt?: Date
+  mimeDate?: Date
+  fallbackDate?: Date | null
+  now?: Date
+}): Date {
+  return resolveKnownInboundTimestamp(input) ?? input.now ?? new Date()
 }
 
 /**
@@ -430,6 +576,7 @@ export interface NormalizeMimeInboundOptions {
  */
 export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): NormalizedInboundMessage {
   const { parsed } = options
+  const providerTimestamp = validDate(options.receivedAt) ?? validDate(options.fallbackDate)
 
   const messageId = stripBrackets(parsed.messageId) ?? options.fallbackMessageId
   const inReplyTo = stripBrackets(parsed.inReplyTo)
@@ -474,7 +621,12 @@ export function normalizeMimeInbound(options: NormalizeMimeInboundOptions): Norm
     body,
     bodyFormat,
     attachments,
-    timestamp: parsed.date ? new Date(parsed.date) : options.fallbackDate ?? new Date(),
+    timestamp: resolveKnownInboundTimestamp({
+      receivedAt: options.receivedAt,
+      mimeDate: parsed.date ? new Date(parsed.date) : undefined,
+      fallbackDate: options.fallbackDate,
+    }),
+    providerTimestamp,
     replyToExternalId: inReplyTo ?? undefined,
     channelPayload,
     channelContentType: 'email/mime',

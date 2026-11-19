@@ -268,7 +268,8 @@ export default function SchedulerPage() {
     <Page>
       <PageBody>
         <DataTable<ScheduleRow>
-          title={t('scheduler.title', 'Scheduled Jobs')}
+        title={t('scheduler.title', 'Scheduled Jobs')}
+        titleHeadingLevel={1}
           actions={
             <Button onClick={() => router.push('/backend/config/scheduled-jobs/new')}>
               {t('scheduler.action.create', 'New Schedule')}

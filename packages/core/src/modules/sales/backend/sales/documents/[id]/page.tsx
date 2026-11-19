@@ -23,7 +23,11 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { TagInput } from '@open-mercato/ui/primitives/tag-input'
+import { QUOTE_SEND_CC_LIMIT } from '../../../../data/validators'
+import { Label } from '@open-mercato/ui/primitives/label'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { formatDisplayDate, formatDisplayDateTime, toDateInputValue, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
@@ -37,7 +41,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHead
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { mapCrudServerErrorToFormErrors, normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -51,6 +55,7 @@ import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/compone
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
+import { SalesDocumentExtensionSpot, type SalesDocumentExtensionContext } from '@open-mercato/core/modules/sales/components/documents/SalesDocumentExtensionSpot'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
@@ -76,6 +81,9 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { commitPendingCc, isQuoteCcAddress } from '@open-mercato/core/modules/sales/lib/quoteSendCc'
+import { documentEmailForCustomerChange, readDocumentEmail, resolveSavedContactEmail, syncDocumentEmailWithSnapshot } from '@open-mercato/core/modules/sales/lib/documentEmail'
 
 const logger = createLogger('sales')
 
@@ -525,6 +533,7 @@ function CustomerInlineEditor({
           <div className="flex-1 min-w-0 space-y-2">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
             <LookupSelect
+              defaultOpen
               value={draftId}
               onChange={(next) => {
                 setDraftId(next)
@@ -860,6 +869,8 @@ type StatusOption = {
 
 type DocumentRecord = {
   id: string
+  organizationId?: string | null
+  tenantId?: string | null
   orderNumber?: string | null
   quoteNumber?: string | null
   status?: string | null
@@ -898,11 +909,13 @@ type DocumentRecord = {
   paidTotalAmount?: number | null
   refundedTotalAmount?: number | null
   outstandingAmount?: number | null
+  totalsMode?: 'computed' | 'external' | null
   createdAt?: string
   updatedAt?: string
   metadata?: Record<string, unknown> | null
   customFields?: Record<string, unknown> | null
   tags?: TagOption[] | null
+  validUntil?: string | null
 }
 
 type DocumentUpdateResult = {
@@ -955,6 +968,16 @@ export function handleDocumentMutationError(
   return false
 }
 
+export function handleQuoteActionError(
+  err: unknown,
+  t: (key: string, fallback?: string) => string,
+  refresh: () => void,
+  fallbackMessage: string,
+): void {
+  if (handleDocumentMutationError(err, t, refresh)) return
+  flash(normalizeCrudServerError(err).message?.trim() || fallbackMessage, 'error')
+}
+
 const prefixCustomFieldValues = (input: Record<string, unknown> | null | undefined): Record<string, unknown> => {
   if (!input || typeof input !== 'object') return {}
   return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
@@ -969,6 +992,18 @@ const resolveLineItemCount = (record: unknown): number | null => {
   const current = (record as any).lineItemCount ?? (record as any).line_item_count
   if (typeof current !== 'number') return null
   return Number.isFinite(current) ? current : null
+}
+
+const DEFAULT_QUOTE_VALID_FOR_DAYS = 14
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+export function resolveDefaultValidForDays(validUntil: string | null | undefined): number {
+  if (!validUntil) return DEFAULT_QUOTE_VALID_FOR_DAYS
+  const target = new Date(validUntil)
+  if (Number.isNaN(target.getTime())) return DEFAULT_QUOTE_VALID_FOR_DAYS
+  const daysRemaining = Math.ceil((target.getTime() - Date.now()) / MS_PER_DAY)
+  if (daysRemaining < 1) return DEFAULT_QUOTE_VALID_FOR_DAYS
+  return Math.min(daysRemaining, 365)
 }
 
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
@@ -1011,6 +1046,14 @@ function resolveCustomerName(snapshot: CustomerSnapshot | null | undefined, fall
     null
   if (legalName) return legalName
   return fallback ?? null
+}
+
+function resolveStoredCc(metadata: unknown): string[] {
+  if (!metadata || typeof metadata !== 'object') return []
+  const recipients = (metadata as Record<string, unknown>).recipients
+  if (!recipients || typeof recipients !== 'object') return []
+  const cc = (recipients as Record<string, unknown>).cc
+  return Array.isArray(cc) ? cc.filter((entry): entry is string => typeof entry === 'string') : []
 }
 
 function resolveCustomerEmail(snapshot: CustomerSnapshot | null | undefined) {
@@ -1362,6 +1405,7 @@ function ChannelInlineEditor({
               }}
             >
               <LookupSelect
+                defaultOpen
                 value={draft}
                 onChange={setDraft}
                 fetchItems={async (query) => {
@@ -1464,6 +1508,7 @@ function MethodInlineEditor({
   emptyResultsLabel,
   selectedHint,
   icon,
+  note,
   allowClear = true,
 }: {
   label: string
@@ -1480,6 +1525,7 @@ function MethodInlineEditor({
   emptyResultsLabel: string
   selectedHint: (id: string) => string
   icon: React.ReactNode
+  note?: string | null
   allowClear?: boolean
 }) {
   const t = useT()
@@ -1593,6 +1639,7 @@ function MethodInlineEditor({
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {note ? <p className="mt-1 text-xs text-muted-foreground">{note}</p> : null}
           {editing ? (
             <div
               className="mt-2 space-y-2"
@@ -1611,6 +1658,7 @@ function MethodInlineEditor({
               }}
             >
               <LookupSelect
+                defaultOpen
                 value={draft}
                 onChange={setDraft}
                 fetchItems={async (query) => {
@@ -1724,6 +1772,7 @@ function StatusInlineEditor({
   loading,
   saveLabel,
   dictionaryMap,
+  appearance = 'plain',
 }: {
   label: string
   value: string | null | undefined
@@ -1736,6 +1785,7 @@ function StatusInlineEditor({
   loading: boolean
   saveLabel: string
   dictionaryMap: DictionaryMap
+  appearance?: 'plain' | 'dot' | 'icon'
 }) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -1825,7 +1875,6 @@ function StatusInlineEditor({
                 onChange={(next) => setDraft(next ?? undefined)}
                 fetchOptions={fetchStatusOptions}
                 allowInlineCreate={false}
-                allowAppearance
                 manageHref={manageHref}
                 sortOptions="none"
                 labels={labels}
@@ -1862,6 +1911,7 @@ function StatusInlineEditor({
               <DictionaryValue
                 value={value}
                 map={dictionaryMap}
+                appearance={appearance}
                 fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
                 className="text-sm"
                 iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
@@ -1923,9 +1973,14 @@ export default function SalesDocumentDetailPage({
   const [generating, setGenerating] = React.useState(false)
   const [converting, setConverting] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
+  const [switchingToComputedAmounts, setSwitchingToComputedAmounts] = React.useState(false)
   const [sending, setSending] = React.useState(false)
   const [sendOpen, setSendOpen] = React.useState(false)
-  const [validForDays, setValidForDays] = React.useState(14)
+  const [validForDays, setValidForDays] = React.useState(DEFAULT_QUOTE_VALID_FOR_DAYS)
+  const [sendCc, setSendCc] = React.useState<string[]>([])
+  const [sendCcDraft, setSendCcDraft] = React.useState('')
+  const [sendCcError, setSendCcError] = React.useState<string | null>(null)
+  const sendCcFieldId = React.useId()
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [canEditNumber, setCanEditNumber] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
@@ -1953,7 +2008,7 @@ export default function SalesDocumentDetailPage({
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
   const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
   const mutationContextId = React.useMemo(
-    () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
+    () => `record-lock:sales.${kind}:${record?.id ?? 'pending'}`,
     [kind, record?.id],
   )
   const detailsInjectionSpotId = React.useMemo(
@@ -1966,19 +2021,23 @@ export default function SalesDocumentDetailPage({
     formId: string
     resourceKind: string
     resourceId?: string
+    operation?: 'delete'
     retryLastMutation: () => Promise<boolean>
   }>({
     contextId: mutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const detailInjectionContext = React.useMemo(
+  const detailInjectionContext = React.useMemo<SalesDocumentExtensionContext<DocumentRecord>>(
     () => ({
       kind,
+      documentId: record?.id ?? null,
       record,
       formId: mutationContextId,
       resourceKind: `sales.${kind}`,
       resourceId: record?.id ?? undefined,
       retryLastMutation,
+      organizationId: record?.organizationId ?? null,
+      tenantId: record?.tenantId ?? null,
     }),
     [kind, mutationContextId, record, retryLastMutation],
   )
@@ -2806,11 +2865,8 @@ export default function SalesDocumentDetailPage({
   const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
   const customerName = resolveCustomerName(customerSnapshot, record?.customerName ?? record?.customerEntityId ?? null)
-  const metadataEmail =
-    record?.metadata && typeof (record.metadata as Record<string, unknown>).customerEmail === 'string'
-      ? (record.metadata as Record<string, unknown>).customerEmail
-      : null
-  const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
+  const metadataEmail = readDocumentEmail(record?.metadata as Record<string, unknown> | null | undefined)
+  const contactEmail = metadataEmail ?? resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
   const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null, locale)
   const messagePreviewMetadata: Record<string, string> = {}
@@ -2829,6 +2885,8 @@ export default function SalesDocumentDetailPage({
     },
     [t]
   )
+  const amountsAreExternal = kind === 'order' && record?.totalsMode === 'external'
+
   const totalsItems = React.useMemo(() => {
     if (!record) return []
     const items: { key: string; label: string; amount: number | null | undefined; emphasize?: boolean }[] = [
@@ -3522,9 +3580,12 @@ export default function SalesDocumentDetailPage({
       setCustomerError(null)
       try {
         const payload: Record<string, unknown> = { customerEntityId: nextId }
-        if (email && email.trim().length) {
-          payload.metadata = { customerEmail: email.trim() }
-        }
+        const metadataPatch = documentEmailForCustomerChange(
+          record.metadata as Record<string, unknown> | null | undefined,
+          email,
+          changedCustomer,
+        )
+        if (metadataPatch !== undefined) payload.metadata = metadataPatch
         const call = await updateDocument(payload)
         const snapshot = (call.result?.customerSnapshot ?? null) as CustomerSnapshot | null
         const hasSnapshotInResponse =
@@ -3533,19 +3594,17 @@ export default function SalesDocumentDetailPage({
         const resolvedName =
           (call.result?.customerName as string | undefined) ??
           resolveCustomerName(snapshot, selected?.label ?? record.customerName ?? record.customerEntityId ?? null)
-        const resolvedEmail =
-          resolveCustomerEmail(snapshot) ??
-          (call.result?.contactEmail as string | undefined | null) ??
-          email ??
-          selected?.primaryEmail ??
-          null
+        const emailFallback = resolveCustomerEmail(snapshot) ?? email ?? selected?.primaryEmail ?? null
         setRecord((prev) =>
           prev
             ? {
                 ...prev,
                 customerEntityId: nextId ?? null,
+                ...(metadataPatch !== undefined
+                  ? { metadata: (call.result?.metadata as Record<string, unknown> | null | undefined) ?? metadataPatch }
+                  : {}),
                 customerName: nextId ? resolvedName ?? prev.customerName : resolvedName ?? null,
-                contactEmail: resolvedEmail ?? (nextId ? prev.contactEmail ?? null : null),
+                contactEmail: resolveSavedContactEmail(call.result, emailFallback ?? (nextId ? prev.contactEmail : null)),
                 customerSnapshot:
                   hasSnapshotInResponse || changedCustomer
                     ? snapshot
@@ -3585,7 +3644,14 @@ export default function SalesDocumentDetailPage({
       setCustomerSaving(true)
       setCustomerError(null)
       try {
-        const call = await updateDocument({ customerSnapshot: snapshot })
+        const metadataPatch = syncDocumentEmailWithSnapshot(
+          record.metadata as Record<string, unknown> | null | undefined,
+          resolveCustomerEmail(record.customerSnapshot as CustomerSnapshot | null | undefined),
+          resolveCustomerEmail(snapshot),
+        )
+        const call = await updateDocument(
+          metadataPatch === undefined ? { customerSnapshot: snapshot } : { customerSnapshot: snapshot, metadata: metadataPatch },
+        )
         const hasSnapshotInResponse =
           call.result && Object.prototype.hasOwnProperty.call(call.result, 'customerSnapshot')
         const savedSnapshot =
@@ -3594,13 +3660,17 @@ export default function SalesDocumentDetailPage({
           savedSnapshot,
           record.customerName ?? record.customerEntityId ?? null,
         )
-        const resolvedEmail =
-          resolveCustomerEmail(savedSnapshot) ??
-          (typeof call.result?.contactEmail === 'string' ? call.result.contactEmail : record.contactEmail ?? null)
+        const resolvedEmail = resolveSavedContactEmail(
+          call.result,
+          resolveCustomerEmail(savedSnapshot) ?? record.contactEmail,
+        )
         setRecord((prev) =>
           prev
             ? {
                 ...prev,
+                ...(metadataPatch !== undefined
+                  ? { metadata: (call.result?.metadata as Record<string, unknown> | null | undefined) ?? metadataPatch }
+                  : {}),
                 customerSnapshot: savedSnapshot ?? null,
                 customerName: resolvedName,
                 contactEmail: resolvedEmail ?? null,
@@ -3719,55 +3789,117 @@ export default function SalesDocumentDetailPage({
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      await runMutationWithContext(async () => {
-        const call = await apiCallOrThrow<{ orderId?: string }>(
-          '/api/sales/quotes/convert',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...buildOptimisticLockHeader(record.updatedAt),
+      const orderId = await runMutation({
+        operation: async () => {
+          const call = await apiCallOrThrow<{ orderId?: string }>(
+            '/api/sales/quotes/convert',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...buildOptimisticLockHeader(record.updatedAt),
+              },
+              body: JSON.stringify({ quoteId: record.id }),
             },
-            body: JSON.stringify({ quoteId: record.id }),
-          },
-          { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
-        )
-        const orderId = call.result?.orderId ?? record.id
-        flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
-        router.replace(`/backend/sales/orders/${orderId}`)
-      }, { quoteId: record.id })
+            { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+          )
+          return call.result?.orderId ?? record.id
+        },
+        context: { ...detailInjectionContext, operation: 'delete' },
+        mutationPayload: { quoteId: record.id },
+      })
+      flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
+      router.replace(`/backend/sales/orders/${orderId}`)
     } catch (err) {
       logger.error('sales.documents.convert', { err })
-      if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
-        flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
-      }
+      handleQuoteActionError(err, t, () => setReloadKey((prev) => prev + 1),
+        t('sales.documents.detail.convertError', 'Failed to convert quote.'))
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, runMutationWithContext, t])
+  }, [detailInjectionContext, kind, record, router, runMutation, t])
 
   const handleSendQuote = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
+    const committedCc = commitPendingCc(sendCc, sendCcDraft)
+    if (!committedCc.ok) {
+      setSendCcError(
+        committedCc.reason === 'limit'
+          ? t('sales.quotes.send.ccLimit', 'You can add up to {limit} CC addresses', { limit: QUOTE_SEND_CC_LIMIT })
+          : t('sales.quotes.send.ccInvalid', 'Enter a valid e-mail address'),
+      )
+      return
+    }
+    const cc = committedCc.cc
+    setSendCc(cc)
+    setSendCcDraft('')
+    setSendCcError(null)
     setSending(true)
     try {
       await runMutationWithContext(async () => {
         await apiCallOrThrow('/api/sales/quotes/send', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quoteId: record.id, validForDays }),
-        })
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildOptimisticLockHeader(record.updatedAt),
+          },
+          body: JSON.stringify({ quoteId: record.id, validForDays, cc }),
+        }, { errorMessage: t('sales.quotes.send.failed', 'Failed to send quote.') })
         flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
         setSendOpen(false)
         const updated = await fetchDocumentByKind(record.id, 'quote')
         if (updated) setRecord(updated)
-      }, { quoteId: record.id, validForDays })
+      }, { quoteId: record.id, validForDays, cc })
     } catch (err) {
       logger.error('sales.quotes.send', { err })
-      flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
+      handleQuoteActionError(err, t, () => setReloadKey((prev) => prev + 1),
+        t('sales.quotes.send.failed', 'Failed to send quote.'))
     } finally {
       setSending(false)
     }
-  }, [fetchDocumentByKind, kind, record, runMutationWithContext, t, validForDays])
+  }, [fetchDocumentByKind, kind, record, runMutationWithContext, sendCc, sendCcDraft, t, validForDays])
+
+  const handleSwitchToComputedAmounts = React.useCallback(async () => {
+    if (!record || kind !== 'order') return
+    const ok = await confirm({
+      title: t(
+        'sales.documents.amountsSwitchConfirm',
+        'Recompute this order\u2019s amounts from its lines? The totals supplied by the source system will be replaced and cannot be restored from here.',
+      ),
+      variant: 'default',
+    })
+    if (!ok) return
+    setSwitchingToComputedAmounts(true)
+    try {
+      await runMutationWithContext(async () => {
+        await withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
+          apiCallOrThrow('/api/sales/orders', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: record.id, totalsMode: 'computed' }),
+          }),
+        )
+      }, { id: record.id, totalsMode: 'computed' })
+      flash(t('sales.documents.amountsSwitchDone', 'Amounts are now computed from the lines.'), 'success')
+      await refreshDocumentTotals()
+    } catch (err) {
+      logger.error('sales.documents.amounts.switchToComputed', { err })
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'sales',
+          code: 'sales.amounts_switch_to_computed_failed',
+          attributes: { orderId: record.id },
+        })
+      } catch (reportFailure) {
+        logger.warn('sales.documents.amounts.switchToComputed.reportFailed', { err: reportFailure })
+      }
+      if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
+        flash(t('sales.documents.amountsSwitchFailed', 'Could not switch to computed amounts.'), 'error')
+      }
+    } finally {
+      setSwitchingToComputedAmounts(false)
+    }
+  }, [confirm, kind, record, refreshDocumentTotals, runMutationWithContext, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!record) return
@@ -3779,8 +3911,8 @@ export default function SalesDocumentDetailPage({
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
     try {
-      await runMutationWithContext(async () => {
-        await withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), () =>
           apiCallOrThrow(endpoint, {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
@@ -3788,8 +3920,10 @@ export default function SalesDocumentDetailPage({
           }, {
             errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.'),
           }),
-        )
-      }, { id: record.id })
+        ),
+        context: { ...detailInjectionContext, operation: 'delete' },
+        mutationPayload: { id: record.id },
+      })
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
@@ -3800,7 +3934,7 @@ export default function SalesDocumentDetailPage({
       }
     }
     setDeleting(false)
-  }, [kind, record, router, runMutationWithContext, t])
+  }, [detailInjectionContext, kind, record, router, runMutation, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
@@ -3827,6 +3961,14 @@ export default function SalesDocumentDetailPage({
               t('sales.documents.detail.shippingMethod.selected', 'Selected shipping method: {{id}}', { id })
             }
             icon={<Truck className="h-5 w-5 text-muted-foreground" />}
+            note={
+              amountsAreExternal
+                ? t(
+                    'sales.documents.amountsExternalMethodNote',
+                    'The method is recorded, but no charge is added \u2014 this order\u2019s totals come from the source system.',
+                  )
+                : null
+            }
           />
         ),
       },
@@ -3853,6 +3995,14 @@ export default function SalesDocumentDetailPage({
               t('sales.documents.detail.paymentMethod.selected', 'Selected payment method: {{id}}', { id })
             }
             icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
+            note={
+              amountsAreExternal
+                ? t(
+                    'sales.documents.amountsExternalMethodNote',
+                    'The method is recorded, but no charge is added \u2014 this order\u2019s totals come from the source system.',
+                  )
+                : null
+            }
           />
         ),
       },
@@ -3864,17 +4014,16 @@ export default function SalesDocumentDetailPage({
         label: t('sales.documents.detail.expectedDeliveryAt.label', 'Expected delivery'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.expectedDeliveryAt.placeholder', 'Add expected delivery date'),
-        value: record?.expectedDeliveryAt
-          ? new Date(record.expectedDeliveryAt).toISOString().slice(0, 10)
-          : null,
+        // UTC, not local: this editor submits a bare `yyyy-MM-dd`, which `z.coerce.date()`
+        // stores as UTC midnight. Reading it back locally names the previous day west of UTC.
+        value: toUtcDateInputValue(record?.expectedDeliveryAt),
         onSave: handleUpdateExpectedDeliveryAt,
         inputType: 'date',
         renderDisplay: (params) => {
           const { value, emptyLabel } = params
-          if (value && value.length) {
-            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString(locale)}</span>
-          }
-          return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+          return (
+            <span className="text-sm text-muted-foreground">{formatDisplayDate(value, locale) ?? emptyLabel}</span>
+          )
         },
       })
     }
@@ -3915,10 +4064,10 @@ export default function SalesDocumentDetailPage({
         render: () => (
           <SectionCard title={t('sales.documents.detail.timestamps', 'Timestamps')} muted>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.created', 'Created')}: {record?.createdAt ?? '—'}
+              {t('sales.documents.detail.created', 'Created')}: {formatDisplayDateTime(record?.createdAt, locale) ?? '—'}
             </p>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.updated', 'Updated')}: {record?.updatedAt ?? '—'}
+              {t('sales.documents.detail.updated', 'Updated')}: {formatDisplayDateTime(record?.updatedAt, locale) ?? '—'}
             </p>
           </SectionCard>
         ),
@@ -3926,6 +4075,7 @@ export default function SalesDocumentDetailPage({
     )
     return fields
   }, [
+    amountsAreExternal,
     handleUpdateComment,
     handleUpdateCustomerReference,
     handleUpdateExpectedDeliveryAt,
@@ -4243,6 +4393,9 @@ export default function SalesDocumentDetailPage({
     if (activeTab === 'items') {
       return (
         <SalesDocumentItemsSection
+          // Remount on a mode flip: the switch rewrites every line server-side, and the
+          // section loads its lines only once per `documentId`, which does not change.
+          key={`items:${amountsAreExternal ? 'external' : 'computed'}`}
           documentId={record.id}
           kind={kind}
           currencyCode={record.currencyCode ?? null}
@@ -4251,6 +4404,7 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
           onItemsChange={(items) => setHasItems(items.length > 0)}
+          amountsReadOnly={amountsAreExternal}
         />
       )
     }
@@ -4265,7 +4419,7 @@ export default function SalesDocumentDetailPage({
         )
       }
       return (
-        <>
+        <div className="space-y-4">
           <SalesShipmentsSection
             orderId={record.id}
             currencyCode={record.currencyCode ?? null}
@@ -4282,7 +4436,7 @@ export default function SalesDocumentDetailPage({
             data={record}
             onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
           />
-        </>
+        </div>
       )
     }
     if (activeTab === 'returns') {
@@ -4309,6 +4463,7 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
           onRowsChange={setAdjustmentRows}
+          amountsReadOnly={amountsAreExternal}
         />
       )
     }
@@ -4678,11 +4833,17 @@ export default function SalesDocumentDetailPage({
           ) : undefined}
           menuActions={kind === 'quote' ? ([
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
-            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
+            { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => { setValidForDays(resolveDefaultValidForDays(record.validUntil)); setSendCc(resolveStoredCc(record.metadata)); setSendCcDraft(''); setSendCcError(null); setSendOpen(true) }, disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : undefined}
           onDelete={() => void handleDelete()}
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
+        />
+        <SalesDocumentExtensionSpot
+          surface="stage-bar"
+          context={detailInjectionContext}
+          data={record}
+          onDataChange={setRecord}
         />
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">
@@ -4707,28 +4868,22 @@ export default function SalesDocumentDetailPage({
           <InlineTextEditor
             key="date"
             label={t('sales.documents.detail.date', 'Date')}
-            value={
-              record?.placedAt
-                ? new Date(record.placedAt).toISOString().slice(0, 10)
-                : record?.createdAt
-                  ? new Date(record.createdAt).toISOString().slice(0, 10)
-                  : null
-            }
+            // Two readings on purpose. `placedAt` is settable from this date input, so it is
+            // stored as UTC midnight and must be read back in UTC or the field flips a day west
+            // of UTC. `createdAt` is only ever stamped from a clock — a real instant, whose local
+            // day is the one to show.
+            value={toUtcDateInputValue(record?.placedAt) ?? toDateInputValue(record?.createdAt)}
             emptyLabel={t('sales.documents.detail.empty', 'Not set')}
             onSave={handleUpdatePlacedAt}
             inputType="date"
             activateOnClick
             containerClassName="h-full"
             saveLabel={t('customers.people.detail.inline.saveShortcut')}
-            renderDisplay={({ value, emptyLabel }) =>
-              value && value.length ? (
-                <span className="text-sm text-muted-foreground">
-                  {new Date(value).toLocaleDateString(locale)}
-                </span>
-              ) : (
-                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-              )
-            }
+            renderDisplay={({ value, emptyLabel }) => (
+              <span className="text-sm text-muted-foreground">
+                {formatDisplayDate(value, locale) ?? emptyLabel}
+              </span>
+            )}
           />
         </div>
 
@@ -4778,6 +4933,7 @@ export default function SalesDocumentDetailPage({
                   loading={statusLoading}
                   saveLabel={saveShortcutLabel}
                   dictionaryMap={statusDictionaryMap}
+                  appearance="dot"
                 />
               )
             }
@@ -4897,6 +5053,30 @@ export default function SalesDocumentDetailPage({
           title={t('sales.documents.detail.totals.title', 'Totals')}
           currency={record.currencyCode ?? null}
           items={totalsItems}
+          sourceBadge={
+            amountsAreExternal
+              ? {
+                  label: t('sales.documents.amountsExternal', 'Amounts from source'),
+                  hint: t(
+                    'sales.documents.amountsExternalHint',
+                    'Totals on this document come from an external system and are stored as supplied.',
+                  ),
+                }
+              : null
+          }
+          footerAction={
+            amountsAreExternal ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={switchingToComputedAmounts}
+                onClick={handleSwitchToComputedAmounts}
+              >
+                {t('sales.documents.amountsSwitchToComputed', 'Switch to computed amounts')}
+              </Button>
+            ) : null
+          }
         />
 
         <div className="space-y-4" ref={detailSectionRef}>
@@ -4910,6 +5090,12 @@ export default function SalesDocumentDetailPage({
           />
         </div>
 
+        <SalesDocumentExtensionSpot
+          surface="closure"
+          context={detailInjectionContext}
+          data={record}
+          onDataChange={setRecord}
+        />
         <div className="space-y-4">
           <CustomDataSection
             title={t('sales.documents.detail.customData', 'Custom data')}
@@ -4934,15 +5120,17 @@ export default function SalesDocumentDetailPage({
 
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent
+          onKeyDownCapture={(event) => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              event.stopPropagation()
+              if (!sending) void handleSendQuote()
+            }
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
               setSendOpen(false)
-              return
-            }
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault()
-              if (!sending) void handleSendQuote()
             }
           }}
         >
@@ -4952,6 +5140,33 @@ export default function SalesDocumentDetailPage({
               {t('sales.quotes.send.description', 'Email will be sent to:')} {contactEmail ?? t('sales.quotes.send.noEmail', 'No email')}
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor={sendCcFieldId}>{t('sales.quotes.send.cc', 'CC')}</Label>
+            <TagInput
+              id={sendCcFieldId}
+              value={sendCc}
+              onChange={(next) => {
+                setSendCc(next)
+                setSendCcError(null)
+              }}
+              inputValue={sendCcDraft}
+              onInputValueChange={(text) => {
+                setSendCcDraft(text)
+                setSendCcError(null)
+              }}
+              maxTags={QUOTE_SEND_CC_LIMIT}
+              disabled={sending}
+              aria-invalid={sendCcError ? true : undefined}
+              placeholder={t('sales.quotes.send.ccPlaceholder', 'Add an e-mail and press Enter')}
+              validate={(tag) => (isQuoteCcAddress(tag) ? true : t('sales.quotes.send.ccInvalid', 'Enter a valid e-mail address'))}
+              removeTagLabel={(tag) => t('sales.quotes.send.ccRemove', 'Remove {email}', { email: tag })}
+            />
+            {sendCcError ? (
+              <p className="text-xs text-status-error-text" role="alert">
+                {sendCcError}
+              </p>
+            ) : null}
+          </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">{t('sales.quotes.send.validForDays', 'Valid for (days)')}</label>
             <Input

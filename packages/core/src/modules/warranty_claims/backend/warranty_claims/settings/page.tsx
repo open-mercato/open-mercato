@@ -22,6 +22,7 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
@@ -84,6 +85,7 @@ type GeneralSettingsResult = {
   slaAtRiskThresholdPct: number
   autoApproveEnabled: boolean
   autoApproveMaxAmount: number | null
+  autoApproveMaxAmountExact?: string | null
   autoApproveCurrencyCode: string | null
   autoApproveRequireInWarranty: boolean
   defaultWarrantyMonths: number | null
@@ -384,7 +386,7 @@ function buildGeneralFormValues(settings: GeneralSettingsResult): GeneralSetting
     slaPauseOnInfoRequested: settings.slaPauseOnInfoRequested,
     slaAtRiskThresholdPct: String(settings.slaAtRiskThresholdPct),
     autoApproveEnabled: settings.autoApproveEnabled,
-    autoApproveMaxAmount: settings.autoApproveMaxAmount === null ? '' : String(settings.autoApproveMaxAmount),
+    autoApproveMaxAmount: settings.autoApproveMaxAmount === null ? '' : settings.autoApproveMaxAmountExact ?? String(settings.autoApproveMaxAmount),
     autoApproveCurrencyCode: settings.autoApproveCurrencyCode ?? '',
     autoApproveRequireInWarranty: settings.autoApproveRequireInWarranty,
     defaultWarrantyMonths: settings.defaultWarrantyMonths === null ? '' : String(settings.defaultWarrantyMonths),
@@ -1006,6 +1008,7 @@ function GeneralSettingsSubsection({
 export default function WarrantyClaimSettingsPage() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [entriesByKind, setEntriesByKind] = React.useState<Record<WarrantyDictionaryKind, DictionaryTableEntry[]>>({
     'warranty-claim-fault-code': [],
@@ -1198,9 +1201,9 @@ export default function WarrantyClaimSettingsPage() {
   ), [])
 
   const loadEscalationStaffOptions = React.useCallback(async (query?: string): Promise<ComboboxOption[]> => {
-    const page = await fetchAssignableStaffMembersPage(query ?? '', { pageSize: 24 })
+    const page = await fetchAssignableStaffMembersPage(query ?? '', { pageSize: 24, activeOrgId })
     return page.items.map((member) => ({ value: member.userId, label: staffOptionLabel(member) }))
-  }, [staffOptionLabel])
+  }, [activeOrgId, staffOptionLabel])
 
   const resolveStaffUserLabel = React.useCallback(async (userId: string): Promise<string> => {
     const unknownUserLabel = t('warranty_claims.detail.unknownUser')
@@ -1330,7 +1333,7 @@ export default function WarrantyClaimSettingsPage() {
       slaPauseOnInfoRequested: generalForm.slaPauseOnInfoRequested,
       slaAtRiskThresholdPct,
       autoApproveEnabled: generalForm.autoApproveEnabled,
-      autoApproveMaxAmount,
+      autoApproveMaxAmount: amountText.length ? amountText : null,
       autoApproveCurrencyCode: currencyCode,
       autoApproveRequireInWarranty: generalForm.autoApproveRequireInWarranty,
       defaultWarrantyMonths,

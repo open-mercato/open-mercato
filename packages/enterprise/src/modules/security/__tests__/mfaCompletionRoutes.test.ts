@@ -10,6 +10,8 @@ describe('security module mfa completion route registration', () => {
     expect(isMfaPendingAccessAllowed('GET', '/api/security/mfa/verify')).toBe(false)
     expect(isMfaPendingAccessAllowed('POST', '/api/customers/people')).toBe(false)
     expect(isMfaPendingAccessAllowed('POST', '/api/security/mfa/methods')).toBe(false)
+    expect(isMfaPendingAccessAllowed('POST', '/api/security/mfa/provider/passkey')).toBe(false)
+    expect(isMfaPendingAccessAllowed('PUT', '/api/security/mfa/provider/passkey')).toBe(false)
 
     const paths = listMfaPendingAccessRoutes().map((route) => route.path)
     expect(paths).toEqual([

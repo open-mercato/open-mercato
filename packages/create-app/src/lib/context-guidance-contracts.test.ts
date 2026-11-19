@@ -93,6 +93,10 @@ test('progressive data references pin encryption, atomicity, undo, and optimisti
   assert.match(sensitiveData, /export default defaultEncryptionMaps/)
   assert.match(sensitiveData, /factory QueryEngine owns list decryption/)
   assert.match(sensitiveData, /no `findAndCount` override key/)
+  assert.match(sensitiveData, /@open-mercato\/shared\/lib\/encryption\/migration-backfill/)
+  assert.match(sensitiveData, /buildEncryptionMapBackfillSql/)
+  assert.match(sensitiveData, /module that may already be deployed, ship a backfill migration/)
+  assert.match(sensitiveData, /rotate-encryption-key --tenant <id>` without `--old-key`/)
 
   const integrity = readAgentic(
     'shared/ai/skills/om-data-model-design/references/integrity-and-concurrency.md',

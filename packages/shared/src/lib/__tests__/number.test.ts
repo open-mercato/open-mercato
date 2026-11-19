@@ -1,4 +1,11 @@
-import { parseNumberWithDefault } from '../number'
+import {
+  formatLocaleDecimalInput,
+  formatLocaleNumberInput,
+  parseLocaleDecimal,
+  parseLocaleNumber,
+  parseNumberWithDefault,
+  resolveLocaleNumberSeparators,
+} from '../number'
 
 describe('parseNumberWithDefault', () => {
   it('returns the fallback when raw is missing or blank', () => {
@@ -29,5 +36,150 @@ describe('parseNumberWithDefault', () => {
 
   it('has no min by default, so negative values are accepted', () => {
     expect(parseNumberWithDefault('-5', 0)).toBe(-5)
+  })
+})
+
+describe('resolveLocaleNumberSeparators', () => {
+  it('derives the separators from Intl rather than assuming a comma/dot pair', () => {
+    expect(resolveLocaleNumberSeparators('en-US')).toEqual({ group: ',', decimal: '.' })
+    expect(resolveLocaleNumberSeparators('de-DE')).toEqual({ group: '.', decimal: ',' })
+    expect(resolveLocaleNumberSeparators('pl-PL').decimal).toBe(',')
+    expect(resolveLocaleNumberSeparators('fr-FR').decimal).toBe(',')
+  })
+
+  it('reports a whitespace group separator for locales that group with spaces', () => {
+    expect(resolveLocaleNumberSeparators('fr-FR').group).toMatch(/^\s$/)
+    expect(resolveLocaleNumberSeparators('pl-PL').group).toMatch(/^\s$/)
+  })
+})
+
+describe('parseLocaleNumber', () => {
+  it('accepts the locale decimal separator the UI displays (issue #5552)', () => {
+    expect(parseLocaleNumber('110,70', 'pl-PL')).toBe(110.7)
+    expect(parseLocaleNumber('2,5', 'pl-PL')).toBe(2.5)
+    expect(parseLocaleNumber('110,70', 'de-DE')).toBe(110.7)
+    expect(parseLocaleNumber('110,70', 'fr-FR')).toBe(110.7)
+    expect(parseLocaleNumber('110.70', 'en-US')).toBe(110.7)
+  })
+
+  it('keeps accepting a dot under a comma-decimal locale, so the old input still works', () => {
+    expect(parseLocaleNumber('110.70', 'pl-PL')).toBe(110.7)
+    expect(parseLocaleNumber('2.5', 'de-DE')).toBe(2.5)
+    expect(parseLocaleNumber('0.01', 'fr-FR')).toBe(0.01)
+  })
+
+  it('parses grouped input, including whitespace and apostrophe group separators', () => {
+    expect(parseLocaleNumber('1\u00A0234,56', 'pl-PL')).toBe(1234.56)
+    expect(parseLocaleNumber('1\u202F234,56', 'pl-PL')).toBe(1234.56)
+    expect(parseLocaleNumber('1 234,56', 'fr-FR')).toBe(1234.56)
+    expect(parseLocaleNumber('1.234.567,89', 'de-DE')).toBe(1234567.89)
+    expect(parseLocaleNumber('1,234,567.89', 'en-US')).toBe(1234567.89)
+    expect(parseLocaleNumber('1’234.5', 'de-CH')).toBe(1234.5)
+  })
+
+  it('reads a lone separator as the decimal point, never as grouping', () => {
+    // A dot-grouping locale reading `1.500` as 1500 is a silent 1000x on a money field,
+    // and three- and four-decimal unit prices are ordinary here.
+    expect(parseLocaleNumber('1.500', 'de-DE')).toBe(1.5)
+    expect(parseLocaleNumber('2.500', 'es')).toBe(2.5)
+    expect(parseLocaleNumber('1.23', 'de-DE')).toBe(1.23)
+    expect(parseLocaleNumber('1,500', 'en-US')).toBe(1.5)
+    expect(parseLocaleNumber('1,23', 'en-US')).toBe(1.23)
+  })
+
+  it('recognizes grouping only where it is unambiguous', () => {
+    expect(parseLocaleNumber('1.234.567', 'de-DE')).toBe(1234567)
+    expect(parseLocaleNumber('1,234,567', 'en-US')).toBe(1234567)
+    expect(parseLocaleNumber('1 234', 'de-DE')).toBe(1234)
+    expect(parseLocaleNumber('1’234', 'de-CH')).toBe(1234)
+  })
+
+  it('does not absorb whitespace or apostrophes outside a valid grouping position', () => {
+    expect(parseLocaleNumber('1 2', 'en-US')).toBeNull()
+    expect(parseLocaleNumber("1'2", 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber('1 2345', 'fr-FR')).toBeNull()
+  })
+
+  it('handles signs, blank fractions and exponent notation', () => {
+    expect(parseLocaleNumber('-110,70', 'pl-PL')).toBe(-110.7)
+    expect(parseLocaleNumber('−110,70', 'pl-PL')).toBe(-110.7)
+    expect(parseLocaleNumber('+7', 'pl-PL')).toBe(7)
+    expect(parseLocaleNumber('110,', 'pl-PL')).toBe(110)
+    expect(parseLocaleNumber(',5', 'pl-PL')).toBe(0.5)
+    expect(parseLocaleNumber('1e3', 'en-US')).toBe(1000)
+    expect(parseLocaleNumber('0', 'pl-PL')).toBe(0)
+  })
+
+  it('returns null instead of a silent zero for unparseable input', () => {
+    expect(parseLocaleNumber('', 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber('   ', 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber(null, 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber(undefined, 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber('abc', 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber('-', 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber('110,70,5', 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber('1.2.3', 'en-US')).toBeNull()
+    expect(parseLocaleNumber('12,34 PLN', 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber('1,23,456', 'en-US')).toBeNull()
+  })
+
+  it('falls back to comma-group/dot-decimal when the locale tag is unusable', () => {
+    expect(parseLocaleNumber('1,234.5', 'not a locale')).toBe(1234.5)
+    expect(parseLocaleNumber('110.70', undefined)).toBe(110.7)
+  })
+})
+
+describe('parseLocaleDecimal', () => {
+  it('keeps every digit a user typed', () => {
+    expect(parseLocaleDecimal('0,000000000000000000000001', 'pl-PL')).toBe('0.000000000000000000000001')
+    expect(parseLocaleDecimal('1 234,567891234567891234', 'pl-PL')).toBe('1234.567891234567891234')
+    expect(parseLocaleDecimal('12345678901234567890.5', 'en-US')).toBe('12345678901234567890.5')
+  })
+
+  it('normalizes padding and rejects garbage', () => {
+    expect(parseLocaleDecimal('40.0000', 'en-US')).toBe('40')
+    expect(parseLocaleDecimal('', 'en-US')).toBeNull()
+    expect(parseLocaleDecimal('abc', 'en-US')).toBeNull()
+    expect(parseLocaleDecimal('1 2', 'en-US')).toBeNull()
+  })
+})
+
+describe('formatLocaleNumberInput (issue #6309)', () => {
+  it('uses the locale decimal separator instead of the dot String() always emits', () => {
+    expect(formatLocaleNumberInput(2.5, 'pl-PL')).toBe('2,5')
+    expect(formatLocaleNumberInput(-2.5, 'pl-PL')).toBe('-2,5')
+    expect(formatLocaleNumberInput(1234.56, 'pl-PL')).toBe('1234,56')
+    expect(formatLocaleNumberInput(2.5, 'en-US')).toBe('2.5')
+  })
+
+  it('leaves integers untouched and applies no grouping', () => {
+    expect(formatLocaleNumberInput(1500, 'pl-PL')).toBe('1500')
+    expect(formatLocaleNumberInput(1500, 'en-US')).toBe('1500')
+    expect(formatLocaleNumberInput(0, 'pl-PL')).toBe('0')
+  })
+
+  it('round-trips through parseLocaleNumber', () => {
+    for (const value of [2.5, -0.125, 1234.56, 0.1 + 0.2, 7]) {
+      for (const locale of ['pl-PL', 'de-DE', 'en-US', 'fr-FR']) {
+        expect(parseLocaleNumber(formatLocaleNumberInput(value, locale), locale)).toBe(value)
+      }
+    }
+  })
+})
+
+describe('formatLocaleDecimalInput', () => {
+  it('redisplays an exact decimal with the locale separator and every digit', () => {
+    expect(formatLocaleDecimalInput('1234.567891234567891234', 'pl-PL')).toBe('1234,567891234567891234')
+    expect(formatLocaleDecimalInput('-0.000000000000000000000001', 'de-DE')).toBe('-0,000000000000000000000001')
+    expect(formatLocaleDecimalInput('40.0000', 'pl-PL')).toBe('40')
+    expect(formatLocaleDecimalInput(2.5, 'en-US')).toBe('2.5')
+  })
+
+  it('round-trips through parseLocaleDecimal', () => {
+    for (const value of ['1234.567891234567891234', '-0.125', '7', '0.000000000000000000000001']) {
+      for (const locale of ['pl-PL', 'de-DE', 'en-US', 'fr-FR']) {
+        expect(parseLocaleDecimal(formatLocaleDecimalInput(value, locale), locale)).toBe(value)
+      }
+    }
   })
 })

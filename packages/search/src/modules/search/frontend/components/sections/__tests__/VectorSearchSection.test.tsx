@@ -1,15 +1,39 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import {
   VectorSearchSection,
   type VectorSearchSectionProps,
 } from '../VectorSearchSection'
+import polishTranslations from '../../../../i18n/pl.json'
 
 jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
   useAppEvent: jest.fn(),
+}))
+
+const readApiResultOrThrowMock = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+}))
+
+const flashMock = jest.fn()
+
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value(this: HTMLDialogElement) { this.setAttribute('open', '') },
+  })
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value(this: HTMLDialogElement) { this.removeAttribute('open') },
+  })
+})
+
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
+  flash: (...args: unknown[]) => flashMock(...args),
 }))
 
 const embeddingSettings: NonNullable<VectorSearchSectionProps['embeddingSettings']> = {
@@ -115,6 +139,165 @@ describe('VectorSearchSection provider controls', () => {
   })
 })
 
+describe('VectorSearchSection confirmation keyboard controls', () => {
+  beforeEach(() => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockResolvedValue(null)
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: jest.fn(() => new Promise(() => undefined)),
+    })
+  })
+
+  it('cancels reindex with Escape without sending a mutation and can reopen', async () => {
+    renderSection()
+    fireEvent.click(screen.getByRole('tab', { name: 'Index Management' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+  })
+
+  it.each(['ctrlKey', 'metaKey'])('confirms reindex once with %s+Enter', async (modifier) => {
+    renderSection()
+    fireEvent.click(screen.getByRole('tab', { name: 'Index Management' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Enter', [modifier]: true })
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1))
+    expect(readApiResultOrThrowMock.mock.calls[0][0]).toBe('/api/search/embeddings/reindex')
+  })
+
+  it('cancels a provider change with Escape without persisting it', async () => {
+    renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Confirm' }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['ctrlKey', 'metaKey'])('confirms a provider change once with %s+Enter', async (modifier) => {
+    renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Confirm' }), { key: 'Enter', [modifier]: true })
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1))
+    expect(readApiResultOrThrowMock.mock.calls[0][0]).toBe('/api/search/embeddings')
+  })
+})
+
+describe('VectorSearchSection Ollama base URL', () => {
+  beforeEach(() => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockResolvedValue(null)
+    flashMock.mockReset()
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: jest.fn(() => new Promise(() => undefined)),
+    })
+  })
+
+  const savedEmbeddingConfigs = () =>
+    readApiResultOrThrowMock.mock.calls
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as { embeddingConfig?: Record<string, unknown> })
+      .map((body) => body.embeddingConfig)
+      .filter(Boolean)
+
+  it('shows a base URL field only for the Ollama provider', () => {
+    renderSection()
+
+    expect(screen.queryByLabelText('Base URL')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+
+    const input = screen.getByLabelText('Base URL')
+    expect(input).toHaveProperty('value', '')
+    expect(screen.getByText('Leave empty to use the OLLAMA_BASE_URL environment variable.')).toBeTruthy()
+  })
+
+  it('sends the typed base URL with the Ollama embedding config', async () => {
+    renderSection({ ...embeddingSettings, embeddingConfig: null })
+
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: ' http://ollama.internal:11434 ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => expect(savedEmbeddingConfigs()).toHaveLength(1))
+    expect(savedEmbeddingConfigs()[0]).toMatchObject({
+      providerId: 'ollama',
+      model: 'nomic-embed-text',
+      baseUrl: 'http://ollama.internal:11434',
+    })
+  })
+
+  it('pre-fills a saved base URL and keeps it when another setting is applied', async () => {
+    renderSection({
+      ...embeddingSettings,
+      embeddingConfig: {
+        providerId: 'ollama',
+        model: 'nomic-embed-text',
+        dimension: 768,
+        baseUrl: 'http://ollama.internal:11434',
+        updatedAt: '2026-07-26T12:00:00.000Z',
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    expect(screen.getByLabelText('Base URL')).toHaveProperty('value', 'http://ollama.internal:11434')
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'http://ollama-2.internal:11434' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(savedEmbeddingConfigs()).toHaveLength(1))
+    expect(savedEmbeddingConfigs()[0]).toMatchObject({ providerId: 'ollama', baseUrl: 'http://ollama-2.internal:11434' })
+  })
+
+  it('omits the base URL when the field is cleared', async () => {
+    renderSection({
+      ...embeddingSettings,
+      embeddingConfig: {
+        providerId: 'ollama',
+        model: 'nomic-embed-text',
+        dimension: 768,
+        baseUrl: 'http://ollama.internal:11434',
+        updatedAt: '2026-07-26T12:00:00.000Z',
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(savedEmbeddingConfigs()).toHaveLength(1))
+    expect(savedEmbeddingConfigs()[0]).not.toHaveProperty('baseUrl')
+  })
+
+  it('shows the server message when the base URL is rejected', async () => {
+    readApiResultOrThrowMock.mockRejectedValue(new Error('Ollama base URL is not allowed.'))
+    renderSection({ ...embeddingSettings, embeddingConfig: null })
+
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'http://10.0.0.5:11434' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Ollama base URL is not allowed.', 'error'))
+    expect(flashMock).not.toHaveBeenCalledWith('Embedding provider saved', 'success')
+    expect(screen.getByLabelText('Base URL')).toHaveProperty('value', 'http://10.0.0.5:11434')
+  })
+
+  it('falls back to a generic message when the rejection carries none', async () => {
+    readApiResultOrThrowMock.mockRejectedValue(new Error(''))
+    renderSection({ ...embeddingSettings, embeddingConfig: null })
+
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Failed to save settings', 'error'))
+  })
+})
+
 describe('VectorSearchSection store availability', () => {
   beforeEach(() => {
     Object.defineProperty(globalThis, 'fetch', {
@@ -146,5 +329,44 @@ describe('VectorSearchSection store availability', () => {
     })
 
     expect(screen.queryByText('Vector store is not available')).toBeNull()
+  })
+})
+
+describe('VectorSearchSection Polish provider availability', () => {
+  beforeEach(() => {
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: jest.fn(() => new Promise(() => undefined)),
+    })
+  })
+
+  it.each([
+    ['openai', 'Set OPENAI_API_KEY to enable OpenAI', 'Ustaw OPENAI_API_KEY, aby włączyć OpenAI'],
+    ['ollama', 'Ollama not reachable at http://localhost:11434', 'Ollama jest niedostępna pod adresem http://localhost:11434'],
+    ['ollama', 'Ollama not reachable at http://localhost:11434 (timed out)', 'Ollama nie odpowiedziała pod adresem http://localhost:11434 (przekroczono limit czasu)'],
+    ['ollama', 'Ollama responded 503 at http://localhost:11434', 'Ollama zwróciła status 503 pod adresem http://localhost:11434'],
+  ] as const)('preserves server-localized %s probe messages without changing provider availability', (providerId, reason, translatedReason) => {
+    render(
+      <I18nProvider locale="pl" dict={polishTranslations}>
+        <VectorSearchSection
+          embeddingSettings={{
+            ...embeddingSettings,
+            embeddingConfig: null,
+            configuredProviders: [],
+            providerAvailability: [{ providerId, available: false, reason: translatedReason }],
+          }}
+          embeddingLoading={false}
+          vectorStoreConfig={vectorStoreConfig}
+          vectorStoreConfigLoading={false}
+          vectorReindexLock={null}
+          onEmbeddingSettingsUpdate={jest.fn()}
+          onRefreshEmbeddings={jest.fn().mockResolvedValue(undefined)}
+        />
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText(translatedReason)).toBeTruthy()
+    expect(screen.queryByText(reason)).toBeNull()
+    expect(screen.getByText(translatedReason).closest('button')).toHaveProperty('disabled', true)
   })
 })

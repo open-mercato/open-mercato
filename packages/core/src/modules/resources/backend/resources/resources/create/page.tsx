@@ -8,6 +8,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { RESOURCES_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/resources/lib/resourceCustomFields'
+import { normalizeCapacityInput } from '@open-mercato/core/modules/resources/lib/capacityUnits'
 import { ResourcesResourceForm, useResourcesResourceFormConfig } from '@open-mercato/core/modules/resources/components/ResourceCrudForm'
 
 export default function ResourcesResourceCreatePage() {
@@ -25,7 +26,7 @@ export default function ResourcesResourceCreatePage() {
       : RESOURCES_RESOURCE_FIELDSET_DEFAULT
     const payload: Record<string, unknown> = {
       ...rest,
-      capacity: values.capacity ? Number(values.capacity) : null,
+      capacity: normalizeCapacityInput(values.capacity),
       capacityUnitValue: values.capacityUnitValue ? String(values.capacityUnitValue) : null,
       appearanceIcon: appearance.icon ?? null,
       appearanceColor: appearance.color ?? null,
@@ -52,6 +53,7 @@ export default function ResourcesResourceCreatePage() {
       <PageBody>
         <ResourcesResourceForm
           title={t('resources.resources.form.createTitle', 'Create resource')}
+          titleHeadingLevel={1}
           backHref="/backend/resources/resources"
           cancelHref="/backend/resources/resources"
           submitLabel={t('resources.resources.form.actions.create', 'Create')}

@@ -301,6 +301,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "on_behalf_of_user_id": {
+          "name": "on_behalf_of_user_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "command_id": {
           "name": "command_id",
           "type": "text",
@@ -557,6 +573,22 @@
           "enumItems": [],
           "mappedType": "json"
         },
+        "correlation_keys": {
+          "name": "correlation_keys",
+          "type": "text[]",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "array"
+        },
         "source_key": {
           "name": "source_key",
           "type": "text",
@@ -680,6 +712,17 @@
           "type": "gin"
         },
         {
+          "keyName": "action_logs_correlation_keys_idx",
+          "columnNames": [
+            "correlation_keys"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "type": "gin"
+        },
+        {
           "keyName": "action_logs_primary_changed_field_idx",
           "columnNames": [
             "tenant_id",
@@ -751,6 +794,16 @@
             "created_at"
           ],
           "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "action_logs_obo_idx",
+          "columnNames": [
+            "on_behalf_of_user_id"
+          ],
+          "composite": false,
           "constraint": false,
           "primary": false,
           "unique": false

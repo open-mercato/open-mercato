@@ -319,6 +319,7 @@ export default function CreateUserPage() {
       <PageBody>
         <CrudForm<CreateUserFormValues>
           title={t('auth.users.form.title.create', 'Create User')}
+          titleHeadingLevel={1}
           backHref="/backend/users"
           fields={fields}
           groups={groups}

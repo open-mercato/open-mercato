@@ -2,7 +2,7 @@
 title: "Documents module: collaboration runtime and data exposure"
 modules: ["documents","search","auth"]
 areas: ["integration","backend-ui","module-data"]
-topics: ["realtime","access-control","data-scoping"]
+topics: ["realtime","access-control","data-scoping","durable-saves"]
 ---
 
 # Documents module: collaboration runtime and data exposure
@@ -29,6 +29,14 @@ topics: ["realtime","access-control","data-scoping"]
 - Because a share/downgrade/restore force-closes the collab room, a client that drops to a permanent read-only fallback on `provider.on('disconnect'|'close')` gets kicked to read-only after ANY share made while editing. HocuspocusProvider auto-reconnects and re-mints the token (picking up the current tier); the client must only fall back on a genuine INITIAL-connect timeout or `authenticationFailed`, and treat a mid-session disconnect as transient (`hasConnected` guard) rather than tearing the provider down.
 - `@tiptap/extension-collaboration-caret` ships NO stylesheet — its default `render` only sets inline `border-color`/`background-color` on `.collaboration-carets__caret` / `__label`, so with no app CSS the caret is an invisible zero-width span and the name renders as a plain inline colored block. Its default `selectionRender` uses `${color}70` (~44% alpha) → a heavy solid highlight. Fix in TWO places: (1) supply structural CSS (`border-left-width:2px`, an absolute-positioned label pill that fades via keyframes and shows on `:hover`) scoped under a wrapper class, injected as a `<style>` in the client editor — colors stay data-driven from the inline styles; (2) pass a custom `selectionRender` returning `${color}33` (~20%) for a Google-Docs-style wash. Verify with TWO tabs (same login = distinct Yjs clientIDs, so each sees the other's caret) — a single session shows no remote caret.
 
+## Separate document tiers from effective access
+
+**Context**: Tightening a shared access helper for notification recipients also changed mention grant decisions and collaboration authorization.
+
+**Rule**: Share-grant decisions must inspect the retained document relationship tier independently of current module features; otherwise a revoked viewer feature can make an existing editor look unshared and silently downgrade the share. Notification creation still requires current effective `documents.view` immediately before persistence. For parent organization grants, use the existing fresh organization scope service and validate its ACL through the consolidated feature policy; an exact organization check alone rejects supported descendant access. Exercise the real helper in hierarchy tests instead of mocking away the boundary under review.
+
+**Applies to**: Documents mention grants, watcher/mention recipients, and collaboration authorization.
+
 ## Global search has no per-record ACL hook
 
 **Context**: Documents are visible per record via explicit shares, not per organization.
@@ -46,3 +54,11 @@ topics: ["realtime","access-control","data-scoping"]
 **Rule**: Resolve names server-side in the GET route (it already imports `User`/`Role` from auth): batch `findWithDecryption(em, User, { id: { $in }, tenantId, $or: [{ organizationId: null }, { organizationId }] })` — email is encrypted, so it must be decrypted — plus `em.find(Role, { id: { $in }, tenantId })`, and return `principalLabel`/`principalSecondary` (the client `normalizeShare` already prefers `principalLabel`). Never surface a bare UUID as a person's identity in UI.
 
 **Applies to**: any picker or list that renders principals. For long values, wrap flex children in `min-w-0 flex-1` with `truncate` and `shrink-0` the trailing controls — an `Input` next to a clear button overflows its grid cell without a `min-w-0 flex-1` wrapper.
+
+## Durable save confirmation belongs to one store attempt
+
+**Context**: Named versions must await persistence of pending editor changes. Hocuspocus can swallow a skipped store, including Redis lock contention, so completion of `storeDocumentHooks` does not itself prove persistence.
+
+**Rule**: Confirm the exact expedited store payload only after successful materialization, persistence, and collaboration-generation checks. A historical durable snapshot can still match the room while an authoritative restore has changed the database and its invalidation event is delayed. An unrelated successful autosave also cannot confirm the requested attempt. Keep confirmation callbacks scoped to the payload and remove them in `finally` so delayed retries cannot supply proof to another request.
+
+**Evidence**: Issue #7839 and `collabServer.test.ts` cover a previous successful save followed by a skipped store and an unrelated autosave followed by a skipped requested store. Both must fail closed.

@@ -27,12 +27,21 @@ import {
 import {
   credentialsToSmtpConnection,
   getSmtpClient,
+  isSmtpMessageTooLarge,
+  type SmtpMessage,
+  type SmtpSendResult,
 } from './smtp-client'
 import { convertOutboundForEmail } from './convert-outbound'
 import { normalizeInboundImapMessage } from './normalize-inbound'
 import { validateImapCredentials } from './validate-credentials'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
-import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import {
+  decodeCursor,
+  encodeCursor,
+  sanitizeHeaderValue,
+} from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { resolveOutboundAttachmentBytes } from '@open-mercato/core/modules/communication_channels/lib/outbound-attachments'
+import { getImportHistoryLimits } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('channel_imap')
@@ -58,22 +67,6 @@ class ImapChannelAdapter implements ChannelAdapter {
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const credentials = parseCredentialsOrThrow(input.credentials)
 
-    // Reject attachments at the boundary BEFORE building the MIME body. The hub
-    // passes attachments as URL pointers; until the IMAP/SMTP adapter wires a
-    // fetcher (with size + content-type validation), inlining them is unsafe —
-    // a 0-byte attachment looks "delivered" but conveys nothing. Checking here
-    // (rather than after conversion) avoids wasted MIME-build work and surfaces
-    // the clearer "attachments unsupported" error even when recipients are also
-    // missing. Documented in review M2 (2026-05-26) and tracked as a follow-up.
-    if (Array.isArray(input.content.attachments) && input.content.attachments.length > 0) {
-      return {
-        externalMessageId: '',
-        status: 'failed',
-        error:
-          '[internal] IMAP/SMTP adapter does not yet support attachments. Send the message without attachments or use a provider that supports them (Gmail).',
-      }
-    }
-
     let native: ChannelNativeContent
     try {
       native = await convertOutboundForEmail({
@@ -92,19 +85,47 @@ class ImapChannelAdapter implements ChannelAdapter {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
     }
 
+    // Attachments arrive as bytes the hub read from the attachments module (or
+    // as `data:` URLs); a remote URL is refused rather than fetched.
+    let attachments: SmtpMessage['attachments']
+    try {
+      attachments = native.content.attachments?.map((attachment) => ({
+        filename: sanitizeHeaderValue(attachment.fileName) || 'attachment',
+        content: asBuffer(resolveOutboundAttachmentBytes(attachment)),
+        contentType: attachment.mimeType,
+        inline: attachment.inline,
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '[internal] Outbound attachment is not readable'
+      return { externalMessageId: '', status: 'failed', error: message }
+    }
+
     const smtp = getSmtpClient()
-    const result = await smtp.send(credentialsToSmtpConnection(credentials), {
-      from: credentials.fromAddress,
-      to,
-      cc: Array.isArray(meta.cc) ? (meta.cc as string[]) : undefined,
-      bcc: Array.isArray(meta.bcc) ? (meta.bcc as string[]) : undefined,
-      subject: typeof meta.subject === 'string' ? (meta.subject as string) : undefined,
-      text: native.content.text,
-      html: native.content.html,
-      inReplyTo: typeof meta.inReplyTo === 'string' ? (meta.inReplyTo as string) : undefined,
-      references: Array.isArray(meta.references) ? (meta.references as string[]) : undefined,
-      messageId: typeof meta.messageId === 'string' ? (meta.messageId as string) : undefined,
-    })
+    let result: SmtpSendResult
+    try {
+      result = await smtp.send(credentialsToSmtpConnection(credentials), {
+        from: credentials.fromAddress,
+        to,
+        cc: Array.isArray(meta.cc) ? (meta.cc as string[]) : undefined,
+        bcc: Array.isArray(meta.bcc) ? (meta.bcc as string[]) : undefined,
+        subject: typeof meta.subject === 'string' ? (meta.subject as string) : undefined,
+        text: native.content.text,
+        html: native.content.html,
+        inReplyTo: typeof meta.inReplyTo === 'string' ? (meta.inReplyTo as string) : undefined,
+        references: Array.isArray(meta.references) ? (meta.references as string[]) : undefined,
+        messageId: typeof meta.messageId === 'string' ? (meta.messageId as string) : undefined,
+        attachments,
+      })
+    } catch (error) {
+      if (isSmtpMessageTooLarge(error)) {
+        return {
+          externalMessageId: '',
+          status: 'failed',
+          error: '[internal] The mail server rejected the message as too large (message_too_large)',
+        }
+      }
+      throw error
+    }
 
     // Best-effort append to Sent — many servers auto-store via "Submission" but not all do.
     const imap = getImapClient()
@@ -121,6 +142,18 @@ class ImapChannelAdapter implements ChannelAdapter {
       // Log so operators can diagnose missing Sent-folder archival rather than
       // failing the send.
       logger.warn('failed to append outbound message to Sent folder', { err: appendError })
+    }
+
+    const rejected = result.rejected ?? []
+    if (rejected.length > 0) {
+      const accepted = result.accepted ?? []
+      return {
+        externalMessageId: result.messageId,
+        conversationId: input.conversationId,
+        status: 'failed',
+        error: `SMTP_SEND_PARTIALLY_REJECTED: relay rejected ${rejected.length} of ${accepted.length + rejected.length} recipients`,
+        metadata: { ...(result.response ? { response: result.response } : {}), accepted, rejected },
+      }
     }
 
     return {
@@ -235,7 +268,9 @@ class ImapChannelAdapter implements ChannelAdapter {
         rawMessage: item.rawBody,
         uid: item.uid,
         accountIdentifier: credentials.fromAddress,
-        fallbackDate: item.internalDate,
+        // INTERNALDATE is when the server received the message; the MIME Date
+        // header is the sender's and must not date the platform message (#6095).
+        receivedAt: item.internalDate,
       })
       messages.push(normalized)
     }
@@ -283,12 +318,20 @@ class ImapChannelAdapter implements ChannelAdapter {
     const connection = credentialsToConnection(credentials)
     const imap = getImapClient()
 
-    const sinceDaysRaw = Number.isFinite(input.sinceDays) ? Math.trunc(input.sinceDays) : 30
-    const sinceDays = Math.max(1, Math.min(365, sinceDaysRaw))
+    // Ceiling is provider-specific and lower than the deployment-wide one:
+    // this adapter's cursor embeds the full remaining UID list, so it stays
+    // capped until it gets a paging cursor of its own. See
+    // `import-history-limits.ts` for the shared source of truth.
+    const limits = getImportHistoryLimits(this.providerKey)
+
+    const sinceDaysRaw = Number.isFinite(input.sinceDays) ? Math.trunc(input.sinceDays) : limits.defaultSinceDays
+    const sinceDays = Math.max(1, Math.min(limits.maxSinceDays, sinceDaysRaw))
     const sinceDate = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000)
 
-    const maxMessagesRaw = Number.isFinite(input.maxMessages) ? Math.trunc(input.maxMessages as number) : 1000
-    const maxMessages = Math.max(1, Math.min(5000, maxMessagesRaw))
+    const maxMessagesRaw = Number.isFinite(input.maxMessages)
+      ? Math.trunc(input.maxMessages as number)
+      : limits.defaultMaxMessages
+    const maxMessages = Math.max(1, Math.min(limits.maxMessages, maxMessagesRaw))
 
     const PAGE_SIZE = clampHardCap(undefined)
 
@@ -344,7 +387,9 @@ class ImapChannelAdapter implements ChannelAdapter {
         rawMessage: item.rawBody,
         uid: item.uid,
         accountIdentifier: credentials.fromAddress,
-        fallbackDate: item.internalDate,
+        // INTERNALDATE is when the server received the message; the MIME Date
+        // header is the sender's and must not date the platform message (#6095).
+        receivedAt: item.internalDate,
       })
       messages.push(normalized)
     }
@@ -370,6 +415,10 @@ function parseCredentialsOrThrow(value: unknown): ImapCredentials {
     throw new Error(`Invalid IMAP credentials: ${first?.message ?? 'unknown validation error'}`)
   }
   return parsed.data
+}
+
+function asBuffer(bytes: Uint8Array): Buffer {
+  return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 }
 
 function pickRawMimeBuffer(raw: InboundMessage): Buffer {

@@ -1,9 +1,11 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { OM_LOG_LEVEL_ENV, resetLogLevelCache } from '@open-mercato/shared/lib/logger'
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
 import { hash } from 'bcryptjs'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EventBus } from '@open-mercato/events/types'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
@@ -21,7 +23,8 @@ import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/
 import crypto from 'node:crypto'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { getCliModules } from '@open-mercato/shared/modules/registry'
+import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
+import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
 
 async function resolveTenantScopedRole(em: any, name: string, normalizedTenantId: string | null) {
   const existing = await em.findOne(Role, { name, tenantId: normalizedTenantId })
@@ -62,40 +65,42 @@ const addUser: ModuleCli = {
     if (!org) throw new Error('Organization not found')
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
-    const u = em.create(User, {
-      email,
-      emailHash: computeEmailHash(email),
-      passwordHash: await hash(password, 10),
-      isConfirmed: true,
-      organizationId: org.id,
-      tenantId: org.tenant.id,
-    })
-    await em.persist(u).flush()
-    if (rolesCsv) {
-      const names = parseCommaSeparatedList(rolesCsv)
-      for (const name of names) {
-        const role = await resolveTenantScopedRole(em, name, normalizedTenantId)
-        const link = em.create(UserRole, { user: u, role })
-        await em.persist(link).flush()
+    const passwordHash = await hash(password, 10)
+    let createdUserId: string | null = null
+    await em.transactional(async (tem: EntityManager) => {
+      const user = tem.create(User, {
+        email,
+        emailHash: computeEmailHash(email),
+        passwordHash,
+        isConfirmed: true,
+        organizationId: org.id,
+        tenantId: org.tenant.id,
+        createdAt: new Date(),
+      })
+      await tem.persist(user).flush()
+      const roles = rolesCsv
+        ? await Promise.all(
+            parseCommaSeparatedList(rolesCsv).map((name) => resolveTenantScopedRole(tem, name, normalizedTenantId)),
+          )
+        : []
+      if (roles.length) {
+        await lockUserRoleWriterAuthorizationState(tem, {
+          userIds: [String(user.id)],
+          roleIds: roles.map((role) => String(role.id)),
+        })
+        for (const role of roles) {
+          tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
+        }
+        await tem.flush()
       }
-    }
-    console.log('User created with id', u.id)
+      createdUserId = String(user.id)
+    })
+    console.log('User created with id', createdUserId)
   },
 }
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]
-    if (!a) continue
-    if (a.startsWith('--')) {
-      const [k, v] = a.replace(/^--/, '').split('=')
-      if (v !== undefined) args[k] = v
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
-      else args[k] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 function normalizeKeyInput(value: string): string {
@@ -275,33 +280,17 @@ const rotateEncryptionKey: ModuleCli = {
         `select id, email, email_hash from ${qualifiedTable} where tenant_id = ? and organization_id = ?`,
         [scopeTenantId, scopeOrganizationId],
       )
-      const rows = Array.isArray(rawRows) ? rawRows : []
+      const rows: Array<{ id: string; email: string | null; email_hash: string | null }> = Array.isArray(rawRows) ? rawRows : []
       const pending = rotate
         ? rows
-        : rows.filter((row: any) => !isEncryptedPayload(row?.email))
+        : rows.filter((row) => !isEncryptedPayload(row.email))
       if (!pending.length) return 0
       console.log(
         `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
       )
       if (dryRun) return 0
-      const ids = pending.map((row: any) => String(row.id))
-      const users = rotate
-        ? await em.find(
-          User,
-          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-        )
-        : await findWithDecryption(
-          em,
-          User,
-          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-          {},
-          { tenantId: scopeTenantId, organizationId: scopeOrganizationId, encryptionService },
-        )
-      const usersById = new Map(users.map((user) => [String(user.id), user]))
       let updated = 0
       for (const row of pending) {
-        const user = usersById.get(String(row.id))
-        if (!user) continue
         const rawEmail = typeof row.email === 'string' ? row.email : String(row.email ?? '')
         if (!rawEmail) continue
         if (rotate && (!isEncryptedPayload(rawEmail) || !oldKms)) {
@@ -333,15 +322,17 @@ const rotateEncryptionKey: ModuleCli = {
           scopeOrganizationId,
         )
         const nextEmail = encrypted.email as string | undefined
-        if (nextEmail && nextEmail !== user.email) {
-          user.email = nextEmail as any
-          user.emailHash = (encrypted as any).emailHash ?? computeEmailHash(plainEmail)
-          em.persist(user)
+        if (nextEmail && nextEmail !== rawEmail) {
+          const nextEmailHash = encrypted.emailHash ?? computeEmailHash(plainEmail)
+          const result = await conn.execute(
+            `UPDATE ${qualifiedTable} SET email = ?, email_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id`,
+            [nextEmail, nextEmailHash, row.id, scopeTenantId, scopeOrganizationId, row.email, row.email_hash],
+          )
+          if (!Array.isArray(result) || result.length !== 1) {
+            throw new Error('[internal] A row changed concurrently during auth encryption maintenance. The conflicting row was not overwritten; retry after stopping writers.')
+          }
           updated += 1
         }
-      }
-      if (updated > 0) {
-        await em.flush()
       }
       return updated
     }
@@ -393,13 +384,19 @@ const addOrganization: ModuleCli = {
       return
     }
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
-    // Create tenant implicitly for simplicity
-    const tenant = em.create(Tenant, { name: `${name} Tenant` })
+    const em = resolve('em') as EntityManager
+    const eventBus = resolve('eventBus') as EventBus
+    const tenant = em.create(Tenant, { name: `${name} Tenant` }, { partial: true })
     await em.persist(tenant).flush()
-    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false })
+    await eventBus.emit('directory.tenant.created', {
+      id: String(tenant.id), tenantId: null, organizationId: null,
+    }, { persistent: true, tenantId: null, organizationId: null, rethrowHandlerErrors: true })
+    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false }, { partial: true })
     await em.persist(org).flush()
     await rebuildHierarchyForTenant(em, String(tenant.id))
+    await eventBus.emit('directory.organization.created', {
+      id: String(org.id), tenantId: String(tenant.id), organizationId: String(org.id),
+    }, { persistent: true, tenantId: String(tenant.id), organizationId: String(org.id), rethrowHandlerErrors: true })
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }
@@ -784,6 +781,38 @@ const setPassword: ModuleCli = {
   },
 }
 
+const CUSTOMER_ACCOUNTS_MODULE_ID = 'customer_accounts'
+
+/**
+ * The portal half of the same sync.
+ *
+ * Staff roles pick up a module's newly declared features here; customer roles used
+ * to pick theirs up only at tenant bootstrap, so a portal feature that shipped
+ * after a tenant existed never reached that tenant's `Buyer`/`Viewer` roles and the
+ * page stayed invisible to every real customer.
+ *
+ * `customer_accounts` owns those entities and is optional, so the merge only runs
+ * where the deployment enabled it. Whether it did is a question for the module
+ * registry, not for the module loader: every core module ships inside
+ * `@open-mercato/core` whether or not `modules.ts` lists it, so the import always
+ * resolves and an import-failure guard never fires. ORM metadata, by contrast, is
+ * built from the enabled set — which is why guarding the import let a portal-less
+ * deployment reach `em.findOne(CustomerRole)` and die there on `Metadata for
+ * entity CustomerRole not found`, taking `mercato init` down with it.
+ */
+async function syncCustomerRoleAcls(
+  em: EntityManager,
+  tenantId: string,
+  modules: Module[],
+): Promise<{ updatedRoleSlugs: string[]; addedFeatures: string[] } | null> {
+  if (!modules.some((mod) => mod.id === CUSTOMER_ACCOUNTS_MODULE_ID)) return null
+  // Imported lazily so a portal-less deployment never loads the module's entities.
+  const { ensureDefaultCustomerRoleAcls } = await import(
+    '@open-mercato/core/modules/customer_accounts/lib/customerRoleAcls'
+  )
+  return ensureDefaultCustomerRoleAcls(em, tenantId, modules)
+}
+
 const syncRoleAcls: ModuleCli = {
   command: 'sync-role-acls',
   async run(rest) {
@@ -841,7 +870,13 @@ const syncRoleAcls: ModuleCli = {
     for (const tenantId of targetTenantIds) {
       await ensureDefaultRoleAcls(em, tenantId, modules, { includeSuperadminRole })
       await ensureCustomRoleAcls(em, tenantId, modules)
+      const portal = await syncCustomerRoleAcls(em, tenantId, modules)
       console.log(`✅ Synced role ACLs for tenant ${tenantId}`)
+      if (portal && portal.addedFeatures.length) {
+        console.log(
+          `   ↳ portal roles ${portal.updatedRoleSlugs.join(', ')} gained ${portal.addedFeatures.join(', ')}`,
+        )
+      }
     }
   },
 }

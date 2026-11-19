@@ -7,7 +7,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from 'lucide-react'
-import { cva, type VariantProps } from 'class-variance-authority'
+import { cva } from 'class-variance-authority'
 
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -144,7 +144,12 @@ const navButtonVariants = cva(
     'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground',
 )
 
+export type PaginationAppearance = 'basic' | 'circle' | 'group'
+
+const sourceCellClass = 'border border-border bg-background text-muted-foreground hover:border-transparent hover:bg-muted disabled:bg-background disabled:text-text-disabled disabled:opacity-100 disabled:hover:bg-background disabled:hover:text-text-disabled'
+
 export type PaginationProps = React.HTMLAttributes<HTMLDivElement> & {
+  appearance?: PaginationAppearance
   /** Current 1-indexed page. */
   page: number
   /** Items per page. */
@@ -199,6 +204,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
   (
     {
       className,
+      appearance,
       page,
       pageSize,
       total,
@@ -221,6 +227,9 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
     ref,
   ) => {
     const t = useT()
+    const grouped = appearance === 'group'
+    const shapeClass = appearance === 'circle' ? 'rounded-full' : grouped ? 'w-10 rounded-none border-y-0 border-l-0 hover:border-border' : 'rounded-md'
+    const navClassName = cn(navButtonVariants(), appearance && sourceCellClass, appearance && shapeClass, grouped && 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring')
     const resolvedFormatPageInfo =
       formatPageInfo ??
       ((p: number, total: number) =>
@@ -261,6 +270,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
       <nav
         ref={ref}
         data-slot="pagination"
+        data-appearance={appearance}
         aria-label={props['aria-label'] ?? t('ui.pagination.landmark.ariaLabel', 'Pagination')}
         className={cn('flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-2', className)}
         {...props}
@@ -280,7 +290,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
         <div
           data-slot="pagination-controls"
-          className="flex flex-wrap items-center justify-center gap-2"
+          className={cn('flex items-center justify-center', grouped ? 'max-w-full justify-start gap-0 overflow-x-auto rounded-md border border-border [&>button:last-child]:border-r-0 [&>ol:last-child>li:last-child>button]:border-r-0' : 'flex-wrap gap-2')}
         >
           {showFirstLast ? (
             <button
@@ -289,7 +299,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               aria-label={t('ui.pagination.first.ariaLabel', 'First page')}
               disabled={disabled || safePage <= 1}
               onClick={() => goTo(1)}
-              className={cn(navButtonVariants())}
+              className={navClassName}
             >
               <ChevronsLeft aria-hidden="true" className="size-5" />
             </button>
@@ -301,7 +311,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               aria-label={t('ui.pagination.previous.ariaLabel', 'Previous page')}
               disabled={disabled || safePage <= 1}
               onClick={() => goTo(safePage - 1)}
-              className={cn(navButtonVariants())}
+              className={navClassName}
             >
               <ChevronLeft aria-hidden="true" className="size-5" />
             </button>
@@ -309,7 +319,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
 
           <ol
             data-slot="pagination-pages"
-            className="flex flex-wrap items-center justify-center gap-2 list-none"
+            className={cn('flex list-none items-center justify-center', grouped ? 'gap-0' : 'flex-wrap gap-2')}
           >
             {items.map((entry, index) => {
               if (entry === 'ellipsis-left' || entry === 'ellipsis-right') {
@@ -318,7 +328,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
                     key={`${entry}-${index}`}
                     data-slot="pagination-ellipsis"
                     aria-hidden="true"
-                    className="inline-flex size-8 items-center justify-center text-sm text-muted-foreground"
+                    className={cn('inline-flex size-8 shrink-0 items-center justify-center text-sm text-muted-foreground', grouped && 'w-10 border-r border-border')}
                   >
                     …
                   </li>
@@ -339,7 +349,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
                     }
                     disabled={disabled}
                     onClick={() => goTo(entry)}
-                    className={cn(cellVariants({ selected }))}
+                    className={cn(cellVariants({ selected }), appearance && sourceCellClass, appearance && shapeClass, appearance && selected && 'text-foreground', grouped && selected && 'bg-muted', grouped && 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring')}
                   >
                     {entry}
                   </button>
@@ -355,7 +365,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               aria-label={t('ui.pagination.next.ariaLabel', 'Next page')}
               disabled={disabled || !canGoNext}
               onClick={() => goTo(safePage + 1)}
-              className={cn(navButtonVariants())}
+              className={navClassName}
             >
               <ChevronRight aria-hidden="true" className="size-5" />
             </button>
@@ -369,7 +379,7 @@ export const Pagination = React.forwardRef<HTMLDivElement, PaginationProps>(
               aria-label={t('ui.pagination.last.ariaLabel', 'Last page')}
               disabled={disabled || safePage >= totalPages}
               onClick={() => goTo(totalPages)}
-              className={cn(navButtonVariants())}
+              className={navClassName}
             >
               <ChevronsRight aria-hidden="true" className="size-5" />
             </button>

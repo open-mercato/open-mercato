@@ -316,6 +316,7 @@ export function MitigationActionsSection({
 
       <DataTable<MitigationActionRow>
         title={translate('eudr.mitigationActions.tableTitle')}
+        titleHeadingLevel={2}
         columns={columns}
         data={rows}
         isLoading={loading}

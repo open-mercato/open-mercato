@@ -3,16 +3,13 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import {
-  bridgeLegacyGuard,
-  runMutationGuards,
-  type MutationGuard,
-  type MutationGuardInput,
-} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import { withScopedPayload } from '../../utils'
@@ -23,8 +20,9 @@ import { SalesQuote } from '../../../data/entities'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
-import { QuoteSentEmail } from '../../../emails/QuoteSentEmail'
+import { QuoteSentEmail, type QuoteSentEmailCopy } from '../../../emails/QuoteSentEmail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
 
@@ -34,53 +32,6 @@ export const metadata = {
 
 type RequestContext = {
   ctx: CommandRuntimeContext
-}
-
-function resolveUserFeatures(auth: unknown): string[] {
-  const features = (auth as { features?: unknown })?.features
-  if (!Array.isArray(features)) return []
-  return features.filter((value): value is string => typeof value === 'string')
-}
-
-async function runGuards(
-  ctx: CommandRuntimeContext,
-  input: MutationGuardInput,
-): Promise<{
-  ok: boolean
-  errorBody?: Record<string, unknown>
-  errorStatus?: number
-  afterSuccessCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>
-}> {
-  const legacyGuard = bridgeLegacyGuard(ctx.container)
-  if (!legacyGuard) {
-    return { ok: true, afterSuccessCallbacks: [] }
-  }
-
-  return runMutationGuards([legacyGuard], input, {
-    userFeatures: resolveUserFeatures(ctx.auth),
-  })
-}
-
-async function runGuardAfterSuccessCallbacks(
-  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
-  input: {
-    tenantId: string
-    organizationId: string | null
-    userId: string
-    resourceKind: string
-    resourceId: string
-    operation: 'create' | 'update' | 'delete'
-    requestMethod: string
-    requestHeaders: Headers
-  },
-): Promise<void> {
-  for (const callback of callbacks) {
-    if (!callback.guard.afterSuccess) continue
-    await callback.guard.afterSuccess({
-      ...input,
-      metadata: callback.metadata ?? null,
-    })
-  }
 }
 
 async function resolveRequestContext(req: Request): Promise<RequestContext> {
@@ -93,7 +44,7 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
@@ -112,23 +63,143 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   return { ctx }
 }
 
-function resolveQuoteEmail(quote: SalesQuote): string | null {
-  const normalizeRecord = (value: unknown): Record<string, unknown> | null => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
-    if (typeof value !== 'string') return null
-    const parsed = parseDecryptedFieldValue(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null
+function normalizeRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string') return null
+  const parsed = parseDecryptedFieldValue(value)
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null
+}
+
+/** Lower-cased, de-duplicated CC list without the primary recipient (#8460). */
+function resolveCcRecipients(requested: string[], primary: string): string[] {
+  const primaryKey = primary.trim().toLowerCase()
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const entry of requested) {
+    const key = entry.trim().toLowerCase()
+    if (!key || key === primaryKey || seen.has(key)) continue
+    seen.add(key)
+    result.push(entry.trim())
   }
+  return result
+}
+
+/**
+ * Mails each CC recipient their own copy of the quote details. The acceptance link is a
+ * bearer capability reserved for the main recipient, so these copies never carry it, and
+ * a copy that fails must not turn a delivered quote into a reported failure.
+ */
+async function sendCcCopies(
+  quote: SalesQuote,
+  recipients: string[],
+  subject: string,
+  copy: QuoteSentEmailCopy,
+): Promise<void> {
+  for (const recipient of recipients) {
+    try {
+      await sendEmail({
+        to: recipient,
+        subject,
+        react: QuoteSentEmail({ copy }),
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      })
+    } catch (err) {
+      logger.error('sales.quotes.send CC copy failed', { err, quoteId: quote.id })
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'sales',
+          code: 'sales.quote_cc_copy_failed',
+          attributes: { quoteId: quote.id },
+        })
+      } catch (reportingErr) {
+        logger.warn('sales.quotes.send CC copy failure could not be reported', { err: reportingErr, quoteId: quote.id })
+      }
+    }
+  }
+}
+
+const QUOTE_LIST_CACHE_FLUSH_TIMEOUT_MS = 2000
+
+type QuoteListCacheFlushOutcome =
+  | { kind: 'flushed' }
+  | { kind: 'failed'; err: unknown }
+  | { kind: 'timed_out' }
+
+function reportQuoteListCacheFlushProblem(quote: SalesQuote, err: unknown, code: string): void {
+  logger.error('sales.quotes.send cache invalidation did not complete', { err, code, quoteId: quote.id })
+  try {
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'sales',
+      code,
+      attributes: { quoteId: quote.id },
+    })
+  } catch (reportingErr) {
+    logger.warn('sales.quotes.send cache invalidation problem could not be reported', { err: reportingErr, quoteId: quote.id })
+  }
+}
+
+async function invalidateQuoteListCache(
+  container: Parameters<typeof invalidateCrudCache>[0],
+  quote: SalesQuote,
+): Promise<void> {
+  await invalidateCrudCache(
+    container,
+    'sales.quote',
+    { id: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+    quote.tenantId ?? null,
+    'updated',
+  )
+}
+
+/**
+ * The quotes list is served from the CRUD GET cache, so a custom route flushes it itself
+ * or the list keeps reporting the quote as unsent until the entry expires. The send state
+ * is already committed when this runs, so the flush is optional work: it never rejects and
+ * it gives up after a deadline, because a cache backend that rejects or stalls must not
+ * stop the quote from being mailed. Either problem is reported and the stale entry is left
+ * to expire.
+ */
+async function flushQuoteListCache(
+  container: Parameters<typeof invalidateCrudCache>[0],
+  quote: SalesQuote,
+): Promise<void> {
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<QuoteListCacheFlushOutcome>((resolve) => {
+    deadlineTimer = setTimeout(() => resolve({ kind: 'timed_out' }), QUOTE_LIST_CACHE_FLUSH_TIMEOUT_MS)
+  })
+  const invalidation = invalidateQuoteListCache(container, quote).then(
+    (): QuoteListCacheFlushOutcome => ({ kind: 'flushed' }),
+    (err: unknown): QuoteListCacheFlushOutcome => ({ kind: 'failed', err }),
+  )
+  const outcome = await Promise.race([invalidation, deadline])
+  clearTimeout(deadlineTimer)
+  if (outcome.kind === 'failed') {
+    reportQuoteListCacheFlushProblem(quote, outcome.err, 'sales.quote_send_cache_invalidation_failed')
+  }
+  if (outcome.kind === 'timed_out') {
+    reportQuoteListCacheFlushProblem(
+      quote,
+      new Error(`[internal] quote list cache invalidation exceeded ${QUOTE_LIST_CACHE_FLUSH_TIMEOUT_MS}ms`),
+      'sales.quote_send_cache_invalidation_timed_out',
+    )
+  }
+}
+
+function resolveQuoteEmail(quote: SalesQuote): string | null {
   const snapshot = normalizeRecord(quote.customerSnapshot)
   const metadata = normalizeRecord(quote.metadata)
   const contact = snapshot?.contact as Record<string, unknown> | undefined
   const customer = snapshot?.customer as Record<string, unknown> | undefined
+  // The document's own "Send to" address is the user's explicit choice (#8459); the
+  // snapshot contact and the customer's primary e-mail are fallbacks for documents
+  // saved without one.
   const candidate =
+    (typeof metadata?.customerEmail === 'string' && metadata.customerEmail.trim()) ||
     (typeof contact?.email === 'string' && contact.email.trim()) ||
     (typeof customer?.primaryEmail === 'string' && customer.primaryEmail.trim()) ||
-    (typeof metadata?.customerEmail === 'string' && metadata.customerEmail.trim()) ||
     null
   if (!candidate) return null
   const parsed = z.string().email().safeParse(candidate)
@@ -141,19 +212,27 @@ export async function POST(req: Request) {
     const { translate } = await resolveTranslations()
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
-    const input = quoteSendSchema.parse(scoped)
-    const guardResult = await runGuards(ctx, {
-      tenantId: ctx.auth?.tenantId ?? '',
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-      userId: ctx.auth?.sub ?? '',
-      resourceKind: 'sales.quote',
-      resourceId: input.quoteId,
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
+    let input = quoteSendSchema.parse(scoped)
+    const guardResult = await runRouteMutationGuards({
+      container: ctx.container,
+      req,
+      auth: {
+        tenantId: ctx.auth?.tenantId ?? '',
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        userId: ctx.auth?.sub ?? '',
+      },
+      input: {
+        resourceKind: 'sales.quote',
+        resourceId: input.quoteId,
+        operation: 'update',
+        mutationPayload: input,
+      },
     })
     if (!guardResult.ok) {
-      return NextResponse.json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+      return guardResult.response
+    }
+    if (guardResult.modifiedPayload) {
+      input = quoteSendSchema.parse({ ...input, ...guardResult.modifiedPayload })
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -176,6 +255,7 @@ export async function POST(req: Request) {
     if (!email) {
       throw new CrudHttpError(400, { error: translate('sales.quotes.send.missingEmail', 'Customer email is required to send a quote.') })
     }
+    const cc = resolveCcRecipients(input.cc, email)
 
     const now = new Date()
     const validUntil = new Date(now)
@@ -196,9 +276,14 @@ export async function POST(req: Request) {
         organizationId: quote.organizationId,
         value: 'sent',
       })
+      quote.metadata = { ...(normalizeRecord(quote.metadata) ?? {}), recipients: { cc } }
       quote.updatedAt = now
       tx.persist(quote)
     })
+
+    // Started alongside delivery instead of ahead of it: the primary e-mail never waits on
+    // the cache backend, and a failed delivery still leaves the list flush under way.
+    const listCacheFlush = flushQuoteListCache(ctx.container, quote)
 
     const appUrl = process.env.APP_URL || ''
     const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
@@ -210,7 +295,7 @@ export async function POST(req: Request) {
       day: 'numeric',
     })
 
-    const copy = {
+    const copy: QuoteSentEmailCopy = {
       preview: translate('sales.quotes.email.preview', 'Quote {quoteNumber} is ready for review', { quoteNumber: quote.quoteNumber }),
       heading: translate('sales.quotes.email.heading', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
       total: translate('sales.quotes.email.total', 'Total: {amount} {currency}', {
@@ -222,27 +307,28 @@ export async function POST(req: Request) {
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }
 
-    // Side effect after commit: an email failure must not roll back the send state.
-    await sendEmail({
-      to: email,
-      subject: translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber }),
-      react: QuoteSentEmail({ url, copy }),
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-    })
+    const subject = translate('sales.quotes.email.subject', 'Quote {quoteNumber}', { quoteNumber: quote.quoteNumber })
 
-    if (guardResult.afterSuccessCallbacks.length) {
-      await runGuardAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
-        tenantId: ctx.auth?.tenantId ?? '',
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        userId: ctx.auth?.sub ?? '',
-        resourceKind: 'sales.quote',
-        resourceId: input.quoteId,
-        operation: 'update',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
+    // Side effect after commit: an email failure must not roll back the send state.
+    try {
+      await sendEmail({
+        to: email,
+        subject,
+        react: QuoteSentEmail({ url, copy }),
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
       })
+    } finally {
+      await listCacheFlush
     }
+
+    const ccNotice = translate(
+      'sales.quotes.email.ccNotice',
+      'You are receiving this copy for your information. The main recipient can review and accept the quote.',
+    )
+    await sendCcCopies(quote, cc, subject, { ...copy, preview: ccNotice, notice: ccNotice })
+
+    await guardResult.runAfterSuccess()
 
     return NextResponse.json({ ok: true })
   } catch (err) {

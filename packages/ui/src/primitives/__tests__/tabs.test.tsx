@@ -209,3 +209,42 @@ describe('Tabs Phase B.5 — variant + orientation + leading + count', () => {
     expect(container.querySelector('[data-slot="tabs-trigger-count"]')).toBeNull()
   })
 })
+
+
+describe('Tabs source menus and keyboard access', () => {
+  it.each(['card', 'list'] as const)('%s uses vertical arrow keys, skips disabled tabs, and connects its panel', (variant) => {
+    const { getByRole } = render(<Tabs defaultValue="a" variant={variant} orientation="vertical">
+      <TabsList aria-label="Sections">
+        <TabsTrigger value="a">Alpha</TabsTrigger>
+        <TabsTrigger value="b" disabled>Beta</TabsTrigger>
+        <TabsTrigger value="c">Gamma</TabsTrigger>
+      </TabsList>
+      <TabsContent value="a">Alpha panel</TabsContent>
+      <TabsContent value="c">Gamma panel</TabsContent>
+    </Tabs>)
+    const alpha = getByRole('tab', { name: 'Alpha' })
+    const gamma = getByRole('tab', { name: 'Gamma' })
+    alpha.focus()
+    fireEvent.keyDown(alpha, { key: 'ArrowDown' })
+    expect(gamma).toHaveFocus()
+    expect(gamma).toHaveAttribute('aria-selected', 'true')
+    expect(alpha).toHaveAttribute('tabindex', '-1')
+    expect(getByRole('tabpanel')).toHaveAttribute('id', gamma.getAttribute('aria-controls'))
+    expect(getByRole('tabpanel')).toHaveAttribute('aria-labelledby', gamma.id)
+    fireEvent.keyDown(gamma, { key: 'Home' })
+    expect(alpha).toHaveFocus()
+    expect(alpha).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(alpha, { key: 'End' })
+    expect(gamma).toHaveFocus()
+  })
+
+  it('gives repeated tab values unique panel relationships in separate tab groups', () => {
+    const { getAllByRole } = render(<>{[1, 2].map(key => <Tabs key={key} defaultValue="same value">
+      <TabsList><TabsTrigger value="same value">Shared</TabsTrigger></TabsList>
+      <TabsContent value="same value">Content</TabsContent>
+    </Tabs>)}</>)
+    const tabs = getAllByRole('tab')
+    expect(tabs[0].id).not.toBe(tabs[1].id)
+    expect(tabs.every(tab => document.getElementById(tab.getAttribute('aria-controls') ?? '') !== null)).toBe(true)
+  })
+})

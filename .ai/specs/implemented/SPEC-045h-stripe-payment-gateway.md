@@ -138,8 +138,8 @@ interface GatewayAdapter {
   /** Verify and parse an inbound webhook event */
   verifyWebhook(input: VerifyWebhookInput): Promise<WebhookEvent>
 
-  /** Map provider status to unified status */
-  mapStatus(providerStatus: string, eventType?: string): UnifiedPaymentStatus
+  /** Map provider status to unified status; webhook processing also passes the verified event */
+  mapStatus(providerStatus: string, eventType?: string, event?: WebhookEvent): UnifiedPaymentStatus
 }
 ```
 
@@ -697,3 +697,4 @@ When Stripe-specific tests are added in the future, they should:
 | 2026-03-19 | Added provider-owned embedded payment renderer support: `stripe.payment_element` and `clientSession` returned from `createSession()`. |
 | 2026-03-20 | Extended Stripe to the generalized renderer-catalog contract and aligned renderer bootstrap with module widgets: descriptor `renderers[]`, default renderer key, `PaymentElement` renderer settings, and `widgets/payments/client.tsx`. |
 | 2026-04-15 | Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs). |
+| 2026-10-03 | Charge-family webhooks are routed by `data.object.payment_intent`; `charge.refunded` resolves to `refunded` / `partially_refunded` from the Charge payload and the event's `api_version` (pre-Basil partial-capture remainders are not refunds); refund updates and disputes are recorded without a status change; a refund that overtakes the capture passes through `captured`. The `WEBHOOK_EVENT_MAP` entries in §4 apply only to calls without the event. See `.ai/specs/2026-10-03-stripe-charge-webhook-refund-reconciliation.md`. |

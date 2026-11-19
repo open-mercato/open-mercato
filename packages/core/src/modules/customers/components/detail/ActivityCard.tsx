@@ -4,13 +4,16 @@ import * as React from 'react'
 import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
-import { isOpenInteractionStatus } from '../../lib/interactionStatus'
+import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 import { ActivityAiActions } from './ActivityAiActions'
 import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -115,7 +118,7 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
 
 export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
   const t = useT()
-  const timestamp = activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
+  const timestamp = activity.occurredAt ?? activity.scheduledAt
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
   const titleBase = activity.title ?? activity.body ?? activity.interactionType
   const title = activity.duration ? `${titleBase} (${activity.duration} min)` : titleBase
@@ -127,6 +130,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
     : activity.interactionType === 'call' || activity.interactionType === 'meeting'
       ? t('customers.activityLog.direction.with', 'with')
       : ''
+  const isCanceled = isCanceledInteractionStatus(activity.status)
   const showExternalLink = Boolean(activity._integrations && Object.keys(activity._integrations).length > 0)
   const [markingDone, setMarkingDone] = React.useState(false)
 
@@ -135,11 +139,13 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
     setMarkingDone(true)
     try {
       const operation = () =>
-        apiCallOrThrow('/api/customers/interactions/complete', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
-        })
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(activity.updatedAt ?? null), () =>
+          apiCallOrThrow('/api/customers/interactions/complete', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
+          }),
+        )
       if (runMutation) {
         await runMutation(operation, {
           id: activity.id,
@@ -152,12 +158,16 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       onChanged?.()
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) {
+        onChanged?.()
+        return
+      }
       logger.warn('Mark done failed', { component: 'ActivityCard', activityId: activity.id, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onChanged, runMutation, t])
+  }, [activity.id, activity.updatedAt, markingDone, onChanged, runMutation, t])
 
   return (
     <div
@@ -177,8 +187,8 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       } : undefined}
     >
       <div className="pt-1 text-xs text-muted-foreground">
-        <div className="font-semibold text-foreground">{formatDayLabel(timestamp, t)}</div>
-        <div>{formatTimeLabel(timestamp)}</div>
+        <div className="font-semibold text-foreground">{timestamp ? formatDayLabel(timestamp, t) : t('customers.timeline.date.unknown', 'Unknown date')}</div>
+        <div>{timestamp ? formatTimeLabel(timestamp) : null}</div>
       </div>
 
       <div className="flex size-9 items-center justify-center rounded-lg bg-muted/80">
@@ -189,7 +199,19 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <h4 className="truncate text-sm font-semibold text-foreground">{title}</h4>
+              <h4
+                className={cn(
+                  'truncate text-sm font-semibold',
+                  isCanceled ? 'text-muted-foreground line-through' : 'text-foreground',
+                )}
+              >
+                {title}
+              </h4>
+              {isCanceled ? (
+                <StatusBadge variant="neutral" className="shrink-0">
+                  {t('customers.interactions.status.canceled', 'Canceled')}
+                </StatusBadge>
+              ) : null}
               {showExternalLink ? <ExternalLink className="size-3.5 text-muted-foreground" /> : null}
             </div>
             {activity.location ? (

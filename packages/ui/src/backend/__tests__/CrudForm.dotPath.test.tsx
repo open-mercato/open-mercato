@@ -34,7 +34,7 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
 }))
 
 import * as React from 'react'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { z } from 'zod'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
@@ -51,6 +51,18 @@ function flushMicrotasks() {
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
+  })
+}
+
+// CrudForm's submit path awaits the injection hooks and the schema parse before
+// the harness records values, and the number of ticks that takes varies with
+// machine load. Wait for the recorded result instead of a fixed microtask count.
+async function submitAndWaitForValues(form: HTMLFormElement) {
+  await act(async () => {
+    fireEvent.submit(form)
+  })
+  await waitFor(() => {
+    expect(screen.getByTestId('submitted').textContent).not.toBe('null')
   })
 }
 
@@ -121,11 +133,7 @@ describe('CrudForm dot-path base fields (issue #2503)', () => {
       fireEvent.blur(categoryInput)
     })
 
-    await act(async () => {
-      fireEvent.submit(form)
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    await submitAndWaitForValues(form)
 
     const submitted = JSON.parse(screen.getByTestId('submitted').textContent || 'null')
     expect(submitted).not.toBeNull()
@@ -170,11 +178,7 @@ describe('CrudForm dot-path base fields (issue #2503)', () => {
       fireEvent.blur(categoryInput)
     })
 
-    await act(async () => {
-      fireEvent.submit(form)
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    await submitAndWaitForValues(form)
 
     const submitted = JSON.parse(screen.getByTestId('submitted').textContent || 'null')
     expect(submitted).not.toBeNull()
@@ -256,11 +260,7 @@ describe('CrudForm dot-path base fields (issue #2503)', () => {
     await flushMicrotasks()
 
     const form = container.querySelector('form') as HTMLFormElement
-    await act(async () => {
-      fireEvent.submit(form)
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    await submitAndWaitForValues(form)
 
     const submitted = JSON.parse(screen.getByTestId('submitted').textContent || 'null')
     expect(submitted.metadata).toEqual({ category: 'Sales', icon: 'shopping-cart' })
@@ -293,11 +293,7 @@ describe('CrudForm dot-path base fields (issue #2503)', () => {
     await flushMicrotasks()
 
     const form = container.querySelector('form') as HTMLFormElement
-    await act(async () => {
-      fireEvent.submit(form)
-      await Promise.resolve()
-      await Promise.resolve()
-    })
+    await submitAndWaitForValues(form)
 
     // The collapse step must skip prototype-polluting segments entirely, so
     // neither a fresh object nor Object.prototype gains the injected key.
