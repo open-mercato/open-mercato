@@ -87,9 +87,11 @@ seeded sentinel `CostCenter`; see Design Decisions). Each
 reclassification is keyed on its source *line*, so "already
 reclassified" is decided per line. Two supporting mechanisms make the
 result converge: a reconciliation sweeper (`reconcileCostRing`) that
-finds and repairs any source line left without its reclassification,
-and a period-close guard (`posting_rules.lockFiscalPeriod`) that
-refuses to lock a fiscal period while any remain. Full reasoning for
+finds and repairs any source line left without a *completed*
+reclassification (mirror entry plus its `CostCenter` tag — see Design
+Decisions, "A durable intent record"), and a period-close guard
+(`posting_rules.lockFiscalPeriod`) that refuses to lock a fiscal period
+while any remain. Full reasoning for
 every one of these choices is in Design Decisions below; this section
 is the map of how they fit together.
 
@@ -203,11 +205,13 @@ posted, a later step such as `setJournalEntryLineDimension` failed)
 must neither post a second reclassification nor leave the first one
 untagged. Per source line the subscriber (1) takes a transaction-scoped
 advisory lock on the source line id and, in that same transaction,
-(2) looks for an existing reclassification keyed on that line (the
-marker below) and posts only if there is none — through
+(2) looks for its `PostingRulesReclassification` intent row (see "A
+durable intent record" below) and posts only if there is none — through
 `ctx.transactionalEm`, which `ledger.postJournalEntry` honours
-(`withPostingTransaction`), so that lock and posting commit together — and (3) always runs the tag step as "ensure the `CostCenter`
-tag exists", whether or not step (2) posted anything. **Checked against #6340 on
+(`withPostingTransaction`), so that lock, the posting and the intent row
+commit together — and (3) always reads the intended `costCenterId` from
+that intent row and runs the tag step as "ensure the `CostCenter` tag
+exists", whether or not step (2) posted anything. **Checked against #6340 on
 2026-10-09:** the lock is `select pg_advisory_xact_lock(hashtextextended(?,
 0))` through `trx.execute`, the primitive `ledger/commands/fiscalPeriods.ts`
 already uses. Because the call is composed, `ledger.postJournalEntry`
@@ -228,10 +232,15 @@ sweeper's and the guard's result set. Only transient errors (database,
 lock timeout) are thrown, so that delivery retries them.
 
 **A repair mechanism: `ReconcileCostRingCommand` (a sweeper).** A
-scheduled / CLI-invoked command that finds source lines (see "Which
-entries and lines the engine reacts to") with no reclassification
-keyed on them and posts the missing ones through the same idempotent
-code path as the subscriber. Persistent delivery retries transient
+scheduled / CLI-invoked command that finds *incomplete* source lines
+(see "Which entries and lines the engine reacts to") and completes them
+through the same idempotent code path as the subscriber. A line is
+incomplete when it has no `PostingRulesReclassification` intent row, or
+when its intent row's mirror zespół 5 line has no `CostCenter` tag
+(**revised 2026-11-19**, re-review M1: an earlier draft selected purely
+by absence of a ledger marker, so a line whose tag write had failed was
+invisible to both the sweeper and the close guard). Persistent delivery
+retries transient
 failures, but it cannot repair what a retry cannot fix: a line posted
 before the module was enabled or before an admin configured
 `PostingRulesSettings`, or one whose handler returned on a named
@@ -307,6 +316,28 @@ keyed on the contra line's own id the same way. `referenceType` is a
 free-form field in #5663 (unlike the closed `JournalEntry.type` enum) —
 other modules already write their own source-entity name there.
 
+**A durable intent record makes completion checkable and keeps the
+resolved cost centre from drifting (added 2026-11-19, re-review M1).**
+The ledger marker alone cannot answer two questions the sweeper and the
+close guard must answer. First, a marker may exist while the
+`CostCenter` tag write never completed (`dimensions.set` opens its own
+transaction), so "a reclassification exists" is not the same as "the
+line is complete". Second, if the tag is repaired later, re-running the
+hybrid would resolve the rule's *current* `defaultCostCenterId`, which
+an admin may have changed since the source was posted — violating
+Invariant 5. The engine therefore persists, in a module-owned
+`PostingRulesReclassification` row written in the same composed
+transaction as its `postJournalEntry` call, the intended
+`targetAccountId` and `costCenterId` alongside the source line id and
+the reclassification entry id. Completion is defined as: an intent row
+exists **and** the reclassification's zespół 5 line carries a
+`CostCenter` tag. The tag step reads `costCenterId` from the intent row
+and never re-resolves the hybrid, and the finder (sweeper and close
+guard alike) selects a source line when no intent row exists or when
+its mirror has no tag. This is a link/state row, not a second copy of
+the financial entry: the amount, accounts and dates still live only in
+`ledger`'s `JournalEntry`/`JournalEntryLine` rows.
+
 **Reversals are mirrored, not duplicated — the subscriber checks each
 line's side against its account's `normalBalance`.** An earlier draft
 reacted identically to every posted line whose account resolves to
@@ -349,19 +380,75 @@ empty is cheaper than after production rows exist; it is deferred only
 because it widens a core PR that is under review, for a case that cannot
 occur yet.
 
+**A derived mirror cannot be reversed independently — correction goes
+through its source (added 2026-11-19, re-review M2).** The opposite
+direction is just as wrong as the double-mirror bug above: reversing an
+engine-posted reclassification directly relieves the zespół 5/490 effect
+while the source line's intent row still says "reclassified", so the
+sweeper never repairs it and the two variants disagree. `posting_rules`
+therefore ships a command interceptor (`commands/interceptors.ts`,
+`CommandInterceptor.targetCommand: 'ledger.reverseJournalEntry'`) whose
+`beforeExecute` rejects the command with status 422 and a named error
+when the target entry carries `referenceType:
+'PostingRulesEngineReclassification'`. The interceptor is part of the
+module's generated command-interceptor registry, so a tenant without
+`posting_rules` installed has no interceptor and `ledger` behaves
+exactly as #5663 specifies. To correct a derived entry, the user
+reverses the *source* line (or voids the source document); the engine
+then mirrors that reversal as described above. This closes inherited
+ask **2** from @lchrusciel's 2026-10-12 comment.
+
 **Period-close guard: a dedicated entry point in `posting_rules`, not
 a subscriber veto.** A subscriber cannot block #5663's
 `lockFiscalPeriod` — subscriber errors are only logged, never
 propagated to the emitting command (see the event-driven-communication
 decision above). Instead, `posting_rules` (the consumer, depending on
 `ledger`) gets its own, higher-level period-close command, which first
-checks `findUnreclassifiedEntries() === 0` for the given period and
-only then calls the existing `ledger.lockFiscalPeriod` — an ordinary
+checks that the completion finder returns nothing for the given period
+and only then calls the existing `ledger.lockFiscalPeriod` — an ordinary
 downward call (consumer → dependency), the same way the engine already
 calls `postJournalEntry`. `ledger.lockFiscalPeriod` itself knows
 nothing about zespoły or account 490 and works standalone when
 `posting_rules` isn't installed (e.g. a different jurisdiction) — with
 no guarantee of this guard in that installation.
+
+**The only user-facing Lock action must consult the guard (added
+2026-11-19, re-review M3).** A guard reachable only from a CLI protects
+no accountant: #5663's Fiscal Periods page is the one place users lock
+a period, and its Lock button calls `ledger.lockFiscalPeriod` directly.
+Rather than inverting the dependency (ledger must not import
+`posting_rules`), `ledger` exposes an optional
+`FiscalPeriodCloseGuard` port — a typed service with
+`assertPeriodClosable(periodId, ctx)` — and its Lock action resolves it
+with `tryResolve` and awaits it before locking. `posting_rules`
+registers its implementation in `di.ts`; when the module is not
+installed the port resolves to nothing and the button behaves exactly
+as today. This is a named **Phase 1 delivery dependency on #5663/#6340**
+(the port is a small, additive ledger change) and an acceptance gate
+for this module: the integration suite must click the real Lock action
+on a period with an incomplete reclassification and prove the period
+stays unlocked. Shipping without the port requires an explicit
+maintainer waiver recorded on the PR; until then the CLI/route guard is
+the only protected path, and the Risks section carries that residual
+risk.
+
+**The guarded close and the source posting share one serialization
+protocol (added 2026-11-19, re-review M4).** Checking completion in one
+transaction and locking in a second leaves a window in which a zespół 4
+posting commits between them. The guard therefore takes the period's
+write lock — `pg_advisory_xact_lock(hashtextextended('fiscal-period:' ||
+periodId, 0))` through `ctx.transactionalEm`, the primitive #5663
+already uses in `fiscalPeriods.ts` — runs the completion finder, and
+calls `ledger.lockFiscalPeriod` with the same `ctx.transactionalEm`, so
+the guard's read and the lock commit as one unit.
+`ledger.postJournalEntry` takes the same per-period advisory lock for
+every posting into that period. Honouring `ctx.transactionalEm` in
+`lockFiscalPeriod` and taking that lock in `postJournalEntry` are
+**delivery dependencies on `ledger` (#5663/#6340)**, tracked here as
+required work rather than assumed; until they land, Invariant 4 holds
+under the operational mitigation in Risks, and the integration suite
+includes a concurrent close-and-post case that must pass once the
+ledger side ships.
 
 **Phase 1: AP only as the cost source.** Fixed Assets joins naturally
 once its own Phase 2 (`transferAsset`/MPK) is ready.
@@ -418,7 +505,15 @@ configured `PostingRulesSettings` (see below) and at least the
 sentinel `CostCenter` exists (seeded automatically — see Module
 Setup) — without waiting for an MPK field in the AP invoice UI; once
 that field exists, it simply starts feeding path (1), with no change
-to the engine.
+to the engine. **Added 2026-11-19 (re-review M1 and n2):** the hybrid is
+resolved once per source line, at the moment the source is reclassified,
+and its `CostCenter` and `targetAccountId` are persisted in the intent
+row (see "A durable intent record"); every later repair or reversal
+reuses those stored values, so a rule edit never re-assigns an already
+posted cost to a different department. Phase 1 maps one source line to
+**exactly one** target account and one `CostCenter`; splitting a single
+source line across several cost centres is out of scope (see Out of
+scope).
 
 **The sentinel `CostCenter` is protected by the commands, not by a flag
 (added 2026-10-09, re-review m3).** The sentinel is "a normal row like
@@ -557,7 +652,10 @@ tenant with `posting_rules` installed:
    reclassification entry keyed on that line — debit the
    `DefaultAccountPostingRule`-mapped zespół 5 account / credit the
    clearing account for a normal-side line, the mirror image for a
-   contra-side line — for the same amount. "Eventual" because the
+   contra-side line — for the same amount, **and its mirror carries a
+   `CostCenter` tag** (**restated 2026-11-19**, re-review M1: completion
+   is the intent row plus the tag, not the mirror entry alone).
+   "Eventual" because the
    subscriber can be delayed, retried, or return on a named
    configuration error; `reconcileCostRing` is what makes this true
    within a bounded window rather than indefinitely. "Exactly one" is
@@ -590,10 +688,16 @@ tenant with `posting_rules` installed:
    `PostingRulesSettings.clearingAccountId`; and (c) entries of type
    `OPENING` and `CLOSING` (**extended 2026-10-09**, re-review M1).
 4. **A fiscal period cannot be locked through `posting_rules.lockFiscalPeriod`
-   while `reconcileCostRing` would find unreclassified entries in it.**
-   Locking through `ledger.lockFiscalPeriod` directly bypasses this
-   guard by design (see Design Decisions) — the invariant only holds
-   for callers that go through this module's guard.
+   — or through the user-facing Lock action while the module is
+   installed — while `reconcileCostRing` would find incomplete
+   reclassifications in it.** The read and the lock share one
+   transaction and the same per-period advisory lock as
+   `postJournalEntry` (**restated 2026-11-19**, re-reviews M3/M4: the
+   user-facing path is covered by the ledger port, and the check/lock
+   race is closed by the shared advisory lock). The invariant does not
+   hold when a caller reaches `ledger.lockFiscalPeriod` without the
+   port — e.g. a raw ops call — and that residual case is disclosed in
+   Risks until the ledger delivery dependency lands.
 5. **`CostCenter`/`DefaultAccountPostingRule` changes never rewrite
    history.** The target account and the `CostCenter` tag of a
    reclassification are both fixed when it is posted and never
@@ -603,7 +707,10 @@ tenant with `posting_rules` installed:
    target account and tag rather than the current rule's
    (**corrected 2026-10-09**: the "(Phase 2)" qualifier is dropped, rule
    updates ship in Phase 1, and the target account is now covered as
-   well as the tag).
+   well as the tag). **Extended 2026-11-19** (re-review M1): a repair or
+   retry uses the `costCenterId` and `targetAccountId` persisted in the
+   intent row, so even an *incomplete* reclassification never picks up a
+   later rule change.
 
 ## Alternatives Considered
 
@@ -717,15 +824,26 @@ reference if hierarchy is ever needed here.
   — upserted via `updatePostingRulesSettings`, seeded empty on
   organization creation (see Module Setup), the same shape as
   `FixedAssetSettings`.
+- `PostingRulesReclassification` — the durable intent/link row (**added
+  2026-11-19**, re-review M1): `sourceLineId` (FK-id to
+  `ledger.JournalEntryLine`), `sourceEntryId`, `reclassificationEntryId`
+  (FK-id to `ledger.JournalEntry`), `targetAccountId`, `costCenterId`,
+  tenant/org-scoped, `createdAt`, plus `updatedAt` for the read-model
+  contract. Unique on `(tenantId, organizationId, sourceLineId)`. It
+  carries no amount or posting data — those stay in the ledger entry —
+  and is written in the same transaction as the reclassification.
 
-No entity represents a reclassification itself — it *is* a
+No entity duplicates a reclassification's financial content — it *is* a
 `JournalEntry`/`JournalEntryLine` pair in `ledger`, created through
-`ledger.postJournalEntry` like any other posting, tagged as such only
-via `referenceType: 'PostingRulesEngineReclassification'`/
+`ledger.postJournalEntry` like any other posting, tagged as such via
+`referenceType: 'PostingRulesEngineReclassification'`/
 `referenceId` pointing at the source *line* (see API Contracts;
 **corrected 2026-09-14** — see Design Decisions, "The engine's own
-postings carry a distinct `referenceType`"). This module owns no
-ledger data of its own beyond the three reference tables above.
+postings carry a distinct `referenceType`"). `PostingRulesReclassification`
+is the module's own *intent and completion* record (which target account
+and `CostCenter` this engine resolved), not a second copy of the entry
+(**added 2026-11-19**). Beyond the three reference tables and this one
+link table, this module owns no ledger data of its own.
 
 ### Access Control (`acl.ts`)
 
@@ -832,26 +950,24 @@ stay `null` until an admin configures them, exactly like
   upsert-only-no-create shape as `updateFixedAssetSettings`. Requires
   `posting_rules.settings.manage`.
 - `reconcileCostRing` — the sweeper (`ReconcileCostRingCommand` from
-  Design Decisions). Finds every source-set line (Design Decisions,
-  "Which entries and lines the engine reacts to") with no
-  reclassification keyed on it (`referenceType:
-  'PostingRulesEngineReclassification'`, `referenceId` = the source
-  *line's* id — **corrected 2026-10-09**: it used to be the source
-  entry, which cannot tell a fully from a partly reclassified entry;
-  see Design Decisions, "The engine's own postings carry a distinct
-  `referenceType`") and posts the missing reclassification for each,
-  via the same idempotent code path as the subscriber (see
-  Cross-module integration). The finder's predicate is at line
-  granularity: for each source-set line, does an entry exist whose
-  marker `referenceId` is that line's id? It is **not** a comparison of
+  Design Decisions). Finds every **incomplete** source-set line (Design
+  Decisions, "Which entries and lines the engine reacts to") and
+  completes it through the same idempotent code path as the subscriber
+  (see Cross-module integration). **Revised 2026-11-19 (re-review M1):**
+  incomplete means (a) no `PostingRulesReclassification` intent row for
+  the source line, **or** (b) an intent row exists but its
+  reclassification's zespół 5 line carries no `CostCenter` tag. The
+  earlier predicate — absence of the ledger
+  `referenceType: 'PostingRulesEngineReclassification'` marker alone —
+  could not see case (b), so a line whose `dimensions.set` had failed
+  was reported complete and the period could be locked. The finder is
+  at line granularity and is **not** a comparison of
   the number of reclassification entries per source entry with the
-  number of zespół 4 lines. Selection is defined purely by absence of a
-  matching reference — not a time-windowed "since the last run" scan,
-  which would need a persisted checkpoint this module has no entity
-  for. Idempotent: a line already reclassified no longer matches and is
-  never picked up twice, and a line whose reclassification exists but
-  whose `CostCenter` tag is missing is repaired by the same pass (the
-  "ensure tag" step). Lines that cannot be reclassified (no target account
+  number of zespół 4 lines, and it is **not** a time-windowed "since the
+  last run" scan. Idempotent: a completed line no longer matches, and a
+  line whose mirror exists but whose tag is missing is repaired by the
+  same pass (the "ensure tag" step, using the stored `costCenterId`).
+  Lines that cannot be reclassified (no target account
   resolvable, locked period) are reported in the command's result by
   line id with their named error, not thrown, so one bad line does not
   stop the rest. An unset `clearingAccountId` is different: it is a
@@ -859,27 +975,35 @@ stay `null` until an admin configures them, exactly like
   its named error (422) rather than reporting every line as failed.
   Requires `posting_rules.reconcile.run`.
 - `lockFiscalPeriod` (this module's own, distinct from `ledger`'s) —
-  the period-close guard. Calls `reconcileCostRing`'s underlying finder
-  (`findUnreclassifiedEntries(periodId)`, which works at the line
-  granularity above and reports the entry id of each line); if it
+  the period-close guard. Takes the period's advisory write lock, then
+  calls `reconcileCostRing`'s underlying completion finder
+  (`findIncompleteReclassifications(periodId)`, which applies the
+  intent-and-tag predicate above and reports the entry id of each
+  offending line); if it
   returns a non-empty result, rejects with a list of the offending
   entry and line ids and does not proceed. If empty, calls
   `container.resolve('commandBus').execute('ledger.lockFiscalPeriod', {
-  input, ctx })` — the real, two-argument `execute(commandId, options)`
+  input, ctx })` with the same `ctx.transactionalEm` — the real,
+  two-argument `execute(commandId, options)`
   signature (`CommandBus.execute` in
   `packages/shared/src/lib/commands/command-bus.ts`, cited by symbol
   because line numbers drift), an ordinary downward call, the same
-  mechanism this module already uses for `postJournalEntry`.
+  mechanism this module already uses for `postJournalEntry`; the read
+  and the lock commit together (see Design Decisions, "The guarded
+  close and the source posting share one serialization protocol").
   `ledger.lockFiscalPeriod` still separately enforces its own
   `ledger.periods.manage` when invoked this way, exactly as it would
   for any other caller. **Corrected 2026-10-09** (re-review m4):
   `posting_rules.periods.manage` is *not* checked inside this command.
   The repo's convention is that ACL features are enforced on the route
-  or UI layer, and #6711 follows it, but no route or UI calls this
-  command yet (see Known integration gap), so the feature is declared
-  in `acl.ts` and not yet enforced anywhere. The check belongs on the
-  route or button that will call this guard, and must be required there
-  when it is added.
+  or UI layer. **Revised 2026-11-19 (re-review M3):** the Fiscal
+  Periods Lock action calls the guard through the optional
+  `FiscalPeriodCloseGuard` port (see Design Decisions, "The only
+  user-facing Lock action must consult the guard"), gated by
+  `posting_rules.periods.manage`, with the ledger-side behaviour
+  unchanged when the module is absent; the CLI path keeps the same
+  feature gate. The check belongs on the route or button that calls
+  this guard, and must be required there.
 
 ### Events & Subscribers (`events.ts`, `subscribers/`)
 
@@ -906,9 +1030,10 @@ stay `null` until an admin configures them, exactly like
     `PostingRulesSettings.clearingAccountId` (never a source). For each
     remaining line whose `account.type.accountGroupId` resolves to
     `LedgerAccountGroup{jurisdiction: 'PL', code: '4'}`: takes the
-    per-line advisory lock; if a reclassification keyed on this line
-    already exists, only ensures its `CostCenter` tag (see "Idempotency
-    and errors" below) and moves on; otherwise determines the line's
+    per-line advisory lock; if its `PostingRulesReclassification` intent
+    row already exists, only ensures its `CostCenter` tag from that
+    row's stored `costCenterId` (see "Idempotency and errors" below) and
+    moves on; otherwise determines the line's
     side relative to its account's `LedgerAccountType.normalBalance`.
   - **On the normal side:** resolves the target account and default
     `CostCenter` from the `DefaultAccountPostingRule` matching
@@ -947,17 +1072,25 @@ stay `null` until an admin configures them, exactly like
     `amountCurrency` from the source line,
     `referenceType: 'PostingRulesEngineReclassification'`, `referenceId`
     = the **source line's id** (**corrected 2026-10-09**; it was the
-    source entry). Then **ensures** the new zespół 5 line carries the
-    resolved `CostCenter` tag via
-    `journal_entry_line_dimensions.dimensions.set` — always
-    a real `CostCenter` id (the sentinel row when nothing more specific
-    resolved), never an empty array, which that command's own
+    source entry), and a human-readable `description` naming the
+    **source entry's `sequenceNumber`**, not its UUID (**added
+    2026-11-19**, re-review n1 / @lchrusciel ask 3: an accountant
+    reading the ledger sees "reclassification of entry 2026/000123",
+    not a bare GUID). In the same `ctx.transactionalEm` transaction the
+    engine inserts the `PostingRulesReclassification` intent row with
+    the resolved `targetAccountId` and `costCenterId`. Then **ensures**
+    the new zespół 5 line carries the resolved `CostCenter` tag via
+    `journal_entry_line_dimensions.dimensions.set`, reading the
+    `costCenterId` from the intent row (never re-running the hybrid) —
+    always a real `CostCenter` id (the sentinel row when nothing more
+    specific resolved), never an empty array, which that command's own
     `dimensionIds: z.array(...).min(1)` validator would reject.
   - **Idempotency and errors.** A re-delivery, a retry after partial
     success and a concurrent sweeper run all take the same lock and
-    make the same existence check, so a line is reclassified once; the
+    make the same intent-row check, so a line is reclassified once; the
     tag step runs on every pass and sets the tag only when it is
-    missing. Errors a retry cannot fix (clearing account unset, no
+    missing, using the stored `costCenterId`. Errors a retry cannot fix
+    (clearing account unset, no
     target account resolvable, locked period) are logged with their
     named error and the handler returns; the line stays visible to the
     sweeper and the guard. Transient errors (database, lock timeout) are
@@ -1014,15 +1147,33 @@ stay `null` until an admin configures them, exactly like
   module already follows for `ledger`.
 - **This module is never imported or resolved by `ledger` or
   `journal_entry_line_dimensions`.** One-way dependency direction only,
-  matching `packages/core/AGENTS.md`.
-- **Known integration gap, not addressed in this document**: #5663's
-  own Fiscal Periods backend page calls `ledger.lockFiscalPeriod`
-  directly from its Lock button. Wiring that button to call this
-  module's guarded `lockFiscalPeriod` instead, when `posting_rules` is
-  installed, is a UI-layer change to #5663 not scoped here — until it
-  ships, this guard only protects callers that explicitly invoke
-  `posting_rules.lockFiscalPeriod` themselves (an ops runbook or CLI
-  script), not a user clicking the existing Lock button.
+  matching `packages/core/AGENTS.md`. The one inbound seam is a
+  ledger-owned port resolved by `ledger` itself (below), which keeps the
+  import direction unchanged.
+- **Reverse-journal-entry refusal (added 2026-11-19, re-review M2).**
+  `commands/interceptors.ts` exports a `CommandInterceptor` targeting
+  `ledger.reverseJournalEntry` whose `beforeExecute` loads the target
+  entry and, when `referenceType ===
+  'PostingRulesEngineReclassification'`, returns `{ ok: false, status:
+  422, message: <localized named error> }`. The generated
+  `command-interceptors.generated.ts` registry includes only installed
+  modules, so `ledger` behaves identically for a tenant without this
+  module. The interceptor reads the entry through the same
+  hard-dependency read path as the rest of the engine and never writes.
+- **Fiscal-period close port (added 2026-11-19, re-review M3).**
+  `ledger`'s Fiscal Periods Lock action resolves an optional
+  `FiscalPeriodCloseGuard` service with `tryResolve` and awaits
+  `assertPeriodClosable(periodId, ctx)` before locking.
+  `posting_rules` registers the implementation in `di.ts` (a thin
+  wrapper over this module's guarded `lockFiscalPeriod`). Absent
+  module → absent port → unchanged ledger behaviour. The port is a
+  named Phase 1 delivery dependency on #5663/#6340, not work this
+  document performs inside `ledger`.
+- **Correction path for a derived mirror.** Because a mirror cannot be
+  reversed directly (previous bullet), a correction always reverses or
+  voids the source; the subscriber then mirrors that reversal, and the
+  intent row is left in place as the historical record of the original
+  derivation. Nothing is ever recomputed from the current rule.
 
 ### Backend Pages
 
@@ -1093,18 +1244,36 @@ PostingRulesSettings {
   // Both null until an admin configures them -- no default,
   // same posture as FixedAssetSettings's own account fields.
 }
+
+PostingRulesReclassification {   // added 2026-11-19, re-review M1
+  id: uuid
+  tenantId: uuid
+  organizationId: uuid
+  sourceLineId: uuid          // FK-id to ledger.JournalEntryLine
+  sourceEntryId: uuid         // FK-id to ledger.JournalEntry
+  reclassificationEntryId: uuid   // FK-id to ledger.JournalEntry
+  targetAccountId: uuid       // resolved intent, never re-derived
+  costCenterId: uuid          // resolved intent, never re-derived
+  createdAt: timestamp
+  updatedAt: timestamp
+}
 ```
 
-All three tenant/org-scoped per `packages/core/AGENTS.md`. Table
+All four tenant/org-scoped per `packages/core/AGENTS.md`. Table
 names: `posting_rules_cost_centers`,
 `posting_rules_default_account_posting_rules`,
-`posting_rules_settings`. Unique keys (all include `tenant_id`):
+`posting_rules_settings`,
+`posting_rules_reclassifications`. Unique keys (all include `tenant_id`):
 `(organization_id, tenant_id, source_account_id)` on
 `DefaultAccountPostingRule` — Phase 1 assumes exactly one default target
 per source account; `(organization_id, tenant_id, code)` on `CostCenter`,
 as a partial unique index `where deleted_at is null` so a deleted code
 can be reused; `(organization_id, tenant_id)` on `PostingRulesSettings`
-(one row per organization, upserted). **Corrected 2026-10-09** (re-review
+(one row per organization, upserted); and
+`(organization_id, tenant_id, source_line_id)` on
+`PostingRulesReclassification` (**added 2026-11-19**), which is also what
+makes the idempotency check race-safe under the per-line advisory lock.
+**Corrected 2026-10-09** (re-review
 m4): names and keys now match #6711's migration; the earlier draft
 listed `cost_center`, `default_account_posting_rule` and keys without
 `tenant_id`.
@@ -1143,13 +1312,18 @@ examples (`data_sync`'s `api/mappings/route.ts` →
 `lockFiscalPeriod` (this module's guard) is invoked the same
 non-route way #5663 documents for its own lock/unlock actions — a
 `commandBus`-only action behind a UI button, not a public route in
-Phase 1 (see Known integration gap above for why no button calls it
-yet).
+Phase 1. **Revised 2026-11-19 (re-review M3):** the user-facing Lock
+action reaches this guard through the ledger-owned
+`FiscalPeriodCloseGuard` port rather than calling `ledger.lockFiscalPeriod`
+directly (see Design Decisions and Cross-module integration); the
+`posting_rules.periods.manage` feature is enforced on that path and on
+the CLI.
 
 ## Migration & Deployment
 
-Three new tables (`posting_rules_cost_centers`,
-`posting_rules_default_account_posting_rules`, `posting_rules_settings`), zero changes to any existing `ledger` or
+Four new tables (`posting_rules_cost_centers`,
+`posting_rules_default_account_posting_rules`, `posting_rules_settings`,
+`posting_rules_reclassifications`), zero changes to any existing `ledger` or
 `journal_entry_line_dimensions` table. `seedDefaults` runs once per
 organization at module-enable time, the same lifecycle point #5663's
 `seedPolishAccountGroups` uses — safe to re-run (upserts the sentinel
@@ -1162,15 +1336,21 @@ No backfill: a tenant enabling this module after already having
 zespół 4 postings relies on `reconcileCostRing`'s first run to catch
 up, not a migration script (and, separately, on an admin having
 already configured `PostingRulesSettings` and at least one
-`DefaultAccountPostingRule` — see Risks).
+`DefaultAccountPostingRule` — see Risks). `posting_rules_reclassifications`
+starts empty; lines reclassified before the table existed are picked up
+by the same first sweep and get their intent row then (**added
+2026-11-19**).
 
 ## Implementation Plan
 
-1. `CostCenter`, `DefaultAccountPostingRule`, and
-   `PostingRulesSettings` entities + migration (**corrected
-   2026-09-14**: all three ship together in Phase 1 — see Design
-   Decisions, "4→5 rules"/"New settings: `PostingRulesSettings`").
-2. `data/validators.ts` for all three entities' CRUD input.
+1. `CostCenter`, `DefaultAccountPostingRule`,
+   `PostingRulesSettings` and `PostingRulesReclassification` entities +
+   migration (**corrected 2026-09-14**; the intent table **added
+   2026-11-19**, re-review M1 — see Design
+   Decisions, "4→5 rules"/"New settings: `PostingRulesSettings`"/"A
+   durable intent record").
+2. `data/validators.ts` for the entities' CRUD input (the intent table
+   is written only by the engine, so it gets no user-facing schema).
 3. `createCostCenter`/`updateCostCenter`,
    `createDefaultAccountPostingRule`/`updateDefaultAccountPostingRule`,
    and `updatePostingRulesSettings` commands + `acl.ts` + `setup.ts`'s
@@ -1181,19 +1361,28 @@ already configured `PostingRulesSettings` and at least one
    Decisions).
 5. `PostingRulesEngineSubscriber` (the event path) — the module's core
    behavior; depends on steps 1–4 existing so there's something to
-   resolve against.
+   resolve against. Writes the intent row in the posting transaction and
+   tags from the stored `costCenterId` (**added 2026-11-19**).
 6. `reconcileCostRing` command, reusing the subscriber's reclassify-one-line
-   logic as a shared internal helper (not duplicated).
-7. `posting_rules.lockFiscalPeriod` guard command.
-8. Backend `CostCenter`, `DefaultAccountPostingRule`, and
+   logic as a shared internal helper (not duplicated), selecting
+   incomplete lines (no intent row or no tag) (**revised 2026-11-19**).
+7. `posting_rules.lockFiscalPeriod` guard command, taking the period
+   advisory lock and sharing the transaction with `ledger.lockFiscalPeriod`
+   (**revised 2026-11-19**, re-review M4).
+8. `commands/interceptors.ts` — refuse direct reversal of an
+   engine-derived entry (**added 2026-11-19**, re-review M2); `di.ts`
+   — register the `FiscalPeriodCloseGuard` implementation for the
+   ledger-side port (**added 2026-11-19**, re-review M3).
+9. Backend `CostCenter`, `DefaultAccountPostingRule`, and
    `PostingRulesSettings` pages + `api/cost-centers`,
    `api/default-account-posting-rules`, `api/settings`, and
    `api/reconcile` routes (with `openApi`, per
    `packages/core/AGENTS.md`; **corrected 2026-09-14** — no
    `posting-rules/` subfolder, see API Contracts).
-9. Integration test: post a zespół 4 `VendorInvoice` line through AP,
-   assert the mirror entry and its `CostCenter` tag exist.
-10. `cli.ts`: `reconcile-cost-ring` and `lock-fiscal-period`, the CLI the
+10. Integration test: post a zespół 4 `VendorInvoice` line through AP,
+    assert the mirror entry, its `CostCenter` tag and its intent row
+    exist.
+11. `cli.ts`: `reconcile-cost-ring` and `lock-fiscal-period`, the CLI the
     sweeper and the guard are invoked through. Phase 1 ships no schedule:
     running `reconcile-cost-ring` periodically (cron, a CI job or a
     platform scheduler calling the CLI per tenant and organization) is an
@@ -1206,16 +1395,18 @@ already configured `PostingRulesSettings` and at least one
 
 | File | Change | Notes |
 |------|--------|-------|
-| `data/entities.ts` | Create | `CostCenter`, `DefaultAccountPostingRule`, `PostingRulesSettings` |
-| `data/validators.ts` | Create | Zod schemas for all three entities' commands |
-| `migrations/*.ts` (+ `.snapshot-open-mercato.json`) | Create | `posting_rules_cost_centers`, `posting_rules_default_account_posting_rules`, `posting_rules_settings` tables (**added 2026-09-14** — previously unlisted despite Implementation Plan step 1) |
+| `data/entities.ts` | Create | `CostCenter`, `DefaultAccountPostingRule`, `PostingRulesSettings`, `PostingRulesReclassification` (**added 2026-11-19**) |
+| `data/validators.ts` | Create | Zod schemas for the user-editable entities' commands |
+| `migrations/*.ts` (+ `.snapshot-open-mercato.json`) | Create | `posting_rules_cost_centers`, `posting_rules_default_account_posting_rules`, `posting_rules_settings`, `posting_rules_reclassifications` tables (**added 2026-09-14**; intent table **added 2026-11-19**) |
 | `commands/costCenters.ts` | Create | `createCostCenter`/`updateCostCenter` |
 | `commands/defaultAccountPostingRules.ts` | Create | `createDefaultAccountPostingRule`/`updateDefaultAccountPostingRule` (Phase 1, **corrected 2026-09-14**) |
 | `commands/postingRulesSettings.ts` | Create | `updatePostingRulesSettings` |
 | `commands/reconcileCostRing.ts` | Create | The sweeper, sharing reclassify-one-line logic with the subscriber |
-| `commands/lockFiscalPeriod.ts` | Create | The guarded period-close, calling `ledger.lockFiscalPeriod` on success |
+| `commands/lockFiscalPeriod.ts` | Create | The guarded period-close, taking the period advisory lock and calling `ledger.lockFiscalPeriod` in the same transaction on success (**revised 2026-11-19**) |
+| `commands/interceptors.ts` | Create | `CommandInterceptor` refusing a direct `ledger.reverseJournalEntry` of an engine-derived mirror (**added 2026-11-19**, re-review M2) |
+| `di.ts` | Create | Registers the `FiscalPeriodCloseGuard` implementation for the ledger-side optional port (**added 2026-11-19**, re-review M3) |
 | `lib/reclassify.ts` | Create | `reclassifyLine`, the shared per-line helper (subscriber and sweeper): trigger-set check, advisory lock, existence check, post, ensure tag (**added 2026-10-09**) |
-| `lib/findUnreclassifiedEntries.ts` | Create | The shared finder behind the sweeper and the guard, at source-line granularity (**added 2026-10-09**) |
+| `lib/findIncompleteReclassifications.ts` | Create | The shared completion finder behind the sweeper and the guard: an incomplete source line has no intent row or has no `CostCenter` tag on its mirror (**added 2026-10-09**; predicate and name revised 2026-11-19) |
 | `subscribers/postingRulesEngineSubscriber.ts` | Create | Reacts to `ledger.journal_entry.posted`, ignoring its own `'PostingRulesEngineReclassification'`-marked output |
 | `lib/seedDefaults.ts` | Create | Seeds the sentinel `CostCenter` and an empty `PostingRulesSettings` row (**corrected 2026-09-14** — no 4→5 template) |
 | `events.ts` | Create | Declares the standard CRUD events of `CostCenter` and `DefaultAccountPostingRule` (no domain events) |
@@ -1270,7 +1461,7 @@ already configured `PostingRulesSettings` and at least one
   posting the source entry with the subscriber disabled), and that
   running it twice never double-posts.
 - Assert `posting_rules.lockFiscalPeriod` rejects when
-  `findUnreclassifiedEntries` is non-empty, and that it successfully
+  `findIncompleteReclassifications` is non-empty, and that it successfully
   delegates to `ledger.lockFiscalPeriod` when empty.
 - Assert a locked `FiscalPeriod` rejects both the source posting *and*
   a reclassification attempted against it independently (two separate
@@ -1307,13 +1498,13 @@ already configured `PostingRulesSettings` and at least one
   changed — never a freshly re-resolved hybrid (**added 2026-09-14**
   — see Design Decisions, "Reversals are mirrored, not duplicated";
   Invariant 5).
-- Assert `reconcileCostRing`/`lockFiscalPeriod`'s shared finder
-  searches specifically for `referenceType:
-  'PostingRulesEngineReclassification'`, and that a
-  reversed-but-never-reclassified entry (linked only via #5663's own
-  `type: 'REVERSAL'`, `referenceType: 'journal_entry'`) is correctly treated as *not yet
-  reclassified*, not wrongly skipped (**added 2026-09-14** — the bug
-  the marker fix resolves; see Design Decisions).
+- Assert `reconcileCostRing`/`lockFiscalPeriod`'s shared completion
+  finder treats a reversed-but-never-reclassified entry (linked only via
+  #5663's own `type: 'REVERSAL'`, `referenceType: 'journal_entry'`) as
+  incomplete, not wrongly skipped (**added 2026-09-14**; predicate
+  restated 2026-11-19 to the intent-and-tag rule — a line is complete
+  only when its intent row exists and its mirror carries a `CostCenter`
+  tag).
 - Assert deactivating a `CostCenter` (`isActive: false`) or changing a
   `DefaultAccountPostingRule` row does not alter any
   `JournalEntryLineDimension` tag already written by a prior
@@ -1342,7 +1533,7 @@ already configured `PostingRulesSettings` and at least one
   a `REVERSAL` of one of the engine's own reclassifications, which
   carries `type: 'REVERSAL'` and `referenceType: 'journal_entry'`, not
   the marker); and that none of these appears in
-  `findUnreclassifiedEntries`.
+  `findIncompleteReclassifications`.
 - Assert a `NORMAL` entry with a contra-side zespół 4 line (a vendor
   credit note referencing an AP document, a 4xx→4xx reclassification)
   gets the inverted-direction reclassification, resolved through the rule
@@ -1385,6 +1576,60 @@ already configured `PostingRulesSettings` and at least one
   `lock-fiscal-period` validate their arguments with the commands'
   schemas, run the commands through the command bus scoped to `--org`,
   print the result and exit non-zero on a rejection.
+- **Completion predicate and durable intent (added 2026-11-19,
+  re-review M1).** Assert a line whose reclassification posted but whose
+  `dimensions.set` failed is incomplete: `findIncompleteReclassifications`
+  returns it and `posting_rules.lockFiscalPeriod` refuses to lock the
+  period. Assert the sweeper then repairs it using the
+  `costCenterId` stored in the intent row, even after the matching
+  `DefaultAccountPostingRule.defaultCostCenterId` was changed between the
+  failed attempt and the sweep (no re-resolution). Assert an exhausted
+  delivery retry leaves the line for the sweeper rather than a second
+  posting, and that the intent row and the reclassification commit
+  atomically (a rollback leaves neither). Assert the mirror
+  `description` contains the source entry's `sequenceNumber`, not its
+  UUID (**n1**).
+- **Direct reversal refused (added 2026-11-19, re-review M2).** Assert
+  `ledger.reverseJournalEntry` on an entry carrying `referenceType:
+  'PostingRulesEngineReclassification'` is rejected with 422 and writes
+  nothing, both through the command bus and through any API path; that
+  reversing the *source* line still produces the mirror reversal; and
+  that with `posting_rules` not installed the same command succeeds
+  unchanged.
+- **Guarded close end-to-end (added 2026-11-19, re-review M3/M4).**
+  Assert the ledger Fiscal Periods Lock action consults the
+  `FiscalPeriodCloseGuard` port: with an incomplete line the real Lock
+  action is refused and the period stays unlocked; with no incomplete
+  line it locks. Assert the port is absent (and the action behaves as
+  before) when the module is not installed. Once the ledger delivery
+  dependency lands, assert a posting that commits concurrently with the
+  close either lands before the completion read (and blocks the lock) or
+  waits on the shared advisory lock — never a locked period with an
+  incomplete line.
+- **Reverse-journal-entry and close port are pure read/decision paths.**
+  Assert neither the interceptor nor the port writes ledger data, and
+  that both are covered by the module's `posting_rules` ACL features for
+  the actions that trigger them.
+
+### Integration coverage matrix (added 2026-11-19, re-review m1)
+
+Every affected API path and its key UI path must ship an integration test
+in #6711, with the permissions, scoping and failure cases named here:
+
+| Surface | Permission | Cases |
+|---|---|---|
+| `GET/POST/PUT/DELETE /api/posting_rules/cost-centers` + list/edit page | `posting_rules.cost_centers.manage` | create/update/delete; 409 optimistic lock on update/delete; tenant/organization isolation; duplicate `(organization, code)` 409; sentinel `UNALLOCATED` rename/deactivate/delete refused |
+| `GET/POST/PUT/DELETE /api/posting_rules/default-account-posting-rules` + list/edit page | `posting_rules.cost_centers.manage` | create/update/delete; unique `(organization, sourceAccountId)` 409; 409 optimistic lock; cross-tenant read/write refused |
+| `GET/PATCH /api/posting_rules/settings` + settings page | `posting_rules.settings.manage` | read nulls; PATCH sets both accounts; 409 optimistic lock; cross-tenant refused; unset-clearing banner |
+| `POST /api/posting_rules/reconcile` | `posting_rules.reconcile.run` | happy path returns reconciled and failed lines; unset `clearingAccountId` → 422; repeated run is idempotent |
+| Fiscal Periods Lock action (ledger page) | `posting_rules.periods.manage` (via the port) | dirty period stays unlocked; clean period locks; module absent → unchanged ledger behaviour |
+| Unconfigured-module banner on all three pages | `posting_rules.settings.manage` (view) | shown while `clearingAccountId` is null, disappears after save |
+
+**Required user-story scenarios (BDD, shipping in #6711).** One scenario
+per User Story above, plus: "reversing the source reverses the mirror"
+and "the engine ignores its own entries". These are a delivery gate for
+#6711, not optional documentation (**added 2026-11-19**, @lchrusciel
+asks 1 and 5).
 
 ## Risks & Impact Review
 
@@ -1477,15 +1722,54 @@ or residual risk.
   on the source line, copying `currencyId`, `exchangeRate` and
   `amountCurrency`; see the 2026-10-20 Changelog entry). Mitigation: that
   alignment. Residual risk: none.
-- **The period-close guard doesn't protect the existing UI button**
-  (see Known integration gap, Cross-module integration) — a real,
-  named gap until #5663's Fiscal Periods page is updated separately.
-  Severity: medium. Affected area: any tenant that closes periods
-  through #5663's existing UI rather than this module's guarded
-  command. Mitigation: documented as a known gap with a named owner
-  (#5663's own page); no workaround exists inside this module alone.
-  Residual risk: medium until that UI change lands.
-- **Period-close guard race (lock vs. posting).** `posting_rules.lockFiscalPeriod` runs `findUnreclassifiedEntries(periodId)` and then, in a separate transaction, `ledger.lockFiscalPeriod`. A zespół 4 source posting that commits into the period after the finder has read and before the ledger lock takes its `for update` row lock is not seen by the guard, so the period is locked with an unreclassified line; that line's reclassification is then rejected (locked period) and stays in the sweeper's failure list until the period is unlocked. Severity: medium (Invariant 4 can be violated by timing; no wrong amount is posted, but that period's functional P&L is incomplete). Affected area: closing a period while postings into it are still arriving. Mitigation: none inside this module — closing the window needs `ledger.lockFiscalPeriod` to join the guard's transaction (honour `ctx.transactionalEm`, so the guard can take the period row's `for update` lock before running the finder), or a lock that `postJournalEntry` also takes; both are changes to `ledger`. Operationally, lock a period only after postings into it have stopped, and run `reconcile-cost-ring --period <id>` after locking to detect a missed line. Residual risk: low to medium until `ledger` supports a composed lock.
+- **The user-facing Lock button depends on a ledger-side port (rewritten
+  2026-11-19, re-review M3).** `posting_rules` cannot make #5663's Lock
+  button consult the guard without a small ledger change: the optional
+  `FiscalPeriodCloseGuard` port resolved with `tryResolve`. Until that
+  port ships, the guard protects only the CLI/route paths. Severity:
+  medium. Affected area: any tenant that closes periods through
+  #5663's existing UI rather than this module's guarded path.
+  Mitigation: the port is a named Phase 1 delivery dependency and an
+  acceptance gate (see Design Decisions and Testing Strategy); shipping
+  without it needs a recorded maintainer waiver. Residual risk: medium
+  until the ledger port lands.
+- **Period-close guard race (lock vs. posting) (rewritten 2026-11-19,
+  re-review M4).** The guard now takes the same per-period advisory lock
+  as `postJournalEntry` and calls `ledger.lockFiscalPeriod` in the same
+  transaction, so a source posting cannot slip between the completion
+  read and the lock **once the ledger side honors `ctx.transactionalEm`
+  and takes the advisory lock** — both are named delivery dependencies
+  on #5663/#6340. Until they land, a posting that commits into the
+  period after the finder has read is still unseen, and the line's
+  reclassification is rejected (locked period) until the period is
+  unlocked. Severity: medium (Invariant 4 can be violated by timing; no
+  wrong amount is posted, but that period's functional P&L is
+  incomplete). Affected area: closing a period while postings into it
+  are still arriving. Mitigation: the shared-lock design plus, until
+  delivered, lock a period only after postings into it have stopped and
+  run `reconcile-cost-ring --period <id>` after locking. Residual risk:
+  low to medium until `ledger` supports the composed lock.
+- **A derived mirror could be reversed by hand (rewritten 2026-11-19,
+  re-review M2).** Reversing an engine-posted mirror independently
+  relieves the zespół 5/490 effect while leaving the source's intent row,
+  so the two P&L views diverge and the sweeper never repairs it.
+  Severity: high if it happened (silent wrong functional P&L). Affected
+  area: any user or API caller reversing a reclassification entry.
+  Mitigation: the module's `ledger.reverseJournalEntry` command
+  interceptor refuses it with 422, while the module is installed; the
+  legitimate correction path is to reverse the source. Residual risk:
+  low — the interceptor is part of the generated registry and has both
+  a command-bus and an API rejection test; a deployment that disables
+  the module also removes the risk (no mirrors exist).
+- **The intent table is new state that can drift from the ledger
+  (added 2026-11-19).** `PostingRulesReclassification` is written in the
+  same transaction as the reclassification, but an operator deleting
+  ledger rows directly could orphan it. Severity: low. Affected area:
+  the sweeper's completion predicate. Mitigation: the predicate also
+  checks the actual `CostCenter` tag on the mirror line, so a missing
+  ledger entry is detected as incomplete and recreated; the table holds
+  no financial amount, so it cannot itself misstate a balance. Residual
+  risk: low.
 - **The sweeper runs only when something invokes it.** Phase 1 ships the subscriber and the `reconcile-cost-ring` CLI but no schedule, so a line whose reclassification failed permanently (clearing account unset, no rule and no unallocated-cost account) stays unrepaired until someone runs the sweep. Severity: low. Affected area: tenants whose configuration lagged behind their postings. Mitigation: operations schedule `reconcile-cost-ring` per tenant and organization (see Implementation Plan, step 10, and its open question), and run it once after enabling the module. Residual risk: low.
 - **The default chart's account 490-1 is a reclassification source unless it is the configured clearing account.** The default chart of accounts (#6439) creates type `490` in group 4 with account `490-1`, so it classifies as zespół 4; the engine excludes it only when it is `PostingRulesSettings.clearingAccountId`. If an admin configures a different clearing account, postings to 490-1 are reclassified like any other zespół 4 cost. Severity: medium. Affected area: tenants that imported the default chart. Mitigation: the enablement runbook says to use 490-1 as the clearing account when the default chart is used. Residual risk: low.
 
@@ -1542,8 +1826,20 @@ or residual risk.
   Polish-specific by construction; a different jurisdiction plugin
   would need its own equivalent engine, not a configuration of this
   one.
-- Wiring #5663's existing Fiscal Periods Lock button to this module's
-  guard (see Known integration gap).
+- Splitting one source line across several cost centres or target
+  accounts — Phase 1 maps each source line to exactly one target
+  account and one `CostCenter`; a percentage/text split is a later
+  extension (**added 2026-11-19**, n2 / @lchrusciel ask 4). The
+  `journal_entry_line_dimensions` API accepts an array, so this is an
+  engine limitation, not a schema one.
+- The ledger-side mechanics behind the Fiscal Periods Lock port and the
+  shared advisory lock (`tryResolve` port definition, `ctx.transactionalEm`
+  in `lockFiscalPeriod`, the per-period advisory lock in
+  `postJournalEntry`) — these are delivery dependencies on
+  #5663/#6340, named here but implemented there (**added 2026-11-19**,
+  re-reviews M3/M4; replaces the earlier "wiring the Lock button"
+  out-of-scope bullet, which this revision promotes to a Phase 1
+  requirement).
 - Fixed Assets as a cost source (`transferAsset`, Phase 2 there) —
   joins once that module's own Phase 2 lands; no design change needed
   here, since the subscriber reacts to `ledger.journal_entry.posted`
@@ -1580,9 +1876,14 @@ Final Compliance Report. The one gap this report used to flag
 is closed (2026-10-09): #5663 now documents
 `ledger.journal_entry.posted`'s payload and the subscriber's
 persistence (see Events & Subscribers); the three majors of the
-2026-10-09 re-review are recorded in the Changelog. Compliance Matrix and a formal pass/fail verdict against
-`AGENTS.md` are deferred to a maintainer review, matching this
-project's established practice.
+2026-10-09 re-review are recorded in the Changelog. **Revised
+2026-11-19:** the 2026-11-09 re-review's four majors (completion
+predicate and durable intent, direct-reversal refusal, the real
+user-facing close path, and the close/posting race) plus its minor,
+two nits and @lchrusciel's five asks are recorded and addressed in the
+Changelog entry for that date. Compliance Matrix and a formal pass/fail
+verdict against `AGENTS.md` are deferred to a maintainer review,
+matching this project's established practice.
 
 ## Changelog
 
@@ -1896,3 +2197,45 @@ open question to reviewers about the preferred scheduling pattern
   on an account with a currency carries that currency" does not apply to them.
 - **For #6711.** The branch has to copy the line's currency and rate once #6340
   carries them. Not yet reviewed by a maintainer.
+
+### 2026-11-19 — Re-review response (om-auto-review-pr): completion predicate, reversal refusal, real close path, close race
+
+The 2026-11-09 re-review raised four majors, one minor and two nits,
+plus five earlier asks from @lchrusciel; all are addressed in the text
+above:
+
+- **M1 — completion predicate and durable intent.** A source line is now
+  complete only when it has a `PostingRulesReclassification` intent row
+  and its mirror carries a `CostCenter` tag; the sweeper and the close
+  guard share that predicate
+  (`findIncompleteReclassifications`). The intent row is written in the
+  same transaction as the reclassification and stores the resolved
+  `targetAccountId`/`costCenterId`, so a failed tag write is repaired
+  without re-running the hybrid after a rule edit (Invariant 1 and 5
+  restated; new table, migration, manifest rows and tests).
+- **M2 — derived mirrors cannot be reversed directly.** A command
+  interceptor on `ledger.reverseJournalEntry` refuses with 422 while the
+  module is installed; correction goes through the source. Standalone
+  ledger behaviour is unchanged (no installed module, no interceptor).
+- **M3 — the user-facing close path.** The ledger Fiscal Periods Lock
+  action consults an optional `FiscalPeriodCloseGuard` port
+  (`tryResolve`) that this module registers; the port is a named Phase 1
+  delivery dependency and acceptance gate, with the real-button test
+  required. The CLI/route guard remains.
+- **M4 — close/posting race.** The guard takes the same per-period
+  advisory lock as `postJournalEntry` and composes
+  `ledger.lockFiscalPeriod` in one transaction; the ledger-side support
+  is a named delivery dependency, with a concurrent close/post test and
+  the residual risk updated.
+- **m1 — integration coverage matrix.** Every affected API path, its UI
+  path, permissions, tenant/org isolation, conflict and sentinel cases
+  are listed under Testing Strategy, with the required user-story BDD
+  scenarios for #6711 (**@lchrusciel asks 1 and 5**).
+- **n1 — description format.** A mirror's `description` names the source
+  entry's human-readable `sequenceNumber`, not its UUID
+  (**@lchrusciel ask 3**).
+- **n2 — cardinality.** One source line maps to exactly one target
+  account and one `CostCenter`; splitting across cost centres is out of
+  scope in Phase 1 (**@lchrusciel ask 4**).
+
+Not yet reviewed by a maintainer.
