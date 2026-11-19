@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { Secret, TOTP } from 'otpauth'
 import QRCode from 'qrcode'
 import { z } from 'zod'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type {
   MfaMethodRecord,
   MfaProviderConfirmResult,
@@ -101,15 +102,15 @@ export class TotpProvider implements MfaProviderInterface {
     const parsed = confirmPayloadSchema.parse(payload)
     const setup = this.resolveSetup(setupId)
     if (!setup || setup.userId !== userId) {
-      throw new Error('TOTP setup session not found')
+      throw new CrudHttpError(404, { error: 'TOTP setup session not found' })
     }
     if (Date.now() - setup.createdAt > this.securityConfig.totp.setupTtlMs) {
       this.pendingSetups.delete(setupId)
-      throw new Error('TOTP setup session expired')
+      throw new CrudHttpError(400, { error: 'TOTP setup session expired' })
     }
     const valid = this.verifyTotpCode(setup.secret, parsed.code)
     if (!valid) {
-      throw new Error('Invalid TOTP code')
+      throw new CrudHttpError(400, { error: 'Invalid TOTP code' })
     }
     this.pendingSetups.delete(setupId)
     return {
