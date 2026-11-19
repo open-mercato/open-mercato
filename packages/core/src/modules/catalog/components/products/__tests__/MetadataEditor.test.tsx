@@ -100,6 +100,27 @@ describe('MetadataEditor', () => {
     expect(inputs.length).toBe(2)
   })
 
+  it('retains a blank draft entry across equivalent parent values', () => {
+    const onChange = jest.fn()
+    const { rerender } = render(<MetadataEditor value={{}} onChange={onChange} />)
+    fireEvent.click(screen.getByText('Add entry'))
+    rerender(<MetadataEditor value={{}} onChange={onChange} />)
+    rerender(<MetadataEditor value={{}} onChange={onChange} />)
+    expect(screen.getByPlaceholderText('Key')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Value')).toBeInTheDocument()
+  })
+
+  it('still synchronizes a genuine external change after an equivalent echo', () => {
+    const onChange = jest.fn()
+    const { rerender } = render(<MetadataEditor value={{ existing: 'before' }} onChange={onChange} />)
+    fireEvent.click(screen.getByText('Add entry'))
+    rerender(<MetadataEditor value={{ existing: 'before' }} onChange={onChange} />)
+    rerender(<MetadataEditor value={{ existing: 'before' }} onChange={onChange} />)
+    rerender(<MetadataEditor value={{ existing: 'external update' }} onChange={onChange} />)
+    expect(screen.getByDisplayValue('external update')).toBeInTheDocument()
+    expect(screen.getAllByRole('textbox')).toHaveLength(2)
+  })
+
   it('removes an entry when trash button is clicked', () => {
     const onChange = jest.fn()
     render(<MetadataEditor value={{ alpha: 'one', beta: 'two' }} onChange={onChange} defaultCollapsed={false} />)

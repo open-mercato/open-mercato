@@ -29,6 +29,7 @@ import {
   resolveTimeEntryWriteAccess,
   resolveTimeEntryWriteDenial,
   roundedMinutesFor,
+  timeEntryStoredTaskLeftBehind,
   timeEntryTaskMatchesProject,
   toStoredTimeEntryRateOverride,
   translateTimeEntryWriteDenial,
@@ -458,6 +459,32 @@ export async function POST(req: Request) {
         { tenantId, organizationId },
       )
 
+      // A row that moves an existing entry to another project without naming a
+      // task must not keep a task of the previous project — the rule the
+      // single-entry update applies (#9473). The stored tasks are read here, once,
+      // for the same reason the segments are: no query may follow a pending change.
+      const storedTaskIds = [
+        ...new Set(
+          resolvedRows.flatMap(({ entry, timeProjectId }) => {
+            if (!entry.id || entry.taskId !== undefined || entry.durationMinutes === 0) return []
+            const existing = existingMap.get(entry.id)
+            if (!existing?.taskId || timeProjectId === (existing.timeProjectId ?? null)) return []
+            return [existing.taskId]
+          }),
+        ),
+      ]
+      const storedTasksById = new Map<string, { timeProjectId: string }>()
+      if (storedTaskIds.length > 0) {
+        const storedTasks = await trx.find(
+          StaffTimeTask,
+          { id: { $in: storedTaskIds }, tenantId, organizationId },
+          { fields: ['id', 'timeProjectId'] },
+        )
+        for (const storedTask of storedTasks) {
+          storedTasksById.set(storedTask.id, { timeProjectId: storedTask.timeProjectId })
+        }
+      }
+
       for (const { entry, task, timeProjectId } of resolvedRows) {
         const project = projectsById.get(timeProjectId) ?? null
         // Both branches read the five fields the schema has always accepted
@@ -517,6 +544,13 @@ export async function POST(req: Request) {
               organizationId,
             })
             if (entry.taskId !== undefined) existing.taskId = task?.id ?? null
+            else if (
+              projectChanged &&
+              existing.taskId &&
+              timeEntryStoredTaskLeftBehind(storedTasksById.get(existing.taskId), timeProjectId)
+            ) {
+              existing.taskId = null
+            }
             if (entry.isBillable !== undefined) existing.isBillable = entry.isBillable
             if (entry.rateOverrideAmount !== undefined) {
               existing.rateOverrideAmount = toStoredTimeEntryRateOverride(entry.rateOverrideAmount)
