@@ -15,7 +15,7 @@
 | 2 | 2.1 | `ecommerce`: optional store-by-id read on `storeContextService` (§6.0) | inline | done | — |
 | 2 | 2.2 | Module scaffold: index, acl, setup grants, events, registration, ACL labels | inline | done | — |
 | 2 | 2.3 | `AssistedSellingStoreSettings` entity, migration, `lib/settings.ts` | inline | done | — |
-| 2 | 2.4 | Settings validators (`rep \| off`, §5.6 bounds, `.strict()`) + tests | inline | todo | — |
+| 2 | 2.4 | Settings validators (`rep \| off`, §5.6 bounds, `.strict()`) + tests | inline | done | — |
 | 2 | 2.5 | `assisted_selling.settings.save` command (`withAtomicFlush`, 409 on first-save race) + tests | inline | todo | — |
 | 2 | 2.6 | `GET/PUT /api/assisted_selling/settings/:storeId` (store-org ownership, 404, 500) + tests | inline | todo | — |
 | 3 | 3.1 | UPGRADE_NOTES + spec changelog line | inline | todo | — |
