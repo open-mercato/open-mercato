@@ -6,6 +6,8 @@ let forkCount = 0
 const mockOrm = { em: { fork: jest.fn(() => ({ forkNumber: ++forkCount })) } }
 const mockOverrides: Record<string, unknown> = {}
 const mockActivate = jest.fn()
+const mockReportError = jest.fn()
+const mockFinalizeProcessRoot = jest.fn(async (_container: AppContainer) => {})
 const mockBootstrap = jest.fn(async (container: AppContainer) => {
   container.register({ eventBus: asValue({ emit: jest.fn() }) })
 })
@@ -15,6 +17,8 @@ const mockProcessBootstrap = jest.fn(async (container: AppContainer) => {
   })
   return mockActivate
 })
+
+jest.mock('../../telemetry/runtime', () => ({ getTelemetryRuntime: () => ({ reportError: mockReportError }) }))
 
 jest.mock('@open-mercato/shared/lib/db/mikro', () => ({ getOrm: jest.fn(async () => mockOrm) }))
 jest.mock('@mikro-orm/core', () => ({ RequestContext: { getEntityManager: () => null } }))
@@ -28,6 +32,7 @@ jest.mock('@open-mercato/shared/lib/commands', () => ({ commandRegistry: {}, Com
 jest.mock('@open-mercato/core/bootstrap', () => ({
   bootstrap: (container: AppContainer) => mockBootstrap(container),
   bootstrapProcessRoot: (container: AppContainer) => mockProcessBootstrap(container),
+  finalizeProcessRoot: (container: AppContainer) => mockFinalizeProcessRoot(container),
 }), { virtual: true })
 jest.mock('@open-mercato/shared/modules/overrides', () => ({
   composeDiOverrides: () => mockOverrides,
@@ -412,4 +417,77 @@ it('falls back when the app replaces the generation bus without publishing that 
   expect(getProcessContainerStats().compatibilityReason).toContain('custom event buses')
   expect(mockActivate).not.toHaveBeenCalled()
   expect(activate).not.toHaveBeenCalled()
+  expect(mockFinalizeProcessRoot).not.toHaveBeenCalled()
+})
+
+
+it.each([false, true])('disposes a failed caller and preserves its setup error when cleanup rejects: %s', async (cleanupRejects) => {
+  const setupError = new Error('[internal] caller setup failed')
+  const dispose = jest.fn(async () => {
+    if (cleanupRejects) throw new Error('[internal] caller cleanup failed')
+  })
+  if (cleanupRejects) mockReportError.mockImplementationOnce(() => { throw new Error('[internal] telemetry unavailable') })
+  let failSetup = true
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    root.register({ ownedResource: asScopedService(() => ({})).disposer(dispose) })
+    registerCallerSetup(root, (caller) => {
+      caller.resolve('ownedResource')
+      if (failSetup) throw setupError
+    })
+  })])
+  await expect(createRequestContainer()).rejects.toBe(setupError)
+  expect(dispose).toHaveBeenCalledTimes(1)
+  if (cleanupRejects) {
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'shared', code: 'shared.caller_initialization_cleanup_failed',
+    })
+  } else expect(mockReportError).not.toHaveBeenCalled()
+  failSetup = false
+  const caller = await createRequestContainer()
+  expect(mockProcessBootstrap).toHaveBeenCalledTimes(1)
+  expect(mockActivate).toHaveBeenCalledTimes(1)
+  expect(dispose).toHaveBeenCalledTimes(1)
+  if (cleanupRejects) await expect(caller.dispose()).rejects.toThrow('caller cleanup failed')
+  else await caller.dispose()
+  expect(dispose).toHaveBeenCalledTimes(2)
+})
+
+it('finalizes event setup after the app registrar and rejects unpublished generations on failure', async () => {
+  const setupError = new Error('[internal] event setup failed')
+  registerAppDiRegistrar(defineProcessDiRegistrar((root) => {
+    root.register({ appDefinition: asValue('registered') })
+  }))
+  mockFinalizeProcessRoot.mockImplementationOnce(async (root) => {
+    expect(root.resolve('appDefinition')).toBe('registered')
+    throw setupError
+  })
+  await expect(createRequestContainer()).rejects.toBe(setupError)
+  expect(mockActivate).not.toHaveBeenCalled()
+  const caller = await createRequestContainer()
+  expect(mockFinalizeProcessRoot).toHaveBeenCalledTimes(2)
+  expect(mockActivate).toHaveBeenCalledTimes(1)
+  await caller.dispose()
+})
+
+
+it.each(['registration', 'activation'] as const)('preserves the root %s failure when generation cleanup rejects and retries', async (phase) => {
+  const initializationError = new Error(`[internal] ${phase} failed`)
+  const cleanupError = new Error('[internal] root cleanup failed')
+  const dispose = jest.fn(async () => { throw cleanupError })
+  let failRegistration = phase === 'registration'
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    root.register({ generationState: asFunction(() => ({})).singleton().disposer(dispose) })
+    root.resolve('generationState')
+    if (failRegistration) throw initializationError
+  })])
+  if (phase === 'activation') mockActivate.mockImplementationOnce(() => { throw initializationError })
+  await expect(initializeProcessContainer()).rejects.toBe(initializationError)
+  expect(dispose).toHaveBeenCalledTimes(1)
+  expect(mockReportError).toHaveBeenCalledWith(cleanupError, {
+    module: 'shared', code: 'shared.root_initialization_cleanup_failed',
+  })
+  failRegistration = false
+  await expect(initializeProcessContainer()).resolves.toBeDefined()
+  expect(dispose).toHaveBeenCalledTimes(1)
+  expect(mockProcessBootstrap).toHaveBeenCalledTimes(phase === 'registration' ? 1 : 2)
 })

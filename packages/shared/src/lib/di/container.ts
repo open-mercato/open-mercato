@@ -11,6 +11,7 @@ import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optim
 import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { createLogger } from '../logger'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import { bindRequestScopeContainer, runWithRequestScopeContainer } from './request-scope'
 import { parseBooleanWithDefault } from '../boolean'
 import { onModulesRegistered } from '../modules/registry'
@@ -365,7 +366,7 @@ async function buildProcessContainer(
       await root.dispose()
       return null
     }
-    const { bootstrapProcessRoot } = await import('@open-mercato/core/bootstrap')
+    const { bootstrapProcessRoot, finalizeProcessRoot } = await import('@open-mercato/core/bootstrap')
     const activate = await bootstrapProcessRoot(root)
     const generationEventBus = root.registrations.eventBus
     if (appRegistrar) {
@@ -378,10 +379,10 @@ async function buildProcessContainer(
       await root.dispose()
       return null
     }
+    await finalizeProcessRoot(root)
     return { container: root, activate }
   } catch (error) {
-    await root.dispose()
-    throw error
+    return disposeFailedContainer(root, error, 'root')
   }
 }
 
@@ -417,8 +418,7 @@ export async function initializeProcessContainer(): Promise<AppContainer | null>
           activate()
           return container
         } catch (error) {
-          await container.dispose()
-          throw error
+          return disposeFailedContainer(container, error, 'root')
         }
       })
       state.pending = pending
@@ -438,14 +438,41 @@ export async function initializeProcessContainer(): Promise<AppContainer | null>
   }
 }
 
+async function disposeFailedContainer(
+  container: AppContainer,
+  initializationError: unknown,
+  owner: 'caller' | 'root',
+): Promise<never> {
+  try {
+    await container.dispose()
+  } catch (cleanupError) {
+    try {
+      logger.error('Failed to dispose partially initialized DI container', { owner, err: cleanupError })
+      getTelemetryRuntime()?.reportError(cleanupError, {
+        module: 'shared',
+        code: owner === 'caller'
+          ? 'shared.caller_initialization_cleanup_failed'
+          : 'shared.root_initialization_cleanup_failed',
+      })
+    } catch {
+      throw initializationError
+    }
+  }
+  throw initializationError
+}
+
 export async function createRequestContainer(): Promise<AppContainer> {
   const root = await initializeProcessContainer()
   if (root) {
     const caller = root.createScope()
-    isolateCallerRegistrations(caller)
-    caller.register({ em: asValue(caller.resolve<EntityManager>('em')) })
-    await attachRequestEncryptionSubscriber(caller)
-    await runWithRequestScopeContainer(caller, () => runCallerSetups(root, caller))
+    try {
+      isolateCallerRegistrations(caller)
+      caller.register({ em: asValue(caller.resolve<EntityManager>('em')) })
+      await attachRequestEncryptionSubscriber(caller)
+      await runWithRequestScopeContainer(caller, () => runCallerSetups(root, caller))
+    } catch (error) {
+      return disposeFailedContainer(caller, error, 'caller')
+    }
     getProcessRootState().callerScopes += 1
     bindRequestScopeContainer(caller)
     return caller

@@ -64,3 +64,8 @@ PR: #9837
 - Repaired exact unit gate fails at the unchanged MDX dialog suite with worker OOM under its configured 1 GiB limit. Continued coverage reproduces the same seven attachment failures as the exact-base test; no additional product failures. Combined collection: 50,742 passing assertions, seven failing assertions, 456 skipped, plus the MDX suite that could not complete.
 - An initial dependency-copy failure changed ts-jest peer resolution; the local install was repaired before rerunning the exact command. It is not a baseline/product failure. A reusable dependency-resolution lesson records the correction.
 - The four actionable findings in review 5965672633 are addressed. Step 3.3 remains pending on full-gate qualification/QA; the feature remains default-off. The existing ready-for-review PR state is preserved (superseding earlier draft-state notes), and re-review is requested.
+
+### Review 5977893022 plan (2026-11-19)
+1. Dispose callers when initialization fails without replacing the original error; defer process event setup until module and app registration and custom-bus detection finish. Add lifecycle/event regressions.
+2. Resolve the attachment assertion failures and MDX dialog heap exhaustion at their root causes, preserving the existing assertions and heap limit.
+3. Run the configured gate, template/DI checks and both feature modes of runtime integration; publish results and request re-review.

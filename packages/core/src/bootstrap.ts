@@ -285,6 +285,15 @@ export async function bootstrap(container: AwilixContainer) {
 }
 
 const KMS_GLOBAL_KEY = Symbol.for('@open-mercato/core/process-kms')
+const processEventSetupBuses = new WeakMap<AwilixContainer, EventBus>()
+
+/** @internal Completes generation-local setup after module and app registration. */
+export async function finalizeProcessRoot(root: AwilixContainer): Promise<void> {
+  const definitions = processEventSetupBuses.get(root)
+  if (!definitions) return
+  processEventSetupBuses.delete(root)
+  await runProcessEventSetups(root, definitions)
+}
 
 function getProcessKmsService(): KmsService {
   const state = globalThis as typeof globalThis & { [KMS_GLOBAL_KEY]?: KmsService }
@@ -343,7 +352,7 @@ export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() =>
   })
   if (rateLimiterService) root.register({ rateLimiterService: asValue(rateLimiterService) })
   registerScopedSearchModule(root, { moduleConfigs: searchModuleConfigs })
-  await runProcessEventSetups(root, definitions)
+  processEventSetupBuses.set(root, definitions)
 
   return () => {
     registerSyncSubscribers(subscribers.filter((subscriber) => subscriber.sync === true).map((subscriber) => ({
