@@ -235,7 +235,7 @@ Each command recomputes the wave status from these rules before commit.
 |---------|------|
 | Release | Allowed only while every created pick task is still `open`. Deallocate those buckets back to reserved and cancel the tasks. |
 | Assign, start | Restore the previous assignee and status. |
-| Confirm, short | Allowed when this wave has no packing task for that order, or that packing task is still `open` or `in_progress`, and, for a short, the remainder is not already on another `open` or `in_progress` task. The pick returns to `open` and `quantity_picked` returns to 0. A compensating `pick` movement returns on-hand and allocated quantity to the source bucket. A short that picked 0 wrote no movement, so its undo does not write one either. The same transaction increments `movement_attempt`. When a packing task exists, it soft-deletes that task and its lines, because this wave's picks for the order are no longer all terminal. A later confirm or short that makes those picks terminal again creates a new packing task. Short undo re-allocates the remainder that was returned to reserved. Rejected with `409 pick_undo_blocked` when that packing task is `done` or `shipped`, or when the short remainder is already on another live task. Another wave's packing task does not block this undo. |
+| Confirm, short | Allowed when this wave has no packing task for that order, or that packing task is still `open` or `in_progress`. The pick returns to `open` and `quantity_picked` returns to 0. A compensating `pick` movement returns on-hand and allocated quantity to the source bucket. A short that picked 0 wrote no movement, so its undo does not write one either. The same transaction increments `movement_attempt`. When a packing task exists, it soft-deletes that task and its lines, because this wave's picks for the order are no longer all terminal. A later confirm or short that makes those picks terminal again creates a new packing task. When the reserved check below passes, short undo re-allocates the remainder that was returned to reserved. Rejected with `409 pick_undo_blocked` when that packing task is `done` or `shipped`, or when that reserved check fails. Another wave's packing task does not block this undo. |
 | Cancel pick | Allowed when the bucket is still `reserved` and not on another `open` or `in_progress` task. Re-allocates that bucket and restores the pick to `open`. `quantity_picked` is already 0. When this wave has a packing task for the order, the same transaction soft-deletes it and its lines while it is `open` or `in_progress`. Rejected with `409 pick_undo_blocked` when that packing task is `done` or `shipped`. |
 | Complete packing | Not undoable. Completing emits `wms.packing.completed`. Sales may already have created a shipment and raised fulfilled quantities. A mistake after complete is a forward correction, not an undo. |
 | Ship | Not undoable. A return is phase 5. |
@@ -244,11 +244,13 @@ Each command recomputes the wave status from these rules before commit.
 
 Completed picks are not deleted. Confirm and short undo write a compensating movement when the original command wrote one, and do not update or soft-delete the historical movement row.
 
+Short undo checks the remainder only after the wave, reservation, and balance locks, and before any compensating movement, status change, `movement_attempt` increment, or packing soft-delete. The remainder is `quantity_requested - quantity_picked`. That quantity must still be `reserved` on the source balance of this reservation. Release onto another wave allocates it, and a confirm on that wave moves it to the pack location, so either one fails the check. The undo then returns `409 pick_undo_blocked` and leaves the pick, the packing task, the balances, and `movement_attempt` as they were.
+
 Pick undo cannot race a label request. `request-label` requires packing status `done` or `shipped`, and confirm, short, and cancel undo are rejected in those statuses. No sales shipment exists yet either: `wms.packing.completed` is emitted only by complete.
 
 ### Concurrency
 
-Every wave, pick, and packing command takes `PESSIMISTIC_WRITE` on the parent wave first, then on the child task, then on reservations in id order, then on balances in id order. The wave is the common lock for the picks on that wave. Two confirms of different variants on the same wave hold different task and balance rows, so task-local locks do not serialize them. After the wave lock, the command re-reads every pick of this wave for the order it is deciding, and that wave's packing task for the order.
+Every wave, pick, and packing command takes `PESSIMISTIC_WRITE` on the parent wave first, then on the child task, then on reservations in id order, then on balances in id order. The wave is the common lock for the picks on that wave. Short undo, after those locks and before any write, re-reads the source balance and requires the full remainder to still be reserved there. Two confirms of different variants on the same wave hold different task and balance rows, so task-local locks do not serialize them. After the wave lock, the command re-reads every pick of this wave for the order it is deciding, and that wave's packing task for the order.
 
 That re-read is what creates the packing task. The confirm, short, or cancel that finds every pick of this wave for that order already terminal inserts exactly one task when the sum of `quantity_picked` is positive. Lines point only at those picks. The other command waiting on the same wave sees that task and does not insert a second one.
 
@@ -467,7 +469,7 @@ From `none` or `failed`: set `requested`, emit `wms.packing.label_requested` onc
 
 System commands, no public route:
 
-- `link-shipment` body `{ "salesShipmentId": "uuid" }`. Sets the id when null. Same id is success. A different id is `409 shipment_already_linked`.
+- `link-shipment` body `{ "salesShipmentId": "uuid" }`. Sets the id when null. Same id is success. A different id, or a shipment id already stored on another non-deleted packing task, is `409 shipment_already_linked` and writes nothing.
 - `mark-label-printed` from `requested` sets `printed`. Replay from `printed` is success.
 - `mark-label-failed` from `requested` sets `failed`. Does not change packing status or balances.
 
@@ -488,9 +490,9 @@ System commands, no public route:
 | 422 | `confirm_requires_full_quantity` | Confirm payload includes a partial quantity |
 | 422 | `short_quantity_out_of_range` | Short quantity is negative or covers the full task |
 | 409 | `pick_cancel_requires_open` | Cancel after start |
-| 409 | `pick_undo_blocked` | Confirm, short, or cancel undo after this wave's packing task for the order is `done` or `shipped`, or short undo when the remainder is already on another `open` or `in_progress` task. Complete has no undo |
+| 409 | `pick_undo_blocked` | Confirm, short, or cancel undo after this wave's packing task for the order is `done` or `shipped`, or short undo when the remainder is no longer reserved in full on the source balance. Complete has no undo |
 | 409 | `shipment_link_missing` | Ship or label before sales links a shipment |
-| 409 | `shipment_already_linked` | Link command got a different shipment id |
+| 409 | `shipment_already_linked` | Link command got a different shipment id, or the shipment id is already stored on another live packing task |
 | 409 | `label_integration_disabled` | Label toggle off |
 | 409 | optimistic-lock conflict | Stale `updatedAt`, platform 409 body |
 
@@ -505,11 +507,14 @@ Sales owns shipment records and shipment status dictionaries. WMS does not read 
 Each `wms.packing.completed` is one packing task. A second wave of the same order emits a second event whose lines are only that wave's picks. The sales subscriber:
 
 1. If this `packingTaskId` is already linked, call `link-shipment` with the same id and stop.
-2. Load every non-deleted sales shipment for the order. Shipment status is a tenant dictionary, so it is not a filter. Drop any shipment whose id is already stored on another non-deleted packing task.
-3. A candidate matches when its items, mapped through order lines, equal the packed variant quantities, and the packed quantity still fits each line once that candidate's own items are excluded from the shipped totals (`excludeShipmentId` in the sales shipment command).
-4. Exactly one match: call `link-shipment` with that id. Do not create a second shipment and do not add its quantity to fulfilled totals again.
-5. No match: split the packed variant quantity across the order's product lines for that variant, in stable line id order. Remaining quantity is line quantity minus shipped totals of every non-deleted shipment, with nothing excluded. When the packed quantity fits, call `sales.shipments.create` with the order's current optimistic-lock version, then `link-shipment`. When it does not fit, create nothing and leave `sales_shipment_id` null. Set `metadata.linkBlockReason` to `quantity_exceeds_remaining`.
-6. More than one match: create nothing and link nothing. Set `metadata.linkBlockReason` to `ambiguous_shipment`.
+2. Load every non-deleted sales shipment for the order. If one stores `metadata.wmsPackingTaskId` equal to this packing task id, call `link-shipment` with that shipment and stop. That value is the owner, written in the sales create transaction, so a crash before the link does not leave the shipment free for another packing task. Do not create a second shipment and do not add its quantity to fulfilled totals again.
+3. Shipment status is a tenant dictionary, so it is not a filter. Drop any shipment whose id is already stored on another non-deleted packing task. Drop any shipment whose `metadata.wmsPackingTaskId` belongs to a different packing task, including one that is not linked yet.
+4. A candidate matches when its items, mapped through order lines, equal the packed variant quantities, and the packed quantity still fits each line once that candidate's own items are excluded from the shipped totals (`excludeShipmentId` in the sales shipment command).
+5. Exactly one match: call `link-shipment` with that id. Do not create a second shipment and do not add its quantity to fulfilled totals again. A hand-created shipment has no `wmsPackingTaskId`, and linking it leaves that metadata unset.
+6. No match: split the packed variant quantity across the order's product lines for that variant, in stable line id order. Remaining quantity is line quantity minus shipped totals of every non-deleted shipment, with nothing excluded. When the packed quantity fits, call `sales.shipments.create` with the order's current optimistic-lock version and `metadata.wmsPackingTaskId` set to this packing task id, then `link-shipment`. The create transaction locks the order and, in that same transaction, returns the existing non-deleted shipment for that packing task id or inserts one. A returned shipment does not change fulfilled quantities. Callers that omit `metadata.wmsPackingTaskId` keep today's create behavior. When the packed quantity does not fit, create nothing and leave `sales_shipment_id` null. Set the packing task `metadata.linkBlockReason` to `quantity_exceeds_remaining`. An optimistic-lock 409 from create reruns this algorithm from step 1 and is not a `quantity_exceeds_remaining`.
+7. More than one match: create nothing and link nothing. Set the packing task `metadata.linkBlockReason` to `ambiguous_shipment`.
+
+If `link-shipment` returns `409 shipment_already_linked` because that shipment id is already stored on another live packing task, the subscriber drops that shipment and runs this algorithm again. It does not create a replacement for it in the same pass.
 
 Ship stays `409 shipment_link_missing` until `sales_shipment_id` is set. The link command idempotency key is the packing task id. The partial unique index on `sales_shipment_id` rejects a second live packing task for the same shipment.
 
@@ -622,7 +627,7 @@ Cache: command success invalidates the wave, task, balance, and reservation tags
 ### Story 3: Pack, sales link, and ship
 
 1. Packing list/detail, start, and complete. Complete emits `wms.packing.completed` and does not move stock.
-2. Sales subscriber creates or reuses a shipment and calls `link-shipment`.
+2. Sales subscriber creates or reuses a shipment and calls `link-shipment`. Create stores `metadata.wmsPackingTaskId` on the shipment in that same transaction.
 3. Ship writes `type = ship` and fulfills the reservation portion. It refuses a missing link.
 
 ### Story 4: Labels and sales projection
@@ -654,13 +659,14 @@ Cache: command success invalidates the wave, task, balance, and reservation tags
 | WMS-P3-INT-16 | API | Order already has one non-deleted shipment for the packed quantity | subscriber links that shipment, fulfilled quantity is not increased again, a second packing task cannot store the same `sales_shipment_id` |
 | WMS-P3-INT-17 | API | Two concurrent confirms of the last two picks of one order on the same wave | exactly one live packing task, both picks `done` |
 | WMS-P3-INT-18 | API | Complete racing confirm undo on the same wave | one winner: either packing is soft-deleted and `wms.packing.completed` is not emitted, or complete wins and undo returns `409 pick_undo_blocked` |
-| WMS-P3-INT-19 | API | Short a pick, release the remainder on a second wave, then confirm the first wave's last open pick and the second wave's pick concurrently | two live packing tasks, one per `(wave, order)`; each task's lines are only that wave's picks; both confirms succeed |
+| WMS-P3-INT-19 | API | Short a pick, release the remainder on a second wave, then confirm the first wave's last open pick and the second wave's pick concurrently, then undo the first wave's short | two live packing tasks, one per `(wave, order)`; each task's lines are only that wave's picks; both confirms succeed; the short undo returns `409 pick_undo_blocked` and leaves both waves, both packing tasks, and the balances unchanged |
 | WMS-P3-INT-20 | API | Cancel the last open pick after another pick on the same wave is `done`, then undo that cancel while packing is `open` | packing task is soft-deleted, the pick returns to `open` and is allocated again, a later confirm creates a new packing task |
 | WMS-P3-INT-21 | API | Undo that cancel after packing is `done` | `409 pick_undo_blocked`, packing stays `done`, balances unchanged |
+| WMS-P3-INT-22 | API | Two packing tasks for one order pack the same variant and the same quantity. The first subscriber's create commits and stops before link; the second subscriber runs; the first then replays | the first shipment keeps `metadata.wmsPackingTaskId` of the first packing task, the second task does not link it, replay links the first task to that shipment, each task ends with its own shipment, and fulfilled quantity increases once per created shipment |
 
 Fixtures use phase 1 reservations and a staging pack location. Do not reserve staging stock directly. Carrier failure asserts the packing row and the balances, not a rolled-back transaction.
 
-Unit coverage: bucket split on short, ship quantity against reservation remainder, subscriber line split across two order lines of the same variant, idempotent release and confirm.
+Unit coverage: bucket split on short, ship quantity against reservation remainder, subscriber line split across two order lines of the same variant, idempotent release and confirm, short undo when the remainder is no longer reserved, and shipment-owner replay after a crash before link.
 
 ## Risks
 
@@ -677,7 +683,7 @@ Unit coverage: bucket split on short, ship quantity against reservation remainde
 - **Scenario:** Pack complete creates a shipment and an existing sales shipment is also treated as new demand.
 - **Severity:** High
 - **Affected area:** Sales shipments, reservations
-- **Mitigation:** WMS never creates a shipment and never allocates from a shipment event. The sales subscriber keys off `packingTaskId` and links an existing open shipment instead of inserting a second one.
+- **Mitigation:** WMS never creates a shipment and never allocates from a shipment event. The sales subscriber keys off `packingTaskId`. Create writes that id into `metadata.wmsPackingTaskId` in the shipment transaction, and a later pass links that shipment instead of inserting another.
 - **Residual risk:** A shipment created by hand for the same lines can still collide with remaining shippable quantity. The subscriber then skips the link and ship stays blocked. Acceptable because the operator sees `shipment_link_missing`.
 
 #### One order on two waves shares one packing task
@@ -686,7 +692,7 @@ Unit coverage: bucket split on short, ship quantity against reservation remainde
 - **Severity:** High
 - **Affected area:** Packing tasks, shipments
 - **Mitigation:** Terminal detection, packing lines, and pick undo all use the picks of that wave for that order. Each wave locks only itself. INT-19 covers the raced confirms.
-- **Residual risk:** The two packing tasks emit two `wms.packing.completed` events. The sales subscriber handles each event from that wave's quantities and skips a shipment already linked to the other task. Acceptable.
+- **Residual risk:** The two packing tasks emit two `wms.packing.completed` events. The sales subscriber handles each event from that wave's quantities and skips a shipment owned by or already linked to the other task. Acceptable. INT-22 covers a crash between create and link.
 
 #### Short remainder picked twice
 
@@ -695,6 +701,14 @@ Unit coverage: bucket split on short, ship quantity against reservation remainde
 - **Affected area:** Reservations, pick tasks
 - **Mitigation:** Release locks reservations and allocates only `reserved` buckets. The partial unique index blocks two live tasks for one source balance.
 - **Residual risk:** A manual balance edit outside commands can still desync metadata. Acceptable; phase 1 reconciliation remains the repair tool.
+
+#### Short undo rebuilds quantity another wave already took
+
+- **Scenario:** Wave 1 shorts a pick. Wave 2 confirms the remainder. Undo of the short treats "no open task" as enough and allocates wave 2's quantity again.
+- **Severity:** High
+- **Affected area:** Reservations, balances, pick tasks
+- **Mitigation:** After the reservation and balance locks, and before any write, the full remainder must still be `reserved` on the source balance. Otherwise `409 pick_undo_blocked` and no writes. INT-19.
+- **Residual risk:** A balance edit outside commands can still desync the reserved quantity. Acceptable; phase 1 reconciliation remains the repair tool.
 
 #### Label failure after pack
 
@@ -749,6 +763,11 @@ Unit coverage: bucket split on short, ship quantity against reservation remainde
 Ready for implementation. Code is not shipped with this revision.
 
 ## Changelog
+
+### 2026-11-19 (rev 10)
+
+- Short undo requires the full remainder to still be `reserved` on the source balance, checked under the reservation and balance locks before any write. A moved or consumed remainder returns `409 pick_undo_blocked` and changes nothing.
+- `sales.shipments.create` stores `metadata.wmsPackingTaskId` in the shipment transaction. Replay links that shipment, and another packing task cannot claim it before the link.
 
 ### 2026-11-18 (rev 9)
 
