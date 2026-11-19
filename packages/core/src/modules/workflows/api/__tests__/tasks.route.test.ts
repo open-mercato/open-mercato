@@ -165,6 +165,16 @@ describe('GET /api/workflows/tasks', () => {
     expect(mockEm.findAndCount.mock.calls[0][2]).toMatchObject({ limit: 50, offset: 0 })
   })
 
+  test('orders by createdAt with an id tiebreak so tied tasks page deterministically', async () => {
+    await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=2&offset=2'))
+
+    expect(mockEm.findAndCount.mock.calls[0][2]).toEqual({
+      orderBy: { createdAt: 'DESC', id: 'DESC' },
+      limit: 2,
+      offset: 2,
+    })
+  })
+
   test('reports the clamped limit back in the pagination envelope', async () => {
     const response = await listTasks(new NextRequest('http://localhost/api/workflows/tasks?limit=5000'))
     const body = await response.json()
