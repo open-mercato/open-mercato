@@ -53,6 +53,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('../../../../lib/timesheets-projects/computeProjectFinancials', () => ({
   computeProjectFinancials: jest.fn(async () => new Map()),
+  resolveProjectAmountDecimalPlaces: jest.fn(async () => ({})),
 }))
 
 const mockReportError = jest.fn()
