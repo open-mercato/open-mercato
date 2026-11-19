@@ -31,4 +31,15 @@ The full monorepo validation gate may be limited by worktree dependency/build pr
 
 ### Phase 2: Verify and publish
 
-- [ ] 2.1 Run validation, inspect the diff, and open the main PR with milestone and backport metadata.
+- [x] 2.1 Run validation, inspect the diff, and prepare the main PR with milestone and backport metadata.
+
+
+## Validation outcome
+
+Runner: local. Focused suite: 7 suites, 67 tests passed. Both package builds passed
+(42 tasks each); generation completed; i18n sync and usage passed (unused keys advisory).
+Broader monorepo typecheck was interrupted after 40/42 tasks and has no final result.
+Root tests did not complete: Turbo could not spawn the cache test child process (ENOENT).
+App build, template parity and manual QA were not run; the user requested publication
+with these limitations documented and QA after merge. No live authentication endpoint
+was used. Authentication, verifier and rate-limiting branches are unchanged.
