@@ -10,6 +10,7 @@
 // net for the service a future in-process caller (`availability`, Phase 2)
 // will call directly with its own transactional `EntityManager`.
 import { LockMode } from '@mikro-orm/core'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { WmsReservationService } from '../wmsReservationService'
 import {
   InventoryBalance,
@@ -80,7 +81,7 @@ function createCtx(em: FakeEm) {
     organizationScope: null,
     selectedOrganizationId: ORG,
     organizationIds: [ORG],
-  } as any
+  } as unknown as CommandRuntimeContext
 }
 
 function makeBalance(overrides: Record<string, unknown> = {}) {
@@ -215,7 +216,7 @@ describe('WmsReservationService.reserveInTransaction', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
-  it('joins an already-open ambient transaction instead of starting a new one when the caller em has no .transactional', async () => {
+  it('runs the operation directly on the caller em when it exposes no .transactional', async () => {
     // Simulates the composed-caller shape the A1 extraction exists for
     // (`availability`'s future reserve, Phase 2): an EntityManager that is
     // already mid-transaction and therefore has no `.transactional` of its

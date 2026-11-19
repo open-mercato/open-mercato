@@ -19,10 +19,11 @@
 // extraction and hand it to this service — zero behaviour change for every
 // existing caller. A future in-process caller that is already inside a
 // transaction instead passes ITS OWN `trx` directly, so
-// `reserveInTransaction`/`releaseInTransaction` run inside that ambient
-// transaction (same `em.transactional()` join-or-open contract
-// `runInTransaction`, in `../commands/shared`, already relies on — see that
-// helper's doc comment).
+// `reserveInTransaction`/`releaseInTransaction` write inside that ambient
+// transaction: `runInTransaction` (`../commands/shared`) calls
+// `em.transactional()`, which opens a transaction on a fresh fork and a
+// savepoint inside an already-open one, so the caller still owns the commit
+// and a rolled-back caller transaction takes these writes with it.
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
