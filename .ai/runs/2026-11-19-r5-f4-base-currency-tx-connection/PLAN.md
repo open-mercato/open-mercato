@@ -12,7 +12,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Resolve the base currency on the caller's connection and add baseCurrencyServiceFactory | inline | done | (this commit) |
+| 1 | 1.1 | Resolve the base currency on the caller's connection and add baseCurrencyServiceFactory | inline | done | 054beafa1f |
 
 ## Goal
 

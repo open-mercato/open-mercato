@@ -1,22 +1,22 @@
 # Handoff — 2026-11-19-r5-f4-base-currency-tx-connection
 
-**Last updated:** 2026-11-19T20:04:02Z
+**Last updated:** 2026-11-19T20:12:53Z
 **Branch:** fix/r5-f4-base-currency-tx-connection
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** — (run folder seed)
+**PR:** https://github.com/open-mercato/open-mercato/pull/10015
+**Current phase/step:** complete (Phase 1 Step 1.1 done)
+**Last commit:** 054beafa1f — fix(currencies): resolve the base currency on the caller's transaction connection
 
 ## What just happened
-- Run folder seeded from the brief, spec and reference commit fd8452e911.
+- Step 1.1 landed. The final gate (currencies tests + typecheck) is green; see final-gate-checks.md.
 
 ## Next concrete action
-- Step 1.1: port the currencies change and tests.
+- None for this run. Rebase onto main after #9988 and #9999 merge. Slice CA6 consumes baseCurrencyServiceFactory.
 
 ## Blockers / open questions
-- Binding re-landing plan unavailable; proceeding on the brief (see PLAN.md).
+- The binding re-landing plan was unavailable (see PLAN.md); R1–R14 and the F4 card were not checked.
 
 ## Environment caveats
-- Dev runtime runnable: not needed (no UI)
+- Dev runtime runnable: not needed
 - Browser / UI checks: skipped because no UI is touched
 - Database/migration state: clean (no migration)
 
