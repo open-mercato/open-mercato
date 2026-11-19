@@ -70,7 +70,7 @@ jest.mock('@open-mercato/ui/backend/utils/useCurrentUserId', () => ({ useCurrent
 jest.mock('../../DealForm', () => {
   const textField = z.preprocess((value) => (typeof value === 'string' ? value : ''), z.string())
   return {
-    dealFormSchema: z.object({
+    dealExactFormSchema: z.object({
       title: z.string().trim().min(1, 'customers.people.detail.deals.titleRequired'),
       status: textField,
       pipelineId: textField,
