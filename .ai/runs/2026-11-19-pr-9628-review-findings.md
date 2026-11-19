@@ -28,3 +28,7 @@ Final-head CI at 4ee8839626 exposed an inherited-main LookupSelect typed-search 
 Full UI validation passes 339 suites/3,112 tests at the original 1 GiB heap. The eight-test affected group passed ten consecutive runs under concurrent UI-suite load; a mutation reinserting the stored selection failed the exact-one-option assertion. Independent review found no blocker. This test-only follow-up reuses the completed product build/runtime evidence above; GitHub CI will rerun on the final revision.
 
 Repository routing was subsequently updated externally to feature/needs-qa/risk-high. Those labels are preserved; QA approval remains pending.
+
+## Advancing-base follow-up
+
+Main advanced to 6e47339a32 while CI was running, creating a customers DI conflict that prevented pull-request workflows from scheduling on 087123c319. The merge retains the scoped calendar service and main's stateless audit-redaction provider, whose caller EntityManager/tenant/organization/viewer context is supplied per invocation. Four focused suites/68 tests pass, and independent review found no blocker. Final refreshed-gate/remote-check results are reported in the existing PR response to avoid restarting CI for an evidence-only commit.
