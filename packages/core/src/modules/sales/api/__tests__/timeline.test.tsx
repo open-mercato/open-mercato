@@ -7,12 +7,14 @@ import { DocumentHistoryWidget as TimelineWidget } from '../../widgets/injection
 import type { TimelineEntry } from '../../widgets/injection/document-history/widget.client'
 
 const mockApiCall = jest.fn()
+let mockLocale = 'en'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: any[]) => mockApiCall(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const polishTranslations: Record<string, string> = jest.requireActual('../../i18n/pl.json')
   const translations: Record<string, string> = {
     'sales.audit.orders.lines.upsert': 'Update order line',
     'sales.documents.history.actor.system': 'System',
@@ -23,7 +25,8 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const t = (key: string, fallbackOrParams?: string | Record<string, string>, params?: Record<string, string>) => {
     const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined
     const values = typeof fallbackOrParams === 'object' ? fallbackOrParams : params
-    const template = translations[key] ?? fallback ?? key
+    const dictionary = mockLocale === 'pl' ? polishTranslations : translations
+    const template = dictionary[key] ?? fallback ?? key
     return template.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match)
   }
   return { useT: () => t }
@@ -83,6 +86,7 @@ const entries: TimelineEntry[] = [
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockLocale = 'en'
   mockApiCall.mockImplementation((url: string) => {
     if (typeof url === 'string' && url.includes('/api/sales/order-statuses')) {
       return Promise.resolve({ ok: true, result: { items: [] } })
@@ -95,6 +99,31 @@ beforeEach(() => {
 })
 
 describe('TimelineWidget', () => {
+  it.each(['order', 'quote'])('renders Polish %s totals once, including exact-only changes', async (kind) => {
+    mockLocale = 'pl'
+    const changedFields = [
+      'lines', 'grand_total_gross_amount', 'grand_total_gross_amount_exact',
+      'grand_total_net_amount', 'grandTotalNetAmountExact', 'line_item_count',
+      'outstanding_amount', 'outstanding_amount_exact', 'subtotal_gross_amount',
+      'subtotal_gross_amount_exact', 'subtotal_net_amount', 'subtotal_net_amount_exact',
+      'paidTotalAmountExact',
+    ]
+    mockApiCall.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: { items: url.includes('/api/sales/document-history') ? [{
+        ...entries[1],
+        metadata: { changedFields },
+      }] : [] },
+    }))
+
+    render(<TimelineWidget context={{ kind, record: { id: 'document-1' } }} />)
+
+    expect(await screen.findByText(
+      'Zmienione pola: Pozycje, Suma całkowita brutto, Suma całkowita netto, Liczba pozycji, Pozostało do zapłaty, Wartość brutto, Wartość netto, Zapłacono',
+    )).toBeInTheDocument()
+    expect(screen.queryByText(/Exact|Lines/)).not.toBeInTheDocument()
+  })
+
   it('renders all entries by default', async () => {
     render(<TimelineWidget context={baseContext} />)
     expect(await screen.findByText('Order created')).toBeInTheDocument()
