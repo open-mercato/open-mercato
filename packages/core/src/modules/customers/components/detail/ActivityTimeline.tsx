@@ -103,19 +103,19 @@ function TimelineEntry({
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onMarkDone])
+  }, [activity.id, activity.updatedAt, markingDone, onMarkDone])
 
   return (
     <div
-      className={`py-2.5 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/40 transition-colors' : ''}`}
+      className={`@container py-2.5 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/40 transition-colors' : ''}`}
       onClick={() => onEdit?.(activity)}
       role={onEdit ? 'button' : undefined}
       tabIndex={onEdit ? 0 : undefined}
       onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
     >
-      <div className="grid items-start gap-3" style={{ gridTemplateColumns: '75px 32px 1fr' }}>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5 @md:flex-nowrap">
         {/* Column 1: Date */}
-        <div className="shrink-0">
+        <div className="flex basis-full items-baseline gap-1.5 @md:block @md:w-19 @md:shrink-0 @md:basis-auto">
           <span className="block text-xs font-semibold leading-tight text-foreground">
             {dateStr ? formatRelativeDate(dateStr, t, locale) : t('customers.timeline.date.unknown', 'Unknown date')}
           </span>
@@ -130,9 +130,9 @@ function TimelineEntry({
         </div>
 
         {/* Column 3: Content */}
-        <div className="min-w-0 space-y-1.5">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-start justify-end gap-2">
+            <div className="flex min-w-32 flex-1 flex-wrap items-center gap-1.5">
               <span
                 className={cn(
                   'block text-xs font-semibold leading-tight',

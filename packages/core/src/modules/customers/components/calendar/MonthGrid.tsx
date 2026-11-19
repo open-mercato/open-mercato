@@ -13,6 +13,7 @@ import type { FirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/types'
 import { getVisibleRange } from '../../lib/calendar/range'
 import { eventDisplayTitle } from '../../lib/calendar/labels'
 import { formatTimeRangeLabel } from '../../lib/calendar/format'
+import { readableTypeColor } from './EventBlock'
 import type { CalendarItem, MonthGridProps } from './types'
 
 const MAX_PILLS_PER_DAY = 2
@@ -66,7 +67,7 @@ function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (it
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
   const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end, dateSettings)}`
   const tintStyle = item.color
-    ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: item.color }
+    ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: readableTypeColor(item.color) }
     : undefined
   return (
     <Button

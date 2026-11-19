@@ -7,7 +7,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -142,11 +144,13 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
     setMarkingDone(true)
     try {
       const operation = () =>
-        apiCallOrThrow('/api/customers/interactions/complete', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
-        })
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(activity.updatedAt ?? null), () =>
+          apiCallOrThrow('/api/customers/interactions/complete', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
+          }),
+        )
       if (runMutation) {
         await runMutation(operation, {
           id: activity.id,
@@ -159,12 +163,16 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       onChanged?.()
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) {
+        onChanged?.()
+        return
+      }
       logger.warn('Mark done failed', { component: 'ActivityCard', activityId: activity.id, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onChanged, runMutation, t])
+  }, [activity.id, activity.updatedAt, markingDone, onChanged, runMutation, t])
 
   return (
     <div

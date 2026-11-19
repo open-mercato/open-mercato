@@ -5,6 +5,7 @@ import {
   type ComputedIntervalField,
   type IntervalInput,
 } from '../time-tracking/interval'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import type { TimeEntryMode } from '../time-tracking/settings'
 
 export type IntervalField = 'start' | 'end' | 'duration'
@@ -232,6 +233,8 @@ export type TimeEntryRecord = {
   timeProjectId: string | null
   isBillable: boolean
   rateOverrideAmount: number | null
+  /** The stored override as an exact decimal string, so an edit never rounds it through a float. */
+  rateOverrideAmountExact?: string | null
   currencyCode: string | null
   tagIds: string[]
   isLocked: boolean
@@ -257,6 +260,14 @@ export function readRowNumber(row: ApiRow, ...keys: string[]): number | null {
       const parsed = Number(value)
       if (Number.isFinite(parsed)) return parsed
     }
+  }
+  return null
+}
+
+function readRowDecimal(row: ApiRow, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const parsed = parseDecimal(row[key])
+    if (parsed) return decimalToString(parsed)
   }
   return null
 }
@@ -289,6 +300,7 @@ export function toTimeEntryRecord(row: ApiRow): TimeEntryRecord | null {
     timeProjectId: readRowString(row, 'time_project_id', 'timeProjectId'),
     isBillable: readRowBoolean(row, true, 'is_billable', 'isBillable'),
     rateOverrideAmount: readRowNumber(row, 'rate_override_amount', 'rateOverrideAmount'),
+    rateOverrideAmountExact: readRowDecimal(row, 'rate_override_amount', 'rateOverrideAmount'),
     currencyCode: readRowString(row, 'currencyCode', 'rate_currency_code', 'rateCurrencyCode'),
     tagIds: tags
       .map((tag) => (tag && typeof tag === 'object' ? readRowString(tag as ApiRow, 'id') : null))
@@ -297,6 +309,17 @@ export function toTimeEntryRecord(row: ApiRow): TimeEntryRecord | null {
     lockedReportId: readRowString(row, 'lockedReportId', 'locked_report_id'),
     updatedAt: readRowString(row, 'updated_at', 'updatedAt'),
   }
+}
+
+/**
+ * The override rate as the dialog shows and sends it: the exact stored digits,
+ * falling back to the float copy for a record mapped without them.
+ */
+export function timeEntryRateOverrideText(
+  record: Pick<TimeEntryRecord, 'rateOverrideAmount' | 'rateOverrideAmountExact'>,
+): string | null {
+  const exact = parseDecimal(record.rateOverrideAmountExact) ?? parseDecimal(record.rateOverrideAmount)
+  return exact ? decimalToString(exact) : null
 }
 
 export type TaskOption = {
@@ -323,6 +346,8 @@ export type ProjectOption = {
   name: string
   customerName: string | null
   hourlyRate: number | null
+  /** `hourlyRate` as an exact decimal string. */
+  hourlyRateExact?: string | null
   currencyCode: string | null
   billableByDefault: boolean | null
 }
@@ -353,6 +378,7 @@ export function toProjectOption(row: ApiRow): ProjectOption | null {
     name: readRowString(row, 'name') ?? id,
     customerName,
     hourlyRate: readRowNumber(row, 'hourly_rate', 'hourlyRate'),
+    hourlyRateExact: readRowDecimal(row, 'hourly_rate', 'hourlyRate'),
     currencyCode: readRowString(row, 'currency_code', 'currencyCode'),
     billableByDefault:
       typeof row.billable_by_default === 'boolean'

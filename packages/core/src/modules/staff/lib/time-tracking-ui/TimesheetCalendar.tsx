@@ -22,7 +22,7 @@ import {
   parseIsoDay,
   type TimesheetCalendarCell,
 } from './timesheetPeriod'
-import { entryChipLabel, loadPercent, type TimesheetDayIndex, type TimesheetEntry } from './timesheetData'
+import { entryChipLabel, loadPercent, resolveDayScaleMinutes, type TimesheetDayIndex, type TimesheetEntry } from './timesheetData'
 import { useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 
 /**
@@ -52,6 +52,8 @@ export type TimesheetCalendarProps = {
   monthAnchors: readonly string[]
   days: TimesheetDayIndex
   scaleMinutes: number | null
+  /** Per-date targets from a contributed capacity provider (EP-40); each day's bar is drawn against its own. */
+  targetMinutesByDate?: Readonly<Record<string, number>> | null
   todayDate: string
   onAddEntry: (date: string) => void
   onSelectEntry: (entry: TimesheetEntry) => void
@@ -79,6 +81,7 @@ function DefaultTimesheetCalendar({
   monthAnchors,
   days,
   scaleMinutes,
+  targetMinutesByDate,
   todayDate,
   onAddEntry,
   onSelectEntry,
@@ -120,7 +123,7 @@ function DefaultTimesheetCalendar({
                   key={cell.date}
                   cell={cell}
                   day={days.get(cell.date) ?? null}
-                  scaleMinutes={scaleMinutes}
+                  scaleMinutes={resolveDayScaleMinutes(cell.date, scaleMinutes, targetMinutesByDate)}
                   addLabel={addLabel}
                   nonBillableLabel={nonBillableLabel}
                   onAddEntry={onAddEntry}
@@ -243,6 +246,7 @@ const timesheetCalendarPropsSchema: z.ZodType<TimesheetCalendarProps> = z.object
   monthAnchors: z.array(z.string()),
   days: opaqueProp<TimesheetDayIndex>(),
   scaleMinutes: z.number().nullable(),
+  targetMinutesByDate: z.record(z.string(), z.number()).nullable().optional(),
   todayDate: z.string(),
   onAddEntry: callbackProp<(date: string) => void>(),
   onSelectEntry: callbackProp<(entry: TimesheetEntry) => void>(),

@@ -80,7 +80,7 @@ export async function GET(req: Request) {
     isSystem: role.isSystem,
     customerAssignable: role.customerAssignable,
     createdAt: role.createdAt,
-    updatedAt: role.updatedAt || null,
+    updatedAt: role.updatedAt ?? role.createdAt ?? null,
   }))
 
   return NextResponse.json({ ok: true, items, total, totalPages, page })
