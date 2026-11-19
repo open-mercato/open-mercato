@@ -80,6 +80,14 @@ jest.mock('../lib/deliveryConfig', () => ({
   resolveNotificationDeliveryConfig: (...args: unknown[]) => resolveNotificationDeliveryConfigMock(...args),
 }))
 
+jest.mock('../lib/deliverySettings', () => ({
+  readNotificationDeliverySettings: async () => ({ settings: await resolveNotificationDeliveryConfigMock(), updatedAt: '2026-11-01T00:00:00.000Z' }),
+  saveVersionedNotificationDeliverySettings: async (resolver: unknown, tenantId: string, config: unknown) => {
+    await saveNotificationDeliveryConfigMock(resolver, config, { tenantId })
+    return { settings: await resolveNotificationDeliveryConfigMock(), updatedAt: '2026-11-01T00:00:01.000Z' }
+  },
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))

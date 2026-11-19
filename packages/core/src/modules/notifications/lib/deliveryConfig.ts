@@ -108,14 +108,32 @@ export const STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryCo
 
 const parseDeliveryConfig = (input: unknown) => {
   const parsed = notificationDeliveryConfigSchema.safeParse(input)
-  const onlyPanelPathInvalid = !parsed.success
-    && parsed.error.issues.every((issue) => issue.path[0] === 'panelPath')
-  if (!onlyPanelPathInvalid || typeof input !== 'object' || input === null) {
-    return parsed
+  if (parsed.success || typeof input !== 'object' || input === null) return parsed
+  const recoverable = parsed.error.issues.every((issue) => (
+    issue.path.length === 1 && issue.path[0] === 'panelPath'
+  ) || (
+    issue.path.length === 3 && issue.path[0] === 'strategies' && issue.path[1] === 'email'
+      && (issue.path[2] === 'from' || issue.path[2] === 'replyTo')
+  ) || (
+    issue.path.length === 3 && issue.path[0] === 'strategies' && issue.path[1] === 'database' && issue.path[2] === 'enabled'
+  ))
+  if (!recoverable) return parsed
+  const sanitized: Record<string, unknown> = { ...input }
+  for (const issue of parsed.error.issues) {
+    if (issue.path[0] === 'panelPath') delete sanitized.panelPath
+    else if (typeof sanitized.strategies === 'object' && sanitized.strategies !== null) {
+      const strategies = { ...sanitized.strategies } as Record<string, unknown>
+      if (issue.path[1] === 'database') {
+        strategies.database = { enabled: true }
+      } else if (typeof strategies.email === 'object' && strategies.email !== null) {
+        const email = { ...strategies.email } as Record<string, unknown>
+        delete email[String(issue.path[2])]
+        strategies.email = email
+      }
+      sanitized.strategies = strategies
+    }
   }
-  const withoutPanelPath: Record<string, unknown> = { ...input }
-  delete withoutPanelPath.panelPath
-  return notificationDeliveryConfigSchema.safeParse(withoutPanelPath)
+  return notificationDeliveryConfigSchema.safeParse(sanitized)
 }
 
 const normalizeDeliveryConfig = (input?: unknown | null): NotificationDeliveryConfig => {

@@ -88,6 +88,22 @@ const TENANT_A = '11111111-1111-1111-1111-111111111111'
 const TENANT_B = '22222222-2222-2222-2222-222222222222'
 
 describe('ModuleConfigService tenant scoping', () => {
+  it('advances the version even when consecutive writes share a clock tick', async () => {
+    jest.useFakeTimers()
+    jest.setSystemTime(new Date('2026-11-01T00:00:00.000Z'))
+    try {
+      const { container } = createContainer()
+      const service = createModuleConfigService(container)
+      const first = await service.setValue('notifications', 'delivery_strategies', { enabled: true }, { tenantId: TENANT_A })
+      const second = await service.setValue('notifications', 'delivery_strategies', { enabled: false }, { tenantId: TENANT_A })
+      const third = await service.setValue('notifications', 'delivery_strategies', { enabled: true }, { tenantId: TENANT_A })
+      expect(Date.parse(second!.updatedAt)).toBe(Date.parse(first!.updatedAt) + 1)
+      expect(Date.parse(third!.updatedAt)).toBe(Date.parse(second!.updatedAt) + 1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('resolves scoped -> global -> null', async () => {
     const { container } = createContainer()
     const service = createModuleConfigService(container)

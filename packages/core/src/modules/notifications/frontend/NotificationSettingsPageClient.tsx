@@ -11,6 +11,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 
@@ -48,6 +49,7 @@ type NotificationDeliveryConfig = {
 
 type SettingsResponse = {
   settings?: NotificationDeliveryConfig
+  updatedAt?: string
   error?: string
 }
 
@@ -65,6 +67,7 @@ const SETTINGS_CONTEXT_ID = 'notifications-settings'
 export function NotificationSettingsPageClient() {
   const t = useT()
   const [settings, setSettings] = React.useState<NotificationDeliveryConfig | null>(null)
+  const [settingsUpdatedAt, setSettingsUpdatedAt] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -267,6 +270,7 @@ export function NotificationSettingsPageClient() {
       )
       if (body?.settings) {
         setSettings(body.settings)
+        setSettingsUpdatedAt(body.updatedAt ?? null)
       } else {
         setSettings(emptySettings)
       }
@@ -312,20 +316,24 @@ export function NotificationSettingsPageClient() {
     try {
       const response = await runMutation({
         operation: () =>
-          apiCall<SettingsResponse>('/api/notifications/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings),
-          }),
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(settingsUpdatedAt), () =>
+            apiCall<SettingsResponse>('/api/notifications/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(settings),
+            }),
+          ),
         context: { formId: SETTINGS_CONTEXT_ID, resourceKind: 'notifications.settings', retryLastMutation },
         mutationPayload: { settings },
       })
       if (!response.ok) {
+        if (surfaceRecordConflict({ status: response.status, body: response.result }, t, { onRefresh: fetchSettings })) return
         const message = response.result?.error || t('notifications.settings.saveError', 'Failed to save notification settings')
         throw new Error(message)
       }
       if (response.result?.settings) {
         setSettings(response.result.settings)
+        setSettingsUpdatedAt(response.result.updatedAt ?? null)
       }
       flash(t('notifications.settings.saveSuccess', 'Notification settings saved'), 'success')
     } catch (err) {
@@ -336,12 +344,15 @@ export function NotificationSettingsPageClient() {
     }
   }
 
-  if (loading || !settings) {
+  if (loading) {
+    return <LoadingMessage label={t('notifications.settings.loading', 'Loading notification settings...')} />
+  }
+  if (error || !settings) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Spinner size="sm" />
-        {t('notifications.settings.loading', 'Loading notification settings...')}
-      </div>
+      <ErrorMessage
+        label={error ?? t('notifications.settings.loadError', 'Failed to load notification settings')}
+        action={<Button type="button" variant="outline" onClick={() => void fetchSettings()}>{t('common.retry', 'Retry')}</Button>}
+      />
     )
   }
 

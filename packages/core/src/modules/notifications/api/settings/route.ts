@@ -9,16 +9,17 @@ import {
   notificationSettingsUpdateResponseSchema,
 } from '../openapi'
 import {
-  DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
   resolveNotificationDeliveryConfig,
-  saveNotificationDeliveryConfig,
   isAllowedNotificationAppUrl,
 } from '../../lib/deliveryConfig'
 import {
+  notificationCrudErrorResponse,
   NOTIFICATION_SETTINGS_RESOURCE_KIND,
   runGuardedNotificationWrite,
   requireResolvedNotificationTenantScope,
 } from '../../lib/routeHelpers'
+
+import { readNotificationDeliverySettings, saveVersionedNotificationDeliverySettings } from '../../lib/deliverySettings'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['notifications.manage'] },
@@ -40,11 +41,7 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   try {
-    const settings = await resolveNotificationDeliveryConfig(container, {
-      defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
-      tenantId,
-    })
-    return NextResponse.json({ settings })
+    return NextResponse.json(await readNotificationDeliverySettings(container, tenantId))
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }
     if (typeof disposable.dispose === 'function') {
@@ -102,17 +99,13 @@ export async function POST(req: Request) {
         operation: 'update',
         payload: parsed.data as Record<string, unknown>,
       },
-      async () => {
-        await saveNotificationDeliveryConfig(container, parsed.data, { tenantId })
-        return resolveNotificationDeliveryConfig(container, {
-          defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
-          tenantId,
-        })
-      },
+      () => saveVersionedNotificationDeliverySettings(container, tenantId, parsed.data, req),
     )
     if (!guarded.ok) return guarded.response
-    return NextResponse.json({ ok: true, settings: guarded.result })
+    return NextResponse.json({ ok: true, ...guarded.result })
   } catch (error) {
+    const conflict = notificationCrudErrorResponse(error)
+    if (conflict) return conflict
     return NextResponse.json(
       { error: error instanceof Error ? error.message : t('api.errors.internal', 'Internal error') },
       { status: 500 }
@@ -191,6 +184,10 @@ export const openApi = {
             schema: errorResponseSchema,
           },
         },
+      },
+      409: {
+        description: 'Settings changed since they were loaded',
+        content: { 'application/json': { schema: errorResponseSchema } },
       },
       500: {
         description: 'Internal error',

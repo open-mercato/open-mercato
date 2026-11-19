@@ -153,3 +153,32 @@ describe('notifications delivery config stored panelPath', () => {
     expect(config.strategies.email.enabled).toBe(DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email.enabled)
   })
 })
+
+
+describe('notification default link and legacy mailboxes', () => {
+  it('uses the existing default path with a real notification inbox route', () => {
+    const { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, resolveNotificationPanelUrl } = loadDeliveryConfig({})
+    expect(DEFAULT_NOTIFICATION_DELIVERY_CONFIG.panelPath).toBe('/backend/notifications')
+    expect(resolveNotificationPanelUrl({ ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG, appUrl: 'https://app.example.com' })).toBe('https://app.example.com/backend/notifications')
+    const { existsSync } = require('node:fs') as typeof import('node:fs')
+    const { resolve } = require('node:path') as typeof import('node:path')
+    expect(existsSync(resolve(__dirname, '../../backend/notifications/page.tsx'))).toBe(true)
+  })
+
+  it('retains other stored settings when correcting a legacy disabled in-app flag', async () => {
+    const { resolveNotificationDeliveryConfig } = loadDeliveryConfig({})
+    const { resolver } = createResolver({ strategies: { database: { enabled: false }, email: { enabled: false, replyTo: 'help@example.com' } } })
+    const config = await resolveNotificationDeliveryConfig(resolver)
+    expect(config.strategies.database.enabled).toBe(true)
+    expect(config.strategies.email).toMatchObject({ enabled: false, replyTo: 'help@example.com' })
+  })
+
+  it('drops invalid stored mailboxes while retaining disabled email and valid stored settings', async () => {
+    const { resolveNotificationDeliveryConfig } = loadDeliveryConfig({})
+    const { resolver } = createResolver({ panelPath: '/backend/custom', strategies: { email: { enabled: false, from: 'bad', replyTo: 'help@example.com' } } })
+    const config = await resolveNotificationDeliveryConfig(resolver)
+    expect(config.panelPath).toBe('/backend/custom')
+    expect(config.strategies.email).toMatchObject({ enabled: false, replyTo: 'help@example.com' })
+    expect(config.strategies.email.from).toBeUndefined()
+  })
+})

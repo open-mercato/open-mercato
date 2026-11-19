@@ -35,13 +35,46 @@ test('TC-NOTIF-9136: tenant notification settings cannot change another tenant o
       fixture.userId = await createUserFixture(request, administrator, { email, password, organizationId: fixture.organizationId, roles: [fixture.roleId] })
       fixture.token = await getAuthToken(request, email, password)
     }
-    const read = async (index: number): Promise<Settings> => {
+    const readVersion = async (index: number): Promise<{ settings: Settings; updatedAt: string }> => {
       const response = await apiRequest(request, 'GET', '/api/notifications/settings', { token: fixtures[index].token! })
       expect(response.status()).toBe(200)
-      const body = await readJsonSafe<{ settings: Settings }>(response)
+      const body = await readJsonSafe<{ settings: Settings; updatedAt: string }>(response)
       expect(body?.settings).toBeTruthy()
-      return body!.settings
+      expect(body?.updatedAt).toMatch(/^\d{4}-/)
+      return body!
     }
+    const read = async (index: number) => (await readVersion(index)).settings
+    const inherited = await readVersion(0)
+    const versionHeader = (version: string) => ({ 'x-om-ext-optimistic-lock-expected-updated-at': version })
+    const firstOverrides = await Promise.all(['first', 'second'].map((label) => apiRequest(request, 'POST', '/api/notifications/settings', {
+      token: fixtures[0].token!, headers: versionHeader(inherited.updatedAt),
+      data: { strategies: { email: { replyTo: `${label}@example.com` } } },
+    })))
+    expect(firstOverrides.map((response) => response.status()).sort()).toEqual([200, 409])
+    const afterOverride = await readVersion(0)
+    const tenantSaves = await Promise.all(['third', 'fourth'].map((label) => apiRequest(request, 'POST', '/api/notifications/settings', {
+      token: fixtures[0].token!, headers: versionHeader(afterOverride.updatedAt),
+      data: { strategies: { email: { replyTo: `${label}@example.com` } } },
+    })))
+    expect(tenantSaves.map((response) => response.status()).sort()).toEqual([200, 409])
+    const winnerIndex = tenantSaves.findIndex((response) => response.status() === 200)
+    const savedWinner = await readVersion(0)
+    expect(savedWinner.settings.strategies.email.replyTo).toBe(`${['third', 'fourth'][winnerIndex]}@example.com`)
+    expect(savedWinner.updatedAt).not.toBe(afterOverride.updatedAt)
+    for (const field of ['replyTo', 'from']) {
+      for (const value of ['not-an-email', 'support@example.com\r\nBcc: attacker@example.com']) {
+        const rejected = await apiRequest(request, 'POST', '/api/notifications/settings', {
+          token: fixtures[0].token!, data: { strategies: { email: { [field]: value } } },
+        })
+        expect(rejected.status()).toBe(400)
+        expect(await readVersion(0)).toEqual(savedWinner)
+      }
+    }
+    const disabledInApp = await apiRequest(request, 'POST', '/api/notifications/settings', {
+      token: fixtures[0].token!, data: { strategies: { database: { enabled: false } } },
+    })
+    expect(disabledInApp.status()).toBe(400)
+    expect(await readVersion(0)).toEqual(savedWinner)
     const beforeA = await read(0)
     const beforeB = await read(1)
     const globalBefore = await withClient((client) => client.query<{ value_json: unknown }>(

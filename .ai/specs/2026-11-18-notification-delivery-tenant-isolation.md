@@ -20,6 +20,10 @@ Keep the config key, serialized shape, ACL IDs, routes, events, DI keys and impo
 
 Intentional security restrictions: HTTP settings writes affect the authenticated tenant only; arbitrary external tenant appUrl is rejected with the existing invalid-settings 400 response. Tenantless GET now returns 403. Retaining the old HTTP behavior as a bridge would retain the cross-tenant vulnerability. No automatic data migration is performed: existing global values remain read-only inherited defaults. See UPGRADE_NOTES.md for audit and client actions. The dated BACKWARD_COMPATIBILITY.md ledger entry records the emergency security exception; a named human maintainer must acknowledge the waiver of steps 1–3 before merge. Automation cannot grant it.
 
+Settings GET/POST additionally return optional `updatedAt` alongside the unchanged settings payload. The first-party form sends the shared optimistic-lock header and surfaces structured 409 conflicts without reporting success. A tenant-keyed transaction advisory lock serializes read/check/write including first-override creation; an uncached module-config service bound to the transaction reads the current record, and cache invalidation occurs after commit. Inherited instance settings use their record version; an absent record uses a fixed epoch version. Clients omitting the header retain existing behavior. No schema or generic config-service contract changes. Existing config writes advance updatedAt monotonically by at least one millisecond, including writes within one clock tick.
+
+Reject malformed From/Reply-To addresses and CR/LF at the existing validation boundary while preserving valid named mailboxes. Explicitly reject database.enabled=false (the in-app channel is always on) with400 instead of silently returning success; legacy persisted false values remain safely normalized without resetting other settings. Keep the existing default and persisted `/backend/notifications` URL and provide its missing authenticated, notifications.view-gated page using the shared NotificationPanel/useNotifications components. Existing configured paths stay unchanged. Closing the panel returns to the backend. Settings load failures show the shared ErrorMessage and a retry action rather than a permanent loading state.
+
 ## Regression coverage
 
 - Route/module-config/cache integration-style Jest tests: two tenants, cached inheritance, spoofed body tenant ignored, sender/reply-to/prefix/switch isolation, global-row immutability, scoped server-write origin enforcement, legacy global helper calls, actor fallback, unauthenticated and tenantless requests, unsafe stored origins and missing operator origin.
@@ -27,7 +31,7 @@ Intentional security restrictions: HTTP settings writes affect the authenticated
 - Subscriber tests assert configuration uses the persisted notification tenant and is not read when the scoped notification is absent.
 - Checkout worker regression asserts sender/reply-to and the loaded transaction's tenant passed to configuration resolution.
 - Self-contained HTTP integration: `TC-NOTIF-9136.spec.ts` creates two tenants, organizations, notification-admin roles and users, proves normal GET/POST isolation, a dispatcher-refused forged tenant payload (403), rejected phishing origins (400), unchanged tenant state after every refusal and an unchanged instance row, then removes fixtures/configuration. `TC-NOTIF-002` saves with the inherited approved origin and checks external-origin refusal before a successful retry. Requires a running integration app/database; execution limits belong in validation evidence.
-- No UI rendering changes. Existing settings form retains its payload/response shape; verify saving delivery settings in two tenant sessions in manual QA if live evidence is unavailable.
+- API regression/integration coverage includes stale saves after an existing tenant update and first inherited/default override, no-header legacy writes, refreshed version saves, invalid mailbox/header rejection with unchanged state, and the real default backend route. UI coverage includes shared optimistic-lock header, conflict surface, version refresh, initial-load error/retry and the authorized default inbox route. Self-contained API/browser integration uses its own tenant/user fixtures for concurrent first/subsequent saves, refused malformed mailboxes, inbox loading and keyboard close. Existing protected compatibility and personal QA requirements remain.
 
 ## Risks and validation
 
@@ -38,3 +42,5 @@ Configured validation gate: build:packages, generate, build:packages, i18n:check
 ## Changelog
 
 - 2026-11-18: Implement tenant-scoped delivery configuration and trusted-origin enforcement for issue #9136; add regression and HTTP integration coverage.
+
+- 2026-11-18: Address inherited review findings with serialized optimistic locking, safe mailbox validation and a real default notification link.

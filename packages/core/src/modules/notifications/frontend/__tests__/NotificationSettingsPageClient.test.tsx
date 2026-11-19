@@ -65,6 +65,47 @@ describe('NotificationSettingsPageClient guarded mutation', () => {
     surfaceRecordConflictMock.mockReturnValue(false)
   })
 
+  it('sends the loaded version and refreshes it after each successful save', async () => {
+    const initialVersion = '2026-11-01T00:00:00.000Z'
+    const savedVersion = '2026-11-01T00:00:01.000Z'
+    readApiResultOrThrowMock.mockResolvedValue({ settings: savedSettings, updatedAt: initialVersion })
+    apiCallMock.mockResolvedValue({ ok: true, result: { settings: savedSettings, updatedAt: savedVersion } })
+    renderWithProviders(<NotificationSettingsPageClient />)
+    const button = await screen.findByRole('button', { name: /save settings/i })
+    fireEvent.click(button)
+    await waitFor(() => expect(scopedHeadersMock).toHaveBeenCalledWith(
+      { 'x-om-ext-optimistic-lock-expected-updated-at': initialVersion }, expect.any(Function),
+    ))
+    await waitFor(() => expect(button).not.toBeDisabled())
+    fireEvent.click(button)
+    await waitFor(() => expect(scopedHeadersMock).toHaveBeenLastCalledWith(
+      { 'x-om-ext-optimistic-lock-expected-updated-at': savedVersion }, expect.any(Function),
+    ))
+  })
+
+  it('surfaces delivery settings conflicts through the shared conflict UI', async () => {
+    apiCallMock.mockResolvedValue({ ok: false, status: 409, result: { code: 'optimistic_lock_conflict' } })
+    surfaceRecordConflictMock.mockReturnValue(true)
+    renderWithProviders(<NotificationSettingsPageClient />)
+    fireEvent.click(await screen.findByRole('button', { name: /save settings/i }))
+    await waitFor(() => expect(surfaceRecordConflictMock).toHaveBeenCalledWith(
+      { status: 409, body: { code: 'optimistic_lock_conflict' } }, expect.any(Function), { onRefresh: expect.any(Function) },
+    ))
+  })
+
+  it('shows a persistent load error and retries without reloading the browser', async () => {
+    readApiResultOrThrowMock.mockImplementation(async (path: string) => {
+      if (path === '/api/notifications/settings') throw new Error('Controlled settings load failure')
+      return { items: [] }
+    })
+    renderWithProviders(<NotificationSettingsPageClient />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Controlled settings load failure')
+    readApiResultOrThrowMock.mockResolvedValue({ settings: savedSettings })
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }))
+    expect(await screen.findByRole('button', { name: /save settings/i })).toBeVisible()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('saves settings through the guarded mutation path', async () => {
     renderWithProviders(<NotificationSettingsPageClient />)
 

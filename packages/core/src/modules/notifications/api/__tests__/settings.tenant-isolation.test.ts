@@ -27,6 +27,7 @@ const container = {
     if (name === 'em') return em as T
     if (name === 'cache') return {
       get: async (key: string) => cache.get(key),
+      delete: async (key: string) => { cache.delete(key) },
       set: async (key: string, value: unknown) => { cache.set(key, value) },
       deleteByTags: async () => { cache.clear() },
     } as T
@@ -44,11 +45,15 @@ jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
   runRouteMutationGuards: async () => ({ ok: true, runAfterSuccess: async () => undefined }),
 }))
 
+jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
+  withAdvisoryXactLock: async (_em: unknown, _key: string, operation: (transactionEm: unknown) => Promise<unknown>) => operation(em),
+}))
+
 import { GET, POST } from '../settings/route'
 
-const request = (body?: unknown) => new Request('https://untrusted-host.example/api/notifications/settings', {
+const request = (body?: unknown, updatedAt?: string) => new Request('https://untrusted-host.example/api/notifications/settings', {
   method: body === undefined ? 'GET' : 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', ...(updatedAt ? { 'x-om-ext-optimistic-lock-expected-updated-at': updatedAt } : {}) },
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 })
 const readSettings = async () => {
@@ -145,6 +150,49 @@ describe('notification settings route with the real scoped module config service
     auth = null
     expect((await GET(request())).status).toBe(401)
     expect((await POST(request({}))).status).toBe(401)
+  })
+
+
+  it('rejects a stale inherited version after the first tenant override and accepts a refreshed save', async () => {
+    rows.get(null)!.updatedAt = new Date('2026-11-01T00:00:00.000Z')
+    const initial = await (await GET(request())).json()
+    expect(initial.updatedAt).toBe('2026-11-01T00:00:00.000Z')
+    const first = await POST(request({ strategies: { email: { replyTo: 'first@example.com' } } }, initial.updatedAt))
+    expect(first.status).toBe(200)
+    const saved = await first.json()
+    expect(saved.updatedAt).not.toBe(initial.updatedAt)
+    const stale = await POST(request({ strategies: { email: { replyTo: 'lost@example.com' } } }, initial.updatedAt))
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toMatchObject({ code: 'optimistic_lock_conflict', currentUpdatedAt: saved.updatedAt, expectedUpdatedAt: initial.updatedAt })
+    expect((await readSettings()).strategies.email.replyTo).toBe('first@example.com')
+    const refreshed = await POST(request({ strategies: { email: { replyTo: 'second@example.com' } } }, saved.updatedAt))
+    expect(refreshed.status).toBe(200)
+    expect((await readSettings()).strategies.email.replyTo).toBe('second@example.com')
+  })
+
+  it('returns a stable initial version without a config row and protects its first override', async () => {
+    rows.clear()
+    const initial = await (await GET(request())).json()
+    expect(initial.updatedAt).toBe('1970-01-01T00:00:00.000Z')
+    expect((await POST(request({ strategies: { email: { replyTo: 'first@example.com' } } }, initial.updatedAt))).status).toBe(200)
+    expect((await POST(request({ strategies: { email: { replyTo: 'stale@example.com' } } }, initial.updatedAt))).status).toBe(409)
+    expect((await readSettings()).strategies.email.replyTo).toBe('first@example.com')
+  })
+
+  it('explicitly refuses disabling the always-on in-app strategy without changing state', async () => {
+    const before = await readSettings()
+    expect((await POST(request({ strategies: { database: { enabled: false } } }))).status).toBe(400)
+    expect(await readSettings()).toEqual(before)
+    expect((await readSettings()).strategies.database.enabled).toBe(true)
+  })
+
+  it.each(['replyTo', 'from'])('rejects invalid %s mailboxes and header injection without changing settings', async (field) => {
+    const initial = await readSettings()
+    for (const value of ['invalid-email', 'valid@example.com\r\nBcc: attacker@example.com', 'valid@example.com\n']) {
+      expect((await POST(request({ strategies: { email: { [field]: value } } }))).status).toBe(400)
+      expect(await readSettings()).toEqual(initial)
+    }
+    expect((await POST(request({ strategies: { email: { [field]: 'Support <support@example.com>' } } }))).status).toBe(200)
   })
 
   it('rejects a tenant appUrl when no operator origin is configured', async () => {
