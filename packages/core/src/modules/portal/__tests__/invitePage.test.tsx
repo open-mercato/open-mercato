@@ -126,4 +126,22 @@ describe('PortalInvitePage', () => {
 
     await findByText(/invalid or expired invitation/i)
   })
+
+  it('keeps a valid invitation usable after a password-policy rejection', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 400, result: { ok: false, error: 'Validation failed', details: { password: ['Password does not meet the requirements.'] } } })
+      .mockResolvedValueOnce({ ok: true, status: 201, result: { ok: true } })
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(<PortalInvitePage params={{ orgSlug: 'acme' }} />)
+    fillForm(getByLabelText, 'Buyer User', 'longpassword', 'longpassword')
+    await act(async () => { fireEvent.click(getByRole('button', { name: 'Accept Invitation' })) })
+    await findByText(/check the password requirements/i)
+    expect(queryByText(/invalid or expired invitation/i)).toBeNull()
+    fillForm(getByLabelText, 'Buyer User', 'Compliant-Password-123!', 'Compliant-Password-123!')
+    await act(async () => { fireEvent.click(getByRole('button', { name: 'Accept Invitation' })) })
+    await waitFor(() => expect(navigateWithPageReloadMock).toHaveBeenCalledWith('/acme/portal/dashboard'))
+    expect(apiCallMock).toHaveBeenLastCalledWith('/api/customer_accounts/invitations/accept', expect.objectContaining({
+      body: JSON.stringify({ token: 'invite-token-123', password: 'Compliant-Password-123!', displayName: 'Buyer User' }),
+    }))
+  })
+
 })

@@ -1,3 +1,4 @@
+import { getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from '../init-secrets'
@@ -30,6 +31,14 @@ describe('resolveInitDerivedSecrets', () => {
     expect(result.adminPassword).not.toBe(result.employeePassword)
   })
 
+  it.each(['production', 'PRODUCTION', ' production '])('generates policy-compliant derived credentials for NODE_ENV=%s', (nodeEnvironment) => {
+    const env = { NODE_ENV: nodeEnvironment, OM_PASSWORD_MIN_LENGTH: '32' }
+    const result = resolveInitDerivedSecrets({ email: 'owner@acme.com', env, randomSource: (size) => Buffer.alloc(size, 255) })
+    for (const password of [result.adminPassword, result.employeePassword]) {
+      expect(validatePassword(password!, getPasswordPolicy(env)).ok).toBe(true)
+    }
+  })
+
   it('respects explicit derived overrides', () => {
     const env: NodeJS.ProcessEnv = {
       OM_INIT_ADMIN_EMAIL: 'admin@acme.com',
@@ -44,11 +53,11 @@ describe('resolveInitDerivedSecrets', () => {
     expect(result.employeePassword).toBe('EmployeeSecret')
   })
 
-  it('uses the provided randomSource (base64url-encoded 12 bytes) in production', () => {
+  it('uses the provided randomSource with a policy-compliant prefix in production', () => {
     const env: NodeJS.ProcessEnv = { NODE_ENV: 'production' }
     const randomBuffer = Buffer.from('abcdefghijkl')
     const randomSource = () => randomBuffer
-    const expected = randomBuffer.toString('base64url')
+    const expected = `Aa1!${randomBuffer.toString('base64url')}`
     const result = resolveInitDerivedSecrets({ email: 'boss@acme.com', env, randomSource })
     expect(result.adminPassword).toBe(expected)
     expect(result.employeePassword).toBe(expected)

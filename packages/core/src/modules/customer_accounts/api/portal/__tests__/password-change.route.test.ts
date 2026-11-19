@@ -69,6 +69,17 @@ describe('portal /api/customer_accounts/portal/password-change — session revoc
     mockEmit.mockResolvedValue(undefined)
   })
 
+  it.each(['longpassword', 'LongPassword1', 'long-password-1!', 'Long-password!'])(
+    'rejects a sub-policy credential before mutation: %s',
+    async (password) => {
+      const response = await POST(makeRequest({ currentPassword: 'secret', newPassword: password }))
+      expect(response.status).toBe(400)
+      expect(mockUpdatePassword).not.toHaveBeenCalled()
+      expect(mockTransactional).not.toHaveBeenCalled()
+      expect(mockEmit).not.toHaveBeenCalled()
+    },
+  )
+
   it('revokes all existing sessions after a successful password change', async () => {
     const res = await POST(
       makeRequest({ currentPassword: 'old-correct-Passw0rd!', newPassword: 'new-strong-Passw0rd!' }),

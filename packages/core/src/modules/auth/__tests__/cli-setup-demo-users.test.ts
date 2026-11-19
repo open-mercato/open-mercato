@@ -76,6 +76,10 @@ describe('mercato auth setup --include-demo-users', () => {
     'OM_INIT_EMPLOYEE_PASSWORD',
     'OM_INIT_ADMIN_EMAIL',
     'OM_INIT_EMPLOYEE_EMAIL',
+    'OM_PASSWORD_MIN_LENGTH',
+    'OM_PASSWORD_REQUIRE_DIGIT',
+    'OM_PASSWORD_REQUIRE_UPPERCASE',
+    'OM_PASSWORD_REQUIRE_SPECIAL',
   ]
   const savedEnv: Record<string, string | undefined> = {}
 
@@ -209,5 +213,89 @@ describe('mercato auth setup --include-demo-users', () => {
     expect(typeof employeeRow?.passwordHash).toBe('string')
     expect(adminRow?.passwordHash).not.toBe('secret')
     expect(employeeRow?.passwordHash).not.toBe('secret')
+  })
+
+  it.each(['production', 'PRODUCTION', ' production '].flatMap((nodeEnvironment) =>
+    ['skip-password-policy', 'skipPasswordPolicy', 'allow-weak-password', 'allowWeakPassword']
+      .map((flag) => [nodeEnvironment, flag] as const),
+  ))(
+    'rejects a weak primary password with NODE_ENV=%s and --%s',
+    async (nodeEnvironment, flag) => {
+      process.env.NODE_ENV = nodeEnvironment
+      await setupCommand.run([
+        '--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret', `--${flag}`,
+      ])
+      expect(process.exitCode).toBe(2)
+      expect(persistedUsers).toHaveLength(0)
+    },
+  )
+
+  it('keeps development bootstrap demo logins usable', async () => {
+    const bcrypt = await import('bcryptjs')
+    process.env.NODE_ENV = 'development'
+    await setupCommand.run([
+      '--orgName', 'Acme', '--email', 'superadmin@acme.com', '--password', 'secret',
+      '--skip-password-policy', '--include-demo-users',
+    ])
+    expect(process.exitCode).toBeUndefined()
+    expect(persistedUsers.map((user) => user.email).sort()).toEqual([
+      'admin@acme.com', 'employee@acme.com', 'superadmin@acme.com',
+    ])
+    for (const user of persistedUsers) {
+      expect(await bcrypt.compare('secret', user.passwordHash!)).toBe(true)
+    }
+  })
+
+  it.each(['OM_INIT_ADMIN_PASSWORD', 'OM_INIT_EMPLOYEE_PASSWORD'])(
+    'rejects user-supplied weak %s in development',
+    async (key) => {
+      process.env.NODE_ENV = 'development'
+      process.env[key] = 'secret'
+      await expect(setupCommand.run([...BASE_ARGS, '--include-demo-users']))
+        .rejects.toThrow('Password does not meet the requirements.')
+      expect(persistedUsers).toHaveLength(0)
+    },
+  )
+
+  it('rejects a weak plaintext password from a direct setup caller', async () => {
+    const { setupInitialTenant } = await import('@open-mercato/core/modules/auth/lib/setup-app')
+    const em = createTransactionalEntityManagerDouble({ findOne, findOneOrFail, create, find, persist, flush })
+    await expect(setupInitialTenant(em, {
+      orgName: 'Acme', primaryUser: { email: 'root@acme.com', password: 'secret' },
+      includeDerivedUsers: false, modules: testModules,
+    })).rejects.toThrow('Password does not meet the requirements.')
+    expect(persistedUsers).toHaveLength(0)
+  })
+
+  it.each(['OM_INIT_ADMIN_PASSWORD', 'OM_INIT_EMPLOYEE_PASSWORD'])(
+    'rejects a weak %s before storing any account',
+    async (key) => {
+      process.env.NODE_ENV = 'production'
+      process.env.OM_INIT_ADMIN_PASSWORD = 'Provided-Admin-1!'
+      process.env.OM_INIT_EMPLOYEE_PASSWORD = 'Provided-Emp-1!'
+      process.env[key] = 'secret'
+      await expect(setupCommand.run([...BASE_ARGS, '--include-demo-users']))
+        .rejects.toThrow('Password does not meet the requirements.')
+      expect(persistedUsers).toHaveLength(0)
+    },
+  )
+
+  it.each(['production', 'PRODUCTION', ' production '])('generates policy-compliant derived passwords with NODE_ENV=%s', async (nodeEnvironment) => {
+    const { buildPasswordSchema } = await import('@open-mercato/shared/lib/auth/passwordPolicy')
+    const { setupInitialTenant } = await import('@open-mercato/core/modules/auth/lib/setup-app')
+    process.env.NODE_ENV = nodeEnvironment
+    process.env.OM_PASSWORD_MIN_LENGTH = '24'
+    const em = createTransactionalEntityManagerDouble({ findOne, findOneOrFail, create, find, persist, flush })
+    const result = await setupInitialTenant(em, {
+      orgName: 'Acme', primaryUser: { email: 'root@acme.com', password: 'Strong-Pa55!!'.repeat(3) },
+      includeDerivedUsers: true, allowDemoDerivedPasswords: true, modules: testModules,
+    })
+    const generated = result.users.filter((snapshot) => snapshot.generatedPassword)
+    expect(generated).toHaveLength(2)
+    const bcrypt = await import('bcryptjs')
+    for (const snapshot of generated) {
+      expect(buildPasswordSchema().safeParse(snapshot.generatedPassword).success).toBe(true)
+      expect(await bcrypt.compare(snapshot.generatedPassword!, snapshot.user.passwordHash!)).toBe(true)
+    }
   })
 })

@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 189 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 190 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -188,7 +188,7 @@ This catalog indexes 189 focused lessons. Route the task first, then read only r
 - [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration,testing; module:auth,integrations,data_sync,channel_imap; topic:data-import,data-scoping,media,credentials,regression-testing
 - [Provider sandboxes may sign notifications with a separate CA](lessons/provider-sandboxes-may-sign-with-a-separate-ca.md) — area:integration; module:payment_gateways,gateway_tpay; topic:network-security,webhooks
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
-- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,sso,api_keys,entities,workflows; topic:access-control,data-scoping,events,testing
+- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,sso,api_keys,entities,workflows; topic:access-control,data-scoping,events,testing,password-policy
 - [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,module-data,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security,documents,cart,catalog; topic:events,testing,workers,hydration,component-overrides,timers
 - [Use the confirmation dialog's explicit accessibility role](lessons/confirm-dialog-locators-use-alertdialog.md) — area:backend-ui,integration,testing; module:ui,warranty_claims; topic:accessibility,ui-components,testing
 - [Stabilize long claim desk flows with bounded interactions and teardown](lessons/stabilize-long-claim-desk-flows-with-bounded-interactions.md) — area:integration,testing,backend-ui; module:warranty_claims,ui; topic:testing,workers,component-overrides,concurrency,accessibility
@@ -232,6 +232,7 @@ This catalog indexes 189 focused lessons. Route the task first, then read only r
 - [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
 - [Root-level tsx workflow entrypoints must avoid top-level await](lessons/root-level-tsx-workflow-entrypoints-must-avoid-top-level-await.md) — area:testing; module:create_app; topic:package-runtime,testing
+- [Scope repeated portal values to content regions](lessons/scope-repeated-portal-values-to-content-regions.md) — area:backend-ui,integration,testing; module:portal; topic:accessibility,testing
 - [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
 - [Tests asserting `Intl` output must pin the locale and the calendar date](lessons/tests-asserting-intl-output-must-pin-locale-and-date.md) — area:testing,debugging,backend-ui; module:platform; topic:testing,i18n,ui-components
 - [Toggling Playwright request interception strands in-flight requests](lessons/toggling-playwright-request-interception-strands-in.md) — area:testing,debugging,integration; module:platform,example,create_app; topic:testing,template-sync,dev-runtime

@@ -64,7 +64,7 @@ export function resolveInitDerivedSecrets(options: {
   }
   const isProduction = (env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
   const randomize = options.randomSource ?? randomBytes
-  const randomSecret = () => randomize(12).toString('base64url')
+  const randomSecret = () => `Aa1!${randomize(Math.max(12, getPasswordPolicy(env).minLength)).toString('base64url')}`
   const resolvePassword = (key: string, emailValue: string | null) => {
     if (!emailValue) return null
     const envValue = envRead(key)

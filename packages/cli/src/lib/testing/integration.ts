@@ -191,6 +191,16 @@ export function ephemeralPostgresInitSql(): string {
   return EPHEMERAL_POSTGRES_INIT_SQL
 }
 
+export function buildEphemeralInitializationEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...environment,
+    OM_PASSWORD_MIN_LENGTH: '6',
+    OM_PASSWORD_REQUIRE_DIGIT: 'false',
+    OM_PASSWORD_REQUIRE_UPPERCASE: 'false',
+    OM_PASSWORD_REQUIRE_SPECIAL: 'false',
+  }
+}
+
 const DEFAULT_EPHEMERAL_JWT_SECRET = 'om-ephemeral-integration-jwt-secret'
 
 export function resolveEphemeralJwtSecret(env: NodeJS.ProcessEnv = process.env): string {
@@ -3801,7 +3811,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
       console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
       await runTimedStep(options.logPrefix, 'Initializing application data', { expectedSeconds: 45 }, async () =>
-        runYarnCommand(['initialize'], commandEnvironment, {
+        runYarnCommand(['initialize'], buildEphemeralInitializationEnvironment(commandEnvironment), {
           silent: !options.verbose,
         }, appDirectory))
 

@@ -53,14 +53,14 @@ export default function PortalProfilePage({ params }: Props) {
       <InjectionSpot spotId={extensionPoints.hosts.profileBefore.spotId} context={injectionContext} />
 
       <div className="grid gap-5 md:grid-cols-2">
-        <PortalCard>
+        <PortalCard className="min-w-0">
           <PortalCardHeader label={t('portal.dashboard.profile', 'Profile')} title={user.displayName} />
           <div className="flex flex-col">
             <PortalStatRow
               label={t('portal.dashboard.email', 'Email')}
               value={
-                <span className="flex items-center gap-2">
-                  <span className="truncate">{user.email}</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+                  <span className="min-w-0 break-all">{user.email}</span>
                   <Badge variant={user.emailVerified ? 'default' : 'outline'} className="shrink-0 text-overline">
                     {user.emailVerified ? t('portal.dashboard.emailVerified', 'Verified') : t('portal.dashboard.emailNotVerified', 'Unverified')}
                   </Badge>
@@ -80,8 +80,8 @@ export default function PortalProfilePage({ params }: Props) {
           </div>
         </PortalCard>
 
-        <PortalCard>
-          <PortalCardHeader label={t('portal.dashboard.roles', 'Roles')} title={`${roles.length} assigned`} />
+        <PortalCard className="min-w-0">
+          <PortalCardHeader label={t('portal.dashboard.roles', 'Roles')} title={t('portal.profile.rolesAssigned', '{count} assigned', { count: roles.length })} />
           {roles.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {roles.map((role) => (
@@ -93,8 +93,8 @@ export default function PortalProfilePage({ params }: Props) {
           )}
         </PortalCard>
 
-        <PortalCard className="md:col-span-2">
-          <PortalCardHeader label={t('portal.dashboard.permissions', 'Permissions')} title={`${resolvedFeatures.length} features`} />
+        <PortalCard className="min-w-0 md:col-span-2">
+          <PortalCardHeader label={t('portal.dashboard.permissions', 'Permissions')} title={t('portal.profile.featuresCount', '{count} features', { count: resolvedFeatures.length })} />
           {resolvedFeatures.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {resolvedFeatures.map((feature) => (

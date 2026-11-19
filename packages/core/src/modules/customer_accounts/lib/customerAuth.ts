@@ -4,6 +4,7 @@ import type { CustomerRbacService } from '@open-mercato/core/modules/customer_ac
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { isCustomerTenantActive } from './tenantEligibility'
+import type { CustomerUserSession } from '../data/entities'
 
 export interface CustomerAuthContext {
   sub: string
@@ -30,20 +31,19 @@ async function resolveSessionService(): Promise<
   return container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
 }
 
-async function assertSessionStillActive(input: {
+async function findActiveSession(input: {
   sessionId: string
   userId: string
   tenantId: string
   organizationId: string
-}): Promise<boolean> {
+}): Promise<CustomerUserSession | null> {
   try {
     const service = await resolveSessionService()
-    const session = await service.findActiveSessionForClaims(input)
-    return session !== null
+    return await service.findActiveSessionForClaims(input)
   } catch {
     // Fail closed: if we cannot verify the session, treat the token as revoked to prevent
     // replay of leaked JWTs when the backend is partially degraded.
-    return false
+    return null
   }
 }
 
@@ -109,7 +109,9 @@ export async function validateUserState(
   if (!user) return { valid: false }
   if (user.deletedAt) return { valid: false }
   if (!user.isActive) return { valid: false }
-  if (user.sessionsRevokedAt && typeof iat === 'number' && iat * 1000 < user.sessionsRevokedAt.getTime()) {
+  const issuedAtMs = iat instanceof Date ? iat.getTime() : typeof iat === 'number' ? iat * 1000 : null
+  if (user.sessionsRevokedAt && issuedAtMs !== null
+    && (!Number.isFinite(issuedAtMs) || issuedAtMs < user.sessionsRevokedAt.getTime())) {
     return { valid: false }
   }
   if (!(await isCustomerTenantActive(em, tenantId))) return { valid: false }
@@ -185,21 +187,21 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
     // Every accepted token is re-checked for liveness, exactly like the SSR path does — a token
     // without a `sid` is checked against the customer's remaining sessions rather than skipped,
     // so session revocation is never structurally unreachable on the API path.
-    const stillActive = sid
-      ? await assertSessionStillActive({
-          sessionId: sid,
-          userId,
-          tenantId,
-          organizationId,
-        })
-      : await assertUserStillHasActiveSession({ userId, tenantId, organizationId })
+    const session = sid ? await findActiveSession({
+      sessionId: sid,
+      userId,
+      tenantId,
+      organizationId,
+    }) : null
+    const stillActive = sid ? session !== null : await assertUserStillHasActiveSession({ userId, tenantId, organizationId })
     if (!stillActive) return null
+    const issuedAt = session?.createdAt instanceof Date ? session.createdAt : payload.iat
 
     const userState = await validateUserState(
       userId,
       tenantId,
       organizationId,
-      payload.iat,
+      issuedAt,
     )
     if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
 

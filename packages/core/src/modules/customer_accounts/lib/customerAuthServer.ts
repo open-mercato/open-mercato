@@ -14,25 +14,25 @@ import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accoun
 import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
 import { validateUserState } from './customerAuth'
 import type { CustomerAuthContext } from './customerAuth'
+import type { CustomerUserSession } from '../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customer_accounts').child({ component: 'customer-auth-server' })
 
 export type { CustomerAuthContext }
 
-async function assertSessionStillActive(input: {
+async function findActiveSession(input: {
   sessionId: string
   userId: string
   tenantId: string
   organizationId: string
-}): Promise<boolean> {
+}): Promise<CustomerUserSession | null> {
   try {
     const container = await createRequestContainer()
     const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
-    const session = await service.findActiveSessionForClaims(input)
-    return session !== null
+    return await service.findActiveSessionForClaims(input)
   } catch {
-    return false
+    return null
   }
 }
 
@@ -73,19 +73,20 @@ export async function getCustomerAuthFromCookies(
       // JWTs are rejected as if unauthenticated.
       return null
     }
-    const stillActive = await assertSessionStillActive({
+    const session = await findActiveSession({
       sessionId: sid,
       userId,
       tenantId,
       organizationId,
     })
-    if (!stillActive) return null
+    if (!session) return null
+    const issuedAt = session.createdAt instanceof Date ? session.createdAt : payload.iat
 
     const userState = await validateUserState(
       userId,
       tenantId,
       organizationId,
-      payload.iat,
+      issuedAt,
     )
     if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
 

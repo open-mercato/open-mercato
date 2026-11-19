@@ -60,11 +60,11 @@ type PortalStatRowProps = {
  */
 export function PortalStatRow({ label, value }: PortalStatRowProps) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
+    <div className="flex min-w-0 flex-col items-start gap-1.5 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <span className="text-overline font-medium uppercase tracking-wider text-muted-foreground/70">
         {label}
       </span>
-      <span className="text-sm font-medium text-foreground">{value}</span>
+      <span className="min-w-0 max-w-full break-words text-sm font-medium text-foreground sm:text-right">{value}</span>
     </div>
   )
 }

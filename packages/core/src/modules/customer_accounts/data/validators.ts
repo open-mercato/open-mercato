@@ -1,8 +1,13 @@
 import { z } from 'zod'
+import { buildPasswordSchema, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { normalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
 
 const emailField = z.string().email().max(255)
-const passwordField = z.string().min(8).max(128)
+const passwordPolicy = getPasswordPolicy()
+const passwordField = buildPasswordSchema({
+  policy: { ...passwordPolicy, minLength: Math.max(8, passwordPolicy.minLength) },
+  maxLength: 128,
+})
 const displayNameField = z.string().min(1).max(255)
 
 export const signupSchema = z.object({

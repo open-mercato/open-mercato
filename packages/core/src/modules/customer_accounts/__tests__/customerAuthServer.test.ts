@@ -82,6 +82,31 @@ describe('getCustomerAuthFromCookies — session claim binding', () => {
     })
   })
 
+  it('accepts a post-reset session within the same JWT second', async () => {
+    const second = Math.floor(Date.now() / 1000)
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId, tenantId, organizationId, customerEntityId: null, personEntityId: null,
+      sessionsRevokedAt: new Date(second * 1000 + 100), deletedAt: null, isActive: true,
+    })
+    findActiveSessionForClaims.mockResolvedValueOnce({ id: sessionId, createdAt: new Date(second * 1000 + 200) })
+    setCustomerCookie(signCustomerToken({ iat: second }))
+
+    await expect(getCustomerAuthFromCookies()).resolves.toMatchObject({ sub: userId, sid: sessionId })
+  })
+
+  it('rejects a pre-reset session even if the JWT was refreshed later', async () => {
+    const second = Math.floor(Date.now() / 1000)
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId, tenantId, organizationId, customerEntityId: null, personEntityId: null,
+      sessionsRevokedAt: new Date(second * 1000 + 100), deletedAt: null, isActive: true,
+    })
+    findActiveSessionForClaims.mockResolvedValueOnce({ id: sessionId, createdAt: new Date(second * 1000 - 100) })
+    setCustomerCookie(signCustomerToken({ iat: second + 1 }))
+
+    await expect(getCustomerAuthFromCookies()).resolves.toBeNull()
+    expect(loadAcl).not.toHaveBeenCalled()
+  })
+
   it('binds cookie authentication to the session owner and scope', async () => {
     setCustomerCookie(signCustomerToken())
 

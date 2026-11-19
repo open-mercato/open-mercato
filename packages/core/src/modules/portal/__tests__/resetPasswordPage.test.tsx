@@ -136,4 +136,22 @@ describe('PortalResetPasswordPage', () => {
     await findByText(/at least 8 characters/i)
     expect(apiCallMock).not.toHaveBeenCalled()
   })
+
+  it('distinguishes password validation from an expired reset token and permits retry', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 400, result: { ok: false, error: 'Validation failed' } })
+      .mockResolvedValueOnce({ ok: true, status: 200, result: { ok: true } })
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(<PortalResetPasswordPage params={{ orgSlug: 'acme' }} />)
+    fillForm(getByLabelText, 'longpassword', 'longpassword')
+    await act(async () => { fireEvent.click(getByRole('button', { name: 'Reset Password' })) })
+    await findByText(/check the password requirements/i)
+    expect(queryByText(/invalid or expired reset token/i)).toBeNull()
+    fillForm(getByLabelText, 'Compliant-Password-123!', 'Compliant-Password-123!')
+    await act(async () => { fireEvent.click(getByRole('button', { name: 'Reset Password' })) })
+    await findByText(/password reset complete/i)
+    expect(apiCallMock).toHaveBeenLastCalledWith('/api/customer_accounts/password/reset-confirm', expect.objectContaining({
+      body: JSON.stringify({ token: 'reset-token-123', password: 'Compliant-Password-123!' }),
+    }))
+  })
+
 })

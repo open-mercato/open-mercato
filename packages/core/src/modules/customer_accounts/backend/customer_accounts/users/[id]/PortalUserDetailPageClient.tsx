@@ -3,6 +3,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -151,6 +153,8 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
   const id = params?.id
   const t = useT()
   const router = useRouter()
+  const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
+  const canManage = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, 'customer_accounts.manage')
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [data, setData] = React.useState<UserDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -741,51 +745,54 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
         </div>
       </div>
 
-      <div className="rounded-lg border p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.security', 'Security')}</h2>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setResetPasswordOpen(true)}>
-            {t('customer_accounts.admin.detail.resetPassword.actions.open', 'Reset Password')}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => { void handleSendResetLink() }}
-            disabled={isSendingResetLink}
-          >
-            {isSendingResetLink
-              ? t('customer_accounts.admin.detail.sendResetLink.actions.sending', 'Generating...')
-              : t('customer_accounts.admin.detail.sendResetLink.actions.send', 'Send Reset Link')}
-          </Button>
-        </div>
-        {resetLinkUrl && (
-          <div className="rounded-md border border-status-info-border bg-status-info-bg p-3">
-            <p className="mb-1.5 text-sm font-medium text-status-info-text">
-              {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
-            </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 break-all rounded bg-status-info-bg px-2 py-1 text-xs text-status-info-text">
-                {resetLinkUrl}
-              </code>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void navigator.clipboard.writeText(resetLinkUrl)
-                  flash(t('customer_accounts.admin.detail.sendResetLink.flash.copied', 'Link copied to clipboard'), 'success')
-                }}
-              >
-                {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
-              </Button>
-            </div>
-            <p className="mt-1.5 text-xs text-status-info-text">
-              {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
-            </p>
+      {canManage && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.security', 'Security')}</h2>
           </div>
-        )}
-      </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => setResetPasswordOpen(true)}>
+              {t('customer_accounts.admin.detail.resetPassword.actions.open', 'Reset Password')}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { void handleSendResetLink() }}
+              disabled={isSendingResetLink}
+            >
+              {isSendingResetLink
+                ? t('customer_accounts.admin.detail.sendResetLink.actions.sending', 'Generating...')
+                : t('customer_accounts.admin.detail.sendResetLink.actions.send', 'Send Reset Link')}
+            </Button>
+          </div>
+          {resetLinkUrl && (
+            <div className="rounded-md border border-status-info-border bg-status-info-bg p-3">
+              <p className="mb-1.5 text-sm font-medium text-status-info-text">
+                {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 break-all rounded bg-status-info-bg px-2 py-1 text-xs text-status-info-text">
+                  {resetLinkUrl}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(resetLinkUrl)
+                    flash(t('customer_accounts.admin.detail.sendResetLink.flash.copied', 'Link copied to clipboard'), 'success')
+                  }}
+                >
+                  {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
+                </Button>
+              </div>
+              <p className="mt-1.5 text-xs text-status-info-text">
+                {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="rounded-lg border p-4 space-y-3">
         <h2 className="text-sm font-semibold">
@@ -813,25 +820,30 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                     {t('customer_accounts.admin.detail.fields.lastUsed', 'Last used')}: {formatDate(session.lastUsedAt, '-')}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { void handleRevokeSession(session.id) }}
-                >
-                  {t('customer_accounts.admin.detail.actions.revoke', 'Revoke')}
-                </Button>
+                {canManage && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { void handleRevokeSession(session.id) }}
+                  >
+                    {t('customer_accounts.admin.detail.actions.revoke', 'Revoke')}
+                  </Button>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <ResetPasswordDialog
-        open={resetPasswordOpen}
-        onOpenChange={setResetPasswordOpen}
-        userId={id!}
-        onRunMutation={runMutationWithContext}
-      />
+      {canManage && (
+        <ResetPasswordDialog
+          open={resetPasswordOpen}
+          onOpenChange={setResetPasswordOpen}
+          userId={id!}
+          onRunMutation={runMutationWithContext}
+        />
+      )}
       {ConfirmDialogElement}
     </>
   )
