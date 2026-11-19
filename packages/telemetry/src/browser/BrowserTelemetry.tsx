@@ -27,7 +27,6 @@
 import * as React from 'react'
 import type { BrowserTelemetryConfig } from './config'
 import { createBackupHeaderPropagator } from './propagator'
-import { createRedactingSpanProcessor } from '../provider/redacting-span-processor'
 
 /** Module-level so React StrictMode's double-invoke (and any remount) cannot start a second SDK. */
 let bootstrapped = false
@@ -51,6 +50,7 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
     { FetchInstrumentation },
     { W3CTraceContextPropagator },
     { defaultTextMapSetter },
+    { createRedactingSpanProcessor },
   ] = await Promise.all([
     import('@opentelemetry/sdk-trace-web'),
     import('@opentelemetry/sdk-trace-base'),
@@ -61,6 +61,7 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<vo
     import('@opentelemetry/instrumentation-fetch'),
     import('@opentelemetry/core'),
     import('@opentelemetry/api'),
+    import('../provider/redacting-span-processor'),
   ])
 
   const provider = new WebTracerProvider({
