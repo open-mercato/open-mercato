@@ -255,7 +255,8 @@ to zero — also the Phase 1 default here. When a non-zero value is set,
 `(baseAcquisitionValue - baseSalvageValue)` by `usefulLifeMonths` instead of
 `baseAcquisitionValue` alone; the residual amount itself is never
 depreciated (a residual value, once set, cannot be depreciated away).
-`salvageValue` joins the existing immutable-once-`ACTIVE` field set (see
+`salvageValue` joins the existing immutable-once-`ACTIVE` field set for
+ordinary CRUD; the revision command is the sanctioned exception (see
 "Its own asset register" and Data Models) — changing it after schedule
 generation would silently reinterpret already-materialized entries.
 `createFixedAsset`/`updateFixedAsset` reject a `salvageValue >=
@@ -334,7 +335,7 @@ currency and the asset's currency share no recorded exchange rate for
 that date), `acceptFixedAsset` rejects rather than silently skipping the
 comparison.
 
-**Currency of the ledger lines (added 2026-10-23; decided by the team, not yet reviewed by a maintainer).** Since #5663 every ledger line carries its own currency, rate and original amount, so the entries this module posts say which currency they are in. An asset in the base currency posts exactly as before (header currency = base, no rate needed, each line takes the header's values). A foreign-currency asset's capitalization entry (`acceptFixedAsset`) is posted with the header `currencyId` = `FixedAsset.currencyId` and `exchangeRate` = `FixedAsset.exchangeRate` (the booking-day rate of Multi-Currency decision 9f); both lines carry `amountCurrency` = `acquisitionValue` and the base amount `acquisitionValue` × rate rounded half up, so the asset account is debited with the złoty value fixed at acquisition. The initial value of the asset in the base currency is that figure and is not revalued (a fixed asset is not a monetary item; basis of this team decision: art. 28 ust. 1 pkt 1 UoR values fixed assets "według cen nabycia lub kosztów wytworzenia, lub wartości przeszacowanej (po aktualizacji wyceny środków trwałych), pomniejszonych o odpisy amortyzacyjne lub umorzeniowe, a także o odpisy z tytułu trwałej utraty wartości" — consolidated text Dz.U. 2026 poz. 522 — so the złoty value fixed at acquisition is the carrying amount; **⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)** only on what the text does not settle: art. 30 ust. 1 pkt 1 requires the balance-sheet valuation of "składniki aktywów … wyrażone w walutach obcych" at the NBP average rate and does not say whether an asset carried at cost under art. 28 ust. 1 pkt 1 counts as one; the act defines "aktywa pieniężne" (art. 3 ust. 1 pkt 25) but art. 30 ust. 1 does not use that term); the depreciation schedule, the depreciation entries, impairment and disposal are therefore computed on and posted in the base currency (rate `1`). **The base-currency basis is persisted, not re-derived (completed 2026-11-17 — closes the data-model gap this paragraph previously carried).** `FixedAsset` gains two base-currency snapshots alongside the transaction-currency inputs, both `numeric(19,4)` and both written once by `acceptFixedAsset`: `baseAcquisitionValue = ROUND(acquisitionValue × exchangeRate, 2)` and `baseSalvageValue = ROUND(salvageValue × exchangeRate, 2)`, rounded half up; for an asset already in the base currency both equal their transaction-currency counterparts (rate `1`). Every downstream figure uses the snapshots, never `acquisitionValue`/`salvageValue` directly: the generated schedule sums to `baseAcquisitionValue - baseSalvageValue`; `reviseDepreciationParameters` spreads `baseAcquisitionValue - baseSalvageValue - accruedDepreciationTotal - netImpairmentTotal`; `recognizeImpairment`/`reverseImpairment` read `carryingAmountBefore = baseAcquisitionValue - accruedDepreciationTotal - netImpairmentTotal` and regenerate the tail from `recoverableAmount - baseSalvageValue`; `disposeAsset` credits the asset account for `baseAcquisitionValue`. `baseAcquisitionValue` and `baseSalvageValue` join `exchangeRate` in the post-`DRAFT` immutable set, so the basis cannot drift after acceptance. A foreign-currency asset without a stored `exchangeRate` is rejected at acceptance (the existing `exchange_rate_unavailable`). All monetary API inputs other than `acquisitionValue`/`salvageValue` — `recoverableAmount`, `reversalAmount`, `proceedsAmount`, and the settings' `lowValueThresholdAmount` in its own configured currency — are documented and validated in **base currency** (see API Contracts); a caller holding a proceeds figure in another currency converts it before submission. The capitalization entry keeps the transaction currency on its lines (`amountCurrency = acquisitionValue`, `exchangeRate` = the stored rate) while its base debit equals `baseAcquisitionValue`, so `ledger` records both; depreciation, impairment and disposal entries post in base currency (rate `1`, `amountCurrency` equal to the base amount). The legal question below remains a maintainer decision and is unchanged by this data-model completion.
+**Currency of the ledger lines (added 2026-10-23; decided by the team, not yet reviewed by a maintainer).** Since #5663 every ledger line carries its own currency, rate and original amount, so the entries this module posts say which currency they are in. An asset in the base currency posts exactly as before (header currency = base, no rate needed, each line takes the header's values). A foreign-currency asset's capitalization entry (`acceptFixedAsset`) is posted with the header `currencyId` = `FixedAsset.currencyId` and `exchangeRate` = `FixedAsset.exchangeRate` (the booking-day rate of Multi-Currency decision 9f); both lines carry `amountCurrency` = `acquisitionValue` and the base amount `acquisitionValue` × rate rounded half up, so the asset account is debited with the złoty value fixed at acquisition. The initial value of the asset in the base currency is that figure and is not revalued (a fixed asset is not a monetary item; basis of this team decision: art. 28 ust. 1 pkt 1 UoR values fixed assets "według cen nabycia lub kosztów wytworzenia, lub wartości przeszacowanej (po aktualizacji wyceny środków trwałych), pomniejszonych o odpisy amortyzacyjne lub umorzeniowe, a także o odpisy z tytułu trwałej utraty wartości" — consolidated text Dz.U. 2026 poz. 522 — so the złoty value fixed at acquisition is the carrying amount; **⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)** only on what the text does not settle: art. 30 ust. 1 pkt 1 requires the balance-sheet valuation of "składniki aktywów … wyrażone w walutach obcych" at the NBP average rate and does not say whether an asset carried at cost under art. 28 ust. 1 pkt 1 counts as one; the act defines "aktywa pieniężne" (art. 3 ust. 1 pkt 25) but art. 30 ust. 1 does not use that term); the depreciation schedule, the depreciation entries, impairment and disposal are therefore computed on and posted in the base currency (rate `1`). **The base-currency basis is persisted, not re-derived (completed 2026-11-17 — closes the data-model gap this paragraph previously carried).** `FixedAsset` gains two base-currency snapshots alongside the transaction-currency inputs, both `numeric(19,4)` and initialized by `acceptFixedAsset`: `baseAcquisitionValue = ROUND(acquisitionValue × exchangeRate, 2)` and `baseSalvageValue = ROUND(salvageValue × exchangeRate, 2)`, rounded half up; for an asset already in the base currency both equal their transaction-currency counterparts (rate `1`). Every downstream figure uses the snapshots, never `acquisitionValue`/`salvageValue` directly: the generated schedule sums to `baseAcquisitionValue - baseSalvageValue`; `reviseDepreciationParameters` spreads `baseAcquisitionValue - baseSalvageValue - accruedDepreciationTotal - netImpairmentTotal`; `recognizeImpairment`/`reverseImpairment` read `carryingAmountBefore = baseAcquisitionValue - accruedDepreciationTotal - netImpairmentTotal` and regenerate the tail from `recoverableAmount - baseSalvageValue`; `disposeAsset` credits the asset account for `baseAcquisitionValue`. `baseAcquisitionValue` and `exchangeRate` are immutable after acceptance; `baseSalvageValue` is the current base-currency estimate, changed only by `reviseDepreciationParameters` together with `salvageValue`, using the stored acquisition rate and half-up rounding to two decimals. The revision audit records previous and new transaction- and base-currency values. A foreign-currency asset without a stored `exchangeRate` is rejected at acceptance (the existing `exchange_rate_unavailable`). All monetary API inputs other than `acquisitionValue`/`salvageValue` — `recoverableAmount`, `reversalAmount`, `proceedsAmount`, and the settings' `lowValueThresholdAmount` in its own configured currency — are documented and validated in **base currency** (see API Contracts); a caller holding a proceeds figure in another currency converts it before submission. The capitalization entry keeps the transaction currency on its lines (`amountCurrency = acquisitionValue`, `exchangeRate` = the stored rate) while its base debit equals `baseAcquisitionValue`, so `ledger` records both; depreciation, impairment and disposal entries post in base currency (rate `1`, `amountCurrency` equal to the base amount). The legal question below remains a maintainer decision and is unchanged by this data-model completion.
 
 **Disposal / retirement — new, resolved 2026-09-09.** Modeled as its own
 entity, `AssetDisposal`, plus a dedicated command, `disposeAsset` — not a
@@ -384,9 +385,10 @@ before computing `netBookValueAtDisposal`. The catch-up entries keep
 individually and cannot be rolled back by a later disposal failure), and
 the disposal posting itself is a separate transaction; the preflight is
 what prevents a missing account from being discovered only after real
-accrual entries have already committed. Failure surfaces the disposal as
-not performed, with the already-posted catch-up accruals reported in the
-response. A due entry whose covering
+accrual entries have already committed. A non-lock catch-up failure stops
+disposal after the catch-up run; it never posts the disposal entry. Failure
+surfaces the disposal as not performed, with the already-posted catch-up
+accruals and failures reported in the response. A due entry whose covering
 `FiscalPeriod` is locked is skipped exactly as `accrueDepreciation` would
 skip it; `disposeAsset` then proceeds using whatever accrued total
 actually exists at that point (the same actual-not-planned basis as
@@ -403,12 +405,13 @@ routine data-entry error, not an edge case, and disposing a wrongly
 event that never happened. `reopenFixedAsset` reverts `ACTIVE` → `DRAFT`,
 permitted only while **zero** `DepreciationScheduleEntry` rows for the
 asset have `accruedAt` set (i.e. nothing from its schedule has ever
-posted to `ledger`) — the same "immutable once real history exists"
+posted to `ledger`) and no `AssetImpairment` history exists for the asset,
+including fully reversed losses — the same "immutable once real history exists"
 boundary this spec uses everywhere else. It calls `ledger.
 reverseJournalEntry` against the capitalization entry (never mutating or
 deleting it — the "reversal, not undo" posture #5663 established),
 deletes the still-unaccrued `DepreciationScheduleEntry` rows, and clears
-`otDocumentNumber`/`otDate`/`lowValueThresholdSnapshot`/`exchangeRate` so
+`otDocumentNumber`/`otDate`/`lowValueThresholdSnapshot`/`exchangeRate`/`baseAcquisitionValue`/`baseSalvageValue` so
 a corrected `acceptFixedAsset` call regenerates them cleanly. Requires
 `fixed_assets.assets.manage` — the same feature as acceptance itself,
 since this is acceptance's own correction path, not a distinct
@@ -433,7 +436,7 @@ impairment-reversal question below. `reviseDepreciationParameters` takes
 `assetId`, `remainingUsefulLifeMonths` (the number of months of useful
 life the organization now believes remain, counted from the revision
 date — not a new total, so the command never needs to reconstruct how
-many months have already elapsed), an optional revised `salvageValue`,
+many months have already elapsed), an optional revised `salvageValue` in the asset transaction currency,
 and a required free-text `reason` (audit trail for why the estimate
 changed — plain business text, not declared PII since it describes an
 asset/estimate, not a person, matching the reasoning already used for
@@ -441,8 +444,12 @@ asset/estimate, not a person, matching the reasoning already used for
 `ACTIVE`, non-`ONE_TIME` asset with at least one future (unaccrued)
 period remaining — rejected for `DRAFT` (nothing to revise yet; edit the
 asset directly), `DISPOSED`, or `FULLY_DEPRECIATED` (no future periods to
-adjust), and rejected if `remainingUsefulLifeMonths <= 0` or if the
-resulting remaining depreciable base (`baseAcquisitionValue - baseSalvageValue -
+adjust), and rejected if `remainingUsefulLifeMonths <= 0`. Compute the
+proposed `baseSalvageValue` from revised transaction-currency salvage at
+the stored acquisition rate (rate 1 for base currency), rounded half up
+to two decimals; if omitted, retain both current estimates. Reject a
+negative transaction-currency value or one at or above acquisition value,
+and reject if the resulting remaining depreciable base (`baseAcquisitionValue - baseSalvageValue -
 accruedDepreciationTotal - netImpairmentTotal` — the same two
 accumulated-total aggregates `disposeAsset`/`recognizeImpairment` compute,
 so a revision on a previously-impaired asset correctly starts from its
@@ -456,7 +463,7 @@ after the latest accrued entry (or from `depreciationStartDate` if none
 has accrued yet), each `plannedAmount = (baseAcquisitionValue - baseSalvageValue -
 accruedDepreciationTotal - netImpairmentTotal) / remainingUsefulLifeMonths`,
 with the same final-row rounding-remainder rule `acceptFixedAsset` uses. Updates
-`FixedAsset.usefulLifeMonths`/`salvageValue` to the revised figures — the
+`FixedAsset.usefulLifeMonths`/`salvageValue`/`baseSalvageValue` to the revised figures — the
 sanctioned exception to their post-`DRAFT` immutability, the same class
 of exception `reopenFixedAsset` already is for the capitalization fields.
 Posts **no** journal entry itself: a change in accounting estimate is not
@@ -650,11 +657,11 @@ therefore applies the same delete-and-regenerate mechanism
 rows, they are deleted and replaced with the same count of new rows
 (impairment does not change `usefulLifeMonths`, so the period count is
 preserved, not caller-supplied), each `plannedAmount = (recoverableAmount
-- salvageValue) / remainingPeriodCount`, final row absorbing the rounding
+- baseSalvageValue) / remainingPeriodCount`, final row absorbing the rounding
 remainder, starting the period immediately after the latest accrued
 entry — inside the same transaction as the impairment posting, for the
 same concurrency reason `reviseDepreciationParameters` does it
-transactionally. This is also why `recoverableAmount < salvageValue` is
+transactionally. This is also why `recoverableAmount < baseSalvageValue` is
 rejected above, for a non-`FULLY_DEPRECIATED` asset: the regenerated
 schedule cannot depreciate below the asset's own salvage value. A
 `FULLY_DEPRECIATED` asset has no unaccrued
@@ -679,7 +686,7 @@ the asset below its own salvage value, the same floor
 `recognizeImpairment` and `reviseDepreciationParameters` both already
 respect). This basis cannot go negative *below `salvageValue`* and
 needs no separate defensive check the way `recognizeImpairment`'s
-`recoverableAmount < salvageValue` rejection is needed: the reversal
+`recoverableAmount < baseSalvageValue` rejection is needed: the reversal
 ceiling below (never restore above the original write-down) guarantees
 `netImpairmentTotal` never goes negative, which in turn guarantees the
 post-reversal carrying value never exceeds `baseAcquisitionValue -
@@ -960,8 +967,9 @@ market doesn't need.
   (nullable — rate to the organization's base currency for the booking day before `acquisitionDate` (Multi-Currency Design decision 9f), mirroring `ledger.JournalEntry.exchangeRate`; see
   Design Decisions, low-value threshold currency conversion),
   `baseAcquisitionValue` / `baseSalvageValue` (both `numeric(19,4)`,
-  written once by `acceptFixedAsset` as the rounded base-currency
-  equivalents of `acquisitionValue`/`salvageValue` — the basis every
+  initialized by `acceptFixedAsset` as the rounded base-currency
+  equivalents of `acquisitionValue`/`salvageValue`; `baseSalvageValue`
+  changes only with a sanctioned estimate revision — the basis every
   schedule, impairment and disposal figure uses; see Design Decisions,
   "Currency of the ledger lines"),
   `entrySource` (`AP_LINKED` / `MANUAL` / `OPENING_BALANCE` /
@@ -991,7 +999,8 @@ market doesn't need.
   `usefulLifeMonths`, `depreciationStartDate`, and the four ledger-account
   fields become immutable once `status != 'DRAFT'` (enforced by `updateFixedAsset` —
   same immutability class as `ledger.LedgerAccount.accountTypeId`);
-  `reopenFixedAsset` is the one documented path back to `DRAFT` (see
+  `reviseDepreciationParameters` alone may update useful life and both
+  salvage estimates; `reopenFixedAsset` is the one documented path back to `DRAFT` (see
   Design Decisions, Commands).
 - `DepreciationScheduleEntry` — `assetId` (FK-id to `FixedAsset`),
   `periodStartDate`, `periodEndDate`, `plannedAmount` (`numeric(19,4)`),
@@ -1062,7 +1071,9 @@ market doesn't need.
   value applied), `previousSalvageValue`/`newSalvageValue`
   (`numeric(19,4)` each — `newSalvageValue` equals `previousSalvageValue`
   when the caller didn't change it, so the two are always both present
-  and directly comparable), `reason` (free text — declared in
+  and directly comparable, in the asset transaction currency),
+  `previousBaseSalvageValue`/`newBaseSalvageValue` (both `numeric(19,4)`,
+  base currency; equal when unchanged), `reason` (free text — declared in
   `fixed_assets/encryption.ts` on the same precedent as
   `AssetDisposal.notes`/`AssetImpairment.reason`), tenant/org scoped. No
   `updatedAt`, no `journalEntryReferenceId` — this command posts no
@@ -1151,6 +1162,42 @@ remaining reversible amount. `(organization_id, asset_id)` on
 
 ### Commands (`commands/`)
 
+**Financial-write serialization.** All writers of an asset's financial
+state or schedule, including draft update/delete, acceptance, reopen,
+revision, accrual (including disposal catch-up), impairment recognition and
+reversal, and disposal, acquire the same exclusive `(tenantId,
+organizationId, assetId)` database lock before deciding or writing. Use a
+session advisory lock on a pinned database connection, held through the
+operation and released in `finally`; connection loss releases it. Every
+transaction and the ledger command must use that connection and transaction
+context, with no independent ledger commit. Disposal holds the lock across
+its individually committed catch-up transactions and final disposal
+transaction; its internal accrual helper reuses the held lock rather than
+reacquiring it. Other accruals hold it for one entry at a time. Never hold
+more than one asset lock at once in a batch. Follow ledger's fiscal-period
+locking protocol inside each posting transaction, after the asset lock.
+Use a stable, namespaced key shared by every worker and deployment version;
+a pool or proxy must preserve the same physical session until unlock. A
+timeout acquiring the lock fails without financial writes. The planned
+ledger dependency must support joining the caller's transaction and deferring
+events until commit; verify this seam before implementation and treat its
+absence as an implementation prerequisite, not as permission for a separate
+ledger commit.
+
+An initial scan is only a candidate list. After acquiring the lock, re-read
+the tenant/org-scoped asset, status, version, schedule row and relevant
+history, totals, reversal cap, account and period state in the transaction
+that uses them. An entry already accrued, deleted by regeneration, or no
+longer eligible is skipped, not posted. Serialize the ledger post and local
+row/status changes in that same transaction; on failure roll both back.
+Optimistic headers are checked after lock acquisition and before any
+catch-up; disposal's own committed updates must not conflict with its own
+header. A disposal re-reads its status, accounts and disposal period before
+its final posting, because its preflight precedes separate committed transactions.
+Timeouts or an unknown commit outcome require reconciliation by reading
+persisted schedule/disposal and ledger references before retrying; never
+report an uncertain entry as definitely failed or blindly repost it.
+
 - `createAssetClass` / `updateAssetClass` — standard CRUD. Requires
   `fixed_assets.classes.manage`.
 - `updateFixedAssetSettings` — upserts the org's single
@@ -1214,7 +1261,10 @@ a validation failure returns the standard 400 shape (see API Contracts).
   `fixed_assets.assets.manage`.
 - `reopenFixedAsset` — reverts `ACTIVE` → `DRAFT`. Rejects unless every
   `DepreciationScheduleEntry` for the asset has `accruedAt IS NULL` (see
-  Design Decisions) — a condition a `ONE_TIME` asset can never satisfy,
+  Design Decisions) and rejects if any original or reversal `AssetImpairment`
+  row exists, even if fully reversed (`cannot_reopen_with_impairment_history`).
+  Recheck both guards under the asset lock before reversing capitalization.
+  The accrual condition is one a `ONE_TIME` asset can never satisfy,
   since `acceptFixedAsset` inserts its one schedule row already
   `accruedAt`-set (see above): `reopenFixedAsset` is therefore never
   available for a `ONE_TIME` asset, by construction rather than as a
@@ -1233,7 +1283,7 @@ a validation failure returns the standard 400 shape (see API Contracts).
   negative remaining depreciable base (see Design Decisions). Deletes the
   unaccrued `DepreciationScheduleEntry` rows and regenerates them over
   `remainingUsefulLifeMonths` from the revised remaining base, updates
-  `FixedAsset.usefulLifeMonths`/`salvageValue`, inserts one
+  `FixedAsset.usefulLifeMonths`/`salvageValue`/`baseSalvageValue`, inserts one
   `DepreciationRevision` row (the durable record `reason` is written to —
   see Data Models), and posts no journal entry
   (prospective-only, no catch-up — see Design Decisions). Requires
@@ -1288,7 +1338,9 @@ a validation failure returns the standard 400 shape (see API Contracts).
   due-but-unposted depreciation") — locked periods among the entries
   being caught up (as opposed to the disposal period itself, already
   cleared above) are skipped and reported back to the caller in the
-  response (see API Contracts), not silently absorbed. Computes
+  response (see API Contracts), not silently absorbed. If any catch-up
+  entry is in `failed`, stop without creating a disposal or posting its
+  ledger entry; return all three catch-up buckets. Computes
   `accruedDepreciationTotal =
   SUM(accrued DepreciationScheduleEntry.plannedAmount for this asset)`
   (actual accrued total after the catch-up step, not the original planned
@@ -1343,7 +1395,7 @@ a validation failure returns the standard 400 shape (see API Contracts).
   - recoverableAmount`; rejects a
   non-positive `lossAmount` (a `recoverableAmount` at or above carrying
   value is not an impairment) and, for a non-`FULLY_DEPRECIATED` asset
-  only, rejects `recoverableAmount < salvageValue` (the regenerated
+  only, rejects `recoverableAmount < baseSalvageValue` (the regenerated
   schedule below cannot depreciate below salvage value — see Design
   Decisions; a `FULLY_DEPRECIATED` asset has no unaccrued schedule left
   to protect, so the floor there is `recoverableAmount >= 0` instead,
@@ -1562,14 +1614,15 @@ LedgerAccount.accountTypeId` uses once posted entries exist, for the
 identical reason: changing them after depreciation has started would
 silently reinterpret history already posted to GL.
 `baseAcquisitionValue`/`baseSalvageValue` hold the rounded base-currency
-snapshots written at acceptance; every derived figure the UI or a command
+basis and current salvage estimate, initialized at acceptance; every derived figure the UI or a command
 reports (net book value, schedule totals, disposal gain/loss) uses them,
 not the transaction-currency inputs. `status` moves
 `DRAFT` → `ACTIVE` (via `acceptFixedAsset`) → `FULLY_DEPRECIATED` (via
 `accrueDepreciation`, automatic once the last schedule entry accrues) or
 → `DISPOSED` (via `disposeAsset`, from either `ACTIVE` or
 `FULLY_DEPRECIATED`); `reopenFixedAsset` moves `ACTIVE` back to `DRAFT`,
-but only before any schedule entry has accrued (see Design Decisions).
+but only before any schedule entry has accrued and with no impairment
+history (see Design Decisions).
 
 ### DepreciationScheduleEntry
 
@@ -1700,8 +1753,9 @@ Custom write route (`reopenFixedAsset`), mapped to `update`.
 - **Response 200**: `FixedAssetDto` with `status: 'DRAFT'`.
 - **Response 409**: `OptimisticLockConflictBody`, or at least one
   `DepreciationScheduleEntry` for this
-  asset already has `accruedAt` set (a distinct, named error code — see
-  Internationalization).
+  asset already has `accruedAt` set (`cannot_reopen_after_accrual`), or
+  any impairment history exists (`cannot_reopen_with_impairment_history`).
+  These are distinct localized error codes (see Internationalization).
 - **Response 403**: caller lacks `fixed_assets.assets.manage`.
 
 ### `POST /api/fixed_assets/assets/:id/revise-depreciation`
@@ -1710,13 +1764,15 @@ Custom write route (`reviseDepreciationParameters`), mapped to `update`.
 
 - **Request body**: `{ remainingUsefulLifeMonths, salvageValue?, reason }`
   — zod-validated (`remainingUsefulLifeMonths` a positive integer,
-  `reason` non-empty).
+  `reason` non-empty, `salvageValue` non-negative and denominated in the
+  asset transaction currency); convert the proposed value using the stored
+  acquisition rate before validating the revised base.
 - **Headers**: `x-om-ext-optimistic-lock-expected-updated-at` (optional,
   enforced per the repo's default-ON optimistic-lock contract —
   `reviseDepreciationParameters` updates `FixedAsset.usefulLifeMonths`/
   `salvageValue`, the same class of write `accept` already guards).
 - **Response 200**: `FixedAssetDto` with the revised
-  `usefulLifeMonths`/`salvageValue`, plus `depreciationSchedule:
+  `usefulLifeMonths`/`salvageValue`/`baseSalvageValue`, plus `depreciationSchedule:
   DepreciationScheduleEntryDto[]` (the regenerated unaccrued tail, so the
   caller can render the new schedule without a second request) and
   `revisionId` (the inserted `DepreciationRevision` row's id).
@@ -1770,6 +1826,20 @@ Custom write route (`disposeAsset`), mapped to `update`.
   step's own results (see Design Decisions) so a locked-period gap in the
   final net book value is visible to the caller, not silently absorbed.
 - **Response 400**: zod validation error.
+- **Response 422**: `{ code: 'disposal_catch_up_failed', disposalPerformed:
+  false, catchUpAccrual: { posted: { scheduleEntryId, journalEntryReferenceId
+  }[], skippedLockedPeriod: { scheduleEntryId, periodId }[], failed: {
+  scheduleEntryId, error }[] } }` when any catch-up entry fails. `posted`
+  contains only entries committed by this request. The disposal is not
+  attempted. A subsequent retry selects only still-unaccrued entries.
+- **Response 500**: `{ code: 'disposal_post_failed', disposalPerformed:
+  false, catchUpAccrual: { posted, skippedLockedPeriod, failed: [] } }`
+  if the final disposal transaction definitively rolls back. A final
+  precondition rejection after catch-up uses 409 with its named code and
+  the same `disposalPerformed: false` and `catchUpAccrual` body. If commit
+  outcome is unknown or the response is lost, the client must refresh and
+  reconcile the asset, schedule and ledger before retrying; it must not
+  assert that disposal failed. Errors do not expose raw internal details.
 - **Response 409**: `OptimisticLockConflictBody`; the asset's `status` is
   `DRAFT` or `DISPOSED` (distinct, named codes
   `cannot_dispose_inactive_asset` / `already_disposed` — a `DRAFT` asset
@@ -1795,7 +1865,7 @@ Custom write route (`recognizeImpairment`), mapped to `update`.
   the command never mutates a `FixedAsset` field and inserts only
   append-only `AssetImpairment` rows, so there is no version to guard.
   Concurrent recognitions are serialized by the per-asset schedule
-  transaction and bounded by the carrying-value recomputation inside it
+  lock and bounded by the carrying-value recomputation inside the transaction
   (see Risk Register, "Schedule regeneration applied to already-closed
   periods").
 - **Response 201**: `AssetImpairmentDto` — `{ id, assetId, impairmentDate,
@@ -1803,7 +1873,7 @@ Custom write route (`recognizeImpairment`), mapped to `update`.
   reversalOfImpairmentId: null, reason, journalEntryReferenceId }`.
 - **Response 400**: zod validation error, `recoverableAmount >=`
   the computed carrying value (not an impairment), or, for a
-  non-`FULLY_DEPRECIATED` asset, `recoverableAmount < salvageValue`
+  non-`FULLY_DEPRECIATED` asset, `recoverableAmount < baseSalvageValue`
   (the regenerated schedule cannot depreciate below salvage value —
   see Design Decisions; not applicable to a `FULLY_DEPRECIATED` asset,
   which has no unaccrued schedule to protect).
@@ -1821,8 +1891,8 @@ Custom write route (`reverseImpairment`), mapped to `update`.
   zod-validated (`reversalAmount` positive, a **base-currency** amount).
 - **Optimistic locking**: not applicable for the same reason as
   `recognizeImpairment` — append-only rows, no `FixedAsset` mutation; the
-  remaining-reversible-amount cap is enforced inside the same per-asset
-  transaction as the reversal posting.
+  remaining-reversible-amount cap is rechecked under the common per-asset
+  lock in the same transaction as the reversal posting.
 - **Response 201**: `AssetImpairmentDto` — a new row with
   `reversalOfImpairmentId: impairmentId`, `reversalAmount` set,
   `triggerCategory`/`carryingAmountBefore`/`recoverableAmount`/
@@ -1868,6 +1938,8 @@ All user-facing strings resolve through `useT()` client-side /
   `.already_disposed`, `.source_reference_required`,
   `.offset_account_required`, `.useful_life_required`,
   `.exchange_rate_unavailable`, `.cannot_reopen_after_accrual`,
+  `.cannot_reopen_with_impairment_history`, `.disposal_catch_up_failed`,
+  `.disposal_post_failed`,
   `.salvage_value_exceeds_acquisition_value`,
   `.cannot_revise_inactive_asset`, `.cannot_revise_one_time_asset`,
   `.no_unaccrued_periods_to_revise`, `.revision_yields_negative_base`,
@@ -1900,7 +1972,8 @@ All user-facing strings resolve through `useT()` client-side /
   accrued schedule total minus net impairment, not a stored column — see
   Architecture → Commands, `disposeAsset`'s `netImpairmentTotal`). Row
   actions "Accept (OT)" (visible only for `DRAFT`), "Reopen" (visible only
-  for `ACTIVE` assets with zero accrued schedule entries — see Design
+  for `ACTIVE` assets with zero accrued schedule entries and no impairment
+  history — see Design
   Decisions, `reopenFixedAsset`), "Revise" (visible only for `ACTIVE`,
   non-`ONE_TIME` assets with at least one unaccrued schedule entry — opens
   the Revise depreciation dialog below), "Recognize impairment" (visible
@@ -1959,6 +2032,11 @@ All user-facing strings resolve through `useT()` client-side /
   the count so the accountant knows the booked net book value may not
   reflect a still-locked period's depreciation (`fixed_assets.dispose.
   catch_up_warning`).
+  On definite partial failure, show a localized error stating disposal did
+  not occur, with posted, skipped and failed entries and links to committed
+  journal entries; refresh the asset and schedule before retry. For an
+  unknown outcome or lost response, show an indeterminate state and require
+  reconciliation before retry rather than asserting success or failure.
 - **Recognize impairment dialog**: `impairmentDate`, `triggerCategory`
   selector, `recoverableAmount` field, required `reason`; shows a
   read-only current carrying value for reference and the resulting
@@ -1977,10 +2055,12 @@ All user-facing strings resolve through `useT()` client-side /
   actions) — same posture as `disposals/page.tsx`.
 - **Reopen dialog**: a single confirmation (`useConfirmDialog()`) naming
   the asset and warning that this reverses its capitalization entry —
-  hidden entirely once any schedule entry has accrued, so the accountant
-  never reaches a 409 in the common case.
+  hidden when any schedule entry has accrued or any impairment history
+  exists. A stale view can still receive the distinct history 409; display
+  the localized reason and refresh the asset and history.
 - **Revise depreciation dialog**: collects `remainingUsefulLifeMonths`, an
-  optional revised salvage value, and a required `reason`; shows a
+  optional revised salvage value in the asset transaction currency, and a
+  required `reason`; shows the converted base estimate at the stored rate and a
   read-only preview of the new remaining schedule (period count and
   amount per period) before submit, and an inline note that already
   -accrued periods are unaffected. When the previewed periodic amount
@@ -2086,14 +2166,14 @@ All user-facing strings resolve through `useT()` client-side /
    one-row accrual for `ONE_TIME` assets. Persist `baseAcquisitionValue`/
    `baseSalvageValue` before generating the schedule (see Design
    Decisions, "Currency of the ledger lines").
-6. Implement `reopenFixedAsset`: the zero-accrued-entries guard, the
+6. Implement `reopenFixedAsset`: the zero-accrued-entries and no-impairment-history guards, the
    `ledger.reverseJournalEntry` call, and the unaccrued-schedule-row
    cleanup.
 7. Implement `reviseDepreciationParameters`: the `ACTIVE`/non-`ONE_TIME`/
    has-unaccrued-period guard, the negative-remaining-base rejection, the
    unaccrued-schedule-row delete-and-regenerate over
    `remainingUsefulLifeMonths`, and the `FixedAsset.usefulLifeMonths`/
-   `salvageValue` update — posts no journal entry (see Design Decisions).
+   `salvageValue` and `baseSalvageValue` update and both-currency revision audit — posts no journal entry (see Design Decisions).
 8. Implement `accrueDepreciation`: the due/unposted schedule-entry scan
    in pages of 500, the per-entry transaction boundary, the per-entry
    `FiscalPeriod.isLocked` pre-check, the idempotent accrual posting, the
@@ -2282,6 +2362,28 @@ All user-facing strings resolve through `useT()` client-side /
   three read-only lists' filter and pagination behavior; cross-tenant
   isolation (an asset/schedule/disposal/impairment from tenant A never
   appears in tenant B's queries, including via `sourceReferenceId` joins).
+- Integration: synchronize competing requests at the financial decision
+  point using separate database connections. Two accruals of one due entry
+  produce one journal entry and one schedule reference; two reversals whose
+  combined amount exceeds the remaining loss allow at most the valid amount.
+  Race regeneration against accrual in both orders: a posted row is retained
+  and included in totals, and a deleted stale candidate never posts. Race
+  disposal catch-up against revision and impairment to prove no writer
+  interleaves between its transactions and disposal posting.
+- Integration: revise base-currency and foreign-currency salvage values,
+  checking both audit pairs and the regenerated sum. For EUR 10,000 at 4.5,
+  revise EUR 1,000 salvage to EUR 2,000 and assert base salvage 9,000;
+  2,000 base against the original 4,500 base floor must be rejected even
+  though it exceeds EUR 1,000. Follow valid revisions with impairment and
+  disposal, checking the schedule, carrying amount and ledger amounts.
+- Integration: accept, impair before any accrual, then attempt reopen and
+  reaccept: reopen returns the named 409, leaves capitalization and
+  impairment postings and schedule intact, and reaccept cannot proceed.
+  Repeat after full impairment reversal; the history guard still applies.
+  Inject a later catch-up failure after one committed entry and separately a
+  final disposal-post failure: assert error body, committed references,
+  absence of disposal and safe retry. Exercise the partial-failure UI and
+  lost-response reconciliation state.
 - Manual QA: the full lifecycle end-to-end (register → accept → accrue
   across a locked and unlocked period → dispose), once for a
   `STRAIGHT_LINE` asset and once for a `ONE_TIME` low-value asset, and
@@ -2300,11 +2402,10 @@ All user-facing strings resolve through `useT()` client-side /
 
 Covered by the Risk Register below (`accrueDepreciation` idempotency,
 disposal-before-schedule-completion, threshold-change reclassification).
-Every mutating command in this module posts through `ledger.
-postJournalEntry`'s own transaction, so a crash mid-command leaves either
-a fully-posted journal entry with the local status update, or neither —
-`ledger`'s own transaction boundary is reused, not a second one layered
-on top.
+Each posting and its local writes share one transaction under the asset
+lock. Disposal catch-up transactions commit separately, so a later failure
+can leave real accruals without a disposal; the response and retry rules
+above make that partial completion visible.
 
 ### Cascading Failures & Side Effects
 
@@ -2312,9 +2413,9 @@ on top.
 and depends on `ledger`/`currencies` only through direct downward
 commands — if `ledger.postJournalEntry` rejects (locked period, or an
 unexpected validation failure), the calling `fixed_assets` command
-returns that rejection to the caller synchronously; no side effect is
-left half-applied because the local status/entity update happens in the
-same transaction as the posting attempt. Posting Rules Engine reacting to
+returns that rejection to the caller synchronously; each posting and its
+local writes roll back together, although earlier disposal catch-up
+transactions can already have committed. Posting Rules Engine reacting to
 this module's depreciation postings is a one-way, best-effort
 consequence — its own reconciliation sweeper (`ReconcileCostRingCommand`,
 `2026-09-06-posting-rules-engine.md`) covers a missed reclassification,
@@ -2351,17 +2452,12 @@ for its own manual `CLOSING`/`OPENING` entries.
 - **Severity**: High
 - **Affected area**: `fixed_assets.accrueDepreciation`, `ledger` trial
   balance accuracy.
-- **Mitigation**: The command's selection query filters
-  `accruedAt IS NULL`; `accruedAt`/`journalEntryReferenceId` are set in
-  the same transaction as the `ledger.postJournalEntry` call. A retried
-  call re-runs the same selection and finds the row already excluded —
-  idempotent by construction, not by a separate deduplication check.
-- **Residual risk**: A concurrent second `accrueDepreciation` call
-  racing the first for the *same* entry (not a sequential retry) could
-  both pass the `accruedAt IS NULL` read before either commits — accepted
-  for Phase 1 since this command is a manual, low-frequency,
-  admin-triggered action (not a hot path), matching the concurrency
-  posture already accepted for `ledger.lockFiscalPeriod`.
+- **Mitigation**: The common asset lock serializes competing writers. Each
+  candidate is re-read under the lock, and its ledger post and
+  `accruedAt`/`journalEntryReferenceId` update commit together. Sequential
+  retries and racing calls find an already-posted row ineligible.
+- **Residual risk**: An unknown commit outcome requires reconciliation before
+  retry; the lock itself does not make a lost response definitive.
 
 #### Locked fiscal period silently blocking accrual
 - **Scenario**: A period is locked after some, but not all, of that
@@ -2553,23 +2649,12 @@ for its own manual `CLOSING`/`OPENING` entries.
 - **Affected area**: `fixed_assets.reviseDepreciationParameters`,
   `fixed_assets.recognizeImpairment`, `fixed_assets.reverseImpairment`,
   depreciation-schedule accuracy.
-- **Mitigation**: The remaining depreciable base
-  (`baseAcquisitionValue - baseSalvageValue - accruedDepreciationTotal -
-  netImpairmentTotal` for `reviseDepreciationParameters`;
-  `recoverableAmount - baseSalvageValue`, or the recomputed post-reversal
-  carrying value, for the two impairment commands) and the
-  delete-then-regenerate of unaccrued rows happen inside one transaction,
-  re-reading `accruedAt` state at that point — the same transaction
-  boundary `acceptFixedAsset`'s schedule generation already uses, so a row
-  that accrues concurrently is either fully counted (already `accruedAt`
-  IS NOT NULL when the calling command's transaction starts, hence
-  excluded from deletion and included in the accrued total) or fully
-  excluded, never half-counted.
-- **Residual risk**: Any of these three commands racing with an
-  `accrueDepreciation` run — or with each other — for the *same*
-  unaccrued entry at the database level shares the same low-frequency,
-  admin-triggered concurrency posture already accepted for "Double-posted
-  depreciation accrual on retry" above — not re-litigated here.
+- **Mitigation**: All participating writers hold the same asset lock;
+  after acquisition they re-read accrued rows and totals. Regeneration and
+  its financial posting commit together, so an accrual wins before the
+  calculation or sees a deleted/ineligible candidate afterward.
+- **Residual risk**: Lock acquisition can delay a competing operation; an
+  interrupted or unknown commit requires reconciliation before retry.
 
 #### Useful-life revision masking an unrecognized impairment
 - **Scenario**: An asset's real economic value has fallen sharply (damage,
@@ -2610,10 +2695,8 @@ for its own manual `CLOSING`/`OPENING` entries.
   and rejects outright if `impairmentId` does not resolve to an original
   row (`reversalOfImpairmentId: null`) on the given asset — see Design
   Decisions, Impairment, API Contracts (400/404 responses).
-- **Residual risk**: None identified for the single-asset case; a
-  concurrent double-reversal race shares the same low-frequency,
-  admin-triggered posture already accepted for "Double-posted
-  depreciation accrual on retry" above.
+- **Residual risk**: Concurrent reversals are serialized by the common
+  asset lock and recheck the cap after acquisition.
 
 #### Impairment write-down creates an unrecognized book-tax difference
 - **Scenario**: An impairment write-down reduces book carrying value
@@ -2761,7 +2844,7 @@ history.
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| Every schedule/impairment/disposal formula uses one currency basis | Pass | All formulas read `baseAcquisitionValue`/`baseSalvageValue`; transaction-currency inputs are converted once at acceptance and never re-read downstream |
+| Every schedule/impairment/disposal formula uses one currency basis | Pass | All formulas read `baseAcquisitionValue`/`baseSalvageValue`; the current salvage estimate is reconverted at the stored acquisition rate on revision |
 | Disposal transaction boundary stated once | Pass | Preflight (period lock + required accounts) → per-entry catch-up transactions → separate disposal transaction, with partial-failure reporting |
 | Prerequisite references resolve | Pass | `#5663`, `#5962`, `#5972`, `#6015` named with merge order; the header no longer claims `parentAccountId` is in `main` |
 | API contracts match commands and UI | Pass | `DRAFT` disposal rejection and unset `saleProceedsAccountId` appear in the command, the 409 contract, the error keys and the tests |
@@ -2782,6 +2865,12 @@ gates, not defects in this document.
   maintainer decision.
 
 ## Changelog
+
+### 2026-11-19 - review response (PR #9786)
+- Specify asset-scoped serialization, post-lock rechecks and race coverage.
+- Recalculate and audit the base salvage estimate on revision; use it as the impairment floor.
+- Block reopening with impairment history and define disposal partial-failure responses and UI.
+- The art. 30 maintainer decision and all implementation prerequisites remain open.
 
 ### 2026-11-17 — review response (PR #6014, `om-auto-review-pr` autofix)
 - Resolved the `.ai/specs/README.md` merge conflict against current
