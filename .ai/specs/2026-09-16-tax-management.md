@@ -128,7 +128,7 @@ shapes:
 
 ```
 interface ITaxEngineLine {
-  accountRole: string        // resolved via TaxCodeAccountMapping.accountRoles[role]
+  accountRole: string        // resolved from the revision-bound account mapping
   debit?: string             // decimal string; mutually exclusive with credit
   credit?: string
 }
@@ -146,15 +146,20 @@ interface ITaxEngine {
 }
 ```
 
-`calculateTaxLiability` validates the returned lines and stores them as
-an immutable snapshot on the `TaxLiabilityRecord`; `postTaxLiability`
-resolves each snapshot line's `accountRole` against
-`TaxCodeAccountMapping.accountRoles[taxCode]` (same reject-if-unset
-posture as before, now per-role instead of per-fixed-field), re-verifies
-the snapshot, then calls `ledger.postJournalEntry` (a named
-`tax_management` error is friendlier than a raw `ledger` 500 for a plugin
-bug) with **exactly the stored lines** — one, two, three, or (Edge
-Cases) zero.
+`calculateTaxLiability` accepts an empty array for the already-booked case;
+otherwise it requires at least two lines, each with exactly one strictly
+positive debit or credit and valid ledger decimal precision. It validates
+balance, locks the scoped mapping row, verifies all roles are configured,
+and snapshots the lines together with the mapping ID and revision in the
+same transaction. At posting, the command locks that scoped mapping row and
+compares its ID and current revision with the snapshot. If it changed, posting rejects before any ledger
+call and requires recalculation and renewed accountant review. With a match,
+it resolves roles against that locked mapping and posts the stored lines.
+Every mapping write increments the revision atomically; holding the lock
+through posting prevents a concurrent settings edit from changing accounts
+between the comparison and ledger call. A missing or replaced mapping is
+also rejected. Empty-line drafts carry null mapping ID and revision and skip
+the mapping check; their scope and fiscal-period checks still apply.
 
 **Journal balance and remittance amount are separate checks.** The
 journal entry must balance (`sum(debit) === sum(credit)`), and `ledger`
@@ -323,15 +328,17 @@ existing territory in `sales`, unaffected by this document.
     `TaxCode` rows exist, resolves the registered `ITaxEngine` via
     `taxEngineRegistry.resolve(taxCode)`, then calls
     `.calculate({ periodId, tenantId, organizationId })`. It validates
-    the returned lines: each declares exactly one of `debit`/`credit`,
-    and the debit and credit totals are equal (journal balance). When
+    the returned lines: an empty array is allowed; otherwise at least two
+    lines are required, with exactly one strictly positive debit or credit
+    per line, ledger-compatible decimal precision, and equal debit and
+    credit totals (journal balance). When
     the engine declares `payableRole`, the net credit on that role must
     equal `amount`; total debits are deliberately **not** compared to
     `amount` (a VAT settlement's turnover and remittance differ, Design
     decisions). An empty `lines` is allowed with a non-zero `amount`
     for the already-booked case (PIT-4, Edge Cases). It then stores an
-    **immutable snapshot** of those lines on
-    the new `TaxLiabilityRecord` (the M3 fix) with
+    **immutable snapshot** of those lines and the scoped account mapping
+    ID and revision on the new `TaxLiabilityRecord` (the M3 fix) with
     `status: 'calculated'` and, when supplied, `correctsRecordId`
     (which must name an existing `'posted'` record of the same
     tenant, organization, period and code; paid originals are rejected), and
@@ -348,12 +355,19 @@ existing territory in `sales`, unaffected by this document.
     registered engine does not declare, verifies every account id
     belongs to the caller's tenant and organization, applies the
     `updatedAt` optimistic-lock check (root `AGENTS.md`, default ON) and
-    upserts the row.
+    upserts the row. Every successful mapping change atomically increments
+    a monotonic `mappingRevision` while holding the mapping row lock; it must
+    never reset or wrap. Mapping identity and revision are both checked.
   - `postTaxLiability(taxLiabilityRecordId)` — locks the record
     (`SELECT ... FOR UPDATE`), requires `status === 'calculated'`, and
-    resolves the **stored snapshot's** `accountRole`s against
-    `TaxCodeAccountMapping.accountRoles`; it never re-runs the engine
-    (the M3 fix). It re-verifies the snapshot balances and, when the
+    for nonempty drafts, locks the scoped `TaxCodeAccountMapping` row,
+    compares its ID and monotonic revision with the snapshot, and rejects a
+    mismatch or missing row before any ledger call. Empty drafts skip this
+    mapping check but retain all scope and fiscal-period checks. The accountant must recalculate and review a fresh draft.
+    On a match it resolves the **stored snapshot's** `accountRole`s against
+    the locked mapping and holds that lock until transaction completion; it
+    never re-runs the engine (the M3 fix). It re-verifies the snapshot
+    balances and, when the
     engine declares `payableRole`, that the role's net credit still
     equals the stored `amount`. **Correction flow (the
     M4 fix):** when the record carries `correctsRecordId`, the same
@@ -440,7 +454,8 @@ without deleting the historical ones, and `deletedAt` follows this
 project's universal soft-delete convention.
 
 **`TaxCodeAccountMapping`** — `{ id, tenantId, organizationId, taxCode,
-accountRoles (jsonb, Record<string, uuid | null>), updatedAt }`,
+accountRoles (jsonb, Record<string, uuid | null>), mappingRevision
+(monotonically increasing integer), updatedAt }`,
 unique on `(tenantId, organizationId, taxCode)` so the settings upsert
 targets exactly one row.
 **The B1 fix**: replaces the original `liabilityAccountId`/
@@ -453,7 +468,9 @@ wrong for 2 of 3 taxes). Every role starts unmapped (`null`) — same
 
 **`TaxLiabilityRecord`** — `{ id, tenantId, organizationId, periodId
 (FK-id to ledger.FiscalPeriod), taxCode, amount (decimal string),
-currencyId (FK-id to Currency), lines (jsonb, immutable `ITaxEngineLine[]` snapshot —
+currencyId (FK-id to Currency), mappingId and mappingRevision (nullable
+only for an empty-lines draft; the mapping identity and revision at
+calculation), lines (jsonb, immutable `ITaxEngineLine[]` snapshot —
 the M3 fix), correctsRecordId (nullable FK-id, set on a correction —
 the M4 fix), status ('calculated' | 'superseded' | 'posted' | 'paid' |
 'reversed'), journalEntryId (nullable FK-id to ledger.JournalEntry, set
@@ -489,8 +506,10 @@ indexes:
 
 `lines` is written once at `calculateTaxLiability` and never updated —
 `postTaxLiability` posts exactly that snapshot, so a change to the
-underlying registers after the accountant reviewed the draft cannot
-change what is posted (the M3 fix). No new tables in `ledger` itself —
+underlying registers cannot change the reviewed lines. A mapping revision
+change invalidates the draft before posting, so its accounts cannot change
+silently. Recalculation creates a new draft requiring review (the M3 fix).
+No new tables in `ledger` itself —
 `tax_management` owns this row the same way `accounts_payable` owns
 `VendorInvoice` (control-account precedent,
 `financial-module-knowledge-base.md` §2).
@@ -521,7 +540,10 @@ account picker **per role the registered `ITaxEngine` declares**
 `PostingRulesSettings`'s own settings-page-only Phase 1 UI. The page
 reads and writes through the `GET`/`PUT` route pair (API Contracts) and
 surfaces a stale-edit 409 as the standard conflict bar rather than
-silently overwriting another admin's mapping.
+silently overwriting another admin's mapping. If posting reports a stale
+mapping revision, the consuming period-close UI requires recalculation and
+renewed review; it must not retry posting the old draft. Coordinate this
+consumer contract with the companion specification before implementation.
 `financial_pl`'s own period-close UI (payment instruction block, "Mark
 as paid" button) lives in that document now (`#7524`).
 
@@ -560,6 +582,13 @@ as paid" button) lives in that document now (`#7524`).
   `journalEntryId: null`, and skips the `ledger.postJournalEntry` call;
   the `lines`-total-vs-`amount` check applies only to a non-empty
   snapshot.
+- **`ITaxEngine.calculate()` returns a one-line or zero-valued journal.**
+  Rejected during calculation before a draft is persisted; the zero-line
+  already-booked path remains valid. Nonempty lines also obey ledger decimal
+  format and exactly-one-positive-side rules.
+- **Mapping changes after draft review.** The post detects the revision
+  mismatch under the mapping lock and rejects without ledger writes; the
+  accountant recalculates and reviews a new draft.
 - **`ITaxEngine.calculate()` returns unbalanced lines, or a declared
   `payableRole` whose net credit differs from `amount`.** Rejected at
   `calculateTaxLiability` (before the record exists) and re-checked at
@@ -630,9 +659,11 @@ data changing between calculate and post silently changes the posted
 entry.
 **Severity:** Critical.
 **Affected area:** `tax_management` posting path, GL balances.
-**Mitigation:** the M3 fix stores an immutable `lines` snapshot on
-`TaxLiabilityRecord` at calculation time and posts exactly that
-snapshot; the post re-validates the snapshot's balance and, when the
+**Mitigation:** the M3 fix stores an immutable `lines` snapshot and
+mapping revision on `TaxLiabilityRecord` at calculation time; posting locks
+the scoped mapping and rejects a changed revision before resolving roles.
+The post uses exactly the stored snapshot and re-validates its balance and,
+when the
 engine declares `payableRole`, that role's net credit against the stored
 `amount`, refusing on mismatch.
 **Residual risk:** Low — the engine is never invoked again after
@@ -746,7 +777,10 @@ decisions; doesn't fit VAT or PIT-4.
    concurrent-import test pattern, PR #6137 review m1), the
    three-line VAT worked example (5,000 debit, 2,000 + 3,000 credits,
    3,000 remittance — accepted because `payableRole` reconciles the
-   amount instead of the debit total), empty-lines post path, the
+   amount instead of the debit total), empty-lines post path, one-line and
+   zero-value rejection before draft persistence, and a remapped payable
+   role between calculation and post (including a concurrent mapping edit):
+   reject without ledger writes and require a newly reviewed draft. Cover the
    reverse-and-repost correction (including a correction draft replaced
    before posting, and a second successful
    reversal rejected), the `calculated → paid` rejection and idempotent
@@ -871,6 +905,11 @@ plan above.
 ## Changelog
 
 ### 2026-11-19 - Review follow-up
+
+- Bind drafts to a monotonic mapping revision, lock and compare at posting,
+  and require recalculation and renewed review after remapping.
+- Reject nonempty journal snapshots with fewer than two lines or without
+  exactly one positive side per line; preserve the explicit empty path.
 
 - Scope every liability path and add cross-scope rejection tests.
 - Specify reversal input, transaction and original-period booking, locked
