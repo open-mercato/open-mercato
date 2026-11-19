@@ -380,6 +380,82 @@ describe('TimerBar — Stop does not wait for the read that follows a saved note
     await waitFor(() => expect(noteInput()).not.toBeDisabled())
   })
 
+  async function saveThenLetTheVersionReadTimeOut() {
+    renderTimerBar(onTimerStoppedForTimeouts)
+    await waitFor(() => expect(noteInput()).toHaveValue('Build task'))
+
+    fireEvent.change(noteInput(), { target: { value: 'First edit' } })
+    await act(async () => {
+      fireEvent.keyDown(noteInput(), { key: 'Enter' })
+    })
+    await waitFor(() => expect(notesPutCalls()).toHaveLength(1))
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      jest.advanceTimersByTime(STALLED_READ_BOUND_MS)
+    })
+    fireEvent.change(noteInput(), { target: { value: 'First edit, then more' } })
+  }
+
+  const onTimerStoppedForTimeouts = jest.fn()
+
+  it('does not send a stale-version save when the read confirming its own save times out twice, and retries once a read lands (#9079)', async () => {
+    jest.useFakeTimers()
+    stallEveryRefresh()
+    respondOk()
+    const withScopedApiRequestHeadersMock = jest.requireMock('@open-mercato/ui/backend/utils/apiCall')
+      .withScopedApiRequestHeaders as jest.Mock
+
+    await saveThenLetTheVersionReadTimeOut()
+    await act(async () => {
+      fireEvent.keyDown(noteInput(), { key: 'Enter' })
+    })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      jest.advanceTimersByTime(STALLED_READ_BOUND_MS)
+    })
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith(expect.stringContaining('Could not save the timer note'), 'error'))
+    expect(notesPutCalls()).toHaveLength(1)
+    expect(surfaceRecordConflictMock).not.toHaveBeenCalled()
+    expect(noteInput()).toHaveValue('First edit, then more')
+
+    const savedVersion = '2026-01-01T08:05:00.000Z'
+    mockRefresh.mockImplementation(async () => ({ ...mockTimerStore.state, notes: 'First edit', updatedAt: savedVersion }))
+    withScopedApiRequestHeadersMock.mockClear()
+    await act(async () => {
+      fireEvent.keyDown(noteInput(), { key: 'Enter' })
+    })
+
+    await waitFor(() => expect(notesPutCalls()).toHaveLength(2))
+    expect(JSON.parse(String((notesPutCalls()[1][1] as { body: string }).body))).toEqual({
+      id: 'entry-1',
+      notes: 'First edit, then more',
+    })
+    expect(JSON.stringify(withScopedApiRequestHeadersMock.mock.calls[0][0])).toContain(savedVersion)
+    expect(surfaceRecordConflictMock).not.toHaveBeenCalled()
+  })
+
+  it('still stops the timer when the note version cannot be confirmed, keeping the unsaved text (#9079)', async () => {
+    jest.useFakeTimers()
+    stallEveryRefresh()
+    respondOk()
+
+    await saveThenLetTheVersionReadTimeOut()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Stop timer' }))
+    })
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      jest.advanceTimersByTime(STALLED_READ_BOUND_MS)
+    })
+
+    await waitFor(() => expect(stopCalls()).toHaveLength(1))
+    expect(notesPutCalls()).toHaveLength(1)
+    expect(surfaceRecordConflictMock).not.toHaveBeenCalled()
+    expect(flashMock).toHaveBeenCalledWith(expect.stringContaining('Timer stopped, but'), 'warning')
+    expect(noteInput()).toHaveValue('First edit, then more')
+  })
+
   it('keeps the note field editable while the version refresh runs, and saves text typed meanwhile on the new version (#9079)', async () => {
     let resolveRefresh: (state: MockTimerState) => void = () => undefined
     mockRefresh.mockImplementation(

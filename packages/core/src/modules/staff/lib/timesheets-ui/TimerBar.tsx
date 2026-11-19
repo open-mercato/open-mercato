@@ -70,6 +70,8 @@ type NoteSaveOutcome = { ok: true } | { ok: false; error: unknown }
 
 const NOTE_SAVED: NoteSaveOutcome = { ok: true }
 
+const NOTE_VERSION_UNCONFIRMED = new Error('[internal] timer note version could not be confirmed')
+
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -523,7 +525,7 @@ function DefaultTimerBar({
       )
       return
     }
-    const surfaced = surfaceRecordConflict(error, t, {
+    const surfaced = error !== NOTE_VERSION_UNCONFIRMED && surfaceRecordConflict(error, t, {
       title: t('staff.timesheets.my.timer.noteConflictTitle', 'Timer note changed elsewhere'),
       onRefresh: () => adoptLatestNote(entryId),
     })
@@ -573,11 +575,21 @@ function DefaultTimerBar({
     }
   }, [refreshActiveTimer, setNoteBaseVersion])
 
-  const ensureFreshNoteVersion = useCallback(async (entryId: string) => {
+  /**
+   * Resolves `false` when the entry's version after this bar's own save is still
+   * unknown because the read that would confirm it failed or timed out again. A
+   * save sent then would carry the pre-save version and be refused as someone
+   * else's change, so the caller keeps the draft for a retry instead.
+   */
+  const ensureFreshNoteVersion = useCallback(async (entryId: string): Promise<boolean> => {
     const versionSync = noteVersionSyncRef.current
     if (versionSync) await versionSync
-    if (!noteVersionUnconfirmedRef.current) return
+    if (!noteVersionUnconfirmedRef.current) return true
     const latest = await resolveWithin(refreshActiveTimer(), REQUEST_TIMEOUT_MS)
+    if (!latest) {
+      logger.warn('staff.timesheets.timer.noteVersionUnconfirmed', { timeoutMs: REQUEST_TIMEOUT_MS })
+      return false
+    }
     if (
       latest?.running &&
       latest.entryId === entryId &&
@@ -585,6 +597,7 @@ function DefaultTimerBar({
     ) {
       setNoteBaseVersion(latest.updatedAt ?? null)
     }
+    return true
   }, [refreshActiveTimer, setNoteBaseVersion])
 
   const persistRunningDescription = useCallback(async (
@@ -639,10 +652,11 @@ function DefaultTimerBar({
     // A failure is surfaced here, once, however many callers joined the save —
     // unless Stop is running: it stops the timer anyway and reports the note itself.
     const pending = (async (): Promise<NoteSaveOutcome> => {
-      await ensureFreshNoteVersion(entryId)
+      const versionConfirmed = await ensureFreshNoteVersion(entryId)
       const normalizedDescription = descriptionRef.current.trim()
       if (noteEntryIdRef.current !== entryId) return NOTE_SAVED
       if (normalizedDescription === persistedDescriptionRef.current.trim()) return NOTE_SAVED
+      if (!versionConfirmed) return { ok: false, error: NOTE_VERSION_UNCONFIRMED }
       return persistRunningDescription(entryId, normalizedDescription, noteBaseVersionRef.current)
     })()
       .then((outcome) => {
