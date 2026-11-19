@@ -105,7 +105,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Use (redeem) a promotion code',
       description:
-        'Locks the code row, re-reads eligibility under the lock, deactivates the dynamic code (or increments the static code use count), writes a CodeUsage row, and deletes the (code, cart) CodeReservation.',
+        'Locks the code row, re-reads eligibility under the lock, deactivates the dynamic code (or increments the static code use count), writes a CodeUsage row, and deletes the (code, cart) CodeReservation. Idempotent per (codeId, cartId, orderId ?? null): a repeat call while an unreverted CodeUsage exists for that tuple returns 200 without consuming the code again or re-checking eligibility.',
       requestBody: { contentType: 'application/json', schema: codeUseInputSchema },
       responses: [{ status: 200, description: 'Code redeemed' }],
       errors: [

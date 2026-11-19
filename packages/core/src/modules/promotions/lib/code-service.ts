@@ -12,6 +12,8 @@ import type {
   CodeReservationResult,
   CodeUseResult,
   CodeValidationResult,
+  RevertCodeUseInput,
+  RevertCodeUseResult,
   ReserveCodeInput,
   UseCodeInput,
 } from './types'
@@ -380,10 +382,35 @@ export class PromotionCodeService {
    * locked too, since that is the row whose `active` flag carries the mutable "is this
    * voucher still usable" state. Never serializable isolation — `withAtomicFlush` ignores
    * `isolationLevel` on an ambient transaction and no retry helper exists for it anyway.
+   *
+   * Idempotent on retry (C14 hardening): checkout's `recover-stuck-submits` worker
+   * resumes a crashed submit by re-calling `continueOrderOutcome` from scratch, which
+   * re-invokes this method with the SAME `(codeId, cartId, orderId)` for a use that may
+   * already have committed in a prior, crashed attempt. Without a guard, a retry would
+   * either double-consume a code with remaining global uses, or — for an exhausted/
+   * single-use code — fail eligibility on the SECOND call and wrongly cancel an otherwise
+   * already-redeemed, valid order (the exact C14 compensation-correctness failure this
+   * hardening pass exists to close). A pre-existing, non-reverted `CodeUsage` for this
+   * exact `(codeId, cartId, orderId)` tuple proves the use already landed durably in an
+   * earlier, committed transaction — that case short-circuits before any lock, re-eval or
+   * counter increment, returning the same `{ ok: true }` the original call returned.
    */
   async useCode(em: EntityManager, input: UseCodeInput, scope: PromotionsCodeScope): Promise<CodeUseResult> {
+    const priorUsage = await em.findOne(CodeUsage, {
+      codeId: input.codeId,
+      cartId: input.cartId,
+      orderId: input.orderId ?? null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      revertedAt: null,
+    })
+    if (priorUsage) {
+      return { ok: true }
+    }
+
     let code!: Code
     let generatedCode: GeneratedCode | null = null
+    let alreadyUsed = false
 
     await withAtomicFlush(
       em,
@@ -396,6 +423,26 @@ export class PromotionCodeService {
           )
           if (!lockedCode) throw codeInvalidError()
           code = lockedCode
+
+          // Re-check the idempotency lookup now that the `Code` row's PESSIMISTIC_WRITE
+          // lock serializes concurrent `useCode` calls for this code: a concurrent retry
+          // (the C14 crashed-submit-resume scenario this method's own class-level comment
+          // documents) could have committed the SAME `(codeId, cartId, orderId)` usage
+          // between the fast-path check above and this lock being granted. Without this
+          // re-check, both callers would pass the unlocked check, then both create a
+          // CodeUsage row and double-increment `code.used` for what is really one use.
+          const racedUsage = await em.findOne(CodeUsage, {
+            codeId: input.codeId,
+            cartId: input.cartId,
+            orderId: input.orderId ?? null,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            revertedAt: null,
+          })
+          if (racedUsage) {
+            alreadyUsed = true
+            return
+          }
 
           if (input.type === 'dynamic') {
             // QA F9's grep sweep: this lookup is a direct `GeneratedCode` query (needed
@@ -426,6 +473,7 @@ export class PromotionCodeService {
           if (!eligibility.ok) throw eligibilityFailureError(eligibility.reason)
         },
         () => {
+          if (alreadyUsed) return
           if (input.type === 'dynamic') {
             generatedCode!.active = false
           } else {
@@ -434,15 +482,29 @@ export class PromotionCodeService {
           }
         },
         () => {
+          if (alreadyUsed) return
           const usage = em.create(CodeUsage, {
             codeId: code.id,
+            // Release 5 C5/SPEC-055 amendment: record what this use can be reversed
+            // against — the reserving cart always, the order when the caller already
+            // knows it (checkout's Phase 4 submit calls `useCode` after document
+            // creation), and the SPECIFIC generated code for a dynamic use so
+            // `revertCodeUse` reactivates that one voucher, not every row under the
+            // parent `Code`.
+            cartId: input.cartId,
+            orderId: input.orderId ?? null,
+            generatedCodeId: input.type === 'dynamic' ? generatedCode!.id : null,
             customerId: input.customerId,
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
+            // Explicit (not left `undefined`): the idempotency lookup at the top of this
+            // method matches on `revertedAt: null` to find a prior, still-valid use.
+            revertedAt: null,
           })
           em.persist(usage)
         },
         async () => {
+          if (alreadyUsed) return
           await em.nativeDelete(CodeReservation, {
             codeId: code.id,
             cartId: input.cartId,
@@ -453,6 +515,10 @@ export class PromotionCodeService {
       ],
       { transaction: true, label: 'promotions.code.use' },
     )
+
+    if (alreadyUsed) {
+      return { ok: true }
+    }
 
     // `useCode` runs outside the command bus's own post-execute cache hook (this service
     // is called directly, not via a `CommandHandler.buildLog`), so the CRUD list cache
@@ -477,5 +543,123 @@ export class PromotionCodeService {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     })
+  }
+
+  /**
+   * Release 5 C5/SPEC-055 amendment, additive: the inverse of `useCode` — NOT
+   * `releaseCode` above, which deletes a still-open `CodeReservation` (pre-use hold).
+   * This reverses an already-RECORDED use: a static code's `used` counter decrements
+   * (and `active` returns to `true` once headroom exists again, the exact inverse of
+   * `useCode`'s own flip), a dynamic code's specific `GeneratedCode.active` returns to
+   * `true`, and the `CodeUsage` row is marked `revertedAt` — never deleted (append-only
+   * log, see the class comment on `CodeUsage`).
+   *
+   * Idempotent: a `CodeUsage` row already carrying `revertedAt` is excluded from the
+   * lookup, so calling this twice for the same cart/order reverts nothing the second
+   * time. Scoped by `tenantId`/`organizationId` on every lookup and every lock, so an
+   * id collision across tenants can never revert the wrong tenant's usage.
+   *
+   * Race-safe against a concurrent caller reverting the SAME `CodeUsage` row (e.g. the
+   * order-cancelled subscriber and checkout's own compensation path both firing for the
+   * same order): the initial lookup above is unlocked, so each matched row is re-fetched
+   * with `PESSIMISTIC_WRITE` and re-checked for `revertedAt: null` inside its own
+   * transaction before anything is decremented. A row a concurrent caller already
+   * reverted (and committed) between the lookup and this re-fetch is simply skipped —
+   * never double-decremented, never double-counted in `revertedCount`.
+   */
+  async revertCodeUse(em: EntityManager, input: RevertCodeUseInput, scope: PromotionsCodeScope): Promise<RevertCodeUseResult> {
+    if (!input.cartId && !input.orderId) {
+      throw new CrudHttpError(400, { error: '[internal] revertCodeUse requires a cartId or an orderId' })
+    }
+
+    // Two separate lookups, merged and de-duplicated by id, rather than a single `$or`
+    // query — keeps this readable against the same plain-`findOne`/`find` MikroORM
+    // surface the rest of this file already uses, with no operator-shape assumption.
+    const matches = new Map<string, CodeUsage>()
+    if (input.cartId) {
+      const rows = await em.find(CodeUsage, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        cartId: input.cartId,
+        revertedAt: null,
+      })
+      for (const row of rows) matches.set(row.id, row)
+    }
+    if (input.orderId) {
+      const rows = await em.find(CodeUsage, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        orderId: input.orderId,
+        revertedAt: null,
+      })
+      for (const row of rows) matches.set(row.id, row)
+    }
+
+    const usageRows = Array.from(matches.values())
+    if (usageRows.length === 0) return { ok: true, revertedCount: 0 }
+
+    let revertedCount = 0
+    for (const seedUsage of usageRows) {
+      let reverted = false
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            // Re-fetch under a row lock, re-checking `revertedAt: null`: a concurrent
+            // caller may have already reverted (and committed) this exact row between
+            // the lookup above and this lock being granted.
+            const lockedUsage = await em.findOne(
+              CodeUsage,
+              { id: seedUsage.id, tenantId: scope.tenantId, organizationId: scope.organizationId, revertedAt: null },
+              { lockMode: LockMode.PESSIMISTIC_WRITE },
+            )
+            if (!lockedUsage) return
+            reverted = true
+
+            if (lockedUsage.generatedCodeId) {
+              const lockedGeneratedCode = await em.findOne(
+                GeneratedCode,
+                { id: lockedUsage.generatedCodeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+                { lockMode: LockMode.PESSIMISTIC_WRITE },
+              )
+              if (lockedGeneratedCode) lockedGeneratedCode.active = true
+            } else {
+              const lockedCode = await em.findOne(
+                Code,
+                { id: lockedUsage.codeId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+                { lockMode: LockMode.PESSIMISTIC_WRITE },
+              )
+              if (lockedCode) {
+                // Only reactivate a code this very decrement makes eligible again when
+                // the code was actually AT its limit beforehand — i.e. the inactive state
+                // can only be attributed to `useCode`'s own exhaustion flip. A code an
+                // admin deactivated while it still had headroom left (`active: false`
+                // with remaining uses) must stay deactivated: `hasRemainingGlobalUses`
+                // was already `true` before this decrement, so it never qualifies.
+                const wasExhausted = !hasRemainingGlobalUses(lockedCode)
+                lockedCode.used = Math.max(0, lockedCode.used - 1)
+                if (wasExhausted && hasRemainingGlobalUses(lockedCode)) lockedCode.active = true
+              }
+            }
+
+            lockedUsage.revertedAt = new Date()
+          },
+        ],
+        { transaction: true, label: 'promotions.code.use.revert' },
+      )
+
+      if (!reverted) continue
+      revertedCount += 1
+
+      await invalidateCrudCache(
+        this.container as unknown as AwilixContainer,
+        'promotions.code',
+        { id: seedUsage.codeId, organizationId: scope.organizationId, tenantId: scope.tenantId },
+        scope.tenantId,
+        'promotions.code.use.revert',
+      )
+    }
+
+    return { ok: true, revertedCount }
   }
 }

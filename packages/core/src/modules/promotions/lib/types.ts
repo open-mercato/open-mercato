@@ -97,8 +97,17 @@ export interface EvaluateResult { appliedPromotions: AppliedPromotion[] }
 export interface ReserveCodeInput { codeString: string; cartId: string; customerId: string | null }
 export interface CodeReservationResult { ok: true; codeId: string; type: 'static' | 'dynamic' }
 export interface CodeValidationResult { valid: boolean; reason?: string }
-export interface UseCodeInput { codeId: string; codeString: string; cartId: string; customerId: string | null; type: 'static' | 'dynamic' }
+// `orderId` is additive (Release 5 C5/SPEC-055 amendment): optional because nothing
+// calls `useCode` yet, but checkout's Phase 4 submit sequence calls it AFTER document
+// creation (§C19), so the order already exists by then and can pass its id through so
+// `revertCodeUse({ orderId })` has something to key its reversal on later.
+export interface UseCodeInput { codeId: string; codeString: string; cartId: string; orderId?: string | null; customerId: string | null; type: 'static' | 'dynamic' }
 export interface CodeUseResult { ok: true }
+
+// Reversal (Release 5 C5/SPEC-055 amendment, additive). At least one of `cartId`/
+// `orderId` must be given; either locates the `CodeUsage` row(s) `useCode` wrote.
+export interface RevertCodeUseInput { cartId?: string; orderId?: string }
+export interface RevertCodeUseResult { ok: true; revertedCount: number }
 
 // Usage (D-R4-12, D-R4-26)
 export interface RegisterUsageInput {
@@ -119,6 +128,9 @@ export interface PromotionsService {
   validateCode(input: ReserveCodeInput): Promise<CodeValidationResult>
   useCode(input: UseCodeInput): Promise<CodeUseResult>
   releaseCode(codeId: string, cartId: string): Promise<void>
+  // Optional member (D-R5-PR6): a third-party replacement of this DI-replaceable facade
+  // still type-checks without it; callers check that it exists and fail closed.
+  revertCodeUse?(input: RevertCodeUseInput): Promise<RevertCodeUseResult>
   registerUsage(input: RegisterUsageInput): Promise<{ ok: true; budgetExceeded: string[] }>
   revertUsage(input: RevertUsageInput): Promise<{ ok: true; revertedCount: number }>
 }
