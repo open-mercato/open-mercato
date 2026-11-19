@@ -386,3 +386,50 @@ describe('catalog price commands when the sales module is disabled', () => {
     })
   })
 })
+
+describe('catalog price update checks the validity window against the stored dates', () => {
+  const JUNE = new Date('2031-06-01T00:00:00.000Z')
+  const JANUARY = new Date('2031-01-01T00:00:00.000Z')
+  const DECEMBER = new Date('2031-12-01T00:00:00.000Z')
+
+  async function expectWindowRejected(input: Row, recordOverrides: Row) {
+    const record = buildPriceRecord(recordOverrides)
+    findOneWithDecryption.mockResolvedValue(record)
+    const { ctx, commandEm } = buildContext()
+    await expect(updateCommand().execute({ id: PRICE_ID, ...input }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: { fieldErrors: { endsAt: 'End date must be after the start date.' } },
+    })
+    expect(commandEm.flush).not.toHaveBeenCalled()
+    return record
+  }
+
+  it('rejects an endsAt-only edit that ends before the stored startsAt', async () => {
+    const record = await expectWindowRejected({ endsAt: JANUARY }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toBeNull()
+  })
+
+  it('rejects a startsAt-only edit that starts after the stored endsAt', async () => {
+    const record = await expectWindowRejected({ startsAt: JUNE }, { endsAt: JANUARY })
+    expect(record.startsAt).toBeNull()
+    expect(record.endsAt).toEqual(JANUARY)
+  })
+
+  it('accepts an endsAt-only edit that still ends after the stored startsAt', async () => {
+    const { record } = await runUpdate({ endsAt: DECEMBER }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(DECEMBER)
+  })
+
+  it('accepts an edit that moves both dates together past the stored window', async () => {
+    const { record } = await runUpdate({ startsAt: DECEMBER, endsAt: new Date('2032-01-01T00:00:00.000Z') }, { startsAt: JANUARY, endsAt: JUNE })
+    expect(record.startsAt).toEqual(DECEMBER)
+  })
+
+  it('accepts a startsAt-only edit when the stored price has no end date', async () => {
+    const { record } = await runUpdate({ startsAt: DECEMBER }, { startsAt: JANUARY })
+    expect(record.startsAt).toEqual(DECEMBER)
+    expect(record.endsAt).toBeNull()
+  })
+})
