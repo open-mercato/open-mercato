@@ -1314,7 +1314,7 @@ describe('cart.merge / cart.mergeUndo advisory locks (§8.1, #9183)', () => {
     expect(seededMergeLogs[0].undoneAt ?? null).toBeNull()
   })
 
-  it('backs off when one cart\'s lock is busy and merges once both are held, without losing the outcome built before the lock', async () => {
+  it('backs off when one cart\'s lock is busy and merges once both are held', async () => {
     seededCarts = [
       makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),
       makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token') }),
