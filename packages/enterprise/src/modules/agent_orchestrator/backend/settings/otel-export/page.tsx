@@ -34,6 +34,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime } from '../../../components/types'
 import { describeOtelDeliveryError, destinationErrorMessage } from '../../../components/otelExportErrorMessage'
 import {
@@ -90,6 +91,7 @@ function FactBadge({ label, value, variant }: { label: string; value: string; va
 export default function OtelExportSettingsPage() {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const [form, setForm] = React.useState<OtelExportSettingsForm | null>(null)
   const [baselineSignature, setBaselineSignature] = React.useState<string>('')
   const [source, setSource] = React.useState<OtelExportSettingsResponse['source']>('default')
@@ -273,8 +275,8 @@ export default function OtelExportSettingsPage() {
   const options = withMissingAgentOptions(agentOptions, form.agentAllowlist)
   const optionLabel = new Map(options.map((option) => [option.id, option.label]))
   const selectableAgents = options.filter((option) => !form.agentAllowlist.includes(option.id))
-  const lastSuccess = formatDateTime(health.lastSuccessAt, locale)
-  const lastError = formatDateTime(health.lastErrorAt, locale)
+  const lastSuccess = formatDateTime(health.lastSuccessAt, locale, dateSettings)
+  const lastError = formatDateTime(health.lastErrorAt, locale, dateSettings)
   const neverLabel = t('agent_orchestrator.settings.otelExport.health.never', 'Never')
   const contentEditable = canEditContentMode({
     canManage,

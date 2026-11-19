@@ -22,7 +22,8 @@ import {
   type ProcessTrigger,
 } from '../../../data/validators'
 import { parseGrantedFeaturesText, listTimeZones } from './formHelpers'
-import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { formatDisplayDateTime, type DisplaySettings } from '@open-mercato/ui/primitives/date-format'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 
 const TIMEZONE_DATALIST_ID = 'om-process-trigger-timezones'
 
@@ -42,14 +43,14 @@ function replaceAt(list: ProcessTrigger[], index: number, next: ProcessTrigger):
   return list.map((item, position) => (position === index ? next : item))
 }
 
-function formatNextRuns(cron: string, timezoneRaw: string, locale: string): { ok: boolean; text: string } {
+function formatNextRuns(cron: string, timezoneRaw: string, locale: string, settings: DisplaySettings): { ok: boolean; text: string } {
   const timezone = timezoneRaw && isValidIanaTimeZone(timezoneRaw) ? timezoneRaw : 'UTC'
   const result = validateCronExpression(cron, { timezone, count: 3 })
   if (!result.ok || !result.nextRuns?.length) return { ok: false, text: result.error ?? '' }
   return {
     ok: true,
     text: result.nextRuns
-      .map((run) => formatDisplayDateTime(run, locale) ?? '')
+      .map((run) => formatDisplayDateTime(run, locale, settings) ?? '')
       .join(' · '),
   }
 }
@@ -116,6 +117,7 @@ function TriggerCard({
  * form would quietly truncate.
  */
 export function TriggerEditor({ value, onChange, onValidityChange, disabled, locale, t }: TriggerEditorProps) {
+  const dateSettings = useDateLocaleSettings()
   const timeZones = React.useMemo(() => listTimeZones(), [])
   const [configDrafts, setConfigDrafts] = React.useState<Record<number, string>>({})
   const [configErrors, setConfigErrors] = React.useState<Record<number, boolean>>({})
@@ -213,7 +215,7 @@ export function TriggerEditor({ value, onChange, onValidityChange, disabled, loc
 
       {value.map((trigger, index) => {
         if (trigger.kind === 'schedule') {
-          const preview = formatNextRuns(trigger.cron, trigger.timezone, locale)
+          const preview = formatNextRuns(trigger.cron, trigger.timezone, locale, dateSettings)
           return (
             <TriggerCard
               key={`schedule-${index}`}

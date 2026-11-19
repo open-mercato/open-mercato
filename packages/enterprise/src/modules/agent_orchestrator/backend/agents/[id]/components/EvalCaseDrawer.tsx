@@ -31,6 +31,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime } from '../../../../components/types'
 
 type EvalCaseStatus = 'draft' | 'approved' | 'archived'
@@ -133,6 +134,7 @@ function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
 export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agentLabel, onChanged }: EvalCaseDrawerProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const [detail, setDetail] = React.useState<EvalCaseDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(false)
   const [isBusy, setIsBusy] = React.useState(false)
@@ -430,11 +432,11 @@ export function EvalCaseDrawer({ open, onOpenChange, mode, caseId, agentId, agen
                       />
                       <MetaRow
                         label={t('agent_orchestrator.evalCases.col.created')}
-                        value={formatDateTime(detail.createdAt, locale) ?? '—'}
+                        value={formatDateTime(detail.createdAt, locale, dateSettings) ?? '—'}
                       />
                       <MetaRow
                         label={t('agent_orchestrator.evalCases.detail.updated')}
-                        value={formatDateTime(detail.updatedAt, locale) ?? '—'}
+                        value={formatDateTime(detail.updatedAt, locale, dateSettings) ?? '—'}
                       />
                     </div>
                   </section>

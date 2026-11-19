@@ -18,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime, formatDurationMs } from '../../../../components/types'
 import {
   evalCaseRunStatusVariant,
@@ -73,6 +74,7 @@ function VerdictBadge({ passed }: { passed: boolean | null }) {
 export function EvalResultsDrawer({ open, onOpenChange, suiteRunId, agentLabel }: EvalResultsDrawerProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const [run, setRun] = React.useState<EvalRunDetailView | null>(null)
   const [caseRuns, setCaseRuns] = React.useState<EvalCaseRunRow[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
@@ -231,7 +233,7 @@ export function EvalResultsDrawer({ open, onOpenChange, suiteRunId, agentLabel }
               </section>
 
               <p className="text-xs tabular-nums text-muted-foreground">
-                {formatDateTime(run.startedAt ?? run.createdAt, locale) ?? '—'}
+                {formatDateTime(run.startedAt ?? run.createdAt, locale, dateSettings) ?? '—'}
               </p>
             </>
           )}

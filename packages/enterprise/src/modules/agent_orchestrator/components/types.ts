@@ -9,7 +9,7 @@ import { proposalPayloadSource, deriveEnvelopeConfidence, normalizeProposalEnvel
 import type { AgentType } from '../data/validators'
 import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
 import { readGuardEvidence, type RawOutputStatus } from './guardrailEvidence'
-import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { formatDisplayDateTime, type DisplaySettings } from '@open-mercato/ui/primitives/date-format'
 
 export type ProposalView = {
   id: string
@@ -935,8 +935,8 @@ export function formatNumber(value: number | null | undefined, locale: string): 
   return new Intl.NumberFormat(locale).format(value)
 }
 
-export function formatDateTime(iso: string | null | undefined, locale: string): string | null {
-  return formatDisplayDateTime(iso, locale)
+export function formatDateTime(iso: string | null | undefined, locale: string, settings?: DisplaySettings): string | null {
+  return formatDisplayDateTime(iso, locale, settings)
 }
 
 /** Compact HH:mm label for dense timeline rows (locale-neutral 24h clock). */

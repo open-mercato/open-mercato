@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime } from '../../../../components/types'
 import { evalSuiteOutcomeVariant, formatPassScore } from '../../../../components/evalRunTypes'
 import {
@@ -33,6 +34,7 @@ export type EvalRegressionSectionProps = {
 export default function EvalRegressionSection({ agentId, active, reloadToken = 0 }: EvalRegressionSectionProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const [trend, setTrend] = React.useState<EvalTrend | null>(null)
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -79,12 +81,12 @@ export default function EvalRegressionSection({ agentId, active, reloadToken = 0
   const chartData = React.useMemo(
     () =>
       points.map((point) => ({
-        run: `${formatDateTime(point.createdAt, locale) ?? point.createdAt} · ${
+        run: `${formatDateTime(point.createdAt, locale, dateSettings) ?? point.createdAt} · ${
           point.agentVersions.map((version) => version ?? '?').join(', ') || '—'
         }`,
         passScore: point.passScore === null ? null : Math.round(point.passScore * 100),
       })),
-    [points, locale],
+    [points, locale, dateSettings],
   )
 
   const recent = React.useMemo(() => [...points].reverse(), [points])
@@ -183,7 +185,7 @@ export default function EvalRegressionSection({ agentId, active, reloadToken = 0
                     )}
                   </TableCell>
                   <TableCell className="text-sm tabular-nums text-muted-foreground">
-                    {formatDateTime(version.lastSeenAt, locale) ?? '—'}
+                    {formatDateTime(version.lastSeenAt, locale, dateSettings) ?? '—'}
                   </TableCell>
                 </TableRow>
               ))}
@@ -211,7 +213,7 @@ export default function EvalRegressionSection({ agentId, active, reloadToken = 0
               {recent.map((point) => (
                 <TableRow key={point.suiteRunId} data-testid={`eval-regression-run-${point.suiteRunId}`}>
                   <TableCell className="text-sm tabular-nums text-muted-foreground">
-                    {formatDateTime(point.createdAt, locale) ?? '—'}
+                    {formatDateTime(point.createdAt, locale, dateSettings) ?? '—'}
                   </TableCell>
                   <TableCell>
                     <AgentVersionsLabel versions={point.agentVersions} />

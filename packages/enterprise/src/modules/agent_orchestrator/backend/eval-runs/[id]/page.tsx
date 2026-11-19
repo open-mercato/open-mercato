@@ -41,6 +41,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
 import { formatDateTime, formatDurationMs } from '../../../components/types'
@@ -395,6 +396,7 @@ function GoldenCase({ state, evalCaseId }: { state: EvalCaseState; evalCaseId: s
 function AssertionResults({ state }: { state: ResultsState }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   if (state.status === 'loading') {
     return (
       <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
@@ -427,7 +429,7 @@ function AssertionResults({ state }: { state: ResultsState }) {
                 </span>
               ) : null}
               <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-                {formatDateTime(result.evaluatedAt, locale) ?? '—'}
+                {formatDateTime(result.evaluatedAt, locale, dateSettings) ?? '—'}
               </span>
             </div>
             <MismatchTable evidence={result.evidence} />
@@ -450,6 +452,7 @@ function AssertionResults({ state }: { state: ResultsState }) {
 export default function AgentEvalRunDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const router = useRouter()
   const agentLabels = useAgentLabelMap()
   const suiteRunId = params?.id ?? ''
@@ -736,11 +739,11 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                     <p className="mt-0.5 font-mono text-xs text-muted-foreground">{run.agentDefinitionId}</p>
                     <p className="mt-0.5 text-sm text-muted-foreground">
                       {t('agent_orchestrator.evalRuns.detail.startedAt', undefined, {
-                        value: formatDateTime(run.startedAt ?? run.createdAt, locale) ?? '—',
+                        value: formatDateTime(run.startedAt ?? run.createdAt, locale, dateSettings) ?? '—',
                       })}
                       {run.finishedAt
                         ? ` · ${t('agent_orchestrator.evalRuns.finishedAt', undefined, {
-                            value: formatDateTime(run.finishedAt, locale) ?? '—',
+                            value: formatDateTime(run.finishedAt, locale, dateSettings) ?? '—',
                           })}`
                         : ''}
                     </p>

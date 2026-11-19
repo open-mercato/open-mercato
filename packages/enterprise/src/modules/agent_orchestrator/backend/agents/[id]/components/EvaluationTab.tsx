@@ -28,6 +28,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { formatDateTime } from '../../../../components/types'
 import { OPTIONAL_REQUEST_INIT } from '../../../../components/optionalRequest'
 import { useCoalescedReload } from '../../../../components/useCoalescedReload'
@@ -156,6 +157,7 @@ function SummaryMetric({ label, value, tone }: { label: string; value: string; t
 export default function EvaluationTab({ agentId, agentLabel, active, initialSection }: EvaluationTabProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const [section, setSection] = React.useState<EvaluationSection>(initialSection ?? 'assertions')
 
   const [features, setFeatures] = React.useState<{ canManage: boolean; canRun: boolean } | null>(null)
@@ -412,10 +414,10 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
       accessorKey: 'createdAt',
       header: t('agent_orchestrator.evalCases.col.created'),
       cell: ({ row }) => (
-        <span className="text-sm tabular-nums text-muted-foreground">{formatDateTime(row.original.createdAt, locale) ?? '—'}</span>
+        <span className="text-sm tabular-nums text-muted-foreground">{formatDateTime(row.original.createdAt, locale, dateSettings) ?? '—'}</span>
       ),
     },
-  ], [t, locale])
+  ], [t, locale, dateSettings])
 
   const runColumns = React.useMemo<ColumnDef<EvalRunRow>[]>(() => [
     {
@@ -465,11 +467,11 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
       enableSorting: false,
       cell: ({ row }) => (
         <span className="text-sm tabular-nums text-muted-foreground">
-          {formatDateTime(row.original.startedAt ?? row.original.createdAt, locale) ?? '—'}
+          {formatDateTime(row.original.startedAt ?? row.original.createdAt, locale, dateSettings) ?? '—'}
         </span>
       ),
     },
-  ], [t, locale])
+  ], [t, locale, dateSettings])
 
   if (!features) {
     return <LoadingMessage label={t('agent_orchestrator.agentDetail.evaluation.title', 'Evaluation')} />
