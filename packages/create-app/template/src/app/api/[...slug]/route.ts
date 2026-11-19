@@ -18,11 +18,14 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
 registerApiRouteManifests(apiRouteFacades)
+
+const logger = createLogger('api')
 
 const warnedDeprecatedRequireRoles = new Set<string>()
 
@@ -438,12 +441,35 @@ export async function extractTenantCandidates(req: NextRequest): Promise<unknown
   return candidates
 }
 
+function observeHeadCleanupFailure(report: () => void): void {
+  try {
+    report()
+  } catch {
+    return
+  }
+}
+
 function handleRequest(
   method: HttpMethod,
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
 ): Promise<Response> {
-  return runInOwnedRequestScope(() => dispatchRequest(method, req, paramsPromise))
+  return runInOwnedRequestScope(async () => {
+    const response = await dispatchRequest(method, req, paramsPromise)
+    if (req.method.toUpperCase() !== 'HEAD') return response
+    const headResponse = new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    })
+    try {
+      await response.body?.cancel()
+    } catch (error) {
+      observeHeadCleanupFailure(() => logger.error('Failed to cancel suppressed HEAD response body', { err: error }))
+      observeHeadCleanupFailure(() => getTelemetryRuntime()?.reportError(error, { module: 'api', code: 'api.head_body_cancel_failed' }))
+    }
+    return headResponse
+  })
 }
 
 async function dispatchRequest(

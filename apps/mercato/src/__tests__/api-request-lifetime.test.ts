@@ -28,7 +28,10 @@ jest.mock('@open-mercato/core/bootstrap', () => ({
   getCachedRateLimiterService: () => null,
 }))
 jest.mock('@open-mercato/shared/modules/events', () => ({ getGlobalEventBus: () => null }))
-jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({ getTelemetryRuntime: () => undefined }))
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError, recordHttpDuration: jest.fn() }),
+}))
 jest.mock('@/.mercato/generated/api-route-shards.generated', () => ({ apiRouteFacades: [] }), { virtual: true })
 
 const mockHandler = jest.fn<Promise<Response>, []>()
@@ -54,6 +57,7 @@ beforeEach(() => {
   process.env.OM_PROCESS_CONTAINER_ROOT = 'on'
   invalidateProcessContainer()
   mockRootDispose.mockClear()
+  mockReportError.mockReset()
   mockRbac.userHasAllFeatures.mockResolvedValue(true)
   ownedScopes = []
   registerDiRegistrars([defineProcessDiRegistrar((root) => {
@@ -67,7 +71,7 @@ beforeEach(() => {
   mockHandler.mockImplementation(async () => {
     const caller = await createRequestContainer()
     ownedScopes.push(caller, caller.createScope())
-    return new Response('ok', { status: 201, headers: { 'set-cookie': 'probe=present; Path=/', 'x-probe': 'retained' } })
+    return new Response('ok', { status: 201, headers: { 'set-cookie': 'probe=present; Path=/', 'x-probe': 'retained', 'content-length': '2' } })
   })
 })
 
@@ -80,8 +84,8 @@ afterAll(() => {
   else process.env.OM_PROCESS_CONTAINER_ROOT = originalFlag
 })
 
-function request() {
-  return GET(new NextRequest('http://localhost/api/probe'), { params: Promise.resolve({ slug: ['probe'] }) })
+function request(method = 'GET') {
+  return GET(new NextRequest('http://localhost/api/probe', { method }), { params: Promise.resolve({ slug: ['probe'] }) })
 }
 
 it('owns lifecycle, authorization and nested handler scopes through response consumption', async () => {
@@ -148,5 +152,66 @@ it.each(['cancel', 'error'] as const)('keeps stream event context and releases s
     source.error(failure)
     await expect(reading).rejects.toBe(failure)
   }
+  expect(mockRootDispose).toHaveBeenCalledTimes(1)
+})
+
+
+it.each([true, false])('releases HEAD request scopes without consuming the response when authorization is %s', async (authorized) => {
+  mockRbac.userHasAllFeatures.mockResolvedValueOnce(authorized)
+  const response = await request('HEAD')
+  expect(response.status).toBe(authorized ? 201 : 403)
+  expect(response.body).toBeNull()
+  if (authorized) {
+    expect(response.headers.get('set-cookie')).toBe('probe=present; Path=/')
+    expect(response.headers.get('x-probe')).toBe('retained')
+    expect(response.headers.get('content-length')).toBe('2')
+  }
+  invalidateProcessContainer()
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(mockRootDispose).toHaveBeenCalledTimes(1)
+})
+
+it('waits for asynchronous HEAD source cancellation before releasing request scopes', async () => {
+  let release!: () => void
+  const blocked = new Promise<void>((resolve) => { release = resolve })
+  const cancelled = jest.fn(async () => {
+    await blocked
+    expect(mockRootDispose).not.toHaveBeenCalled()
+  })
+  mockHandler.mockImplementationOnce(async () => {
+    await createRequestContainer()
+    return new Response(new ReadableStream<Uint8Array>({ cancel: cancelled }, { highWaterMark: 0 }), {
+      status: 202, statusText: 'Accepted', headers: { 'x-probe': 'stream' },
+    })
+  })
+  let completed = false
+  const pending = request('HEAD').then((response) => { completed = true; return response })
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(cancelled).toHaveBeenCalledTimes(1)
+  expect(completed).toBe(false)
+  invalidateProcessContainer()
+  expect(mockRootDispose).not.toHaveBeenCalled()
+  release()
+  const response = await pending
+  expect(response.body).toBeNull()
+  expect(response.status).toBe(202)
+  expect(response.statusText).toBe('Accepted')
+  expect(response.headers.get('x-probe')).toBe('stream')
+  expect(mockRootDispose).toHaveBeenCalledTimes(1)
+})
+
+it.each([false, true])('preserves the HEAD status when body cancellation fails and telemetry throws: %s', async (telemetryThrows) => {
+  const failure = new Error('[internal] source cancellation failed')
+  if (telemetryThrows) mockReportError.mockImplementationOnce(() => { throw new Error('[internal] telemetry failed') })
+  mockHandler.mockImplementationOnce(async () => {
+    await createRequestContainer()
+    return new Response(new ReadableStream<Uint8Array>({ cancel: () => { throw failure } }, { highWaterMark: 0 }), { status: 202 })
+  })
+  const response = await request('HEAD')
+  expect(response.status).toBe(202)
+  expect(response.body).toBeNull()
+  expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'api', code: 'api.head_body_cancel_failed' })
+  invalidateProcessContainer()
+  await new Promise((resolve) => setImmediate(resolve))
   expect(mockRootDispose).toHaveBeenCalledTimes(1)
 })

@@ -112,3 +112,9 @@ PR: #9837
 - Native integration passes 13/13 enabled and 13/13 disabled, with zero test retries, flakes or skips. Both modes preserve 120 distinct caller EntityManagers and the 63 versus 7,560 registrar-work result. Owned disposable apps/databases were stopped and verified absent. No general HTTP performance claim.
 - The configured production build passed directly. Native environment preparation encountered the existing Next.js advisory notice and repeated the identical build once using Next’s receipt mechanism; no dependency, security-setting or receipt modifications. The retry audit and sanitized evidence are retained outside the worktree.
 - Base 4ee923350e remains unchanged; main CI is not triggered for this stacked base, so the full gate above is local fallback evidence. The feature stays default-off. Re-review is requested and external review/QA approval remain pending; no merge performed.
+
+### Review 5981218119 plan (2026-11-19)
+- [x] Cancel implicit HEAD response bodies within the API ownership boundary, preserving status and headers; mirror the standalone template.
+- [x] Own CLI per-job caller/helper/nested scopes through success and failure, preserving EntityManager cleanup and independent background work.
+- [x] Add actual-entrypoint disposal regressions and independently cross-review both fixes. API focused tests pass 65/65; worker tests pass 13/13 and CLI typecheck passes.
+- [ ] Run the configured gate and both runtime modes, publish evidence and request re-review.
