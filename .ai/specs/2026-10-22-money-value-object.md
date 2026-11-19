@@ -366,7 +366,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - The `CurrencyPrecisionResolver` type documents that `getCurrency` should return `null` for inactive currencies.
   - Status, Verification and Phase 3 Step 4 record the PostgreSQL test, the Linux create-app run and the fresh packed-preset evidence, and the live/certified routing lane waiver request.
 - 2026-11-19 — PR #9978 re-review follow-ups:
-  - Money inputs given as `Big` (amounts, factors, divisors, rates, ratios) are copied exactly and rejected with `Decimal value out of range` when they exceed the decimal caps, instead of being rounded half-up by the legacy `toDecimal` normalisation.
+  - Money inputs given as `Big` (amounts, factors, divisors, rates, ratios) are copied exactly and rejected when they exceed the decimal caps (`Decimal value out of range`; `InvalidAllocationError` for ratios), instead of being rounded half-up by the legacy `toDecimal` normalisation.
   - Phase 3 is marked In Review: Step 4 stays open until the certified routing lane passes or a maintainer waiver is recorded.
 
 ## Implementation Status

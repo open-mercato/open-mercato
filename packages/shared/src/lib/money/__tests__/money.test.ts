@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from '@jest/globals'
 import BigConstructor from 'big.js'
 import { toDecimal } from '../../decimal'
-import { CurrencyMismatchError } from '../errors'
+import { CurrencyMismatchError, InvalidAllocationError } from '../errors'
 import {
   absMoney,
   addMoney,
@@ -144,7 +144,14 @@ describe('Money immutability', () => {
     expect(() => divideMoney(createMoney('1', usd), longBig, { decimalPlaces: 2, mode: 'halfUp' })).toThrow(
       '[internal] Decimal value out of range',
     )
-    expect(() => allocateMoney(createMoney('1', usd), [1, tiny], { decimalPlaces: 2 })).toThrow()
+    expect(() => allocateMoney(createMoney('1', usd), [1, tiny], { decimalPlaces: 2 })).toThrow(InvalidAllocationError)
+    expect(() => createMoney(toDecimal('9'.repeat(300)).times(10), usd)).toThrow(
+      '[internal] Decimal value out of range',
+    )
+  })
+
+  it('keeps the original error for an object that is not a Big', () => {
+    expect(() => createMoney({} as unknown as string, usd)).toThrow('[internal] Invalid decimal value')
   })
 
   it('accepts an in-range Big exactly, also from another big.js constructor', () => {

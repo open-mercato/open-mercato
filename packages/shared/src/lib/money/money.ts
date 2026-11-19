@@ -189,7 +189,7 @@ function parseRatio(ratio: DecimalInput, index: number): DecimalValue {
   try {
     value = toExactDecimal(ratio)
   } catch {
-    throw new InvalidAllocationError(`ratio ${index} is not a decimal`)
+    throw new InvalidAllocationError(`ratio ${index} is not a decimal within the supported range`)
   }
   if (value.lt(0)) throw new InvalidAllocationError(`ratio ${index} is negative`)
   if (countDecimalPlaces(value) > MAX_MONEY_DECIMAL_PLACES) {

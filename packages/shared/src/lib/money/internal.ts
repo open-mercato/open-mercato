@@ -42,10 +42,14 @@ export function isValidMoneyDecimalPlaces(value: unknown): value is number {
  * of being rounded silently.
  */
 export function toExactDecimal(value: DecimalInput): DecimalValue {
-  const decimal = toDecimal(value)
-  if (typeof value === 'object' && value !== null && !decimal.eq(value)) {
-    throw new Error('[internal] Decimal value out of range')
+  if (typeof value !== 'object' || value === null || !Array.isArray((value as { c?: unknown }).c)) return toDecimal(value)
+  let decimal: DecimalValue
+  try {
+    decimal = toDecimal(value)
+  } catch (error) {
+    throw new Error('[internal] Decimal value out of range', { cause: error })
   }
+  if (!decimal.eq(value)) throw new Error('[internal] Decimal value out of range')
   return decimal
 }
 
