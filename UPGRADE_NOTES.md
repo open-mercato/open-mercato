@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Customer group terms gain four Release 5 fields (#10005)
+
+**Additive, with an override note (`customer_groups`).** `customer_group_terms` gains four nullable columns (null = inherit from the parent group, then the tenant default; no backfill): `terms_currency_code` (ISO 4217, three uppercase letters; `eur` is refused with `400`), `approval_policy` (`buyer` \| `merchant` \| `both`), `allow_quote_requests` and `requires_po_number`. `ResolvedTerms` returned by `customerGroupsService.resolveTerms` gains `termsCurrencyCode` (`string | null`), `approvalPolicy` (default `'buyer'`), `allowQuoteRequests` and `requiresPoNumber` (default `false`), each with its `sources` entry. `resolveTerms` accepts an optional `organizationId`: when no group sets `terms_currency_code`, it returns the organization's base currency and sets `sources.termsCurrencyCode` to the sentinel `'base_currency'`, which is not a group id. Explain-terms returns rows for the four fields and an additive per-field `source` (`group` \| `tenant_default` \| `base_currency`). Nothing reads the four fields yet; cart, checkout and the approval service start using them in later Release 5 steps.
+
+**Action:** run `yarn db:migrate`. An app that **overrides** `customerGroupsService` through `entry.overrides.di` must return the four new `ResolvedTerms` fields and their `sources` entries, and should honour `organizationId` for the base-currency fallback. Code that resolves `sources` values as group ids must skip `'base_currency'`. Callers of the shipped service need no change.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
