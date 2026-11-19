@@ -16,8 +16,8 @@
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Accept explicit null on the shared order and quote line fields | inline | done | 00acacf3de |
 | 1 | 1.2 | Accept and persist externalReference and customerReference on sales.quotes.create | inline | done | 96328c4a0f |
-| 1 | 1.3 | Index sales_quotes and sales_orders by tenant and external reference | inline | done | (this commit) |
-| 1 | 1.4 | Document the sales line validator widening in UPGRADE_NOTES | inline | todo | |
+| 1 | 1.3 | Index sales_quotes and sales_orders by tenant and external reference | inline | done | 26515f137e |
+| 1 | 1.4 | Document the sales line validator widening in UPGRADE_NOTES | inline | done | (this commit) |
 
 ## Goal
 
