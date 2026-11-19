@@ -117,7 +117,9 @@ account assignment, it reads the invoice and its lines directly from
 to its assigned revenue account (net amount), one aggregated credit
 line to the configured output-VAT account (sum of `taxAmount`), and
 one debit line to the configured receivable control account (the
-invoice's gross total). A new, minimal `SalesInvoiceGlPosting` record
+invoice's gross total; when the invoice is in a foreign currency each line is
+converted at the invoice's stored rate and a rounding line balances the
+entry — Design decisions, "Foreign-currency invoice"). A new, minimal `SalesInvoiceGlPosting` record
 tracks the link from the invoice to its `JournalEntry` (idempotency,
 and the lookup a reversal needs); an optional `SalesInvoiceLineRevenueAccount`
 record per line carries the manual account assignment, since
@@ -1108,10 +1110,10 @@ TTL are declared; see the Compliance Matrix below.
 Two new tables (`sales_invoice_gl_postings`, `sales_invoice_line_revenue_accounts`; plural per root AGENTS.md → Conventions),
 zero changes to any `sales` or `ledger` table. No seed data (see
 Module Setup) — `receivableAccountId`/`vatOutputAccountId` must be
-configured by an admin before the first `postSalesInvoiceToLedger`
-call; the command rejects with a readable error until both are set,
-the same UX Accounts Payable already provides for its own unset
-configuration. No backfill: invoices created before this module is
+configured by an admin **for each organization** before its first
+`postSalesInvoiceToLedger` call; the command rejects with a readable error
+until both are set for the posting's organization, the same UX Accounts
+Payable already provides for its own unset configuration. No backfill: invoices created before this module is
 enabled are never automatically posted — an operator posts them
 individually (or a future bulk-posting tool, out of scope here) once
 configuration is in place.
