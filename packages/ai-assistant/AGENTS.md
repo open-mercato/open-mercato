@@ -1458,7 +1458,7 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ### 2026-11-12 - HTTP MCP server requires a per-user session token, no fallback (#5173)
 
-`createMcpServerForRequest`'s per-call tool handler always returns `UNAUTHORIZED` without `_sessionToken` — no opt-in fallback; `McpServerConfig`/`mcp:serve-http` carry no such field/flag. Operator access uses stdio `mcp:serve --allow-unauthenticated-superadmin` instead, unreachable from chat. See `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md`, spec `2026-11-14-mcp-http-session-required-no-fallback.md`. Tests: `lib/__tests__/http-server-auth-boundary.test.ts`.
+`createMcpServerForRequest`'s per-call tool handler always returns `UNAUTHORIZED` without `_sessionToken` — no opt-in fallback; `McpServerConfig`/`mcp:serve-http` carry no such field/flag. Operator/automation access uses the authenticated stdio transport instead (`OPEN_MERCATO_API_KEY=... mercato ai_assistant mcp:serve`, or `mcp:serve --tenant <id> --user <id>` for a scoped identity), unreachable from chat. `mcp:serve --allow-unauthenticated-superadmin` also exists but is **DEV/TEST ONLY** — no per-user ACL, never use it in production. See `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md`, spec `2026-11-14-mcp-http-session-required-no-fallback.md`. Tests: `lib/__tests__/http-server-auth-boundary.test.ts`.
 
 ### 2026-07-07 - Containerized MCP server + file-based key delivery
 
