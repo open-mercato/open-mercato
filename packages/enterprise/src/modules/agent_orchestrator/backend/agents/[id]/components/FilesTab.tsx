@@ -154,7 +154,11 @@ function TreeNode({
         <FileGlyph name={node.name} />
         <span className="truncate">{node.name}</span>
         <span className="ml-auto shrink-0 pl-2 font-mono text-xs tabular-nums text-muted-foreground">
-          {node.inContext ? formatNumber(node.tokens, locale) : t('agent_orchestrator.files.sample', 'sample')}
+          {node.inContext
+            ? formatNumber(node.tokens, locale)
+            : node.name === 'GOVERNANCE.json'
+              ? t('agent_orchestrator.files.governance', 'governance')
+              : t('agent_orchestrator.files.sample', 'sample')}
         </span>
       </button>
     )

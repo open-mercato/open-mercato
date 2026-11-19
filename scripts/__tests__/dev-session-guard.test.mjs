@@ -222,18 +222,18 @@ test('all mutable dev entry points acquire ownership before startup work', () =>
   const ephemeral = fs.readFileSync(new URL('../dev-ephemeral.ts', import.meta.url), 'utf8')
 
   for (const source of [rootDev, templateDev]) {
-    const acquireIndex = source.indexOf('devSession = acquireDevSession({')
+    const acquireIndex = source.indexOf('devSession = await acquireDevSession({')
     assert.ok(acquireIndex > 0)
     assert.ok(acquireIndex < source.indexOf('memoryTrace?.start()'))
     assert.ok(acquireIndex < source.indexOf('await main()'))
   }
   for (const source of [appRuntime, templateRuntime]) {
-    const acquireIndex = source.indexOf('devSession = acquireDevSession({')
+    const acquireIndex = source.indexOf('devSession = await acquireDevSession({')
     assert.ok(acquireIndex > 0)
     assert.ok(acquireIndex < source.indexOf('\nclearWarmupReadyFile()'))
     assert.ok(acquireIndex < source.indexOf('await runInitialGenerate()'))
   }
-  const ephemeralAcquire = ephemeral.indexOf('devSession = acquireDevSession({')
+  const ephemeralAcquire = ephemeral.indexOf('devSession = await acquireDevSession({')
   const ephemeralMain = ephemeral.indexOf('async function main()')
   assert.ok(ephemeralAcquire > 0 && ephemeralAcquire < ephemeralMain)
   assert.ok(ephemeral.indexOf('await startSplashServer()', ephemeralMain) > ephemeralAcquire)
@@ -376,6 +376,25 @@ test('a delayed stale recoverer cannot remove a competing live session', async (
       await contenderClosed
     }
     owner?.release()
+    fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  }
+})
+
+test('member refresh preserves the original registration time for PID identity checks', () => {
+  const workspaceRoot = createWorkspace()
+  const session = acquireDevSession({ workspaceRoot, token: null })
+  try {
+    const memberPath = path.join(workspaceRoot, '.mercato', 'dev-session.lock', 'members', `${process.pid}.json`)
+    const initial = JSON.parse(fs.readFileSync(memberPath, 'utf8'))
+    assert.ok(Number.isFinite(Date.parse(initial.registeredAt)))
+    const registeredAt = '2000-01-01T00:00:00.000Z'
+    fs.writeFileSync(memberPath, JSON.stringify({ ...initial, registeredAt }))
+    session.registerChild({ pid: process.pid, once() {} }, 'managed-child')
+    const refreshed = JSON.parse(fs.readFileSync(memberPath, 'utf8'))
+    assert.equal(refreshed.registeredAt, registeredAt)
+    assert.notEqual(refreshed.heartbeatAt, registeredAt)
+  } finally {
+    session.release()
     fs.rmSync(workspaceRoot, { recursive: true, force: true })
   }
 })

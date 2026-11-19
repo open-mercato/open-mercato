@@ -34,6 +34,8 @@ import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
+import { getAmbientAuditCorrelation } from './auditCorrelationScope'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getTransactionLifetime,
@@ -50,6 +52,7 @@ type CommandActionLogService = {
   releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean>
   markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
   claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
+  releaseRedoClaim?(id: string, transactionalEm?: EntityManager): Promise<boolean>
   log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
 }
 
@@ -95,6 +98,28 @@ const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
 function asRecord(input: unknown): Record<string, unknown> | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   return input as Record<string, unknown>
+}
+
+function mergeAuditCorrelation(
+  baseContext: Record<string, unknown> | null,
+  auditCorrelation: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  const incoming = asRecord(auditCorrelation)
+  if (!incoming) return null
+  const context = baseContext ?? {}
+  const existingValue = context.correlation
+  const existing = asRecord(existingValue)
+  if (existingValue !== undefined && existingValue !== null && !existing) return null
+  const merged: Record<string, unknown> = { ...(existing ?? {}) }
+  let added = false
+  for (const [key, value] of Object.entries(incoming)) {
+    if (typeof value !== 'string' || value.length === 0) continue
+    if (Object.prototype.hasOwnProperty.call(merged, key)) continue
+    merged[key] = value
+    added = true
+  }
+  if (!added) return null
+  return { ...context, correlation: merged }
 }
 
 /** Command handlers often return domain keys (e.g. warehouseId) without `id`; cache invalidation must still resolve the record. */
@@ -145,15 +170,22 @@ function deepEqual(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
   }
   if (a && b && typeof a === 'object' && typeof b === 'object') {
     if (!seen) seen = new Set()
+    // `seen` is the current path: an object met again on it is a cycle. An object reached twice by
+    // different paths (the items of one array held under two keys) is compared like any other.
     if (seen.has(a) || seen.has(b)) return false
     seen.add(a)
     seen.add(b)
-    const aRec = a as Record<string, unknown>
-    const bRec = b as Record<string, unknown>
-    const keysA = Object.keys(aRec)
-    const keysB = Object.keys(bRec)
-    if (keysA.length !== keysB.length) return false
-    return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+    try {
+      const aRec = a as Record<string, unknown>
+      const bRec = b as Record<string, unknown>
+      const keysA = Object.keys(aRec)
+      const keysB = Object.keys(bRec)
+      if (keysA.length !== keysB.length) return false
+      return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+    } finally {
+      seen.delete(a)
+      seen.delete(b)
+    }
   }
   return false
 }
@@ -487,6 +519,15 @@ export class CommandBus {
         coreResult = await executeCore(effectiveOptions)
       }], { transaction: true, label: `${commandId}.redo` })
       replaySourceFinalized = !ambientReplay.joinsAmbient
+    } else if (replayLogEntry?.id) {
+      const redoClaimRelease = await this.claimRedoSource(effectiveOptions.ctx, commandId, replayLogEntry.id)
+      try {
+        coreResult = await executeCore(effectiveOptions)
+      } catch (err) {
+        await redoClaimRelease?.()
+        throw err
+      }
+      replaySourceFinalized = redoClaimRelease !== null
     } else {
       coreResult = await executeCore(effectiveOptions)
     }
@@ -663,10 +704,12 @@ export class CommandBus {
         label: `${log.commandId}.undo`,
       })
     } else {
+      let undoClaimed = false
       try {
         // Preserve the established non-atomic lifecycle exactly: authorization,
         // source claim, before-undo interceptors, handler, then finalization.
         await claimUndo()
+        undoClaimed = true
         const prepared = await runBeforeUndoInterceptors(ctx)
         undoInterceptorMetadata = prepared.metadata
         userFeatures = prepared.userFeatures
@@ -674,7 +717,15 @@ export class CommandBus {
       } catch (err) {
         // Legacy handlers retain their compensating release behavior because
         // their domain mutation may not share the action-log transaction.
-        await service.releaseUndoClaim(log.id).catch(() => {})
+        if (undoClaimed) {
+          await service.releaseUndoClaim(log.id).catch((releaseErr: unknown) => {
+            logger.error('Failed to release undo claim', { commandId: log.commandId, logId: log.id, err: releaseErr })
+            getTelemetryRuntime()?.reportError(releaseErr, {
+              module: 'shared',
+              code: 'shared.undo_claim_release_failed',
+            })
+          })
+        }
         throw err
       }
     }
@@ -810,6 +861,43 @@ export class CommandBus {
     await withAtomicFlush(guardEm, [async () => {
       await ctx.replayTransactionGuard!({ operation, logEntry, transactionalEm: guardEm })
     }], { transaction: true, label: `${logEntry.commandId}.${operation}.request-guard` })
+  }
+
+  private async claimRedoSource(
+    ctx: CommandRuntimeContext,
+    commandId: string,
+    sourceLogId: string,
+  ): Promise<(() => Promise<void>) | null> {
+    let service: CommandActionLogService | null = null
+    try {
+      service = ctx.container.resolve('actionLogService') as CommandActionLogService
+    } catch {
+      service = null
+    }
+    if (!service || typeof service.claimForRedo !== 'function' || typeof service.releaseRedoClaim !== 'function') {
+      logger.warn('Redo source claim unavailable; replaying without an atomic claim', { commandId, sourceLogId })
+      return null
+    }
+    const releaseClaim = service.releaseRedoClaim.bind(service)
+    const transactionalEm = ctx.transactionalEm
+    const claimed = transactionalEm
+      ? await service.claimForRedo(sourceLogId, transactionalEm)
+      : await service.claimForRedo(sourceLogId)
+    if (!claimed) throw new Error('[internal] Redo source already consumed')
+    return async () => {
+      try {
+        const released = transactionalEm
+          ? await releaseClaim(sourceLogId, transactionalEm)
+          : await releaseClaim(sourceLogId)
+        if (!released) logger.warn('Redo source claim was not held at release', { commandId, sourceLogId })
+      } catch (releaseErr) {
+        logger.error('Failed to release redo source claim', { commandId, sourceLogId, err: releaseErr })
+        getTelemetryRuntime()?.reportError(releaseErr, {
+          module: 'shared',
+          code: 'shared.redo_claim_release_failed',
+        })
+      }
+    }
   }
 
   private async resolveHandler<TInput, TResult>(commandId: string): Promise<CommandHandler<TInput, TResult>> {
@@ -967,6 +1055,11 @@ export class CommandBus {
       const baseContext = asRecord(payload.context) ?? {}
       payload.context = { ...baseContext, source: runAs.source }
     }
+
+    const correlationContext = mergeAuditCorrelation(asRecord(payload.context), options.ctx.auditCorrelation)
+    if (correlationContext) payload.context = correlationContext
+    const ambientCorrelationContext = mergeAuditCorrelation(asRecord(payload.context), getAmbientAuditCorrelation())
+    if (ambientCorrelationContext) payload.context = ambientCorrelationContext
 
     if (metadata.replayable === false) {
       delete payload.commandPayload

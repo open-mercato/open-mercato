@@ -18,6 +18,7 @@ import {
 import {
   FORMS_CACHE_TAGS,
   FORM_VERSION_RESOURCE_KIND,
+  applyFormsUndo,
   emitForms,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -41,6 +42,7 @@ import { FormCompilationError, isFormCompilationError } from '../services/form-v
 type FormVersionUndoPayload = {
   before?: FormVersionSnapshot | null
   after?: FormVersionSnapshot | null
+  staleCheck?: boolean
   /**
    * Captured at publish time so undo can restore the prior pointer cleanly.
    */
@@ -48,6 +50,9 @@ type FormVersionUndoPayload = {
   /** Captured at publish time so undo of publish can route through the right inverse. */
   publishInverseKind?: 'demote_to_draft' | 'archive'
 }
+
+const FORM_VERSION_DRAFT_UNDO_FIELDS = ['schema', 'uiSchema', 'roles', 'schemaHash', 'registryVersion', 'changelog'] as const
+const FORM_VERSION_ARCHIVE_UNDO_FIELDS = ['status', 'archivedAt'] as const
 
 // ----------------------------------------------------------------------------
 // Helpers
@@ -399,6 +404,7 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
     const version = await em.findOne(FormVersion, { id: result.versionId })
+    if (version) await em.refresh(version)
     return version ? serializeFormVersionSnapshot(version) : null
   },
   buildLog: async ({ result, snapshots }) => {
@@ -419,6 +425,7 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
         undo: {
           before: before ?? null,
           after: after ?? null,
+          staleCheck: true,
         } satisfies FormVersionUndoPayload,
       },
     }
@@ -427,18 +434,24 @@ const updateDraftCommand: CommandHandler<FormVersionUpdateDraftCommandInput, { v
     const payload = extractUndoPayload<FormVersionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = resolveEntityManager(ctx).fork()
-    const version = await em.findOne(FormVersion, { id: before.id })
+    const version = await applyFormsUndo({
+      ctx,
+      entity: FormVersion,
+      target: before,
+      expected: payload?.staleCheck ? payload.after : null,
+      fields: FORM_VERSION_DRAFT_UNDO_FIELDS,
+      apply: (record) => {
+        if (record.status !== 'draft') return false
+        record.schema = deepClone(before.schema)
+        record.uiSchema = deepClone(before.uiSchema)
+        record.roles = [...before.roles]
+        record.schemaHash = before.schemaHash
+        record.registryVersion = before.registryVersion
+        record.changelog = before.changelog
+        record.updatedAt = new Date()
+      },
+    })
     if (!version) return
-    if (version.status !== 'draft') return
-    version.schema = deepClone(before.schema)
-    version.uiSchema = deepClone(before.uiSchema)
-    version.roles = [...before.roles]
-    version.schemaHash = before.schemaHash
-    version.registryVersion = before.registryVersion
-    version.changelog = before.changelog
-    version.updatedAt = new Date()
-    await em.flush()
     await invalidateFormsCacheTags(ctx, [
       FORMS_CACHE_TAGS.formList(version.organizationId),
       FORMS_CACHE_TAGS.form(version.formId),
@@ -747,6 +760,7 @@ const archiveVersionCommand: CommandHandler<FormVersionArchiveCommandInput, { ve
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
     const version = await em.findOne(FormVersion, { id: result.versionId })
+    if (version) await em.refresh(version)
     return version ? serializeFormVersionSnapshot(version) : null
   },
   buildLog: async ({ result, snapshots }) => {
@@ -767,6 +781,7 @@ const archiveVersionCommand: CommandHandler<FormVersionArchiveCommandInput, { ve
         undo: {
           before: before ?? null,
           after: after ?? null,
+          staleCheck: true,
         } satisfies FormVersionUndoPayload,
       },
     }
@@ -775,13 +790,19 @@ const archiveVersionCommand: CommandHandler<FormVersionArchiveCommandInput, { ve
     const payload = extractUndoPayload<FormVersionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = resolveEntityManager(ctx).fork()
-    const version = await em.findOne(FormVersion, { id: before.id })
+    const version = await applyFormsUndo({
+      ctx,
+      entity: FormVersion,
+      target: before,
+      expected: payload?.staleCheck ? payload.after : null,
+      fields: FORM_VERSION_ARCHIVE_UNDO_FIELDS,
+      apply: (record) => {
+        record.status = before.status
+        record.archivedAt = before.archivedAt ? new Date(before.archivedAt) : null
+        record.updatedAt = new Date()
+      },
+    })
     if (!version) return
-    version.status = before.status
-    version.archivedAt = before.archivedAt ? new Date(before.archivedAt) : null
-    version.updatedAt = new Date()
-    await em.flush()
     await invalidateFormsCacheTags(ctx, [
       FORMS_CACHE_TAGS.formList(version.organizationId),
       FORMS_CACHE_TAGS.form(version.formId),

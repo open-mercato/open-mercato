@@ -7,6 +7,7 @@ import { metadata as agentsMeta } from '../backend/agents/page.meta'
 import { metadata as playgroundMeta } from '../backend/playground/page.meta'
 import { metadata as processDefinitionsMeta } from '../backend/processes/definitions/page.meta'
 import { metadata as auditMeta } from '../backend/audit/page.meta'
+import { metadata as evalRunsCompareMeta } from '../backend/eval-runs/compare/page.meta'
 
 // First-run orientation spec F1 (2026-09-10-ux-first-run-orientation-feedback):
 // the AGENTS sidebar group is ordered by the ORDER OF USE, not by operator
@@ -55,5 +56,9 @@ describe('agent_orchestrator sidebar ordering', () => {
     expect(auditMeta.navHidden).toBeUndefined()
     expect(auditMeta.pageTitleKey).toBe('agent_orchestrator.nav.audit')
     expect(auditMeta.breadcrumb?.[0]?.labelKey).toBe('agent_orchestrator.nav.audit')
+  })
+
+  it('hides the eval-run compare page from the sidebar (it needs base/head query params)', () => {
+    expect(evalRunsCompareMeta.navHidden).toBe(true)
   })
 })

@@ -6,6 +6,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentRun, AgentSpan, AgentToolCall, AgentEvalResult, AgentEvalCase, AgentContextBundle, AgentGuardrailCheck, AgentProposal } from '../../../data/entities'
+import { resolveRunOtelLink } from '../../../lib/trace/otel/traceLink'
+import { buildIntegritySummary, findRawOutputKey } from '../../../lib/guardrails/integrity/summary'
 
 /**
  * Full run detail for the trace inspector: the run plus its ordered spans and
@@ -70,6 +72,7 @@ export async function GET(req: Request, ctx: RouteContext) {
       ? findOneWithDecryption(em, AgentEvalCase, { id: run.goldenCaseId, ...scope }, undefined, decryptionScope)
       : Promise.resolve(null),
   ])
+  const otel = await resolveRunOtelLink({ container, em, run })
 
   return NextResponse.json({
     run,
@@ -78,8 +81,11 @@ export async function GET(req: Request, ctx: RouteContext) {
     evalResults,
     contextBundle: contextBundles[0] ?? null,
     guardrailChecks,
+    integrity: buildIntegritySummary(guardrailChecks),
+    rawOutputKey: findRawOutputKey(guardrailChecks),
     proposals,
     goldenCase: goldenCase ? { id: goldenCase.id, expected: goldenCase.expected ?? null } : null,
+    otel,
   })
 }
 
@@ -90,7 +96,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get a full agent run with its spans and tool calls',
       description:
-        'Returns the run plus its ordered spans, tool-calls, eval results, the assembled context bundle (TDCR), guardrail check verdicts, and its proposals (decrypted payloads carrying the persisted rationale) for the trace inspector. Org-scoped; gated by agent_orchestrator.trace.view.',
+        'Returns the run plus its ordered spans, tool-calls, eval results, the assembled context bundle (TDCR), guardrail check verdicts, `integrity` (the output-integrity summary derived from those checks — `outcome` plus one `{ ruleId, kind, result, dropped, repaired }` entry per integrity rule — or null when the run recorded no integrity rule check), `rawOutputKey` (the artifact key of the pre-repair model output, fetchable via GET /runs/{id}/artifact?kind=raw_output, or null when integrity left the output unchanged; never inline content), its proposals (decrypted payloads carrying the persisted rationale), and `otel` — the exported OTel trace id and its tracing-backend link, or null unless the deployment and the tenant export traces and a trace URL template is configured — for the trace inspector. Org-scoped; gated by agent_orchestrator.trace.view.',
       responses: [{ status: 200, description: 'Run trace detail' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },
