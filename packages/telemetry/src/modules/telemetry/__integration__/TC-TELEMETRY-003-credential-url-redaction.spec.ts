@@ -7,7 +7,7 @@ type ExportedSpan = {
 }
 
 type TraceBatch = {
-  resourceSpans?: Array<{ scopeSpans?: Array<{ spans?: ExportedSpan[] }> }>
+  resourceSpans?: Array<{ scopeSpans?: Array<{ scope?: { name?: string }; spans?: ExportedSpan[] }> }>
 }
 
 for (const locale of ['en', 'pl']) {
@@ -45,7 +45,8 @@ for (const locale of ['en', 'pl']) {
 
     const sentinels = ['synthetic-user', 'synthetic-password', 'synthetic-oauth-code', 'synthetic-query-value', 's'.repeat(64)]
     const uuid = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
-    const statuses = await page.evaluate(async ({ replayUrl, sentinels, uuid }) => {
+    const replayKeys = ['window_fetch_replay', 'instrumented_fetch_replay']
+    const statuses = await page.evaluate(async ({ replayUrl, sentinels, uuid, replayKeys }) => {
       type BrowserSpan = { setAttribute: (key: string, value: string) => void; end: () => void }
       type RuntimeRegistry = { trace?: { getTracer: (name: string) => { startSpan: (name: string) => BrowserSpan } } }
       const symbol = Object.getOwnPropertySymbols(globalThis).find((candidate) => candidate.toString().includes('opentelemetry.js.api'))
@@ -59,10 +60,14 @@ for (const locale of ['en', 'pl']) {
       url.searchParams.set('token', sentinels[4])
       url.searchParams.set('code', sentinels[2])
       url.searchParams.set('search', sentinels[3])
+      const windowReplayUrl = new URL(url.href)
+      windowReplayUrl.searchParams.set(replayKeys[0], sentinels[3])
+      const instrumentedReplayUrl = new URL(url.href)
+      instrumentedReplayUrl.searchParams.set(replayKeys[1], sentinels[3])
       const statuses: number[] = []
       for (let attempt = 0; attempt < 10; attempt += 1) {
-        statuses.push((await window.fetch(url.href)).status)
-        statuses.push((await instrumentedFetch(url.href)).status)
+        statuses.push((await window.fetch(windowReplayUrl.href)).status)
+        statuses.push((await instrumentedFetch(instrumentedReplayUrl.href)).status)
       }
       for (const target of [
         `https://${sentinels[0]}:${sentinels[1]}@example.test/reset/${sentinels[4]}?code=${sentinels[2]}`,
@@ -80,13 +85,24 @@ for (const locale of ['en', 'pl']) {
       Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
       document.dispatchEvent(new Event('visibilitychange'))
       return statuses
-    }, { replayUrl: apiUrls[0], sentinels, uuid })
+    }, { replayUrl: apiUrls[0], sentinels, uuid, replayKeys })
     expect(statuses).toHaveLength(20)
     expect(statuses.every((status) => status === 200)).toBe(true)
     await expect.poll(() => batches.flatMap((body) => {
       const batch = JSON.parse(body) as TraceBatch
       return (batch.resourceSpans ?? []).flatMap((resource) => (resource.scopeSpans ?? []).flatMap((scope) => scope.spans ?? []))
     }).filter((span) => span.name.startsWith('fetch GET ')).length).toBeGreaterThanOrEqual(4)
+    for (const replayKey of replayKeys) {
+      await expect.poll(() => batches.flatMap((body) => {
+        const batch = JSON.parse(body) as TraceBatch
+        return (batch.resourceSpans ?? []).flatMap((resource) => (resource.scopeSpans ?? [])
+          .filter((scope) => scope.scope?.name === '@opentelemetry/instrumentation-fetch')
+          .flatMap((scope) => scope.spans ?? []))
+      }).some((span) => (span.attributes ?? []).some((attribute) =>
+        (attribute.key === 'http.url' || attribute.key === 'url.full')
+        && typeof attribute.value?.stringValue === 'string'
+        && new URL(attribute.value.stringValue, origin).searchParams.get(replayKey) === '[redacted]'))).toBe(true)
+    }
     const payload = batches.join('\n')
     for (const sentinel of sentinels) expect(payload).not.toContain(sentinel)
     expect(payload).toContain(uuid)
