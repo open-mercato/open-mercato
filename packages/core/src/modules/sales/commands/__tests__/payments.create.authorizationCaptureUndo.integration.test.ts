@@ -249,7 +249,14 @@ describeWithPostgres('sales.payments.create — authorization-first / capture-se
     expect(captureOutcome.result).toMatchObject({ reused: true, reconciled: true, paymentId: authorizationOutcome.result.paymentId })
     const paymentId = authorizationOutcome.result.paymentId
     const authorizationTotals = authorizationOutcome.result.orderTotals
-    expect(authorizationTotals).toEqual({ paidTotalAmount: 100, refundedTotalAmount: 0, outstandingAmount: 0 })
+    expect(authorizationTotals).toEqual({
+      paidTotalAmount: 100,
+      paidTotalAmountExact: '100',
+      refundedTotalAmount: 0,
+      refundedTotalAmountExact: '0',
+      outstandingAmount: 0,
+      outstandingAmountExact: '0',
+    })
 
     const captureLogId = captureOutcome.logEntry?.id
     expect(captureLogId).toBeTruthy()
