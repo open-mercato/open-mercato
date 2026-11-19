@@ -19,7 +19,7 @@
 | 1 | 1.3 | Turn wms.inventory.reserve and .release into wrappers over the DI service | inline | done | ec6793c823 |
 | 1 | 1.4 | Recognise CrudHttpError by brand at the wms catch sites and automation predicates | inline | done | 20131b5262 |
 | 1 | 1.5 | Prove a caller-transaction rollback leaves no reservation writes against Postgres | inline | done | 28b066272e |
-| 1 | 1.6-review-fix | Correct the service header and test naming flagged in review | inline | done | pending |
+| 1 | 1.6-review-fix | Correct the service header and test naming flagged in review | inline | done | 9ecb5a06b8 |
 
 ## Goal
 
@@ -59,11 +59,11 @@ Delete the moved helpers and the two inline bodies from `inventory-actions.ts`; 
 #### Step 1.4 — Recognise CrudHttpError by brand at the wms catch sites and automation predicates
 Swap `instanceof CrudHttpError` for `isCrudHttpError` at the six `wms/api` catch sites, `applyInventoryImport` and the two `salesOrderInventoryAutomation` predicates. `inventoryImportService.test.ts` gains the foreign-bundle case.
 
-#### Step 1.6-review-fix — Correct the service header and test naming flagged in review
-Review findings M1, M2, L3, L5: the header describes the savepoint that a nested `em.transactional()` creates; the ambient-fallback unit case is renamed to what it covers; `as any` becomes `as unknown as CommandRuntimeContext`.
-
 #### Step 1.5 — Prove a caller-transaction rollback leaves no reservation writes against Postgres
 `lib/__tests__/wmsReservationService.integration.test.ts` (gated by `OM_PG_INTEGRATION=1`, testcontainers Postgres): `reserveInTransaction` then `releaseInTransaction` inside a caller's `em.transactional()` that throws afterwards leave no reservation row and an unchanged balance. Add `wms/.+\.integration` to `test:pg-integration`'s selection so CI runs it.
+
+#### Step 1.6-review-fix — Correct the service header and test naming flagged in review
+Review findings M1, M2, L3, L5: the header describes the savepoint that a nested `em.transactional()` creates; the ambient-fallback unit case is renamed to what it covers; `as any` becomes `as unknown as CommandRuntimeContext`.
 
 ## Spec vs card differences (rule R4: the spec wins)
 

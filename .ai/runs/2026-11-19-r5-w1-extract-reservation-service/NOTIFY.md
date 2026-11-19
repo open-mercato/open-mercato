@@ -16,3 +16,6 @@
 ## 2026-11-19T22:35:51Z — checkpoint 1 + final gate
 - Steps 1.1–1.5 done. Gate: everything green except `create-mercato-app#test`, which is local-only (live CLI harness); create-app is untouched. Playwright TC-WMS-002/021/027: 8 passed. PG rollback suite: 3 passed.
 - UI pass skipped: no UI files.
+
+## 2026-11-19T22:40:59Z — review + run end
+- om-auto-review-pr --autofix: CHANGES REQUESTED (2 Medium wording/test-name, 4 Low), fixed in 9ecb5a06b8; the re-review is approvable. Verdict posted as comments, since GitHub rejects review states on the automation's own PR. PR flipped to ready; lock released.
