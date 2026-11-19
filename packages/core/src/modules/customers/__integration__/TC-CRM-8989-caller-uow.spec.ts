@@ -8,6 +8,33 @@ import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
 import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
+async function loadCallerRuntime() {
+  const [{ bootstrapFromAppRoot }, runtime, requestScope, { CustomerEntity }] = await Promise.all([
+    importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
+    importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
+    importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/request-scope')>('@open-mercato/shared/lib/di/request-scope'),
+    importFromAppRuntime<typeof import('@open-mercato/core/modules/customers/data/entities')>('@open-mercato/core/modules/customers/data/entities'),
+  ])
+  const data = await bootstrapFromAppRoot(resolveAppRoot())
+  expect(data.modules.some((module) => module.id === 'customers')).toBe(true)
+  expect(runtime.getDiRegistrars().length).toBeGreaterThan(0)
+  const root = await runtime.initializeProcessContainer()
+  return { ...runtime, ...requestScope, CustomerEntity, root }
+}
+
+let callerRuntime: Awaited<ReturnType<typeof loadCallerRuntime>> | undefined
+
+test.beforeAll(async () => {
+  test.setTimeout(60_000)
+  callerRuntime = await test.step('Bootstrap the application runtime for caller isolation', loadCallerRuntime)
+})
+
+test.afterAll(async () => {
+  if (!callerRuntime) return
+  callerRuntime.invalidateProcessContainer()
+  await callerRuntime.root?.dispose()
+})
+
 test('TC-CRM-8989: flushing one caller does not flush another caller dirty entity', async ({ request }) => {
   const token = await getAuthToken(request, 'admin')
   const scope = getTokenContext(token)
@@ -16,13 +43,8 @@ test('TC-CRM-8989: flushing one caller does not flush another caller dirty entit
     personId = await createPersonFixture(request, token, {
       firstName: 'Caller', lastName: 'Isolation', displayName: `tc8989-${randomUUID()}`,
     })
-    const [{ bootstrapFromAppRoot }, { createRequestContainer, getProcessContainerStats, isProcessContainerRootEnabled }, { runInRequestScope }, { CustomerEntity }] = await Promise.all([
-      importFromAppRuntime<typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')>('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
-      importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/container')>('@open-mercato/shared/lib/di/container'),
-      importFromAppRuntime<typeof import('@open-mercato/shared/lib/di/request-scope')>('@open-mercato/shared/lib/di/request-scope'),
-      importFromAppRuntime<typeof import('@open-mercato/core/modules/customers/data/entities')>('@open-mercato/core/modules/customers/data/entities'),
-    ])
-    await bootstrapFromAppRoot(resolveAppRoot())
+    if (!callerRuntime) throw new Error('[internal] Caller isolation runtime was not initialized')
+    const { createRequestContainer, getProcessContainerStats, isProcessContainerRootEnabled, runInRequestScope, CustomerEntity } = callerRuntime
     await runInRequestScope(async () => {
       const before = getProcessContainerStats()
       const first = await createRequestContainer()
