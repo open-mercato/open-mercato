@@ -749,11 +749,12 @@ Acceptance path:
 1. Sign in with currencies fetch/rates permissions.
 2. Open Fetching configuration and verify separate NBP table-C and NBP average A/B cards.
 3. Enable `nbp_average` and verify config persistence.
-4. Exercise an explicit service/API fetch using a mocked provider response or seeded test provider; the provider -> persistence write path (including `externalReference`) is pinned by unit coverage because the HTTP boundary would call the live NBP service.
+4. Exercise an explicit service fetch through the real NBP average provider with deterministic upstream responses and real PostgreSQL persistence (`TC-CUR-020-nbp-persistence`). Assert exact published values and references, repeat-fetch identity, zero writes after one table fails, successful retry, and organization/tenant isolation. The fixture owns a temporary schema and never calls the live NBP service.
 5. Open Exchange rates, filter type Average, and verify pair, source `nbp_average`, and publication reference.
 6. Verify another organization cannot read the row.
 7. Verify a caller without `currencies.fetch.manage` is denied before any provider runs.
 8. Verify the bridge request shapes (date-only `date`, empty `providers`, unknown properties) are still accepted and that `exchange_rates.external_reference` exists as a nullable text column.
+9. Run the provenance migration down and up against existing rate rows in that temporary schema; verify only the provenance column is removed/recreated, all other row values remain identical, and the recreated nullable field is null without a backfill.
 
 Reachability note: no shipped HTTP consumer performs a default-provider rate lookup, so the explicit/default exclusion at the consuming boundary is exercised by the `ExchangeRateService` unit tests rather than an integration request.
 
@@ -947,6 +948,11 @@ None identified. The provider-ingestion command exception is an existing interna
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### Repair — 2026-11-20
+
+- Reconciled NBP publication references with main's exact-rate precision and provider metadata changes.
+- Added deterministic real-PostgreSQL ingestion, failure/retry, idempotency, tenant/organization isolation, and existing-row migration round-trip coverage, discovered through `TC-CUR-020-nbp-persistence`.
 
 ### 2026-08-25
 
