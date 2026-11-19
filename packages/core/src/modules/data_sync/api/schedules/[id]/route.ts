@@ -1,3 +1,4 @@
+import { scheduleWriteErrorResponse } from '../../../lib/schedule-write-error'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -148,8 +149,12 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     if (isInvalidScheduleValueError(error)) {
       return NextResponse.json(buildScheduleValueErrorBody(error.scheduleType), { status: 422 })
     }
-    const message = error instanceof Error ? error.message : 'Failed to update sync schedule'
-    return NextResponse.json({ error: message }, { status: 422 })
+    return scheduleWriteErrorResponse(error, {
+      ...scope,
+      operation: 'update',
+      scheduleId: current.id,
+      integrationId: current.integrationId,
+    })
   }
 }
 
@@ -222,7 +227,10 @@ export async function DELETE(req: Request, ctx: { params?: Promise<{ id?: string
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
-    const message = error instanceof Error ? error.message : 'Failed to delete sync schedule'
-    return NextResponse.json({ error: message }, { status: 422 })
+    return scheduleWriteErrorResponse(error, {
+      ...scope,
+      operation: 'delete',
+      scheduleId: parsedParams.data.id,
+    })
   }
 }

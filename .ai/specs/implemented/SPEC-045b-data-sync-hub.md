@@ -2514,6 +2514,32 @@ export function createRateLimiter(requestsPerSecond: number) {
 
 ---
 
+### Schedule write error disclosure correction (#6001)
+
+`POST /api/data_sync/schedules`, `PUT /api/data_sync/schedules/[id]`, and
+`DELETE /api/data_sync/schedules/[id]` return a generic, server-translated
+`{ error: string }` with HTTP 500 for unexpected infrastructure failures.
+The original error is logged through `createLogger('data_sync')` and reported
+through the telemetry runtime with operation, organization, tenant, and available
+schedule/integration identifiers. Request bodies and schedule values are not
+included in that context. Typed schedule-value failures retain the structured
+422 field error; deliberate `CrudHttpError` responses remain unchanged.
+
+Migration & Backward Compatibility: callers must treat unexpected schedule-write
+failures as server failures (500) rather than invalid requests (422), and must
+not depend on raw driver text in the `error` value. Operators should use the
+server log and `data_sync.schedule_write_failed` telemetry code to diagnose
+failures. Route URLs, methods, response field types, successful responses,
+validation responses, mutation guards, optimistic locking, and persistence/
+compensation behavior are unchanged. This intentional error-status correction
+needs the compatibility review required by the repository policy; this spec does
+not grant a security-exception waiver.
+
+Regression coverage: route tests exercise POST/PUT/DELETE unexpected errors and
+non-Error throws, translated responses, original-error reporting with scope,
+CrudHttpError passthrough, POST/PUT typed schedule validation, and the existing
+scheduler-registration/write-compensation paths.
+
 ## 11. Final Compliance Report — 2026-03-04
 
 ### AGENTS.md Files Reviewed
@@ -2672,6 +2698,7 @@ before or after the code rolls out.
 
 | Date | Change |
 |------|--------|
+| 2026-11-19 | Corrected schedule write error disclosure/status mapping (#6001), preserving typed 422 validation and reporting unexpected failures server-side. |
 | 2026-02-24 | Initial Data Sync Hub draft |
 | 2026-02-24 | Added scheduler and progress integration details |
 | 2026-02-24 | Added `sync_excel` reference implementation |

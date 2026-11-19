@@ -6,6 +6,10 @@ const mockGetAuthFromRequest = jest.fn()
 const mockLoggerError = jest.fn()
 const mockReportError = jest.fn()
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: () => 'Translated schedule write failure' })),
+}))
+
 const mockEm = {
   create: jest.fn(),
   persist: jest.fn(),
@@ -205,16 +209,17 @@ describe('data_sync schedule save write ordering', () => {
   })
 
   it('unregisters the scheduled job it just created when the schedule row fails to flush', async () => {
-    const flushError = new Error('could not serialize access due to concurrent update')
+    const flushError = new Error('test.schedule_write_failure')
     mockEm.flush.mockImplementation(async () => {
       throw flushError
     })
 
     const res = await POST(request())
 
-    expect(res.status).toBe(422)
+    expect(res.status).toBe(500)
     const body = await res.json()
-    expect(body.error).toBe(flushError.message)
+    expect(body.error).toBe('Translated schedule write failure')
+    expect(mockReportError.mock.calls.find(([, context]) => context.code === 'data_sync.schedule_write_failed')?.[0]).toBe(flushError)
 
     const registeredJobId = mockScheduler.register.mock.calls[0][0].id
     expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
@@ -224,12 +229,12 @@ describe('data_sync schedule save write ordering', () => {
   it('leaves an inherited registration alone when the update write fails', async () => {
     mockFindOneWithDecryption.mockImplementation(async () => existingRow('job-1'))
     mockEm.flush.mockImplementation(async () => {
-      throw new Error('could not serialize access due to concurrent update')
+      throw new Error('test.schedule_write_failure')
     })
 
     const res = await POST(request())
 
-    expect(res.status).toBe(422)
+    expect(res.status).toBe(500)
     expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }))
     expect(mockScheduler.unregister).not.toHaveBeenCalled()
   })
@@ -237,12 +242,12 @@ describe('data_sync schedule save write ordering', () => {
   it('unregisters the registration it minted for a row that had no scheduled job yet', async () => {
     mockFindOneWithDecryption.mockImplementation(async () => existingRow(null))
     mockEm.flush.mockImplementation(async () => {
-      throw new Error('connection terminated unexpectedly')
+      throw new Error('test.schedule_write_failure')
     })
 
     const res = await POST(request())
 
-    expect(res.status).toBe(422)
+    expect(res.status).toBe(500)
     expect(mockScheduler.exists).toHaveBeenCalledWith('schedule-1')
     expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'schedule-1' }))
     expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
@@ -253,12 +258,12 @@ describe('data_sync schedule save write ordering', () => {
     mockFindOneWithDecryption.mockImplementation(async () => existingRow(null))
     mockScheduler.exists.mockImplementation(async () => true)
     mockEm.flush.mockImplementation(async () => {
-      throw new Error('connection terminated unexpectedly')
+      throw new Error('test.schedule_write_failure')
     })
 
     const res = await POST(request())
 
-    expect(res.status).toBe(422)
+    expect(res.status).toBe(500)
     expect(mockScheduler.exists).toHaveBeenCalledWith('schedule-1')
     expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'schedule-1' }))
     expect(mockScheduler.unregister).not.toHaveBeenCalled()
@@ -266,12 +271,12 @@ describe('data_sync schedule save write ordering', () => {
 
   it('does not query the scheduler for a freshly minted id on the create path', async () => {
     mockEm.flush.mockImplementation(async () => {
-      throw new Error('connection terminated unexpectedly')
+      throw new Error('test.schedule_write_failure')
     })
 
     const res = await POST(request())
 
-    expect(res.status).toBe(422)
+    expect(res.status).toBe(500)
     expect(mockScheduler.exists).not.toHaveBeenCalled()
     expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
   })
@@ -284,17 +289,17 @@ describe('data_sync schedule save write ordering', () => {
     const service = createSyncScheduleService(mockEm, schedulerWithoutExists)
     mockFindOneWithDecryption.mockImplementation(async () => existingRow(null))
     mockEm.flush.mockImplementation(async () => {
-      throw new Error('connection terminated unexpectedly')
+      throw new Error('test.schedule_write_failure')
     })
 
-    await expect(service.saveSchedule(saveInput(), scope)).rejects.toThrow('connection terminated unexpectedly')
+    await expect(service.saveSchedule(saveInput(), scope)).rejects.toMatchObject({ message: 'test.schedule_write_failure' })
 
     expect(schedulerWithoutExists.unregister).toHaveBeenCalledTimes(1)
     expect(schedulerWithoutExists.unregister).toHaveBeenCalledWith('schedule-1')
   })
 
   it('still surfaces the original write failure when the compensating unregister also fails', async () => {
-    const flushError = new Error('connection terminated unexpectedly')
+    const flushError = new Error('test.schedule_write_failure')
     mockEm.flush.mockImplementation(async () => {
       throw flushError
     })
@@ -304,15 +309,16 @@ describe('data_sync schedule save write ordering', () => {
 
     const res = await POST(request())
 
-    expect(res.status).toBe(422)
+    expect(res.status).toBe(500)
     const body = await res.json()
-    expect(body.error).toBe(flushError.message)
+    expect(body.error).toBe('Translated schedule write failure')
+    expect(mockReportError.mock.calls.find(([, context]) => context.code === 'data_sync.schedule_write_failed')?.[0]).toBe(flushError)
     expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
   })
 
   it('logs the orphaned scheduled job when the compensating unregister fails', async () => {
     mockEm.flush.mockImplementation(async () => {
-      throw new Error('connection terminated unexpectedly')
+      throw new Error('test.schedule_write_failure')
     })
     const compensationError = new Error('scheduler unavailable')
     mockScheduler.unregister.mockImplementation(async () => {
@@ -322,7 +328,7 @@ describe('data_sync schedule save write ordering', () => {
     await POST(request())
 
     const registeredJobId = mockScheduler.register.mock.calls[0][0].id
-    expect(mockLoggerError).toHaveBeenCalledTimes(1)
+    expect(mockLoggerError).toHaveBeenCalledTimes(2)
     expect(mockLoggerError).toHaveBeenCalledWith(
       expect.stringContaining('Failed to unregister the scheduled job'),
       expect.objectContaining({
@@ -333,7 +339,7 @@ describe('data_sync schedule save write ordering', () => {
         err: compensationError,
       }),
     )
-    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledTimes(2)
     expect(mockReportError).toHaveBeenCalledWith(
       compensationError,
       expect.objectContaining({
@@ -352,12 +358,12 @@ describe('data_sync schedule save write ordering', () => {
   it('unregisters the registration it minted when the update route fails to flush', async () => {
     mockFindOneWithDecryption.mockImplementation(async () => existingRow(null))
     mockEm.flush.mockImplementation(async () => {
-      throw new Error('connection terminated unexpectedly')
+      throw new Error('test.schedule_write_failure')
     })
 
     const res = await PUT(updateRequest(), { params: { id: updateRouteScheduleId } })
 
-    expect(res.status).toBe(422)
+    expect(res.status).toBe(500)
     expect(mockScheduler.exists).toHaveBeenCalledWith('schedule-1')
     expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'schedule-1' }))
     expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
@@ -367,12 +373,12 @@ describe('data_sync schedule save write ordering', () => {
   it('leaves an inherited registration alone when the update route fails to flush', async () => {
     mockFindOneWithDecryption.mockImplementation(async () => existingRow('job-1'))
     mockEm.flush.mockImplementation(async () => {
-      throw new Error('connection terminated unexpectedly')
+      throw new Error('test.schedule_write_failure')
     })
 
     const res = await PUT(updateRequest(), { params: { id: updateRouteScheduleId } })
 
-    expect(res.status).toBe(422)
+    expect(res.status).toBe(500)
     expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }))
     expect(mockScheduler.unregister).not.toHaveBeenCalled()
   })
@@ -407,12 +413,12 @@ describe('data_sync schedule delete compensation', () => {
   it('re-registers the job and still propagates the original error when the flush fails', async () => {
     const row = makeRow()
     mockFindOneWithDecryption.mockResolvedValueOnce(row)
-    const flushError = new Error('connection lost')
+    const flushError = new Error('test.schedule_delete_failure')
     mockEm.flush.mockRejectedValueOnce(flushError)
     mockScheduler.unregister.mockResolvedValueOnce(undefined)
     mockScheduler.register.mockResolvedValueOnce(undefined)
 
-    await expect(scheduleService.deleteSchedule(row.id, scope)).rejects.toThrow('connection lost')
+    await expect(scheduleService.deleteSchedule(row.id, scope)).rejects.toThrow('test.schedule_delete_failure')
 
     expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
     expect(mockScheduler.unregister).toHaveBeenCalledWith('job-1')
@@ -431,13 +437,13 @@ describe('data_sync schedule delete compensation', () => {
   it('does not mask the original error when the compensation register also fails', async () => {
     const row = makeRow()
     mockFindOneWithDecryption.mockResolvedValueOnce(row)
-    const flushError = new Error('connection lost')
+    const flushError = new Error('test.schedule_delete_failure')
     mockEm.flush.mockRejectedValueOnce(flushError)
     mockScheduler.unregister.mockResolvedValueOnce(undefined)
     const compensationError = new Error('scheduler unavailable')
     mockScheduler.register.mockRejectedValueOnce(compensationError)
 
-    await expect(scheduleService.deleteSchedule(row.id, scope)).rejects.toThrow('connection lost')
+    await expect(scheduleService.deleteSchedule(row.id, scope)).rejects.toThrow('test.schedule_delete_failure')
 
     expect(mockScheduler.register).toHaveBeenCalledTimes(1)
     expect(mockLoggerError).toHaveBeenCalledTimes(1)

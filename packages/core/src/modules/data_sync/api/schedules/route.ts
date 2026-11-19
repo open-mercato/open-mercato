@@ -1,3 +1,4 @@
+import { scheduleWriteErrorResponse } from '../../lib/schedule-write-error'
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
@@ -125,7 +126,10 @@ export async function POST(req: Request) {
     if (isInvalidScheduleValueError(error)) {
       return NextResponse.json(buildScheduleValueErrorBody(error.scheduleType), { status: 422 })
     }
-    const message = error instanceof Error ? error.message : 'Failed to save sync schedule'
-    return NextResponse.json({ error: message }, { status: 422 })
+    return scheduleWriteErrorResponse(error, {
+      ...scope,
+      operation: 'create',
+      integrationId: parsed.data.integrationId,
+    })
   }
 }
