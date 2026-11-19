@@ -10,6 +10,7 @@ import {
   ProductInventoryProfile,
   Warehouse,
 } from '../../data/entities'
+import { WmsReservationService } from '../../lib/wmsReservationService'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -67,12 +68,15 @@ function createEm() {
   return em
 }
 
+const wmsReservationService = new WmsReservationService()
+
 function createCtx(em: ReturnType<typeof createEm>) {
   return {
     container: {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'dataEngine') return {}
+        if (name === 'wmsReservationService') return wmsReservationService
         throw new Error(`Unexpected resolve: ${name}`)
       },
     },
