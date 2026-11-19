@@ -418,7 +418,9 @@ The list principal is:
 - the session user, when the request carries an `x-om-session-token: sess_…` header (the same session token that tool calls pass as `_sessionToken`). An invalid or expired header returns `401`;
 - otherwise the server API key's own ACL (its roles and features).
 
-Without the header, a server key that carries no features lists only `context_whoami`. Clients that act for a user (for example OpenCode in the web chat) send the header so the list matches what the user can call.
+Without the header, a server key that carries no features lists only `context_whoami`. Custom clients that act for a user can send the header so the list matches what that user can call.
+
+OpenCode (the web chat and command palette) does **not** send the header: its MCP config is static and carries only `x-api-key`, so its tool list is the server key's own ACL. That key must therefore carry roles. The key that `mercato ai_assistant mcp:ensure-api-key` provisions copies its owner's roles, so the default setup works. If you set `MCP_SERVER_API_KEY` by hand, give that key the roles the web chat needs; a key with no roles lists only `context_whoami` and the chat cannot call any other tool.
 
 `GET /health` on the HTTP server reports the exposure in effect (counts and mode, never tool names):
 
