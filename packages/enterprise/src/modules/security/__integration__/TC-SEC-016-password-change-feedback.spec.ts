@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { postForm } from '@open-mercato/core/helpers/integration/api'
+import { postForm, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import {
   clearAuthCookie,
   createAdminApiToken,
@@ -125,18 +125,20 @@ test.describe('TC-SEC-016: Change password feedback and session boundary', () =>
       expect(reused.body.issues?.[0]?.path).toEqual(['newPassword'])
       expect(reused.body.error).toBe('Nowe hasło musi się różnić od obecnego hasła.')
 
-      const anonymous = await request.fetch(`${BASE_URL}${PASSWORD_ROUTE}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        data: { currentPassword: user.password, newPassword: NEW_PASSWORD },
-      })
-      expect(anonymous.status()).toBe(401)
+      await withCredentialIsolatedRequest(async (isolatedRequest) => {
+        const anonymous = await isolatedRequest.fetch(`${BASE_URL}${PASSWORD_ROUTE}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          data: { currentPassword: user.password, newPassword: NEW_PASSWORD },
+        })
+        expect(anonymous.status()).toBe(401)
 
-      const invalidToken = await fetchJson<PasswordErrorBody>(request, 'PUT', PASSWORD_ROUTE, {
-        token: `${token.slice(0, -4)}AAAA`,
-        data: { currentPassword: user.password, newPassword: NEW_PASSWORD },
+        const invalidToken = await fetchJson<PasswordErrorBody>(isolatedRequest, 'PUT', PASSWORD_ROUTE, {
+          token: `${token.slice(0, -4)}AAAA`,
+          data: { currentPassword: user.password, newPassword: NEW_PASSWORD },
+        })
+        expect(invalidToken.status).toBe(401)
       })
-      expect(invalidToken.status).toBe(401)
 
       expect(await canLogin(request, user.email, user.password)).toBe(true)
       expect(await canLogin(request, user.email, NEW_PASSWORD)).toBe(false)
@@ -167,7 +169,17 @@ test.describe('TC-SEC-016: Change password feedback and session boundary', () =>
         await dialog.accept()
       })
       await fillPasswordForm(page, [user.password, NEW_PASSWORD, NEW_PASSWORD])
-      await clearAuthCookie(page)
+      await page.route(`**${PASSWORD_ROUTE}`, async (route) => {
+        await withCredentialIsolatedRequest(async (isolatedRequest) => {
+          const headers = await route.request().allHeaders()
+          delete headers.cookie
+          delete headers.authorization
+          const unauthorized = await isolatedRequest.fetch(route.request(), { headers, maxRedirects: 0 })
+          expect(unauthorized.status()).toBe(401)
+          await clearAuthCookie(page)
+          await route.fulfill({ response: unauthorized })
+        })
+      }, { times: 1 })
 
       const responsePromise = page.waitForResponse(
         (response) => response.url().includes(PASSWORD_ROUTE) && response.request().method() === 'PUT',
