@@ -110,14 +110,14 @@ assertSameCurrency(left: Currency, right: Currency): void
 |----------|------|
 | `createMoney(amount: DecimalInput, currency)` | `toDecimal` validation and the parent spec's size caps apply. The amount is exact, with no rounding |
 | `zeroMoney(currency)` | Starting value for a `reduce` |
-| `addMoney(a, b)`, `subtractMoney(a, b)` | `assertSameCurrency`, then exact |
+| `addMoney(a, b)`, `subtractMoney(a, b)` | `assertSameCurrency`, then exact. A result that would need rounding to fit the stored-amount range (300 integer digits, 1000 significant digits, nothing below `1e-1000`) throws `Decimal result out of range`; nothing is rounded silently |
 | `sumMoney(currency, values)` | `values.reduce(addMoney, zeroMoney(currency))`. The currency is required so an empty list is well defined |
-| `multiplyMoney(m, factor: DecimalInput)` | Exact |
+| `multiplyMoney(m, factor: DecimalInput)` | Exact, with the same range rule as `addMoney` |
 | `divideMoney(m, divisor, rounding)` | One `big.js` division on a module-private constructor (`const RoundedDivision = BigConstructor()`). The function sets `RoundedDivision.DP` and `RoundedDivision.RM` from `rounding` inside `try`/`finally`, then runs `new RoundedDivision(m.amount.toFixed()).div(divisor)`; `div` reads `DP`/`RM` from the dividend's constructor. The quotient is rounded **once**, with no cut at 50 places followed by a second rounding. The result is re-wrapped with `toDecimal(quotient.toFixed())`, so every `Money.amount` comes from the shared constructor. Division by zero throws |
-| `roundMoney(m, rounding)` | `amount.round(dp, mode)` |
+| `roundMoney(m, rounding)` | `amount.round(dp, mode)`. A carry past 300 integer digits throws, like every operation whose result leaves the stored-amount range (the range is checked when each `Money` is created, so `snapshotMoney`/`restoreMoney` always round-trip) |
 | `negateMoney`, `absMoney` | Exact |
 | `allocateMoney(m, ratios, { decimalPlaces })` | Largest-remainder method; see below |
-| `convertMoney(m, rate, target, rounding)` | `rate` must be positive and means target units per one source unit. The amount is `round(m.amount × rate)`, an exact multiplication followed by one rounding. A target with the same code throws `CurrencyMismatchError` |
+| `convertMoney(m, rate, target, rounding)` | `rate` must be positive and means target units per one source unit. The amount is `round(m.amount × rate)`, an exact, uncapped multiplication followed by one rounding. A target with the same code throws `CurrencyMismatchError` |
 | `rescaleMoney(m, target, rounding)` | The only way to move an amount between two currencies with the same code and different `decimalPlaces` (a tenant precision change). It throws when the codes differ |
 | `compareMoney(a, b)` | Asserts the same currency, returns `-1 \| 0 \| 1`. Usable as an `Array.sort` comparator |
 | `moneyEquals(a, b)` | `false` for different currencies (not arithmetic, so it does not throw) |
@@ -126,9 +126,9 @@ assertSameCurrency(left: Currency, right: Currency): void
 | `minMoney(...values)`, `maxMoney(...values)` | Assert the same currency. Throw on an empty list |
 
 **`allocateMoney` algorithm.**
-1. Throw `InvalidAllocationError` when `m.amount` has more than `decimalPlaces` decimals (round it first, since rounding is explicit), when `ratios` is empty, when any ratio is negative, or when all ratios are zero.
+1. Throw `InvalidAllocationError` when `m.amount` has more than `decimalPlaces` decimals (round it first, since rounding is explicit), when `ratios` is empty or has more than 1000 entries, when any ratio is negative, has more than 50 integer digits or more than 50 decimals, or when all ratios are zero. The ratio bounds keep the exact integer work small (1000 ratios at the bounds take well under a second).
 2. Make the ratios integers by scaling them all by `10^k`, where `k` is the largest number of decimals among them. Let `U = |amount| × 10^decimalPlaces` (an integer number of units) and `S = Σratios`.
-3. Share `i` gets `floor(U × ratio_i / S)` units, computed with exact integer math (`big.js` `div` at `DP = 0`, `RM = down`, on integers).
+3. Share `i` gets `floor(U × ratio_i / S)` units, computed with exact, uncapped integer math (`big.js` `div` at `DP = 0`, `RM = down`, on integers). Only the returned parts must fit the stored-amount range.
 4. The leftover `U − Σshares` units (an integer smaller than the number of ratios) go one each to the shares with the largest **exact** remainder `(U × ratio_i) mod S`, computed on the fresh product, never on a stored amount. Ties go to the lower index. A zero ratio has remainder 0 and never receives a unit.
 5. Convert the units back (`× 10^-decimalPlaces`) and restore the sign.
 
@@ -180,7 +180,7 @@ export type CurrencyPrecisionResolver = {
 }
 ```
 
-`CurrencyPrecisionService` (currencies module) implements `getCurrency`. The per-request lookup cache changes from a decimal-places promise to a `CurrencyDetails` promise, and `getDecimalPlaces` reads from it. The query is unchanged: `findOneWithDecryption`, scoped to the tenant and organization, `deletedAt: null`, and `null` without an organization.
+`CurrencyPrecisionService` (currencies module) implements `getCurrency`. The per-request lookup cache holds the currency record, and `getDecimalPlaces` reads from it. The query is unchanged: `findOneWithDecryption`, scoped to the tenant and organization, `deletedAt: null`, and `null` without an organization. `getCurrency` returns `null` for an inactive currency (`is_active = false`), so no new money is created in it; `getDecimalPlaces` keeps reporting its precision for existing amounts, and stored snapshots still restore. The resolver type documents the same expectation for third-party `getCurrency` implementations. `resolveCurrency` itself rejects a lookup without a tenant or an organization before it calls any resolver.
 
 ### Harness enforcement (D9)
 
@@ -359,14 +359,20 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - A PostgreSQL-backed test (`moneyColumns.integration.test.ts`, run by `test:pg-integration`) flushes, clears and reloads `MoneyColumns` values beyond JS number precision, a nullable embedding, and a last-digit-only update.
   - `money:check-new-code` resolves the repository's default branch (`upstream/HEAD`, `origin/HEAD`, then `main`/`develop`/`master`) before falling back to `HEAD~1`.
   - Guidance names the shape per layer: `Money` in domain code, `MoneyInput` in request/response payloads, `MoneySnapshot` in trusted messages, `MoneyColumns` in entities.
+- 2026-11-19 — Pre-push review follow-ups:
+  - `allocateMoney` bounds its exact integer work: at most 1000 ratios, each with at most 50 integer digits and 50 decimals (`InvalidAllocationError` otherwise).
+  - `addMoney`, `subtractMoney`, `sumMoney` and `multiplyMoney` are exact and throw `Decimal result out of range` instead of rounding a result that does not fit the stored-amount range.
+  - `exports` also blocks `lib/money/internal.tsx` and `.js`.
+  - The `CurrencyPrecisionResolver` type documents that `getCurrency` should return `null` for inactive currencies.
+  - Status, Verification and Phase 3 Step 4 record the PostgreSQL test, the Linux create-app run and the fresh packed-preset evidence, and the live/certified routing lane waiver request.
 
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Value objects | Done | 2026-11-19 | `lib/money/*` + `CurrencyPrecisionResolver.getCurrency?`; unit tests passing |
-| Phase 2 — Persistence | Done | 2026-11-19 | `lib/db/moneyColumns.ts`, metadata test (`connect: false`), adopter recipe in `packages/shared/AGENTS.md` and `apps/docs` |
-| Phase 3 — Harness enforcement | Done | 2026-11-19 | Root `AGENTS.md`, `packages/shared/AGENTS.md`, review/spec checklists, `yarn money:check-new-code`, standalone harness case OMH-243. Live-runner harness lanes not run (see notes) |
+| Phase 2 — Persistence | Done | 2026-11-19 | `lib/db/moneyColumns.ts`, metadata test (`connect: false`) plus a PostgreSQL-backed round-trip test (`moneyColumns.integration.test.ts`, `test:pg-integration`), adopter recipe in `packages/shared/AGENTS.md` and `apps/docs` |
+| Phase 3 — Harness enforcement | Done | 2026-11-19 | Root `AGENTS.md`, `packages/shared/AGENTS.md`, review/spec checklists, `yarn money:check-new-code`, standalone harness case OMH-243. Fresh packed-preset deterministic proof done; the live/certified routing lane awaits a maintainer waiver (see Step 4) |
 
 ### Phase 1 — Detailed Progress
 - [x] Step 1: `CurrencyDetails` + optional `getCurrency` on the resolver contract; `CurrencyPrecisionService.getCurrency` shares the per-request lookup with `getDecimalPlaces`
@@ -377,24 +383,27 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 - [x] Step 6: `serialization.ts` + `packages/shared/AGENTS.md` row
 
 ### Phase 2 — Detailed Progress
-- [x] Step 1: `MoneyColumns`, `moneyToColumns`, `moneyFromColumns` + metadata and round-trip tests. Discovery through the referencing entity works; no re-export fallback is needed
+- [x] Step 1: `MoneyColumns`, `moneyToColumns`, `moneyFromColumns` + metadata and round-trip tests. Discovery through the referencing entity works; no re-export fallback is needed. `moneyColumns.integration.test.ts` (PostgreSQL via testcontainers, in `test:pg-integration`) flushes, clears and reloads values beyond JS number precision, a nullable embedding set and cleared, last-digit-only updates, and scale-only changes that issue no UPDATE
 - [x] Step 2: Adopter recipe in `packages/shared/AGENTS.md` and `apps/docs/docs/framework/data-integrity/money-value-objects.mdx`
 
 ### Phase 3 — Detailed Progress
 - [x] Step 1: Root `AGENTS.md` `Always`/`Never` lines + Task Router row (existing wording tightened to stay inside the 31,232-byte root limit; `yarn agents:check-budget` passes) and `packages/shared/AGENTS.md` (`money/` row, `decimal.ts` row scoped to existing contracts, Money Value Objects recipe)
 - [x] Step 2: `.ai/review-checklist.md` (§3 items + anti-pattern row), `.ai/specs/AGENTS.md`, and the repo-local `om-spec-writing` spec checklist (§3)
 - [x] Step 3: `scripts/money-check-new-code.mjs`, `yarn money:check-new-code`, `.ai/money-allowlist.json`; fixture tests in `scripts/__tests__/money-check-new-code.test.mjs` (run by `yarn test:scripts`)
-- [x] Step 4: Standalone harness: Money Contract in `om-data-model-design/references/schema-design.md` (kept in a reference so no initial-context budget grows), pointers in `agentic/guides/contracts.md`, `om-data-model-design/SKILL.md` and `agentic/shared/ai/review-checklist.md`; routing case `OMH-243` with counts synced to 243, regenerated source-link inventory, and knowledge-change manifest `harness-evidence/D9-money-value-object.knowledge-change.json` (validator: PASS). The live-runner lanes (`harness:validate --runner …`, `harness:release`, portability, fresh packed-preset proof) need a live LLM runner and Linux containment and were not run here
+- [x] Step 4: Standalone harness: Money Contract in `om-data-model-design/references/schema-design.md` (kept in a reference so no initial-context budget grows), pointers in `agentic/guides/contracts.md`, `om-data-model-design/SKILL.md` and `agentic/shared/ai/review-checklist.md`; routing case `OMH-243` with counts synced to 243, regenerated source-link inventory, and knowledge-change manifest `harness-evidence/D9-money-value-object.knowledge-change.json` (validator: PASS).
+  - Fresh packed-preset proof (2026-11-19, Linux container `node:24-bookworm`): the branch's packages were published to a private Verdaccio and `create-mercato-app` scaffolded the `classic`, `crm`, `empty` and `wms` presets (`yarn install`, `yarn generate`, `yarn install-skills` all pass). Deterministic `harness:validate --case OMH-243` passes on `classic`, `crm` and `wms`, and `harness:validate --all` passes 243/243 on `classic`. On `empty` 150 of 243 cases fail, OMH-243 among them, because `empty` installs no customers/sales/currencies module guides; existing cases (for example OMH-075 and OMH-114, which reference the same currencies guide) fail identically, so this is the catalog's established behaviour, not a regression.
+  - Not run: the live routing lane (`harness:validate --runner claude|codex`) and the certified `harness:release` suite. No runner credentials are available in this environment, and `harness:release` requires Linux bubblewrap with loopback isolation. A maintainer waiver for these lanes is requested on PR #9978, following the precedent in `.ai/specs/2026-08-14-standalone-harness-optimizations.md` (PR #5295); this entry does not claim they ran
 
-### Verification (2026-11-19)
-- `yarn build:packages` — 42/42 tasks pass; `yarn generate` — pass; `yarn lint` — pass; `tsc --noEmit` in `packages/shared` and `packages/core` — pass
-- `@open-mercato/shared` jest — 285 suites, 3565 tests pass (includes 92 new money / `MoneyColumns` tests)
-- `packages/core` currencies, payment_gateways, warranty_claims, staff and sales precision tests — 65 suites pass
-- `yarn test:scripts` — the 27 new money-check tests pass; 18 unrelated failures in this environment (docker/Traefik compose, Linux binary detection, npm snapshot tarball retries, PR-scope git history)
-- create-app harness: `agent-money-harness.test.ts` (run by the create-app `test` script), source-link inventory/links checks and the knowledge-change validator pass; the evaluator/coverage suites' sandbox and live-adapter tests abort with SIGABRT under nested `sandbox-exec` here (environmental)
+### Verification (2026-11-19, after the PR #9978 review fixes)
+- `yarn build:packages`, `yarn generate`, `yarn typecheck`, `yarn lint`, `yarn template:sync`, `yarn agents:check-budget` — pass
+- `@open-mercato/shared` jest — all suites pass (money, rounding, allocation, serialization, package-exports and `MoneyColumns` metadata tests included); `OM_PG_INTEGRATION=1 yarn test:pg-integration` — 3 suites pass, including `moneyColumns.integration.test.ts`
+- `packages/core` currencies tests — pass (inactive currency, shared cache, frozen details)
+- `node --test scripts/__tests__/money-check-new-code.test.mjs` — pass (incl. multi-commit default-base regressions)
+- create-app suite in a Linux container with bubblewrap — 1259 tests, 1244 pass, 0 fail, 15 skipped (incl. `agent-money-harness.test.ts`); on macOS its sandbox tests abort under nested `sandbox-exec` (environmental)
+- Fresh packed-preset scaffolds — see Phase 3 Step 4
 
 ### Implementation notes
-- The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract.
+- The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract; `exports` maps `./lib/money/internal`, `.ts`, `.tsx` and `.js` to `null`, and other spellings resolve to no file.
 - `allocateMoney` computes each share as `floor(U × ratio_i / S)` with a single private-constructor division (`DP = 0`, `RM = down`) and the remainder as `U × ratio_i − share × S`. This is the same exact integer remainder as `mod`, without calling `mod` at all.
 - `restoreMoney` and `resolveMoney` throw a plain `[internal]` `Error` for an invalid snapshot or input. No extra error class was added.
 - A zero result is normalised to a positive sign, so `negateMoney(zero)` is never `-0`.
