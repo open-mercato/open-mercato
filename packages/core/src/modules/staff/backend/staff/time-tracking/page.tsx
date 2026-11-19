@@ -621,7 +621,7 @@ export default function TimeTrackingMyWorkPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <section className="rounded-lg border xl:col-span-2">
+              <section className="min-w-0 rounded-lg border xl:col-span-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
                   <h2 className="text-sm font-semibold">
                     {t('staff.time_tracking.myWork.today.title', 'Today’s entries')}
@@ -647,13 +647,15 @@ export default function TimeTrackingMyWorkPage() {
                   </p>
                 ) : (
                   <>
-                    <DataTable<MyWorkEntry>
-                      embedded
-                      extensionTableId={extensionPoints.hosts.myWorkTodayEntriesTable.tableId}
-                      disableRowClick
-                      columns={todayEntriesColumns}
-                      data={data.entries}
-                    />
+                    <div className="overflow-x-auto md:overflow-visible">
+                      <DataTable<MyWorkEntry>
+                        embedded
+                        extensionTableId={extensionPoints.hosts.myWorkTodayEntriesTable.tableId}
+                        disableRowClick
+                        columns={todayEntriesColumns}
+                        data={data.entries}
+                      />
+                    </div>
                     {canManageOwn && quickTargets.length > 0 ? (
                       <div
                         className="flex flex-wrap items-start gap-2 border-t p-3"
