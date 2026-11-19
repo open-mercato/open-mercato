@@ -26,7 +26,13 @@ export const metadata = {
 
 export async function PATCH(req: Request) {
   try {
-    const body = await req.json()
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+
     const parsed = actionEditSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid payload', details: parsed.error.issues }, { status: 400 })

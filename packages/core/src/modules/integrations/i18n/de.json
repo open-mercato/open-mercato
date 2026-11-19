@@ -88,6 +88,8 @@
   "integrations.detail.version.select": "Version auswählen",
   "integrations.detail.version.stable": "Stabil",
   "integrations.detail.version.sunsetAt": "Ablauf: {date}",
+  "integrations.hubs.data_sync": "Datensynchronisierung",
+  "integrations.hubs.payment_gateways": "Zahlungsanbieter",
   "integrations.marketplace.analytics.errorRate": "Fehlerrate: {rate}",
   "integrations.marketplace.analytics.events": "{count} Log-Ereignisse (30 T.)",
   "integrations.marketplace.categories.all": "Alle",
