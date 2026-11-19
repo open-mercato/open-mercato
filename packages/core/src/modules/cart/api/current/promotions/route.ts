@@ -146,7 +146,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid request body' },
         { status: 404, description: 'No `X-Cart-Token` header, or the token does not resolve a cart' },
-        { status: 409, description: 'Optimistic-lock conflict, or `code_reservation_unavailable` (§15a)' },
+        { status: 409, description: 'Optimistic-lock conflict, or `code_reservation_unavailable` (§15a). Missing customer identification adds reason `code_requires_identified_customer` and a localized message.' },
         { status: 429, description: 'Rate limited' },
         { status: 503, description: 'Store context or promotion rate limiter unavailable' },
       ],

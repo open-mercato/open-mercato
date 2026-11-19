@@ -53,6 +53,7 @@ const mockEventBus = { emitEvent: jest.fn() }
 const defaultOrganizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const defaultTenantId = '123e4567-e89b-12d3-a456-426614174000'
 type MockOrganizationScope = {
+  selectionRejected?: boolean
   selectedId: string | null
   filterIds: string[] | null
   allowedIds: string[] | null
@@ -299,6 +300,36 @@ describe('CRUD Factory', () => {
       customFields: { enabled: true, entityId: 'example.todo', pickPrefixed: true },
     },
     del: { idFrom: 'query', softDelete: true },
+  })
+
+  it.each(['GET', 'POST', 'PUT', 'DELETE'] as const)('%s translates a rejected organization selection before any record operation', async (method) => {
+    mockOrganizationScopeOverride = {
+      tenantId: defaultTenantId,
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [defaultOrganizationId],
+      selectionRejected: true,
+    }
+    const message = 'Wybrana organizacja jest niedostępna. Wybierz inną organizację i spróbuj ponownie.'
+    mockTranslate.mockImplementation((key: string, fallback?: string) => key === 'api.errors.organizationSelectionInvalid' ? message : fallback ?? key)
+    const response = await route[method](new Request('http://x/api/example/todos?id=missing', {
+      method,
+      ...(method === 'POST' || method === 'PUT' ? {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'missing', title: 'Changed' }),
+      } : {}),
+    }))
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({ error: message, code: 'organization_selection_invalid' })
+    expect(mockTranslate).toHaveBeenCalledWith('api.errors.organizationSelectionInvalid', expect.any(String))
+    expect(response.headers.get('set-cookie')).toEqual(method === 'GET' ? expect.stringContaining('om_selected_org=') : null)
+    expect(queryEngine.query).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+    expect(mockDataEngine.updateOrmEntity).not.toHaveBeenCalled()
+    expect(mockDataEngine.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(db).toEqual({})
+    mockTranslate.mockReset().mockImplementation((key: string, fallback?: string) => fallback ?? key)
   })
 
   it('GET returns JSON list via QueryEngine', async () => {

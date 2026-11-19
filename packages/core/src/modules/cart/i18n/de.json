@@ -5,6 +5,7 @@
   "cart.audit.lines.remove": "Remove cart line",
   "cart.audit.merge": "Merge cart",
   "cart.errors.busy": "Der Warenkorb ist ausgelastet. Bitte versuche es erneut.",
+  "cart.errors.code_requires_identified_customer": "Dieser Code erfordert ein mit einem Kunden verknüpftes Konto. Melden Sie sich mit einem verknüpften Konto an oder wenden Sie sich an den Support, um Ihr Konto zu verknüpfen.",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.unexpected": "Unexpected error",
   "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",

@@ -5,6 +5,7 @@
   "cart.audit.lines.remove": "Remove cart line",
   "cart.audit.merge": "Merge cart",
   "cart.errors.busy": "El carrito está ocupado. Inténtalo de nuevo.",
+  "cart.errors.code_requires_identified_customer": "Este código requiere una cuenta vinculada a un cliente. Inicia sesión con una cuenta vinculada o contacta con soporte para vincular tu cuenta.",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.unexpected": "Unexpected error",
   "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",

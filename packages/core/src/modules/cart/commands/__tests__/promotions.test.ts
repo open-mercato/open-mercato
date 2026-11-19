@@ -1,3 +1,7 @@
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (key: string) => `translated:${key}` }),
+}))
+
 jest.mock('../../events', () => ({
   emitCartEvent: jest.fn(async () => undefined),
 }))
@@ -41,7 +45,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { mapRouteErrorToResponse } from '../../lib/currentCartRoute'
 import { Cart, CartLine, CartPromotionApplication } from '../../data/entities'
 import { Promotion, Rule, CodeReservation } from '@open-mercato/core/modules/promotions/data/entities'
 import { emitCartEvent as mockedEmitCartEvent } from '../../events'
@@ -340,12 +345,16 @@ describe('cart.promotions.apply', () => {
     expect(seededApplications).toHaveLength(1)
   })
 
-  it('maps every reserveCode failure to the uniform 409 code_reservation_unavailable, never leaking promotions\' own error vocabulary', async () => {
+  it.each([
+    new CrudHttpError(422, { error: 'code_invalid' }),
+    new CrudHttpError(503, { error: 'code_requires_identified_customer' }),
+    Object.assign(new Error('code_requires_identified_customer'), { status: 422, body: { error: 'code_requires_identified_customer' } }),
+  ])('keeps other reserveCode failures opaque (%s)', async (failure) => {
     seededCarts = [makeCartFixture()]
     const handler = commandRegistry.get<CartPromotionsApplyInput, CartPromotionsCommandResult>('cart.promotions.apply')
     const em = makeEm()
     const reserveCode = jest.fn(async () => {
-      throw Object.assign(new Error('code_invalid'), { status: 422, body: { error: 'code_invalid' } })
+      throw failure
     })
     const ctx = makeCtx({ em, promotionsService: { reserveCode, releaseCode: jest.fn(), extendReservation: jest.fn() } })
 
@@ -358,8 +367,37 @@ describe('cart.promotions.apply', () => {
 
     expect(isCrudHttpError(captured)).toBe(true)
     expect((captured as { status: number }).status).toBe(409)
-    expect((captured as { body: FakeRow }).body.code).toBe('code_reservation_unavailable')
+    expect((captured as { body: Record<string, unknown> }).body).toEqual({ error: '[internal] code_reservation_unavailable', code: 'code_reservation_unavailable' })
     expect(seededApplications).toHaveLength(0)
+  })
+
+  it.each([null, 'portal-user-1'])('explains a missing customer identity without changing the cart error contract (account %s)', async (customerUserId) => {
+    seededCarts = [makeCartFixture({ customerUserId })]
+    const handler = commandRegistry.get<CartPromotionsApplyInput, CartPromotionsCommandResult>('cart.promotions.apply')
+    const reserveCode = jest.fn(async () => {
+      throw new CrudHttpError(422, { error: 'code_requires_identified_customer' })
+    })
+    const releaseCode = jest.fn()
+    const ctx = makeCtx({ em: makeEm(), promotionsService: { reserveCode, releaseCode, extendReservation: jest.fn() } })
+    let failure: unknown
+    try {
+      await handler!.execute({ cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, codeString: 'LIMITED' }, ctx)
+    } catch (error) {
+      failure = error
+    }
+    expect(isCrudHttpError(failure)).toBe(true)
+    const response = await mapRouteErrorToResponse(failure)
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: '[internal] code_reservation_unavailable',
+      code: 'code_reservation_unavailable',
+      reason: 'code_requires_identified_customer',
+      message: 'translated:cart.errors.code_requires_identified_customer',
+    })
+    expect(reserveCode).toHaveBeenCalledWith({ codeString: 'LIMITED', cartId: 'cart-1', customerId: null })
+    expect(releaseCode).not.toHaveBeenCalled()
+    expect(seededApplications).toHaveLength(0)
+    expect(emitCartEventMock).not.toHaveBeenCalled()
   })
 
   it('releases the just-taken reservation and 409s when the code is valid but no active promotion references it', async () => {

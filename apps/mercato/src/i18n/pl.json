@@ -14,6 +14,7 @@
   "api.errors.invalidPayload": "Nieprawidłowa ładunek.",
   "api.errors.localeForced": "Język jest ustalony w konfiguracji",
   "api.errors.notFound": "Nie znaleziono",
+  "api.errors.organizationSelectionInvalid": "Wybrana organizacja jest niedostępna. Wybierz inną organizację i spróbuj ponownie.",
   "api.errors.rateLimit": "Zbyt wiele zapytań. Spróbuj ponownie później.",
   "api.errors.rateLimitUnavailable": "Usługa jest chwilowo niedostępna. Spróbuj ponownie później.",
   "api.errors.serviceUnavailable": "Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.",

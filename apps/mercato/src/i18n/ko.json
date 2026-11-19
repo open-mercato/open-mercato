@@ -14,6 +14,7 @@
   "api.errors.invalidPayload": "잘못된 페이로드입니다.",
   "api.errors.localeForced": "로케일이 설정에 의해 고정되어 있습니다",
   "api.errors.notFound": "찾을 수 없음",
+  "api.errors.organizationSelectionInvalid": "선택한 조직을 더 이상 사용할 수 없습니다. 조직을 다시 선택한 후 다시 시도하세요.",
   "api.errors.rateLimit": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
   "api.errors.rateLimitUnavailable": "서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   "api.errors.serviceUnavailable": "일시적으로 서비스를 이용할 수 없습니다. 잠시 후 다시 시도해 주세요.",

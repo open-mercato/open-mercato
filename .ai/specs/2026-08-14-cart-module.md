@@ -956,6 +956,8 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 
 ## 16a) Migration & Backward Compatibility (rev 9 — previously missing, per the Release 4 analysis §2)
 
+**2026-11-17 missing customer identification (#7882):** `POST /api/cart/current/promotions` preserves its `409`, `error`, and `code_reservation_unavailable` code. Only the promotions service’s explicit `422 code_requires_identified_customer` refusal adds optional `reason: code_requires_identified_customer` and a localized `message` explaining how to link an account. Existing clients can continue using the same error handling; clients may display the message to guide the buyer. Unknown, inactive, exhausted and other failed codes retain their opaque response. Identity, usage-limit enforcement and database structure are unchanged; no migration is needed.
+
 **2026-10-27 contention response (user-approved):** existing route URLs, request bodies, successful response schemas and database structure are unchanged. `POST /api/cart/current/lines` and `/lines/bulk` add the documented `503 cart_busy` response after 15 seconds of top-level lock contention. Clients should respect `Retry-After: 1` and retry the same body/idempotency key; they must not treat a generic 500 or an uncertain commit outcome as this safe pre-mutation rejection. The timeout does not undo existing preflight cart activity/reactivation or context-triggered repricing; its guarantee covers only the requested line add/bulk-add phases. Normal optimistic-lock checks still apply on retry. No database or server configuration migration is required.
 
 `cart` is greenfield: no implementation exists anywhere in the repository, so no deprecation protocol is triggered and no bridge is owed for any rename this revision makes.
@@ -997,6 +999,10 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 ---
 
 ## 18) Changelog
+
+### 2026-11-17 (#7882 — actionable identification refusal)
+
+- Preserve the promotions service’s missing-customer reason as optional error metadata on the cart API, with translated account-linking guidance. Command-to-HTTP regressions cover guests and logged-in accounts without CRM links; other reservation failures remain opaque.
 
 ### 2026-10-27 (connection release during cart line contention)
 

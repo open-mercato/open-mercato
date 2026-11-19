@@ -1,9 +1,10 @@
 import { asValue } from 'awilix'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CodeReservation, Promotion, Rule } from '@open-mercato/core/modules/promotions/data/entities'
 import type { CodeReservationResult, PromotionsService } from '@open-mercato/core/modules/promotions/lib/types'
@@ -32,13 +33,6 @@ import type { CartRepriceInput, CartRepriceResult } from './cart'
 type CartPromotionsScope = { tenantId: string; organizationId: string }
 
 function codeReservationUnavailableError(): CrudHttpError {
-  // §15a: `code_reservation_unavailable` / 409. Every `promotionsService.reserveCode()`
-  // failure collapses to this ONE cart-level code — never promotions' own
-  // `code_invalid`/`code_requires_identified_customer` vocabulary (`promotions/lib/
-  // code-service.ts`), which is an implementation detail of HOW the code became unusable,
-  // not something cart's public contract re-exposes. The spec names this mapping only for
-  // the budget/per-customer-limit case; this command applies it uniformly so there is one
-  // error surface for "this code did not work" — documented judgment call (Step 7.2).
   return new CrudHttpError(409, { error: '[internal] code_reservation_unavailable', code: 'code_reservation_unavailable' })
 }
 
@@ -188,7 +182,19 @@ const applyPromotionCommand: CommandHandler<CartPromotionsApplyInput, CartPromot
         cartId: cart.id,
         customerId: cart.customerId ?? null,
       })
-    } catch {
+    } catch (error) {
+      if (isCrudHttpError(error) && error.status === 422 && error.body.error === 'code_requires_identified_customer') {
+        const { translate } = await resolveTranslations()
+        const unavailable = codeReservationUnavailableError()
+        throw new CrudHttpError(unavailable.status, {
+          ...unavailable.body,
+          reason: 'code_requires_identified_customer',
+          message: translate(
+            'cart.errors.code_requires_identified_customer',
+            'This code requires an account linked to a customer. Sign in with a linked account or contact support to link your account.',
+          ),
+        })
+      }
       throw codeReservationUnavailableError()
     }
 
