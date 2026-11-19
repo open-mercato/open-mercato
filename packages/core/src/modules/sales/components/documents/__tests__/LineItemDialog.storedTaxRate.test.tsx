@@ -33,6 +33,7 @@ let capturedSubmit: SubmitHandler | null = null
 let formValues: FormValues = {}
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/apiCall'),
   apiCall: (...args: unknown[]) => mockApiCall(...args),
   withScopedApiRequestHeaders: async (
     _headers: unknown,
