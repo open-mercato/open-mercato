@@ -60,7 +60,7 @@ export type DetailAnnualRevenueFieldConfig = DetailFieldCommon & {
   value: string | null | undefined
   currency: string | null
   validator?: NonNullable<InlineFieldProps['validator']>
-  onSave: (payload: { amount: number | null; currency: string | null }) => Promise<void>
+  onSave: (payload: { amount: number | null; amountExact?: string | null; currency: string | null }) => Promise<void>
 }
 
 export type DetailFieldConfig =
