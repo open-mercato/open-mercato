@@ -2,7 +2,7 @@
 
 **Goal:** Add the opt-in `nbp_average` currency-rate provider, explicit provider/type selection, provenance storage, REST/UI support, tests, and upgrade documentation.
 
-**Source spec:** `/Users/kamil-nowak/Documents/work/development/tracecore/open-mercato/.ai/specs/2026-08-25-nbp-average-rate-contract.md`
+**Source spec:** [NBP average-rate contract](../../specs/2026-08-25-nbp-average-rate-contract.md)
 
 ## Tasks
 
