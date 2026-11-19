@@ -44,6 +44,15 @@ through country plugins. The Core Engine provides only the framework
 for tax handling") and the same Phase 1 discipline every sibling spec
 in this family uses.
 
+## Resolved assumptions (autonomous defaults)
+
+- **Paid corrections: ⚠ NEEDS HUMAN CONFIRMATION.** Phase 1 rejects corrections
+  to paid liabilities until the companion payment contract defines how prior
+  payments, overpayments and refunds are reconciled. Product/accounting must
+  confirm this scope reduction before implementation.
+- **Correction booking date.** Both legs use the original period end; that
+  ledger period must remain open. Later-period booking is deferred.
+
 ## Overview
 
 `tax_management` is a new, small `open-mercato` core module
@@ -293,6 +302,14 @@ existing territory in `sales`, unaffected by this document.
   `ledger.journal_entry.posted` to its composing caller: this module
   emits that ledger event after commit for the settlement entry and for
   any reversal entry, then the `tax_management.liability.*` event.
+- **Trusted command scope.** Calculate, post, correction and mark-paid derive
+  non-null tenant and organization IDs from trusted command context, never
+  request-supplied IDs. Before any write, engine invocation or ledger call,
+  load and lock every referenced fiscal period and liability (target, drafts
+  to supersede, correction original) with both IDs in the database predicate.
+  Missing and mismatched records give the same not-found response. Recheck
+  original status under the posting lock so payment cannot race correction.
+  Zero-line posts use the same checks without relying on ledger validation.
 - `packages/core/src/modules/tax_management/commands/`:
   - `registerTaxCode` — the plugin-facing write path; upserts a
     `TaxCode` row (idempotent on `(tenantId, organizationId, code)`).
@@ -316,8 +333,9 @@ existing territory in `sales`, unaffected by this document.
     **immutable snapshot** of those lines on
     the new `TaxLiabilityRecord` (the M3 fix) with
     `status: 'calculated'` and, when supplied, `correctsRecordId`
-    (which must name an existing `'posted'`/`'paid'` record of the same
-    period and code), and sets `status: 'superseded'` on any prior
+    (which must name an existing `'posted'` record of the same
+    tenant, organization, period and code; paid originals are rejected), and
+    sets `status: 'superseded'` on any prior
     `TaxLiabilityRecord` for the same `(periodId, taxCode)` still in
     `'calculated'`. A partial unique index on
     `(tenant_id, organization_id, period_id, tax_code) where status =
@@ -341,8 +359,8 @@ existing territory in `sales`, unaffected by this document.
     M4 fix):** when the record carries `correctsRecordId`, the same
     transaction first calls `ledger.reverseJournalEntry` for the
     original record's `journalEntryId`, moves the original to
-    `status: 'reversed'` (allowed from `'posted'` *and* `'paid'`; its
-    `paidAt`/`paymentReference` are preserved as history) — the partial
+    `status: 'reversed'` (allowed only from `'posted'`; paid originals are
+    rejected under lock before reversal or replacement) — the partial
     unique index covers only `('posted', 'paid')`, so `'reversed'` frees
     the slot — and then posts the new record's lines. A zero-line
     original has no `journalEntryId`; it is moved to `'reversed'`
@@ -351,6 +369,16 @@ existing territory in `sales`, unaffected by this document.
     failed post rolls the reversal back; a retry after a crash is safe
     because the original is only reversed once and the new record must
     still be `'calculated'`.
+  - **Correction booking and reversal.** Phase 1 retains the original tax
+    period and uses its end date for both ledger legs. The scoped ledger
+    fiscal period containing that date must be open; if locked or missing,
+    reject before either leg and leave records, events and payment
+    instructions unchanged. For an original journal entry, execute
+    `ledger.reverseJournalEntry` with `input: { journalEntryId:
+    original.journalEntryId, tenantId, organizationId, operationDate:
+    fiscalPeriod.endDate }` and `ctx: { ...ctx, transactionalEm }`. Both
+    reversal and replacement use that transaction manager; failure of either
+    rolls back both. The reversal date must not precede the original entry.
   - **Ledger call contract (the m1 fix).** `postTaxLiability` calls
     `commandBus.execute('ledger.postJournalEntry', { input: { lines:
     resolvedLines, tenantId, organizationId, currencyId,
@@ -367,9 +395,10 @@ existing territory in `sales`, unaffected by this document.
     correction) **and** `tax_management.liability.posted`, in that
     order. Nothing is emitted on rollback. **If `lines` is empty**
     (Edge Cases — PIT-4's own case), it skips the ledger call and sets
-    `status: 'posted'` with `journalEntryId: null`; there is no journal
-    entry, so no `ledger.journal_entry.posted` is emitted — only the tax
-    event.
+    `status: 'posted'` with `journalEntryId: null`; no settlement journal
+    entry is created. Emit one ledger event per journal actually
+    created: a nonempty-to-empty correction emits the reversal ledger event,
+    then the tax event; an ordinary zero-line post emits only the tax event.
   - `markTaxLiabilityPaid(taxLiabilityRecordId, paidAt,
     paymentReference)` — **requires `status === 'posted'`** (a
     `'calculated'`/`'superseded'`/`'reversed'` record is rejected: paying
@@ -455,7 +484,8 @@ indexes:
    (which supersedes the previous draft before inserting its
    replacement) does not violate the index; the one-successful-
    correction invariant is enforced by the posting lock below (the
-   original can leave `'posted'`/`'paid'` only once).
+   original can leave `'posted'` only once; paid records cannot be
+   corrected in Phase 1).
 
 `lines` is written once at `calculateTaxLiability` and never updated —
 `postTaxLiability` posts exactly that snapshot, so a change to the
@@ -514,24 +544,15 @@ as paid" button) lives in that document now (`#7524`).
 - **`postTaxLiability` called on an already-`'posted'`/`'paid'`/
   `'superseded'`/`'reversed'` record.** Rejected — a
   `TaxLiabilityRecord` posts once. Corrections use the flow below.
-- **Correction of a posted or paid period (the M4 fix).** A correction
-  is a new `calculateTaxLiability` whose record carries
-  `correctsRecordId` pointing at the original, followed by
-  `postTaxLiability` on the new record. In one transaction the command
-  reverses the original journal entry through
-  `ledger.reverseJournalEntry`, moves the original to
-  `status: 'reversed'` (from `'posted'` or `'paid'`; `paidAt` and
-  `paymentReference` stay on the row as history), and posts the new
-  record's lines. If the post fails, the whole transaction rolls back
-  and the original stays posted. A correction draft that has not been
-  posted can be recalculated: the new calculation supersedes it and the
-  replacement inserts cleanly (the `corrects_record_id` index excludes
-  `'superseded'`). Two **successful** corrections of the same record
-  remain impossible: the second post finds the original already
-  `'reversed'` under the record lock and is rejected. This replaces
-  the previous revision's "second post" flow, which the posted/paid
-  unique index rejected and which, without the index, would have booked
-  the full liability twice.
+- **Correction of a posted liability.** A correction draft points to the
+  scoped original and, on posting, reverses it and posts the replacement in
+  one transaction. The original period must still be open. A draft may be
+  recalculated; the old draft is superseded. A second successful correction
+  is rejected under the original lock. Paid originals are rejected at
+  calculation and again under lock at posting, including a draft whose
+  original becomes paid before posting. No corrected replacement is posted
+  and no new payment instruction is issued for higher, equal, or lower
+  recalculations of a paid liability.
 - **`ITaxEngine.calculate()` returns an empty `lines: []`.** Valid
   (PIT-4's own case, `#7524`) and may carry a non-zero `amount`: the
   liability was recognized at payroll time, so nothing is posted again.
@@ -681,6 +702,9 @@ decisions; doesn't fit VAT or PIT-4.
 - **ZUS** (social security contributions) — structurally different (an
   employer-social-insurance liability, not an income/consumption tax),
   a real future `TaxCode`, not designed here.
+- **Corrections of paid liabilities and payment reconciliation.** Deferred
+  until the companion payment contract defines outstanding balances and
+  overpayment/refund handling.
 - **Automated bank-rail payment execution.**
 - **Any tax type for any country other than Poland** — this framework
   is country-agnostic by construction (SPEC-024 §10); its only concrete
@@ -711,14 +735,20 @@ decisions; doesn't fit VAT or PIT-4.
    409).
 5. Integration and contract tests: cross-module resolution
    (`financial_pl` → `tax_management` → `ledger`, once `#7524` exists),
-   tenant isolation on `TaxLiabilityRecord`, two-contender
+   separate cross-tenant and same-tenant cross-organization rejection tests
+   for calculate, post (including zero lines), correction (period, original
+   and superseded drafts) and mark-paid; assert no writes, ledger calls or
+   events on rejection. Test a locked original period, including rollback,
+   and paid-original rejection at calculate and post (including a race with
+   mark-paid) for higher, equal and lower amounts, asserting no new payment
+   instruction. Also cover two-contender
    recalculation and concurrent-post races (mirroring `ledger`'s own
    concurrent-import test pattern, PR #6137 review m1), the
    three-line VAT worked example (5,000 debit, 2,000 + 3,000 credits,
    3,000 remittance — accepted because `payableRole` reconciles the
    amount instead of the debit total), empty-lines post path, the
-   reverse-and-repost correction (including an already-paid original,
-   a correction draft replaced before posting, and a second successful
+   reverse-and-repost correction (including a correction draft replaced
+   before posting, and a second successful
    reversal rejected), the `calculated → paid` rejection and idempotent
    repeat confirmation, registry replay/conflict, pre-existing-tenant
    and later-organization `TaxCode` creation, settings `GET`/`PUT` and
@@ -726,7 +756,8 @@ decisions; doesn't fit VAT or PIT-4.
 6. Event tests: `calculated`/`posted`/`paid`, plus
    `ledger.journal_entry.posted` for the settlement and reversal
    entries, emitted only after commit and never on rollback; the
-   zero-line post emits only the tax event.
+   ordinary zero-line post emits only the tax event; a nonempty-to-empty
+   correction emits its reversal event followed by the tax event.
 7. Record this document's findings in
    `financial-module-knowledge-base.md` §3/§1
    ([`open-mercato#6016`](https://github.com/open-mercato/open-mercato/pull/6016) —
@@ -791,8 +822,8 @@ architecture, not a gap in those systems.
 
 ## Final Compliance Report
 
-**Verdict: design-complete for review; implementation-facing defects
-resolved.** The 2026-11-05 maintainer review found five Majors and four
+**Verdict: revised for review; the paid-correction scope assumption needs
+human product/accounting confirmation before implementation.** The 2026-11-05 maintainer review found five Majors and four
 Minors still open after the 2026-09-28 revision. This 2026-11-18
 revision addresses every one of them, and the earlier Blocker/Majors
 stay resolved:
@@ -812,7 +843,7 @@ stay resolved:
 - **M4 (correction flow)** — reverse-and-repost in one transaction,
   a `'reversed'` terminal state excluded from the posted/paid index, a
   `correctsRecordId` unique index against double-correction, and
-  already-paid originals explicitly allowed.
+  paid originals explicitly deferred pending payment reconciliation.
 - **M5 (Phase 1 settings/API contradiction)** — the `GET`/`PUT`
   mapping route, `updateTaxCodeAccountMapping`, feature guards,
   account-ownership checks, optimistic locking and route/page
@@ -838,6 +869,14 @@ maintainer re-review of this revision, then implementation per the
 plan above.
 
 ## Changelog
+
+### 2026-11-19 - Review follow-up
+
+- Scope every liability path and add cross-scope rejection tests.
+- Specify reversal input, transaction and original-period booking, locked
+  period rejection, and events for every actual journal.
+- Defer paid corrections pending product/accounting confirmation and a
+  payment-reconciliation contract; test rejection and payment instructions.
 
 ### 2026-11-18 — second maintainer pass (PR #6168 review, 2026-11-05)
 
