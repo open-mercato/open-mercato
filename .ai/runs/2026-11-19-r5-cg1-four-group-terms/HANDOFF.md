@@ -1,24 +1,24 @@
 # Handoff — 2026-11-19-r5-cg1-four-group-terms
 
-**Last updated:** 2026-11-19T19:40:00Z
-**Branch:** feat/r5-cg1-four-group-terms
-**PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** — run folder
+**Last updated:** 2026-11-19T20:35:00Z
+**Branch:** feat/r5-cg1-four-group-terms (fork `adeptofvoltron`)
+**PR:** https://github.com/open-mercato/open-mercato/pull/10005
+**Current phase/step:** all Steps done; review pass next
+**Last commit:** see PR
 
 ## What just happened
-- Run folder created; plan drafted from the card in the brief and the binding spec.
+- Steps 1.1–2.2 committed; full gate run (only the known local create-mercato-app harness failure); TC-CGRP integration 37/37.
 
 ## Next concrete action
-- Step 1.1.
+- om-auto-review-pr pass, then flip PR to ready.
 
 ## Blockers / open questions
 - none
 
 ## Environment caveats
-- Dev runtime runnable: unknown
-- Browser / UI checks: pending checkpoint
-- Database/migration state: clean
+- Dev runtime runnable: yes (ephemeral env via colima)
+- Browser / UI checks: done, screenshots in checkpoint-1-artifacts/
+- Database/migration state: clean (no local migrate)
 
 ## Worktree
 - Path: cezar task worktree (reused)

@@ -13,12 +13,12 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Four terms columns: entity, validators, migration and snapshot | inline | todo | — |
-| 1 | 1.2 | resolveTerms resolves the four fields with the base-currency fallback | inline | todo | — |
-| 1 | 1.3 | Terms route stores and returns the four fields | inline | todo | — |
-| 1 | 1.4 | Explain-terms rows for the four fields and the base-currency sentinel | inline | todo | — |
-| 2 | 2.1 | Terms form fields with default-group and missing-currency warnings | inline | todo | — |
-| 2 | 2.2 | UPGRADE_NOTES override note for ResolvedTerms | inline | todo | — |
+| 1 | 1.1 | Four terms columns: entity, validators, migration and snapshot | inline | done | ac296e1682 |
+| 1 | 1.2 | resolveTerms resolves the four fields with the base-currency fallback | inline | done | dde00c6a50 |
+| 1 | 1.3 | Terms route stores and returns the four fields | inline | done | 0989602ad4 |
+| 1 | 1.4 | Explain-terms rows for the four fields and the base-currency sentinel | inline | done | bc56d5d8f9 |
+| 2 | 2.1 | Terms form fields with default-group and missing-currency warnings | inline | done | 997441cd0a |
+| 2 | 2.2 | UPGRADE_NOTES override note for ResolvedTerms | inline | done | 6f30f3020d |
 
 ## Goal
 
@@ -60,6 +60,8 @@ All paths relative to `packages/core/src/modules/customer_groups/`:
 | 3 | No terms-form UI | Terms form gains the four fields (Inherit / explicit) and the default-group and missing-currency warnings, CrudForm + i18n in 5 locales | spec §7.3, D-R5-CG4 |
 | 4 | No UPGRADE note | `UPGRADE_NOTES.md` override note (four fields, `organizationId`, sentinel) | spec §8.4, audit B3 |
 | 5 | Money as `numeric(16,2)` in the reference credit slice | Not applicable to CG1 — no new money columns; shipped terms money stays `ExactDecimalType` (#7324) | spec C1 |
+| 7 | Spec says explain-terms "renders the sentinel as the base currency" without a wire shape | Each explain-terms field gains an additive `source` (`group` \| `tenant_default` \| `base_currency`); `sourceGroupId` stays a uuid or null, so the sentinel never reaches a group-id reader | spec §6.0 |
+| 8 | Spec's missing-currency warning is phrased for a null resolved currency | The form cannot resolve the chain, so it warns whenever this group sets a threshold or minimum with no terms currency, and names the D-R5-37 fallback order | spec §7.3, D-R5-4, D-R5-37 |
 | 6 | The relanding plan file (§6 R1–R14, card CG1) was not available in the primary checkout | Proceeded from the card text in the brief and the binding spec; user instructed to continue autonomously | NOTIFY 2026-11-19 |
 
 ## Audit findings and decisions that concern CG1
