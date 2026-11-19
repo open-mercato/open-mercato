@@ -1,8 +1,8 @@
 # Handoff — 2026-11-19-r5-f1-trusted-command-context
 
-**Last updated:** 2026-11-19T19:35:23Z
+**Last updated:** 2026-11-19T19:37:37Z
 **Branch:** feat/r5-f1-trusted-command-context
-**PR:** pending creation
+**PR:** https://github.com/open-mercato/open-mercato/pull/10011 (ready)
 **Current phase/step:** complete. All Tasks rows are done.
 **Last commit:** 0ca1d84f6a — feat(shared): add buildTrustedCommandContext for request-less trusted commands
 

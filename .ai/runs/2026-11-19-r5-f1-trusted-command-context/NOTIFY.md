@@ -11,3 +11,6 @@
 
 ## 2026-11-19T19:35:23Z — final gate passed
 - Unit test 5/5, commands dir 222/222, build:packages, generate and typecheck are all green. Integration, UI and DS passes were skipped (no route, UI or caller); see final-gate-checks.md.
+
+## 2026-11-19T19:37:37Z — run ended
+- PR https://github.com/open-mercato/open-mercato/pull/10011 is open and ready. The review verdict is APPROVE (document-only; the PR is self-authored) with two nits. Labels: review, feature, skip-qa, priority-medium and risk-medium.
