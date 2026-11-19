@@ -73,6 +73,15 @@ describe('Money arithmetic', () => {
     expect(lines.map((line) => multiplyMoney(line, 3)).map(text)).toEqual(['59.97', '0.03', '15.015'])
   })
 
+  it('never rounds a sum or product silently: one that does not fit the range throws', () => {
+    expect(() => addMoney(createMoney('1e299', usd), createMoney('1e-1000', usd))).toThrow('[internal] Decimal result out of range')
+    expect(() => subtractMoney(createMoney('1e299', usd), createMoney('1e-1000', usd))).toThrow('[internal] Decimal result out of range')
+    expect(() => multiplyMoney(createMoney('1e-1000', usd), '0.4')).toThrow('[internal] Decimal result out of range')
+    expect(() => sumMoney(usd, [createMoney('1e299', usd), createMoney('1e-1000', usd)])).toThrow('[internal] Decimal result out of range')
+    expect(text(multiplyMoney(createMoney('1e-999', usd), '0.4'))).toBe(`0.${'0'.repeat(999)}4`)
+    expect(text(addMoney(createMoney('1e298', usd), createMoney('1e-700', usd)))).toBe(`1${'0'.repeat(298)}.${'0'.repeat(699)}1`)
+  })
+
   it('multiplies, negates and takes the absolute value exactly', () => {
     expect(text(multiplyMoney(createMoney('1.1', usd), '1.1'))).toBe('1.21')
     expect(text(negateMoney(createMoney('2.5', usd)))).toBe('-2.5')

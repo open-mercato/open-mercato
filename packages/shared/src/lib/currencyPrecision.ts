@@ -38,6 +38,10 @@ export type CurrencyDetails = {
 /**
  * `getCurrency` MUST stay optional: third-party resolvers implement only
  * `getDecimalPlaces`, and consumers then fall back to `symbol: null`.
+ * `getCurrency` feeds `resolveCurrency`, which creates NEW money: an implementation
+ * SHOULD return `null` for a currency that is inactive or otherwise not usable for
+ * new values (as `CurrencyPrecisionService` does), while `getDecimalPlaces` keeps
+ * reporting its precision for existing amounts.
  */
 export type CurrencyPrecisionResolver = {
   getDecimalPlaces(lookup: CurrencyPrecisionLookup): Promise<number | null>

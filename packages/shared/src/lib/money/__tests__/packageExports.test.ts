@@ -10,7 +10,12 @@ function resolveFromPackage(specifier: string): string {
 }
 
 describe('@open-mercato/shared/lib/money package exports', () => {
-  it.each(['@open-mercato/shared/lib/money/internal', '@open-mercato/shared/lib/money/internal.ts'])(
+  it.each([
+    '@open-mercato/shared/lib/money/internal',
+    '@open-mercato/shared/lib/money/internal.ts',
+    '@open-mercato/shared/lib/money/internal.tsx',
+    '@open-mercato/shared/lib/money/internal.js',
+  ])(
     'blocks the private %s subpath',
     (specifier) => {
       expect(resolveFromPackage(specifier)).toBe('ERR_PACKAGE_PATH_NOT_EXPORTED')

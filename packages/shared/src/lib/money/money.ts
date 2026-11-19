@@ -1,11 +1,8 @@
 import BigConstructor from 'big.js'
 import type { BigConstructor as DecimalConstructor } from 'big.js'
 import {
-  addDecimals,
   countDecimalPlaces,
   MAX_DECIMAL_INTEGER_DIGITS,
-  multiplyDecimals,
-  subtractDecimals,
   toDecimal,
   type DecimalInput,
   type DecimalValue,
@@ -18,6 +15,10 @@ import { MAX_MONEY_DECIMAL_PLACES, type Currency, type Money, type MoneyRounding
 const RoundedDivision = BigConstructor()
 
 const ROUND_DOWN = 0
+
+const MAX_ALLOCATION_RATIOS = 1000
+
+const MAX_RATIO_INTEGER_DIGITS = 50
 
 /**
  * One big.js division rounded once to `decimalPlaces` with `mode`. `div` reads
@@ -63,14 +64,15 @@ export function zeroMoney(currency: Currency): Money {
   return brandMoney(toDecimal(0), currency)
 }
 
+/** Exact. A sum that would need rounding to fit the stored-amount range throws. */
 export function addMoney(left: Money, right: Money): Money {
   assertSameCurrency(left.currency, right.currency)
-  return brandMoney(addDecimals(left.amount, right.amount), left.currency)
+  return brandMoney(left.amount.plus(right.amount), left.currency)
 }
 
 export function subtractMoney(left: Money, right: Money): Money {
   assertSameCurrency(left.currency, right.currency)
-  return brandMoney(subtractDecimals(left.amount, right.amount), left.currency)
+  return brandMoney(left.amount.minus(right.amount), left.currency)
 }
 
 /** The currency is required so an empty list sums to a well-defined zero. */
@@ -78,8 +80,9 @@ export function sumMoney(currency: Currency, values: readonly Money[]): Money {
   return values.reduce((total, value) => addMoney(total, value), zeroMoney(currency))
 }
 
+/** Exact. A product that would need rounding to fit the stored-amount range throws. */
 export function multiplyMoney(money: Money, factor: DecimalInput): Money {
-  return brandMoney(multiplyDecimals(money.amount, factor), money.currency)
+  return brandMoney(money.amount.times(toDecimal(factor)), money.currency)
 }
 
 /** Divides and rounds the quotient once, to the caller's rounding (no hidden 50-place cut). */
@@ -189,6 +192,12 @@ function parseRatio(ratio: DecimalInput, index: number): DecimalValue {
     throw new InvalidAllocationError(`ratio ${index} is not a decimal`)
   }
   if (value.lt(0)) throw new InvalidAllocationError(`ratio ${index} is negative`)
+  if (countDecimalPlaces(value) > MAX_MONEY_DECIMAL_PLACES) {
+    throw new InvalidAllocationError(`ratio ${index} has more than ${MAX_MONEY_DECIMAL_PLACES} decimal places`)
+  }
+  if (value.e >= MAX_RATIO_INTEGER_DIGITS) {
+    throw new InvalidAllocationError(`ratio ${index} has more than ${MAX_RATIO_INTEGER_DIGITS} integer digits`)
+  }
   return value
 }
 
@@ -217,7 +226,9 @@ function splitUnits(units: DecimalValue, ratios: DecimalValue[]): DecimalValue[]
 /**
  * Splits `money` by `ratios` into parts that sum exactly to `money`, using the
  * largest-remainder method on exact integer remainders (ties go to the lower
- * index). The amount must already have at most `decimalPlaces` decimals.
+ * index). The amount must already have at most `decimalPlaces` decimals; each
+ * ratio may have at most 50 integer digits and 50 decimals, and there may be at
+ * most 1000 ratios, which bounds the exact integer work.
  */
 export function allocateMoney(
   money: Money,
@@ -232,6 +243,9 @@ export function allocateMoney(
     throw new InvalidAllocationError(`amount has more than ${decimalPlaces} decimal places; round it first`)
   }
   if (!Array.isArray(ratios) || ratios.length === 0) throw new InvalidAllocationError('ratios are empty')
+  if (ratios.length > MAX_ALLOCATION_RATIOS) {
+    throw new InvalidAllocationError(`more than ${MAX_ALLOCATION_RATIOS} ratios`)
+  }
   const parsedRatios = ratios.map(parseRatio)
   if (parsedRatios.every((ratio) => ratio.eq(0))) throw new InvalidAllocationError('all ratios are zero')
 

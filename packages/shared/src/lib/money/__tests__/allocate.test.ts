@@ -79,11 +79,20 @@ describe('allocateMoney', () => {
     expect(moneyEquals(sumMoney(usd, thirds), odd)).toBe(true)
   })
 
-  it('handles ratios with many decimals exactly', () => {
+  it('handles ratios with up to 50 decimals exactly', () => {
     const total = createMoney('0.15', usd)
-    expect(texts(allocateMoney(total, [1, '1e-400'], { decimalPlaces: 2 }))).toEqual(['0.15', '0'])
-    const long = allocateMoney(total, [1, `0.${'1'.repeat(300)}`], { decimalPlaces: 2 })
+    expect(texts(allocateMoney(total, [1, '1e-50'], { decimalPlaces: 2 }))).toEqual(['0.15', '0'])
+    const long = allocateMoney(total, [1, `0.${'1'.repeat(50)}`], { decimalPlaces: 2 })
     expect(moneyEquals(sumMoney(usd, long), total)).toBe(true)
+  })
+
+  it('keeps the exact integer work bounded for many high-precision ratios', () => {
+    const ratios = Array.from({ length: 1000 }, (_unused, index) => `${'9'.repeat(49)}${index % 10}.${'7'.repeat(50)}`)
+    const started = Date.now()
+    const total = createMoney(`${'9'.repeat(299)}.99`, usd)
+    const parts = allocateMoney(total, ratios, { decimalPlaces: 2 })
+    expect(Date.now() - started).toBeLessThan(5000)
+    expect(moneyEquals(sumMoney(usd, parts), total)).toBe(true)
   })
 
   it('always sums exactly to the total', () => {
@@ -114,6 +123,11 @@ describe('allocateMoney', () => {
     ['a non-decimal ratio', [1, 'abc'], 2],
     ['invalid decimal places', [1, 1], -1],
     ['fractional decimal places', [1, 1], 1.5],
+    ['a ratio with more than 50 decimals', [1, `0.${'1'.repeat(51)}`], 2],
+    ['a ratio with 300 decimals', [1, `0.${'1'.repeat(300)}`], 2],
+    ['a ratio below the 50th decimal place', [1, '1e-400'], 2],
+    ['more than 1000 ratios', Array.from({ length: 1001 }, () => 1), 2],
+    ['a ratio with more than 50 integer digits', [1, `1${'0'.repeat(50)}`], 2],
   ])('rejects %s', (_label, ratios, decimalPlaces) => {
     expect(() => allocateMoney(createMoney('0.15', usd), ratios, { decimalPlaces })).toThrow(InvalidAllocationError)
   })

@@ -31,6 +31,8 @@
     },
     "./lib/money/internal": null,
     "./lib/money/internal.ts": null,
+    "./lib/money/internal.tsx": null,
+    "./lib/money/internal.js": null,
     "./lib/catalog-visibility": {
       "types": "./src/lib/catalog-visibility/index.ts",
       "default": "./dist/lib/catalog-visibility/index.js"
