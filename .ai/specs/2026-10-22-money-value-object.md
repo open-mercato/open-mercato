@@ -6,7 +6,7 @@ Add two immutable value objects to `@open-mercato/shared`. `Currency` holds an I
 
 These are for **new code only**. Migrating existing modules, entities, commands or API payloads is out of scope. Once these objects ship, the project harness (agent instructions, review checklist, standalone-app harness and an advisory diff check) is updated so that every **new** monetary value must use them.
 
-**Depends on** [Arbitrary-Precision Money and FX Rates](2026-10-08-arbitrary-precision-money-and-fx.md) (PR #7324, not yet merged). That PR supplies the decimal toolkit, `ExactDecimalType`, the ISO 4217 minor-unit table and `currencyPrecisionService`. This spec cannot be implemented before #7324 merges.
+**Depends on** [Arbitrary-Precision Money and FX Rates](2026-10-08-arbitrary-precision-money-and-fx.md) (PR #7324, merged 2026-11-19). That PR supplies the decimal toolkit, `ExactDecimalType`, the ISO 4217 minor-unit table and `currencyPrecisionService`.
 
 ## 📝 Overview
 
@@ -213,7 +213,7 @@ No HTTP endpoints are added or changed, so this spec needs no integration (Playw
 
 | Surface | Change | BC class |
 |---------|--------|----------|
-| Import paths `@open-mercato/shared/lib/money/*`, `@open-mercato/shared/lib/db/moneyColumns` | New | Additive |
+| Import paths `@open-mercato/shared/lib/money` (entry point), `@open-mercato/shared/lib/money/*` (except `internal`), `@open-mercato/shared/lib/db/moneyColumns` | New | Additive |
 | `CurrencyPrecisionResolver` type | New optional `getCurrency` method, new `CurrencyDetails` type | Additive. Existing implementers and test doubles still compile |
 | DI key `currencyPrecisionService` | Unchanged key; the service gains a method | Additive |
 
@@ -260,8 +260,9 @@ Rollback: see Migration & Backward Compatibility below.
 
 | Surface | BC category | Class once released |
 |---------|-------------|---------------------|
-| `@open-mercato/shared/lib/money/*`, `@open-mercato/shared/lib/db/moneyColumns` | 4. Import Paths | STABLE |
-| `Money`, `Currency`, `MoneyRounding`, `MoneyRoundingMode`, `MoneyInput`, `MoneySnapshot`, `CurrencyDetails`, the error classes | 2. Type Definitions | STABLE |
+| `@open-mercato/shared/lib/money` (`index.ts`, registered in the package `exports`), `@open-mercato/shared/lib/money/*`, `@open-mercato/shared/lib/db/moneyColumns`. `lib/money/internal` is an implementation detail and is excluded | 4. Import Paths | STABLE |
+| `Money`, `Currency`, `MoneyRounding`, `MoneyRoundingMode`, `MoneyInput`, `MoneySnapshot`, `MoneyScope`, `CurrencyLookup`, `CurrencyDetails`, the error classes | 2. Type Definitions | STABLE |
+| `MAX_MONEY_DECIMAL_PLACES` (50), `moneyInputSchema`, `moneySnapshotSchema` | 3. Function Signatures / constants | STABLE |
 | The Money functions, `resolveCurrency`, `snapshotMoney`/`restoreMoney`, `moneyToColumns`/`moneyFromColumns` | 3. Function Signatures | STABLE |
 | `CurrencyPrecisionResolver.getCurrency?` | 2. Type Definitions | STABLE, and it **MUST stay optional**, the same rule as `TelemetryProvider.reportError?`. Third-party resolvers implement this type |
 | `MoneyColumns` column suffixes (`_amount`, `_currency_code`, `_currency_decimal_places`) | 8. Database Schema | ADDITIVE-ONLY. Adopter tables depend on them |
@@ -342,6 +343,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - `Money.amount` is now deep-frozen, and `Money` owns a copy of its amount. The shallow freeze left big.js's coefficient array writable.
   - Added a trusted `MoneySnapshot` transport (`snapshotMoney`/`restoreMoney`), separate from the untrusted `MoneyInput`, so values in queues and caches keep their precision.
   - Replaced the rollback rule with a Migration & Backward Compatibility section that follows `BACKWARD_COMPATIBILITY.md`.
+- 2026-11-19 — Implemented Phases 1–3 (see Implementation Status). Added the `@open-mercato/shared/lib/money` entry point, listed the extra exported types (`MoneyScope`, `CurrencyLookup`) and constants in the BC tables, and excluded `lib/money/internal` from the contract.
 
 ## Implementation Status
 
