@@ -18,6 +18,24 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
   useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
 }))
 
+const mockEditor: { mount: (() => void) | null; replace: (() => void) | null } = { mount: null, replace: null }
+jest.mock('../inputs/MarkdownField', () => {
+  const ReactActual = jest.requireActual<typeof import('react')>('react')
+  function LazyMarkdownField({ id }: { id?: string }) {
+    const [generation, setGeneration] = ReactActual.useState(0)
+    mockEditor.mount = () => setGeneration(1)
+    mockEditor.replace = () => setGeneration((current) => current + 1)
+    return ReactActual.createElement(
+      'div',
+      null,
+      generation > 0
+        ? ReactActual.createElement('div', { key: generation, contentEditable: true, suppressContentEditableWarning: true, id })
+        : null,
+    )
+  }
+  return { __esModule: true, default: LazyMarkdownField }
+})
+
 import * as React from 'react'
 import { act, fireEvent, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
@@ -142,6 +160,45 @@ describe('CrudForm field error association', () => {
     })
 
     await waitFor(() => expect(announcement('name')).toHaveTextContent(''))
+  })
+
+  it('ties the error to a markdown editor that mounts after validation failed', async () => {
+    const { field, errorNode, submit } = renderForm([{ id: 'body', label: 'Body', type: 'richtext', required: true }])
+
+    await submit()
+    await waitFor(() => expect(errorNode('body')).toHaveTextContent(REQUIRED))
+    const messageId = (errorNode('body') as HTMLElement).id
+    expect(field('body').querySelector('[contenteditable]')).toBeNull()
+
+    await act(async () => {
+      mockEditor.mount?.()
+    })
+
+    const editable = field('body').querySelector('[contenteditable]') as HTMLElement
+    await waitFor(() => expect(editable).toHaveAttribute('aria-invalid', 'true'))
+    expect(describedBy(editable)).toContain(messageId)
+  })
+
+  it('moves the error to an editable node that replaces the first one', async () => {
+    const { field, errorNode, submit } = renderForm([{ id: 'body', label: 'Body', type: 'richtext', required: true }])
+    await act(async () => {
+      mockEditor.mount?.()
+    })
+
+    await submit()
+    await waitFor(() => expect(errorNode('body')).toHaveTextContent(REQUIRED))
+    const messageId = (errorNode('body') as HTMLElement).id
+    const first = field('body').querySelector('[contenteditable]') as HTMLElement
+    await waitFor(() => expect(first).toHaveAttribute('aria-invalid', 'true'))
+
+    await act(async () => {
+      mockEditor.replace?.()
+    })
+
+    const second = field('body').querySelector('[contenteditable]') as HTMLElement
+    expect(second).not.toBe(first)
+    await waitFor(() => expect(second).toHaveAttribute('aria-invalid', 'true'))
+    expect(describedBy(second)).toContain(messageId)
   })
 
   it('announces a wrapper-owned custom field error even without a control to mark', async () => {

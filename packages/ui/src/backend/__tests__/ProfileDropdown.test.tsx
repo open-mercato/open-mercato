@@ -128,15 +128,53 @@ describe('ProfileDropdown', () => {
       expect(document.activeElement).toBe(items()[0])
     })
 
-    it('keeps Tab inside the menu instead of leaving it for the page', () => {
-      const { items, press } = openMenu()
-      const last = items().length - 1
+    function openMenuBetweenControls() {
+      renderWithProviders(
+        <>
+          <button type="button">Before</button>
+          <ProfileDropdown email="user@example.com" notificationsHref="/backend/notifications" />
+          <button type="button">After</button>
+        </>,
+        { supportedLocales: ['en', 'pl'] },
+      )
+      const trigger = screen.getByTestId('profile-dropdown-trigger')
+      trigger.focus()
+      fireEvent.click(trigger)
+      const menu = screen.getByTestId('profile-dropdown')
+      const items = () => Array.from(menu.querySelectorAll<HTMLElement>('[role^="menuitem"]'))
+      const press = (key: string, init: { shiftKey?: boolean } = {}) =>
+        fireEvent.keyDown(document.activeElement as Element, { key, ...init })
+      return { items, press }
+    }
+
+    it('closes the menu on Tab and moves on to the control after the trigger', () => {
+      const { press } = openMenuBetweenControls()
 
       press('End')
-      expect(press('Tab')).toBe(false)
+      press('Tab')
+
+      expect(screen.queryByTestId('profile-dropdown')).not.toBeInTheDocument()
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'After' }))
+    })
+
+    it('closes the menu on Shift+Tab and moves back to the control before the trigger', () => {
+      const { items, press } = openMenuBetweenControls()
+
       expect(document.activeElement).toBe(items()[0])
-      expect(press('Tab', { shiftKey: true })).toBe(false)
-      expect(document.activeElement).toBe(items()[last])
+      press('Tab', { shiftKey: true })
+
+      expect(screen.queryByTestId('profile-dropdown')).not.toBeInTheDocument()
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Before' }))
+    })
+
+    it('leaves the menu on Tab from an item in the middle too', () => {
+      const { press } = openMenuBetweenControls()
+
+      press('ArrowDown')
+      press('Tab')
+
+      expect(screen.queryByTestId('profile-dropdown')).not.toBeInTheDocument()
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'After' }))
     })
 
     it('walks into the menu with ArrowDown when focus is back on the trigger', () => {

@@ -17,6 +17,37 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { InjectionSpot } from './injection/InjectionSpot'
 import { BACKEND_TOPBAR_PROFILE_MENU_INJECTION_SPOT_ID } from './injection/spotIds'
 
+const TABBABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]',
+  '[contenteditable="true"]',
+].join(', ')
+
+// The menu is portaled to the end of <body>, so the browser's own Tab would
+// leave it for the browser chrome. Continue the tab sequence from the trigger
+// instead, as if Tab had been pressed there.
+function focusPastTrigger(trigger: HTMLElement, backwards: boolean, menu: HTMLElement | null) {
+  const tabbables = Array.from(document.querySelectorAll<HTMLElement>(TABBABLE_SELECTOR)).filter(
+    (element) =>
+      element.tabIndex >= 0 &&
+      !(menu && menu.contains(element)) &&
+      !element.closest('[inert], [hidden]'),
+  )
+  const triggerIndex = tabbables.indexOf(trigger)
+  if (triggerIndex >= 0) {
+    const candidates = backwards ? tabbables.slice(0, triggerIndex).reverse() : tabbables.slice(triggerIndex + 1)
+    for (const candidate of candidates) {
+      candidate.focus()
+      if (document.activeElement === candidate) return
+    }
+  }
+  trigger.focus()
+}
+
 export type ProfileDropdownProps = {
   email?: string
   displayName?: string
@@ -118,7 +149,8 @@ export function ProfileDropdown({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
-  // Close on Escape; move between items with the arrow keys, Home, End and Tab
+  // Close on Escape; move between items with the arrow keys, Home and End;
+  // Tab and Shift+Tab close the menu and continue from the trigger.
   React.useEffect(() => {
     if (!open) return
     function handleKeyDown(event: KeyboardEvent) {
@@ -139,6 +171,15 @@ export function ProfileDropdown({
         active && (menuRef.current?.contains(active) || active === buttonRef.current),
       )
       if (!focusWithin) return
+      if (event.key === 'Tab') {
+        const trigger = buttonRef.current
+        if (!trigger) return
+        event.preventDefault()
+        setOpen(false)
+        setLanguageOpen(false)
+        focusPastTrigger(trigger, event.shiftKey, menuRef.current)
+        return
+      }
       const focusables = getFocusableItems()
       if (!focusables.length) return
       const activeIndex = focusables.indexOf(active as HTMLElement)
@@ -156,13 +197,6 @@ export function ProfileDropdown({
           break
         case 'End':
           nextIndex = lastIndex
-          break
-        case 'Tab':
-          // The menu is portaled to the end of <body>, so letting Tab through
-          // would drop focus on the browser chrome or back onto the page.
-          nextIndex = event.shiftKey
-            ? (activeIndex <= 0 ? lastIndex : activeIndex - 1)
-            : (activeIndex < 0 || activeIndex === lastIndex ? 0 : activeIndex + 1)
           break
         default:
           return

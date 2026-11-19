@@ -4944,22 +4944,42 @@ const FieldControl = React.memo(function FieldControlImpl({
   // node that carries `controlId` rather than threaded through every renderer's
   // props, so one path covers every field type that exposes a control with that
   // id. Fields without one (custom, checkbox groups) are still announced below.
+  // A lazy editor can mount, or swap its editable node, after validation has
+  // already failed, so the field is watched and the current node re-marked.
   React.useEffect(() => {
     if (!wrapperError || typeof document === 'undefined') return
-    const control = document.getElementById(controlId)
-    if (!control) return
-    const describedBy = (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
-    if (!describedBy.includes(errorId)) {
-      control.setAttribute('aria-describedby', [...describedBy, errorId].join(' '))
-    }
-    control.setAttribute('aria-invalid', 'true')
-    return () => {
+    let marked: HTMLElement | null = null
+    const unmark = (control: HTMLElement) => {
       control.removeAttribute('aria-invalid')
       const remaining = (control.getAttribute('aria-describedby') ?? '')
         .split(/\s+/)
         .filter((entry) => entry && entry !== errorId)
       if (remaining.length) control.setAttribute('aria-describedby', remaining.join(' '))
       else control.removeAttribute('aria-describedby')
+    }
+    const mark = () => {
+      const control = document.getElementById(controlId)
+      if (marked && marked !== control) unmark(marked)
+      marked = control
+      if (!control) return
+      const describedBy = (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+      if (!describedBy.includes(errorId)) {
+        control.setAttribute('aria-describedby', [...describedBy, errorId].join(' '))
+      }
+      if (control.getAttribute('aria-invalid') !== 'true') control.setAttribute('aria-invalid', 'true')
+    }
+    mark()
+    const root = fieldRootRef.current
+    const observer = root && typeof MutationObserver !== 'undefined' ? new MutationObserver(mark) : null
+    observer?.observe(root as HTMLElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['id', 'aria-describedby', 'aria-invalid'],
+    })
+    return () => {
+      observer?.disconnect()
+      if (marked) unmark(marked)
     }
   }, [wrapperError, controlId, errorId])
 
