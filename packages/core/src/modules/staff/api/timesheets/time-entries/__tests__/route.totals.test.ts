@@ -130,7 +130,7 @@ describe('time-entries list totals', () => {
       entryCount: 120,
       durationMinutes: 7200,
       roundedMinutes: 7230,
-      money: [{ currencyCode: 'PLN', amount: 900 }],
+      money: [{ currencyCode: 'PLN', amount: 900, amountExact: '900' }],
     })
   })
 

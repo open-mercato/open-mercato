@@ -12,11 +12,10 @@ import {
   type TpayNotification,
 } from './notification-form'
 import { resolveTpayEnvironment } from './tpay-client'
+import { countDecimalPlaces, decimalToNumber, multiplyDecimals, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 export const TPAY_JWS_HEADER = 'x-jws-signature'
 export const TPAY_WEBHOOK_MAX_BODY_BYTES = 64 * 1024
-
-const STORED_AMOUNT_PATTERN = /^(\d+)(?:\.(\d{1,4}))?$/
 
 export type TpayNotificationVerifyOptions = {
   now?: () => Date
@@ -37,11 +36,9 @@ function readSignatureHeader(headers: VerifyWebhookInput['headers']): string {
 }
 
 function storedAmountToGrosze(amount: string): number {
-  const match = STORED_AMOUNT_PATTERN.exec(amount.trim())
-  if (!match) throw new TpayNotificationError('amountMismatch')
-  const fraction = (match[2] ?? '').padEnd(4, '0')
-  if (fraction.slice(2) !== '00') throw new TpayNotificationError('amountMismatch')
-  const grosze = Number(match[1]) * 100 + Number(fraction.slice(0, 2))
+  const exact = parseDecimal(amount.trim())
+  if (!exact || exact.lt(0) || countDecimalPlaces(exact) > 2) throw new TpayNotificationError('amountMismatch')
+  const grosze = decimalToNumber(multiplyDecimals(exact, 100))
   if (!Number.isSafeInteger(grosze)) throw new TpayNotificationError('amountMismatch')
   return grosze
 }

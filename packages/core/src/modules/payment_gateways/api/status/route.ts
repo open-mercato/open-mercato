@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -52,6 +53,7 @@ export async function GET(req: Request) {
       status: transaction.unifiedStatus,
       gatewayStatus: transaction.gatewayStatus,
       amount: Number(transaction.amount),
+      amountExact: resolveExactDecimal(transaction.amount, null),
       amountReceived: null,
       currencyCode: transaction.currencyCode,
       redirectUrl: transaction.redirectUrl,
@@ -127,7 +129,9 @@ export async function POST(req: Request) {
       status: status.status,
       gatewayStatus: transaction.gatewayStatus,
       amount: status.amount,
+      amountExact: resolveExactDecimal(status.amountExact ?? transaction.amount, status.amount),
       amountReceived: status.amountReceived,
+      amountReceivedExact: resolveExactDecimal(status.amountReceivedExact ?? transaction.capturedAmount, status.amountReceived),
       currencyCode: status.currencyCode,
       redirectUrl: transaction.redirectUrl,
       createdAt: transaction.createdAt.toISOString(),

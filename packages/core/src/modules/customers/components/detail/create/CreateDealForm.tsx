@@ -16,7 +16,7 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { E } from '#generated/entities.ids.generated'
 import { extensionPoints } from '../../../extension-points'
-import { dealFormSchema } from '../DealForm'
+import { dealExactFormSchema } from '../DealForm'
 import { DictionarySelectField } from '../../formConfig'
 import { createDictionarySelectLabels } from '../utils'
 import { DealDetailsFields } from './DealDetailsFields'
@@ -28,6 +28,7 @@ import { DealSectionCard } from './DealSectionCard'
 import { DealCustomAttributes, type DealCustomAttributesLoadState } from './DealCustomAttributes'
 import { SuffixInput } from './SuffixInput'
 import { sanitizeProbability } from './dealNumericInput'
+import { decimalToNumber } from '@open-mercato/shared/lib/decimal'
 import { useDealPipelines, type PipelineOption, type PipelineStageOption } from './useDealPipelines'
 import { useDealCustomFields } from './useDealCustomFields'
 import { EMPTY_VALUES, type BaseValues } from './dealFormTypes'
@@ -236,13 +237,14 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     if (stagesLoading) {
       throw createCrudFormError(tr('customers.deals.create.stagesLoading', 'Stages are still loading. Try again in a moment.'))
     }
-    const data = dealFormSchema.parse(values)
+    const data = dealExactFormSchema.parse(values)
     const payload: Record<string, unknown> = {
       title: data.title,
       status: data.status || undefined,
       pipelineId: data.pipelineId || undefined,
       pipelineStageId: data.pipelineStageId || undefined,
-      valueAmount: typeof data.valueAmount === 'number' ? data.valueAmount : undefined,
+      valueAmount: typeof data.valueAmount === 'string' ? decimalToNumber(data.valueAmount) : undefined,
+      valueAmountExact: data.valueAmount,
       valueCurrency: data.valueCurrency || undefined,
       probability: typeof data.probability === 'number' ? data.probability : undefined,
       expectedCloseAt: data.expectedCloseAt ? new Date(data.expectedCloseAt).toISOString() : undefined,
@@ -477,7 +479,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         <CrudForm<Record<string, unknown>> embedded hideFooterActions formId={CONTEXT_ID}
           entityId="customers.deal" resourceKind="customers.deal" entityIds={[E.customers.customer_deal]}
           injectionSpotId={extensionPoints.hosts.dealForm.spotId} fields={fields} groups={groups}
-          injectionGroupAliases={INJECTION_GROUP_ALIASES} initialValues={seedValues} schema={dealFormSchema}
+          injectionGroupAliases={INJECTION_GROUP_ALIASES} initialValues={seedValues} schema={dealExactFormSchema}
           onSubmit={handleSubmit} onSubmitSuccess={handleSubmitSuccess} />
       </div>
     </div>

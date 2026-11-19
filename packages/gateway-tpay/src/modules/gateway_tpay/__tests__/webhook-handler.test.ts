@@ -185,13 +185,13 @@ describe('verifyTpayNotification', () => {
     await expect(verify(input({ candidate: candidate({ paymentId: CRC.toUpperCase() }) }))).resolves.toBeDefined()
   })
 
-  it.each(['12.35', '12.3450', 'abc', '12.34567'])('rejects a stored amount mismatch (%s)', async (amount) => {
+  it.each(['12.35', '12.3450', 'abc', '12.34567', '12.340000000000000001', '-12.34'])('rejects a stored amount mismatch (%s)', async (amount) => {
     await expect(verify(input({ candidate: candidate({ amount }) }))).rejects.toMatchObject({
       reason: 'amountMismatch',
     })
   })
 
-  it.each(['12.34', '12.340', '12.3400'])('accepts the equivalent stored amount %s', async (amount) => {
+  it.each(['12.34', '12.340', '12.3400', '12.340000000000000000'])('accepts the equivalent stored amount %s', async (amount) => {
     await expect(verify(input({ candidate: candidate({ amount }) }))).resolves.toBeDefined()
   })
 
