@@ -78,9 +78,34 @@ export function findGeneratedFile(fileName: string): string | null {
  * app TypeScript with no compiled sibling, so they are compiled separately
  * (see `compileAppLocalModuleEntries`) and the registry points at the artifact.
  */
-export async function compileAndImportGenerated(tsPath: string): Promise<Record<string, unknown>> {
+export type CompileGeneratedOptions = {
+  /**
+   * Compile-and-inline LOCAL (relative / `@/`) module sources so app-source TS
+   * contributions — `apps/<app>/src/modules/<m>/ai-tools.ts` / `ai-agents.ts` —
+   * load in the standalone node MCP server. Bare package specifiers
+   * (`@open-mercato/*`, `next`, `zod`, `@mikro-orm/*`, …) stay EXTERNAL and are
+   * resolved at runtime against the workspace's compiled `dist`, so this neither
+   * pulls Next.js internals into the bundle nor duplicates package singletons.
+   *
+   * Without this, a generated registry that statically imports an app-source
+   * `.ts` file throws `ERR_MODULE_NOT_FOUND` under plain node (it cannot load a
+   * `.ts`), which aborts the WHOLE registry — not just the one module.
+   * Default `false` keeps transpile-only behaviour for registries whose imports
+   * are all packages (e.g. `api-routes.generated.ts`).
+   * Ignored under Jest, which requires the CJS artifact path.
+   */
+  bundleLocalModules?: boolean
+}
+
+export async function compileAndImportGenerated(
+  tsPath: string,
+  options: CompileGeneratedOptions = {},
+): Promise<Record<string, unknown>> {
   const useJestCjsArtifact = isJestRuntime()
-  const jsPath = tsPath.replace(/\.ts$/, useJestCjsArtifact ? '.jest.cjs' : '.mjs')
+  const bundle = options.bundleLocalModules === true && !useJestCjsArtifact
+  // Separate output filename per mode so switching strategies never reuses a
+  // stale artifact from the other path via the mtime cache.
+  const jsPath = tsPath.replace(/\.ts$/, bundle ? '.bundled.mjs' : useJestCjsArtifact ? '.jest.cjs' : '.mjs')
   // appRoot is two directories up from `.mercato/generated/<file>.ts`.
   const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
 
@@ -102,20 +127,38 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
 
   if (needsCompile) {
     const esbuild = await import('esbuild')
-    const aliasRewritten = rewriteGeneratedAliasImportsForRuntime(
-      tsSource,
-      appRoot,
-      runtime,
-      appLocalArtifacts,
-    )
-    const result = await esbuild.transform(aliasRewritten, {
-      loader: 'ts',
-      format: useJestCjsArtifact ? 'cjs' : 'esm',
-      target: 'node18',
-      sourcemap: false,
-      sourcefile: tsPath,
-    })
-    fs.writeFileSync(jsPath, result.code)
+    if (bundle) {
+      const result = await esbuild.build({
+        entryPoints: [tsPath],
+        bundle: true,
+        // Keep every bare package specifier external (runtime resolution);
+        // only relative / aliased app-source files get compiled and inlined.
+        packages: 'external',
+        format: 'esm',
+        platform: 'node',
+        target: 'node18',
+        sourcemap: false,
+        write: false,
+        logLevel: 'silent',
+        plugins: [createAppAliasPlugin(appRoot)],
+      })
+      fs.writeFileSync(jsPath, result.outputFiles[0].text)
+    } else {
+      const aliasRewritten = rewriteGeneratedAliasImportsForRuntime(
+        tsSource,
+        appRoot,
+        runtime,
+        appLocalArtifacts,
+      )
+      const result = await esbuild.transform(aliasRewritten, {
+        loader: 'ts',
+        format: useJestCjsArtifact ? 'cjs' : 'esm',
+        target: 'node18',
+        sourcemap: false,
+        sourcefile: tsPath,
+      })
+      fs.writeFileSync(jsPath, result.code)
+    }
   }
 
   if (useJestCjsArtifact) {
@@ -126,6 +169,46 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
     /* turbopackIgnore: true */
     pathToFileURL(jsPath).href
   )) as Record<string, unknown>
+}
+
+const APP_ALIAS_SUFFIXES = ['.ts', '.tsx', '/index.ts', '/index.tsx']
+
+/**
+ * Resolve an `@/<rest>` specifier the way the app's tsconfig maps it:
+ * `@/.mercato/*` to the app root, every other `@/*` to `src/` first with the
+ * app root as a fallback (apps that keep their sources at the root). Mirrors
+ * the alias resolver in `createCliBundlePlugins`
+ * (`@open-mercato/shared/lib/bootstrap/dynamicLoader`), which this module can
+ * only load lazily. Returns `null` when no file matches. Exported for unit testing.
+ */
+export function resolveAppAliasPath(appRoot: string, rest: string): string | null {
+  const bases = rest.startsWith('.mercato/')
+    ? [path.join(appRoot, rest)]
+    : [path.join(appRoot, 'src', rest), path.join(appRoot, rest)]
+  for (const base of bases) {
+    if (fs.existsSync(base) && fs.statSync(base).isFile()) return base
+    for (const suffix of APP_ALIAS_SUFFIXES) {
+      if (fs.existsSync(base + suffix)) return base + suffix
+    }
+  }
+  return null
+}
+
+/**
+ * esbuild plugin resolving `@/` through `resolveAppAliasPath`. An unmatched
+ * specifier falls back to the literal app-root mapping so esbuild reports the
+ * missing file against the path the app author wrote. Exported for unit testing.
+ */
+export function createAppAliasPlugin(appRoot: string): import('esbuild').Plugin {
+  return {
+    name: 'app-alias',
+    setup(build) {
+      build.onResolve({ filter: /^@\// }, (args) => {
+        const rest = args.path.slice('@/'.length)
+        return { path: resolveAppAliasPath(appRoot, rest) ?? path.join(appRoot, rest) }
+      })
+    },
+  }
 }
 
 function isJestRuntime(): boolean {
@@ -243,7 +326,8 @@ function toSafeJsStringLiteral(value: string): string {
  *   1. `@/...` path-alias imports (both `from "@/x"` and dynamic `import("@/x")`).
  *      The `@/` alias is a Next.js bundler convention; outside the bundler Node
  *      treats `@/...` as a bare package specifier and throws
- *      `ERR_MODULE_NOT_FOUND`. Resolved against `appRoot`.
+ *      `ERR_MODULE_NOT_FOUND`. Resolved like the app tsconfig maps the alias
+ *      (see `resolveAppAliasPath`), falling back to `appRoot`.
  *   2. `../../src/...` relative imports the generator emits for `@app` local
  *      modules (e.g. `from "../../src/modules/<id>/ai-tools"`). esbuild's
  *      transform (transpile-only) leaves these untouched, so the compiled
@@ -289,8 +373,11 @@ function rewriteGeneratedAliasImportsForRuntime(
         : target
     return toRuntimeLiteral(candidate)
   }
-  const resolveAlias = (relativePath: string): string =>
-    toResolvedLiteral(path.join(appRoot, relativePath))
+  const resolveAlias = (relativePath: string): string => {
+    const resolved = resolveAppAliasPath(appRoot, relativePath)
+    if (resolved !== null) return toRuntimeLiteral(resolved)
+    return toResolvedLiteral(path.join(appRoot, relativePath))
+  }
   const resolveRelative = (specifier: string): string => {
     const artifact = appLocalArtifacts.get(specifier)
     if (artifact !== undefined) return toRuntimeLiteral(artifact)

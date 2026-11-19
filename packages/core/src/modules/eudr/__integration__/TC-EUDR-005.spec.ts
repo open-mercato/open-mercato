@@ -234,7 +234,7 @@ test.describe('TC-EUDR-005: Plots API', () => {
         }),
       })
       expect(pointWithoutAreaResponse.status(), 'point plot without areaHa should return 400').toBe(400)
-      expectErrorKey(await readJsonSafe(pointWithoutAreaResponse), 'pointAreaRequired')
+      expectErrorKey(await readJsonSafe(pointWithoutAreaResponse), 'Point plots require a positive area.')
 
       const pointTooLargeResponse = await apiRequest(request, 'POST', PLOTS_PATH, {
         token: adminToken,
@@ -246,7 +246,7 @@ test.describe('TC-EUDR-005: Plots API', () => {
         }),
       })
       expect(pointTooLargeResponse.status(), 'point plot over area threshold should return 400').toBe(400)
-      expectErrorKey(await readJsonSafe(pointTooLargeResponse), 'polygonRequired')
+      expectErrorKey(await readJsonSafe(pointTooLargeResponse), 'Use polygon geometry for plots larger than 4 hectares.')
 
       const validPointResponse = await apiRequest(request, 'POST', PLOTS_PATH, {
         token: adminToken,

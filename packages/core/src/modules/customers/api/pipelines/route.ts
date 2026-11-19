@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { CustomerPipeline } from '../../data/entities'
@@ -50,11 +50,11 @@ async function buildContext(
     container,
     auth,
     organizationScope: scope,
-    selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+    selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request: req,
   }
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   const tenantId = auth.tenantId ?? null
   return { ctx, organizationId, tenantId, translate }
 }
@@ -79,6 +79,7 @@ export async function GET(req: Request) {
       id: pipeline.id,
       name: pipeline.name,
       isDefault: pipeline.isDefault,
+      stageProbabilitiesEnabled: pipeline.stageProbabilitiesEnabled,
       organizationId: pipeline.organizationId,
       tenantId: pipeline.tenantId,
       createdAt: pipeline.createdAt,
@@ -299,6 +300,7 @@ const pipelineItemSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   isDefault: z.boolean(),
+  stageProbabilitiesEnabled: z.boolean(),
   organizationId: z.string().uuid(),
   tenantId: z.string().uuid(),
   createdAt: z.date(),

@@ -176,20 +176,44 @@ describe('module-facts BC resolve guard (T2)', () => {
     // measured size. A real blow-up here is multiplicative (a duplicated
     // provenance payload, a contribution body copied per resolution), not one
     // provider's worth of references.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_700_000)
-    // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
-    //   completeJson 4,120,374 · legacy delta 1,795,214 · markdown 1,558,590 ·
-    //   directory markdown 1,709,511.
-    // The delta cap is raised alongside the JSON one for the same reason: at
-    // 1,800,000 it sat 0.27% above the measurement, which is not a guard.
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_050_000)
+    //
+    // The union also carries phases P1-P6 of the staff time-tracking UMES
+    // extension-point work: 33 declared hosts expanding to ~110 emitted host
+    // facts, plus query-lifecycle, portal-page and strategy-registry hosts that
+    // exist only in the v2 surface. Same linear, one-module growth the block
+    // above describes -- the caps below are re-measured on the merged tree.
+    //
+    // Re-measured once more on the agent_orchestrator union (#5718). The caps
+    // above were measured on `develop`'s tree, and `develop`'s tree does not
+    // contain `agent_orchestrator`, the expanded `workflows` surface or the
+    // `web-research*` packages — so three of the four sat below the union, which
+    // is the "neither side's cap covers the union" case the note above names.
+    //
+    // The growth is linear and it is checkable: all four measures grew by very
+    // nearly the same proportion (+17.1% / +17.6% / +16.8% / +16.2%), which is
+    // what a union of two additive module sets produces. A real blow-up is
+    // multiplicative and would move one measure far out of step with the others,
+    // so uniform growth across all four is the evidence that this is repo size,
+    // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
+    // previous raise used, so the guard keeps the same detection power it had.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(6_380_000)
+    // Measured on the current merged tree (`yarn jest module-facts.bc-guard`):
+    //   completeJson 5,547,284 · legacy delta 2,425,489 · markdown 2,100,437 ·
+    //   directory markdown 2,289,693.
+    // The four measures grew uniformly since the previous baseline
+    // (+15.0% / +14.9% / +15.4% / +15.3%), preserving the linear-growth signal.
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_790_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
     // resolutions render as their own source-linked section — plus the additive
     // `channel_discord` module's own render, per the growth note above.
-    expect(markdownBytes).toBeLessThan(1_800_000)
-    expect(directoryMarkdownBytes).toBeLessThan(2_050_000)
+    expect(markdownBytes).toBeLessThan(2_420_000)
+    // Raised even though it was still passing: at 2,050,000 it sat 3.2% above
+    // the union measurement, and a cap that close has stopped detecting blow-ups
+    // and started rejecting the next additive module — the failure mode the note
+    // above warns about, one merge away.
+    expect(directoryMarkdownBytes).toBeLessThan(2_640_000)
   })
 
   it('keeps every shipped directory section resumable and every advertised subsection anchor exact', () => {

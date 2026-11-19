@@ -41,6 +41,7 @@ import {
   type StatementCreateInput,
   type StatementUpdateInput,
 } from '../data/validators'
+import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
 import {
   EUDR_AMEND_GUARDED_FIELDS,
   canDeleteStatement,
@@ -161,6 +162,10 @@ function statementSeedFromSnapshot(snapshot: StatementSnapshot): RequiredEntityD
 async function loadStatementSnapshot(em: EntityManager, entityId: string): Promise<StatementSnapshot | null> {
   const record = await em.findOne(EudrDueDiligenceStatement, { id: entityId })
   if (!record) return null
+  return buildStatementSnapshot(em, record)
+}
+
+async function buildStatementSnapshot(em: EntityManager, record: EudrDueDiligenceStatement): Promise<StatementSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: STATEMENT_ENTITY_ID,
     recordId: record.id,
@@ -450,12 +455,12 @@ export async function loadLatestAssessmentForGate(
   }
 }
 
-async function assertNoDownstreamReferences(
+async function hasDownstreamReferences(
   em: EntityManager,
   record: EudrDueDiligenceStatement,
-): Promise<void> {
+): Promise<boolean> {
   const referenceNumber = record.referenceNumber?.trim().toUpperCase() ?? ''
-  if (!referenceNumber) return
+  if (!referenceNumber) return false
   const db = em.getKysely<{
     eudr_due_diligence_statements: {
       id: string
@@ -475,9 +480,46 @@ async function assertNoDownstreamReferences(
     .where('id', '!=', record.id)
     .where(sql<boolean>`referenced_statements @> ${containment}::jsonb`)
     .executeTakeFirst()
-  if (Number(downstreamRow?.total ?? 0) > 0) {
+  return Number(downstreamRow?.total ?? 0) > 0
+}
+
+async function assertNoDownstreamReferences(
+  em: EntityManager,
+  record: EudrDueDiligenceStatement,
+): Promise<void> {
+  if (await hasDownstreamReferences(em, record)) {
     throw new CrudHttpError(400, { error: 'eudr.errors.referencedDownstream' })
   }
+}
+
+type StatementDeleteBlocker = {
+  key: string
+  fallback: string
+}
+
+async function resolveStatementDeleteBlocker(
+  em: EntityManager,
+  record: EudrDueDiligenceStatement,
+): Promise<StatementDeleteBlocker | null> {
+  if (isStatementStatus(record.status) && !canDeleteStatement(record.status)) {
+    return { key: 'eudr.errors.archivedReadOnly', fallback: 'Archived statements are read-only.' }
+  }
+  if (record.status !== 'available') return null
+  if (!isAmendWindowOpen(record.referenceIssuedAt ?? null)) {
+    return { key: 'eudr.errors.amendWindowElapsed', fallback: 'The amendment window has elapsed.' }
+  }
+  if (await hasDownstreamReferences(em, record)) {
+    return {
+      key: 'eudr.errors.referencedDownstream',
+      fallback: 'This statement is referenced by a downstream statement.',
+    }
+  }
+  return null
+}
+
+async function throwStatementUndoRefusal(key: string, fallback: string): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, { error: translate(key, fallback), code: key })
 }
 
 async function validateStatementUpdate(
@@ -660,6 +702,8 @@ const createStatementCommand: CommandHandler<ScopedStatementCreateInput, Stateme
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+    if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
     record.deletedAt = new Date()
     await entityManager.flush()
 
@@ -698,6 +742,8 @@ const createStatementCommand: CommandHandler<ScopedStatementCreateInput, Stateme
   }),
 }
 
+const updateStatementSnapshots = new WeakMap<StatementCommandResult, { before: StatementSnapshot; after: StatementSnapshot }>()
+
 const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, StatementCommandResult> = {
   id: 'eudr.statements.update',
   async prepare(rawInput, ctx) {
@@ -713,67 +759,80 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(statementUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.findOne(EudrDueDiligenceStatement, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const previousStatus = record.status
+    const { result, lifecycleEvent } = await entityManager.transactional(async (entityManager) => {
+      const unlockedRecord = await entityManager.findOne(EudrDueDiligenceStatement, { id: parsed.id, deletedAt: null })
+      if (!unlockedRecord) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
+      ensureTenantScope(ctx, unlockedRecord.tenantId)
+      ensureOrganizationScope(ctx, unlockedRecord.organizationId)
+      const record = await lockForUndo(entityManager, EudrDueDiligenceStatement, unlockedRecord)
+      if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
+      const before = structuredClone(await buildStatementSnapshot(entityManager, record))
+      const previousStatus = record.status
 
-    await runCrudCommandWrite({
-      ctx,
-      em: entityManager,
-      entityId: STATEMENT_ENTITY_ID,
-      action: 'updated',
-      scope: { tenantId: record.tenantId, organizationId: record.organizationId },
-      customFields: custom,
-      events: statementCrudEvents,
-      indexer: statementCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-      }),
-      phases: [
-        async () => {
-          const serverFields = await validateStatementUpdate(entityManager, record, parsed, custom)
-          applyStatementUpdate(record, parsed)
-          if (serverFields.submittedAt !== undefined) record.submittedAt = serverFields.submittedAt
-          if (serverFields.referenceIssuedAt !== undefined) record.referenceIssuedAt = serverFields.referenceIssuedAt
-        },
-      ],
-    })
-
-    const lifecycleEventId = record.status === previousStatus
-      ? null
-      : previousStatus === 'draft' && record.status === 'submitted'
-        ? 'eudr.due_diligence_statement.submitted'
-        : previousStatus === 'submitted' && record.status === 'available'
-          ? 'eudr.due_diligence_statement.reference_issued'
-          : previousStatus === 'available' && record.status === 'withdrawn'
-            ? 'eudr.due_diligence_statement.withdrawn'
-            : null
-    if (lifecycleEventId) {
-      await emitEudrLifecycleEvent(ctx.container, lifecycleEventId, {
-        id: record.id,
-        tenantId: record.tenantId,
-        organizationId: record.organizationId,
-        title: record.title,
-        referenceNumber: record.referenceNumber ?? null,
+      await runCrudCommandWrite({
+        ctx,
+        em: entityManager,
+        entityId: STATEMENT_ENTITY_ID,
+        action: 'updated',
+        scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+        customFields: custom,
+        events: statementCrudEvents,
+        indexer: statementCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: {
+            id: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+          },
+        }),
+        phases: [
+          async () => {
+            const serverFields = await validateStatementUpdate(entityManager, record, parsed, custom)
+            applyStatementUpdate(record, parsed)
+            if (serverFields.submittedAt !== undefined) record.submittedAt = serverFields.submittedAt
+            if (serverFields.referenceIssuedAt !== undefined) record.referenceIssuedAt = serverFields.referenceIssuedAt
+          },
+        ],
       })
-    }
 
-    return { entityId: record.id, updatedAt: record.updatedAt }
+      const lifecycleEventId = record.status === previousStatus
+        ? null
+        : previousStatus === 'draft' && record.status === 'submitted'
+          ? 'eudr.due_diligence_statement.submitted'
+          : previousStatus === 'submitted' && record.status === 'available'
+            ? 'eudr.due_diligence_statement.reference_issued'
+            : previousStatus === 'available' && record.status === 'withdrawn'
+              ? 'eudr.due_diligence_statement.withdrawn'
+              : null
+      const lifecycleEvent = lifecycleEventId
+        ? {
+          eventId: lifecycleEventId,
+          payload: {
+            id: record.id,
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+            title: record.title,
+            referenceNumber: record.referenceNumber ?? null,
+          },
+        } as const
+        : null
+
+      const result = { entityId: record.id, updatedAt: record.updatedAt }
+      const after = structuredClone(await buildStatementSnapshot(entityManager, record))
+      updateStatementSnapshots.set(result, { before, after })
+      return { result, lifecycleEvent }
+    })
+    if (lifecycleEvent) {
+      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload)
+    }
+    return result
   },
-  captureAfter: async (_rawInput, result, ctx) => {
-    const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadStatementSnapshot(entityManager, result.entityId)
-  },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as StatementSnapshot | undefined
-    const after = snapshots.after as StatementSnapshot | undefined
+  captureAfter: async (_rawInput, result) => updateStatementSnapshots.get(result)?.after,
+  buildLog: async ({ result }) => {
+    const lockedSnapshots = updateStatementSnapshots.get(result)
+    const before = lockedSnapshots?.before
+    const after = lockedSnapshots?.after
     if (!before) return null
     if (after && snapshotsEqual(before, after)) return { skipLog: true }
     const { translate } = await resolveTranslations()
@@ -794,32 +853,42 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
     const payload = extractUndoPayload<StatementUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await entityManager.findOne(EudrDueDiligenceStatement, { id: before.id })
-    if (!record) {
-      record = entityManager.create(EudrDueDiligenceStatement, statementSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      restoreStatement(record, before)
-    }
-    await entityManager.flush()
+    return entityManager.transactional(async (entityManager) => {
+      let record = await lockForUndo(entityManager, EudrDueDiligenceStatement, before)
+      if (!record) {
+        record = entityManager.create(EudrDueDiligenceStatement, statementSeedFromSnapshot(before))
+        entityManager.persist(record)
+        await entityManager.flush()
+      } else {
+        if (record.status !== before.status) {
+          const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+          if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
+        }
+        if (!isUnchangedSince(await buildStatementSnapshot(entityManager, record), after)) await throwUndoConflict()
+        restoreStatement(record, before)
+        await entityManager.flush()
+      }
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
-    await setStatementCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: statementCrudIndexer,
-      events: statementCrudEvents,
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
+      await setStatementCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: statementCrudIndexer,
+        events: statementCrudEvents,
+      })
     })
   },
 }
@@ -843,15 +912,8 @@ const deleteStatementCommand: CommandHandler<{ body?: Record<string, unknown>; q
     if (!record) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    if (isStatementStatus(record.status) && !canDeleteStatement(record.status)) {
-      throw new CrudHttpError(400, { error: 'eudr.errors.archivedReadOnly' })
-    }
-    if (record.status === 'available') {
-      if (!isAmendWindowOpen(record.referenceIssuedAt ?? null)) {
-        throw new CrudHttpError(400, { error: 'eudr.errors.amendWindowElapsed' })
-      }
-      await assertNoDownstreamReferences(entityManager, record)
-    }
+    const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+    if (blocker) throw new CrudHttpError(400, { error: blocker.key })
 
     const snapshot = await loadStatementSnapshot(entityManager, entityId)
     record.deletedAt = new Date()

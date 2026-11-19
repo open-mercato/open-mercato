@@ -5,7 +5,7 @@ import { isTrustedWebhookDispatch } from '@open-mercato/shared/lib/queue/dispatc
 import type { IntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { claimWebhookProcessing, releaseWebhookClaim } from '@open-mercato/core/modules/payment_gateways/lib/webhook-utils'
-import { mapWebhookEventToStatus, mapStripeStatus } from '../lib/status-map'
+import { resolveStripeWebhookStatus } from '../lib/status-map'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('gateway_stripe').child({ component: 'webhook-processor' })
@@ -81,9 +81,7 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       return
     }
 
-    const eventStatus = mapWebhookEventToStatus(event.eventType)
-    const providerStatus = typeof event.data.status === 'string' ? event.data.status : ''
-    const unifiedStatus = eventStatus ?? mapStripeStatus(providerStatus)
+    const unifiedStatus = resolveStripeWebhookStatus(event.eventType, event.data, event.apiVersion)
 
     if (unifiedStatus !== 'unknown') {
       await paymentGatewayService.syncTransactionStatus(transaction.id, {
@@ -99,14 +97,17 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       unifiedStatus,
     })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Stripe webhook processing failed'
+    const message = error instanceof Error ? error.message : 'Unknown webhook processing error'
     if (scope) {
       await releaseWebhookClaim(em, event.idempotencyKey, 'stripe', scope)
       await integrationLogService.write({
         integrationId: 'gateway_stripe',
         level: 'error',
-        message: 'Stripe webhook processing failed',
-        code: 'stripe_webhook_processing_failed',
+        // The cause belongs in the message, not only in `payload`: the payload is
+        // the durable record and never leaves the database, so an operator paged by
+        // the reported error would otherwise learn only that a webhook failed.
+        message: `Stripe webhook processing failed: ${message}`,
+        code: 'gateway_stripe.webhook_processing_failed',
         payload: {
           error: message,
           eventType: event.eventType,

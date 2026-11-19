@@ -107,6 +107,14 @@ describe('TenantDataEncryptionService DEK lifecycle (issue #2746)', () => {
     jest.restoreAllMocks()
   })
 
+  function makePolicyEm() {
+    return {
+      execute: jest.fn(async () => [
+        { entity_id: entityId, tenant_id: null, organization_id: null, fields_json: [{ field: 'secret' }] },
+      ]),
+    }
+  }
+
   function makeCreatingKms() {
     const created: string[] = []
     const kms: KmsService = {
@@ -136,10 +144,8 @@ describe('TenantDataEncryptionService DEK lifecycle (issue #2746)', () => {
 
   it('dedupes concurrent first-time DEK creation so no row is orphaned', async () => {
     const { kms, created } = makeCreatingKms()
-    const service = new TenantDataEncryptionService({} as never, { kms })
+    const service = new TenantDataEncryptionService(makePolicyEm() as never, { kms })
     jest.spyOn(service, 'isEnabled').mockReturnValue(true)
-    ;(service as unknown as { getMap: () => Promise<{ entityId: string; fields: { field: string }[] }> }).getMap =
-      jest.fn(async () => ({ entityId, fields: [{ field: 'secret' }] }))
     const tenantId = uniqueTenant('race')
 
     const rows = await Promise.all(
@@ -172,6 +178,38 @@ describe('TenantDataEncryptionService DEK lifecycle (issue #2746)', () => {
     now += 15 * 60 * 1000 + 1
     await service.getDek(tenantId)
     expect((kms.getTenantDek as jest.Mock)).toHaveBeenCalledTimes(2) // expired → re-fetch
+  })
+
+  it('provisions no DEK when the caller opts out, so a preview leaves KMS untouched', async () => {
+    const { kms, created } = makeCreatingKms()
+    const service = new TenantDataEncryptionService(makePolicyEm() as never, { kms })
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+    const tenantId = uniqueTenant('no-create')
+
+    const row = await service.encryptEntityPayload(
+      entityId,
+      { secret: 'value' },
+      tenantId,
+      null,
+      { createMissingDek: false },
+    )
+
+    expect((kms.createTenantDek as jest.Mock)).not.toHaveBeenCalled()
+    expect(created).toHaveLength(0)
+    expect(row.secret).toBe('value') // returned unchanged, exactly as when the KMS declines a key
+    expect(await service.getDek(tenantId)).toBeNull()
+  })
+
+  it('still provisions on the default path so existing write callers are unaffected', async () => {
+    const { kms, created } = makeCreatingKms()
+    const service = new TenantDataEncryptionService(makePolicyEm() as never, { kms })
+    jest.spyOn(service, 'isEnabled').mockReturnValue(true)
+    const tenantId = uniqueTenant('default-create')
+
+    const row = await service.encryptEntityPayload(entityId, { secret: 'value' }, tenantId)
+
+    expect((kms.createTenantDek as jest.Mock)).toHaveBeenCalledTimes(1)
+    expect(decryptWithAesGcm(String(row.secret), created[0])).toBe('value')
   })
 
   it('invalidateDek clears both the service cache and the KMS cache', async () => {

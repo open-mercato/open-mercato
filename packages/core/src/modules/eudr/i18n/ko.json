@@ -136,6 +136,7 @@
   "eudr.errors.statement_required": "실사 진술서 ID가 필요합니다",
   "eudr.errors.submission_required": "증거 제출물 ID가 필요합니다.",
   "eudr.errors.unauthorized": "권한 없음",
+  "eudr.errors.undoConflict": "실행 취소하려는 작업 이후에 이 레코드가 변경되었습니다. 실행 취소가 거부되었습니다.",
   "eudr.evidence.attachAfterCreateHint": "증거 제출물이 생성되었습니다. 이제 증거 파일을 첨부할 수 있습니다.",
   "eudr.evidenceSubmissions.create.title": "증거 제출물 생성",
   "eudr.evidenceSubmissions.edit.title": "증거 제출물 편집",
@@ -744,5 +745,9 @@
   "eudr.supplierPanel.viewSubmissions": "제출물 보기",
   "eudr.supplierPanel.warnings": "경고 있음",
   "eudr.warnings.harvestBeforeCutoff": "EUDR 기준일 이전 수확",
-  "eudr.warnings.speciesMissing": "연결된 목재 매핑에 학명 또는 일반명이 누락되었습니다"
+  "eudr.warnings.speciesMissing": "연결된 목재 매핑에 학명 또는 일반명이 누락되었습니다",
+  "notifications.categories.eudr": "EUDR",
+  "search.entityType.eudr.eudr_due_diligence_statement": "DDS 진술서",
+  "search.entityType.eudr.eudr_evidence_submission": "증거 제출물",
+  "search.entityType.eudr.eudr_plot": "구획"
 }

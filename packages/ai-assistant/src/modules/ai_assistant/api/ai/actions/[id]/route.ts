@@ -8,7 +8,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { AiPendingActionRepository } from '../../../../data/repositories/AiPendingActionRepository'
 import { hasRequiredFeatures } from '../../../../lib/auth'
-import { serializePendingActionForClient } from '../../../../lib/pending-action-client'
+import { serializePendingActionWithRequester } from '../../../../lib/pending-action-client'
+import { AI_PENDING_ACTION_APPROVE_FEATURE } from '../../../../lib/pending-action-types'
 
 const logger = createLogger('ai_assistant')
 
@@ -26,11 +27,7 @@ const logger = createLogger('ai_assistant')
 const REQUIRED_FEATURE = 'ai_assistant.view'
 
 const idParamSchema = z.object({
-  id: z
-    .string()
-    .trim()
-    .min(1, 'id must be a non-empty string')
-    .max(128, 'id exceeds the maximum length of 128 characters'),
+  id: z.string().trim().pipe(z.guid('id must be a UUID')),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -45,17 +42,19 @@ export const openApi: OpenApiRouteDoc = {
         'chat UI reconnect/polling path: after a page reload or SSE reconnect the client ' +
         'carries the `pendingActionId` from an earlier `mutation-preview-card` UI part and ' +
         'calls this route to re-hydrate the card. Server-internal fields (`normalizedInput`, ' +
-        '`createdByUserId`, `idempotencyKey`) are stripped by a whitelist serializer. ' +
+        '`createdByUserId`, `idempotencyKey`) are stripped by a whitelist serializer; the ' +
+        'row\'s `channel` and `requester: { userId, apiKeyId }` are returned like on the list route. ' +
         'Enforces tenant/org scoping via the repository.',
       responses: [
         {
           status: 200,
           description:
-            'Serialized pending action. Never includes normalizedInput, createdByUserId, or idempotencyKey.',
+            'Serialized pending action plus `channel` and `requester`. Never includes normalizedInput, createdByUserId, or idempotencyKey.',
           mediaType: 'application/json',
         },
       ],
       errors: [
+        { status: 400, description: 'The `:id` path parameter is not a UUID.' },
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks the `ai_assistant.view` feature.' },
         { status: 404, description: 'No pending action with the given id is accessible to the caller.' },
@@ -119,11 +118,18 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
 
     const em = container.resolve<EntityManager>('em')
     const repo = new AiPendingActionRepository(em)
-    const row = await repo.getById(pendingActionId, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
-      userId: auth.sub,
-    })
+    const row = await repo.getByIdForApprover(
+      pendingActionId,
+      { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
+      {
+        userId: auth.sub,
+        canApproveAny: hasRequiredFeatures(
+          [AI_PENDING_ACTION_APPROVE_FEATURE],
+          acl.features,
+          acl.isSuperAdmin,
+        ),
+      },
+    )
 
     if (!row) {
       return jsonError(
@@ -133,7 +139,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
       )
     }
 
-    return NextResponse.json(serializePendingActionForClient(row))
+    return NextResponse.json(serializePendingActionWithRequester(row))
   } catch (error) {
     logger.error('AI Pending Action GET — Failure', { err: error })
     return jsonError(

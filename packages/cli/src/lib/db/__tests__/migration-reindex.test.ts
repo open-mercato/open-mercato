@@ -1,4 +1,6 @@
+import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   collectQueryIndexReindexEntityTypes,
   formatManualReindexInstructions,
@@ -12,6 +14,10 @@ const MIGRATIONS_PATH = '/repo/packages/core/src/modules/customers/migrations'
 
 function migration(name: string, overrides: Partial<AppliedMigration> = {}): AppliedMigration {
   return { moduleId: 'customers', migrationsPath: MIGRATIONS_PATH, name, ...overrides }
+}
+
+function resolveImportSpecifier(specifier: string): string {
+  return specifier.startsWith('file:') ? fileURLToPath(specifier) : specifier
 }
 
 describe('resolveMigrationFilePath', () => {
@@ -61,7 +67,7 @@ describe('collectQueryIndexReindexEntityTypes', () => {
 
     const collected = await collectQueryIndexReindexEntityTypes(
       [migration('a'), migration('b'), migration('c')],
-      { importModule: async (filePath) => modules[filePath], fileExists },
+      { importModule: async (specifier) => modules[resolveImportSpecifier(specifier)], fileExists },
     )
 
     expect(collected).toEqual(['customers:customer_dictionary_entry', 'workflows:workflow_definition'])
@@ -74,8 +80,8 @@ describe('collectQueryIndexReindexEntityTypes', () => {
       {
         fileExists,
         onWarn,
-        importModule: async (filePath) => {
-          if (filePath.endsWith('broken.ts')) throw new Error('boom')
+        importModule: async (specifier) => {
+          if (resolveImportSpecifier(specifier).endsWith('broken.ts')) throw new Error('boom')
           return { queryIndexReindexEntityTypes: ['dictionaries:dictionary_entry'] }
         },
       },
@@ -117,6 +123,45 @@ describe('collectQueryIndexReindexEntityTypes', () => {
 
     expect(collected).toEqual([])
     expect(importModule).not.toHaveBeenCalled()
+  })
+
+  it('imports cwd-relative node_modules migration paths via file: URLs (#6238)', async () => {
+    const relativePath = path.join(
+      'node_modules',
+      '@open-mercato',
+      'test-migration-reindex',
+      'Migration20260901120000_reindex.js',
+    )
+    const absolutePath = path.resolve(relativePath)
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true })
+    fs.writeFileSync(
+      absolutePath,
+      'module.exports = { queryIndexReindexEntityTypes: ["customers:deal"] };\n',
+    )
+
+    try {
+      const onWarn = jest.fn()
+      const collected = await collectQueryIndexReindexEntityTypes(
+        [{
+          moduleId: 'customers',
+          migrationsPath: path.dirname(absolutePath),
+          name: 'Migration20260901120000_reindex',
+          filePath: relativePath,
+        }],
+        {
+          onWarn,
+          importModule: async (specifier) => {
+            expect(specifier.startsWith('file:')).toBe(true)
+            return import(specifier)
+          },
+        },
+      )
+
+      expect(onWarn).not.toHaveBeenCalled()
+      expect(collected).toEqual(['customers:deal'])
+    } finally {
+      fs.rmSync(path.dirname(absolutePath), { recursive: true, force: true })
+    }
   })
 })
 

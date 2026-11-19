@@ -1,0 +1,155 @@
+import type { GuardrailKindInput, GuardrailPhaseInput } from '../../data/validators'
+
+/**
+ * Typed agent-run error classes, extracted from `agentRuntime.ts` so both the
+ * dispatch service and the `NativeAgentRunner` can import them without a
+ * circular module edge. `agentRuntime.ts` re-exports every class, so existing
+ * `from './agentRuntime'` / package-index imports are unchanged (BC).
+ */
+
+export class AgentNotFoundError extends Error {
+  readonly code = 'agent_not_found'
+  constructor(agentId: string) {
+    super(`[internal] unknown agent id "${agentId}"`)
+    this.name = 'AgentNotFoundError'
+  }
+}
+
+/**
+ * The run's invoker does not hold every feature the agent declares in
+ * `requiredFeatures`. The message never names the missing features so a
+ * non-admin caller cannot enumerate the agent's ACL.
+ */
+export class AgentInvokeDeniedError extends Error {
+  readonly code = 'agent_invoke_denied'
+  readonly agentId: string
+  constructor(agentId: string) {
+    super(`[internal] invoker may not run agent "${agentId}"`)
+    this.name = 'AgentInvokeDeniedError'
+    this.agentId = agentId
+  }
+}
+
+export const AGENT_INVOKE_DENIED_CODE = 'agent_invoke_denied' as const
+
+/**
+ * Structural match so a denial is recognised after crossing a boundary that
+ * drops the prototype (admission queue, workflow job, duplicated module copy).
+ */
+export function isAgentInvokeDeniedError(err: unknown): err is { code: typeof AGENT_INVOKE_DENIED_CODE; agentId?: string } {
+  if (err instanceof AgentInvokeDeniedError) return true
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: unknown }).code === AGENT_INVOKE_DENIED_CODE
+}
+
+/**
+ * The agent declares `principal.required: true` but has no enabled principal in
+ * the run's organization, so the run refuses instead of falling back to the
+ * caller's attribution.
+ */
+export class AgentPrincipalMissingError extends Error {
+  readonly code = 'agent_principal_missing'
+  readonly agentId: string
+  constructor(agentId: string) {
+    super(`[internal] agent "${agentId}" requires a provisioned principal and has none in this organization`)
+    this.name = 'AgentPrincipalMissingError'
+    this.agentId = agentId
+  }
+}
+
+export const AGENT_PRINCIPAL_MISSING_CODE = 'agent_principal_missing' as const
+
+export const AGENT_CALL_SETTINGS_UNSUPPORTED_CODE = 'agent_call_settings_unsupported' as const
+
+/**
+ * Call-time model settings were sent for an agent on the OpenCode runtime, which
+ * cannot apply them. The run refuses before any row is written instead of
+ * running with the settings silently dropped.
+ */
+export class AgentCallSettingsUnsupportedError extends Error {
+  readonly code = AGENT_CALL_SETTINGS_UNSUPPORTED_CODE
+  readonly agentId: string
+  constructor(agentId: string) {
+    super(`[internal] agent "${agentId}" runs on OpenCode, which does not support call-time model settings`)
+    this.name = 'AgentCallSettingsUnsupportedError'
+    this.agentId = agentId
+  }
+}
+
+/** Structural match, like {@link isAgentInvokeDeniedError}. */
+export function isAgentCallSettingsUnsupportedError(
+  err: unknown,
+): err is { code: typeof AGENT_CALL_SETTINGS_UNSUPPORTED_CODE; agentId?: string } {
+  if (err instanceof AgentCallSettingsUnsupportedError) return true
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: unknown }).code === AGENT_CALL_SETTINGS_UNSUPPORTED_CODE
+}
+
+/** Structural match, like {@link isAgentInvokeDeniedError}. */
+export function isAgentPrincipalMissingError(
+  err: unknown,
+): err is { code: typeof AGENT_PRINCIPAL_MISSING_CODE; agentId?: string } {
+  if (err instanceof AgentPrincipalMissingError) return true
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: unknown }).code === AGENT_PRINCIPAL_MISSING_CODE
+}
+
+/** True when at least one per-call model setting is set. */
+export function hasCallSettings(settings: Record<string, unknown> | null | undefined): boolean {
+  if (!settings) return false
+  return Object.values(settings).some((value) => value !== undefined)
+}
+
+/**
+ * The in-process wall-clock deadline (`OM_AGENT_RUN_TIMEOUT_MS`, default 5 min —
+ * symmetric with the OpenCode runner's `OM_OPENCODE_RUN_TIMEOUT_MS`) expired
+ * before the model finished. The run is already marked failed via `failRun`
+ * when this is thrown. Deterministic for a given deadline — NOT retryable.
+ */
+export class AgentRunTimeoutError extends Error {
+  readonly code = 'agent_run_timeout'
+  constructor(agentId: string, timeoutMs: number) {
+    super(`[internal] agent "${agentId}" run exceeded the ${timeoutMs}ms wall-clock deadline`)
+    this.name = 'AgentRunTimeoutError'
+  }
+}
+
+export class AgentOutputInvalidError extends Error {
+  readonly code: string = 'agent_output_invalid'
+  constructor(agentId: string, detail: string) {
+    super(`[internal] agent "${agentId}" produced output failing its result schema: ${detail}`)
+    this.name = 'AgentOutputInvalidError'
+  }
+}
+
+/**
+ * A runtime guardrail `block` verdict. Carries the typed reason
+ * `{ phase, kind, guardrailSetVersion }` so the workflow can route to retry /
+ * escalate / USER_TASK. The schema-kind block subclasses AgentOutputInvalidError
+ * to preserve the existing fail semantics callers/tests rely on (a schema-invalid
+ * output is still an AgentOutputInvalidError).
+ */
+export class AgentGuardrailBlockedError extends AgentOutputInvalidError {
+  override readonly code: string = 'agent_guardrail_blocked'
+  readonly phase: GuardrailPhaseInput
+  readonly kind: GuardrailKindInput
+  readonly guardrailSetVersion: string
+  readonly ruleId: string | null
+  constructor(
+    agentId: string,
+    detail: string,
+    reason: {
+      phase: GuardrailPhaseInput
+      kind: GuardrailKindInput
+      guardrailSetVersion: string
+      ruleId?: string | null
+    },
+  ) {
+    super(agentId, detail)
+    this.name = 'AgentGuardrailBlockedError'
+    this.phase = reason.phase
+    this.kind = reason.kind
+    this.guardrailSetVersion = reason.guardrailSetVersion
+    this.ruleId = reason.ruleId ?? null
+  }
+}

@@ -33,6 +33,33 @@ type SchedulerServiceLike = {
   }) => Promise<void>
 }
 
+async function ensureTransactionExpirySchedule(ctx: {
+  container: import('awilix').AwilixContainer
+  tenantId: string
+  organizationId: string
+}): Promise<void> {
+  const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
+  if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+
+  const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+  await schedulerService.register({
+    id: stableUuidFromString(`checkout:transaction-expiry:${ctx.tenantId}:${ctx.organizationId}`),
+    name: 'Checkout transaction expiry',
+    description: 'Marks stale checkout transactions as expired and runs usage limit updates.',
+    scopeType: 'organization',
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: '10m',
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: CHECKOUT_EXPIRY_QUEUE,
+    sourceType: 'module',
+    sourceModule: 'checkout',
+    isEnabled: true,
+  })
+}
+
 export const setup: ModuleSetupConfig = {
   async seedDefaults(ctx) {
     await ensureCheckoutFieldsetsAndDefinitions(ctx.em, {
@@ -40,26 +67,11 @@ export const setup: ModuleSetupConfig = {
       organizationId: ctx.organizationId,
     })
 
-    const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
-    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+    await ensureTransactionExpirySchedule(ctx)
+  },
 
-    const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
-    await schedulerService.register({
-      id: stableUuidFromString(`checkout:transaction-expiry:${ctx.tenantId}:${ctx.organizationId}`),
-      name: 'Checkout transaction expiry',
-      description: 'Marks stale checkout transactions as expired and runs usage limit updates.',
-      scopeType: 'organization',
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      scheduleType: 'interval',
-      scheduleValue: '10m',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: CHECKOUT_EXPIRY_QUEUE,
-      sourceType: 'module',
-      sourceModule: 'checkout',
-      isEnabled: true,
-    })
+  async onOrganizationCreated(ctx) {
+    await ensureTransactionExpirySchedule(ctx)
   },
 
   defaultRoleFeatures: {

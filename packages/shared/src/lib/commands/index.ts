@@ -5,6 +5,13 @@ export * from './customFieldSnapshots'
 export * from './undo'
 export * from './redo'
 export {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+  ownsTransactionLifetime,
+  type TransactionLifetime,
+  type TransactionOutcome,
+} from './transaction-lifetime'
+export {
   CommandInterceptorError,
   isCommandInterceptorError,
   getCommandInterceptorHttpRejection,
@@ -19,3 +26,4 @@ export {
   type CrudCommandWriteScope,
   type CrudCommandWriteSideEffectTarget,
 } from './runCrudCommandWrite'
+export { withAuditCorrelation, getAmbientAuditCorrelation } from './auditCorrelationScope'

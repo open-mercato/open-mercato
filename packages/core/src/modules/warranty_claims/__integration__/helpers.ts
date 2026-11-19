@@ -107,6 +107,7 @@ export type WarrantyClaimSettingsResult = {
   slaAtRiskThresholdPct: number
   autoApproveEnabled: boolean
   autoApproveMaxAmount: number | null
+  autoApproveMaxAmountExact?: string | null
   autoApproveCurrencyCode: string | null
   autoApproveRequireInWarranty: boolean
   defaultWarrantyMonths: number | null
@@ -117,6 +118,12 @@ export type WarrantyClaimSettingsResult = {
   returnLabelProvider: string | null
   returnWindowDays: number | null
   updatedAt: string | null
+}
+
+export type WarrantyClaimSettingsInput = Partial<
+  Omit<WarrantyClaimSettingsResult, 'updatedAt' | 'autoApproveMaxAmount' | 'autoApproveMaxAmountExact'>
+> & {
+  autoApproveMaxAmount?: number | string | null
 }
 
 export type WarrantyClaimStatsResult = {
@@ -472,7 +479,7 @@ export async function readWarrantyClaimSettings(
 export async function putWarrantyClaimSettings(
   request: APIRequestContext,
   token: string,
-  data: Partial<Omit<WarrantyClaimSettingsResult, 'updatedAt'>>,
+  data: WarrantyClaimSettingsInput,
   updatedAt?: string | null,
 ): Promise<APIResponse> {
   return requestJson(request, 'PUT', '/api/warranty_claims/settings-general', token, data, updatedAt)
@@ -481,7 +488,7 @@ export async function putWarrantyClaimSettings(
 export async function saveWarrantyClaimSettings(
   request: APIRequestContext,
   token: string,
-  data: Partial<Omit<WarrantyClaimSettingsResult, 'updatedAt'>>,
+  data: WarrantyClaimSettingsInput,
   updatedAt?: string | null,
 ): Promise<WarrantyClaimSettingsResult> {
   const response = await putWarrantyClaimSettings(request, token, data, updatedAt)
@@ -506,7 +513,7 @@ export async function restoreWarrantyClaimSettings(
       slaPauseOnInfoRequested: snapshot.slaPauseOnInfoRequested,
       slaAtRiskThresholdPct: snapshot.slaAtRiskThresholdPct,
       autoApproveEnabled: snapshot.autoApproveEnabled,
-      autoApproveMaxAmount: snapshot.autoApproveMaxAmount,
+      autoApproveMaxAmount: snapshot.autoApproveMaxAmountExact ?? snapshot.autoApproveMaxAmount,
       autoApproveCurrencyCode: snapshot.autoApproveCurrencyCode,
       autoApproveRequireInWarranty: snapshot.autoApproveRequireInWarranty,
       defaultWarrantyMonths: snapshot.defaultWarrantyMonths,
@@ -857,4 +864,30 @@ export async function cancelThenDeleteClaimIfPossible(
     await transitionClaim(request, token, { id: claimId, toStatus: 'cancelled' }, (fresh ?? claim).updatedAt).catch(() => undefined)
   }
   await cleanupDraftClaimWithLines(request, token, claimId)
+}
+
+export async function cleanupReceivingClaimFixture(
+  request: APIRequestContext,
+  token: string,
+  claimId: string | null,
+): Promise<void> {
+  if (!claimId) return
+  let claim = await readClaimMaybe(request, token, claimId)
+  if (!claim) return
+  if (claim.status === 'received' || claim.status === 'inspecting') {
+    const lines = await listClaimLines(request, token, claimId)
+    for (const line of lines) {
+      expect(line.id, 'cleanup line should have an id').toBeTruthy()
+      const response = await requestJson(request, 'DELETE', `/api/warranty_claims/lines?id=${encodeURIComponent(line.id!)}`, token, undefined, line.updatedAt)
+      expect(response.status(), 'cleanup should delete the receiving line').toBe(200)
+    }
+    if (claim.status === 'received') {
+      claim = await transitionAndExpect(request, token, claim, 'inspecting')
+    }
+    claim = await transitionAndExpect(request, token, claim, 'resolved')
+    claim = await transitionAndExpect(request, token, claim, 'closed')
+    await transitionAndExpect(request, token, claim, 'in_review')
+  }
+  await cancelThenDeleteClaimIfPossible(request, token, claimId)
+  expect(await readClaimMaybe(request, token, claimId), 'cleanup should remove the claim fixture').toBeNull()
 }

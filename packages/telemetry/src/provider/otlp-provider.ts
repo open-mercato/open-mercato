@@ -23,6 +23,7 @@ import {
   type Counter,
   type Histogram,
   type Gauge,
+  type MetricOptions,
 } from '@opentelemetry/api'
 import { W3CTraceContextPropagator } from '@opentelemetry/core'
 import { logs, SeverityNumber } from '@opentelemetry/api-logs'
@@ -41,9 +42,10 @@ import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { BatchLogRecordProcessor, type LogRecordProcessor } from '@opentelemetry/sdk-logs'
 import { PeriodicExportingMetricReader, type IMetricReader } from '@opentelemetry/sdk-metrics'
-import { PgInstrumentation } from '@opentelemetry/instrumentation-pg'
+import { PgInstrumentation, type PgInstrumentationConfig } from '@opentelemetry/instrumentation-pg'
 import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici'
 
+import { REDACTED_SQL_STATEMENT, sanitizeSqlStatement } from './sanitize-sql'
 import type {
   Attributes,
   AttributeValue,
@@ -59,6 +61,7 @@ import type {
   TraceContext,
 } from '../types'
 import { readTelemetryEnv } from '../env'
+import { BACKUP_TRACEPARENT_HEADER, BACKUP_TRACESTATE_HEADER } from '../trace-headers'
 import { redactAttributes, redactPii } from '../facade/redact'
 import { serializeError } from '../facade/serialize'
 import { runSpan } from './run-span'
@@ -74,8 +77,8 @@ const queuePropagator = new W3CTraceContextPropagator()
 const W3C_TRACEPARENT = 'traceparent'
 const W3C_TRACESTATE = 'tracestate'
 // Backup headers that mirror the W3C context but a proxy/LB won't rewrite.
-const BACKUP_TRACEPARENT = 'x-original-traceparent'
-const BACKUP_TRACESTATE = 'x-original-tracestate'
+const BACKUP_TRACEPARENT = BACKUP_TRACEPARENT_HEADER
+const BACKUP_TRACESTATE = BACKUP_TRACESTATE_HEADER
 
 /**
  * Global propagator: standard W3C plus a backup copy
@@ -220,13 +223,46 @@ export type OtlpProviderOptions = {
 }
 
 /**
- * PII guard (telemetry spec Privacy / R12). The single source of truth for pg
- * instrumentation config: `enhancedDatabaseReporting: false` means bound SQL
- * parameter VALUES are NOT captured — only the statement shape ($1, $2). User
- * data lives in those params, so this must never be flipped on. Asserted by a
- * regression test.
+ * Statement attribute keys written by `@opentelemetry/instrumentation-pg`:
+ * `db.query.text` (stable semconv, 0.73+) and `db.statement` (older releases).
  */
-export const PG_INSTRUMENTATION_OPTIONS = { enhancedDatabaseReporting: false } as const
+export const PG_STATEMENT_ATTRIBUTE_KEYS = ['db.query.text', 'db.statement'] as const
+
+/**
+ * PII guard (telemetry spec Privacy / R12). The single source of truth for pg
+ * instrumentation config. Two layers, both asserted by regression tests:
+ *
+ * - `enhancedDatabaseReporting: false` keeps the bound parameter VALUES array
+ *   off the span. This must never be flipped on.
+ * - `requestHook` rewrites the statement text with every literal replaced by
+ *   `?`. MikroORM inlines parameters into the SQL before it reaches `pg`, so
+ *   without this the statement itself carries record content and ids. When the
+ *   text cannot be tokenized the hook fails closed with a fixed marker.
+ */
+export const PG_INSTRUMENTATION_OPTIONS = {
+  enhancedDatabaseReporting: false,
+  requestHook: (span, { query }) => {
+    if (typeof query.text !== 'string' || query.text.length === 0) return
+    const statement = sanitizeSqlStatement(query.text) ?? REDACTED_SQL_STATEMENT
+    for (const key of PG_STATEMENT_ATTRIBUTE_KEYS) span.setAttribute(key, statement)
+  },
+} as const satisfies PgInstrumentationConfig
+
+/**
+ * Bucket boundaries for every histogram recorded in seconds. Without explicit
+ * advice the SDK falls back to millisecond-scaled defaults (0, 5, 10 … 10000),
+ * which puts every realistic latency in the first bucket and leaves percentiles
+ * uncomputable. A superset of the semconv HTTP-duration advice, plus a 1 ms
+ * bucket for sub-millisecond pool acquisitions.
+ */
+export const SECONDS_HISTOGRAM_BUCKETS: readonly number[] = [
+  0.001, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10,
+]
+
+function histogramOptions(unit: string | undefined): MetricOptions | undefined {
+  if (unit !== 's') return unit ? { unit } : undefined
+  return { unit, advice: { explicitBucketBoundaries: [...SECONDS_HISTOGRAM_BUCKETS] } }
+}
 
 export class OtlpProvider implements TelemetryProvider {
   /** The configured backend name (signoz | newrelic | otlp) — all OTLP, vendor differs only by endpoint. */
@@ -338,7 +374,7 @@ export class OtlpProvider implements TelemetryProvider {
         point.kind === 'counter'
           ? meter.createCounter(point.name, opts)
           : point.kind === 'histogram'
-            ? meter.createHistogram(point.name, opts)
+            ? meter.createHistogram(point.name, histogramOptions(point.unit))
             : meter.createGauge(point.name, opts)
       this.instruments.set(key, instrument)
     }

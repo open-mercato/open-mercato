@@ -7,8 +7,10 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { SsoConfig } from '../data/entities'
 import type { SsoProviderRegistry } from '../lib/registry'
 import type { AccountLinkingService } from './accountLinkingService'
+import type { SsoAuthService } from './ssoAuthService'
 import { encryptStateCookie, decryptStateCookie, createFlowState } from '../lib/state-cookie'
 import { emitSsoEvent } from '../events'
+import { isSsoRolesRevokedError } from '../lib/errors'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -20,7 +22,7 @@ export class SsoService {
     private ssoProviderRegistry: SsoProviderRegistry,
     private accountLinkingService: AccountLinkingService,
     private tenantEncryptionService: TenantDataEncryptionService,
-    private authService: AuthService,
+    private authService: AuthService & Pick<SsoAuthService, 'createSession'>,
     private rbacService: RbacService,
   ) {}
 
@@ -122,7 +124,13 @@ export class SsoService {
     })
 
     const tenantId = config.tenantId ?? ''
-    const { user } = await this.accountLinkingService.resolveUser(config, idpPayload, tenantId)
+    let user: Awaited<ReturnType<AccountLinkingService['resolveUser']>>['user']
+    try {
+      ;({ user } = await this.accountLinkingService.resolveUser(config, idpPayload, tenantId))
+    } catch (err) {
+      if (isSsoRolesRevokedError(err)) await this.rbacService.invalidateUserCache(err.userId)
+      throw err
+    }
 
     await this.rbacService.invalidateUserCache(String(user.id))
 
@@ -132,7 +140,11 @@ export class SsoService {
 
     const days = Number(process.env.REMEMBER_ME_DAYS || '30')
     const sessionExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-    const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt)
+    const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt, {
+      tenantId: config.tenantId ?? null,
+      organizationId: config.organizationId,
+      ssoConfigId: config.id,
+    })
 
     const token = signJwt({
       sub: String(user.id),

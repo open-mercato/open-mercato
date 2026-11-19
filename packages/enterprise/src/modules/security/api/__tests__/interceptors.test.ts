@@ -1,3 +1,6 @@
+const mockEmitSecurityEvent = jest.fn().mockResolvedValue(undefined)
+jest.mock('../../events', () => ({ emitSecurityEvent: mockEmitSecurityEvent }))
+
 const mockLoggerWarn = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
@@ -117,7 +120,7 @@ describe('security auth/login api interceptor', () => {
       throw new Error('db unavailable')
     }) as CreateChallengeMock
 
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
       { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
@@ -135,7 +138,7 @@ describe('security auth/login api interceptor', () => {
       challengeId: 'challenge-1',
       availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
     })) as CreateChallengeMock
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
 
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
@@ -145,6 +148,9 @@ describe('security auth/login api interceptor', () => {
 
     expect(result).toEqual({})
     expect(createChallenge).not.toHaveBeenCalled()
+    expect(mockEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.emergency_bypass_detected', expect.objectContaining({
+      tenantId: 'tenant-1', organizationId: 'org-1',
+    }), { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       'MFA emergency bypass is active',
       expect.objectContaining({
@@ -172,6 +178,7 @@ describe('security auth/login api interceptor', () => {
 
     expect(result).toEqual({})
     expect(createChallenge).not.toHaveBeenCalled()
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -179,7 +186,7 @@ describe('security auth/login api interceptor', () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
     const context = {
       userId: '',
       organizationId: '',
@@ -199,6 +206,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({})
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -210,7 +218,7 @@ describe('security auth/login api interceptor', () => {
       challengeId: 'challenge-1',
       availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
     })) as CreateChallengeMock
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
 
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
@@ -219,6 +227,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result.replace).toBeDefined()
+    expect(mockEmitSecurityEvent).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 })

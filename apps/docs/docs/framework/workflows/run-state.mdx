@@ -1,0 +1,146 @@
+---
+title: Run State Presentation
+description: Working vs waiting on the run canvas, and the one line that says what a step is waiting for
+---
+
+# Run State Presentation
+
+An operator opening a run asks one question first: **is anything happening right
+now, or is this stuck?**
+
+The canvas used to answer it with the *engine's* lifecycle vocabulary, which was
+built for control flow rather than for reading. `WAITING_FOR_ACTIVITIES` means
+"the executor handed work to a queue and will resume when it returns" — that is
+the engine **working** — and it painted as an amber pause. So did a running
+`INVOKE_AGENT`, and so did a user task that had been sitting on someone's desk
+since Tuesday. Nothing said which was which, and nothing said what was being
+waited for.
+
+## The rule
+
+> **Amber means blocked on the outside world. If the system is doing work, it is
+> blue and it moves.**
+
+| State | Token | Motion | Means |
+|---|---|---|---|
+| **Working** | `status-info-*` | animated | An activity executing, an async activity in a worker, an agent invoked and running, a sub-workflow child running, branches advancing after a fork, compensation unwinding. |
+| **Waiting** | `status-warning-*` | static | Blocked on something outside the system: a person, a timer, an external signal, a condition, a proposal decision. |
+| **Attention** | `status-error-*` border on a warning surface | static | Parked in the failure queue (`metadata.attention`) or breached. Needs a human, and not in the ordinary way. |
+
+Plus the terminal states the canvas already had — completed, failed, skipped, not
+started.
+
+## Derived, never stored
+
+There is **no new column and no new engine event**. Every input is something the
+engine already writes:
+
+| Evidence | Where it comes from |
+|---|---|
+| `SIGNAL_AWAITING` | `WAIT_FOR_SIGNAL`, the `INVOKE_AGENT` park, the `SUB_WORKFLOW` park |
+| `TIMER_AWAITING` | `WAIT_FOR_TIMER` |
+| `CONDITION_AWAITING` | `WAIT_FOR_CONDITION` |
+| `USER_TASK_CREATED` | `USER_TASK`, and the agent-disposition review task |
+| `ACTIVITY_QUEUED` | any async activity handed to `workflow-activities` |
+| `PARALLEL_FORK_OPENED` + the branch settle events | `PARALLEL_FORK` |
+| `metadata.attention` | the `failureQueue` error directive, the agent-review breach escalation |
+| `WorkflowInstance.status` | the fallback witness when no park event is on the page |
+
+`lib/run-execution.ts` collects that evidence into `RunExecution.waits`, keyed by
+definition `stepId`. It correlates through the `stepInstanceId` every step-scoped
+event already carries — most park events name the **row**, not the step, so
+without that correlation they could not be attributed at all.
+
+`StepInstance.outputData` carries the same facts on the return value of
+`enterStep` and is deliberately **not** read: `exitStep` writes it on the
+COMPLETED path only, so on a parked step it is null. The events are the only
+place a park survives.
+
+`lib/step-presentation.ts` then decides what the evidence MEANS. It is pure — no
+React, no ORM, no DI — the same rule `lib/node-outcome-rows.ts` and
+`lib/breach-routing.ts` follow, so the decision is unit-testable without a canvas
+(`lib/__tests__/step-presentation.test.ts`).
+
+## The one-line reason
+
+| Situation | Line |
+|---|---|
+| Async activity in flight | *Running `<activity name>`…* |
+| `INVOKE_AGENT` running | *Agent `<agent label>` is running…* |
+| `INVOKE_AGENT` parked on disposition | *Waiting for a decision on the proposal* |
+| `USER_TASK` | *Waiting for `<role queue>`* |
+| `WAIT_FOR_TIMER` | *Waiting until `<absolute time>`* |
+| `WAIT_FOR_SIGNAL` | *Waiting for signal `<name>`* |
+| `WAIT_FOR_CONDITION` | *Waiting for a condition, until `<timeout>`* |
+| Sub-workflow | *Waiting for `<child>`* |
+| Parallel fork | *`<n>` of `<m>` branches still running* |
+| Failure-queue park | *Parked for attention* |
+
+A working step also carries its elapsed time — *"running for 4m"* — from
+`StepInstance.startedAt`.
+
+### Two engine facts the model depends on
+
+**`INVOKE_AGENT` never logs `ACTIVITY_QUEUED`.** It is registered
+`async: { capable: false, reason: 'parksOnDedicatedQueue' }`: `execute()`
+enqueues onto `workflow-invoke-agent` and returns a `__park` marker, so the step
+handler parks the instance on the proposal-ready signal. `SIGNAL_AWAITING` with
+`reason: 'INVOKE_AGENT'` is the only trace, and the **absence of a `proposalId`
+there** is what says the agent has not answered yet.
+
+**The invoke-agent worker's `user_task` branch logs nothing.** What separates
+"the agent is still running" from "a person has not decided yet" is
+`lib/agent-disposition-task.ts`, which writes a real `UserTask` and logs
+`USER_TASK_CREATED` — carrying the `proposalId` — against the same step instance.
+Without that row the two states are genuinely indistinguishable from the
+workflows module's own evidence.
+
+### What is deliberately not shown
+
+An **individual assignee is never named**. The §6.4 visibility model decides who
+may see a task's owner and this line must not become a way around it; the run
+APIs also expose an opaque user id with no display name, so there would be
+nothing honest to render. The authored **role queue** is shown, because it is
+definition data every viewer of the run already reads off the canvas.
+
+The **agent's label** is used, never its definition key. Labels come from the
+optional `agent_orchestrator` peer's registry (`useAgentLabels`); when the peer
+is absent the line falls back to the id rather than inventing a name.
+
+## Accessibility
+
+- **Status is never colour-only.** Each state pairs its DS token with its own
+  icon shape — a spinner ring for working, an hourglass for waiting, a triangle
+  for attention — and an `sr-only` name. `components/__tests__/canvasAccessibility.test.tsx`
+  is a live guard over every status the canvas can paint.
+- **Motion is an enhancement.** The spin carries `motion-reduce:animate-none`, so
+  `prefers-reduced-motion` disables it. With animation off a working step is
+  still told apart from a waiting one by its glyph, its announced name and its
+  reason line — the distinction never depends on the movement.
+
+## One resolver, two surfaces
+
+The run detail canvas (`backend/instances/[id]/page.tsx`) and the Studio's "Show
+last run" overlay (`components/WorkflowGraphImpl.tsx` via `useLastRunOverlay`)
+both call `resolveStepPresentation`, so they cannot disagree about whether a step
+is working or waiting, or about what it is waiting for.
+
+The Studio reads a **second, unfiltered** page of instance events for the park
+evidence rather than widening its `eventType=TRANSITION_EXECUTED` query: that
+filter is a single equality, and dropping it would let a long run's transitions
+fall off the same 100-row page the taken-path overlay depends on. Neither request
+is issued until the toggle is on.
+
+## Adding a new presentation state
+
+1. Add it to `WorkflowStatus` in `lib/status-colors.ts` **additively** — the
+   legacy `in_progress` / `paused` members must keep meaning exactly what every
+   existing caller believes they mean.
+2. Give it a `STATUS_COLORS` entry (DS tokens only), a `STATUS_ICONS` entry with
+   a shape no other state uses, and a `workflows.nodeStatus.<state>` key in all
+   four locales.
+3. Extend `ALL_STATUSES` in `canvasAccessibility.test.tsx`. That guard is the
+   reason a new state cannot ship without a name and a shape.
+4. If it can appear on the run canvas, add a legend row — `WorkflowLegend`
+   derives its swatches from `STATUS_COLORS` and `STATUS_ICONS`, so it cannot
+   drift, but the row list is still explicit.

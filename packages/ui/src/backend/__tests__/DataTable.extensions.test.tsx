@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '../DataTable'
 import { APP_EVENT_DOM_NAME } from '../injection/useAppEvent'
+import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 
 const mockRouterRefresh = jest.fn()
 
@@ -72,10 +73,123 @@ function renderTable(elementProps: Record<string, unknown>) {
 
 describe('DataTable extensions', () => {
   beforeEach(() => {
+    registerComponentOverrides([])
     ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
     useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: false, error: null }))
     flashMock.mockReset()
     mockRouterRefresh.mockReset()
+  })
+
+  afterEach(() => {
+    registerComponentOverrides([])
+  })
+
+  it.each(['parent', 'injected'])('waits for all initial columns when %s columns finish first', (firstReady) => {
+    let columnsLoading = true
+    useInjectionDataWidgetsMock.mockImplementation((spotId: string) => ({
+      widgets: spotId.endsWith(':columns') && !columnsLoading
+        ? [{ metadata: { id: 'test.delayed-column' }, columns: [{ id: 'gateway_status', header: 'Gateway status', accessorKey: 'name' }] }]
+        : [],
+      isLoading: spotId.endsWith(':columns') && columnsLoading,
+      error: null,
+    }))
+    const props = {
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      extensionTableId: 'tests.delayed-columns',
+      isLoading: true,
+    }
+    const view = renderTable(props)
+    expect(screen.queryAllByRole('columnheader')).toHaveLength(0)
+    expect(screen.getByText('Loading data...')).toBeInTheDocument()
+
+    columnsLoading = firstReady === 'parent'
+    view.rerenderTable({ ...props, isLoading: firstReady !== 'parent' })
+    expect(screen.queryAllByRole('columnheader')).toHaveLength(0)
+
+    columnsLoading = false
+    view.rerenderTable({
+      ...props,
+      isLoading: false,
+      columns: [...props.columns, { accessorKey: 'cf_role', header: 'Buying role' }],
+    })
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Name', 'Buying role', 'Gateway status'])
+
+    columnsLoading = true
+    view.rerenderTable({ ...props, isLoading: true })
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument()
+    view.cleanupQueryClient()
+  })
+
+  it('does not wait for disabled column injection on a table without an extension ID', () => {
+    useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: true, error: null }))
+    const view = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+    })
+
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument()
+    view.cleanupQueryClient()
+  })
+
+  it('shows the table when column injection finishes with an error', () => {
+    useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: false, error: 'Load failed' }))
+    const view = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      extensionTableId: 'tests.failed-columns',
+    })
+
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument()
+    view.cleanupQueryClient()
+  })
+
+  // With no widgets registered, the header/footer injection spots render
+  // nothing; their wrappers must collapse instead of leaving an empty gap
+  // under the filter bar and an empty bordered strip above the pagination.
+  it.each([false, true])('collapses empty header and footer injection spot wrappers (embedded: %s)', async (embedded) => {
+    const view = renderTable({
+      title: 'People',
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      extensionTableId: 'tests.empty-slots',
+      embedded,
+    })
+
+    await waitFor(() => expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument())
+    const slotWrappers = Array.from(view.container.querySelectorAll('div.empty\\:hidden'))
+    expect(slotWrappers).toHaveLength(2)
+    slotWrappers.forEach((wrapper) => expect(wrapper).toBeEmptyDOMElement())
+
+    const widget = document.createElement('div')
+    widget.textContent = 'Injected footer widget'
+    slotWrappers[1].appendChild(widget)
+    expect(slotWrappers[1]).not.toBeEmptyDOMElement()
+    view.cleanupQueryClient()
+  })
+
+  it('executes transforms and wrappers at the derived DataTable handle', () => {
+    registerComponentOverrides([
+      {
+        target: { componentId: 'data-table:catalog.products.list' },
+        priority: 10,
+        propsTransform: (props: Record<string, unknown>) => ({ ...props, title: 'Transformed title' }),
+      },
+      {
+        target: { componentId: 'data-table:catalog.products.list' },
+        priority: 20,
+        wrapper: (Original: React.ComponentType<Record<string, unknown>>) => function Wrapped(props) {
+          return <section data-testid="registered-table-wrapper"><Original {...props} /></section>
+        },
+      },
+    ])
+    renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Product' }],
+      extensionTableId: 'catalog.products.list',
+    })
+    expect(screen.getByTestId('registered-table-wrapper')).toBeInTheDocument()
+    expect(screen.getByText('Transformed title')).toBeInTheDocument()
   })
 
   it('renders injected columns from data-table extension surface', () => {

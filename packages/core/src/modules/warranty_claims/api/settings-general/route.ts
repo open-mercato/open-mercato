@@ -4,9 +4,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
@@ -23,6 +24,7 @@ import {
   type WarrantyClaimEffectiveSettings,
 } from '../../lib/settings'
 import { WARRANTY_CLAIM_SETTINGS_RESOURCE_KIND, type SaveWarrantyClaimSettingsResult } from '../../commands/settings'
+import { withWarrantyExactAmounts } from '../../commands/shared'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('warranty_claims')
@@ -64,7 +66,7 @@ async function resolveSettingsContext(req: Request): Promise<SettingsRouteContex
     throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required') })
   }
@@ -105,8 +107,8 @@ export async function GET(req: Request) {
     const result = await buildSettingsResult(em, { tenantId, organizationId })
     return NextResponse.json({ ok: true, result })
   } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     logger.error('warranty_claims.settings-general.get failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data.') }, { status: 500 })
   }
@@ -135,7 +137,11 @@ export async function PUT(req: Request) {
     const guardedPayload = guarded.modifiedPayload
       ? warrantyClaimSettingsUpdateSchema.parse({ ...parsedPayload, ...guarded.modifiedPayload })
       : parsed
-    const commandInput = warrantyClaimSettingsSaveSchema.parse(withScopedPayload({ ...guardedPayload }, ctx, translate))
+    const exactSource = guarded.modifiedPayload ? { ...payload, ...guarded.modifiedPayload } : payload
+    const commandInput = withWarrantyExactAmounts(
+      warrantyClaimSettingsSaveSchema.parse(withScopedPayload({ ...guardedPayload }, ctx, translate)),
+      exactSource,
+    )
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<
       WarrantyClaimSettingsSaveInput,
@@ -152,6 +158,7 @@ export async function PUT(req: Request) {
         slaAtRiskThresholdPct: result.slaAtRiskThresholdPct,
         autoApproveEnabled: result.autoApproveEnabled,
         autoApproveMaxAmount: result.autoApproveMaxAmount,
+        autoApproveMaxAmountExact: result.autoApproveMaxAmountExact ?? null,
         autoApproveCurrencyCode: result.autoApproveCurrencyCode,
         autoApproveRequireInWarranty: result.autoApproveRequireInWarranty,
         defaultWarrantyMonths: result.defaultWarrantyMonths,
@@ -165,12 +172,12 @@ export async function PUT(req: Request) {
       },
     })
   } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    const { translate } = await resolveTranslations()
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
-    const { translate } = await resolveTranslations()
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
@@ -185,6 +192,7 @@ const settingsResultSchema = z.object({
   slaAtRiskThresholdPct: z.number(),
   autoApproveEnabled: z.boolean(),
   autoApproveMaxAmount: z.number().nullable(),
+  autoApproveMaxAmountExact: z.string().nullable().optional(),
   autoApproveCurrencyCode: z.string().nullable(),
   autoApproveRequireInWarranty: z.boolean(),
   defaultWarrantyMonths: z.number().nullable(),

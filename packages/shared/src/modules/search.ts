@@ -1,5 +1,6 @@
 import type { EntityId } from './entities'
 import { createLogger } from '../lib/logger'
+import type { AuthContext } from '../lib/auth/server'
 
 const logger = createLogger('shared').child({ component: 'search-registry' })
 
@@ -23,6 +24,18 @@ export type SearchResultPresenter = {
   title: string
   subtitle?: string
   icon?: string
+  /**
+   * @deprecated No search UI renders this field, and none is planned — the Cmd+K dialog,
+   * the topbar inline results and `/backend/search` render only `title`, `subtitle` and `icon`.
+   * Slated for removal in 0.11.0.
+   *
+   * For an entity-type label, add a `search.entityType.<module>.<entity>` translation key
+   * instead: every search surface already renders one next to the result title, so a badge
+   * carrying the same word would render it twice. Declare that key in your own module's
+   * `i18n/*.json` — dictionaries are merged flat across modules, so a `search.*` key
+   * contributed by any module resolves normally. For per-record detail (a status, a
+   * counterparty, a date), put the value in `subtitle`, which is rendered.
+   */
   badge?: string
 }
 
@@ -94,6 +107,69 @@ export type SearchOptions = {
   offset?: number
   /** How to combine results: 'or' merges all, 'and' requires match in all strategies */
   combineMode?: 'or' | 'and'
+  /**
+   * Restricts results to records whose query-index row (`entity_indexes`) matches this predicate,
+   * evaluated inside the strategy's ranking query so a restrictive filter never starves the result
+   * set (additive, 2026-10-06). Only strategies with `supportsIndexDocFilter: true` receive a
+   * filtered search; any other strategy returns no results for it rather than unfiltered ones.
+   */
+  indexDocFilter?: SearchIndexDocFilter
+  /**
+   * Caller the search runs for (additive, 2026-11-13). Entities that declare
+   * `SearchEntityConfig.filterResults` only return results when it is set: the
+   * service passes it to the hook, and drops every result of such an entity when
+   * the viewer is missing or the hook throws (fail closed). Entities without the
+   * hook ignore it.
+   */
+  viewer?: SearchViewer
+}
+
+/**
+ * Authenticated caller of a search, with the request container its visibility
+ * checks resolve services from.
+ */
+export type SearchViewer = {
+  auth: NonNullable<AuthContext>
+  container?: unknown
+}
+
+/**
+ * Input of `SearchEntityConfig.filterResults`: the merged results of one entity,
+ * already tenant- and organization-scoped, plus the caller.
+ */
+export type SearchResultVisibilityContext = {
+  entityId: EntityId
+  results: SearchResult[]
+  tenantId: string
+  organizationId?: string | null
+  organizationIds?: string[] | null
+  viewer: SearchViewer
+}
+
+/**
+ * One condition over a record's query-index document (`entity_indexes.doc`), with the query
+ * engine's index-document semantics:
+ * - `exists`: the key is present and not JSON `null`;
+ * - `eq`: the key's text value equals `value` (booleans and numbers compare by their JSON text);
+ * - `overlap`: the key holds an array sharing at least one entry with `values`; empty `values`
+ *   matches nothing;
+ * - `noverlap`: the key holds an array sharing no entry with `values`; a missing key never matches;
+ * - `recordIdNotIn`: the record id is none of `values`.
+ */
+export type SearchIndexDocCondition =
+  | { op: 'exists'; key: string }
+  | { op: 'eq'; key: string; value: string | number | boolean }
+  | { op: 'overlap'; key: string; values: string[] }
+  | { op: 'noverlap'; key: string; values: string[] }
+  | { op: 'recordIdNotIn'; values: string[] }
+
+/**
+ * A predicate over a record's `entity_indexes` row in disjunctive normal form: the record matches
+ * when its index row is not deleted and every condition of at least one `anyOf` branch holds.
+ * An empty `anyOf` matches nothing; an empty branch matches every indexed record.
+ */
+export type SearchIndexDocFilter = {
+  anyOf: SearchIndexDocCondition[][]
 }
 
 // =============================================================================
@@ -114,6 +190,8 @@ export type IndexableRecord = {
   organizationId?: string | null
   /** All fields from the record (strategies will filter based on their needs) */
   fields: Record<string, unknown>
+  /** Custom-field keys excluded from plaintext fulltext/vector fields; `all` denies every custom field. Tokens retain `fields`; omission preserves legacy direct-client behavior. */
+  plaintextExcludedCustomFields?: readonly string[] | 'all'
   /** Optional presenter for result display */
   presenter?: SearchResultPresenter
   /** Primary URL for the record */
@@ -143,6 +221,12 @@ export interface SearchStrategy {
 
   /** Priority for result merging (higher = more prominent in results) */
   readonly priority: number
+
+  /**
+   * Whether `search()` applies `SearchOptions.indexDocFilter` inside its ranking query. Absent or
+   * `false` means the strategy is skipped for filtered searches (fail closed).
+   */
+  readonly supportsIndexDocFilter?: boolean
 
   /** Check if strategy is available and configured */
   isAvailable(): Promise<boolean>
@@ -206,6 +290,10 @@ export type SearchServiceOptions = {
   mergeConfig?: ResultMergeConfig
   /** Callback to enrich results with presenter data from database */
   presenterEnricher?: PresenterEnricherFn
+  /** Resolve entity write restrictions; omission uses the registered search configurations. */
+  resolveEntityStrategies?: (entityId: EntityId) => SearchStrategyId[] | undefined
+  /** Resolve an entity's `filterResults` hook; omission skips per-record visibility filtering. */
+  resolveResultFilter?: (entityId: EntityId) => SearchEntityConfig['filterResults'] | undefined
   /** TTL (ms) for the per-strategy availability cache. Defaults to 2_000. */
   availabilityCacheTtlMs?: number
 }
@@ -216,6 +304,10 @@ export type SearchServiceOptions = {
 
 /**
  * Context passed to buildSource, formatResult, resolveUrl, and resolveLinks.
+ * `SearchIndexer` omits custom fields declared `encrypted` from `customFields`, from the record's
+ * `cf:` / `cf_` keys and from records loaded through `queryEngine`; when their definitions cannot be
+ * read, or the indexer was constructed without `encryptedCustomFieldKeysResolver`, it omits every
+ * custom field.
  */
 export type SearchBuildContext = {
   /** The record being indexed */
@@ -282,6 +374,34 @@ export type SearchEntityConfig = {
   resolveLinks?: (ctx: SearchBuildContext) => Promise<SearchResultLink[] | null> | SearchResultLink[] | null
   /** Define which fields are searchable vs hash-only */
   fieldPolicy?: SearchFieldPolicy
+  /**
+   * Per-record index gate, evaluated by the search indexer before any strategy
+   * (fulltext, vector, tokens) receives the record — on live index events,
+   * by-id/batch indexing and every reindex path.
+   *
+   * Return `true` to index the record. Returning `false` — or throwing — removes
+   * the record from every strategy and skips indexing (fail closed). The context
+   * carries `queryEngine` for loading related records (opt-in flags, parents).
+   * Omit the hook to index every record of the entity (the default).
+   *
+   * The query index applies the same gate before writing the entity's
+   * `search_tokens`: it evaluates the hook per record (with a base-table query
+   * engine) and writes tokens on `true`, or deletes that record's tokens on
+   * `false` / a throw. Tokens therefore stay available without fulltext or vector
+   * providers, and no token writer can surface a record the hook rejects.
+   */
+  shouldIndex?: (ctx: SearchBuildContext) => boolean | Promise<boolean>
+  /**
+   * Per-record result visibility, evaluated by `SearchService.search()` after
+   * merging and before presenter enrichment (additive, 2026-11-13). Return the
+   * subset of `results` (the same objects) the viewer may see; anything else is
+   * dropped, and a returned object the service did not pass in is ignored. When the search has no
+   * `SearchOptions.viewer`, or the hook throws, every result of the entity is
+   * dropped (fail closed). Filtering runs after the strategies' `limit`, so a
+   * search can return fewer results than requested. Omit the hook to keep every
+   * scoped result (the default).
+   */
+  filterResults?: (ctx: SearchResultVisibilityContext) => Promise<SearchResult[]> | SearchResult[]
   /**
    * Per-entity view feature(s) required to read this entity's records through
    * data-returning surfaces (e.g. the `search_get` / `search_aggregate` AI tools).

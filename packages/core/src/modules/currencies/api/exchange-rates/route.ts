@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ExchangeRate } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
@@ -43,7 +45,10 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'currencies.exchange_rates.create',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
+        return withScopedPayload(parsed, ctx, translate)
+      },
       response: ({ result }) => ({ id: String(result.exchangeRateId) }),
       status: 201,
     },
@@ -56,11 +61,17 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     delete: {
       commandId: 'currencies.exchange_rates.delete',
       schema: rawBodySchema,
-      mapInput: ({ raw, ctx }) => ({
-        id: ((raw as Record<string, unknown>).query as Record<string, unknown> | undefined)?.id as string | undefined,
-        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
-        tenantId: ctx.auth?.tenantId ?? undefined,
-      }),
+      mapInput: ({ raw, ctx }) => {
+        const rawRecord = raw as Record<string, unknown>
+        const body = rawRecord.body as Record<string, unknown> | undefined
+        const query = rawRecord.query as Record<string, unknown> | undefined
+        const candidate = body?.id ?? query?.id
+        return {
+          id: typeof candidate === 'string' ? candidate : undefined,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+          tenantId: ctx.auth?.tenantId ?? undefined,
+        }
+      },
       response: () => ({ ok: true }),
     },
   },
@@ -89,6 +100,7 @@ type ExchangeRateRow = {
   date: string
   source: string
   type: string | null
+  metadata: Record<string, unknown> | null
   isActive: boolean
   createdAt: string | null
   updatedAt: string | null
@@ -104,6 +116,7 @@ const toRow = (rate: ExchangeRate): ExchangeRateRow => ({
   date: rate.date.toISOString(),
   source: String(rate.source),
   type: rate.type ?? null,
+  metadata: rate.metadata ?? null,
   isActive: !!rate.isActive,
   createdAt: rate.createdAt ? rate.createdAt.toISOString() : null,
   updatedAt: rate.updatedAt ? rate.updatedAt.toISOString() : null,
@@ -189,6 +202,7 @@ const exchangeRateListItemSchema = z.object({
   date: z.string(),
   source: z.string(),
   type: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
   isActive: z.boolean(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),

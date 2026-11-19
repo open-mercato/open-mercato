@@ -1,7 +1,7 @@
 "use client"
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
-import { useRouter } from 'next/navigation'
+import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -29,7 +29,6 @@ function WidgetIcon({ className }: { className?: string }) {
 
 export default function PortalDashboardPage({ params }: Props) {
   const t = useT()
-  const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
 
@@ -47,11 +46,13 @@ export default function PortalDashboardPage({ params }: Props) {
     setHiddenWidgets(user ? loadHiddenWidgets(params.orgSlug, user.id) : new Set())
   }
 
+  // Leaving an authenticated page for the login page crosses the public/authenticated
+  // boundary, so it must be a full page load — see `replaceWithPageReload`.
   useEffect(() => {
     if (!loading && !user) {
-      router.replace(`/${params.orgSlug}/portal/login`)
+      replaceWithPageReload(`/${params.orgSlug}/portal/login`)
     }
-  }, [loading, user, router, params.orgSlug])
+  }, [loading, user, params.orgSlug])
 
   useEffect(() => {
     clearLegacyHiddenWidgetsKey()
@@ -120,7 +121,7 @@ export default function PortalDashboardPage({ params }: Props) {
               const isHidden = hiddenWidgets.has(widget.metadata.id)
               return (
                 <Button key={widget.metadata.id} type="button" variant={isHidden ? 'outline' : 'default'} size="sm" className="rounded-lg text-sm" onClick={() => toggleWidget(widget.metadata.id)}>
-                  {widget.metadata.title || widget.metadata.id}
+                  {widget.metadata.title ? t(widget.metadata.title, widget.metadata.title) : widget.metadata.id}
                 </Button>
               )
             })}
@@ -135,7 +136,7 @@ export default function PortalDashboardPage({ params }: Props) {
             if (!WidgetComponent) return null
             return (
               <PortalCard key={widget.metadata.id}>
-                <PortalCardHeader title={widget.metadata.title || widget.metadata.id} />
+                <PortalCardHeader title={widget.metadata.title ? t(widget.metadata.title, widget.metadata.title) : widget.metadata.id} />
                 <WidgetComponent context={{ orgSlug: params.orgSlug, user, roles: auth.roles, resolvedFeatures: auth.resolvedFeatures }} />
               </PortalCard>
             )

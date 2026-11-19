@@ -1,0 +1,435 @@
+import { randomUUID } from 'node:crypto'
+import { registerCommand } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { AgentEvalCase, AgentEvalCaseRun, AgentEvalSuiteRun } from '../data/entities'
+import { aggregateSuiteRun, compareToBaseline, resolveBaselineSuiteRun } from '../lib/eval/evalReplayService'
+import {
+  EVAL_SET_SUMMARY_KEY,
+  EvalSetTooLargeError,
+  EvalSetUnresolvedError,
+  buildEvalSetPointer,
+  findEvalSetCarrier,
+  freezeManifest,
+  mergeSuiteSummary,
+  resolveSnapshotPin,
+  type EvalSetManifest,
+} from '../lib/eval/manifest'
+import { collectEvalSetFileRubricRefs, manifestFromFile, validateEvalSetFile } from '../lib/eval/evalSetFile'
+import { ensureRubricLibrary } from '../lib/eval/rubrics'
+import { evalSetSnapshotSchema, type EvalSetSnapshot } from '../data/validators'
+import { aiAgentCallSettingsSchema } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
+import { EVAL_RUN_SUMMARY_KEY, buildEvalRunSettings } from '../lib/eval/evalRunSettings'
+import { emitAgentOrchestratorEvent } from '../events'
+
+/**
+ * Ceiling on one suite run. Every case performs FRESH INFERENCE, so an unbounded
+ * selection is an unbounded spend; the trigger UI shows an estimate before
+ * confirming. Phase 3's worker keeps this cap and adds a concurrency lane.
+ */
+export const MAX_CASE_RUNS_PER_SUITE = 500
+
+// ── evalRuns.start ──────────────────────────────────────────────────────────
+
+const startEvalRunCommandSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  agentDefinitionId: z.string().min(1).max(100),
+  evalCaseIds: z.array(z.string().uuid()).min(1).optional(),
+  snapshot: evalSetSnapshotSchema.optional(),
+  evalSet: z.unknown().optional(),
+  repeatCount: z.number().int().min(1).max(20).default(1),
+  trigger: z.enum(['manual', 'ci', 'scheduled']).default('manual'),
+  judgeMayGate: z.boolean().default(true),
+  releaseId: z.string().uuid().nullable().optional(),
+  evalSetVersion: z.string().max(100).nullable().optional(),
+  triggeredBy: z.string().max(100).nullable().optional(),
+  callSettings: aiAgentCallSettingsSchema.optional(),
+}).superRefine((value, ctx) => {
+  const hasEvalSet = value.evalSet !== undefined
+  if (!value.snapshot && !hasEvalSet && !value.evalCaseIds) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['evalCaseIds'],
+      message: 'evalCaseIds is required without snapshot or evalSet',
+    })
+  }
+  if (value.snapshot && value.evalSetVersion) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalSetVersion'], message: 'evalSetVersion cannot be combined with snapshot' })
+  }
+  if (hasEvalSet && value.snapshot) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalSet'], message: 'evalSet cannot be combined with snapshot' })
+  }
+  if (hasEvalSet && value.evalSetVersion) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['evalSetVersion'], message: 'evalSetVersion cannot be combined with evalSet' })
+  }
+})
+export type StartEvalRunCommandInput = z.infer<typeof startEvalRunCommandSchema>
+export type StartEvalRunCommandResult = { suiteRunId: string; caseRunCount: number }
+
+async function freezeEvalSet(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  agentId: string,
+  pin: { snapshot: EvalSetSnapshot } | { label: string | null },
+): Promise<{ manifest: EvalSetManifest; version: string }> {
+  try {
+    if ('snapshot' in pin) return await resolveSnapshotPin(em, scope, agentId, pin.snapshot)
+    return await freezeManifest(em, scope, { agentId, label: pin.label })
+  } catch (error) {
+    if (error instanceof EvalSetUnresolvedError) {
+      throw new CrudHttpError(404, {
+        error: '[internal] eval set snapshot not found for this agent',
+        code: error.code,
+        snapshot: error.snapshot,
+      })
+    }
+    if (error instanceof EvalSetTooLargeError) {
+      throw new CrudHttpError(422, {
+        error: '[internal] eval set manifest exceeds the size limit',
+        code: error.code,
+        bytes: error.bytes,
+        maxBytes: error.maxBytes,
+      })
+    }
+    throw error
+  }
+}
+
+/**
+ * Freezes an eval-set FILE (already parsed from JSON/YAML) into a manifest. The
+ * hash is always recomputed here from the validated file, never taken from the
+ * caller, so a file run pins exactly the dataset it replays.
+ */
+function freezeFileEvalSet(raw: unknown, agentId: string): { manifest: EvalSetManifest; version: string } {
+  const validation = validateEvalSetFile(raw)
+  if (!validation.ok) {
+    throw new CrudHttpError(422, {
+      error: '[internal] eval set file is invalid',
+      code: 'eval_set_file_invalid',
+      issues: validation.issues,
+    })
+  }
+  if (validation.file.agentId !== agentId) {
+    throw new CrudHttpError(422, {
+      error: '[internal] eval set file belongs to a different agent',
+      code: 'eval_set_agent_mismatch',
+      agentId: validation.file.agentId,
+    })
+  }
+  try {
+    return manifestFromFile(validation.file)
+  } catch (error) {
+    if (error instanceof EvalSetTooLargeError) {
+      throw new CrudHttpError(422, {
+        error: '[internal] eval set manifest exceeds the size limit',
+        code: error.code,
+        bytes: error.bytes,
+        maxBytes: error.maxBytes,
+      })
+    }
+    throw error
+  }
+}
+
+function selectManifestCaseIds(manifest: EvalSetManifest, requested: string[] | undefined): string[] {
+  const manifestIds = manifest.cases.map((entry) => entry.id)
+  if (!requested) return manifestIds
+  const wanted = new Set(requested)
+  return manifestIds.filter((id) => wanted.has(id))
+}
+
+/**
+ * Creates the suite run plus one PENDING case run per (case × trial). The pending
+ * rows ARE the case selection — the replay engine simply drains them, which also
+ * gives per-case progress for free.
+ */
+const startEvalRunCommand: CommandHandler<StartEvalRunCommandInput, StartEvalRunCommandResult> = {
+  id: 'agent_orchestrator.evalRuns.start',
+  async execute(rawInput, ctx) {
+    const input = startEvalRunCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+
+    if (input.evalSet !== undefined) await ensureRubricLibrary(collectEvalSetFileRubricRefs(input.evalSet))
+    const pinned = input.evalSet !== undefined
+      ? freezeFileEvalSet(input.evalSet, input.agentDefinitionId)
+      : input.snapshot
+        ? await freezeEvalSet(em, scope, input.agentDefinitionId, { snapshot: input.snapshot })
+        : null
+
+    // Only approved cases are replayable: a draft has not been reviewed, so its
+    // expected value cannot be trusted as a regression baseline.
+    const caseIds = pinned
+      ? selectManifestCaseIds(pinned.manifest, input.evalCaseIds)
+      : (
+          await em.find(AgentEvalCase, {
+            ...scope,
+            id: { $in: input.evalCaseIds ?? [] },
+            agentDefinitionId: input.agentDefinitionId,
+            status: 'approved',
+            deletedAt: null,
+          })
+        ).map((evalCase) => evalCase.id)
+    if (!caseIds.length) {
+      throw new CrudHttpError(422, { error: '[internal] no approved eval cases matched for this agent' })
+    }
+
+    const caseRunCount = caseIds.length * input.repeatCount
+    if (caseRunCount > MAX_CASE_RUNS_PER_SUITE) {
+      throw new CrudHttpError(422, {
+        error: '[internal] eval run exceeds the per-suite case limit',
+        caseRunCount,
+        limit: MAX_CASE_RUNS_PER_SUITE,
+      })
+    }
+
+    const frozen =
+      pinned ?? (await freezeEvalSet(em, scope, input.agentDefinitionId, { label: input.evalSetVersion ?? null }))
+    const evalSetVersion = pinned ? pinned.version : input.evalSetVersion ?? null
+    const carrierSuiteRunId = await findEvalSetCarrier(em, scope, input.agentDefinitionId, frozen.version)
+
+    // Pre-generate the PK. `id` is `defaultRaw: gen_random_uuid()`, so Postgres
+    // assigns it at INSERT and it does NOT exist on the entity before flush —
+    // while `withAtomicFlush` defers the flush to the end of the callback. Reading
+    // `suiteRun.id` for the child rows would therefore yield `undefined` and
+    // violate `suite_run_id NOT NULL`. Same pattern as `commands/runs.ts`.
+    const suiteRunId = randomUUID()
+    const evalRunSettings = buildEvalRunSettings(input.callSettings)
+    const suiteRun = em.create(AgentEvalSuiteRun, {
+      id: suiteRunId,
+      ...scope,
+      agentDefinitionId: input.agentDefinitionId,
+      releaseId: input.releaseId ?? null,
+      trigger: input.trigger,
+      status: 'queued',
+      judgeMayGate: input.judgeMayGate,
+      repeatCount: input.repeatCount,
+      caseCount: caseRunCount,
+      evalSetVersion,
+      triggeredBy: input.triggeredBy ?? null,
+      summary: {
+        [EVAL_SET_SUMMARY_KEY]: buildEvalSetPointer({
+          manifest: frozen.manifest,
+          version: frozen.version,
+          suiteRunId,
+          carrierSuiteRunId,
+        }),
+        ...(evalRunSettings ? { [EVAL_RUN_SUMMARY_KEY]: evalRunSettings } : {}),
+      },
+    })
+
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          em.persist(suiteRun)
+          for (const evalCaseId of caseIds) {
+            for (let trialIndex = 0; trialIndex < input.repeatCount; trialIndex += 1) {
+              em.persist(
+                em.create(AgentEvalCaseRun, {
+                  ...scope,
+                  suiteRunId,
+                  evalCaseId,
+                  trialIndex,
+                  status: 'pending',
+                }),
+              )
+            }
+          }
+        },
+      ],
+      { transaction: true, label: 'agent_orchestrator.evalRuns.start' },
+    )
+
+    await emitAgentOrchestratorEvent(
+      'agent_orchestrator.eval_suite_run.started',
+      {
+        id: suiteRunId,
+        agentDefinitionId: suiteRun.agentDefinitionId,
+        caseCount: caseRunCount,
+        trigger: suiteRun.trigger,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      { persistent: true },
+    )
+
+    return { suiteRunId, caseRunCount }
+  },
+}
+
+// ── evalRuns.complete ───────────────────────────────────────────────────────
+
+const completeEvalRunCommandSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  suiteRunId: z.string().uuid(),
+})
+export type CompleteEvalRunCommandInput = z.infer<typeof completeEvalRunCommandSchema>
+export type CompleteEvalRunCommandResult = {
+  suiteRunId: string
+  status: string
+  outcome: string | null
+  passScore: number | null
+  safetyRegressions?: string[]
+  baselineSuiteRunId?: string | null
+}
+
+const completeEvalRunCommand: CommandHandler<CompleteEvalRunCommandInput, CompleteEvalRunCommandResult> = {
+  id: 'agent_orchestrator.evalRuns.complete',
+  async execute(rawInput, ctx) {
+    const input = completeEvalRunCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+
+    const suiteRun = await findOneWithDecryption(
+      em,
+      AgentEvalSuiteRun,
+      { id: input.suiteRunId, ...scope },
+      undefined,
+      scope,
+    )
+    if (!suiteRun) throw new CrudHttpError(404, { error: '[internal] eval suite run not found' })
+
+    // Idempotent: completing an already-terminal run is a no-op — but it must
+    // still return the fields a CI gate reads. Omitting them made
+    // `result.safetyRegressions.length` throw, or fail OPEN under optional
+    // chaining, for any caller that raced the worker to the same suite.
+    if (suiteRun.status === 'completed' || suiteRun.status === 'cancelled') {
+      return {
+        suiteRunId: suiteRun.id,
+        status: suiteRun.status,
+        outcome: suiteRun.outcome ?? null,
+        passScore: suiteRun.passScore ?? null,
+        safetyRegressions: (suiteRun.safetyRegressions as string[] | null) ?? [],
+        baselineSuiteRunId: suiteRun.baselineSuiteRunId ?? null,
+      }
+    }
+
+    const aggregate = await aggregateSuiteRun(em, suiteRun.id, scope)
+
+    // Regression is measured RELATIVE to the previous completed run for this agent
+    // (same dataset pin, when there is one). An absolute threshold cannot tell a
+    // newly-introduced failure from one that was already there.
+    //
+    // An explicitly pinned baseline wins over automatic selection: a gate caller
+    // needs to compare against the currently-ACTIVE release, which is not
+    // necessarily whatever ran most recently.
+    const pinnedBaseline = suiteRun.baselineSuiteRunId
+      ? await em.findOne(AgentEvalSuiteRun, { id: suiteRun.baselineSuiteRunId, ...scope })
+      : null
+    const baselineRun = pinnedBaseline ?? (await resolveBaselineSuiteRun(em, suiteRun, scope))
+    const baselineSummary = baselineRun ? (await aggregateSuiteRun(em, baselineRun.id, scope)).summary : null
+    const comparison = compareToBaseline(aggregate.summary, baselineSummary, baselineRun?.id ?? null)
+
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          suiteRun.status = 'completed'
+          suiteRun.errorCount = aggregate.errorCount
+          suiteRun.passScore = aggregate.passScore
+          suiteRun.scoreVariance = aggregate.scoreVariance
+          suiteRun.summary = mergeSuiteSummary(suiteRun.summary, aggregate.summary, {
+            __judgeDeltas: comparison.judgeDeltas,
+          })
+          suiteRun.baselineSuiteRunId = comparison.baselineSuiteRunId
+          suiteRun.safetyRegressions = comparison.safetyRegressions.length ? comparison.safetyRegressions : null
+          suiteRun.finishedAt = new Date()
+          // Spec §3.6, in order: no dataset pin => advisory; unmeasurable => failed
+          // (an unmeasurable gate is a failed gate, never a pass); otherwise passed.
+          // Deliberately NO absolute threshold here — `requiredPassScore` is the
+          // caller's ADDITIONAL, narrower block. Hardcoding one would make every
+          // configured threshold below it dead and fail a 99%-passing suite.
+          // Phase 5 inserts the safety-regression check ahead of the pass branch.
+          suiteRun.outcome = !suiteRun.evalSetVersion
+            ? 'advisory'
+            : comparison.safetyRegressions.length
+              ? 'failed'
+              : aggregate.passScore === null
+                ? 'failed'
+                : 'passed'
+        },
+      ],
+      { transaction: true, label: 'agent_orchestrator.evalRuns.complete' },
+    )
+
+    await emitAgentOrchestratorEvent(
+      'agent_orchestrator.eval_suite_run.completed',
+      {
+        id: suiteRun.id,
+        agentDefinitionId: suiteRun.agentDefinitionId,
+        outcome: suiteRun.outcome,
+        passScore: suiteRun.passScore ?? null,
+        errorCount: suiteRun.errorCount,
+        safetyRegressions: comparison.safetyRegressions.length,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      { persistent: true },
+    )
+
+    return {
+      suiteRunId: suiteRun.id,
+      status: suiteRun.status,
+      outcome: suiteRun.outcome ?? null,
+      passScore: suiteRun.passScore ?? null,
+      safetyRegressions: comparison.safetyRegressions,
+      baselineSuiteRunId: comparison.baselineSuiteRunId,
+    }
+  },
+}
+
+// ── evalRuns.cancel ─────────────────────────────────────────────────────────
+
+const cancelEvalRunCommandSchema = completeEvalRunCommandSchema
+export type CancelEvalRunCommandInput = z.infer<typeof cancelEvalRunCommandSchema>
+export type CancelEvalRunCommandResult = { suiteRunId: string; status: string }
+
+/**
+ * Terminal transition, not a delete: a suite run is an append-only >=6yr record,
+ * so cancelling is the inverse of starting.
+ */
+const cancelEvalRunCommand: CommandHandler<CancelEvalRunCommandInput, CancelEvalRunCommandResult> = {
+  id: 'agent_orchestrator.evalRuns.cancel',
+  async execute(rawInput, ctx) {
+    const input = cancelEvalRunCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+
+    const suiteRun = await em.findOne(AgentEvalSuiteRun, { id: input.suiteRunId, ...scope })
+    if (!suiteRun) throw new CrudHttpError(404, { error: '[internal] eval suite run not found' })
+    if (suiteRun.status === 'completed' || suiteRun.status === 'cancelled') {
+      return { suiteRunId: suiteRun.id, status: suiteRun.status }
+    }
+
+    // Pending case runs would otherwise sit unclaimed forever: the replay loop
+    // stops at the next case boundary and never revisits them.
+    const pending = await em.find(AgentEvalCaseRun, { suiteRunId: suiteRun.id, ...scope, status: 'pending' })
+
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          suiteRun.status = 'cancelled'
+          suiteRun.finishedAt = new Date()
+          for (const caseRun of pending) caseRun.status = 'skipped'
+        },
+      ],
+      { transaction: true, label: 'agent_orchestrator.evalRuns.cancel' },
+    )
+
+    return { suiteRunId: suiteRun.id, status: suiteRun.status }
+  },
+}
+
+registerCommand(startEvalRunCommand)
+registerCommand(completeEvalRunCommand)
+registerCommand(cancelEvalRunCommand)
+
+export { startEvalRunCommand, completeEvalRunCommand, cancelEvalRunCommand }

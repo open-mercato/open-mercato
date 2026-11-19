@@ -35,6 +35,7 @@ import {
   prepareMutation,
 } from '../prepare-mutation'
 import { resolveAiAgentTools } from '../agent-tools'
+import { AiPendingActionRepository } from '../../data/repositories/AiPendingActionRepository'
 import type { AiAgentDefinition } from '../ai-agent-definition'
 import type { AiToolDefinition } from '../types'
 import {
@@ -42,6 +43,7 @@ import {
   seedAgentRegistryForTests,
 } from '../agent-registry'
 import { registerMcpTool, toolRegistry } from '../tool-registry'
+import { ensureModuleToolsLoaded } from '../tool-loader'
 import type {
   AiPendingActionStatus,
   AiPendingActionQueueMode,
@@ -89,6 +91,9 @@ type Row = {
   expiresAt: Date
   resolvedAt: Date | null
   resolvedByUserId: string | null
+  channel: string
+  apiKeyId: string | null
+  correlationId: string | null
 }
 
 let idCounter = 0
@@ -153,6 +158,9 @@ function mockEm() {
         expiresAt: data.expiresAt instanceof Date ? data.expiresAt : new Date(),
         resolvedAt: data.resolvedAt ?? null,
         resolvedByUserId: data.resolvedByUserId ?? null,
+        channel: data.channel ?? 'agent',
+        apiKeyId: data.apiKeyId ?? null,
+        correlationId: data.correlationId ?? null,
       }
       return row
     },
@@ -190,7 +198,6 @@ function makeAgent(
   overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id'>,
 ): AiAgentDefinition {
   return {
-    id: overrides.id,
     moduleId: 'catalog',
     label: `${overrides.id} label`,
     description: `${overrides.id} description`,
@@ -221,6 +228,8 @@ const baseCtx = {
   isSuperAdmin: true,
 }
 
+const ownerCtx = { ...baseCtx, userId: '00000000-0000-4000-8000-000000000001' }
+
 describe('prepareMutation', () => {
   beforeEach(() => {
     idCounter = 0
@@ -245,6 +254,23 @@ describe('prepareMutation', () => {
     })
     expect(a).toBe(b)
     expect(a).toHaveLength(64)
+  })
+
+  it('computeMutationIdempotencyKey separates identical proposals made by different users', () => {
+    const shared = {
+      tenantId: 't-alpha',
+      organizationId: 'org-alpha',
+      agentId: 'catalog.merch',
+      conversationId: 'conv-shared',
+      toolName: 'catalog.products.update',
+      normalizedInput: { productId: 'p-1', patch: { name: 'new' } },
+    }
+    const legacy = computeMutationIdempotencyKey(shared)
+    const userOne = computeMutationIdempotencyKey({ ...shared, userId: 'u-1' })
+    const userTwo = computeMutationIdempotencyKey({ ...shared, userId: 'u-2' })
+    expect(userOne).not.toBe(userTwo)
+    expect(userOne).not.toBe(legacy)
+    expect(legacy).toBe('c73137f41fa5cebcde57f785ed225f1ee5410f51d169b825f509295eb41bd3af')
   })
 
   it('single-record happy path: emits mutation-preview-card with pendingActionId and a computed fieldDiff', async () => {
@@ -282,6 +308,189 @@ describe('prepareMutation', () => {
     expect(pendingAction.recordVersion).toBe('v-1')
     expect(pendingAction.tenantId).toBe('t-alpha')
     expect(pendingAction.organizationId).toBe('org-alpha')
+  })
+
+  it('mints a separate pending row per user for the same call in a shared conversation', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({ name: 'catalog.products.update', isMutation: true })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const input = {
+      agent,
+      tool,
+      toolCallArgs: { productId: 'p-1', patch: { name: 'new' } },
+      conversationId: 'conv-shared',
+    }
+
+    const first = await prepareMutation(input, { ...baseCtx, container, userId: 'u-1' })
+    const second = await prepareMutation(input, { ...baseCtx, container, userId: 'u-2' })
+
+    expect(second.pendingAction.id).not.toBe(first.pendingAction.id)
+    expect(first.pendingAction.createdByUserId).toBe('u-1')
+    expect(second.pendingAction.createdByUserId).toBe('u-2')
+  })
+
+  it('fallback patch from flat args: untouched snapshot fields and envelope keys do not surface as cleared (regression #7349)', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({
+      name: 'catalog.update_product',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: 'v-1',
+        before: {
+          title: 'Old title',
+          subtitle: null,
+          description: 'Old description',
+          sku: 'SKU-1',
+          handle: null,
+          isActive: true,
+          primaryCurrencyCode: null,
+        },
+      }),
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+
+    const { uiPart } = await prepareMutation(
+      {
+        agent,
+        tool,
+        toolCallArgs: { productId: 'p-1', title: 'New title' },
+      },
+      { ...baseCtx, container },
+    )
+
+    expect(uiPart.props.fieldDiff).toEqual([
+      { field: 'title', before: 'Old title', after: 'New title' },
+    ])
+  })
+
+  it.each([
+    { productId: 'p-1', mediaId: 'm-1', price: 25, categoryId: 'category-2' },
+    { productId: 'p-1', patch: { price: 25, categoryId: 'category-2' } },
+  ])('previews patch fields absent from the single-record snapshot: %j', async (toolCallArgs) => {
+    const tool = makeTool({
+      name: 'catalog.update_product',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: 'v-1',
+        before: { title: 'Unchanged title' },
+      }),
+    })
+    const { uiPart } = await prepareMutation(
+      { agent: makeAgent({ id: 'catalog.merch' }), tool, toolCallArgs },
+      { ...baseCtx, container: makeContainer(mockEm()) },
+    )
+
+    expect(uiPart.props.fieldDiff).toEqual([
+      { field: 'price', before: undefined, after: 25 },
+      { field: 'categoryId', before: undefined, after: 'category-2' },
+    ])
+  })
+
+  it.each([
+    { recordId: 'p-1', price: 25, categoryId: 'category-2' },
+    { id: 'p-1', patch: { price: 25, categoryId: 'category-2' } },
+  ])('previews patch fields absent from the batch snapshot: %j', async (record) => {
+    const tool = makeTool({
+      name: 'catalog.bulk_update_products',
+      isMutation: true,
+      isBulk: true,
+      loadBeforeRecords: async () => [{
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        label: 'Widget',
+        recordVersion: 'v-1',
+        before: { title: 'Unchanged title' },
+      }],
+    })
+    const { pendingAction } = await prepareMutation(
+      {
+        agent: makeAgent({ id: 'catalog.merch' }),
+        tool,
+        toolCallArgs: { records: [record] },
+      },
+      { ...baseCtx, container: makeContainer(mockEm()) },
+    )
+
+    expect(pendingAction.records?.[0].fieldDiff).toEqual([
+      { field: 'price', before: undefined, after: 25 },
+      { field: 'categoryId', before: undefined, after: 'category-2' },
+    ])
+  })
+
+  it.each([
+    { operation: 'update', commentId: 'c-1', body: 'new' },
+    { operation: 'update', activityId: 'a-1', body: 'new' },
+    { operation: 'create', personId: 'person-1', body: 'new' },
+    { operation: 'create', companyId: 'company-1', body: 'new' },
+    { operation: 'delete', commentId: 'c-1' },
+  ])('keeps customers tool selectors out of fallback diffs: %j', async (toolCallArgs) => {
+    const tool = makeTool({
+      name: 'customers.manage_record_comment',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'c-1',
+        entityType: 'customers.comment',
+        recordVersion: 'v-1',
+        before: { body: 'old', entityId: 'person-1', authorUserId: 'user-1' },
+      }),
+    })
+    const { uiPart } = await prepareMutation(
+      { agent: makeAgent({ id: 'customers.assistant' }), tool, toolCallArgs },
+      { ...baseCtx, container: makeContainer(mockEm()) },
+    )
+
+    expect(uiPart.props.fieldDiff).toEqual(
+      'body' in toolCallArgs ? [{ field: 'body', before: 'old', after: 'new' }] : [],
+    )
+  })
+
+  it('batch fallback patch from flat args: untouched snapshot fields do not surface as cleared (regression #7349)', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({
+      name: 'catalog.bulk_update_products',
+      isMutation: true,
+      isBulk: true,
+      loadBeforeRecords: async () => [
+        {
+          recordId: 'p-1',
+          entityType: 'catalog.product',
+          label: 'Widget',
+          recordVersion: 'v-1',
+          before: {
+            title: 'Old title',
+            subtitle: null,
+            description: 'Old description',
+            sku: 'SKU-1',
+          },
+        },
+      ],
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+
+    const { pendingAction } = await prepareMutation(
+      {
+        agent,
+        tool,
+        toolCallArgs: {
+          records: [{ recordId: 'p-1', title: 'New title' }],
+        },
+      },
+      { ...baseCtx, container },
+    )
+
+    const records = pendingAction.records as Array<{
+      fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+    }>
+    expect(records[0].fieldDiff).toEqual([
+      { field: 'title', before: 'Old title', after: 'New title' },
+    ])
   })
 
   it('uses resolver-provided after snapshots and display labels for operator previews', async () => {
@@ -378,11 +587,9 @@ describe('prepareMutation', () => {
     expect(records).toHaveLength(2)
     expect(records[0].recordId).toBe('p-1')
     expect(records[0].label).toBe('Widget')
-    // Patch only carries `name` — keys present in `before` but not in `after`
-    // still surface as diff entries with after=undefined (they are "cleared").
-    expect(records[0].fieldDiff).toEqual(
-      expect.arrayContaining([{ field: 'name', before: 'old', after: 'new-1' }]),
-    )
+    expect(records[0].fieldDiff).toEqual([
+      { field: 'name', before: 'old', after: 'new-1' },
+    ])
     expect(records[1].fieldDiff).toEqual(
       expect.arrayContaining([
         { field: 'name', before: 'gadget-old', after: 'new-2' },
@@ -553,10 +760,57 @@ describe('prepareMutation', () => {
     )
     expect(pendingAction.attachmentIds).toEqual(['att-1', 'att-2'])
   })
+
+  it('stamps rows with the agent channel by default', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({ name: 'catalog.products.update', isMutation: true })
+    const agent = makeAgent({ id: 'catalog.merch' })
+
+    const { pendingAction } = await prepareMutation(
+      { agent, tool, toolCallArgs: { productId: 'p-1' } },
+      { ...baseCtx, container },
+    )
+    expect(pendingAction.channel).toBe('agent')
+    expect(pendingAction.apiKeyId).toBeNull()
+    expect(pendingAction.correlationId).toBeNull()
+  })
+
+  it('persists channel, apiKeyId and correlationId when supplied', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({ name: 'catalog.products.update', isMutation: true })
+    const agent = makeAgent({ id: 'catalog.merch' })
+
+    const { pendingAction } = await prepareMutation(
+      {
+        agent,
+        tool,
+        toolCallArgs: { productId: 'p-1' },
+        channel: 'mcp',
+        apiKeyId: 'key-1',
+        correlationId: 'corr-1',
+      },
+      { ...baseCtx, container },
+    )
+    expect(pendingAction.channel).toBe('mcp')
+    expect(pendingAction.apiKeyId).toBe('key-1')
+    expect(pendingAction.correlationId).toBe('corr-1')
+    expect(em.__store[0].channel).toBe('mcp')
+  })
 })
 
 describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
   let warnSpy: jest.Mock
+
+  // `resolveAiAgentTools` populates the tool registry on first use, which
+  // compiles and imports the generated ai-tools registry. On a cold CI runner
+  // that one-time cost lands inside whichever test happens to run first and
+  // blows the default 5s per-test budget; the loader memoizes, so paying it
+  // here keeps every test below on the default timeout.
+  beforeAll(async () => {
+    await ensureModuleToolsLoaded()
+  }, 120_000)
 
   beforeEach(() => {
     resetAgentRegistryForTests()
@@ -627,6 +881,103 @@ describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
     const drained = resolved.uiPartQueue.drain()
     expect(drained[0].componentId).toBe('mutation-preview-card')
     expect(String(outcome)).toMatch(/pending-confirmation/)
+  })
+
+  it('a reused confirmed row reports already-executed with executionResult, not pending-confirmation (issue #7550)', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool: AiToolDefinition = {
+      name: 'catalog.products.update',
+      description: 'update',
+      inputSchema: z.object({}).passthrough(),
+      handler: async () => ({ shouldNeverRun: true }),
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: null,
+        before: { name: 'old' },
+      }),
+    }
+    registerMcpTool(tool, { moduleId: 'catalog' })
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.merch',
+        allowedTools: ['catalog.products.update'],
+      }),
+    ])
+
+    const resolved = await resolveAiAgentTools({
+      agentId: 'catalog.merch',
+      authContext: ownerCtx,
+      container,
+      conversationId: 'conv-1',
+    })
+    const adapted = resolved.tools['catalog__products__update'] as unknown as {
+      execute: (args: unknown) => Promise<unknown>
+    }
+
+    const firstOutcome = await adapted.execute({ productId: 'p-1', patch: { name: 'new' } })
+    expect(String(firstOutcome)).toMatch(/pending-confirmation/)
+    expect(em.__store).toHaveLength(1)
+
+    const repo = new AiPendingActionRepository(em)
+    const pendingActionId = em.__store[0].id
+    await repo.setStatus(pendingActionId, 'confirmed', ownerCtx, { resolvedByUserId: ownerCtx.userId })
+    em.__store[0].executionResult = { recordId: 'p-1' }
+
+    const secondOutcome = await adapted.execute({ productId: 'p-1', patch: { name: 'new' } })
+    // No second row was inserted — the unique-index collision from #7550 is avoided.
+    expect(em.__store).toHaveLength(1)
+    expect(String(secondOutcome)).toMatch(/already-executed/)
+    expect(String(secondOutcome)).not.toMatch(/pending-confirmation/)
+    expect(String(secondOutcome)).toMatch(/"recordId": "p-1"/)
+  })
+
+  it('a reused executing row reports status=executing, not pending-confirmation (issue #7550)', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool: AiToolDefinition = {
+      name: 'catalog.products.update',
+      description: 'update',
+      inputSchema: z.object({}).passthrough(),
+      handler: async () => ({ shouldNeverRun: true }),
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: null,
+        before: { name: 'old' },
+      }),
+    }
+    registerMcpTool(tool, { moduleId: 'catalog' })
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.merch',
+        allowedTools: ['catalog.products.update'],
+      }),
+    ])
+
+    const resolved = await resolveAiAgentTools({
+      agentId: 'catalog.merch',
+      authContext: ownerCtx,
+      container,
+      conversationId: 'conv-1',
+    })
+    const adapted = resolved.tools['catalog__products__update'] as unknown as {
+      execute: (args: unknown) => Promise<unknown>
+    }
+
+    await adapted.execute({ productId: 'p-1', patch: { name: 'new' } })
+    const repo = new AiPendingActionRepository(em)
+    const pendingActionId = em.__store[0].id
+    await repo.setStatus(pendingActionId, 'confirmed', ownerCtx, { resolvedByUserId: ownerCtx.userId })
+    await repo.setStatus(pendingActionId, 'executing', ownerCtx)
+
+    const secondOutcome = await adapted.execute({ productId: 'p-1', patch: { name: 'new' } })
+    expect(em.__store).toHaveLength(1)
+    expect(String(secondOutcome)).toMatch(/"status": "executing"/)
+    expect(String(secondOutcome)).not.toMatch(/pending-confirmation/)
   })
 
   it('does NOT intercept non-mutation tools even when the agent is mutation-capable', async () => {

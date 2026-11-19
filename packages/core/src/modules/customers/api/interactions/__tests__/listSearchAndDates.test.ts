@@ -107,6 +107,29 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(compiled!.parameters).not.toContain('%50%_off%')
   })
 
+  test('activityDate orders by when a row happened or is planned, so open activities are not pushed to the last page', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?sortField=activityDate&sortDir=desc'))
+    expect(res.status).toBe(200)
+    const compiled = rowsQuery()
+    expect(compiled).toBeDefined()
+    expect(compiled!.sql).toMatch(/order by coalesce\(coalesce\(occurred_at, scheduled_at\), timestamp with time zone '0001-01-01T00:00:00.000Z'\) desc, "id" desc/i)
+  })
+
+  test('occurredAt keeps ordering by the occurrence date alone', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?sortField=occurredAt&sortDir=desc'))
+    expect(res.status).toBe(200)
+    expect(rowsQuery()!.sql).toMatch(/order by coalesce\(occurred_at, timestamp with time zone '0001-01-01T00:00:00.000Z'\) desc/i)
+  })
+
+  test('excludeStatus leaves out each listed status and ignores empty entries', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?excludeStatus=done,%20canceled,,completed'))
+    expect(res.status).toBe(200)
+    const compiled = rowsQuery()
+    expect(compiled!.sql.toLowerCase()).toContain('"status" not in')
+    expect(compiled!.parameters).toEqual(expect.arrayContaining(['done', 'canceled', 'completed']))
+    expect(compiled!.parameters).not.toContain('')
+  })
+
   test('list projection includes external_message_id for email interaction links', async () => {
     const res = await GET(new Request('https://example.test/api/customers/interactions?interactionType=email'))
     expect(res.status).toBe(200)
@@ -146,5 +169,26 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(normalizedSql).not.toContain('"scheduled_at" <=')
     expect(normalizedSql).not.toContain('coalesce(occurred_at, scheduled_at, created_at) >=')
     expect(compiled!.parameters).toEqual(expect.arrayContaining([from, to]))
+  })
+})
+
+describe('interaction disjunction isolation (#8883)', () => {
+  test('groups search and recurrence branches on every list query', async () => {
+    const entityId = '33333333-3333-4333-8333-333333333333'
+    const response = await GET(new Request(
+      `https://example.test/api/customers/interactions?entityId=${entityId}&search=needle&recurrenceMasters=true&from=2026-02-01&to=2026-02-08&limit=1`,
+    ))
+    expect(response.status).toBe(200)
+    const queries = recordedQueries.filter((entry) => entry.sql.includes('customer_interactions'))
+    expect(queries.length).toBeGreaterThan(0)
+    for (const compiled of queries) {
+      expect(compiled.sql).toMatch(/and \(coalesce\(title, ''\) ilike \$\d+ or coalesce\(body, ''\) ilike \$\d+\)/)
+      expect(compiled.sql).toMatch(/and \(recurrence_end is null or recurrence_end >= \$\d+\)/)
+      expect(compiled.sql).toContain('"deleted_at" is null')
+      expect(compiled.sql).toContain('"tenant_id" =')
+      expect(compiled.sql).toContain('"organization_id" in')
+      expect(compiled.sql).toContain('"entity_id" =')
+      expect(compiled.parameters).toEqual(expect.arrayContaining([tenantId, orgId, entityId]))
+    }
   })
 })

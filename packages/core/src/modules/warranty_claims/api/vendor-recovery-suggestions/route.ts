@@ -4,7 +4,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -12,6 +13,7 @@ import { WarrantyClaimLine, WarrantyVendorPolicy } from '../../data/entities'
 import { requireScopedClaim, type WarrantyClaimScope } from '../../commands/shared'
 import { findVendorRecoveryMatches } from '../../lib/vendorPolicyRecovery'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 const logger = createLogger('warranty_claims')
 
@@ -45,6 +47,7 @@ type SuggestionsRouteContext = {
   scope: WarrantyClaimScope
   translate: (key: string, fallback?: string) => string
   em: EntityManager
+  container: Awaited<ReturnType<typeof createRequestContainer>>
 }
 
 export const metadata = {
@@ -71,7 +74,7 @@ async function resolveSuggestionsContext(req: Request): Promise<SuggestionsRoute
     throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required') })
   }
@@ -82,6 +85,7 @@ async function resolveSuggestionsContext(req: Request): Promise<SuggestionsRoute
     scope: { tenantId: auth.tenantId, organizationId },
     translate,
     em,
+    container,
   }
 }
 
@@ -121,11 +125,19 @@ export async function GET(req: Request) {
       { orderBy: { vendorName: 'ASC', updatedAt: 'DESC' } },
       context.scope,
     )
+    const currencyDecimalPlaces = claim.currencyCode
+      ? await resolveCurrencyDecimalPlaces(context.container, {
+        code: claim.currencyCode,
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+      })
+      : null
     const matches = findVendorRecoveryMatches({
       claim,
       lines,
       policies,
       requireWarrantyResolved: true,
+      currencyDecimalPlaces,
     })
     const suggestions = matches.map((match) => ({
       lineId: match.line.id,
@@ -140,8 +152,8 @@ export async function GET(req: Request) {
     }))
     return NextResponse.json({ ok: true, result: { claimId: claim.id, suggestions } })
   } catch (err) {
-    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }

@@ -5,6 +5,7 @@ import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/l
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -98,7 +99,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     const em = (container.resolve('em') as EntityManager).fork()
     const decryptionScope = {
       tenantId: auth.tenantId,
-      organizationId: scope?.selectedId ?? auth.orgId ?? null,
+      organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     }
 
     const company = await findOneWithDecryption(
@@ -155,6 +156,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
   } catch (error) {
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
+    }
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: error.issues }, { status: 400 })
     }
     logger.error('customers.companies.people.GET', { err: error })
     return NextResponse.json({ error: translate('customers.errors.company_people_load_failed', 'Failed to load linked people') }, { status: 500 })

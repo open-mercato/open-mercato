@@ -8,8 +8,10 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import {
   buildCompanyPayload,
   createCompanyFormFields,
@@ -18,8 +20,11 @@ import {
   type CompanyFormValues,
 } from '../../../../components/formConfig'
 
+const COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
+
 export default function CreateCompanyPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
@@ -39,6 +44,10 @@ export default function CreateCompanyPage() {
           fields={fields}
           groups={groups}
           initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
+          injectionSpotId={extensionPoints.hosts.companyForm.spotId}
+          legacyInjectionSpotId={COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID}
+          entityId="customers.company"
+          resourceKind="customers.company"
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           submitLabel={t('customers.companies.form.submit')}
           cancelHref={returnTo ?? '/backend/customers/companies'}
@@ -47,7 +56,7 @@ export default function CreateCompanyPage() {
             const addresses = Array.isArray(values.addresses) ? values.addresses : []
             let payload: Record<string, unknown>
             try {
-              payload = buildCompanyPayload(values, organizationId)
+              payload = buildCompanyPayload(values, organizationId, locale)
             } catch (err) {
               if (err instanceof Error) {
                 if (err.message === 'DISPLAY_NAME_REQUIRED') {
@@ -119,6 +128,10 @@ export default function CreateCompanyPage() {
             }
 
             flash(t('customers.companies.form.success'), 'success')
+            return newId ? { resourceId: newId } : undefined
+          }}
+          onSubmitSuccess={async (_values, result) => {
+            const newId = result?.resourceId
             if (returnTo) router.push(returnTo)
             else if (newId) router.push(`/backend/customers/companies-v2/${newId}`)
             else router.push('/backend/customers/companies')

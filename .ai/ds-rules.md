@@ -76,6 +76,24 @@ Decision tree — ask "is this a brand moment?":
 <div style={{ background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)' }} />
 ```
 
+#### Selection accent (`accent-indigo`)
+
+Selection is not a brand moment. Everything that says "this one is chosen / active" uses `accent-indigo` (`#6366f1`, `#818cf8` dark), the token `Checkbox`, `Radio`, `Switch`, `Slider`, `Stepper` and the underline `Tabs` already share. `brand-violet` (`#BC9AFF`) is AI-only and reads at about 1.9:1 on white, so it MUST NOT mark a selected row, card or summary.
+
+| Surface | Classes |
+|---------|---------|
+| Selected row / card / summary (e.g. `LookupSelect` option, selected-value bar) | `border-accent-indigo bg-accent-indigo/5`, `Check` icon `text-accent-indigo`, label text `text-foreground` (never the accent itself for small text) |
+| Ghost / text action sitting ON an `accent-indigo`-tinted surface (Change, Clear, More trigger, tab triggers) | `hover:bg-accent-indigo/10 hover:text-accent-indigo` — the default grey ghost hover (`bg-accent` / `bg-muted`) fights the tint and reads as a different component |
+| Active tab / step / segment | `bg-accent-indigo text-accent-indigo-foreground` or the underline in `accent-indigo` |
+
+```tsx
+// Selected summary bar with its actions
+<div className="rounded-lg border border-accent-indigo bg-accent-indigo/5">
+  <Check className="size-4 text-accent-indigo" />
+  <Button variant="ghost" size="sm" className="hover:bg-accent-indigo/10 hover:text-accent-indigo">Change</Button>
+</div>
+```
+
 ## Chart Colors
 
 Data visualization uses the dedicated `--chart-*` palette — never status tokens, and status semantics never come from chart colors.
@@ -110,6 +128,7 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 - NEVER use arbitrary tracking — use `tracking-widest` (0.1em) for uppercase labels
 - USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
 - For 11px uppercase labels: use `text-overline` (custom token, 11px / 16px line-height)
+- Source widget typography: `text-compact` is 13px / 20px, `text-ai-body` is 15px / 24px, and `text-title-4` is 32px / 40px. Use these only for the corresponding Figma compositions; ordinary application copy keeps the standard scale.
 - Exception: `text-[9px]` for notification badge count and `Avatar size="sm"` initials (documented exceptions)
 - Font families come from tokens: `--font-geist-sans` (default UI) and `--font-geist-mono` (`font-mono`) — never declare `font-family` inline
 
@@ -173,6 +192,8 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 | Very subtle highlight (selected primary/destructive) | `bg-primary/5` or `bg-destructive/5` |
 | Soft highlight (active primary/destructive) | `bg-primary/10` or `bg-destructive/10` |
 | Hover on primary/destructive button | `bg-primary/90` or `bg-destructive/90` |
+| Selected surface tint (selection accent) | `bg-accent-indigo/5` with `border-accent-indigo` |
+| Hover for actions on a selected / accent-tinted surface | `bg-accent-indigo/10` |
 | Softened border | `border-border/70` |
 
 ## Z-Index (Layering)
@@ -365,4 +386,3 @@ If you find yourself writing `dark:{something}`, first check whether a semantic 
 
 ## Boy Scout Rule
 When modifying a file that contains hardcoded status colors (`text-red-*`, `bg-green-*`, etc.), arbitrary text sizes (`text-[11px]`), or `dark:` overrides on status colors, you MUST migrate at minimum the lines you touched to semantic tokens.
-

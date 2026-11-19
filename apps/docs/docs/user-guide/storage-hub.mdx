@@ -56,6 +56,24 @@ After the first start with this flag set, the S3 integration card appears in **E
 | Cloudflare R2 | `https://<account-id>.r2.cloudflarestorage.com` | No |
 | Backblaze B2 | `https://s3.<region>.backblazeb2.com` | No |
 
+### Conditional-write compatibility
+
+The provider must enforce **atomic conditional PUT** with `If-None-Match: *`. Attachment and standalone S3 uploads send this header so a new upload cannot overwrite an existing object, including objects not yet tracked by quota accounting. Supporting the S3 API or accepting this header without enforcing it is insufficient.
+
+| Provider | Conditional PUT compatibility |
+| -------- | ----------------------------- |
+| AWS S3 | [Documents create-only writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html) using `If-None-Match: *`. |
+| MinIO | [AIStor documents `If-None-Match` on `PutObject`](https://docs.min.io/aistor/developers/s3-api-compatibility/). Verify the installed server version, especially older or community deployments. |
+| Cloudflare R2 | [Documents atomic conditional `PutObject`](https://developers.cloudflare.com/r2/api/s3/api/), including rejecting concurrent writes to the same key. |
+| DigitalOcean Spaces | Its [S3 compatibility reference](https://docs.digitalocean.com/products/spaces/reference/s3-compatibility/) does not explicitly confirm conditional PUT semantics. Verify with the provider and test the target endpoint before using it for uploads. |
+| Backblaze B2 | Its [S3 `PutObject` reference](https://www.backblaze.com/apidocs/s3-put-object) does not explicitly confirm `If-None-Match` support. Verify with the provider and test the target endpoint before using it for uploads. |
+
+These are provider documentation references, not results of Open Mercato live-provider certification. In a disposable test bucket, confirm that a conditional PUT to a new key succeeds and a second conditional PUT to that key fails while preserving the original bytes. A passing connection health check only checks bucket access; it does not verify conditional writes. Repeat compatibility checks after provider or proxy upgrades.
+
+When quota accounting already knows the target key, standalone upload admission returns `409`. If the object exists only at the provider, the provider rejects the conditional write (AWS S3 uses `412 Precondition Failed`; concurrent operations can return `409`). Open Mercato surfaces a failed upload; provider status codes are not necessarily passed through unchanged. Choose a new key instead of retrying an overwrite.
+
+A provider that rejects conditional PUT as unsupported causes uploads to fail. A provider or intermediary that silently ignores the header can permit overwrites and is incompatible with the storage safety guarantees. Do not remove the header to work around an upload failure.
+
 ## Step 2 — Verify the connection
 
 After saving, open the **Health** tab and click **Check Health** to confirm the credentials are valid and the bucket is reachable.
@@ -161,7 +179,7 @@ Exit code semantics:
 For local development and integration testing you can run a local S3 stub using **LocalStack**. Start it alongside the other infrastructure services by enabling the `storage-s3` compose profile:
 
 ```bash
-docker compose --profile storage-s3 up -d
+docker compose --project-directory . -f starters/docker/compose.infra.yml --profile storage-s3 up -d
 ```
 
 Then configure your local `.env`:
@@ -183,7 +201,7 @@ aws --endpoint-url=http://localhost:4566 s3api create-bucket --bucket mercato-de
 ```
 
 :::note
-LocalStack is **not** included in the default `docker compose up`. It only starts when the `storage-s3` profile is active to keep the default dev loop lightweight.
+LocalStack is **not** included in the default `yarn infra:up`. It only starts when the `storage-s3` profile is active to keep the default dev loop lightweight.
 :::
 
 ## Standalone S3 API
@@ -236,6 +254,28 @@ Response:
   "expiresAt": "2026-04-28T14:00:00.000Z"
 }
 ```
+
+### Signed-upload size and quota reservations
+
+For `operation: "upload"`, supply `size` in **bytes** when the file size is known. For example, this request reserves 1 MiB for a 1 MiB file:
+
+```json
+{
+  "key": "uploads/org_<orgId>/tenant_<tenantId>/document.pdf",
+  "operation": "upload",
+  "contentType": "application/pdf",
+  "size": 1048576,
+  "expiresIn": 3600
+}
+```
+
+The response includes `url`, `expiresAt`, and `reservationId`. Send the file bytes with `PUT` to the returned one-time application upload URL. The upload proxy enforces `size` as an upper bound; a larger body is rejected with `413`. Download URLs do not reserve upload capacity, and `size` is ignored for downloads.
+
+Omitting `size` remains supported, but reserves the configured maximum upload size from `resolveAttachmentMaxBytes()` instead of the eventual file size. The default is 25 MiB, controlled by `OM_ATTACHMENT_MAX_UPLOAD_MB` (legacy alias: `OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB`). Several unused URLs can therefore exhaust the tenant's available quota even when their intended files are small. Supplying the exact byte size avoids unnecessarily reserving that extra capacity.
+
+After a successful upload, accounting commits the actual bytes stored and releases the unused portion of the reservation. An unused URL retains its reservation until its lease expires and the recovery worker reconciles it. `expiresIn` controls the initial URL lifetime (default 3,600 seconds; allowed range 60–604,800 seconds). Expiry prevents starting an upload with that token; it does **not** guarantee that quota is released at that exact instant.
+
+Recovery releases capacity after confirming that no object remains, or commits a valid completed object's actual size. An upload already in progress can require additional lease time and a second absence check. Provider errors or uncertain cleanup keep capacity reserved while recovery retries. Keep the quota-recovery worker operating; allow reconciliation to complete before treating expired URLs as free capacity.
 
 ## Access control
 

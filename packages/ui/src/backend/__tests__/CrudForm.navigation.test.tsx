@@ -17,7 +17,7 @@ jest.mock('../confirm-dialog', () => ({
 }))
 
 import * as React from 'react'
-import { act, fireEvent } from '@testing-library/react'
+import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
 
@@ -206,7 +206,7 @@ describe('CrudForm unsaved navigation guard', () => {
     })
 
     expect(confirmDialogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Unsaved changes' }),
+      expect.objectContaining({ title: 'Discard unsaved changes?' }),
     )
     expect(window.location.pathname).toBe('/')
 
@@ -250,10 +250,9 @@ describe('CrudForm unsaved navigation guard', () => {
 
     await act(async () => {
       fireEvent.submit(form)
-      await Promise.resolve()
     })
 
-    expect(onSubmit).toHaveBeenCalled()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     expect(confirmDialogMock).not.toHaveBeenCalled()
 
     await act(async () => {
@@ -306,10 +305,9 @@ describe('CrudForm unsaved navigation guard', () => {
 
     await act(async () => {
       fireEvent.submit(form)
-      await Promise.resolve()
     })
 
-    expect(onSubmit).toHaveBeenCalled()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     expect(beforeUnloadDuringSubmit).not.toBeNull()
     expect(beforeUnloadDuringSubmit!.defaultPrevented).toBe(false)
     expect(beforeUnloadDuringSubmit!.returnValue).toBeUndefined()

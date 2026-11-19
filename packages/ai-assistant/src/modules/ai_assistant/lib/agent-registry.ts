@@ -1,3 +1,4 @@
+/// <reference path="./ai-agents-generated.d.ts" />
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { llmProviderRegistry } from './llm-registry'
 import type { AiAgentDefinition, AiAgentExtension, AiAgentSuggestion } from './ai-agent-definition'
@@ -9,12 +10,26 @@ import {
   type AiAgentOverrideConfigEntry,
 } from './ai-overrides'
 import { TASK_PLAN_TOOL_NAME } from './task-plan-labels'
+import { AI_RAW_TOOL_AGENT_ID } from './pending-action-types'
 import { findGeneratedFile, compileAndImportGenerated } from './generated-registry-loader'
+import { computeAgentDefinitionHash } from './agent-definition-hash'
 
 const logger = createLogger('ai_assistant')
 
 const agentsById = new Map<string, AiAgentDefinition>()
+const definitionHashesById = new Map<string, string>()
+const overrideDisabledAgentIds = new Set<string>()
 let loaded = false
+
+function setRegisteredAgent(agent: AiAgentDefinition): void {
+  agentsById.set(agent.id, agent)
+  definitionHashesById.set(agent.id, computeAgentDefinitionHash(agent))
+}
+
+function clearRegisteredAgents(): void {
+  agentsById.clear()
+  definitionHashesById.clear()
+}
 
 /**
  * Import the generated `ai-agents.generated.ts` registry.
@@ -39,7 +54,10 @@ async function importGeneratedAiAgentsModule(): Promise<Record<string, unknown> 
   } catch {
     const tsPath = findGeneratedFile('ai-agents.generated.ts')
     if (!tsPath) return null
-    return compileAndImportGenerated(tsPath)
+    // App-source modules (apps/<app>/src/modules/*/ai-agents.ts) are .ts that
+    // node cannot import directly — bundle their sources so one app-source agent
+    // does not abort the whole registry.
+    return compileAndImportGenerated(tsPath, { bundleLocalModules: true })
   }
 }
 
@@ -188,13 +206,20 @@ function populateFromAgents(agents: unknown[]): void {
       logger.warn('AI Agents — Skipping malformed agent entry in ai-agents.generated.ts')
       continue
     }
+    if (candidate.id === AI_RAW_TOOL_AGENT_ID) {
+      logger.error('AI Agents — Skipping agent using the reserved raw-tool agent id', {
+        agentId: candidate.id,
+        moduleId: candidate.moduleId,
+      })
+      continue
+    }
     const existing = agentsById.get(candidate.id)
     if (existing) {
       throw new Error(
         `[AI Agents] Duplicate agent id "${candidate.id}" — already registered by module "${existing.moduleId}", conflicts with module "${candidate.moduleId}". Export \`aiAgentOverrides\` from your module's \`ai-agents.ts\` (or set it on the modules.ts entry) to replace an agent across modules.`
       )
     }
-    agentsById.set(candidate.id, validateAndNormalizeAgent(candidate))
+    setRegisteredAgent(validateAndNormalizeAgent(candidate))
   }
 }
 
@@ -214,10 +239,14 @@ async function loadOverrideEntries(): Promise<AiAgentOverrideConfigEntry[]> {
 
 function applyOverridesToRegistry(entries: readonly AiAgentOverrideConfigEntry[]): void {
   const overrideMap = composeAgentOverrideMap(entries)
+  overrideDisabledAgentIds.clear()
+  for (const [id, value] of Object.entries(overrideMap)) {
+    if (value === null) overrideDisabledAgentIds.add(id)
+  }
   if (Object.keys(overrideMap).length === 0) return
   const overridden = applyAgentOverrideMap(Array.from(agentsById.values()), overrideMap)
-  agentsById.clear()
-  for (const agent of overridden) agentsById.set(agent.id, agent)
+  clearRegisteredAgents()
+  for (const agent of overridden) setRegisteredAgent(agent)
   for (const [id, value] of Object.entries(overrideMap)) {
     const verb = value === null ? 'disabled' : 'replaced'
     logger.info('Agent changed by override', { agentId: id, change: verb })
@@ -271,7 +300,7 @@ function applyExtensionsToRegistry(extensions: readonly AiAgentExtension[]): voi
         ],
       }),
     }
-    agentsById.set(agent.id, validateAndNormalizeAgent(patchedAgent))
+    setRegisteredAgent(validateAndNormalizeAgent(patchedAgent))
   }
 }
 
@@ -298,8 +327,60 @@ export async function loadAgentRegistry(): Promise<void> {
   }
 }
 
+/**
+ * Register agent definitions that only become known at runtime — for example
+ * agent_orchestrator's file-defined agents, whose manifest is loaded
+ * asynchronously and so cannot appear in `ai-agents.generated.ts`.
+ *
+ * Additive and non-destructive: the generated registry (with its overrides and
+ * extensions) is loaded first, every candidate goes through the same shape check
+ * and normalization as a generated agent, and an id that is already registered is
+ * skipped rather than replaced, so a runtime agent can never shadow or alter a
+ * code-defined one. An id disabled through an override (`null` value) is refused
+ * as well, so a runtime agent cannot silently undo the disable. Returns the ids
+ * that were registered.
+ */
+export async function registerRuntimeAiAgents(agents: readonly unknown[]): Promise<string[]> {
+  await loadAgentRegistry()
+  const registered: string[] = []
+  for (const candidate of agents) {
+    if (!isAiAgentDefinition(candidate)) {
+      logger.warn('AI Agents — Skipping malformed runtime agent definition')
+      continue
+    }
+    if (candidate.id === AI_RAW_TOOL_AGENT_ID) {
+      logger.error('AI Agents — Skipping runtime agent using the reserved raw-tool agent id', {
+        agentId: candidate.id,
+        moduleId: candidate.moduleId,
+      })
+      continue
+    }
+    if (overrideDisabledAgentIds.has(candidate.id)) {
+      logger.warn('AI Agents — Skipping runtime agent whose id is disabled by an override', {
+        agentId: candidate.id,
+        moduleId: candidate.moduleId,
+      })
+      continue
+    }
+    if (agentsById.has(candidate.id)) {
+      logger.warn('AI Agents — Skipping runtime agent whose id is already registered', {
+        agentId: candidate.id,
+        moduleId: candidate.moduleId,
+      })
+      continue
+    }
+    setRegisteredAgent(validateAndNormalizeAgent(candidate))
+    registered.push(candidate.id)
+  }
+  return registered
+}
+
 export function getAgent(id: string): AiAgentDefinition | undefined {
   return agentsById.get(id)
+}
+
+export function getAgentDefinitionHash(id: string): string | undefined {
+  return definitionHashesById.get(id)
 }
 
 export function listAgents(): AiAgentDefinition[] {
@@ -315,7 +396,8 @@ export function listAgentsByModule(moduleId: string): AiAgentDefinition[] {
  * Test-only hook — clears the cached registry so `loadAgentRegistry` re-evaluates its source.
  */
 export function resetAgentRegistryForTests(): void {
-  agentsById.clear()
+  clearRegisteredAgents()
+  overrideDisabledAgentIds.clear()
   loaded = false
 }
 
@@ -325,7 +407,8 @@ export function resetAgentRegistryForTests(): void {
  * the dynamic generated-file import. Used by the registry's own unit tests.
  */
 export function seedAgentRegistryForTests(agents: unknown[]): void {
-  agentsById.clear()
+  clearRegisteredAgents()
+  overrideDisabledAgentIds.clear()
   populateFromAgents(agents)
   loaded = true
 }

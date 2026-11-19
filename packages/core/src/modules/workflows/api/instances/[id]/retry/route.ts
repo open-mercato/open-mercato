@@ -10,11 +10,14 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowInstance } from '../../../../data/entities'
 import * as workflowExecutor from '../../../../lib/workflow-executor'
+import { isRetryableRunOutcome } from '../../../../lib/run-outcome'
 import { workflowInstanceResponseSchema, workflowExecutionResultSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -50,7 +53,7 @@ export async function POST(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!tenantId || !organizationId) {
       return NextResponse.json(
@@ -87,6 +90,21 @@ export async function POST(
       return NextResponse.json(
         { error: 'Workflow instance not found' },
         { status: 404 }
+      )
+    }
+
+    // A `partial_failure` reached END: replaying the graph would re-run every
+    // part that already succeeded in order to re-attempt the parts that did
+    // not (maintainer decision, 2026-07-30). Its status is COMPLETED, so the
+    // status guard below already refuses it — this runs FIRST so the operator
+    // gets the actionable remedy instead of the generic status message.
+    if (instance.outcome != null && !isRetryableRunOutcome(instance.outcome)) {
+      return NextResponse.json(
+        {
+          error: `Cannot retry a run whose outcome is ${instance.outcome}. Rerun the specific failed step instead.`,
+          code: 'WORKFLOW_RUN_OUTCOME_NOT_RETRYABLE',
+        },
+        { status: 400 }
       )
     }
 
@@ -133,6 +151,7 @@ export async function POST(
       message: 'Workflow retry initiated successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error retrying workflow instance', { err: error })
 
     // Handle specific errors
@@ -173,8 +192,8 @@ export const openApi = {
         },
         {
           status: 400,
-          description: 'Bad request - Workflow cannot be retried in current status or execution error',
-          schema: z.object({ error: z.string() }),
+          description: 'Bad request - Workflow cannot be retried in its current status or with its current outcome, or execution error',
+          schema: z.object({ error: z.string(), code: z.string().optional() }),
         },
         {
           status: 401,

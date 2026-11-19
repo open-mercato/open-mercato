@@ -11,6 +11,15 @@ export function toTrimmedOrNull(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+export function pickEnrichmentNamespaces(record: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const namespaces: Record<string, unknown> = {};
+  if (!record) return namespaces;
+  for (const [key, value] of Object.entries(record)) {
+    if (key.length > 1 && key.startsWith("_")) namespaces[key] = value;
+  }
+  return namespaces;
+}
+
 export function parseNumericInput(value: unknown): number {
   if (typeof value === "number") return value;
   if (typeof value === "string") {
@@ -79,4 +88,15 @@ export function normalizeProductConversionInputs(
     });
   }
   return normalized;
+}
+
+export function applyProductMarkdownPreference(
+  metadata: Record<string, unknown>,
+  useMarkdown: boolean | null | undefined,
+): Record<string, unknown> {
+  const nextMetadata = { ...metadata };
+  if (useMarkdown || Object.prototype.hasOwnProperty.call(metadata, "__useMarkdown")) {
+    nextMetadata.__useMarkdown = useMarkdown ?? false;
+  }
+  return nextMetadata;
 }
