@@ -106,7 +106,7 @@ type VariantPriceRequest = {
   variantDraftId: string;
   priceKindId: string;
   currencyCode: string;
-  amount: number;
+  amount: string;
   displayMode: PriceKindSummary["displayMode"];
   taxRateId: string | null;
   taxRateValue: number | null;
@@ -246,6 +246,10 @@ export default function CreateCatalogProductPage() {
   }, [fromInboxAction]);
 
   const initialValuesRef = React.useRef<ProductFormValues | null>(null);
+  const mediaUploadingRef = React.useRef(false);
+  const handleMediaUploadingChange = React.useCallback((isUploading: boolean) => {
+    mediaUploadingRef.current = isUploading;
+  }, []);
   if (!initialValuesRef.current) {
     const initial = createInitialProductFormValues();
     if (inboxDraft?.payload) {
@@ -349,6 +353,7 @@ export default function CreateCatalogProductPage() {
             priceKinds={priceKinds}
             taxRates={taxRates}
             requiredFieldIds={requiredFieldIds}
+            onMediaUploadingChange={handleMediaUploadingChange}
           />
         ),
       },
@@ -374,7 +379,7 @@ export default function CreateCatalogProductPage() {
         ),
       },
     ],
-    [priceKinds, taxRates, t],
+    [handleMediaUploadingChange, priceKinds, taxRates, t],
   );
 
   return (
@@ -395,6 +400,11 @@ export default function CreateCatalogProductPage() {
           submitLabel={t("catalog.products.create.submit", "Create")}
           cancelHref="/backend/catalog/products"
           onSubmit={async (formValues) => {
+            if (mediaUploadingRef.current) {
+              throw createCrudFormError(
+                t("catalog.products.media.uploading", "Uploading…"),
+              );
+            }
             const title = formValues.title?.trim();
             if (!title) {
               throw createCrudFormError(
@@ -632,9 +642,7 @@ export default function CreateCatalogProductPage() {
               for (const priceKind of priceKinds) {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim();
                 if (!value) continue;
-                const amountValidation = validateCatalogPriceAmountInput(
-                  Number(value),
-                );
+                const amountValidation = validateCatalogPriceAmountInput(value);
                 if (!amountValidation.ok) {
                   throw createCrudFormError(
                     amountValidation.reason === "negative"
@@ -648,7 +656,7 @@ export default function CreateCatalogProductPage() {
                         ),
                   );
                 }
-                const numeric = amountValidation.numeric;
+                const exactAmount = amountValidation.exact;
                 const currencyCode =
                   typeof priceKind.currencyCode === "string" &&
                   priceKind.currencyCode.trim().length
@@ -667,7 +675,7 @@ export default function CreateCatalogProductPage() {
                   variantDraftId: variant.id,
                   priceKindId: priceKind.id,
                   currencyCode,
-                  amount: numeric,
+                  amount: exactAmount,
                   displayMode: priceKind.displayMode,
                   taxRateId: resolvedVariantTaxRateId ?? null,
                   taxRateValue: resolvedVariantTaxRate ?? null,
@@ -872,6 +880,7 @@ type ProductBuilderProps = {
   priceKinds: PriceKindSummary[];
   taxRates: TaxRateSummary[];
   requiredFieldIds?: ReadonlySet<string>;
+  onMediaUploadingChange: (isUploading: boolean) => void;
 };
 
 type ProductMetaSectionProps = {
@@ -1030,6 +1039,7 @@ function ProductBuilder({
   priceKinds,
   taxRates,
   requiredFieldIds,
+  onMediaUploadingChange,
 }: ProductBuilderProps) {
   const t = useT();
   const steps = PRODUCT_FORM_STEPS;
@@ -1452,6 +1462,7 @@ function ProductBuilder({
             defaultMediaId={values.defaultMediaId ?? null}
             onItemsChange={handleMediaItemsChange}
             onDefaultChange={handleDefaultMediaChange}
+            onUploadingChange={onMediaUploadingChange}
           />
 
           <ProductDimensionsFields

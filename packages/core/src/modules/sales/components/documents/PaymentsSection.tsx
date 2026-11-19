@@ -21,6 +21,7 @@ import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './Payme
 import { extractCustomFieldValues } from './customFieldHelpers'
 import { Plus } from 'lucide-react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('sales')
 
@@ -34,6 +35,7 @@ type PaymentRow = {
   statusEntryId: string | null
   statusLabel: string | null
   amount: number
+  amountExact: string | null
   currencyCode: string | null
   receivedAt: string | null
   createdAt: string | null
@@ -142,6 +144,7 @@ export function SalesDocumentPaymentsSection({
                   ? (item as any).statusLabel
                   : null,
             amount: normalizeNumber(item.amount),
+            amountExact: resolveExactDecimal(item.amount, normalizeNumber(item.amount)),
             currencyCode:
               typeof item.currency_code === 'string'
                 ? item.currency_code
@@ -196,7 +199,7 @@ export function SalesDocumentPaymentsSection({
       setEditingPayment({
         id: record.id,
         updatedAt: record.updatedAt ?? null,
-        amount: record.amount ?? '',
+        amount: record.amountExact ?? record.amount ?? '',
         paymentMethodId: record.paymentMethodId ?? '',
         paymentReference: record.paymentReference ?? '',
         receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',

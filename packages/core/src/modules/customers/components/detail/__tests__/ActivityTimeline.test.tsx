@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import enDict from '../../../i18n/en.json'
 import plDict from '../../../i18n/pl.json'
@@ -89,5 +89,34 @@ describe('ActivityTimeline canceled status', () => {
     renderWithProviders(<ActivityTimeline activities={[createActivity()]} onMarkDone={jest.fn()} />)
 
     expect(screen.getByRole('button', { name: /Mark done/i })).toBeInTheDocument()
+  })
+})
+
+it.each([
+  { locale: 'en', dict: enDict, label: 'Unknown date' },
+  { locale: 'pl', dict: plDict, label: 'Nieznana data' },
+])('ActivityTimeline preserves unknown dates ($locale)', ({ locale, dict, label }) => {
+  const activity = createActivity({ occurredAt: null, scheduledAt: null, createdAt: '2035-01-01T12:34:00.000Z' })
+  renderWithProviders(<ActivityTimeline activities={[activity]} />, { locale, dict })
+  expect(screen.getByText(label)).toBeInTheDocument()
+  expect(screen.queryByText('2035')).not.toBeInTheDocument()
+  expect(screen.queryByText(/12:34/)).not.toBeInTheDocument()
+})
+
+describe('ActivityTimeline Mark done version', () => {
+  it('sends the version of the row as it is now, after a reload replaced it with a newer one', async () => {
+    const onMarkDone = jest.fn(async () => {})
+    const view = renderWithProviders(<ActivityTimeline activities={[createActivity()]} onMarkDone={onMarkDone} />)
+
+    view.rerender(
+      <ActivityTimeline
+        activities={[createActivity({ title: 'Send revised offer v2', updatedAt: '2026-04-11T12:00:00.000Z' })]}
+        onMarkDone={onMarkDone}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Mark done' }))
+
+    await waitFor(() => expect(onMarkDone).toHaveBeenCalledTimes(1))
+    expect(onMarkDone).toHaveBeenCalledWith('activity-1', '2026-04-11T12:00:00.000Z')
   })
 })

@@ -6,12 +6,18 @@ jest.mock('ai-sdk-ollama', () => ({
   createOllama: jest.fn(() => ({ embedding: jest.fn(() => ({})) })),
 }))
 
+jest.mock('@ai-sdk/amazon-bedrock', () => ({
+  createAmazonBedrock: jest.fn(() => ({ embedding: jest.fn(() => ({})) })),
+}))
+
 import { embed } from 'ai'
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOllama } from 'ai-sdk-ollama'
 import { EmbeddingService } from '../vector/services/embedding'
 
 const mockedEmbed = jest.mocked(embed)
 const mockedCreateOllama = jest.mocked(createOllama)
+const mockedCreateAmazonBedrock = jest.mocked(createAmazonBedrock)
 
 describe('EmbeddingService', () => {
   const originalEnv = { ...process.env }
@@ -144,6 +150,88 @@ describe('EmbeddingService', () => {
     })
 
     await expect(service.createEmbedding('test input')).resolves.toEqual([0.1])
+  })
+})
+
+describe('EmbeddingService Cohere inputType', () => {
+  const originalEnv = { ...process.env }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env = { ...originalEnv, COHERE_API_KEY: 'test-key' }
+    mockedEmbed.mockResolvedValue({ embedding: [0.1, 0.2] } as Awaited<ReturnType<typeof embed>>)
+  })
+
+  afterAll(() => {
+    process.env = originalEnv
+  })
+
+  const build = (dimension?: number) =>
+    new EmbeddingService({
+      config: {
+        providerId: 'cohere',
+        model: 'embed-english-v3.0',
+        dimension: 1024,
+        outputDimensionality: dimension,
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+  const sentInputType = () =>
+    (mockedEmbed.mock.calls[0][0] as { providerOptions?: { cohere?: { inputType?: string } } })
+      .providerOptions?.cohere?.inputType
+
+  it.each([undefined, 1024])('embeds documents with search_document (outputDimensionality=%s)', async (dim) => {
+    await build(dim).createEmbedding('some document')
+    expect(sentInputType()).toBe('search_document')
+  })
+
+  it.each([undefined, 1024])('embeds queries with search_query (outputDimensionality=%s)', async (dim) => {
+    await build(dim).createEmbedding('what is a query', { purpose: 'query' })
+    expect(sentInputType()).toBe('search_query')
+  })
+})
+
+describe('EmbeddingService bedrock credentials', () => {
+  const originalEnv = { ...process.env }
+  const bedrockConfig = {
+    providerId: 'bedrock' as const,
+    model: 'amazon.titan-embed-text-v2:0',
+    dimension: 1024,
+    updatedAt: new Date().toISOString(),
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env = { ...originalEnv }
+    process.env.AWS_ACCESS_KEY_ID = 'ASIAEXAMPLE'
+    process.env.AWS_SECRET_ACCESS_KEY = 'secret'
+    delete process.env.AWS_SESSION_TOKEN
+    mockedEmbed.mockResolvedValue({ embedding: [0.1, 0.2] } as never)
+  })
+
+  afterAll(() => {
+    process.env = originalEnv
+  })
+
+  it('passes AWS_SESSION_TOKEN to the Bedrock client for temporary credentials', async () => {
+    process.env.AWS_SESSION_TOKEN = 'temporary-session-token'
+
+    await new EmbeddingService({ config: bedrockConfig }).createEmbedding('hello')
+
+    expect(mockedCreateAmazonBedrock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessKeyId: 'ASIAEXAMPLE',
+        secretAccessKey: 'secret',
+        sessionToken: 'temporary-session-token',
+      }),
+    )
+  })
+
+  it('leaves the session token unset for long-lived credentials', async () => {
+    await new EmbeddingService({ config: bedrockConfig }).createEmbedding('hello')
+
+    expect(mockedCreateAmazonBedrock.mock.calls[0][0]?.sessionToken).toBeUndefined()
   })
 })
 

@@ -129,11 +129,17 @@ function registerMember(lockDirectory, token, pid, role) {
   const membersDirectory = path.join(lockDirectory, MEMBERS_DIRECTORY_NAME)
   fs.mkdirSync(membersDirectory, { recursive: true })
   const memberPath = path.join(membersDirectory, `${pid}.json`)
+  const previous = readJsonFile(memberPath)
+  const now = new Date().toISOString()
+  const registeredAt = previous?.token === token && previous.pid === pid
+    ? previous.registeredAt ?? previous.heartbeatAt ?? now
+    : now
   writeJsonAtomically(memberPath, {
     pid,
     role,
     token,
-    heartbeatAt: new Date().toISOString(),
+    registeredAt,
+    heartbeatAt: now,
   })
   return memberPath
 }
@@ -289,5 +295,55 @@ export function acquireDevSession({
     }
 
     throw new DevSessionConflictError(readJsonFile(path.join(lockDirectory, OWNER_FILE_NAME)), canonicalWorkspaceRoot)
+  })
+}
+
+function readRecoveryState(workspaceRoot, lockDirectory) {
+  const owner = readJsonFile(path.join(lockDirectory, OWNER_FILE_NAME))
+  if (!owner) return null
+  const generation = fs.statSync(lockDirectory, { bigint: true })
+  const records = new Map()
+  for (const record of [owner, ...readMembers(lockDirectory)]) {
+    if (record.token === owner.token && isProcessAlive(record.pid)) records.set(record.pid, record)
+  }
+  return {
+    workspaceRoot,
+    lockDirectory,
+    generation: `${generation.dev}:${generation.ino}`,
+    owner,
+    liveRecords: [...records.values()].sort((first, second) => first.pid - second.pid),
+  }
+}
+
+export function inspectDevSessionRecovery(workspaceRoot) {
+  const canonicalRoot = canonicalizeWorkspaceRoot(workspaceRoot)
+  const lockDirectory = path.join(canonicalRoot, '.mercato', LOCK_DIRECTORY_NAME)
+  if (!fs.existsSync(lockDirectory)) return null
+  return withSessionAcquisition(lockDirectory, () => fs.existsSync(lockDirectory) ? readRecoveryState(canonicalRoot, lockDirectory) : null)
+}
+
+export function withDevSessionRecovery(snapshot, operation) {
+  return withSessionAcquisition(snapshot.lockDirectory, () => {
+    const current = fs.existsSync(snapshot.lockDirectory)
+      ? readRecoveryState(snapshot.workspaceRoot, snapshot.lockDirectory)
+      : null
+    const sameOwner = current?.generation === snapshot.generation
+      && current?.owner.token === snapshot.owner.token
+    const expectedPids = new Set(snapshot.liveRecords.map((record) => record.pid))
+    if (!sameOwner || current.liveRecords.some((record) => !expectedPids.has(record.pid))) {
+      throw new DevSessionConflictError(current?.owner, snapshot.workspaceRoot)
+    }
+    const retainProcesses = (pids) => {
+      for (const pid of pids) registerMember(snapshot.lockDirectory, snapshot.owner.token, pid, 'orphan-descendant')
+      return readRecoveryState(snapshot.workspaceRoot, snapshot.lockDirectory)
+    }
+    const discardLock = () => {
+      try {
+        removeStaleLock(snapshot.lockDirectory)
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+      }
+    }
+    return operation(current, retainProcesses, discardLock)
   })
 }
