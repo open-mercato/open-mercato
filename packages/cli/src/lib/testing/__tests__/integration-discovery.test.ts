@@ -349,6 +349,45 @@ describe('integration discovery', () => {
     ])
   })
 
+  it('evaluates environment requirements against an explicit environment instead of process.env', async () => {
+    await writeTestFile(tempRoot, 'src/modules/orders/__integration__/TC-APP-001.spec.ts')
+    await writeTestFile(
+      tempRoot,
+      'src/modules/orders/__integration__/TC-APP-001.meta.ts',
+      "export const integrationMeta = { requiredEnvVars: ['OM_TEST_DISCOVERY_REQUIRED_KEY'] }\n",
+    )
+    await writeTestFile(tempRoot, 'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts')
+    const legacyRoot = path.join(tempRoot, '.ai', 'qa', 'tests')
+
+    expect(discoverIntegrationSpecFiles(tempRoot, legacyRoot).map((entry) => entry.path)).toEqual([
+      'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts',
+    ])
+    expect(
+      discoverIntegrationSpecFiles(tempRoot, legacyRoot, {
+        environment: { OM_TEST_DISCOVERY_REQUIRED_KEY: 'runtime-value', OM_INTEGRATION_APP_ONLY: '1' },
+      }).map((entry) => entry.path),
+    ).toEqual(['src/modules/orders/__integration__/TC-APP-001.spec.ts'])
+    expect(process.env.OM_TEST_DISCOVERY_REQUIRED_KEY).toBeUndefined()
+  })
+
+  it('applies only path ownership when metadata filters are disabled', async () => {
+    await writeTestFile(tempRoot, 'src/modules/orders/__integration__/TC-APP-001.spec.ts')
+    await writeTestFile(
+      tempRoot,
+      'src/modules/orders/__integration__/meta.ts',
+      "export const integrationMeta = { dependsOnModules: ['missing_module'], requiredEnvVars: ['OM_TEST_DISCOVERY_REQUIRED_KEY'] }\n",
+    )
+    await writeTestFile(tempRoot, 'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts')
+    const legacyRoot = path.join(tempRoot, '.ai', 'qa', 'tests')
+
+    expect(
+      discoverIntegrationSpecFiles(tempRoot, legacyRoot, {
+        environment: { OM_INTEGRATION_APP_ONLY: '1' },
+        applyMetadataFilters: false,
+      }).map((entry) => entry.path),
+    ).toEqual(['src/modules/orders/__integration__/TC-APP-001.spec.ts'])
+  })
+
   it('classifies spec paths under node_modules as not app-owned', () => {
     expect(isAppOwnedIntegrationSpecPath('src/modules/orders/__integration__/TC-APP-001.spec.ts')).toBe(true)
     expect(isAppOwnedIntegrationSpecPath('.ai/qa/tests/TC-APP-002.spec.ts')).toBe(true)

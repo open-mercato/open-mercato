@@ -60,6 +60,8 @@ type IntegrationSuiteOptions = IntegrationOptions & {
 }
 
 export const NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE = 'No app-owned integration specs found'
+export const NO_RUNNABLE_APP_OWNED_INTEGRATION_SPECS_MESSAGE =
+  'No app-owned integration specs are runnable in the ephemeral environment: every one is skipped by its requiredModules/requiredEnvVars metadata'
 
 export const INTEGRATION_TEST_USAGE = [
   'Usage: mercato test:integration [filter] [options]',
@@ -2586,6 +2588,15 @@ export function resolveAppOwnedIntegrationSpecPaths(
   return matching
 }
 
+export async function resolveRunnableAppOwnedSpecPaths(
+  appOnlySpecPaths: readonly string[],
+  environment: NodeJS.ProcessEnv,
+  discoverRunnableSpecs: (environment: NodeJS.ProcessEnv) => Promise<ReadonlyArray<{ path: string }>> = discoverRunnableAppOwnedIntegrationSpecs,
+): Promise<string[]> {
+  const runnable = new Set((await discoverRunnableSpecs(environment)).map((entry) => entry.path))
+  return appOnlySpecPaths.filter((specPath) => runnable.has(specPath))
+}
+
 export function buildAppOnlyPlaywrightFileFilters(specPaths: readonly string[]): string[] {
   return specPaths.map((specPath) => `/${specPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
 }
@@ -2885,6 +2896,32 @@ function normalizePath(filePath: string): string {
 
 async function discoverIntegrationSpecFiles(): Promise<DiscoveredIntegrationSpecFile[]> {
   return discoverIntegrationSpecFilesShared(projectRootDirectory, LEGACY_INTEGRATION_TEST_ROOT)
+}
+
+function buildAppOnlyDiscoveryEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...environment, [APP_ONLY_INTEGRATION_ENV_VAR]: '1' }
+}
+
+function resolvePlaywrightConfigLegacyIntegrationRoot(projectRoot: string): string {
+  return path.join(projectRoot, '.ai', 'qa', 'tests', '__legacy_disabled__')
+}
+
+export async function discoverAppOwnedIntegrationSpecCandidates(
+  projectRoot: string = projectRootDirectory,
+): Promise<DiscoveredIntegrationSpecFile[]> {
+  return discoverIntegrationSpecFilesShared(projectRoot, resolvePlaywrightConfigLegacyIntegrationRoot(projectRoot), {
+    environment: buildAppOnlyDiscoveryEnvironment(process.env),
+    applyMetadataFilters: false,
+  })
+}
+
+export async function discoverRunnableAppOwnedIntegrationSpecs(
+  environment: NodeJS.ProcessEnv,
+  projectRoot: string = projectRootDirectory,
+): Promise<DiscoveredIntegrationSpecFile[]> {
+  return discoverIntegrationSpecFilesShared(projectRoot, resolvePlaywrightConfigLegacyIntegrationRoot(projectRoot), {
+    environment: buildAppOnlyDiscoveryEnvironment(environment),
+  })
 }
 
 async function extractSpecDescription(relativePath: string): Promise<string> {
@@ -3441,12 +3478,17 @@ async function runIntegrationTestSuiteOnce(
 ): Promise<void> {
   const testArgs = ['test:integration']
   if (options.appOnlySpecPaths) {
-    testArgs.push(...buildAppOnlyPlaywrightFileFilters(options.appOnlySpecPaths))
+    const runnableSpecPaths = await resolveRunnableAppOwnedSpecPaths(options.appOnlySpecPaths, environment.commandEnvironment)
+    if (runnableSpecPaths.length === 0) {
+      console.log(`[integration] ${NO_RUNNABLE_APP_OWNED_INTEGRATION_SPECS_MESSAGE}.`)
+      return
+    }
+    testArgs.push(...buildAppOnlyPlaywrightFileFilters(runnableSpecPaths))
   } else if (options.filter) {
     testArgs.push(options.filter)
   }
   const commandEnvironment = options.appOnlySpecPaths
-    ? { ...environment.commandEnvironment, [APP_ONLY_INTEGRATION_ENV_VAR]: '1' }
+    ? buildAppOnlyDiscoveryEnvironment(environment.commandEnvironment)
     : environment.commandEnvironment
   await runYarnCommandWithOutputMonitoring(testArgs, commandEnvironment, {
     detectEnvironmentUnavailable: true,
@@ -3998,7 +4040,7 @@ export async function runIntegrationTestsInEphemeralEnvironment(
   }
   let appOnlySpecPaths: string[] | null = null
   if (options.appOnly) {
-    const discoverSpecs = dependencies.discoverSpecs ?? discoverIntegrationSpecFiles
+    const discoverSpecs = dependencies.discoverSpecs ?? (() => discoverAppOwnedIntegrationSpecCandidates())
     appOnlySpecPaths = resolveAppOwnedIntegrationSpecPaths(await discoverSpecs(), options.filter)
     if (appOnlySpecPaths.length === 0) {
       console.log(NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE)

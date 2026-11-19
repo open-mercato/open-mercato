@@ -11,6 +11,11 @@ export type IntegrationSpecDiscoveryItem = {
   requiredAnyEnvVars: string[]
 }
 
+export type IntegrationSpecDiscoveryOptions = {
+  environment?: NodeJS.ProcessEnv
+  applyMetadataFilters?: boolean
+}
+
 const MODULE_INTEGRATION_DIRECTORY_NAME = '__integration__'
 const DISCOVERY_IGNORED_DIRS = new Set([
   'node_modules',
@@ -42,13 +47,13 @@ function normalizeModuleId(moduleId: string): string {
   return moduleId.trim().toLowerCase()
 }
 
-function isEnterpriseModulesEnabled(): boolean {
-  const rawValue = process.env.OM_ENABLE_ENTERPRISE_MODULES?.trim().toLowerCase()
+function isEnterpriseModulesEnabled(environment: NodeJS.ProcessEnv): boolean {
+  const rawValue = environment.OM_ENABLE_ENTERPRISE_MODULES?.trim().toLowerCase()
   return rawValue === 'true' || rawValue === '1' || rawValue === 'yes' || rawValue === 'on'
 }
 
-function isAppOnlyDiscoveryEnabled(): boolean {
-  const rawValue = process.env[APP_ONLY_INTEGRATION_ENV_VAR]?.trim().toLowerCase()
+function isAppOnlyDiscoveryEnabled(environment: NodeJS.ProcessEnv): boolean {
+  const rawValue = environment[APP_ONLY_INTEGRATION_ENV_VAR]?.trim().toLowerCase()
   return rawValue === 'true' || rawValue === '1' || rawValue === 'yes' || rawValue === 'on'
 }
 
@@ -182,8 +187,8 @@ function readDeclaredModuleIdsFromConfig(
   return declared
 }
 
-function resolveTestAppRoot(): string | null {
-  const configuredTestAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
+function resolveTestAppRoot(environment: NodeJS.ProcessEnv): string | null {
+  const configuredTestAppRoot = environment.OM_TEST_APP_ROOT?.trim()
   return configuredTestAppRoot ? path.resolve(configuredTestAppRoot) : null
 }
 
@@ -204,8 +209,8 @@ function resolvePossiblyEnabledTestAppModuleIds(testAppRoot: string): Set<string
   )
 }
 
-function resolveEnabledModuleIds(projectRoot: string): Set<string> {
-  const testAppRoot = resolveTestAppRoot()
+function resolveEnabledModuleIds(projectRoot: string, environment: NodeJS.ProcessEnv): Set<string> {
+  const testAppRoot = resolveTestAppRoot(environment)
   if (testAppRoot) {
     return new Set(
       readDeclaredModuleIdsFromConfig(path.join(testAppRoot, 'src', 'modules.ts')).map(normalizeModuleId),
@@ -217,7 +222,7 @@ function resolveEnabledModuleIds(projectRoot: string): Set<string> {
   const appsRoot = path.join(projectRoot, 'apps')
   const packagesRoot = path.join(projectRoot, 'packages')
   const installedPackagesRoot = path.join(projectRoot, 'node_modules', '@open-mercato')
-  const enterpriseEnabled = isEnterpriseModulesEnabled()
+  const enterpriseEnabled = isEnterpriseModulesEnabled(environment)
 
   // Standalone app: src/modules at project root
   collectModuleIdsFromModulesRoot(appModulesRoot, enabledModules)
@@ -273,8 +278,8 @@ function resolveOwningModuleId(projectRoot: string, relativeSpecPath: string): s
   return isRealModule ? normalizeModuleId(segments[modulesSegmentIndex + 1]) : null
 }
 
-function resolveOverlayRootPath(): string {
-  const configured = process.env.OM_INTEGRATION_OVERLAY_ROOT?.trim()
+function resolveOverlayRootPath(environment: NodeJS.ProcessEnv): string {
+  const configured = environment.OM_INTEGRATION_OVERLAY_ROOT?.trim()
   if (!configured) {
     return DEFAULT_OVERLAY_ROOT
   }
@@ -458,16 +463,27 @@ function resolveRequiredAnyEnvVarsForSpec(projectRoot: string, relativeSpecPath:
   return Array.from(requiredAnyEnvVars)
 }
 
-function isEnvironmentVariableConfigured(name: string): boolean {
-  const value = process.env[name]
+function isEnvironmentVariableConfigured(environment: NodeJS.ProcessEnv, name: string): boolean {
+  const value = environment[name]
   return typeof value === 'string' && value.trim().length > 0
 }
 
-export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrationRoot: string): IntegrationSpecDiscoveryItem[] {
+/**
+ * Discovers runnable integration specs. `environment` defaults to `process.env` and drives
+ * every environment-dependent rule (enterprise overlays, app-only, `requiredEnvVars`, ...).
+ * With `applyMetadataFilters: false` only path ownership is applied, so the result is an
+ * upper bound of what a Playwright config evaluated in any environment can select.
+ */
+export function discoverIntegrationSpecFiles(
+  projectRoot: string,
+  legacyIntegrationRoot: string,
+  options: IntegrationSpecDiscoveryOptions = {},
+): IntegrationSpecDiscoveryItem[] {
+  const environment = options.environment ?? process.env
   const discoveredByPath = new Map<string, IntegrationSpecDiscoveryItem>()
-  const overlayRoot = resolveOverlayRootPath()
-  const enterpriseEnabled = isEnterpriseModulesEnabled()
-  const appOnly = isAppOnlyDiscoveryEnabled()
+  const overlayRoot = resolveOverlayRootPath(environment)
+  const enterpriseEnabled = isEnterpriseModulesEnabled(environment)
+  const appOnly = isAppOnlyDiscoveryEnabled(environment)
   const discoveryRoots = [
     path.join(projectRoot, 'src', 'modules'),
     path.join(projectRoot, 'apps'),
@@ -505,8 +521,11 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
 
   const discovered = Array.from(discoveredByPath.values())
     .filter((file) => !appOnly || isAppOwnedIntegrationSpecPath(file.path))
-  const enabledModules = resolveEnabledModuleIds(projectRoot)
-  const testAppRoot = resolveTestAppRoot()
+  if (options.applyMetadataFilters === false) {
+    return discovered.sort((left, right) => left.path.localeCompare(right.path))
+  }
+  const enabledModules = resolveEnabledModuleIds(projectRoot, environment)
+  const testAppRoot = resolveTestAppRoot(environment)
   const testAppModules = testAppRoot ? resolvePossiblyEnabledTestAppModuleIds(testAppRoot) : null
   const enabledModuleNames = new Set<string>()
   for (const file of discovered) {
@@ -526,12 +545,12 @@ export function discoverIntegrationSpecFiles(projectRoot: string, legacyIntegrat
           return false
         }
       }
-      if (file.requiredEnvVars.some((envVar) => !isEnvironmentVariableConfigured(envVar))) {
+      if (file.requiredEnvVars.some((envVar) => !isEnvironmentVariableConfigured(environment, envVar))) {
         return false
       }
       if (
         file.requiredAnyEnvVars.length > 0 &&
-        !file.requiredAnyEnvVars.some((envVar) => isEnvironmentVariableConfigured(envVar))
+        !file.requiredAnyEnvVars.some((envVar) => isEnvironmentVariableConfigured(environment, envVar))
       ) {
         return false
       }

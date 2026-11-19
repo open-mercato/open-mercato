@@ -1,9 +1,15 @@
+import os from 'node:os'
+import path from 'node:path'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import {
   INTEGRATION_TEST_USAGE,
   NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE,
   buildAppOnlyPlaywrightFileFilters,
+  discoverAppOwnedIntegrationSpecCandidates,
+  discoverRunnableAppOwnedIntegrationSpecs,
   parseOptions,
   resolveAppOwnedIntegrationSpecPaths,
+  resolveRunnableAppOwnedSpecPaths,
   runIntegrationTestsInEphemeralEnvironment,
 } from '../integration'
 import type { EphemeralEnvironmentHandle, IntegrationTestRunDependencies } from '../integration'
@@ -13,6 +19,12 @@ type RunSuiteWithRecovery = NonNullable<IntegrationTestRunDependencies['runSuite
 const APP_SPEC = 'src/modules/orders/__integration__/TC-APP-001.spec.ts'
 const SECOND_APP_SPEC = 'src/modules/orders/__integration__/admin/TC-APP-002.spec.ts'
 const PLATFORM_SPEC = 'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts'
+
+async function writeTestFile(projectRoot: string, relativePath: string, content = 'export {}\n'): Promise<void> {
+  const absolutePath = path.join(projectRoot, relativePath)
+  await mkdir(path.dirname(absolutePath), { recursive: true })
+  await writeFile(absolutePath, content, 'utf8')
+}
 
 function createRunSuiteMock() {
   const stop = jest.fn(async () => {})
@@ -91,6 +103,53 @@ describe('mercato test:integration --app-only', () => {
       expect(() => resolveAppOwnedIntegrationSpecPaths([{ path: APP_SPEC }, { path: PLATFORM_SPEC }], 'webhooks')).toThrow(
         'No app-owned integration specs match filter "webhooks"',
       )
+    })
+  })
+
+  describe('app-owned discovery', () => {
+    const RUNTIME_ENV_KEY = 'OM_TEST_APP_ONLY_RUNTIME_KEY'
+    let tempRoot = ''
+
+    beforeEach(async () => {
+      tempRoot = await mkdtemp(path.join(os.tmpdir(), 'om-integration-app-only-'))
+      delete process.env[RUNTIME_ENV_KEY]
+    })
+
+    afterEach(async () => {
+      await rm(tempRoot, { recursive: true, force: true })
+    })
+
+    it('keeps a lone spec that needs a runtime-provided variable and runs it with the runtime environment', async () => {
+      await writeTestFile(tempRoot, APP_SPEC)
+      await writeTestFile(
+        tempRoot,
+        'src/modules/orders/__integration__/TC-APP-001.meta.ts',
+        `export const integrationMeta = { requiredEnvVars: ['${RUNTIME_ENV_KEY}'] }\n`,
+      )
+      await writeTestFile(tempRoot, PLATFORM_SPEC)
+
+      const candidates = await discoverAppOwnedIntegrationSpecCandidates(tempRoot)
+      const appOnlySpecPaths = resolveAppOwnedIntegrationSpecPaths(candidates, null)
+      expect(appOnlySpecPaths).toEqual([APP_SPEC])
+
+      const discoverInFixture = (environment: NodeJS.ProcessEnv) =>
+        discoverRunnableAppOwnedIntegrationSpecs(environment, tempRoot)
+      await expect(
+        resolveRunnableAppOwnedSpecPaths(appOnlySpecPaths, { [RUNTIME_ENV_KEY]: 'from-runtime' }, discoverInFixture),
+      ).resolves.toEqual([APP_SPEC])
+      await expect(resolveRunnableAppOwnedSpecPaths(appOnlySpecPaths, {}, discoverInFixture)).resolves.toEqual([])
+    })
+
+    it('ignores specs under .ai/qa/tests, which the generated Playwright config does not run', async () => {
+      await writeTestFile(tempRoot, '.ai/qa/tests/TC-LEGACY-001.spec.ts')
+      await writeTestFile(tempRoot, PLATFORM_SPEC)
+
+      expect(resolveAppOwnedIntegrationSpecPaths(await discoverAppOwnedIntegrationSpecCandidates(tempRoot), null)).toEqual([])
+
+      await writeTestFile(tempRoot, APP_SPEC)
+      expect(resolveAppOwnedIntegrationSpecPaths(await discoverAppOwnedIntegrationSpecCandidates(tempRoot), null)).toEqual([
+        APP_SPEC,
+      ])
     })
   })
 
