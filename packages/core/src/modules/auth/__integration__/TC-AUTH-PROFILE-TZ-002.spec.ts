@@ -26,7 +26,7 @@ async function loginThroughForm(page: Page, redirect: string): Promise<string[]>
   const fullLoads: string[] = []
   page.on('load', () => fullLoads.push(page.url()))
   await password.press('Enter')
-  await page.waitForURL(new RegExp(redirect.replace(/\//g, '\\/')), { timeout: 30_000 })
+  await page.waitForURL((url) => url.pathname === redirect, { timeout: 30_000 })
   return fullLoads
 }
 
