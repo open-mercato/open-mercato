@@ -18,7 +18,7 @@ export type EphemeralDatabaseGuard = {
 
 const identityQuery = "SELECT current_database() AS database_name, shobj_description(oid, 'pg_database') AS ownership_marker FROM pg_database WHERE datname = current_database()"
 
-function connectionDigest(databaseUrl: string | undefined): string {
+function connectionTarget(databaseUrl: string | undefined): string {
   if (!databaseUrl) throw new Error('[internal] Ephemeral initialization requires an explicit database connection.')
   let parsed: URL
   try {
@@ -29,7 +29,13 @@ function connectionDigest(databaseUrl: string | undefined): string {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || parsed.pathname.length < 2) {
     throw new Error('[internal] Ephemeral database connection is invalid.')
   }
-  return createHash('sha256').update(databaseUrl).digest('hex')
+  const databaseName = decodeURIComponent(parsed.pathname.slice(1))
+  const port = parsed.port || '5432'
+  return `postgresql://${decodeURIComponent(parsed.username)}@${parsed.hostname.toLowerCase()}:${port}/${databaseName}`
+}
+
+function connectionDigest(databaseUrl: string | undefined): string {
+  return createHash('sha256').update(connectionTarget(databaseUrl)).digest('hex')
 }
 
 export function readEphemeralDatabaseGuard(args: string[]): EphemeralDatabaseGuard | null {

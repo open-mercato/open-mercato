@@ -14,7 +14,7 @@ describe('ephemeral database initialization ownership', () => {
   const guard: EphemeralDatabaseGuard = {
     version: 1,
     databaseName: 'owned_database',
-    connectionDigest: createHash('sha256').update(databaseUrl).digest('hex'),
+    connectionDigest: createHash('sha256').update('postgresql://owned@127.0.0.1:6543/owned_database').digest('hex'),
     ownershipMarker: 'open-mercato-ephemeral:38ee43df-19e4-444e-b5c5-8e56b55c9d0c',
   }
   let directory: string
@@ -62,6 +62,11 @@ describe('ephemeral database initialization ownership', () => {
       expect(String(error)).not.toContain('private-password')
       expect(String(error)).not.toContain('wrong_database')
     }
+  })
+
+  it('binds the owned target identity rather than the credential', () => {
+    expect(() => assertEphemeralDatabaseConnection(guard, 'postgresql://owned:rotated-secret@127.0.0.1:6543/owned_database')).not.toThrow()
+    expect(() => assertEphemeralDatabaseConnection(guard, 'postgresql://other_role:private-password@127.0.0.1:6543/owned_database')).toThrow('not the owned disposable target')
   })
 
   it('reads the connected database identity and ownership marker before accepting it', async () => {
