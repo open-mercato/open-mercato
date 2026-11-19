@@ -131,6 +131,14 @@ PR: #9837
 ### Review 5981915356 plan (2026-11-19)
 - [x] Decouple HEAD delivery from potentially unbounded source cancellation, retaining request ownership until cancellation settles; mirror standalone dispatcher.
 - [x] Cover real tee cancellation, settlement/rejection and exactly-once generation cleanup; independently audit adjacent lifetime cases.
-- [ ] Run the configured gate and both native runtime modes, publish results and request re-review.
+- [x] Run the configured gate and both native runtime modes, publish results and request re-review. — a27a01b995
 
 - Focused API validation passes 73/73 across four suites, including 18 lifecycle cases. Independent review found no remaining concrete blocker. The fix reuses the existing ownership-wrapped response; no shared lifecycle API changed.
+
+### Review 5981915356 results (2026-11-19)
+- a27a01b995 returns the ownership-wrapped response before suppressing HEAD. It starts observed cancellation through that wrapper without awaiting it on the delivery path, preserving status/headers and retaining scopes until cleanup actually settles. No shared API changed; app/template match.
+- Actual dispatcher regressions cover native tee siblings closing, cancelling and rejecting in both feature modes. HEAD arrives while cancellation is pending; invalidated generations remain alive until settlement and every resource disposes exactly once. Deferred cancellation and diagnostic failures remain covered. Focused API tests pass 73/73, including 18 lifecycle cases; independent review found no blocker.
+- Full configured local gate on Node 24.22.3 passes: build/generate/build, translations, workspace typecheck, units and production build. Units: 50,805 passed, zero failed, 456 existing skips; 51/51 tasks, five cached build dependencies and no cached test jobs. Original 1 GiB heap and concurrency 2 retained. CLASSIC DI (28 files/254 keys), template parity, lessons and diff checks pass.
+- Native integration passes 13/13 enabled and 13/13 disabled with zero test retries, flakes or skips. Real authenticated Next.js HEAD checks pass in both modes: 200, matching JSON Content-Type and zero body bytes. Owned disposable apps/databases stopped and verified absent.
+- Configured production build passed directly. Each native environment build repeated its identical command once after the existing Next.js advisory using its normal receipt mechanism; no dependency, security-setting or receipt changes.
+- Base 4ee923350e unchanged. Guard/CLA pass; main CI remains absent for this stacked base, so the full gate is local fallback evidence. External re-review and existing QA approval remain pending; feature default-off, no merge performed.
