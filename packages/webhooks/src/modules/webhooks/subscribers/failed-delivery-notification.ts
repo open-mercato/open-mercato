@@ -31,10 +31,10 @@ type ResolverContext = {
 }
 
 export default async function handle(payload: WebhookDeliveryExhaustedPayload, ctx: ResolverContext) {
-  const notificationService = tryResolve<NotificationService>(ctx, 'notificationService')
-  if (!notificationService) return
-
   try {
+    const notificationService = tryResolve<NotificationService>(ctx, 'notificationService')
+    if (!notificationService) return
+
     const organizationId = payload.organizationId ?? null
     const settings = await resolveWebhookIntegrationSettings(ctx, {
       tenantId: payload.tenantId,

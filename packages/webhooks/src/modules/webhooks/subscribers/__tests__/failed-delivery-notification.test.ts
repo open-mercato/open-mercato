@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { asFunction, createContainer } from 'awilix'
 import handler from '../failed-delivery-notification'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -148,9 +149,8 @@ describe('webhooks failed delivery notification subscriber', () => {
   })
 
   it('skips quietly before settings or ORM access when notifications are not registered', async () => {
-    const resolve = jest.fn(<T,>(name: string): T => {
-      throw new Error(`Unregistered dependency: ${name}`)
-    })
+    const container = createContainer().createScope()
+    const resolve = jest.fn(container.resolve.bind(container))
 
     await handler(
       {
@@ -164,12 +164,65 @@ describe('webhooks failed delivery notification subscriber', () => {
     )
 
     expect(resolve).toHaveBeenCalledTimes(1)
-    expect(resolve).toHaveBeenCalledWith('notificationService')
+    expect(resolve).toHaveBeenCalledWith('notificationService', { allowUnregistered: true })
     expect(resolveWebhookIntegrationSettings).not.toHaveBeenCalled()
     expect(findOneWithDecryption).not.toHaveBeenCalled()
     expect(buildFeatureNotificationFromType).not.toHaveBeenCalled()
     expect(mockLogError).not.toHaveBeenCalled()
+    expect(mockLogWarning).not.toHaveBeenCalled()
     expect(getTelemetryRuntime).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['factory', false],
+    ['factory', true],
+    ['dependency', false],
+    ['dependency', true],
+  ] as const)('reports registered service %s failures when telemetry throws: %s', async (failure, reporterThrows) => {
+    const resolutionError = new Error('Notification service initialization failed')
+    const telemetryError = new Error('Telemetry unavailable')
+    const reportError = jest.fn(() => {
+      if (reporterThrows) throw telemetryError
+    })
+    jest.mocked(getTelemetryRuntime).mockReturnValue({ reportError } as unknown as NonNullable<ReturnType<typeof getTelemetryRuntime>>)
+    const container = createContainer()
+    container.register({
+      notificationService: failure === 'factory'
+        ? asFunction(() => { throw resolutionError }).scoped()
+        : asFunction(({ notificationBackend }: { notificationBackend: unknown }) => notificationBackend).scoped().proxy(),
+    })
+    const scope = container.createScope()
+
+    await expect(handler(
+      {
+        deliveryId: 'delivery-1',
+        webhookId: 'webhook-1',
+        eventType: 'catalog.product.deleted',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      { resolve: scope.resolve.bind(scope) },
+    )).resolves.toBeUndefined()
+
+    const expectedError = failure === 'factory' ? resolutionError : expect.objectContaining({
+      name: 'AwilixResolutionError',
+      message: expect.stringContaining("Could not resolve 'notificationBackend'"),
+    })
+    expect(mockLogError).toHaveBeenCalledTimes(1)
+    expect(mockLogError).toHaveBeenCalledWith('Failed to create notification', { err: expectedError })
+    expect(reportError).toHaveBeenCalledTimes(1)
+    expect(reportError).toHaveBeenCalledWith(mockLogError.mock.calls[0][1].err, {
+      module: 'webhooks',
+      code: 'webhooks.failed_delivery_notification_failed',
+    })
+    expect(resolveWebhookIntegrationSettings).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(buildFeatureNotificationFromType).not.toHaveBeenCalled()
+    if (reporterThrows) {
+      expect(mockLogWarning).toHaveBeenCalledWith('Failed to report webhook notification error', { err: telemetryError })
+    } else {
+      expect(mockLogWarning).not.toHaveBeenCalled()
+    }
   })
 
   it.each([false, true])('preserves swallowed creation failures when telemetry throws: %s', async (reporterThrows) => {
