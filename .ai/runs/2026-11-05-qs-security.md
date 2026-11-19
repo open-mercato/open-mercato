@@ -29,5 +29,5 @@ PR: #8809
 
 ### Phase 2: Verification and delivery
 
-- [ ] 2.1 Run configured gate and security checks
-- [ ] 2.2 Obtain independent review and finalize PR
+- [x] 2.1 Run configured gate and security checks — 0be4087276 (main merged in; local build:packages + generate + typecheck 42/42, qs tests 4/4, check:resolutions pass)
+- [x] 2.2 Obtain independent review and finalize PR — approved by om-auto-fix-pr review (kmrosiek)
