@@ -115,6 +115,7 @@ import {
   resolveOrderPaymentTotals,
   enforceSalesDocumentOptimisticLock,
   lockSalesDocumentRow,
+  SALES_RESOURCE_KIND_CREDIT_MEMO,
   SALES_RESOURCE_KIND_INVOICE,
   SALES_RESOURCE_KIND_ORDER,
   SALES_RESOURCE_KIND_QUOTE,
@@ -11180,21 +11181,35 @@ const updateCreditMemoCommand: CommandHandler<
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const creditMemo = await em.findOneOrFail(SalesCreditMemo, {
-      id,
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      deletedAt: null,
-    });
-
-    let resolvedStatus: string | null | undefined;
-    if (parsed.statusEntryId !== undefined) {
-      resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
-    }
-
-    applyCreditMemoHeaderUpdate(creditMemo, parsed, resolvedStatus);
-    creditMemo.updatedAt = new Date();
-    await em.flush();
+    const scope = { organizationId: parsed.organizationId, tenantId: parsed.tenantId };
+    let creditMemo!: SalesCreditMemo;
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          const locked = await findOneWithDecryption(
+            em,
+            SalesCreditMemo,
+            { id, ...scope, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            scope,
+          );
+          if (!locked) {
+            const { translate } = await resolveTranslations();
+            throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
+          }
+          await enforceSalesDocumentOptimisticLock(ctx, locked, SALES_RESOURCE_KIND_CREDIT_MEMO);
+          let resolvedStatus: string | null | undefined;
+          if (parsed.statusEntryId !== undefined) {
+            resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: locked.tenantId });
+          }
+          applyCreditMemoHeaderUpdate(locked, parsed, resolvedStatus);
+          locked.updatedAt = new Date();
+          creditMemo = locked;
+        },
+      ],
+      { transaction: true },
+    );
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
@@ -11306,15 +11321,31 @@ const deleteCreditMemoCommand: CommandHandler<
     ensureOrganizationScope(ctx, rawInput.organizationId);
     ensureTenantScope(ctx, rawInput.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const creditMemo = await em.findOneOrFail(SalesCreditMemo, {
-      id,
-      organizationId: rawInput.organizationId,
-      tenantId: rawInput.tenantId,
-      deletedAt: null,
-    });
-    creditMemo.deletedAt = new Date();
-    creditMemo.updatedAt = new Date();
-    await em.flush();
+    const scope = { organizationId: rawInput.organizationId, tenantId: rawInput.tenantId };
+    let creditMemo!: SalesCreditMemo;
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          const locked = await findOneWithDecryption(
+            em,
+            SalesCreditMemo,
+            { id, ...scope, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            scope,
+          );
+          if (!locked) {
+            const { translate } = await resolveTranslations();
+            throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
+          }
+          await enforceSalesDocumentOptimisticLock(ctx, locked, SALES_RESOURCE_KIND_CREDIT_MEMO);
+          locked.deletedAt = new Date();
+          locked.updatedAt = new Date();
+          creditMemo = locked;
+        },
+      ],
+      { transaction: true },
+    );
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({

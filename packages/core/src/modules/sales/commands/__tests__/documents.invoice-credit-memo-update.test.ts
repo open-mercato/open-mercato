@@ -120,10 +120,15 @@ function makeCreditMemo(): SalesCreditMemo {
 
 function makeHarness(entity: SalesInvoice | SalesCreditMemo) {
   const findOneOrFail = jest.fn(async () => entity)
+  const findOne = jest.fn(async () => entity)
   const flush = jest.fn(async () => undefined)
   const entityManager = {
     findOneOrFail,
+    findOne,
     flush,
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
     fork: jest.fn(),
   }
   entityManager.fork.mockReturnValue(entityManager)
@@ -151,6 +156,7 @@ function makeHarness(entity: SalesInvoice | SalesCreditMemo) {
     ctx,
     container,
     findOneOrFail,
+    findOne,
     flush,
     markOrmEntityChange,
   }
@@ -402,7 +408,7 @@ describe('invoice and credit memo header updates', () => {
     const creditMemo = makeCreditMemo()
     const originalIssueDate = creditMemo.issueDate
     const originalMetadata = creditMemo.metadata
-    const { ctx, container, findOneOrFail, flush, markOrmEntityChange } = makeHarness(creditMemo)
+    const { ctx, container, findOne, flush, markOrmEntityChange } = makeHarness(creditMemo)
     const handler = getCreditMemoUpdateHandler()
 
     const result = await handler.execute({
@@ -419,12 +425,16 @@ describe('invoice and credit memo header updates', () => {
 
     expect(handler.id).toBe('sales.credit_memos.update')
     expect(result).toStrictEqual({ creditMemoId: CREDIT_MEMO_ID })
-    expect(findOneOrFail).toHaveBeenCalledWith(SalesCreditMemo, {
-      id: CREDIT_MEMO_ID,
-      organizationId: ORGANIZATION_ID,
-      tenantId: TENANT_ID,
-      deletedAt: null,
-    })
+    expect(findOne).toHaveBeenCalledWith(
+      SalesCreditMemo,
+      {
+        id: CREDIT_MEMO_ID,
+        organizationId: ORGANIZATION_ID,
+        tenantId: TENANT_ID,
+        deletedAt: null,
+      },
+      expect.objectContaining({ refresh: true }),
+    )
     expect(creditMemo).toMatchObject({
       creditMemoNumber: 'CM-UPDATED',
       reason: 'Corrected amount',
