@@ -111,6 +111,44 @@ describe('mercato test:integration --app-only', () => {
       expect(parsePlaywrightListedSpecPaths(report, '/repo')).toEqual([SECOND_APP_SPEC, APP_SPEC])
     })
 
+    it('reads the file list from a report shaped like real Playwright 1.62 --list output', () => {
+      const report = {
+        config: { configFile: '/repo/.ai/qa/tests/playwright.config.ts', rootDir: '/repo' },
+        suites: [
+          {
+            title: APP_SPEC,
+            file: APP_SPEC,
+            column: 0,
+            line: 0,
+            specs: [],
+            suites: [
+              {
+                title: 'TC-APP-001: orders',
+                file: APP_SPEC,
+                line: 4,
+                column: 6,
+                specs: [
+                  {
+                    title: 'creates an order',
+                    ok: true,
+                    tags: [],
+                    tests: [{ timeout: 20000, annotations: [], expectedStatus: 'passed', projectId: '', projectName: '', results: [], status: 'skipped' }],
+                    id: 'a623f8b76ba3e0f24645-22392273f45316c64329',
+                    file: APP_SPEC,
+                    line: 5,
+                    column: 3,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        errors: [],
+        stats: { expected: 0, skipped: 0, unexpected: 0, flaky: 0 },
+      }
+      expect(parsePlaywrightListedSpecPaths(report, '/repo')).toEqual([APP_SPEC])
+    })
+
     it('resolves files against the report rootDir when it differs from the project root', () => {
       const report = { config: { rootDir: '/repo/src' }, suites: [{ file: 'modules/orders/__integration__/TC-APP-001.spec.ts' }] }
       expect(parsePlaywrightListedSpecPaths(report, '/repo')).toEqual([APP_SPEC])
