@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from '@jest/globals'
+import BigConstructor from 'big.js'
 import { toDecimal } from '../../decimal'
 import { CurrencyMismatchError } from '../errors'
 import {
@@ -131,6 +132,26 @@ describe('Money immutability', () => {
     }).toThrow(TypeError)
     expect(text(money)).toBe('12.34')
     expect(money.currency.decimalPlaces).toBe(2)
+  })
+
+  it('rejects a Big amount or operand beyond the decimal caps instead of rounding it', () => {
+    const tiny = toDecimal('1e-1000').times('0.1')
+    expect(() => createMoney(tiny, usd)).toThrow('[internal] Decimal value out of range')
+    expect(() => createMoney('1e-1001', usd)).toThrow('[internal]')
+    const longBig = toDecimal(`1.${'1'.repeat(999)}`).times('1.1')
+    expect(() => createMoney(longBig, usd)).toThrow('[internal] Decimal value out of range')
+    expect(() => multiplyMoney(createMoney('1', usd), tiny)).toThrow('[internal] Decimal value out of range')
+    expect(() => divideMoney(createMoney('1', usd), longBig, { decimalPlaces: 2, mode: 'halfUp' })).toThrow(
+      '[internal] Decimal value out of range',
+    )
+    expect(() => allocateMoney(createMoney('1', usd), [1, tiny], { decimalPlaces: 2 })).toThrow()
+  })
+
+  it('accepts an in-range Big exactly, also from another big.js constructor', () => {
+    const ForeignBig = BigConstructor()
+    const exact = new ForeignBig(`12345678901234567890.${'7'.repeat(40)}`)
+    expect(text(createMoney(exact, usd))).toBe(`12345678901234567890.${'7'.repeat(40)}`)
+    expect(text(multiplyMoney(createMoney('2', usd), new ForeignBig('0.5')))).toBe('1')
   })
 
   it('owns a copy of a Big the caller still holds', () => {

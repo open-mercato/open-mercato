@@ -1,4 +1,11 @@
-import { MAX_DECIMAL_EXPONENT, MAX_DECIMAL_INTEGER_DIGITS, MAX_DECIMAL_SIGNIFICANT_DIGITS, type DecimalValue } from '../decimal'
+import {
+  MAX_DECIMAL_EXPONENT,
+  MAX_DECIMAL_INTEGER_DIGITS,
+  MAX_DECIMAL_SIGNIFICANT_DIGITS,
+  toDecimal,
+  type DecimalInput,
+  type DecimalValue,
+} from '../decimal'
 import { InvalidMoneyRoundingError } from './errors'
 import { MAX_MONEY_DECIMAL_PLACES, type Currency, type Money, type MoneyRounding, type MoneyRoundingMode } from './types'
 
@@ -26,6 +33,20 @@ export function normalizeCurrencyCode(code: unknown): string | null {
 
 export function isValidMoneyDecimalPlaces(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_MONEY_DECIMAL_PLACES
+}
+
+/**
+ * Exact copy of a Money input. Strings and numbers go through `toDecimal`, which
+ * rejects anything outside the decimal caps. A `Big` is copied exactly: `toDecimal`
+ * would round one beyond the caps half-up to fit, so such a value throws instead
+ * of being rounded silently.
+ */
+export function toExactDecimal(value: DecimalInput): DecimalValue {
+  const decimal = toDecimal(value)
+  if (typeof value === 'object' && value !== null && !decimal.eq(value)) {
+    throw new Error('[internal] Decimal value out of range')
+  }
+  return decimal
 }
 
 /** Freezes the coefficient array too: a shallow freeze leaves `value.c[0] = 9` writable. */

@@ -115,6 +115,18 @@ describe('convertMoney', () => {
     expect(text(convertMoney(negativeTiny, '0.1', eur, { decimalPlaces: 2, mode: 'down' }))).toBe('0')
   })
 
+  it('rejects a Big rate beyond the decimal caps instead of rounding it before the directed rounding', () => {
+    const tinyRate = toDecimal('1e-1000').times('0.1')
+    expect(() => convertMoney(createMoney('1', usd), tinyRate, eur, { decimalPlaces: 2, mode: 'up' })).toThrow(
+      '[internal] Decimal value out of range',
+    )
+    const longRate = toDecimal(`1.${'3'.repeat(999)}`).times('1.1')
+    expect(() => convertMoney(createMoney('1', usd), longRate, eur, { decimalPlaces: 2, mode: 'up' })).toThrow(
+      '[internal] Decimal value out of range',
+    )
+    expect(text(convertMoney(createMoney('1', usd), toDecimal('1e-999'), eur, { decimalPlaces: 2, mode: 'up' }))).toBe('0.01')
+  })
+
   it('rejects a converted amount beyond the stored-amount range', () => {
     expect(() => convertMoney(createMoney('1e299', usd), '10', eur, { decimalPlaces: 2, mode: 'halfUp' })).toThrow(
       '[internal] Decimal result out of range',

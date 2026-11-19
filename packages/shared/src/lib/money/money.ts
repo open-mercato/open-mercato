@@ -9,7 +9,7 @@ import {
 } from '../decimal'
 import { assertSameCurrency, currenciesEqual } from './currency'
 import { CurrencyMismatchError, InvalidAllocationError } from './errors'
-import { brandMoney, isValidMoneyDecimalPlaces, resolveBigRounding } from './internal'
+import { brandMoney, isValidMoneyDecimalPlaces, resolveBigRounding, toExactDecimal } from './internal'
 import { MAX_MONEY_DECIMAL_PLACES, type Currency, type Money, type MoneyRounding } from './types'
 
 const RoundedDivision = BigConstructor()
@@ -57,7 +57,7 @@ function integerQuotient(dividend: DecimalValue, divisor: DecimalValue): Decimal
 }
 
 export function createMoney(amount: DecimalInput, currency: Currency): Money {
-  return brandMoney(toDecimal(amount), currency)
+  return brandMoney(toExactDecimal(amount), currency)
 }
 
 export function zeroMoney(currency: Currency): Money {
@@ -82,13 +82,13 @@ export function sumMoney(currency: Currency, values: readonly Money[]): Money {
 
 /** Exact. A product that would need rounding to fit the stored-amount range throws. */
 export function multiplyMoney(money: Money, factor: DecimalInput): Money {
-  return brandMoney(money.amount.times(toDecimal(factor)), money.currency)
+  return brandMoney(money.amount.times(toExactDecimal(factor)), money.currency)
 }
 
 /** Divides and rounds the quotient once, to the caller's rounding (no hidden 50-place cut). */
 export function divideMoney(money: Money, divisor: DecimalInput, rounding: MoneyRounding): Money {
   const { decimalPlaces, mode } = resolveBigRounding(rounding)
-  return brandMoney(divideOnce(money.amount, toDecimal(divisor), decimalPlaces, mode), money.currency)
+  return brandMoney(divideOnce(money.amount, toExactDecimal(divisor), decimalPlaces, mode), money.currency)
 }
 
 export function roundMoney(money: Money, rounding: MoneyRounding): Money {
@@ -111,7 +111,7 @@ export function absMoney(money: Money): Money {
  */
 export function convertMoney(money: Money, rate: DecimalInput, target: Currency, rounding: MoneyRounding): Money {
   const { decimalPlaces, mode } = resolveBigRounding(rounding)
-  const exchangeRate = toDecimal(rate)
+  const exchangeRate = toExactDecimal(rate)
   if (!exchangeRate.gt(0)) throw new Error('[internal] Exchange rate must be positive')
   if (money.currency.code === target.code) {
     throw new CurrencyMismatchError(
@@ -187,7 +187,7 @@ export function maxMoney(...values: Money[]): Money {
 function parseRatio(ratio: DecimalInput, index: number): DecimalValue {
   let value: DecimalValue
   try {
-    value = toDecimal(ratio)
+    value = toExactDecimal(ratio)
   } catch {
     throw new InvalidAllocationError(`ratio ${index} is not a decimal`)
   }
