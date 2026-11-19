@@ -13,9 +13,9 @@ import { deleteGeneralEntityIfExists, expectId, getTokenContext, readJsonSafe } 
 import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 
 test.describe('TC-AUTH-8700: role create validation', () => {
-  for (const { locale, message } of [
-    { locale: 'en', message: 'A role with this name already exists' },
-    { locale: 'pl', message: 'Rola o tej nazwie już istnieje' },
+  for (const { locale, message, discardLabel } of [
+    { locale: 'en', message: 'A role with this name already exists', discardLabel: 'Discard changes' },
+    { locale: 'pl', message: 'Rola o tej nazwie już istnieje', discardLabel: 'Odrzuć zmiany' },
   ]) {
     test(`retains the ${locale} create form after duplicate refusal and saves a corrected name`, async ({ page }, testInfo) => {
       const token = await getAuthToken(page.request, 'admin')
@@ -57,7 +57,7 @@ test.describe('TC-AUTH-8700: role create validation', () => {
         await page.goto('/backend/roles/create')
         await fillControlledInput(page.getByRole('main').getByRole('textbox').first(), `${corrected} cancelled`)
         await page.getByRole('main').getByRole('link', { name: locale === 'pl' ? 'Anuluj' : 'Cancel', exact: true }).first().click()
-        await page.getByRole('alertdialog').getByRole('button', { name: locale === 'pl' ? 'Potwierdź' : 'Confirm', exact: true }).click()
+        await page.getByRole('alertdialog').getByRole('button', { name: discardLabel, exact: true }).click()
         await expect(page).toHaveURL((url) => url.pathname === '/backend/roles')
         const cancelled = await apiRequest(page.request, 'GET', `/api/auth/roles?search=${encodeURIComponent(`${corrected} cancelled`)}`, { token })
         expect(await readJsonSafe(cancelled)).toMatchObject({ items: [] })
