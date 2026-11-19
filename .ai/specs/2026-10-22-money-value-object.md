@@ -346,6 +346,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - Replaced the rollback rule with a Migration & Backward Compatibility section that follows `BACKWARD_COMPATIBILITY.md`.
 - 2026-11-19 — Implemented Phases 1–3 (see Implementation Status). Added the `@open-mercato/shared/lib/money` entry point, listed the extra exported types (`MoneyScope`, `CurrencyLookup`) and constants in the BC tables, and excluded `lib/money/internal` from the contract.
 - 2026-11-19 — Code-review follow-ups: added `fitsCurrencyPrecision` (over-precise client amounts stay exact in `resolveMoney`; handlers that need minor units check it), `allocateMoney` reports out-of-range ratios as `InvalidAllocationError`, documented the decimal size caps, and narrowed `money:check-new-code`'s `<field>Exact` rule to declarations (object-literal writes are no longer flagged) with pinned `a/`/`b/` diff prefixes.
+- 2026-11-19 — Re-review follow-ups: blocked the `@open-mercato/shared/lib/money/internal` subpath in the package `exports` (`null` target), added the `fitsCurrencyPrecision` rule to the standalone harness Money Contract, and ran the create-app suite in a Linux container with bubblewrap (HEAD and base `b0f3d1c64`: 1243 pass, 0 fail, 15 skipped each).
 
 ## Implementation Status
 
