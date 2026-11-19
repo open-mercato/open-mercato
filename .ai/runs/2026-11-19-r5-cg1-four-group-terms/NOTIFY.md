@@ -17,3 +17,8 @@
 - `yarn db:generate` reports `customer_groups: no changes`; regenerating from the pre-change snapshot emits SQL byte-identical to the terms half of reference `Migration20261026144220`. Unrelated `forms`/`wms` drift output discarded.
 - Decision: explain-terms gains an additive per-field `source` discriminator (PLAN difference #7).
 - Spec changelog not edited here: the spec lives on stacked #9991; editing it in this PR would conflict.
+
+## 2026-11-19T21:53:50Z — review pass and run end
+- om-auto-review-pr: APPROVE verdict (comment review; self-authored PR cannot be approved by its author). One nit fixed as 2.2-review-fix (082615033c); two non-blocking notes left on the review.
+- PR #10005 flipped to ready; labels feature, needs-qa, priority-medium, risk-high, screenshots, merge-queue. Manual QA instructions posted.
+- CI for the review-fix push was pending at run end and not awaited.

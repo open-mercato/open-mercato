@@ -3,14 +3,14 @@
 **Last updated:** 2026-11-19T20:35:00Z
 **Branch:** feat/r5-cg1-four-group-terms (fork `adeptofvoltron`)
 **PR:** https://github.com/open-mercato/open-mercato/pull/10005
-**Current phase/step:** all Steps done; review pass next
+**Current phase/step:** complete
 **Last commit:** see PR
 
 ## What just happened
-- Steps 1.1–2.2 committed; full gate run (only the known local create-mercato-app harness failure); TC-CGRP integration 37/37.
+- Steps 1.1–2.2 and 2.2-review-fix committed; review pass done, PR ready; full gate run (only the known local create-mercato-app harness failure); TC-CGRP integration 37/37.
 
 ## Next concrete action
-- om-auto-review-pr pass, then flip PR to ready.
+- Manual QA (needs-qa) and a maintainer approval; rebase onto main after #9991 and #9988 merge.
 
 ## Blockers / open questions
 - none
