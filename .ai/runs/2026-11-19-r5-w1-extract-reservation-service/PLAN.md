@@ -18,7 +18,7 @@
 | 1 | 1.2 | Add WmsReservationService with reserveInTransaction and releaseInTransaction | inline | done | 60e2f9219b |
 | 1 | 1.3 | Turn wms.inventory.reserve and .release into wrappers over the DI service | inline | done | ec6793c823 |
 | 1 | 1.4 | Recognise CrudHttpError by brand at the wms catch sites and automation predicates | inline | done | 20131b5262 |
-| 1 | 1.5 | Prove a caller-transaction rollback leaves no reservation writes against Postgres | inline | done | pending |
+| 1 | 1.5 | Prove a caller-transaction rollback leaves no reservation writes against Postgres | inline | done | 28b066272e |
 
 ## Goal
 
