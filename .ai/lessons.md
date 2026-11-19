@@ -22,6 +22,8 @@ This catalog indexes 190 focused lessons. Route the task first, then read only r
 
 - [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context
 
+- [Verify disposable targets after child configuration loading](lessons/verify-disposable-target-after-child-config-loading.md) — area:testing,architecture; module:cli; topic:database-isolation,runtime-startup,environment-forwarding
+
 - [Stabilization CI must not follow label churn](lessons/stabilization-ci-must-not-follow-label-churn.md) — area:ai-workflow,testing; module:platform; topic:ci-scheduling,stabilization,required-checks,regression-testing
 
 - [Workflow environment changes must preserve credential guards](lessons/workflow-environment-changes-must-preserve-credential-guards.md) — area:ai-workflow,testing; module:platform; topic:ci-workflows,credential-isolation,regression-testing

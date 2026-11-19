@@ -80,7 +80,7 @@
     "initialize": {
       "cache": false,
       "outputs": [],
-      "passThroughEnv": ["OM_INIT_DEV_AUTOSTART"]
+      "passThroughEnv": ["OM_INIT_DEV_AUTOSTART", "DATABASE_URL", "APP_URL", "NEXT_PUBLIC_APP_URL"]
     },
     "seed:defaults": {
       "cache": false,
