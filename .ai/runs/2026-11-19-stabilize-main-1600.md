@@ -51,7 +51,10 @@ Two tasks maximum: a read-only CI investigation, then a final independent review
 - Runner: local for the parent's independent `timeout 30 node --test scripts/__tests__/ci-full-label.test.mjs` verification: 27 passed, zero failures or skips. No compose app was running; a missing local JWT interpolation value was reported during probing, without changing local configuration.
 - Branch protection required-check discovery returned HTTP 404. Treat every reported check as a gate and inspect exact-head workflow runs as well as the PR check rollup before completion.
 - The child authored no commits. Its cockpit branch inherited the initial abandoned parent checkout, so it is not merged; the parent verified the target workflow and reran the named routing tests directly on this stabilization branch.
-- This evidence-only commit receives another full PR run. Final independent review and exact-head CI remain completion gates. Newer main revisions are outside the confirmed starting-SHA evidence; do not claim untested newer commits are green.
+- Final independent reviewer `a6d0f386` approved `0ddf341dbb849e56cfe5718630d12f2d3db98a6f` with zero findings: [authoritative review](https://github.com/open-mercato/open-mercato/pull/9975#pullrequestreview-5979336242). The parent verified the pinned review and its evidence. The App is also the PR author, so this is a COMMENT review with an independent content verdict, not native approving-review state. Actual merge requirements remain in force; the task performs no merge.
+- Reviewed-head [full run 44565877822](https://github.com/open-mercato/open-mercato/actions/runs/44565877822) passed all 15 shards, coverage merge, full unit/typecheck/build/lint/timezone/multi-instance checks. The parent inspected all exact-head workflows and PR check rollup: no pending or failing checks remained on 2026-11-19 at 17:02 UTC. Scope skips were unchanged.
+- The PR was promoted to ready and `automerge` was requested only after that reviewed head was entirely green. The label was then withheld again for this final tracking commit, which must receive its own exact-head full CI before reapplying it. Final tracking-only changes add review/CI evidence and close the checklist; executable source is identical to the independently reviewed head. Record the final exact-head result in the PR evidence without creating another source commit.
+- Both allowed child tasks finished without authored source changes; no child branch was merged. No new application, test, workflow, schema, API or dependency fix was needed. Newer main revisions are outside the confirmed starting-SHA evidence; do not claim untested newer commits are green.
 
 ## Progress
 PR: #9975
@@ -70,5 +73,5 @@ PR: #9975
 
 ### Phase 3: Review and handoff
 
-- [ ] 3.1 Dispatch final independent review and resolve findings
-- [ ] 3.2 Publish evidence, mark ready, and apply automerge after green checks
+- [x] 3.1 Dispatch final independent review and resolve findings — 0ddf341dbb (review a6d0f386 APPROVE; zero findings)
+- [x] 3.2 Publish evidence, mark ready, and apply automerge after green checks — 0ddf341dbb (run 44565877822 green; final tracking-head recheck remains required before label reapplication)
