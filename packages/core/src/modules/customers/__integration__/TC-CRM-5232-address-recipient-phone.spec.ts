@@ -37,6 +37,7 @@ type AddressItem = {
   phone?: string | null
   company_name?: string | null
   address_line1?: string | null
+  purpose?: string | null
 }
 
 async function createAddress(
@@ -286,7 +287,7 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
     }
   })
 
-  test('encryption upgrade: materializing an organization scope preserves the tenant-wide address policy', async ({ request }) => {
+  test('encryption upgrade: an organization keeps inheriting subsequent tenant-wide policy changes', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const { tenantId, organizationId } = getTokenScope(token)
     const addressEntity = 'customers:customer_address'
@@ -298,6 +299,7 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
     let restoredOtherMapId: string | null = null
     const startedAt = new Date()
     let backup: { id: string } | null = null
+    let parentPolicies: Array<{ id: string; fields_json: unknown }> = []
 
     const readMapFields = (entityId: string, organizationIdFilter: string | null) =>
       withClient(async (client) => {
@@ -361,20 +363,51 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
       const beforeMigration = await readRawContact(addressId)
       expect(beforeMigration.recipient_name, 'postal-only address has no contact ciphertext').toBeNull()
 
-      // When the migration materializes the missing organization scope
       await withClient(async (client) => {
         await client.query(backfillStatements[0])
         await client.query(backfillStatements[0])
       })
 
-      // Then the new override carries the whole tenant-wide policy, not just the new rules.
       const orgFields = await readMapFields(addressEntity, organizationId)
-      for (const field of tenantWideFields) expect(orgFields).toContain(field)
-      expect(orgFields).toContain('recipient_name')
-      expect(orgFields).toContain('phone')
+      expect(orgFields).toEqual([])
+      const inheritedFields = await readMapFields(addressEntity, null)
+      for (const field of tenantWideFields) expect(inheritedFields).toContain(field)
+      expect(inheritedFields).toContain('recipient_name')
+      expect(inheritedFields).toContain('phone')
 
-      // ... and the address written before the override still reads back, with its postal column
-      // still stored as ciphertext under the materialized policy.
+      await withClient(async (client) => {
+        const parents = await client.query<{ id: string; fields_json: unknown }>(
+          `select id, fields_json from encryption_maps
+            where entity_id = $1 and tenant_id = $2 and organization_id is null
+              and deleted_at is null and is_active = true`,
+          [addressEntity, tenantId],
+        )
+        parentPolicies = parents.rows
+        await client.query(
+          `update encryption_maps set fields_json = fields_json || '[{"field":"purpose"}]'::jsonb, updated_at = now()
+            where entity_id = $1 and tenant_id = $2 and organization_id is null
+              and deleted_at is null and is_active = true`,
+          [addressEntity, tenantId],
+        )
+      })
+      const purpose = `Inherited policy ${stamp}`
+      const inheritedAddressId = await createAddress(request, token, {
+        entityId: companyId,
+        addressLine1: `6 Inherited Policy Rd ${stamp}`,
+        purpose,
+      })
+      const inheritedAddress = await findAddress(request, token, companyId, inheritedAddressId)
+      expect(inheritedAddress.purpose).toBe(purpose)
+      const rawPurpose = await withClient(async (client) => {
+        const result = await client.query<{ purpose: string | null }>(
+          'select purpose from customer_addresses where id = $1',
+          [inheritedAddressId],
+        )
+        return result.rows[0]?.purpose ?? null
+      })
+      expect(rawPurpose).not.toBeNull()
+      expect(rawPurpose).not.toBe(purpose)
+
       const read = await findAddress(request, token, companyId, addressId)
       expect(read.address_line1, 'legacy postal ciphertext still decrypts').toBe(`5 Legacy Cipher Rd ${stamp}`)
       const rawLine = await withClient(async (client) => {
@@ -388,6 +421,9 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
     } finally {
       await deleteEntityIfExists(request, token, COMPANIES, companyId)
       await withClient(async (client) => {
+        for (const parent of parentPolicies) {
+          await client.query('update encryption_maps set fields_json = $2::jsonb, updated_at = now() where id = $1', [parent.id, JSON.stringify(parent.fields_json)])
+        }
         if (backup) {
           await client.query('update encryption_maps set deleted_at = null where id = $1', [backup.id])
         }

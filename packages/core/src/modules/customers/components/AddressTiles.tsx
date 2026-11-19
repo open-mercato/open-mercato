@@ -338,26 +338,35 @@ export function CustomerAddressTiles({
       return
     }
 
-    const coordinateErrors: Partial<Record<DraftFieldKey, string>> = {}
+    const validationErrors: Partial<Record<DraftFieldKey, string>> = {}
+    for (const [key, maximum] of [['recipientName', 200], ['phone', 50]] as const) {
+      if ((normalizeOptional(draft[key])?.length ?? 0) > maximum) {
+        validationErrors[key] = t(
+          'customers.people.detail.addresses.validation.tooLong',
+          undefined,
+          { field: fieldLabels[key], max: maximum },
+        )
+      }
+    }
     for (const key of ['latitude', 'longitude'] as const) {
       const result = validateCoordinateInput(key, draft[key])
       if (result.status === 'invalid') {
-        coordinateErrors[key] = t(
+        validationErrors[key] = t(
           'customers.people.detail.addresses.validation.invalid',
           undefined,
           { field: fieldLabels[key] }
         )
       } else if (result.status === 'outOfRange') {
-        coordinateErrors[key] = t(
+        validationErrors[key] = t(
           'customers.people.detail.addresses.validation.coordinateRange',
           undefined,
           { field: fieldLabels[key], min: result.min, max: result.max }
         )
       }
     }
-    if (Object.keys(coordinateErrors).length) {
-      setFieldErrors((prev) => ({ ...prev, ...coordinateErrors }))
-      setGeneralError(Object.values(coordinateErrors)[0] ?? null)
+    if (Object.keys(validationErrors).length) {
+      setFieldErrors((prev) => ({ ...prev, ...validationErrors }))
+      setGeneralError(Object.values(validationErrors)[0] ?? null)
       return
     }
 

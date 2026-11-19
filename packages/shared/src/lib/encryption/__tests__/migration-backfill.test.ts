@@ -12,10 +12,10 @@ describe('buildEncryptionMapBackfillSql', () => {
     expect(sql.endsWith('end $$;')).toBe(true)
     expect(sql).toContain(`select gen_random_uuid(), 'demo:thing', src."tenant_id", src."organization_id"`)
     expect(sql).toContain(`where existing."entity_id" = 'demo:thing'`)
-    // A missing scope is seeded from the tenant-wide (then global) policy for this entity, never
-    // from the new rules alone; the appends below add the missing rules to the seeded row.
-    expect(sql).toContain(`and existing."tenant_id" is not distinct from src."tenant_id" and existing."organization_id" is null`)
-    expect(sql).toContain(`and global_map."tenant_id" is null and global_map."organization_id" is null`)
+    expect(sql).toContain(`select 1 from "encryption_maps" inherited where inherited."entity_id" = 'demo:thing'`)
+    expect(sql).toContain(`inherited."organization_id" is null`)
+    expect(sql).toContain(`inherited."tenant_id" is not distinct from src."tenant_id" or inherited."tenant_id" is null`)
+    expect(sql).toContain(`inherited."deleted_at" is null and inherited."is_active" = true`)
     expect(sql).toContain(`coalesce("fields_json", '[]'::jsonb) || '[{"field":"secret"}]'::jsonb`)
     expect(sql).toContain('where "is_active" = true and "deleted_at" is null')
   })

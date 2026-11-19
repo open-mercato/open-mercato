@@ -7,10 +7,8 @@ import type { ModuleEncryptionFieldRule, ModuleEncryptionMap } from '../../modul
  *
  * `buildEncryptionMapBackfillSql` emits one idempotent statement for a module migration that closes
  * that gap for every pre-existing (tenant, organization) scope with active maps:
- * - inserts a map where the scope has no row for the entity yet (`NOT EXISTS` guard), seeded with
- *   the most specific existing map for that entity in the same tenant (tenant-wide, then global) so
- *   a materialized organization override never collapses the effective fallback policy to the new
- *   rules alone; the appends below add the missing rules to the inserted row too;
+ * - inserts a map only where the scope has no entity map and cannot inherit a tenant-wide or global
+ *   map, preserving live policy inheritance for organizations without an override;
  * - appends each missing field rule to rows that already exist, leaving other rules untouched.
  *
  * Scopes without active maps (encryption disabled) are skipped, mirroring `seed-encryption`. When the
@@ -74,30 +72,7 @@ begin
   end if;
 
   insert into "encryption_maps" ("id", "entity_id", "tenant_id", "organization_id", "fields_json", "is_active", "created_at", "updated_at")
-  select gen_random_uuid(), '${entityId}', src."tenant_id", src."organization_id",
-    coalesce(
-      (select coalesce(existing."fields_json", '[]'::jsonb)
-         from "encryption_maps" existing
-        where existing."entity_id" = '${entityId}'
-          and existing."tenant_id" is not distinct from src."tenant_id"
-          and existing."organization_id" is null
-          and existing."deleted_at" is null
-          and existing."is_active" = true
-          and jsonb_typeof(coalesce(existing."fields_json", '[]'::jsonb)) = 'array'
-        order by existing."created_at" desc
-        limit 1),
-      (select coalesce(global_map."fields_json", '[]'::jsonb)
-         from "encryption_maps" global_map
-        where global_map."entity_id" = '${entityId}'
-          and global_map."tenant_id" is null
-          and global_map."organization_id" is null
-          and global_map."deleted_at" is null
-          and global_map."is_active" = true
-          and jsonb_typeof(coalesce(global_map."fields_json", '[]'::jsonb)) = 'array'
-        order by global_map."created_at" desc
-        limit 1),
-      '[]'::jsonb
-    ), true, now(), now()
+  select gen_random_uuid(), '${entityId}', src."tenant_id", src."organization_id", '[]'::jsonb, true, now(), now()
   from (
     select distinct "tenant_id", "organization_id"
     from "encryption_maps"
@@ -109,6 +84,13 @@ begin
       and existing."tenant_id" is not distinct from src."tenant_id"
       and existing."organization_id" is not distinct from src."organization_id"
       and existing."deleted_at" is null
+  ) and not exists (
+    select 1 from "encryption_maps" inherited
+    where inherited."entity_id" = '${entityId}'
+      and inherited."organization_id" is null
+      and (inherited."tenant_id" is not distinct from src."tenant_id" or inherited."tenant_id" is null)
+      and inherited."deleted_at" is null
+      and inherited."is_active" = true
   );
 ${appendStatements}
 end
