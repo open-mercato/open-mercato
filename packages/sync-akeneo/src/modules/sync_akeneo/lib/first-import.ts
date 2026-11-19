@@ -167,7 +167,6 @@ export async function runAkeneoFirstImportSequence(params: {
         entityType,
         direction: 'import',
         triggeredBy: scope.userId ?? null,
-        batchSize: 100,
       },
     })).run
 

@@ -10,6 +10,7 @@ import {
 import type { InteractionRecord } from './interactionCompatibility'
 import {
   CUSTOMER_INTERACTION_TASK_SOURCE,
+  CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
   resolveExampleIntegrationHref,
 } from './interactionCompatibility'
@@ -17,6 +18,33 @@ import { hydrateCanonicalInteractions, loadCustomerSummaries } from './interacti
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+export async function countCustomerTodos(
+  em: EntityManager,
+  scope: { entityId: string; tenantId: string; organizationId: string },
+  unified: boolean,
+): Promise<number> {
+  const entityScope = {
+    entity: scope.entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }
+  if (unified) {
+    return em.count(CustomerInteraction, { ...entityScope, interactionType: 'task', deletedAt: null })
+  }
+
+  const adapterScope = {
+    ...entityScope,
+    interactionType: 'task',
+    source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+  }
+  const adapterIds = em.createQueryBuilder(CustomerInteraction).select('id').where(adapterScope)
+  const [legacyCount, adapterCount] = await Promise.all([
+    em.count(CustomerTodoLink, { ...entityScope, todoId: { $nin: adapterIds } }),
+    em.count(CustomerInteraction, { ...adapterScope, deletedAt: null }),
+  ])
+  return legacyCount + adapterCount
+}
 
 export type CustomerTodoRow = {
   id: string

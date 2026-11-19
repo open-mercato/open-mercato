@@ -27,6 +27,8 @@ import { AdjustmentDialog, type AdjustmentRowData, type AdjustmentSubmitPayload 
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { extractCustomFieldValues } from './customFieldHelpers'
+import { toExactAmount } from './lineItemUtils'
+import { decimalToNumber } from '@open-mercato/shared/lib/decimal'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -42,6 +44,8 @@ type SalesDocumentAdjustmentsSectionProps = {
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onRowsChange?: (rows: AdjustmentRow[]) => void
+  /** Withdraws adjustment writes: on an external order they would all be refused. */
+  amountsReadOnly?: boolean
 }
 
 const FALLBACK_ADJUSTMENT_KIND_VALUES: SalesAdjustmentKind[] = [
@@ -76,6 +80,7 @@ export function SalesDocumentAdjustmentsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onRowsChange,
+  amountsReadOnly = false,
 }: SalesDocumentAdjustmentsSectionProps) {
   const t = useT()
   const runDocumentMutation = useSalesDocumentMutation(kind, documentId)
@@ -185,13 +190,11 @@ export function SalesDocumentAdjustmentsSection({
         .map((item) => {
           const id = typeof item.id === 'string' ? item.id : null
           if (!id) return null
-          const amountNet = normalizeNumber(
-            (item as any).amount_net ?? (item as any).amountNet ?? (item as any).amount_net_amount,
-            NaN
+          const amountNet = toExactAmount(
+            (item as any).amount_net ?? (item as any).amountNet ?? (item as any).amount_net_amount
           )
-          const amountGross = normalizeNumber(
-            (item as any).amount_gross ?? (item as any).amountGross ?? (item as any).amount_gross_amount,
-            NaN
+          const amountGross = toExactAmount(
+            (item as any).amount_gross ?? (item as any).amountGross ?? (item as any).amount_gross_amount
           )
           const rateRaw = normalizeNumber((item as any).rate, NaN)
           const kindValue =
@@ -227,8 +230,10 @@ export function SalesDocumentAdjustmentsSection({
                   ? (item as any).calculatorKey
                   : null,
             rate: Number.isFinite(rateRaw) ? rateRaw : null,
-            amountNet: Number.isFinite(amountNet) ? amountNet : null,
-            amountGross: Number.isFinite(amountGross) ? amountGross : null,
+            amountNet: amountNet === null ? null : decimalToNumber(amountNet),
+            amountGross: amountGross === null ? null : decimalToNumber(amountGross),
+            amountNetExact: amountNet,
+            amountGrossExact: amountGross,
             currencyCode: currency,
             position:
               typeof item.position === 'number'
@@ -281,10 +286,14 @@ export function SalesDocumentAdjustmentsSection({
     setDialogOpen(true)
   }, [])
 
-  const handleEdit = React.useCallback((row: AdjustmentRow) => {
-    setActiveAdjustment(row)
-    setDialogOpen(true)
-  }, [])
+  const handleEdit = React.useCallback(
+    (row: AdjustmentRow) => {
+      if (amountsReadOnly) return
+      setActiveAdjustment(row)
+      setDialogOpen(true)
+    },
+    [amountsReadOnly]
+  )
 
   const handleCloseDialog = React.useCallback(() => {
     setDialogOpen(false)
@@ -296,10 +305,10 @@ export function SalesDocumentAdjustmentsSection({
     onActionChange({
       label: t('sales.documents.adjustments.add', 'Add adjustment'),
       onClick: handleOpenCreate,
-      disabled: false,
+      disabled: amountsReadOnly,
     })
     return () => onActionChange(null)
-  }, [handleOpenCreate, onActionChange, t])
+  }, [amountsReadOnly, handleOpenCreate, onActionChange, t])
 
   const handleFormSubmit = React.useCallback(
     async (values: AdjustmentSubmitPayload) => {
@@ -318,8 +327,8 @@ export function SalesDocumentAdjustmentsSection({
         label: values.label ?? undefined,
         calculatorKey: values.calculatorKey ?? undefined,
         rate: Number.isFinite(values.rate) ? values.rate : undefined,
-        amountNet: Number.isFinite(values.amountNet) ? values.amountNet : undefined,
-        amountGross: Number.isFinite(values.amountGross) ? values.amountGross : undefined,
+        amountNet: values.amountNetExact ?? values.amountNet ?? undefined,
+        amountGross: values.amountGrossExact ?? values.amountGross ?? undefined,
         currencyCode: (values.currencyCode ?? currencyCode ?? '').toUpperCase(),
         position: Number.isFinite(values.position) ? values.position : undefined,
         customFields: values.customFields ?? undefined,
@@ -424,14 +433,14 @@ export function SalesDocumentAdjustmentsSection({
         id: 'amountNet',
         header: t('sales.documents.adjustments.amountNet', 'Net amount'),
         cell: ({ row }) => (
-          <PriceWithCurrency amount={row.original.amountNet} currency={row.original.currencyCode ?? currencyCode} className="font-mono text-sm" />
+          <PriceWithCurrency amount={row.original.amountNetExact ?? row.original.amountNet} currency={row.original.currencyCode ?? currencyCode} className="font-mono text-sm" />
         ),
       },
       {
         id: 'amountGross',
         header: t('sales.documents.adjustments.amountGross', 'Gross amount'),
         cell: ({ row }) => (
-          <PriceWithCurrency amount={row.original.amountGross} currency={row.original.currencyCode ?? currencyCode} className="font-mono text-sm" />
+          <PriceWithCurrency amount={row.original.amountGrossExact ?? row.original.amountGross} currency={row.original.currencyCode ?? currencyCode} className="font-mono text-sm" />
         ),
       },
       {
@@ -451,24 +460,25 @@ export function SalesDocumentAdjustmentsSection({
   const showLoadingState = loading && rows.length === 0
 
   const renderRowActions = React.useCallback(
-    (row: AdjustmentRow) => (
-      <RowActions
-        items={[
-          {
-            id: 'edit',
-            label: t('ui.actions.edit', 'Edit'),
-            onSelect: () => handleEdit(row),
-          },
-          {
-            id: 'delete',
-            label: t('ui.actions.delete', 'Delete'),
-            destructive: true,
-            onSelect: () => handleDelete(row),
-          },
-        ]}
-      />
-    ),
-    [handleDelete, handleEdit, t]
+    (row: AdjustmentRow) =>
+      amountsReadOnly ? null : (
+        <RowActions
+          items={[
+            {
+              id: 'edit',
+              label: t('ui.actions.edit', 'Edit'),
+              onSelect: () => handleEdit(row),
+            },
+            {
+              id: 'delete',
+              label: t('ui.actions.delete', 'Delete'),
+              destructive: true,
+              onSelect: () => handleDelete(row),
+            },
+          ]}
+        />
+      ),
+    [amountsReadOnly, handleDelete, handleEdit, t]
   )
 
   return (
@@ -487,7 +497,7 @@ export function SalesDocumentAdjustmentsSection({
           columns={columns}
           isLoading={loading && rows.length > 0}
           embedded
-          onRowClick={handleEdit}
+          onRowClick={amountsReadOnly ? undefined : handleEdit}
           rowActions={renderRowActions}
           emptyState={
             <TabEmptyState
@@ -495,6 +505,7 @@ export function SalesDocumentAdjustmentsSection({
               description={t('sales.documents.empty.adjustments.description', 'Add discounts, fees, or taxes to refine totals.')}
               actionLabel={t('sales.documents.adjustments.add', 'Add adjustment')}
               onAction={handleOpenCreate}
+              disabled={amountsReadOnly}
             />
           }
         />

@@ -10,9 +10,14 @@ import { requireResolvedTenantScope } from '../readScope'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
+import { getEnrichersForEntity } from '@open-mercato/shared/lib/crud/enricher-registry'
+
+const AUDIT_ACTION_LOG_ENRICHER_ENTITY = 'audit_logs.action_log'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -27,6 +32,10 @@ const auditActionQuerySchema = z.object({
   actorUserId: z
     .string()
     .describe('Filter logs created by specific actor IDs (tenant administrators only). Accepts a single UUID or a comma-separated UUID list.')
+    .optional(),
+  ids: z
+    .string()
+    .describe('Restrict results to these action log IDs (comma-separated UUIDs, at most 100). Actor and organization scoping still apply.')
     .optional(),
   resourceKind: z.string().describe('Filter by resource kind (e.g., "order", "product")').optional(),
   resourceId: z.string().describe('Filter by resource ID (UUID of the specific record)').optional(),
@@ -53,10 +62,16 @@ const auditActionQuerySchema = z.object({
     .default('false')
     .describe('When `true`, only undoable actions are returned')
     .optional(),
-  limit: z.string().describe('Maximum number of records to return (default 50, max 1000)').optional(),
-  offset: z.string().describe('Zero-based record offset for pagination (legacy — prefer page/pageSize)').optional(),
-  page: z.string().describe('Page number (default 1)').optional(),
-  pageSize: z.string().describe('Page size (default 50, max 200)').optional(),
+  limit: z
+    .string()
+    .describe('Maximum number of records to return (default 50, max 1000). Ignored when `pageSize` is sent.')
+    .optional(),
+  offset: z
+    .string()
+    .describe('Zero-based record offset for pagination (legacy — prefer page/pageSize). Takes precedence over `page` when both are sent.')
+    .optional(),
+  page: z.string().describe('Page number (default 1). Ignored when `offset` is sent.').optional(),
+  pageSize: z.string().describe('Page size (default 50, max 200). Takes precedence over `limit` when both are sent.').optional(),
   sortField: z
     .enum(SORT_FIELDS)
     .describe('Sort field: `createdAt`, `user`, `action`, `field`, or `source`.')
@@ -113,18 +128,11 @@ function parseDate(value: string | null): Date | undefined {
   return new Date(ts)
 }
 
-function parseLimit(param: string | null): number {
-  if (!param) return 50
+function parseOptionalInteger(param: string | null, { min, max }: { min: number; max: number }): number | undefined {
+  if (param === null || param.trim() === '') return undefined
   const value = Number(param)
-  if (!Number.isFinite(value)) return 50
-  return Math.min(Math.max(Math.trunc(value), 1), 1000)
-}
-
-function parseOffset(param: string | null): number {
-  if (!param) return 0
-  const value = Number(param)
-  if (!Number.isFinite(value)) return 0
-  return Math.max(Math.trunc(value), 0)
+  if (!Number.isFinite(value)) return undefined
+  return Math.min(Math.max(Math.trunc(value), min), max)
 }
 
 function splitCsv(value: string | null): string[] {
@@ -139,15 +147,6 @@ function parseActionTypes(param: string | null) {
   return splitCsv(param).filter((value): value is (typeof ACTION_TYPE_TOKENS)[number] =>
     ACTION_TYPE_TOKENS.includes(value as (typeof ACTION_TYPE_TOKENS)[number]),
   )
-}
-
-function parseNumber(param: string | null, { min, max, fallback }: { min: number; max: number; fallback: number }) {
-  if (!param) return fallback
-  const value = Number(param)
-  if (!Number.isFinite(value)) return fallback
-  const normalized = Math.trunc(value)
-  if (Number.isNaN(normalized)) return fallback
-  return Math.min(Math.max(normalized, min), max)
 }
 
 export async function GET(req: Request) {
@@ -175,6 +174,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
+  const ids = parseIdsParam(url.searchParams.get('ids'), 100)
   const resourceKind = url.searchParams.get('resourceKind') ?? undefined
   const resourceId = url.searchParams.get('resourceId') ?? undefined
   const actionTypes = parseActionTypes(url.searchParams.get('actionType'))
@@ -182,10 +182,10 @@ export async function GET(req: Request) {
   const includeRelated = parseBooleanToken(url.searchParams.get('includeRelated')) === true
   const includeTotal = parseBooleanToken(url.searchParams.get('includeTotal')) === true
   const undoableOnly = parseBooleanToken(url.searchParams.get('undoableOnly')) === true
-  const limit = parseLimit(url.searchParams.get('limit'))
-  const offset = parseOffset(url.searchParams.get('offset'))
-  const page = parseNumber(url.searchParams.get('page'), { min: 1, max: 1000000, fallback: 1 })
-  const pageSize = parseNumber(url.searchParams.get('pageSize'), { min: 1, max: 200, fallback: 50 })
+  const limit = parseOptionalInteger(url.searchParams.get('limit'), { min: 1, max: 1000 })
+  const offset = parseOptionalInteger(url.searchParams.get('offset'), { min: 0, max: Number.MAX_SAFE_INTEGER })
+  const page = parseOptionalInteger(url.searchParams.get('page'), { min: 1, max: 1000000 })
+  const pageSize = parseOptionalInteger(url.searchParams.get('pageSize'), { min: 1, max: 200 })
   const sortField = SORT_FIELDS.find((value) => value === url.searchParams.get('sortField')) ?? 'createdAt'
   const sortDir = SORT_DIRECTIONS.find((value) => value === url.searchParams.get('sortDir')) ?? 'desc'
   const before = parseDate(url.searchParams.get('before'))
@@ -217,6 +217,7 @@ export async function GET(req: Request) {
     actorSubject,
     actorUserId,
     actorUserIds,
+    ids: ids.length > 0 ? ids : undefined,
     resourceKind,
     resourceId,
     actionTypes,
@@ -277,14 +278,63 @@ export async function GET(req: Request) {
     context: entry.contextJson,
   }))
 
+  const enrichedItems = await enrichActionItems(items, {
+    rbac,
+    em,
+    container,
+    userId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: organizationId ?? null,
+  })
+
   return NextResponse.json({
-    items,
+    items: enrichedItems,
     canViewTenant,
     page: list.page,
     pageSize: list.pageSize,
     total: list.total,
     totalPages: list.totalPages,
   })
+}
+
+/**
+ * Runs only the enrichers registered for `audit_logs.action_log` itself; wildcard
+ * enrichers are excluded so the audit list does not inherit unrelated per-entity work.
+ */
+async function enrichActionItems<T extends Record<string, unknown>>(
+  items: T[],
+  ctx: {
+    rbac: RbacService
+    em: EntityManager
+    container: unknown
+    userId: string
+    tenantId: string | null
+    organizationId: string | null
+  },
+): Promise<T[]> {
+  if (items.length === 0) return items
+  const entries = getEnrichersForEntity(AUDIT_ACTION_LOG_ENRICHER_ENTITY).filter(
+    (entry) => entry.enricher.targetEntity === AUDIT_ACTION_LOG_ENRICHER_ENTITY,
+  )
+  if (entries.length === 0) return items
+  let grantedFeatures: string[] | undefined
+  try {
+    grantedFeatures = await ctx.rbac.getGrantedFeatures(ctx.userId, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  } catch {
+    grantedFeatures = undefined
+  }
+  const enriched = await applyResponseEnrichers(items, AUDIT_ACTION_LOG_ENRICHER_ENTITY, {
+    tenantId: ctx.tenantId ?? '',
+    organizationId: ctx.organizationId ?? '',
+    userId: ctx.userId,
+    em: ctx.em,
+    container: ctx.container,
+    userFeatures: grantedFeatures,
+  }, entries)
+  return enriched.items
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -294,7 +344,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Fetch action logs',
       description:
-        'Returns recent action audit log entries. Tenant administrators can widen the scope to other actors or organizations, and callers can optionally restrict results to undoable actions.',
+        'Returns recent action audit log entries. Tenant administrators can widen the scope to other actors or organizations, and callers can optionally restrict results to undoable actions. Items may carry `_`-prefixed fields added by response enrichers that explicitly target `audit_logs.action_log` (wildcard enrichers do not run here).',
       query: auditActionQuerySchema,
       responses: [
         { status: 200, description: 'Action logs retrieved successfully', schema: auditActionResponseSchema },

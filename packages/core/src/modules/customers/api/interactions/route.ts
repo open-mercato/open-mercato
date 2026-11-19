@@ -10,15 +10,16 @@ import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-r
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
-import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows } from '@open-mercato/shared/lib/query/encrypted-sort'
+import { resolveEncryptedSortMaxRows } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CustomerDeal, CustomerInteraction } from '../../data/entities'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { interactionCreateSchema, interactionUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput } from '../utils'
 import {
@@ -28,8 +29,9 @@ import {
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
 import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
 import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
-import { resolveEncryptedSortPage } from './encryptedSortPage'
+import { matchesDecryptedSearch, resolveEncryptedSearchMaxRows, resolveEncryptedSortPage } from './encryptedSortPage'
 import { applyDecryptedFields } from './decryptedFields'
+import { resolveEncryptedFieldsAcrossOrganizations } from './encryptedScopeFields'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -47,6 +49,7 @@ const interactionSortFieldSchema = z.enum([
   'priority',
   'interactionType',
   'title',
+  'activityDate',
 ])
 
 export const listSchema = z
@@ -56,6 +59,7 @@ export const listSchema = z
     entityId: z.string().uuid().optional(),
     dealId: z.string().uuid().optional(),
     status: z.string().optional(),
+    excludeStatus: z.string().optional(),
     interactionType: z.string().optional(),
     type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
@@ -223,6 +227,15 @@ const interactionSortConfig = {
   priority: { column: 'priority', type: 'number' as const, defaultDir: 'desc' as const },
   interactionType: { column: 'interaction_type', type: 'text' as const, defaultDir: 'asc' as const },
   title: { column: 'title', type: 'text' as const, defaultDir: 'asc' as const },
+  // The date a timeline shows for a row: when it happened, or when it is planned for.
+  // Sorting on `occurred_at` alone put every open activity (no `occurred_at` yet) after
+  // all completed ones, so a history list only met them on its last page.
+  activityDate: {
+    column: 'occurred_at',
+    expression: 'coalesce(occurred_at, scheduled_at)',
+    type: 'date' as const,
+    defaultDir: 'desc' as const,
+  },
 } as const
 
 function toIsoString(value: unknown): string | null {
@@ -288,7 +301,8 @@ function buildSortSql(
       sortDir === 'asc'
         ? "timestamp with time zone '9999-12-31T23:59:59.999Z'"
         : "timestamp with time zone '0001-01-01T00:00:00.000Z'"
-    return `coalesce(${config.column}, ${sentinel})`
+    const dateSql = 'expression' in config ? config.expression : config.column
+    return `coalesce(${dateSql}, ${sentinel})`
   }
   if (config.type === 'number') {
     const sentinel = sortDir === 'asc' ? '2147483647' : '-2147483648'
@@ -353,6 +367,10 @@ function applyInteractionListFilters(
   if (query.entityId) q = q.where('entity_id', '=', query.entityId)
   if (query.dealId) q = q.where('deal_id', '=', query.dealId)
   if (query.status) q = q.where('status', '=', query.status)
+  if (query.excludeStatus) {
+    const excludedStatuses = parseCommaSeparatedList(query.excludeStatus)
+    if (excludedStatuses.length > 0) q = q.where('status', 'not in', excludedStatuses)
+  }
   if (query.interactionType) q = q.where('interaction_type', '=', query.interactionType)
   if (query.type) {
     const types = query.type.split(',').map((t) => t.trim()).filter(Boolean)
@@ -365,19 +383,16 @@ function applyInteractionListFilters(
   }
   if (query.excludeInteractionType) q = q.where('interaction_type', '!=', query.excludeInteractionType)
   if (query.search) {
-    // NOTE: for tenants with data encryption enabled, `title`/`body` are
-    // ciphertext at rest (see encryption.ts), so this ILIKE matches encrypted
-    // bytes and returns no rows — substring search over encrypted free-text
-    // columns is unsupported, the same documented limitation as
-    // customer_activity / customer_comment. The returned page's title/body are
-    // still decrypted for display further below.
+    // Plaintext columns only. When `title`/`body` are ciphertext at rest (see
+    // encryption.ts) GET leaves `search` out of these filters and matches the
+    // decrypted candidates of a bounded scan instead.
     const searchTerm = `%${escapeLikePattern(query.search)}%`
-    q = q.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
+    q = q.where(sql<boolean>`(coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm})`)
   }
   if (query.recurrenceMasters === 'true') {
     q = q.where('recurrence_rule', 'is not', null)
     if (query.from) {
-      q = q.where(sql<boolean>`recurrence_end is null or recurrence_end >= ${query.from}`)
+      q = q.where(sql<boolean>`(recurrence_end is null or recurrence_end >= ${query.from})`)
     }
     if (query.to) {
       q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
@@ -495,28 +510,47 @@ export async function GET(req: Request) {
     // Encrypted sort columns can't use SQL keyset ordering on ciphertext, so an
     // encrypted sort field takes a bounded candidate-scan + in-memory-sort path
     // instead of the SQL path below. Resolved alongside the independent
-    // visibility-feature lookup rather than after it.
-    const [callerUserFeatures, encryptedSortFields] = await Promise.all([
+    // visibility-feature lookup rather than after it. The list can span every
+    // organization in `organizationIds`, each with its own encryption map, so the
+    // decision is taken across that whole scope: reading only the selected
+    // organization's map ran SQL search and ordering against the ciphertext of an
+    // organization that encrypts a column the selected one keeps in plaintext.
+    // An unrestricted scope asks for the tenant-wide policy (`null`), which the
+    // encryption service already resolves as the union of every organization's
+    // map, so no organization has to be discovered from the rows first.
+    const [callerUserFeatures, encryptedFields] = await Promise.all([
       viewerUserId
         ? resolveUserFeatures(container, viewerUserId, auth.tenantId ?? null, selectedOrganizationId)
         : Promise.resolve(undefined),
-      resolveEncryptedSortFields(
-        encryptionService,
-        CUSTOMER_INTERACTION_ENTITY_ID,
-        [sortConfig.column],
-        auth.tenantId,
-        selectedOrganizationId,
-      ),
+      resolveEncryptedFieldsAcrossOrganizations({
+        service: encryptionService,
+        entityId: CUSTOMER_INTERACTION_ENTITY_ID,
+        fields: [sortConfig.column, 'title', 'body'],
+        tenantId: auth.tenantId,
+        organizationIds: organizationIds ?? [null],
+      }),
     ])
-    const sortFieldIsEncrypted = encryptedSortFields.has(sortConfig.column)
+    const sortFieldIsEncrypted = encryptedFields.has(sortConfig.column)
+    const searchTerm = query.search
+    const searchNeedsDecryption = Boolean(searchTerm) && (encryptedFields.has('title') || encryptedFields.has('body'))
+    const filterQuery = searchNeedsDecryption ? { ...query, search: undefined } : query
 
     let pageRows: InteractionListRow[]
     let hasMore: boolean
 
-    if (sortFieldIsEncrypted) {
+    if (sortFieldIsEncrypted || searchNeedsDecryption) {
+      // Every candidate carries its own organization: the scan can span organizations
+      // with different encryption maps, and `decryptRow` resolves the map per row.
+      // Without the column a sort-only scan decrypted every row under the selected
+      // organization's map and left another organization's ciphertext in the sort.
+      const candidateColumns = Array.from(new Set(
+        searchNeedsDecryption
+          ? ['id', 'organization_id', 'title', 'body', sortConfig.column]
+          : ['id', 'organization_id', sortConfig.column],
+      ))
       let candidateQuery = applyInteractionListFilters(
-        db.selectFrom('customer_interactions').select(['id', sortConfig.column]),
-        { tenantId: auth.tenantId, organizationIds, query },
+        db.selectFrom('customer_interactions').select(candidateColumns),
+        { tenantId: auth.tenantId, organizationIds, query: filterQuery },
       )
       candidateQuery = applyEmailVisibilityFilter(candidateQuery as any, {
         currentUserId: viewerUserId,
@@ -524,15 +558,22 @@ export async function GET(req: Request) {
         sharedConversations: emailShareGrants,
         sharedChannelIds: emailSharedChannelIds,
       })
-      const cap = resolveEncryptedSortMaxRows()
-      if (cap !== null) {
+      const cap = searchNeedsDecryption ? resolveEncryptedSearchMaxRows() : resolveEncryptedSortMaxRows()
+      if (!sortFieldIsEncrypted) {
+        // Ordered in SQL so the bound keeps the rows the requested sort puts first.
+        candidateQuery = candidateQuery
+          .orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`)
+          .orderBy('id', sortDir)
+          .limit(cap as number)
+      } else if (cap !== null) {
         candidateQuery = candidateQuery.limit(cap).orderBy('id', 'asc')
       }
       const candidateRows = await candidateQuery.execute() as Array<{ id: string } & Record<string, unknown>>
       if (cap !== null && candidateRows.length >= cap) {
-        logger.warn('Encrypted sort candidate scan hit OM_ENCRYPTED_SORT_MAX_ROWS cap; results may be incomplete', {
+        logger.warn('Encrypted candidate scan hit its row cap; results may be incomplete', {
           component: 'interactions.GET',
           cap,
+          search: searchNeedsDecryption,
           sortField: sortConfig.column,
           tenantId: auth.tenantId,
         })
@@ -544,17 +585,19 @@ export async function GET(req: Request) {
         decryptRow: async (row) => {
           if (!decryptPayload) return row
           try {
-            const decrypted = await decryptPayload(CUSTOMER_INTERACTION_ENTITY_ID, row, auth.tenantId, selectedOrganizationId)
+            const rowOrganizationId = typeof row.organization_id === 'string' ? row.organization_id : selectedOrganizationId
+            const decrypted = await decryptPayload(CUSTOMER_INTERACTION_ENTITY_ID, row, auth.tenantId, rowOrganizationId)
             return { ...row, ...decrypted }
           } catch (err) {
-            logger.error('error decrypting sort candidate', { component: 'interactions.GET', err })
+            logger.error('error decrypting list candidate', { component: 'interactions.GET', err })
             return row
           }
         },
-        sortField: sortConfig.column,
+        sortField: sortFieldIsEncrypted ? sortConfig.column : null,
         sortDir,
         cursorId: cursor?.id ?? null,
         limit: query.limit,
+        matches: searchNeedsDecryption ? (row) => matchesDecryptedSearch(row, searchTerm as string) : undefined,
       })
       hasMore = encryptedHasMore
 
@@ -563,7 +606,7 @@ export async function GET(req: Request) {
       } else {
         let pageQuery = applyInteractionListFilters(
           db.selectFrom('customer_interactions').select([...INTERACTION_LIST_COLUMNS, sql`${sql.raw(sortSql)}`.as('__sort_value')]),
-          { tenantId: auth.tenantId, organizationIds, query },
+          { tenantId: auth.tenantId, organizationIds, query: filterQuery },
         )
         pageQuery = applyEmailVisibilityFilter(pageQuery as any, {
           currentUserId: viewerUserId,
@@ -614,13 +657,6 @@ export async function GET(req: Request) {
       hasMore = rows.length > query.limit
     }
 
-    const authorIds = Array.from(
-      new Set(
-        pageRows
-          .map((row) => (typeof row.author_user_id === 'string' ? row.author_user_id : null))
-          .filter((value): value is string => !!value),
-      ),
-    )
     const dealIds = Array.from(
       new Set(
         pageRows
@@ -644,8 +680,12 @@ export async function GET(req: Request) {
       new Set(pageRows.map((row) => row.organization_id).filter((value): value is string => !!value)),
     )
 
-    const [users, deals, customFieldValues, interactionRecords, encryptedFieldsByOrganization] = await Promise.all([
-      authorIds.length > 0 ? findWithDecryption(em, User, { id: { $in: authorIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
+    const [userMap, deals, customFieldValues, interactionRecords, encryptedFieldsByOrganization] = await Promise.all([
+      loadInteractionAuthors(em, pageRows.map((row) => ({
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id,
+        authorUserId: row.author_user_id,
+      }))),
       dealIds.length > 0 ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId: auth.tenantId, organizationId: selectedOrganizationId }) : Promise.resolve([]),
       interactionIds.length > 0
         ? loadCustomFieldValues({
@@ -673,15 +713,6 @@ export async function GET(req: Request) {
       })(),
     ])
 
-    const userMap = new Map(
-      users.map((user) => [
-        user.id,
-        {
-          name: user.name ?? null,
-          email: user.email ?? null,
-        },
-      ]),
-    )
     const dealMap = new Map(
       deals.map((deal) => [deal.id, deal.title]),
     )
@@ -731,8 +762,8 @@ export async function GET(req: Request) {
       tenantId: row.tenant_id,
       createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
       updatedAt: toIsoString(row.updated_at) ?? new Date().toISOString(),
-      authorName: row.author_user_id ? userMap.get(row.author_user_id)?.name ?? null : null,
-      authorEmail: row.author_user_id ? userMap.get(row.author_user_id)?.email ?? null : null,
+      authorName: row.author_user_id ? userMap.get(interactionUserKey({ tenantId: row.tenant_id, organizationId: row.organization_id }, row.author_user_id))?.name ?? null : null,
+      authorEmail: row.author_user_id ? userMap.get(interactionUserKey({ tenantId: row.tenant_id, organizationId: row.organization_id }, row.author_user_id))?.email ?? null : null,
       dealTitle: row.deal_id ? dealMap.get(row.deal_id) ?? null : null,
       customValues: normalizeCustomFieldResponse(customFieldValues[row.id]) ?? null,
     }, interactionRecordMap.get(row.id), encryptedFieldsByOrganization.get(row.organization_id) ?? []))

@@ -92,14 +92,19 @@ import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/v
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 import { useConfirmDialog } from './confirm-dialog'
-import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets, type LoadedInjectionSpotWidget } from './injection/InjectionSpot'
+import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
+import { parseLocaleDecimal, parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
+import { addDecimals, decimalToString } from '@open-mercato/shared/lib/decimal'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
+import { mergeInjectionEventParticipants } from './injection/injectionEventParticipants'
+import { useRegisteredComponent } from './injection/useRegisteredComponent'
+import { isResponseEnricherNamespace } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
 import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './crud/SortableGroupHandle'
 import { useGroupOrder } from './crud/useGroupOrder'
@@ -139,6 +144,19 @@ function evaluateFieldVisibility(
 ): boolean {
   if (!visibleWhen) return true
   return values[visibleWhen.field] === visibleWhen.equals
+}
+
+function isVerticalScrollContainer(element: Element): boolean {
+  const { overflowY } = window.getComputedStyle(element)
+  return overflowY === 'auto' || overflowY === 'scroll'
+}
+
+function isScrolledByPaddedDialog(root: HTMLElement, dialog: HTMLElement): boolean {
+  for (let node: HTMLElement | null = root; node && node !== dialog; node = node.parentElement) {
+    if (isVerticalScrollContainer(node)) return false
+  }
+  if (!isVerticalScrollContainer(dialog)) return false
+  return Number.parseFloat(window.getComputedStyle(dialog).paddingBottom) > 0
 }
 
 function isFormControlTarget(target: EventTarget | null): boolean {
@@ -225,6 +243,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'checkbox'
     | 'select'
     | 'number'
+    | 'decimal'
     | 'date'
     | 'datepicker'
     | 'datetime-local'
@@ -293,6 +312,10 @@ export type CrudField = CrudBuiltinField | CrudCustomField
 
 type CrudFormValues<TValues extends Record<string, unknown>> = Partial<TValues> & Record<string, unknown>
 
+export type CrudFormSubmitResult = {
+  resourceId?: string
+}
+
 export type CrudFormSubmitContext = {
   submitter?: {
     id?: string
@@ -319,7 +342,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   cancelHref?: string
   successRedirect?: string
   deleteRedirect?: string
-  onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void> | void
+  onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void | CrudFormSubmitResult> | void | CrudFormSubmitResult
+  onSubmitSuccess?: (values: TValues, result: void | CrudFormSubmitResult) => Promise<void> | void
   onDelete?: () => Promise<void> | void
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
@@ -367,6 +391,9 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // form-editable custom fields automatically to the provided `fields`.
   entityId?: string
   entityIds?: string[]
+  resourceKind?: string
+  resourceId?: string
+  injectionGroupAliases?: Readonly<Record<string, string>>
   // Optional grouped layout rendered in two responsive columns (1 on mobile).
   groups?: CrudFormGroup[]
   /**
@@ -433,6 +460,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   readOnlyOverlay?: React.ReactNode
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
+  resolveCustomFieldText?: (text: string, context: { entityId: string; path: string }) => string
   /**
    * How the custom-fields "Manage fields" affordance behaves:
    * - 'inline' (default) — opens the embedded fieldset quick-editor dialog.
@@ -484,6 +512,7 @@ export type CrudFormGroupComponentProps = {
    * to show a required marker that appears/disappears with the widget.
    */
   requiredFieldIds?: ReadonlySet<string>
+  injectedFields?: React.ReactNode
 }
 
 // Special group kind for automatic Custom Fields section
@@ -500,26 +529,6 @@ export type CrudFormGroup = {
   kind?: 'customFields'
   // When true, render component output inline without wrapping group chrome
   bare?: boolean
-}
-
-function renderNoInjectedFieldWidget(): null {
-  return null
-}
-
-async function skipInjectedFieldDeleteEvent(): Promise<void> {}
-
-// Field widgets persist values of the record being edited, so a delete must not fall
-// back to their save handlers the way it does for component widgets.
-const INJECTED_FIELD_DELETE_EVENT_DEFAULTS = {
-  onBeforeDelete: skipInjectedFieldDeleteEvent,
-  onDelete: skipInjectedFieldDeleteEvent,
-  onAfterDelete: skipInjectedFieldDeleteEvent,
-}
-
-function injectionWidgetPriority(widget: LoadedInjectionSpotWidget): number {
-  const placementPriority = widget.placement?.priority
-  if (typeof placementPriority === 'number') return placementPriority
-  return typeof widget.module.metadata.priority === 'number' ? widget.module.metadata.priority : 0
 }
 
 // Appends `legacy` entries not already present in `primary` (by `keyOf`), so a
@@ -631,7 +640,7 @@ function readRenderedFieldValue(
   if (fieldId.startsWith('cf:')) {
     return readInitialCustomFieldValue(source, fieldId.slice(3))
   }
-  return undefined
+  return fieldId.includes('.') ? readByDotPath(source, fieldId) : undefined
 }
 
 function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): string | null {
@@ -795,7 +804,21 @@ function SortableGroupItem({ id, children, disabled }: { id: string; children: R
   )
 }
 
-export function CrudForm<TValues extends Record<string, unknown>>({
+const CrudFormFallback = CrudFormImpl as React.ComponentType<CrudFormProps<Record<string, unknown>>>
+
+export function CrudForm<TValues extends Record<string, unknown>>(props: CrudFormProps<TValues>) {
+  const entityKey = buildResolvedEntityIdsKey(props.entityId, props.entityIds)
+  const primaryEntityId = entityKey.split('\0')[0]
+  const [handle] = React.useState(() => props.replacementHandle
+    ?? ComponentReplacementHandles.crudForm(primaryEntityId ? primaryEntityId.replace(/[:]+/g, '.') : 'unknown'))
+  const Resolved = useRegisteredComponent<CrudFormProps<TValues>>(
+    handle,
+    CrudFormFallback as unknown as React.ComponentType<CrudFormProps<TValues>>,
+  )
+  return <Resolved {...props} />
+}
+
+function CrudFormImpl<TValues extends Record<string, unknown>>({
   schema,
   fields,
   initialValues,
@@ -808,6 +831,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   successRedirect,
   deleteRedirect,
   onSubmit,
+  onSubmitSuccess,
   onDelete,
   deleteVisible,
   optimisticLockUpdatedAt,
@@ -818,6 +842,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   backHref,
   entityId,
   entityIds,
+  resourceKind,
+  resourceId,
+  injectionGroupAliases,
   groups,
   hiddenGroupIds,
   isLoading = false,
@@ -834,6 +861,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   readOnly = false,
   readOnlyOverlay,
   customFieldsetBindings,
+  resolveCustomFieldText,
   customFieldsManageMode = 'inline',
   injectionSpotId,
   legacyInjectionSpotId,
@@ -907,6 +935,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [customFieldDefsVersion, setCustomFieldDefsVersion] = React.useState(0)
   const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
   const [isInDialog, setIsInDialog] = React.useState(false)
+  const [scrolledByPaddedDialog, setScrolledByPaddedDialog] = React.useState(false)
   const rootRef = React.useRef<HTMLDivElement | null>(null)
 
   // Collapsible groups support
@@ -953,13 +982,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (typeof raw === 'number') return String(raw)
     return undefined
   }, [values])
-  const fallbackRecordId = recordId || (
+  const explicitResourceId = resourceId?.trim() || undefined
+  const fallbackRecordId = explicitResourceId || recordId || (
     versionHistory?.resourceId === undefined || versionHistory.resourceId === null
       ? undefined
       : String(versionHistory.resourceId).trim() || undefined
   )
 
-  const operation = recordId ? 'update' : 'create'
+  const operation = explicitResourceId || recordId ? 'update' : 'create'
 
   // Resolve the optimistic-lock version used to build the extension header.
   // Explicit `optimisticLockUpdatedAt` (including `null`) always wins. When the
@@ -982,16 +1012,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return null
   }, [disableOptimisticLock, optimisticLockUpdatedAt, initialValues])
 
+  const setInjectedFormValue = React.useCallback((id: string, value: unknown) => {
+    const nextValues = { ...valuesRef.current, [id]: value } as CrudFormValues<TValues>
+    valuesRef.current = nextValues
+    setValues(nextValues)
+  }, [])
+
   const injectionContext = React.useMemo(() => ({
     formId,
-    entityId: primaryEntityId,
-    resourceKind: versionHistory?.resourceKind,
-    resourceId: recordId ?? versionHistory?.resourceId,
+    setFormValue: setInjectedFormValue,
+    t,
+    entityId: entityId ?? primaryEntityId,
+    resourceKind: resourceKind ?? versionHistory?.resourceKind,
+    resourceId: explicitResourceId ?? recordId ?? versionHistory?.resourceId,
     recordId: fallbackRecordId,
     isLoading,
     pending,
     operation,
-  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
+  }), [formId, setInjectedFormValue, t, entityId, primaryEntityId, resourceKind, explicitResourceId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
   const injectionContextRef = React.useRef(injectionContext)
   React.useEffect(() => {
     injectionContextRef.current = injectionContext
@@ -1121,7 +1159,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     navigationConfirmPendingRef.current = true
     try {
       const confirmed = await confirm({
-        title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+        title: t('ui.forms.unsavedChangesTitle', 'Discard unsaved changes?'),
+        description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
+        confirmText: t('ui.forms.unsavedChangesDiscard', 'Discard changes'),
+        cancelText: t('ui.forms.unsavedChangesKeep', 'Keep editing'),
+        variant: 'destructive',
       })
       if (confirmed) allowNextNavigation()
       return confirmed
@@ -1232,24 +1274,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded, setHasUnsavedChanges])
 
-  const { widgets: primaryInjectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
+  const { widgets: primaryInjectionWidgets, loading: primaryInjectionLoading } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
-    triggerOnLoad: true,
+    triggerOnLoad: false,
   })
-  const { widgets: legacyInjectionWidgets } = useInjectionWidgets(legacyInjectionSpotId, {
+  const { widgets: legacyInjectionWidgets, loading: legacyInjectionLoading } = useInjectionWidgets(legacyInjectionSpotId, {
     context: injectionContext,
-    triggerOnLoad: true,
+    triggerOnLoad: false,
   })
   const injectionWidgets = React.useMemo(
     () => mergeByKey(primaryInjectionWidgets, legacyInjectionWidgets, (w) => w.widgetId),
     [primaryInjectionWidgets, legacyInjectionWidgets],
   )
-  const { widgets: primaryFieldWidgets } = useInjectionDataWidgets(
+  const { widgets: primaryFieldWidgets, isLoading: primaryFieldsLoading } = useInjectionDataWidgets(
     resolvedInjectionSpotId
       ? extensionSpotChildId(resolvedInjectionSpotId, 'fields')
       : '__disabled__:fields'
   )
-  const { widgets: legacyFieldWidgets } = useInjectionDataWidgets(
+  const { widgets: legacyFieldWidgets, isLoading: legacyFieldsLoading } = useInjectionDataWidgets(
     legacyInjectionSpotId
       ? extensionSpotChildId(legacyInjectionSpotId, 'fields')
       : '__disabled__:fields'
@@ -1259,30 +1301,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [primaryFieldWidgets, legacyFieldWidgets],
   )
 
-  const injectionEventWidgets = React.useMemo<LoadedInjectionSpotWidget[]>(() => {
-    const fieldEventWidgets: LoadedInjectionSpotWidget[] = []
-    for (const widget of injectedFieldWidgets) {
-      if (!('fields' in widget) || !widget.eventHandlers) continue
-      fieldEventWidgets.push({
-        widgetId: widget.metadata.id,
-        module: {
-          metadata: widget.metadata,
-          eventHandlers: { ...INJECTED_FIELD_DELETE_EVENT_DEFAULTS, ...widget.eventHandlers },
-          Widget: renderNoInjectedFieldWidget,
-        },
-        moduleId: widget.moduleId,
-        key: widget.key,
-        placement: widget.placement,
-      })
-    }
-    if (!fieldEventWidgets.length) return injectionWidgets
-    return mergeByKey(injectionWidgets, fieldEventWidgets, (widget) => widget.widgetId)
-      .map((widget, index) => ({ widget, index }))
-      .sort((left, right) => injectionWidgetPriority(right.widget) - injectionWidgetPriority(left.widget) || left.index - right.index)
-      .map((entry) => entry.widget)
-  }, [injectionWidgets, injectedFieldWidgets])
-
-  const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionEventWidgets)
+  const injectionParticipants = React.useMemo(
+    () => mergeInjectionEventParticipants(injectionWidgets, injectedFieldWidgets),
+    [injectionWidgets, injectedFieldWidgets],
+  )
+  const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionParticipants, {
+    context: injectionContext,
+    triggerOnLoad: !isLoading && !primaryInjectionLoading && !legacyInjectionLoading && !primaryFieldsLoading && !legacyFieldsLoading,
+  })
   const extendedInjectionEventsEnabled = CRUDFORM_EXTENDED_EVENTS_ENABLED && Boolean(resolvedInjectionSpotId)
 
   // Fields that active injection widgets declare as required (e.g. the SEO helper
@@ -1290,13 +1316,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // enforcement stays in the widget's own onBeforeSave validation.
   const widgetRequiredFieldIds = React.useMemo(() => {
     const ids = new Set<string>()
-    for (const widget of injectionWidgets ?? []) {
+    for (const widget of injectionParticipants) {
       const metadata = widget.module?.metadata
       if (!metadata || metadata.enabled === false) continue
       for (const fieldId of metadata.requiredFields ?? []) ids.add(fieldId)
     }
     return ids
-  }, [injectionWidgets])
+  }, [injectionParticipants])
 
   const transformValidationErrors = React.useCallback(
     async (fieldErrors: Record<string, string>): Promise<Record<string, string>> => {
@@ -1376,13 +1402,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   const navigateWithGuard = React.useCallback(
-    async (target: string) => {
-      if (!target) return
+    async (target: string): Promise<boolean> => {
+      if (!target) return false
       const allowed = await canNavigateTo(target)
       if (allowed) {
         allowNextNavigation()
         router.push(target)
+        return true
       }
+      return false
     },
     [allowNextNavigation, canNavigateTo, router],
   )
@@ -1458,11 +1486,23 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     const root = rootRef.current
     if (!root) return
-    setIsInDialog(Boolean(root.closest('[data-dialog-content]')))
+    const dialog = root.closest<HTMLElement>('[data-dialog-content]')
+    setIsInDialog(Boolean(dialog))
+    setScrolledByPaddedDialog(dialog ? isScrolledByPaddedDialog(root, dialog) : false)
   }, [])
-  const dialogFooterClass = isInDialog
-    ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
-    : ''
+  // Sticky offsets resolve against the scroll container's content box, so when the
+  // padded `DialogContent` (`p-6`, `overflow-y-auto`) is the scroller a `bottom-0`
+  // footer parks 24px above the dialog edge and scrolled fields stay visible in that
+  // padding strip (#7497). Pull the footer down by the dialog padding (`-bottom-6`),
+  // let its own padding paint that strip (`pb-8` = `py-2` + 24px) and cancel the extra
+  // height in normal flow (`-mb-6`) so a short form gets no blank band below the
+  // buttons. A nested, unpadded scroller has no such strip: there `bottom-0` is flush
+  // and the compensation would hang the footer below the scrollport.
+  const dialogFooterClass = !isInDialog
+    ? ''
+    : scrolledByPaddedDialog
+      ? 'sticky -bottom-6 left-0 right-0 z-20 -mx-6 -mb-6 px-6 pt-2 pb-8 bg-card border-t border-border/70 sm:-mx-6 sm:px-6'
+      : 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
   // No bottom padding on the dialog form. The previous `pb-20` left an 80px gap below
   // the sticky footer in every dialog whose content fit the viewport (the form sized to
   // content + 80px with the footer as its last child) — visible as empty white space at
@@ -1638,10 +1678,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
+    if (explicitResourceId) return false
     const rawId = values.id
     if (rawId === undefined || rawId === null) return true
     return typeof rawId === 'string' ? rawId.trim().length === 0 : false
-  }, [values])
+  }, [explicitResourceId, values])
   const showDelete = Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
   const versionHistoryEnabled = Boolean(versionHistory?.resourceId && String(versionHistory.resourceId).trim().length > 0)
   const versionHistoryAction = (
@@ -1758,11 +1799,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     })
   }, [customFieldsetBindings, resolvedEntityIds, values])
 
-  const fieldsetsByEntity = cfMetadata?.fieldsetsByEntity ?? {}
-  const entitySettings = cfMetadata?.entitySettings ?? {}
-
   const { cfFields, customFieldLayout } = React.useMemo(() => {
     if (!cfDefinitions.length) return { cfFields: [], customFieldLayout: [] as CustomFieldEntityLayout[] }
+    const fieldsetsByEntity = cfMetadata?.fieldsetsByEntity ?? {}
+    const entitySettings = cfMetadata?.entitySettings ?? {}
     const aggregated: CrudField[] = []
     const layout: CustomFieldEntityLayout[] = []
     const defsByEntity = new globalThis.Map<string, CustomFieldDefDto[]>()
@@ -1840,9 +1880,29 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
     const entityIds = resolvedEntityIds.length ? resolvedEntityIds : Array.from(defsByEntity.keys())
     entityIds.forEach((entityId) => {
-      const defsForEntity = defsByEntity.get(entityId) ?? []
+      const resolveText = (text: string | undefined, path: string) =>
+        text && resolveCustomFieldText ? resolveCustomFieldText(text, { entityId, path }) : text
+      const defsForEntity = (defsByEntity.get(entityId) ?? []).map((definition) => ({
+        ...definition,
+        label: resolveText(definition.label, `fields.${definition.key}.label`),
+        description: resolveText(definition.description, `fields.${definition.key}.description`),
+        group: definition.group ? {
+          ...definition.group,
+          title: resolveText(definition.group.title, `fields.${definition.key}.group.title`),
+          hint: resolveText(definition.group.hint, `fields.${definition.key}.group.hint`),
+        } : undefined,
+      }))
       if (!defsForEntity.length) return
-      const availableFieldsets = fieldsetsByEntity[entityId] ?? []
+      const availableFieldsets = (fieldsetsByEntity[entityId] ?? []).map((fieldset) => ({
+        ...fieldset,
+        label: resolveText(fieldset.label, `fieldsets.${fieldset.code}.label`) ?? fieldset.label,
+        description: resolveText(fieldset.description, `fieldsets.${fieldset.code}.description`),
+        groups: fieldset.groups?.map((group) => ({
+          ...group,
+          title: resolveText(group.title, `fieldsets.${fieldset.code}.groups.${group.code}.title`),
+          hint: resolveText(group.hint, `fieldsets.${fieldset.code}.groups.${group.code}.hint`),
+        })),
+      }))
       const hasFieldsets = availableFieldsets.length > 0
       const singleFieldsetPerRecord =
         entitySettings[entityId]?.singleFieldsetPerRecord !== false
@@ -1944,22 +2004,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     cfDefinitions,
     cfFieldsetSelections,
     customEntity,
+    resolveCustomFieldText,
     customFieldsLabel,
-    entitySettings,
-    fieldsetsByEntity,
+    cfMetadata,
     resolvedEntityIds,
   ])
 
   const injectedFieldDefinitions = React.useMemo<InjectionFieldDefinition[]>(() => {
     const definitions: InjectionFieldDefinition[] = []
     for (const widget of injectedFieldWidgets) {
-      if (!('fields' in widget)) continue
+      if (!('fields' in widget) || widget.metadata?.enabled === false) continue
       for (const field of widget.fields ?? []) {
-        definitions.push(field as InjectionFieldDefinition)
+        definitions.push({ ...field, group: injectionGroupAliases?.[field.group] ?? field.group })
       }
     }
     return definitions
-  }, [injectedFieldWidgets])
+  }, [injectedFieldWidgets, injectionGroupAliases])
 
   const injectedFieldPlacements = React.useMemo(() => {
     const placements = new Map<string, InjectedFieldWidgetPlacement | undefined>()
@@ -2081,6 +2141,46 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     () => new Set(Array.from(injectedFieldIdSet).filter((id) => !hostFieldIdSet.has(id))),
     [injectedFieldIdSet, hostFieldIdSet],
   )
+
+  const projectWidgetValues = React.useCallback((source: Record<string, unknown>) => {
+    const projected = { ...source }
+    const updatePath = (record: Record<string, unknown>, segments: string[], value: unknown, remove: boolean): Record<string, unknown> => {
+      const [segment, ...rest] = segments
+      if (!segment || segments.some(isProtoPollutingKey)) return record
+      const next = { ...record }
+      if (!rest.length) {
+        if (remove) delete next[segment]
+        else next[segment] = value
+      } else {
+        const child = next[segment]
+        next[segment] = updatePath(child && typeof child === 'object' && !Array.isArray(child) ? child as Record<string, unknown> : {}, rest, value, remove)
+      }
+      return next
+    }
+    for (const definition of injectedFieldDefinitions) {
+      const hidden = hiddenInjectedFieldIds.has(definition.id)
+      if (hidden) delete projected[definition.id]
+      const segments = definition.id.split('.')
+      if (segments.length < 2 || !isResponseEnricherNamespace(segments[0])) continue
+      if (!hidden && !Object.prototype.hasOwnProperty.call(source, definition.id)) continue
+      Object.assign(projected, updatePath(projected, segments, source[definition.id], hidden))
+    }
+    return projected
+  }, [hiddenInjectedFieldIds, injectedFieldDefinitions])
+
+  const injectedNamespaceSet = React.useMemo(() => new Set(
+    Array.from(injectedOnlyFieldIdSet)
+      .map((id) => id.split('.')[0])
+      .filter((namespace) => isResponseEnricherNamespace(namespace) && !hostFieldIdSet.has(namespace)),
+  ), [hostFieldIdSet, injectedOnlyFieldIdSet])
+
+  const projectNativeValues = React.useCallback((source: Record<string, unknown>) => {
+    const projected = { ...source }
+    for (const key of Object.keys(projected)) {
+      if (injectedNamespaceSet.has(key.split('.')[0]) || injectedOnlyFieldIdSet.has(key)) delete projected[key]
+    }
+    return projected
+  }, [injectedNamespaceSet, injectedOnlyFieldIdSet])
 
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
     return injectedFieldDefinitions.map((definition) => {
@@ -2222,10 +2322,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       for (const hiddenId of hiddenInjectedFieldIds) {
         delete widgetValues[hiddenId]
       }
-      const coreValues = { ...widgetValues }
-      for (const injectedId of injectedOnlyFieldIdSet) {
-        delete coreValues[injectedId]
-      }
+      const coreValues = projectNativeValues(widgetValues)
       const result = schema.safeParse(collapseDotPathFields(coreValues, dotPathBaseFieldIds))
       if (!result.success) {
         const schemaFieldErrors: Record<string, string> = {}
@@ -2836,6 +2933,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       initialValues,
       injectedFieldIds: injectedFieldDefinitions.map((definition) => definition.id),
       injectionWidgetIds: injectionWidgets.map((widget) => `${widget.moduleId}:${widget.widgetId}:${widget.key}`),
+      injectionParticipantIds: injectionParticipants.map((widget) => `${widget.moduleId}:${widget.widgetId}:${widget.key}`),
       customFieldMappings: cfDefinitions.map((definition) => definition.key),
       dotPathBaseFieldIds: Array.from(dotPathBaseFieldIds),
     })
@@ -2856,7 +2954,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       mergedRecord[key] = value
     }
     for (const definition of injectedFieldDefinitions) {
-      if (mergedValues[definition.id] !== undefined) continue
+      if (editedFieldIds.has(definition.id)) continue
       const extracted = readByDotPath(initialRecord, definition.id)
       if (extracted !== undefined) {
         mergedRecord[definition.id] = extracted
@@ -2935,6 +3033,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     extendedInjectionEventsEnabled,
     initialValues,
     injectedFieldDefinitions,
+    injectionParticipants,
     injectionWidgets,
     triggerInjectionEvent,
   ])
@@ -2946,10 +3045,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // initialValues={} don't get mis-detected as create flows.
   const cfDefaultsAppliedRef = React.useRef(false)
   const initialValuesHasId = React.useMemo(() => {
+    if (explicitResourceId) return true
     if (!initialValues) return false
     const raw = (initialValues as Record<string, unknown>).id
     return raw !== undefined && raw !== null && raw !== ''
-  }, [initialValues])
+  }, [explicitResourceId, initialValues])
 
   React.useEffect(() => {
     // Do not fire while the host is still loading the record
@@ -3027,6 +3127,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     if (submittingRef.current) return
     submittingRef.current = true
+    let redirectNavigationStarted = false
     try {
     setFormError(null)
     setErrors({})
@@ -3119,14 +3220,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
     }
 
-    const widgetValues = { ...(valuesRef.current as Record<string, unknown>) }
-    for (const hiddenId of hiddenInjectedFieldIds) {
-      delete widgetValues[hiddenId]
-    }
-    const coreValues = { ...widgetValues }
-    for (const injectedId of injectedOnlyFieldIdSet) {
-      delete coreValues[injectedId]
-    }
+    const widgetValues = projectWidgetValues(valuesRef.current as Record<string, unknown>)
+    const coreValues = projectNativeValues(widgetValues)
     if (customEntity) {
       const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
       for (const key of Object.keys(coreValues)) {
@@ -3162,10 +3257,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         const result = await triggerInjectionEvent('transformFormData', submitValues, injectionContext)
         if (result.data) {
           submitValues = result.data as TValues
-          const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
-          for (const injectedId of injectedOnlyFieldIdSet) {
-            delete projectedCoreValues[injectedId]
-          }
+          const projectedCoreValues = projectNativeValues(result.data as Record<string, unknown>)
           if (customEntity) {
             const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
             for (const key of Object.keys(projectedCoreValues)) {
@@ -3268,18 +3360,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         ...(injectionRequestHeaders ?? {}),
         ...optimisticLockHeader,
       }
-      if (Object.keys(mergedSubmitHeaders).length > 0) {
-        await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => {
-          await onSubmit?.(coreSubmitValues, submitContext)
-        })
-      } else {
-        await onSubmit?.(coreSubmitValues, submitContext)
-      }
+      const submitResult = Object.keys(mergedSubmitHeaders).length > 0
+        ? await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => onSubmit?.(coreSubmitValues, submitContext))
+        : await onSubmit?.(coreSubmitValues, submitContext)
+      const createdResourceId = operation === 'create' && submitResult?.resourceId?.trim()
+      const afterSaveContext = createdResourceId
+        ? { ...injectionContext, recordId: createdResourceId, resourceId: createdResourceId }
+        : injectionContext
       
       // Trigger onAfterSave event for injection widgets
       if (resolvedInjectionSpotId) {
         try {
-          await triggerInjectionEvent('onAfterSave', submitValues, injectionContext)
+          await triggerInjectionEvent('onAfterSave', submitValues, afterSaveContext)
         } catch (err) {
           logger.error('Error in onAfterSave', { err })
         }
@@ -3287,7 +3379,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
       markFormAsClean(valuesRef.current as Record<string, unknown>)
       keepSubmitNavigationBypassAlive()
-      if (successRedirect) await navigateWithGuard(successRedirect)
+      try {
+        await onSubmitSuccess?.(coreSubmitValues, submitResult)
+      } catch (err) {
+        logger.error('Error in onSubmitSuccess', { err })
+        getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
+      }
+      if (successRedirect) redirectNavigationStarted = await navigateWithGuard(successRedirect)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
       try {
@@ -3359,10 +3457,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
       setFormError(displayMessage)
     } finally {
-      setPending(false)
+      // A successful submit that kicks off the success-redirect keeps the form
+      // "pending"/locked until it actually unmounts, so a second submit fired
+      // during router navigation (which resolves well before unmount) doesn't
+      // re-run onSubmit and create a duplicate record.
+      if (!redirectNavigationStarted) setPending(false)
     }
     } finally {
-      submittingRef.current = false
+      if (!redirectNavigationStarted) submittingRef.current = false
     }
   }
 
@@ -3516,8 +3618,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
-              recordId={recordId}
+              recordId={explicitResourceId ?? recordId}
               markRequired={widgetRequiredFieldIds.has(f.id)}
+              formId={formId}
             />
           )
         })}
@@ -3681,6 +3784,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     manageFieldsetLabel,
     placedCustomFieldIds,
     renderFields,
+    t,
   ])
 
   const fieldsetManagerDialog = (
@@ -3768,7 +3872,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if ((g.column ?? 1) === 2) col2.push(g)
       else col1.push(g)
     }
-    const col1Ids = col1.map((g) => g.id)
 
     const renderGroupedCards = (items: CrudFormGroup[]) => {
       const nodes: React.ReactNode[] = []
@@ -3857,7 +3960,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           continue
         }
 
-        const componentNode = g.component ? g.component({ values, setValue, errors, requiredFieldIds: widgetRequiredFieldIds }) : null
+        const componentNode = g.component ? g.component({
+          values,
+          setValue,
+          errors,
+          requiredFieldIds: widgetRequiredFieldIds,
+          injectedFields: g.bare ? renderFields(resolveGroupFields(g).filter((field) => injectedOnlyFieldIdSet.has(field.id))) : undefined,
+        }) : null
         if (g.bare) {
           if (componentNode) {
             nodes.push(<React.Fragment key={g.id}>{componentNode}</React.Fragment>)
@@ -3919,17 +4028,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       return nodes
     }
 
-    const col1Nodes = renderGroupedCards(col1)
-    const col2Content = renderGroupedCards(col2)
-
-    // Wrap col1 nodes in sortable items when enabled
+    // Wrap group by group: a bare group can render nothing, so nodes and groups do not line up by index.
+    const col1Sortable = sortableGroupsEnabled
+      ? col1.flatMap((group) => {
+          const nodes = renderGroupedCards([group])
+          return nodes.length ? [{ id: group.id, nodes }] : []
+        })
+      : []
     const col1Content = sortableGroupsEnabled
-      ? col1Nodes.map((node, i) => (
-          <SortableGroupItem key={col1[i]?.id ?? i} id={col1[i]?.id ?? String(i)}>
-            {node}
+      ? col1Sortable.map(({ id, nodes }) => (
+          <SortableGroupItem key={id} id={id}>
+            {nodes}
           </SortableGroupItem>
         ))
-      : col1Nodes
+      : renderGroupedCards(col1)
+    const col2Content = renderGroupedCards(col2)
     const hasSecondaryColumn = col2Content.length > 0
 
     return (
@@ -3980,14 +4093,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             >
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
-                  <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
-                    <div className={densityStackMd}>{col1Content}</div>
+                  <SortableContext items={col1Sortable.map(({ id }) => id)} strategy={verticalListSortingStrategy}>
+                    <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className={densityStackMd}>{col1Content}</div>
+                <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className={`min-w-0 ${densityStackMd}`} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
@@ -4070,7 +4183,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   <FieldControl
                     key={f.id}
                     field={f}
-                    value={values[f.id]}
+                    value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
                     error={errors[f.id]}
                     options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
                     setValue={setValue}
@@ -4081,8 +4194,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
-                    recordId={recordId}
+                    recordId={explicitResourceId ?? recordId}
                     markRequired={widgetRequiredFieldIds.has(f.id)}
+                    formId={formId}
                   />
                 )
               })}
@@ -4174,6 +4288,7 @@ function RelationSelect({
 }
 // Local-buffer text input to avoid focus loss when parent re-renders
 function TextInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4184,6 +4299,7 @@ function TextInput({
   suggestions,
   inputType = 'text',
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4240,6 +4356,7 @@ function TextInput({
   if (inputType === 'password') {
     return (
       <PasswordInput
+        id={id}
         placeholder={placeholder}
         value={local}
         onChange={handleChange}
@@ -4257,6 +4374,7 @@ function TextInput({
   return (
     <>
       <Input
+        id={id}
         type={inputType}
         placeholder={placeholder}
         value={local}
@@ -4284,34 +4402,42 @@ function TextInput({
 
 // Local-buffer number input to avoid focus loss when parent re-renders
 function NumberInput({
+  id,
   value,
   onChange,
   placeholder,
   autoFocus,
   onSubmit,
+  exact = false,
   disabled,
   readOnly,
 }: {
+  id?: string
   value: number | string | null | undefined
-  onChange: (v: number | undefined) => void
+  onChange: (v: number | string | undefined) => void
   placeholder?: string
   autoFocus?: boolean
   onSubmit?: () => void
+  exact?: boolean
   disabled?: boolean
   readOnly?: boolean
 }) {
   const locale = useOptionalLocale()
-  const serializedValue = value !== undefined && value !== null ? String(value) : ''
+  const serializedValue = React.useMemo(() => {
+    if (value === undefined || value === null) return ''
+    const { decimal } = resolveLocaleNumberSeparators(locale)
+    return decimal === '.' ? String(value) : String(value).replace('.', decimal)
+  }, [value, locale])
   const [local, setLocal] = React.useState<string>(serializedValue)
   const isFocusedRef = React.useRef(false)
   // Users type the separator the surrounding UI displays, which follows the application
   // locale — `110,70` under Polish. `Number()` only ever accepted `.` (issue #5552).
   const parse = React.useCallback(
-    (raw: string): number | undefined => {
+    (raw: string): number | string | undefined => {
       if (raw === '') return undefined
-      return parseLocaleNumber(raw, locale) ?? undefined
+      return (exact ? parseLocaleDecimal(raw, locale) : parseLocaleNumber(raw, locale)) ?? undefined
     },
-    [locale],
+    [exact, locale],
   )
   const commitIfChanged = React.useCallback(() => {
     if (local === serializedValue) return
@@ -4345,14 +4471,17 @@ function NumberInput({
       // Binary floating point puts 8.2 - 1 at 7.199999999999999; the native spinner
       // re-serialized against the step rather than committing that to form state.
       const base = parse(local) ?? 0
-      const stepped = Number((base + (e.key === 'ArrowUp' ? 1 : -1)).toFixed(10))
+      const step = e.key === 'ArrowUp' ? 1 : -1
+      const stepped = exact
+        ? decimalToString(addDecimals(base, step))
+        : Number((Number(base) + step).toFixed(10))
       // The box must keep showing the separator the rest of the UI displays, which is
       // the application locale's — not the dot String() always emits (issue #5552).
       const { decimal } = resolveLocaleNumberSeparators(locale)
       setLocal(decimal === '.' ? String(stepped) : String(stepped).replace('.', decimal))
       onChange(stepped)
     }
-  }, [commitIfChanged, local, locale, onChange, onSubmit, parse])
+  }, [commitIfChanged, exact, local, locale, onChange, onSubmit, parse])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -4368,6 +4497,7 @@ function NumberInput({
     // against the BROWSER locale, so it discards the separator the app locale displays
     // before React ever sees it (issue #5552). inputMode keeps the mobile numeric keypad.
     <Input
+      id={id}
       type="text"
       inputMode="decimal"
       // A text input is eligible for autofill and spellcheck; a number field is not.
@@ -4389,6 +4519,7 @@ function NumberInput({
 
 // Local-buffer textarea to avoid form-wide re-renders while typing
 function TextAreaInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4399,6 +4530,7 @@ function TextAreaInput({
   disabled,
   readOnly,
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4435,6 +4567,7 @@ function TextAreaInput({
 
   return (
     <Textarea
+      id={id}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -4564,6 +4697,7 @@ type FieldControlProps = {
   entityIdForField?: string
   recordId?: string
   markRequired?: boolean
+  formId: string
 }
 
 function supportsWrapperBlurValidation(field: CrudField): boolean {
@@ -4573,7 +4707,8 @@ function supportsWrapperBlurValidation(field: CrudField): boolean {
     field.type === 'textarea' ||
     field.type === 'checkbox' ||
     field.type === 'select' ||
-    field.type === 'number'
+    field.type === 'number' ||
+    field.type === 'decimal'
   )
 }
 
@@ -4678,6 +4813,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   entityIdForField,
   recordId,
   markRequired,
+  formId,
 }: FieldControlProps) {
   const t = useT()
   const fieldSetValue = React.useCallback(
@@ -4723,6 +4859,21 @@ const FieldControl = React.memo(function FieldControlImpl({
     ? options.find((option) => option.value === singleSelectValue)?.label
     : undefined
 
+  // Fields rendering a single focusable control get a real htmlFor/id pair;
+  // fields rendering a composite widget (date/time pickers, rich text, tags,
+  // relation search, multi-value selects) fall back to aria-labelledby on a
+  // group wrapper, per #5360's accessible-name requirement.
+  const controlId = `${formId}-field-${field.id}`
+  const labelId = `${controlId}-label`
+  const hasSingleControl =
+    field.type === 'text' ||
+    field.type === 'password' ||
+    field.type === 'number' ||
+    field.type === 'decimal' ||
+    field.type === 'textarea' ||
+    field.type === 'combobox' ||
+    (field.type === 'select' && !builtin?.multiple)
+
   return (
     <div
       className={rootClassName}
@@ -4736,13 +4887,18 @@ const FieldControl = React.memo(function FieldControlImpl({
         : undefined}
     >
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <label className="block text-sm font-medium">
+        <label
+          id={labelId}
+          htmlFor={hasSingleControl ? controlId : undefined}
+          className="block text-sm font-medium"
+        >
           {field.label}
           {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
         </label>
       ) : null}
       {field.type === 'text' && (
         <TextInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4755,6 +4911,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'password' && (
         <TextInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4765,85 +4922,98 @@ const FieldControl = React.memo(function FieldControlImpl({
           inputType="password"
         />
       )}
-      {field.type === 'number' && (
+      {(field.type === 'number' || field.type === 'decimal') && (
         <NumberInput
+          id={controlId}
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
           placeholder={placeholder}
           onChange={fieldSetValue}
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
+          exact={field.type === 'decimal'}
           disabled={disabled}
           readOnly={readOnly}
         />
       )}
       {field.type === 'date' && (
-        <DatePicker
-          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          closeOnSelect={builtin?.closeOnSelect}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DatePicker
+            value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            closeOnSelect={builtin?.closeOnSelect}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datetime-local' && (
-        <DateTimePicker
-          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DateTimePicker
+            value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datepicker' && (
-        <DatePicker
-          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          closeOnSelect={builtin?.closeOnSelect}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DatePicker
+            value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            closeOnSelect={builtin?.closeOnSelect}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datetime' && (
-        <DateTimePicker
-          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DateTimePicker
+            value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'time' && (
-        <TimePicker
-          value={typeof value === 'string' ? value : null}
-          onChange={(time) => setValue(field.id, time ?? undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <TimePicker
+            value={typeof value === 'string' ? value : null}
+            onChange={(time) => setValue(field.id, time ?? undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+          />
+        </div>
       )}
       {field.type === 'textarea' && (
         <TextAreaInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4856,28 +5026,37 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
-        <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
-        <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
-        <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'tags' && (
-        <TagsInput
-          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-          onChange={(next) => fieldSetValue(next)}
-          placeholder={placeholder}
-          autoFocus={autoFocusField}
-          suppressInitialSuggestionsOnFocus={autoFocusField}
-          suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
-          loadSuggestions={loadFieldSuggestions}
-          disabled={disabled}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <TagsInput
+            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+            onChange={(next) => fieldSetValue(next)}
+            placeholder={placeholder}
+            autoFocus={autoFocusField}
+            suppressInitialSuggestionsOnFocus={autoFocusField}
+            suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
+            loadSuggestions={loadFieldSuggestions}
+            disabled={disabled}
+          />
+        </div>
       )}
       {field.type === 'combobox' && (
         <ComboboxInput
+          id={controlId}
           value={typeof value === 'string' ? value : String(value ?? '')}
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
@@ -4900,8 +5079,9 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <label className="inline-flex items-center gap-2 cursor-pointer">
+        <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
           <Checkbox
+            id={controlId}
             checked={value === true}
             onCheckedChange={(next) => setValue(field.id, next === true)}
             data-crud-focus-target=""
@@ -4932,7 +5112,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           }}
           disabled={disabled || readOnly}
         >
-          <SelectTrigger data-crud-focus-target="">
+          <SelectTrigger id={controlId} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
               {singleSelectLabel}
             </SelectValue>
@@ -4954,16 +5134,18 @@ const FieldControl = React.memo(function FieldControlImpl({
         </Select>
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
-        <ListboxMultiSelect
-          options={options}
-          placeholder={placeholder}
-          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-          onChange={(vals) => setValue(field.id, vals)}
-          autoFocus={autoFocusField}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <ListboxMultiSelect
+            options={options}
+            placeholder={placeholder}
+            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+            onChange={(vals) => setValue(field.id, vals)}
+            autoFocus={autoFocusField}
+          />
+        </div>
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={labelId}>
           {options.map((opt) => {
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
@@ -4991,22 +5173,24 @@ const FieldControl = React.memo(function FieldControlImpl({
         </div>
       )}
       {field.type === 'relation' && (
-        <RelationSelect
-          options={options}
-          placeholder={placeholder}
-          value={
-            Array.isArray(value)
-              ? String(value[0] ?? '')
-              : value == null
-                ? ''
-                : String(value)
-          }
-          onChange={(selected) => setValue(field.id, selected)}
-          autoFocus={autoFocusField}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <RelationSelect
+            options={options}
+            placeholder={placeholder}
+            value={
+              Array.isArray(value)
+                ? String(value[0] ?? '')
+                : value == null
+                  ? ''
+                  : String(value)
+            }
+            onChange={(selected) => setValue(field.id, selected)}
+            autoFocus={autoFocusField}
+          />
+        </div>
       )}
       {field.type === 'custom' && (
-        <>
+        <div role="group" aria-labelledby={labelId}>
           {field.component({
             id: field.id,
             value,
@@ -5019,7 +5203,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             autoFocus,
             disabled,
           })}
-        </>
+        </div>
       )}
       {field.description ? (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -5051,6 +5235,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
+  prev.formId === next.formId &&
   (prev.field.type !== 'custom' ||
     (prev.values === next.values &&
       prev.field.component === (next.field as CrudCustomField).component &&

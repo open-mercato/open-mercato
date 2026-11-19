@@ -9,7 +9,6 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import {
   CrudForm,
   type CrudField,
@@ -30,8 +29,9 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { formatRelativeAge } from '../../../components/types'
-import { useCoalescedReload } from '../../../components/useCoalescedReload'
+import { useProcessDefinitionsLiveUpdates } from '../../../components/useProcessDefinitionsLiveUpdates'
 import { PROCESS_STATUS_LABEL_KEY, type ProcessInstanceStatus } from '../../../components/processTypes'
 import {
   processMilestonesSchema,
@@ -377,34 +377,35 @@ export default function ProcessDefinitionsPage() {
   const load = React.useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true)
     setError(null)
-    const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-      '/api/agent_orchestrator/processes?pageSize=100',
-      undefined,
-      { fallback: { items: [] } },
-    )
-    if (!call.ok) {
+    try {
+      const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        '/api/agent_orchestrator/processes?pageSize=100',
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (!call.ok) {
+        setError(t('agent_orchestrator.processDefinitions.list.error'))
+        return
+      }
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      setRows(items.map(mapRow).filter((row): row is ProcessDefinitionRow => !!row))
+    } catch (err) {
       setError(t('agent_orchestrator.processDefinitions.list.error'))
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'agent_orchestrator', code: 'agent_orchestrator.process_definitions_load_failed',
+      })
+    } finally {
       if (!opts?.silent) setIsLoading(false)
-      return
     }
-    const items = Array.isArray(call.result?.items) ? call.result.items : []
-    setRows(items.map(mapRow).filter((row): row is ProcessDefinitionRow => !!row))
-    if (!opts?.silent) setIsLoading(false)
   }, [t])
 
   React.useEffect(() => {
     void load()
   }, [load])
 
-  // Live refresh: task runs starting/finishing update the Last-run column
-  // without a manual reload (silent — no loading flash), coalesced so an
-  // event burst triggers at most one refetch per interval.
-  const coalescedReload = useCoalescedReload(
+  useProcessDefinitionsLiveUpdates(
     React.useCallback(() => { void load({ silent: true }) }, [load]),
   )
-  useAppEvent('agent_orchestrator.process.execution.*', () => {
-    coalescedReload()
-  })
 
   React.useEffect(() => {
     let cancelled = false

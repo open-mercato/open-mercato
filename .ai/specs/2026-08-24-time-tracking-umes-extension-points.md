@@ -498,6 +498,11 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   `propsSchema` built from the shared helpers in `lib/time-tracking/componentContracts.ts`
   — `useRegisteredComponent` parses it in development and falls back to the original
   component when a replacement does not satisfy it.
+- **Dialog schema exported (#6989, 2026-10-07).** `timeEntryDialogPropsSchema` is a named
+  export of `lib/time-tracking-ui/TimeEntryDialog.tsx` — STABLE, additive-only — so a
+  replacement imports the exact contract. The other nine schemas are covered by
+  `.ai/specs/2026-10-30-time-tracking-component-props-schema-exports.md`. `optionalCallbackProp` now marks its key
+  optional, so an omitted optional callback no longer fails the dev-time check.
 
 ### Group 6 — Domain strategy registries (10) ✅
 
@@ -663,6 +668,24 @@ with the current behaviour registered as the built-in default (no behaviour chan
   `resolve` answers `{ targetMinutesByDate, totalTargetMinutes }` so a contributed
   provider can vary per day; the built-in spreads `targets.dailyHours` over the caller's
   working days and answers `totalTargetMinutes: null` when the tenant set no target.
+- **Wired (#6934)**: providers may add an optional `resolveAsync` (a data-backed provider
+  reads its own table); `resolveTimesheetCapacityAsync` /
+  `timeCapacityResolver.resolveCapacityAsync` prefer it and answer
+  `{ …result, providerId, isBuiltIn }`, every answer validated by `normalizeCapacityResult`.
+  `GET /api/staff/timesheets/capacity?from&to&staffMemberId` (another person requires
+  `staff.timesheets.projects.manage`) feeds the Timesheet footer, per-day load bars (list and
+  calendar) and default expanded day; `my-work` resolves week and month targets the same
+  way. The built-in answer keeps the flat `dailyHours` arithmetic and its "d × h" caption; a
+  contributed one shows its `labelKey`/`label` or a neutral "Target". The
+  `staff.timesheet:period-footer` context gained `periodFrom`, `periodTo`, `staffMemberId`
+  and `capacityProviderId`. A provider, override or route failure falls back to the flat
+  target and is reported through `reportError` (`staff.capacity_*`,
+  `staff.my_work_capacity_failed`, and `staff.timesheet_capacity_load_failed` when the
+  timesheet page cannot reach the capacity route). Integration coverage: `TC-STAFF-049` (route access,
+  period validation, My Work week target, the footer caption with no provider registered;
+  404 with no capacity data for foreign-tenant and foreign-organization members; a provider
+  contributed through the real registry, via the integration-only example probe, driving the
+  capacity response, My Work targets and the Timesheet footer and day comparison).
 
 #### EP-41 · `registry` · Report approval / lock policy provider
 - **Edit**: `api/timesheets/reports/[id]/{close,unlock}/route.ts`,
@@ -1004,6 +1027,19 @@ the entries below rather than into the implementation.
 
 ## Part 4 — Cross-cutting requirements
 
+### Migration & Backward Compatibility
+
+- `InjectionWidgetPlacement.priority?: number` is additive. Injection tables already
+  accepted entry-level `priority`, and the loader already copied it into the loaded
+  placement object; the declared type now reflects that runtime contract.
+- Customer company, person and deal detail tabs treat built-ins as priority `0`.
+  Contributions without a priority therefore retain their existing position after all
+  built-ins, while positive and negative priorities opt into placement before or after
+  them. Equal priorities preserve declaration order through stable sorting.
+- No database, API, event, ACL, import-path or generated-file migration is required.
+  Existing injection tables and component overrides remain source- and
+  behavior-compatible.
+
 - **Backward compatibility.** Every EP is additive. The event ids in `events.ts`, the
   ACL feature ids in `acl.ts` and the API route paths are FROZEN/STABLE surfaces
   (`BACKWARD_COMPATIBILITY.md`) — EP-02 makes declared ids *fire*, it must not rename one.
@@ -1022,3 +1058,18 @@ the entries below rather than into the implementation.
 - **Docs.** Each phase updates
   `apps/docs/docs/framework/extensibility/current-surfaces.mdx` and the staff
   `AGENTS.md` host table; run `yarn generate` and `yarn agents:check-budget`.
+
+## Changelog
+
+- 2026-11-05 — EP-40 wired (#6934, PR #6935): optional `resolveAsync` with
+  `resolveTimesheetCapacityAsync` / `timeCapacityResolver.resolveCapacityAsync` answering
+  `providerId` and `isBuiltIn`; `GET /api/staff/timesheets/capacity` feeding the Timesheet footer,
+  per-day load bars and My Work week/month targets; reported fallbacks to the flat target; the
+  additive `staff.timesheet:period-footer` context fields. `TC-STAFF-049` covers route access,
+  wrong-scope 404s for foreign tenants and organizations, and a contributed provider end to end
+  through the real registry.
+
+- 2026-10-29 — Added `TC-CRM-8020-injected-tab-priority` browser coverage on real company, person and deal detail pages for priority ordering, unchanged defaults, stable ties, unavailable contributors, selection and deep links.
+
+- 2026-10-22 — Documented the additive injected-tab priority contract and its
+  migration/backward-compatibility guarantees for customer detail hosts.

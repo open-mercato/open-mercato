@@ -3,10 +3,11 @@ import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
 import { findUncollectedPayerFields, resolveRequiredPayerFields } from '../lib/payerFieldRequirements'
 import { requireCheckoutScope, type CheckoutScope } from '../lib/utils'
-import { serializeTemplateOrLink, toMoneyString } from '../lib/utils'
+import { serializeTemplateOrLink } from '../lib/utils'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -97,6 +98,44 @@ const PROPAGATED_TEMPLATE_FIELD_KEYS = [
 
 type PropagatedTemplateFieldKey = (typeof PROPAGATED_TEMPLATE_FIELD_KEYS)[number]
 
+const PROPAGATED_TEMPLATE_MONEY_FIELD_KEYS = [
+  'fixedPriceAmount',
+  'fixedPriceOriginalAmount',
+  'customAmountMin',
+  'customAmountMax',
+] as const satisfies ReadonlyArray<PropagatedTemplateFieldKey>
+
+type PropagatedTemplateMoneyFieldKey = (typeof PROPAGATED_TEMPLATE_MONEY_FIELD_KEYS)[number]
+
+const PROPAGATED_TEMPLATE_EXACT_FIELD_KEYS = {
+  fixedPriceAmount: 'fixedPriceAmountExact',
+  fixedPriceOriginalAmount: 'fixedPriceOriginalAmountExact',
+  customAmountMin: 'customAmountMinExact',
+  customAmountMax: 'customAmountMaxExact',
+} as const satisfies Record<PropagatedTemplateMoneyFieldKey, keyof CheckoutTemplateSnapshot>
+
+function isPropagatedTemplateMoneyField(key: PropagatedTemplateFieldKey): key is PropagatedTemplateMoneyFieldKey {
+  return (PROPAGATED_TEMPLATE_MONEY_FIELD_KEYS as ReadonlyArray<PropagatedTemplateFieldKey>).includes(key)
+}
+
+function readExactMoneyField(snapshot: CheckoutTemplateSnapshot, key: PropagatedTemplateMoneyFieldKey): string | null {
+  return resolveExactDecimal(snapshot[PROPAGATED_TEMPLATE_EXACT_FIELD_KEYS[key]], snapshot[key])
+}
+
+function normalizePriceListItemsForComparison(items: unknown): unknown {
+  if (!Array.isArray(items)) return items
+  return items.map((item) => {
+    if (!isRecord(item)) return item
+    const { amountExact, ...rest } = item
+    return { ...rest, amount: resolveExactDecimal(amountExact, rest.amount) }
+  })
+}
+
+function readPropagatedTemplateField(snapshot: CheckoutTemplateSnapshot, key: PropagatedTemplateFieldKey): unknown {
+  if (key === 'priceListItems') return normalizePriceListItemsForComparison(snapshot.priceListItems)
+  return isPropagatedTemplateMoneyField(key) ? readExactMoneyField(snapshot, key) : snapshot[key]
+}
+
 function cloneJson<T>(value: T): T {
   if (value == null) return value
   return JSON.parse(JSON.stringify(value)) as T
@@ -134,6 +173,14 @@ function copyPropagatedTemplateField<K extends PropagatedTemplateFieldKey>(
   snapshot[key] = cloneJson(nextTemplate[key]) as CheckoutLinkSnapshot[K]
 }
 
+function copyPropagatedExactMoneyField(
+  snapshot: CheckoutLinkSnapshot,
+  nextTemplate: CheckoutTemplateSnapshot,
+  key: PropagatedTemplateMoneyFieldKey,
+): void {
+  snapshot[PROPAGATED_TEMPLATE_EXACT_FIELD_KEYS[key]] = readExactMoneyField(nextTemplate, key)
+}
+
 export function captureTemplateSnapshot(
   record: CheckoutLinkTemplate,
   custom?: CustomFieldSnapshot,
@@ -169,9 +216,11 @@ export function buildSelectiveLinkedLinkSnapshot(
   const snapshot = cloneJson(current)
 
   for (const key of PROPAGATED_TEMPLATE_FIELD_KEYS) {
-    if (!valuesEqual(current[key], previousTemplate[key])) continue
-    if (valuesEqual(current[key], nextTemplate[key])) continue
+    const currentValue = readPropagatedTemplateField(current, key)
+    if (!valuesEqual(currentValue, readPropagatedTemplateField(previousTemplate, key))) continue
+    if (valuesEqual(currentValue, readPropagatedTemplateField(nextTemplate, key))) continue
     copyPropagatedTemplateField(snapshot, nextTemplate, key)
+    if (isPropagatedTemplateMoneyField(key)) copyPropagatedExactMoneyField(snapshot, nextTemplate, key)
   }
 
   const missingPayerFields = findUncollectedPayerFields({
@@ -186,7 +235,10 @@ export function buildSelectiveLinkedLinkSnapshot(
   }
 
   return {
-    changed: PROPAGATED_TEMPLATE_FIELD_KEYS.some((key) => !valuesEqual(current[key], snapshot[key])),
+    changed: PROPAGATED_TEMPLATE_FIELD_KEYS.some((key) => !valuesEqual(
+      readPropagatedTemplateField(current, key),
+      readPropagatedTemplateField(snapshot, key),
+    )),
     snapshot,
   }
 }
@@ -234,12 +286,12 @@ function buildTemplateSnapshotData(snapshot: CheckoutTemplateSnapshot) {
     backgroundColor: snapshot.backgroundColor ?? null,
     themeMode: snapshot.themeMode,
     pricingMode: snapshot.pricingMode,
-    fixedPriceAmount: toMoneyString(snapshot.fixedPriceAmount),
+    fixedPriceAmount: resolveExactDecimal(snapshot.fixedPriceAmountExact, snapshot.fixedPriceAmount),
     fixedPriceCurrencyCode: snapshot.fixedPriceCurrencyCode ?? null,
     fixedPriceIncludesTax: snapshot.fixedPriceIncludesTax,
-    fixedPriceOriginalAmount: toMoneyString(snapshot.fixedPriceOriginalAmount),
-    customAmountMin: toMoneyString(snapshot.customAmountMin),
-    customAmountMax: toMoneyString(snapshot.customAmountMax),
+    fixedPriceOriginalAmount: resolveExactDecimal(snapshot.fixedPriceOriginalAmountExact, snapshot.fixedPriceOriginalAmount),
+    customAmountMin: resolveExactDecimal(snapshot.customAmountMinExact, snapshot.customAmountMin),
+    customAmountMax: resolveExactDecimal(snapshot.customAmountMaxExact, snapshot.customAmountMax),
     customAmountCurrencyCode: snapshot.customAmountCurrencyCode ?? null,
     priceListItems: cloneJson(snapshot.priceListItems ?? []),
     gatewayProviderKey: snapshot.gatewayProviderKey ?? null,
@@ -279,6 +331,11 @@ export function restoreTemplateFromSnapshot(
   Object.assign(target, buildTemplateSnapshotData(snapshot))
 }
 
+/**
+ * Restores configuration onto an existing link. The usage counters and lock flag are
+ * owned by the link's transactions, so the live row keeps them: rewinding them to a
+ * snapshot would drop payments made after it was taken and reopen sold-out links.
+ */
 export function restoreLinkFromSnapshot(
   target: CheckoutLink,
   snapshot: CheckoutLinkSnapshot,
@@ -287,9 +344,6 @@ export function restoreLinkFromSnapshot(
     ...buildTemplateSnapshotData(snapshot),
     slug: snapshot.slug,
     templateId: snapshot.templateId ?? null,
-    completionCount: snapshot.completionCount,
-    activeReservationCount: snapshot.activeReservationCount,
-    isLocked: snapshot.isLocked,
   })
 }
 
