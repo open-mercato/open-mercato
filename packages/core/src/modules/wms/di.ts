@@ -1,4 +1,4 @@
-import { asValue } from 'awilix'
+import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { availabilityProviderRegistry } from '@open-mercato/shared/lib/availability'
 import {
@@ -12,6 +12,7 @@ import {
   WarehouseZone,
 } from './data/entities'
 import { WMS_AVAILABILITY_PROVIDER_ID, wmsAvailabilityProvider } from './lib/availabilityProvider'
+import { WmsReservationService } from './lib/wmsReservationService'
 
 export function register(container: AppContainer) {
   container.register({
@@ -23,6 +24,7 @@ export function register(container: AppContainer) {
     InventoryBalance: asValue(InventoryBalance),
     InventoryReservation: asValue(InventoryReservation),
     InventoryMovement: asValue(InventoryMovement),
+    wmsReservationService: asFunction(() => new WmsReservationService()).scoped().proxy(),
   })
 
   if (availabilityProviderRegistry.get(WMS_AVAILABILITY_PROVIDER_ID) !== wmsAvailabilityProvider) {
