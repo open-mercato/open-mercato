@@ -11,3 +11,9 @@
 
 ## 2026-11-19T19:14:28Z — decision: status re-check order
 - Line writes re-check assertCartNotLocked (423) before cart_not_active (409), per TC-CART-CONC-06; the reference checked 409 first.
+
+## 2026-11-19T19:42:44Z — checkpoint 1
+- Steps 1.1–2.1 done; cart unit, pg and typecheck green (checkpoint-1-checks.md).
+
+## 2026-11-19T19:42:44Z — Playwright
+- TC-CART-CONC-01-05 + TC-CART-PRICE-01-02 via `yarn test:integration:ephemeral`: 10 passed (4.7m). First attempt failed at initialize because dist predated `yarn generate`; rebuilt and reran.
