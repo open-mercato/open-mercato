@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type Page, type Request } from '@playwright/test'
+import { expect, test, type Locator, type Page, type Request } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture,
@@ -73,40 +73,60 @@ async function deleteAttachmentViaPage(page: Page, attachmentId: string): Promis
 }
 
 type StaleAttachmentsResponseGate = {
-  // Resolves once the very first attachments request has been captured, its
-  // (pre-mutation) response snapshot has actually been fetched, and the
-  // release callback below is armed — not merely scheduled. Awaiting this
-  // instead of polling a flag set at the top of the route handler prevents
-  // the caller from racing ahead (e.g. uploading the "fresh" attachment, or
-  // navigating away) before the stale snapshot was truly taken.
+  // Resolves once the very first attachments request after this gate was
+  // armed has been captured, its (pre-mutation) response snapshot has
+  // actually been fetched, and the release callback below is armed — not
+  // merely scheduled. Awaiting this instead of polling a flag set at the top
+  // of the route handler prevents the caller from racing ahead (e.g.
+  // uploading the "fresh" attachment, or navigating away) before the stale
+  // snapshot was truly taken.
   ready: Promise<void>
   // Releases the held response and resolves only once that exact response —
   // identified by the original Request object, never by URL, since a second,
   // unrelated request to the same URL can land first — has been fully
-  // delivered to the page.
+  // delivered to the page AND the page has had a genuine opportunity to
+  // consume it (parse the JSON body, run the `apiCall` `.then` callback, and
+  // let React commit the resulting state update). See
+  // `waitForPageToSettle` below for how that opportunity is established.
   release: () => Promise<void>
 }
 
-// Shared by both stale-response race tests below: intercepts the first
-// matching `/api/attachments` request, fetches its real response immediately
-// (capturing the "old" snapshot before any caller-driven mutation or
-// navigation can change it), then holds that exact response until `release()`
-// is called. Every subsequent request to the same URL (e.g. the fresh fetch
-// after navigating back) passes straight through.
-async function armStaleAttachmentsResponseGate(page: Page): Promise<StaleAttachmentsResponseGate> {
-  let staleRequest: Request | null = null
-  let readyResolve: (() => void) | null = null
-  const ready = new Promise<void>((resolve) => { readyResolve = resolve })
-  let releaseGateResolve: (() => void) | null = null
+type AttachmentsResponseInterceptor = {
+  // Arms a fresh gate that intercepts the NEXT matching `/api/attachments`
+  // request. Call this once per race attempt — the underlying `page.route`
+  // handler below is installed exactly once per test and stays installed
+  // across every navigation in the attempt loop. Toggling `page.route`/
+  // `page.unroute` around a `page.goBack()` can strand the in-flight RSC
+  // request issued by that navigation (Chromium's Fetch-interception domain
+  // is briefly disabled while swapping handlers), which reads as an
+  // unrelated navigation timeout rather than the race bug under test — see
+  // `.ai/lessons/toggling-playwright-request-interception-strands-in.md`.
+  arm: () => StaleAttachmentsResponseGate
+}
+
+// Shared by both stale-response race tests below: installs a single
+// `/api/attachments` route handler for the lifetime of the test (removed
+// automatically when Playwright tears down the page) and lets the caller
+// `arm()` a new gate before each navigation that should capture a stale
+// response. Each armed gate intercepts only the next matching request;
+// requests before arming, or after that one has already been captured and
+// released, pass straight through.
+async function installAttachmentsResponseInterceptor(page: Page): Promise<AttachmentsResponseInterceptor> {
+  let active: {
+    staleRequest: Request | null
+    readyResolve: () => void
+    releaseGateResolve: (() => void) | null
+  } | null = null
 
   await page.route('**/api/attachments?*', async (route) => {
-    if (!staleRequest) {
-      staleRequest = route.request()
+    const armed = active
+    if (armed && !armed.staleRequest) {
+      armed.staleRequest = route.request()
       const staleResponse = await route.fetch()
-      const released = new Promise<void>((resolve) => { releaseGateResolve = resolve })
+      const released = new Promise<void>((resolve) => { armed.releaseGateResolve = resolve })
       // Only now — after the snapshot is actually fetched AND the release
       // callback above is guaranteed assigned — may the caller proceed.
-      readyResolve?.()
+      armed.readyResolve()
       await released
       await route.fulfill({ response: staleResponse })
       return
@@ -114,19 +134,59 @@ async function armStaleAttachmentsResponseGate(page: Page): Promise<StaleAttachm
     await route.continue()
   })
 
-  const release = async () => {
-    if (!staleRequest || !releaseGateResolve) {
-      throw new Error('release() called before the stale request gate was ready')
+  const arm = (): StaleAttachmentsResponseGate => {
+    let readyResolve: (() => void) | null = null
+    const ready = new Promise<void>((resolve) => { readyResolve = resolve })
+    const armed = { staleRequest: null as Request | null, readyResolve: () => readyResolve?.(), releaseGateResolve: null as (() => void) | null }
+    active = armed
+
+    const release = async () => {
+      if (!armed.staleRequest || !armed.releaseGateResolve) {
+        throw new Error('release() called before the stale request gate was ready')
+      }
+      const delivered = page.waitForResponse((response) => response.request() === armed.staleRequest)
+      armed.releaseGateResolve()
+      const response = await delivered
+      // Confirms the exact held response's body has fully reached the page.
+      await response.finished()
+      // `response.finished()` only proves the bytes are on the wire — not
+      // that the page's own JS has parsed the JSON body, run the `apiCall`
+      // `.then` callback, and committed the resulting `setState`. Flushing
+      // two animation frames guarantees at least one full paint cycle has
+      // elapsed: the browser never runs a `requestAnimationFrame` callback
+      // until every microtask queued before it (the fetch promise chain)
+      // has drained, and nesting a second rAF additionally waits out
+      // React's own commit/paint scheduling. This is a deterministic
+      // ordering guarantee from the JS event loop, not a guessed duration.
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }))
     }
-    const delivered = page.waitForResponse((response) => response.request() === staleRequest)
-    releaseGateResolve()
-    const response = await delivered
-    // Confirms the exact held response's body has fully reached the page,
-    // not just that some response to this URL arrived.
-    await response.finished()
+
+    return { ready, release }
   }
 
-  return { ready, release }
+  return { arm }
+}
+
+// After `gate.release()`, the double-rAF flush already guarantees the page
+// has had its one real opportunity to apply the stale response. This keeps
+// sampling the forbidden (stale) count for a bounded extra window so that
+// any slower-than-expected consumer (a delayed microtask hop, a slow CI
+// runner) is still caught by a failing assertion instead of a check that
+// simply ran too early to observe it.
+async function assertStaleCountNeverAppears(
+  scope: Locator,
+  staleCount: string,
+  attemptLabel: string,
+): Promise<void> {
+  for (let sample = 0; sample < 5; sample += 1) {
+    await expect(
+      scope.getByText(staleCount),
+      `${attemptLabel}: the stale response must never apply its count, including after a delayed consumer`,
+    ).toHaveCount(0)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
 }
 
 test.describe('TC-WC-8796: claim detail attachment access in the browser', () => {
@@ -591,8 +651,14 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
     await expect(rowFor(staleAttachmentsClaimNumber)).toBeVisible()
     await expect(rowFor(currentAttachmentsClaimNumber)).toBeVisible()
 
+    // Installed once for the whole attempt loop — see
+    // `installAttachmentsResponseInterceptor` for why toggling
+    // `page.route`/`page.unroute` around each `page.goBack()` would strand
+    // in-flight navigations instead.
+    const interceptor = await installAttachmentsResponseInterceptor(page)
+
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const gate = await armStaleAttachmentsResponseGate(page)
+      const gate = interceptor.arm()
 
       await rowFor(staleAttachmentsClaimNumber).click()
       await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toBeVisible()
@@ -618,31 +684,28 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
         `attempt ${attempt + 1}: the current claim's own attachment count should load`,
       ).toBeVisible()
 
-      // Releases the held stale response and waits until that exact response
-      // — matched by its original Request object, never by URL — has fully
-      // reached the page, so the assertions below cannot run before the
-      // regression this test targets had any chance to manifest.
+      // Releases the held stale response. `gate.release()` waits until that
+      // exact response — matched by its original Request object, never by
+      // URL — has fully reached the page, AND flushes a double animation
+      // frame so the page has had its real opportunity to parse the JSON
+      // body, run the `apiCall` `.then` callback, and commit the resulting
+      // `setState` before the assertions below run.
       await gate.release()
-      // response.finished() only confirms the response body is fully on the
-      // wire, not that its JSON has been parsed and the resulting setState
-      // call has flushed. Since "1" is already rendered before this point
-      // (from the current claim's own load), a toBeVisible() check on "1"
-      // would otherwise succeed instantly without ever observing a stale "2"
-      // that lands a tick later — give that in-flight microtask chain a
-      // moment to settle before asserting the final, stable state.
-      await page.waitForTimeout(500)
 
       await expect(
         currentAttachmentsTab.getByText(String(CURRENT_ATTACHMENT_COUNT)),
         `attempt ${attempt + 1}: the first claim's stale attachment response must not leak into the second claim's count`,
       ).toBeVisible()
-      await expect(
-        currentAttachmentsTab.getByText(String(STALE_ATTACHMENT_COUNT)),
-        `attempt ${attempt + 1}: the stale claim's count must never appear on the current claim`,
-      ).toHaveCount(0)
+      // Keeps sampling for a bounded extra window so a slower-than-expected
+      // consumer is still caught by a failing assertion rather than a check
+      // that ran too early to observe it.
+      await assertStaleCountNeverAppears(
+        currentAttachmentsTab,
+        String(STALE_ATTACHMENT_COUNT),
+        `attempt ${attempt + 1}`,
+      )
       await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toHaveCount(0)
 
-      await page.unroute('**/api/attachments?*')
       await page.goBack()
       await expect(rowFor(staleAttachmentsClaimNumber)).toBeVisible()
     }
@@ -651,7 +714,8 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
   test('rejects a stale attachment response after switching the selected organization mid-flight', async ({ page, request }) => {
     await loginAsScopedUser(page, crossOrgReader.email, crossOrgReader.password, tenantId, organizationId)
 
-    const gate = await armStaleAttachmentsResponseGate(page)
+    const interceptor = await installAttachmentsResponseInterceptor(page)
+    const gate = interceptor.arm()
 
     await page.goto(`/backend/warranty_claims/${staleAttachmentsClaimId}`)
     await expect(page.getByText(staleAttachmentsClaimNumber, { exact: true })).toBeVisible()
@@ -705,26 +769,25 @@ test.describe('TC-WC-8796: claim detail attachment access in the browser', () =>
       'switching back should load the claim\'s fresh, current attachment count',
     ).toBeVisible()
 
-    // Releases the held stale response and waits until that exact response —
-    // matched by its original Request object, never by URL — has fully
-    // reached the page, so the assertions below cannot run before the
-    // regression this test targets had any chance to manifest.
+    // Releases the held stale response. `gate.release()` waits until that
+    // exact response — matched by its original Request object, never by
+    // URL — has fully reached the page, AND flushes a double animation
+    // frame so the page has had its real opportunity to parse the JSON
+    // body, run the `apiCall` `.then` callback, and commit the resulting
+    // `setState` before the assertions below run.
     await gate.release()
-    // response.finished() only confirms the response body is fully on the
-    // wire, not that its JSON has been parsed and the resulting setState
-    // call has flushed. Give that in-flight microtask chain a moment to
-    // settle before asserting the final, stable state.
-    await page.waitForTimeout(500)
 
     await expect(
       attachmentsTab.getByText(String(updatedStaleAttachmentCount)),
       "the organization-switch's stale, now-delivered response must not revert the claim's fresh attachment count",
     ).toBeVisible()
-    await expect(
-      attachmentsTab.getByText(String(STALE_ATTACHMENT_COUNT)),
-      'the outdated count captured before the extra upload must never resurface',
-    ).toHaveCount(0)
-
-    await page.unroute('**/api/attachments?*')
+    // Keeps sampling for a bounded extra window so a slower-than-expected
+    // consumer is still caught by a failing assertion rather than a check
+    // that ran too early to observe it.
+    await assertStaleCountNeverAppears(
+      attachmentsTab,
+      String(STALE_ATTACHMENT_COUNT),
+      'organization switch',
+    )
   })
 })

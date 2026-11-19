@@ -5,11 +5,14 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentEvalSuiteRun } from '../../data/entities'
 import { evalRunCreateSchema, evalRunListQuerySchema } from '../../data/validators'
 import { replaySuiteRun } from '../../lib/eval/evalReplayService'
+import { readEvalSetPointer } from '../../lib/eval/manifest'
 import { AGENT_ORCHESTRATOR_EVAL_SUITE_QUEUE, getAgentOrchestratorQueue } from '../../lib/queue'
 import type {
   CompleteEvalRunCommandInput,
@@ -55,15 +58,22 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
-  const where: Record<string, unknown> = toScope(auth)
+  const scope = toScope(auth)
+  const where: Record<string, unknown> = { ...scope }
   if (query.agentDefinitionId) where.agentDefinitionId = query.agentDefinitionId
   if (query.status) where.status = query.status
 
-  const [items, total] = await em.findAndCount(AgentEvalSuiteRun, where, {
-    orderBy: { createdAt: 'DESC' },
-    limit: query.pageSize,
-    offset: (query.page - 1) * query.pageSize,
-  })
+  const [items, total] = await findAndCountWithDecryption(
+    em,
+    AgentEvalSuiteRun,
+    where,
+    {
+      orderBy: { createdAt: 'DESC' },
+      limit: query.pageSize,
+      offset: (query.page - 1) * query.pageSize,
+    },
+    scope,
+  )
 
   return NextResponse.json({
     items: items.map((run) => ({
@@ -78,6 +88,8 @@ export async function GET(req: Request) {
       score_variance: run.scoreVariance ?? null,
       repeat_count: run.repeatCount,
       judge_may_gate: run.judgeMayGate,
+      eval_set_version: run.evalSetVersion ?? null,
+      manifest_hash: readEvalSetPointer(run.summary)?.version ?? null,
       triggered_by: run.triggeredBy ?? null,
       started_at: run.startedAt?.toISOString() ?? null,
       finished_at: run.finishedAt?.toISOString() ?? null,
@@ -103,7 +115,7 @@ export async function POST(req: Request) {
   }
   const input = parsed.data
 
-  const requested = input.evalCaseIds.length * input.repeatCount
+  const requested = input.evalCaseIds ? input.evalCaseIds.length * input.repeatCount : null
 
   const container = await createRequestContainer()
   const commandBus = container.resolve('commandBus') as CommandBus
@@ -124,17 +136,19 @@ export async function POST(req: Request) {
         input: {
           ...scope,
           agentDefinitionId: input.agentDefinitionId,
-          evalCaseIds: input.evalCaseIds,
+          ...(input.evalCaseIds ? { evalCaseIds: input.evalCaseIds } : {}),
+          ...(input.snapshot ? { snapshot: input.snapshot } : {}),
           repeatCount: input.repeatCount,
           trigger: 'manual',
           judgeMayGate: input.judgeMayGate,
           triggeredBy: auth.sub,
+          ...(input.callSettings ? { callSettings: input.callSettings } : {}),
         },
         ctx: commandCtx,
       },
     )
 
-    if (requested > MAX_SYNCHRONOUS_CASE_RUNS) {
+    if ((requested ?? started.caseRunCount) > MAX_SYNCHRONOUS_CASE_RUNS) {
       // Enqueued AFTER the suite run and its pending case runs are committed, so
       // the worker always finds a complete, durable work list — and a payload
       // carrying only the id cannot cross tenants.
@@ -160,6 +174,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ...completed, caseRunCount: started.caseRunCount })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     throw err
   }
 }
@@ -171,7 +189,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Paginated history of evaluation runs for the organization',
       description:
-        'Suite-run history, newest first. Filterable by agentDefinitionId and status. pageSize is capped at 100. Gated by agent_orchestrator.eval.manage.',
+        'Suite-run history, newest first. Filterable by agentDefinitionId and status. pageSize is capped at 100. Each item carries eval_set_version (the pin column) and manifest_hash (the frozen eval-set manifest hash from the summary pointer, null for runs that predate manifests). Gated by agent_orchestrator.eval.manage.',
       responses: [{ status: 200, description: 'Paged suite runs' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },
@@ -179,9 +197,10 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
     POST: {
-      summary: 'Run an evaluation of an agent against selected approved eval cases',
+      summary: 'Run an evaluation of an agent against selected approved eval cases or a frozen snapshot',
+      requestBody: { contentType: 'application/json', schema: evalRunCreateSchema },
       description:
-        'Replays each selected case through the real agent runtime (FRESH inference under the agent\'s own principal, propose-only: no proposal is ever disposed) and scores the resulting run against the effective assertion set. Only approved cases are accepted. Selections of 5 case runs or fewer execute inline and return 200 with the finished summary; larger ones are queued and return 202 with status "queued" — follow them via the eval_case_run.* SSE events. Gated by agent_orchestrator.eval.run.',
+        'Replays each selected case through the real agent runtime (FRESH inference under the agent\'s own principal, propose-only: no proposal is ever disposed) and scores the resulting run against the effective assertion set. Only approved cases are accepted. Optional `snapshot` pins a frozen eval-set manifest: "latest" freezes the current approved cases and assertions, "sha256:<hex>" replays a previously frozen manifest; either way the suite run\'s evalSetVersion becomes the manifest hash, evalCaseIds becomes optional (it narrows the manifest\'s cases when given) and baselines compare only against runs of the identical dataset. Without `snapshot` the run is unpinned as before, though the manifest is still frozen and reported. Optional `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, presencePenalty, frequencyPenalty; capped, providerOptions rejected) override the agent\'s modelSettings key by key for every case run and are recorded on the suite run summary as __evalRun. Selections of 5 case runs or fewer execute inline and return 200 with the finished summary; larger ones are queued and return 202 with status "queued" — follow them via the eval_case_run.* SSE events. Gated by agent_orchestrator.eval.run.',
       responses: [
         { status: 200, description: 'The completed suite run summary (executed inline)' },
         { status: 202, description: 'The suite run was queued for the eval worker' },
@@ -190,7 +209,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid body', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Missing agent_orchestrator.eval.run', schema: errorSchema },
-        { status: 422, description: 'No approved cases matched, or selection too large', schema: errorSchema },
+        { status: 404, description: 'The snapshot hash is not known for this agent in the organization (code eval_set_unresolved)', schema: errorSchema },
+        { status: 422, description: 'No approved cases matched, selection too large, or eval set manifest too large', schema: errorSchema },
       ],
     },
   },

@@ -22,6 +22,8 @@ type MockCrudFormProps = {
   submitLabel?: string
   optimisticLockUpdatedAt?: string | null
   initialValues?: Record<string, unknown>
+  schema?: { safeParse: (value: unknown) => { success: boolean; data?: Record<string, unknown> } }
+  fields?: Array<{ id: string; type: string }>
   onSubmit?: (values: Record<string, unknown>) => Promise<void>
 }
 
@@ -178,5 +180,70 @@ describe('CustomerGroupTermsSection optimistic locking', () => {
   it('sends the stored row version once terms exist', () => {
     renderSection(storedTerms, true)
     expect(screen.getByTestId('terms-form').getAttribute('data-lock-token')).toBe(storedTerms.updatedAt)
+  })
+})
+
+describe('CustomerGroupTermsSection exact amounts', () => {
+  const updateCrudMock = updateCrud as jest.Mock
+  const CREDIT_LIMIT = '25.123456789012345678'
+  const APPROVAL_ABOVE = '1000.000000000000000001'
+  const MIN_ORDER = '0.000000000000000001'
+  const exactTerms: CustomerGroupTermsDTO = {
+    ...storedTerms,
+    defaultCreditLimit: Number(CREDIT_LIMIT),
+    defaultCreditLimitExact: CREDIT_LIMIT,
+    creditCurrencyCode: 'ETH',
+    approvalRequiredAbove: Number(APPROVAL_ABOVE),
+    approvalRequiredAboveExact: APPROVAL_ABOVE,
+    minOrderValue: Number(MIN_ORDER),
+    minOrderValueExact: MIN_ORDER,
+  }
+
+  beforeEach(() => {
+    updateCrudMock.mockReset()
+    updateCrudMock.mockResolvedValue({ result: { terms: exactTerms } })
+    lastFormProps = null
+  })
+
+  it('edits the amounts as exact decimal fields seeded from the exact siblings', () => {
+    renderSection(exactTerms, true)
+    expect(lastFormProps?.initialValues).toMatchObject({
+      defaultCreditLimit: CREDIT_LIMIT,
+      approvalRequiredAbove: APPROVAL_ABOVE,
+      minOrderValue: MIN_ORDER,
+    })
+    const amountFieldTypes = (lastFormProps?.fields ?? [])
+      .filter((field) => ['defaultCreditLimit', 'approvalRequiredAbove', 'minOrderValue'].includes(field.id))
+      .map((field) => field.type)
+    expect(amountFieldTypes).toEqual(['decimal', 'decimal', 'decimal'])
+  })
+
+  it('keeps every stored digit when only the payment days change', async () => {
+    renderSection(exactTerms, true)
+    const parsed = lastFormProps?.schema?.safeParse({ ...lastFormProps?.initialValues, paymentTermsDays: 45 })
+    expect(parsed?.success).toBe(true)
+    await lastFormProps?.onSubmit?.(parsed?.data ?? {})
+    await waitFor(() => expect(updateCrudMock).toHaveBeenCalledTimes(1))
+    expect(updateCrudMock.mock.calls[0][1]).toMatchObject({
+      paymentTermsDays: 45,
+      defaultCreditLimit: CREDIT_LIMIT,
+      creditCurrencyCode: 'ETH',
+      approvalRequiredAbove: APPROVAL_ABOVE,
+      minOrderValue: MIN_ORDER,
+    })
+  })
+
+  it('falls back to the float copy for terms mapped without exact siblings', () => {
+    renderSection({ ...storedTerms, defaultCreditLimit: 1500.5 }, true)
+    expect(lastFormProps?.initialValues).toMatchObject({ defaultCreditLimit: '1500.5' })
+  })
+
+  it('rejects negative amounts and clears empty ones', () => {
+    renderSection(exactTerms, true)
+    const base = { ...lastFormProps?.initialValues }
+    expect(lastFormProps?.schema?.safeParse({ ...base, minOrderValue: '-0.01' }).success).toBe(false)
+    const cleared = lastFormProps?.schema?.safeParse({ ...base, minOrderValue: undefined })
+    expect(cleared?.success).toBe(true)
+    expect(cleared?.data?.minOrderValue).toBeUndefined()
   })
 })
