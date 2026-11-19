@@ -29,8 +29,11 @@ jest.mock('../../lib/timesheets-projects/budgetThresholdState', () => ({
   claimBudgetThresholdAlert: (...args: unknown[]) => claimBudgetThresholdAlert(...(args as [])),
 }))
 
+const resolveProjectAmountDecimalPlaces = jest.fn(async () => ({ [timeProjectId]: 2 }) as Record<string, number>)
+
 jest.mock('../../lib/timesheets-projects/computeProjectFinancials', () => ({
   computeProjectFinancials: (...args: unknown[]) => computeProjectFinancials(...(args as [])),
+  resolveProjectAmountDecimalPlaces: (...args: unknown[]) => resolveProjectAmountDecimalPlaces(...(args as [])),
 }))
 
 jest.mock('../../events', () => ({
@@ -82,6 +85,8 @@ describe('staff time project budget threshold subscriber', () => {
     claimBudgetThresholdAlert.mockImplementation(async () => true)
     computeProjectFinancials.mockReset()
     computeProjectFinancials.mockImplementation(async () => new Map())
+    resolveProjectAmountDecimalPlaces.mockReset()
+    resolveProjectAmountDecimalPlaces.mockImplementation(async () => ({ [timeProjectId]: 2 }))
     emitStaffEvent.mockReset()
     emitStaffEvent.mockImplementation(async () => undefined)
   })
@@ -230,6 +235,38 @@ describe('staff time project budget threshold subscriber', () => {
     const [financialsScope] = computeProjectFinancials.mock.calls[0] as [Record<string, unknown>]
     expect(financialsScope).toMatchObject({ tenantId: tenantA, organizationId, projectIds: [timeProjectId] })
     expect((financialsScope.hourlyRateByProjectId as Map<string, number | null>).get(timeProjectId)).toBe(200)
+
+    const [input] = createForFeature.mock.calls[0] as [Record<string, unknown>]
+    expect(input.bodyVariables).toMatchObject({ percent: '90', thresholdPercent: '80' })
+  })
+
+  it('prices an amount budget with the exact project rate at the currency decimals', async () => {
+    loadTimeProjectBudgetStateForEntry.mockImplementation(async () =>
+      hoursProject({
+        budgetKind: 'amount',
+        budgetValue: 1000,
+        hourlyRate: 200,
+        hourlyRateExact: '199.99999999999999999',
+        currencyCode: 'JPY',
+      }),
+    )
+    resolveProjectAmountDecimalPlaces.mockImplementation(async () => ({ [timeProjectId]: 0 }))
+    computeProjectFinancials.mockImplementation(async () => financials({ totalMinutes: 1, cost: 900 }))
+
+    await handle(payload, ctx)
+
+    const [, projects, scope] = resolveProjectAmountDecimalPlaces.mock.calls[0] as unknown as [
+      unknown,
+      Array<{ id: string; currencyCode: string | null }>,
+      Record<string, unknown>,
+    ]
+    expect(projects).toEqual([{ id: timeProjectId, currencyCode: 'JPY' }])
+    expect(scope).toEqual({ tenantId: tenantA, organizationId })
+    const [financialsScope] = computeProjectFinancials.mock.calls[0] as [Record<string, unknown>]
+    expect((financialsScope.hourlyRateByProjectId as Map<string, string | number | null>).get(timeProjectId)).toBe(
+      '199.99999999999999999',
+    )
+    expect(financialsScope.amountDecimalPlacesByProjectId).toEqual({ [timeProjectId]: 0 })
 
     const [input] = createForFeature.mock.calls[0] as [Record<string, unknown>]
     expect(input.bodyVariables).toMatchObject({ percent: '90', thresholdPercent: '80' })
