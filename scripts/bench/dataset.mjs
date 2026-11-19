@@ -5,14 +5,20 @@
 //
 // Every record is a pure function of (plan seed, tenant key, org key, index): the dataset does not
 // depend on concurrency or on how many times the script was resumed. Progress is appended to
-// <state-dir>/<plan>/progress/<tenant>-<org>.log, so a rerun continues. A create whose outcome is
-// unknown (lost response, 5xx, interrupted run) is looked up by its generated domain before it is
-// retried, so retries and resumes never create a record twice (see lib/seeder.mjs).
+// <state-dir>/<plan>/progress/<tenant>-<org>.log, so a rerun continues.
+//
+// No record is created twice (see lib/seeder.mjs). A create whose outcome is unknown (lost
+// response, 5xx, interrupted run) is looked up by its generated domain. If the record is not there
+// the index stays pending, the script exits with code 4, and the next run looks it up again; a
+// still-missing index is created again only with --retry-unknown, once the earlier requests have
+// certainly ended (e.g. the app was restarted). After writing to an organization the script checks
+// that every expected domain occurs exactly once (--verify checks complete organizations too).
 //
 // Usage:
 //   BENCH_EMAIL=... BENCH_PASSWORD=... node scripts/bench/dataset.mjs                    # smoke plan
 //   node scripts/bench/dataset.mjs --plan scripts/bench/plans/companies-v1.json --concurrency 8
 //   node scripts/bench/dataset.mjs --preview 5                                            # print records
+//   node scripts/bench/dataset.mjs --verify                                               # check only
 //
 // BENCH_EMAIL / BENCH_PASSWORD: the `mercato init` admin; its organization is tenant "init" in plans.
 // Tenants with "provision": "setup" are created with `mercato auth setup`; set BENCH_MERCATO_CLI when
@@ -28,7 +34,7 @@ import { parseArgs } from 'node:util'
 import { connect, queryValue, resolveDatabaseUrl } from './lib/db.mjs'
 import { generateCompany } from './lib/generator.mjs'
 import { login, requireCredentials } from './lib/http.mjs'
-import { parseProgress, seedCompanies } from './lib/seeder.mjs'
+import { parseProgress, seedCompanies, verifyIndexes } from './lib/seeder.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -43,6 +49,8 @@ const { values } = parseArgs({
     'database-url': { type: 'string' },
     email: { type: 'string' },
     password: { type: 'string' },
+    'retry-unknown': { type: 'boolean', default: false },
+    verify: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
 })
@@ -147,18 +155,27 @@ async function seedTarget(state, tenant, org, credentials) {
   const { done, pending } = parseProgress(existsSync(progressPath) ? readFileSync(progressPath, 'utf8') : '')
   const todo = []
   for (let i = 0; i < org.companies; i++) if (!done.has(i) && !pending.has(i)) todo.push(i)
-  if (!todo.length && !pending.size) {
+  const needsWork = todo.length > 0 || pending.size > 0
+  if (!needsWork && !values.verify) {
     console.log(`${target}: complete (${org.companies})`)
-    return
+    return { unresolved: [] }
   }
 
   let token = await login(BASE, ...tenantCredentials(t, credentials))
   const scope = { tenantId: t.tenantId, organizationId: t.orgs[org.key] }
-  let finished = 0
-  const startedAt = Date.now()
-  const progress = setInterval(() => {
-    console.log(`${target}: ${done.size + finished}/${org.companies}  ${(finished / ((Date.now() - startedAt) / 1000)).toFixed(1)}/s`)
-  }, 30_000)
+
+  // Visits the organization's companies 100 at a time until `visit` returns false.
+  async function listCompanies(sortDir, visit) {
+    for (let page = 1; page <= 1000; page++) {
+      const res = await fetch(`${BASE}/api/customers/companies?sortField=createdAt&sortDir=${sortDir}&pageSize=100&page=${page}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json', cookie: `om_selected_org=${scope.organizationId}` },
+      })
+      if (!res.ok) throw new Error(`listing companies failed with HTTP ${res.status}`)
+      const { items = [] } = await res.json()
+      if (visit(items) === false || items.length < 100) return
+    }
+    throw new Error('more than 100,000 companies to list; cannot reconcile')
+  }
 
   // Generated domains embed tenant, org and index, so a domain identifies the index of a record.
   async function findCommitted(candidates) {
@@ -166,53 +183,73 @@ async function seedTarget(state, tenant, org, credentials) {
     // Margin for clock skew between this machine and the database.
     const since = Math.min(...[...candidates.values()].map((at) => Date.parse(at))) - 60_000
     const found = new Set()
-    for (let page = 1; page <= 500; page++) {
-      const res = await fetch(`${BASE}/api/customers/companies?sortField=createdAt&sortDir=desc&pageSize=100&page=${page}`, {
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json', cookie: `om_selected_org=${scope.organizationId}` },
-      })
-      if (!res.ok) throw new Error(`listing companies failed with HTTP ${res.status}`)
-      const { items = [] } = await res.json()
+    await listCompanies('desc', (items) => {
       for (const item of items) {
         const index = byDomain.get(item.domain)
         if (index !== undefined) found.add(index)
       }
       const oldest = items.at(-1)?.created_at
-      if (items.length < 100 || (oldest && Date.parse(oldest) < since)) return found
-    }
-    throw new Error('more than 50,000 companies created since the attempt; cannot reconcile')
+      return !(oldest && Date.parse(oldest) < since)
+    })
+    return found
   }
 
-  let result
-  try {
-    result = await seedCompanies({
-      target,
-      indexes: todo,
-      pending,
-      concurrency: CONCURRENCY,
-      send: async (i) => {
-        const res = await fetch(`${BASE}/api/customers/companies`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', origin: BASE },
-          body: JSON.stringify({ ...scope, ...generateCompany(plan, tenant.key, org.key, i) }),
-        })
-        // Read the body here: a connection that drops mid-body is an unknown outcome too.
-        const text = await res.text()
-        return { status: res.status, text: async () => text }
-      },
-      relogin: async () => { token = await login(BASE, ...tenantCredentials(t, credentials)) },
-      findCommitted,
-      log: {
-        pending: (i, at) => appendFileSync(progressPath, `pending ${i} ${at}\n`),
-        done: (i) => appendFileSync(progressPath, `${i}\n`),
-      },
-      onCreated: () => { finished++ },
-    })
-  } finally {
-    clearInterval(progress)
+  let result = { created: 0, recovered: 0, unresolved: [] }
+  if (needsWork) result = await seed()
+
+  const expected = new Map(Array.from({ length: org.companies }, (_, i) => [generateCompany(plan, tenant.key, org.key, i).domain, i]))
+  const domains = []
+  await listCompanies('asc', (items) => { for (const item of items) domains.push(item.domain) })
+  const { duplicates, missing } = verifyIndexes(expected, domains, new Set(result.unresolved))
+  if (duplicates.length || missing.length) {
+    const sample = (list) => list.slice(0, 10).join(', ') + (list.length > 10 ? ', …' : '')
+    throw new Error(`${target}: verification failed: ${duplicates.length} indexes with more than one record (${sample(duplicates.map((d) => `${d.index}×${d.count}`))}), ${missing.length} indexes with no record (${sample(missing)})`)
   }
-  const seconds = (Date.now() - startedAt) / 1000
-  const recovered = result.recovered ? `; ${result.recovered} found already created after a lost response or an interrupted run` : ''
-  console.log(`${target}: created ${result.created} in ${seconds.toFixed(0)}s (${(result.created / seconds).toFixed(1)}/s)${recovered}`)
+  console.log(`${target}: verified, one record per index (${org.companies - result.unresolved.length} checked)`)
+  return { unresolved: result.unresolved }
+
+  async function seed() {
+    let finished = 0
+    const startedAt = Date.now()
+    const progress = setInterval(() => {
+      console.log(`${target}: ${done.size + finished}/${org.companies}  ${(finished / ((Date.now() - startedAt) / 1000)).toFixed(1)}/s`)
+    }, 30_000)
+
+    let result
+    try {
+      result = await seedCompanies({
+        target,
+        indexes: todo,
+        pending,
+        retryUnknown: values['retry-unknown'],
+        concurrency: CONCURRENCY,
+        send: async (i) => {
+          const res = await fetch(`${BASE}/api/customers/companies`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', origin: BASE },
+            body: JSON.stringify({ ...scope, ...generateCompany(plan, tenant.key, org.key, i) }),
+          })
+          // Read the body here: a connection that drops mid-body is an unknown outcome too.
+          const text = await res.text()
+          return { status: res.status, text: async () => text }
+        },
+        relogin: async () => { token = await login(BASE, ...tenantCredentials(t, credentials)) },
+        findCommitted,
+        log: {
+          pending: (i, at) => appendFileSync(progressPath, `pending ${i} ${at}\n`),
+          done: (i) => appendFileSync(progressPath, `${i}\n`),
+        },
+        onCreated: () => { finished++ },
+      })
+    } finally {
+      clearInterval(progress)
+    }
+    const seconds = (Date.now() - startedAt) / 1000
+    const recovered = result.recovered ? `; ${result.recovered} found already created after a lost response or an interrupted run` : ''
+    const unknown = result.unresolved.length ? `; ${result.unresolved.length} with an unknown outcome left pending` : ''
+    console.log(`${target}: created ${result.created} in ${seconds.toFixed(0)}s (${(result.created / seconds).toFixed(1)}/s)${recovered}${unknown}`)
+    return result
+  }
 }
 
 const credentials = requireCredentials(values)
@@ -225,14 +262,22 @@ const db = await connect(databaseUrl)
 try {
   const state = loadState()
   await provision(state, credentials, db)
+  const unresolved = []
   for (const tenant of plan.tenants) {
     for (const org of tenant.orgs) {
       if (ONLY && !ONLY.has(`${tenant.key}/${org.key}`)) continue
-      await seedTarget(state, tenant, org, credentials)
+      const result = await seedTarget(state, tenant, org, credentials)
+      for (const index of result.unresolved) unresolved.push(`${tenant.key}/${org.key}#${index}`)
     }
   }
   const total = await queryValue(db, `select count(*)::int from customer_entities where kind = 'company' and deleted_at is null`)
-  console.log(`dataset ${plan.name} complete; ${total} companies in the database`)
+  if (unresolved.length) {
+    console.error(`dataset ${plan.name} incomplete: the outcome of ${unresolved.length} creates is unknown (${unresolved.slice(0, 10).join(', ')}${unresolved.length > 10 ? ', …' : ''}).`)
+    console.error('They stay pending. Rerun to look them up again; once the earlier requests have certainly ended (e.g. after restarting the app), rerun with --retry-unknown to create the ones still missing.')
+    process.exitCode = 4
+  } else {
+    console.log(`dataset ${plan.name} complete; ${total} companies in the database`)
+  }
 } finally {
   await db.end()
 }

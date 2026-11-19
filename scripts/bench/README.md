@@ -48,9 +48,17 @@ node scripts/bench/dataset.mjs --plan scripts/bench/plans/companies-v1.json # 20
 | `companies-v1` | 20,000 | 5 / 6 | 10,000 | numbers you compare or publish |
 
 Every record is a pure function of the plan seed, tenant key, org key and index. A rerun continues
-where it stopped and two builds of the same plan contain the same data. When a create's outcome is
-unknown (lost response, 5xx, or the script stopped mid-request), the script looks the record up by
-its generated domain before retrying, so retries and reruns never create it twice. Extra tenants in `companies-v1`
+where it stopped and two builds of the same plan contain the same data.
+
+No record is created twice. When a create's outcome is unknown (lost response, 5xx, or the script
+stopped mid-request), the script looks the record up by its generated domain. Not finding it proves
+nothing, because the original request may still commit, so the index stays pending and the script
+exits with code 4. The next run looks pending indexes up again. Once the earlier requests have
+certainly ended (for example after restarting the app), `--retry-unknown` creates the ones still
+missing. After writing to an organization, the script lists it and checks that every expected domain
+occurs exactly once; `--verify` runs that check on complete organizations too.
+
+Extra tenants in `companies-v1`
 are created with `mercato auth setup`; set `BENCH_MERCATO_CLI` if the CLI is not `yarn mercato`
 from the repo root (for Docker: `BENCH_MERCATO_CLI="node scripts/docker-exec.mjs mercato"`).
 State, including the generated tenant admins' passwords, is kept in `.mercato/bench/` (git-ignored).

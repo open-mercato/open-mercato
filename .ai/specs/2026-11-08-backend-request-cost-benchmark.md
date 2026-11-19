@@ -36,8 +36,11 @@ The scripts follow the pattern of `scripts/profile-dev-rss.mjs`: a labelled JSON
 1. `scripts/bench/dataset.mjs`: builds companies from a plan through `POST /api/customers/companies`.
    Records are a pure function of (plan seed, tenant key, org key, index); progress is logged per
    target, so reruns resume and two builds of a plan are identical. A create whose outcome is unknown
-   (lost response, 5xx, interrupted run) is looked up by its generated domain through the list API
-   before it is retried, so neither retries nor resumes create duplicates. Extra tenants are created with
+   (lost response, 5xx, interrupted run) is looked up by its generated domain through the list API.
+   A negative lookup does not prove the request ended, so the index stays pending (exit code 4); it is
+   created again only on a later run with `--retry-unknown`, which the operator passes once the earlier
+   requests have certainly ended. After writing to an organization, every expected domain is checked
+   to occur exactly once (`--verify` for complete organizations). Extra tenants are created with
    `mercato auth setup` (CLI overridable with `BENCH_MERCATO_CLI`), extra organizations through the
    directory API.
 2. Two plans: `companies-smoke` (1,000 companies, one organization) and `companies-v1` (20,000
@@ -143,3 +146,9 @@ and the CLI commands `auth setup`, `auth set-password`, `entities install`,
   (`lib/seeder.mjs`). `request-cost.mjs` rejects non-2xx responses in warmup and measurement
   (`lib/runner.mjs`). Regression tests cover lost responses, committed 5xx, interrupted runs and
   failed requests in both phases.
+- 2026-11-19: Second review round. A request whose connection dropped can still commit after a
+  negative lookup, so the seeder no longer re-creates an index with an unknown outcome on its own:
+  it stays pending until a later run finds it, or the operator passes `--retry-unknown`. Only
+  refused connections, 401 and 429 are retried automatically. Added an end-of-organization check
+  that each expected domain occurs exactly once (`--verify`). Regression tests cover a write that
+  commits after the negative lookup, in the same run and on restart.

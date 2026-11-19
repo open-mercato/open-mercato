@@ -10,7 +10,7 @@ import { percentile, renderComparison, summarizeLatencies, summarizeStatements }
 import { escapeHtml, queriesDelta, renderHtmlReport } from '../bench/lib/html-report.mjs'
 import { resolveDatabaseUrl } from '../bench/lib/db.mjs'
 import { measureScenario, UnexpectedStatusError } from '../bench/lib/runner.mjs'
-import { parseProgress, seedCompanies } from '../bench/lib/seeder.mjs'
+import { neverSent, parseProgress, seedCompanies, verifyIndexes } from '../bench/lib/seeder.mjs'
 import { requireCredentials } from '../bench/lib/http.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -209,15 +209,24 @@ test('parseProgress reads done lines and pending attempts without a done line', 
   assert.equal(parseProgress('3\n4\n').pending.size, 0, 'logs written before pending lines still load')
 })
 
-// A fake companies API for seedCompanies. `committed` holds the indexes that exist (with every
-// create that reached the database counted, duplicates included).
+// A fake companies API for seedCompanies. `creates` holds every create that reached the database,
+// duplicates included. `respond(index, attemptsSoFar)` picks what one POST does:
+// - 'ok': commits, 201;
+// - 'lost': commits, but the client gets no response;
+// - 'lost-delayed': the client gets no response and the write is still running: it commits only
+//   when `api.commitDelayed()` is called (after the seeder's lookup);
+// - 'commit-500' / '500': a 500 after / without committing;
+// - 'refused': connection refused, the request never reached the app;
+// - a number: that status without committing.
 function fakeSeeding({ respond = () => 'ok', concurrency = 1 } = {}) {
   const creates = []
+  const delayed = []
   const logLines = []
   let clock = 0
   const api = {
     creates,
     logLines,
+    commitDelayed: () => { creates.push(...delayed.splice(0)) },
     options: {
       target: 't1/main',
       concurrency,
@@ -225,9 +234,11 @@ function fakeSeeding({ respond = () => 'ok', concurrency = 1 } = {}) {
       sleep: async () => {},
       relogin: async () => { logLines.push('relogin') },
       send: async (index) => {
-        const outcome = respond(index, creates.filter((i) => i === index).length)
+        const outcome = respond(index, logLines.filter((line) => line === `pending ${index}`).length - 1)
         if (outcome === 'ok' || outcome === 'lost' || outcome === 'commit-500') creates.push(index)
-        if (outcome === 'lost' || outcome === 'down') throw new TypeError('fetch failed')
+        if (outcome === 'lost-delayed') delayed.push(index)
+        if (outcome === 'refused') throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } })
+        if (outcome === 'lost' || outcome === 'lost-delayed') throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } })
         if (outcome === 'commit-500' || outcome === '500') return { status: 500 }
         if (typeof outcome === 'number') return { status: outcome, text: async () => 'nope' }
         return { status: 201 }
@@ -240,13 +251,14 @@ function fakeSeeding({ respond = () => 'ok', concurrency = 1 } = {}) {
 }
 
 const countOf = (list, value) => list.filter((v) => v === value).length
+const doneLines = (api) => api.logLines.filter((line) => !line.startsWith('pending') && line !== 'relogin')
 
 test('seedCompanies does not create a record again after its response was lost', async () => {
   const api = fakeSeeding({ respond: (index, attempts) => (index === 1 && attempts === 0 ? 'lost' : 'ok') })
   const result = await seedCompanies({ ...api.options, indexes: [0, 1, 2] })
   assert.deepEqual(api.creates.toSorted((a, b) => a - b), [0, 1, 2], 'exactly one create per index')
-  assert.deepEqual(result, { created: 2, recovered: 1 })
-  assert.ok(api.logLines.includes('1'))
+  assert.deepEqual(result, { created: 2, recovered: 1, unresolved: [] })
+  assert.deepEqual(doneLines(api), ['0', '1', '2'])
 })
 
 test('seedCompanies does not duplicate a create that committed before a 5xx', async () => {
@@ -255,26 +267,58 @@ test('seedCompanies does not duplicate a create that committed before a 5xx', as
   assert.equal(countOf(api.creates, 0), 1)
 })
 
-test('seedCompanies retries when the failed create did not commit', async () => {
-  let failures = 0
-  const api = fakeSeeding({ respond: (index) => (index === 0 && failures++ < 2 ? (failures === 1 ? 'down' : '500') : 'ok') })
+test('seedCompanies leaves an index pending when a write may still commit after a negative lookup', async () => {
+  // The reviewer's ordering: the connection drops, the lookup finds nothing, then the original
+  // write commits. A retry at that point would create a second record.
+  const api = fakeSeeding({ respond: (index, attempts) => (index === 1 && attempts === 0 ? 'lost-delayed' : 'ok') })
+  const result = await seedCompanies({ ...api.options, indexes: [0, 1, 2] })
+  api.commitDelayed()
+  assert.equal(countOf(api.creates, 1), 1, 'one record for the index once the late write lands')
+  assert.equal(countOf(api.logLines, 'pending 1'), 1, 'no second attempt')
+  assert.deepEqual(result, { created: 2, recovered: 0, unresolved: [1] })
+  assert.deepEqual(doneLines(api), ['0', '2'], 'the unknown index is not marked done')
+})
+
+test('seedCompanies does not retry a 5xx either: the write may still be running', async () => {
+  const api = fakeSeeding({ respond: () => '500' })
   const result = await seedCompanies({ ...api.options, indexes: [0] })
+  assert.deepEqual(result, { created: 0, recovered: 0, unresolved: [0] })
+  assert.equal(countOf(api.logLines, 'pending 0'), 1)
+})
+
+test('seedCompanies retries a request that never reached the app', async () => {
+  const api = fakeSeeding({ respond: (index, attempts) => (attempts < 2 ? 'refused' : 'ok') })
+  const result = await seedCompanies({ ...api.options, indexes: [0] })
+  assert.deepEqual(result, { created: 1, recovered: 0, unresolved: [] })
   assert.equal(countOf(api.creates, 0), 1)
-  assert.deepEqual(result, { created: 1, recovered: 0 })
   assert.equal(countOf(api.logLines, 'pending 0'), 3, 'one pending line per attempt')
 })
 
-test('seedCompanies reconciles an index interrupted between the create and the progress line', async () => {
+test('seedCompanies on restart: found pending indexes are done, missing ones stay pending', async () => {
   // Previous run: index 5 was created but the script stopped before writing `5`; index 6 was sent
-  // but never reached the database.
-  const api = fakeSeeding()
+  // and its write is still running (it commits later).
+  const api = fakeSeeding({ respond: (index) => (index === 6 ? 'lost-delayed' : 'ok') })
   api.creates.push(5)
+  await api.options.send(6).catch(() => {})
   const pending = parseProgress('4\npending 5 2026-11-12T09:00:00.000Z\npending 6 2026-11-12T09:00:00.000Z\n').pending
-  const result = await seedCompanies({ ...api.options, indexes: [7], pending })
+  const first = await seedCompanies({ ...api.options, indexes: [7], pending })
+  assert.deepEqual(first, { created: 1, recovered: 1, unresolved: [6] })
   assert.equal(countOf(api.creates, 5), 1, 'the committed index is not created again')
-  assert.equal(countOf(api.creates, 6), 1, 'the uncommitted index is created')
-  assert.deepEqual(result, { created: 2, recovered: 1 })
-  assert.deepEqual(api.logLines.filter((line) => !line.startsWith('pending')), ['5', '6', '7'])
+  assert.equal(countOf(api.creates, 6), 0, 'the missing index is not created again on its own')
+
+  // The late write lands; the next run finds it instead of creating a duplicate.
+  api.commitDelayed()
+  const second = await seedCompanies({ ...api.options, indexes: [], pending: new Map([[6, '2026-11-12T09:00:00.000Z']]) })
+  assert.deepEqual(second, { created: 0, recovered: 1, unresolved: [] })
+  assert.equal(countOf(api.creates, 6), 1)
+  assert.deepEqual(doneLines(api), ['5', '7', '6'])
+})
+
+test('seedCompanies with retryUnknown creates pending indexes that are still missing', async () => {
+  const api = fakeSeeding()
+  const result = await seedCompanies({ ...api.options, indexes: [8], pending: new Map([[6, '2026-11-12T09:00:00.000Z']]), retryUnknown: true })
+  assert.deepEqual(result, { created: 2, recovered: 0, unresolved: [] })
+  assert.deepEqual(doneLines(api), ['6', '8'], 'interrupted indexes go first')
 })
 
 test('seedCompanies refuses to guess when it cannot check whether a create committed', async () => {
@@ -285,10 +329,23 @@ test('seedCompanies refuses to guess when it cannot check whether a create commi
 })
 
 test('seedCompanies re-logs in after a 401 and stops on other client errors', async () => {
-  const api = fakeSeeding({ respond: (index, attempts) => (index === 0 && attempts === 0 && !api.logLines.includes('relogin') ? 401 : index === 1 ? 422 : 'ok') })
+  const api = fakeSeeding({ respond: (index, attempts) => (index === 0 && attempts === 0 ? 401 : index === 1 ? 422 : 'ok') })
   await assert.rejects(seedCompanies({ ...api.options, indexes: [0, 1] }), /t1\/main#1: HTTP 422 nope/)
   assert.ok(api.logLines.includes('relogin'))
   assert.equal(countOf(api.creates, 0), 1)
+})
+
+test('verifyIndexes reports duplicates and missing records, ignoring unresolved ones', () => {
+  const expected = new Map([['a.example.com', 0], ['b.example.com', 1], ['c.example.com', 2], ['d.example.com', 3]])
+  const domains = ['a.example.com', 'b.example.com', 'b.example.com', 'other.example.com', null]
+  assert.deepEqual(verifyIndexes(expected, domains, new Set([3])), { duplicates: [{ index: 1, count: 2 }], missing: [2] })
+  assert.deepEqual(verifyIndexes(expected, ['a.example.com', 'b.example.com', 'c.example.com', 'd.example.com']), { duplicates: [], missing: [] })
+})
+
+test('neverSent recognizes only refused connections', () => {
+  assert.equal(neverSent(new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } })), true)
+  assert.equal(neverSent(new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } })), false)
+  assert.equal(neverSent(new TypeError('fetch failed')), false)
 })
 
 test('resolveDatabaseUrl prefers the explicit value, then the environment', () => {
