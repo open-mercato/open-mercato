@@ -6,6 +6,12 @@ import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/h
 
 test.use({ timezoneId: 'Europe/Warsaw', locale: 'en-US' })
 
+test.beforeEach(async ({ page }) => {
+  await login(page, 'admin')
+  await page.clock.setFixedTime(new Date('2026-10-31T22:30:00.000Z'))
+  await page.goto('/backend/customers/companies')
+})
+
 test('Recently created stays editable after applying and reopening across the autumn DST boundary', async ({ page, request }, testInfo) => {
   const token = await getAuthToken(request, 'admin')
   const marker = `TCRecentPreset${Date.now()}`
@@ -26,9 +32,6 @@ test('Recently created stays editable after applying and reopening across the au
         expect(result.rowCount).toBe(1)
       }
     })
-    await login(page, 'admin')
-    await page.clock.setFixedTime(new Date('2026-10-31T22:30:00.000Z'))
-    await page.goto('/backend/customers/companies')
     await page.getByRole('searchbox', { name: 'Search by name, email, phone…' }).fill(marker)
     const includedRow = page.getByRole('row').filter({ hasText: includedName })
     const excludedRow = page.getByRole('row').filter({ hasText: excludedName })
