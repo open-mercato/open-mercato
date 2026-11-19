@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en" data-prototype-id="sign-in-activity">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sign-in activity — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+<style>
+  .sia-row { cursor: pointer; }
+  .sia-row td.num { white-space: nowrap; }
+  .sia-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+  .sia-row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+  .sia-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  .sia-filters .input, .sia-filters .select { height: 2.25rem; width: auto; min-width: 10rem; }
+  .sia-kv { display: grid; grid-template-columns: 9rem 1fr; gap: 0.5rem 1rem; font-size: 0.875rem; margin: 0; }
+  .sia-kv dt { color: var(--muted-foreground); }
+  .sia-kv dd { margin: 0; }
+  .sia-ua { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.75rem; background: var(--muted); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; word-break: break-all; }
+  .sia-list { list-style: none; margin: 0; padding: 0; }
+  .sia-list li { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+  .sia-list li:last-child { border-bottom: 0; }
+  .sia-list .ico { width: 2rem; height: 2rem; border-radius: 9999px; background: var(--muted); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .sia-list .ico svg { width: 1rem; height: 1rem; }
+  .sia-notif-panel { position: absolute; top: 3.5rem; right: 1rem; width: 22rem; z-index: var(--z-index-modal); }
+  .sia-notif { display: flex; gap: 0.75rem; padding: 0.75rem; border-radius: var(--radius-md); }
+  .sia-notif + .sia-notif { border-top: 1px solid var(--border); }
+  .sia-notif .ico { color: var(--status-warning-icon); flex: none; }
+  .sia-notif .ico svg { width: 1.25rem; height: 1.25rem; }
+  .sia-hidden { display: none !important; }
+  .sia-frame-rel { position: relative; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+<symbol id="ic-log-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></symbol>
+<symbol id="ic-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
+<symbol id="ic-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></symbol>
+<symbol id="ic-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Sign-in activity — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Admin list</a>
+    <a href="#s2">2 Detail drawer</a>
+    <a href="#s3">3 No access</a>
+    <a href="#s4">4 Profile — Recent sign-ins</a>
+    <a href="#s5">5 New-device notification</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Sign-in activity — screen inventory</h1>
+  <p class="muted" style="max-width:70ch;margin:0">
+    Clickable low-fidelity screens derived from <code class="t-mono">.ai/specs/enterprise/2026-11-13-sign-in-activity.md</code>
+    (stories US-A1, US-A2, US-U1, US-U2). All people, emails and IP addresses are fictitious; IPs use the
+    RFC 5737 documentation ranges. Filters, the drawer and the notification panel work in the page; nothing
+    calls a server.
+  </p>
+</header>
+
+<!-- ───────────────────────── s1: Admin list ───────────────────────── -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Security › Sign-in activity (admin list)</h2>
+    <p>A security administrator filters sign-in attempts in the tenant by user, result, date range and IP, then opens a row.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Admin</span><span class="ref">§API GET /api/security/sign-ins</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/security/sign-ins</span>
+    </div>
+    <div class="app app-tall sia-frame-rel" id="s1-app">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Security</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Users &amp; MFA</span>
+            <span class="nav-item"><svg><use href="#ic-shield"/></svg> MFA enforcement</span>
+            <span class="nav-item"><svg><use href="#ic-lock"/></svg> Sudo protection</span>
+            <span class="nav-item active"><svg><use href="#ic-log-in"/></svg> Sign-in activity</span>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span>Security</span><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Sign-in activity</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">SA</span>
+          </div>
+        </header>
+
+        <main class="page">
+          <div class="card dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">Sign-in activity</h2>
+                <div class="dt-head-actions"><span class="muted" style="font-size:0.75rem">Kept for 90 days</span></div>
+              </div>
+              <div class="dt-toolbar">
+                <div class="sia-filters" role="group" aria-label="Filters">
+                  <select class="select" id="f-user" aria-label="User">
+                    <option value="">All users</option>
+                    <option value="u1">Anna Kowalczyk</option>
+                    <option value="u2">Marek Lindqvist</option>
+                    <option value="u3">Julia Berger</option>
+                    <option value="u4">Tomás Reyes</option>
+                  </select>
+                  <div class="segmented" role="tablist" aria-label="Result">
+                    <button type="button" role="tab" aria-selected="true" data-result="">All</button>
+                    <button type="button" role="tab" aria-selected="false" data-result="success">Succeeded</button>
+                    <button type="button" role="tab" aria-selected="false" data-result="failure">Failed</button>
+                  </div>
+                  <select class="select" id="f-range" aria-label="Date range">
+                    <option value="1">Last 24 hours</option>
+                    <option value="7" selected>Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                  </select>
+                  <input class="input" id="f-ip" placeholder="IP address (exact)" aria-label="IP address" />
+                  <button class="btn btn-ghost btn-sm" type="button" id="f-clear">Clear filters</button>
+                </div>
+              </div>
+            </div>
+            <div class="dt-chips" id="s1-chips" aria-live="polite"></div>
+            <div class="scroll-x">
+              <table class="table">
+                <thead>
+                  <tr><th>Time</th><th>User</th><th>Result</th><th>Reason</th><th>MFA</th><th>IP address</th><th>Device</th><th></th></tr>
+                </thead>
+                <tbody id="s1-body"></tbody>
+              </table>
+            </div>
+            <div class="empty sia-hidden" id="s1-empty" style="padding:2rem;text-align:center">
+              <p class="strong" style="margin:0 0 0.25rem">No sign-ins match these filters</p>
+              <p class="muted" style="margin:0 0 0.75rem">Try a wider date range or clear the IP filter.</p>
+              <button class="btn btn-outline btn-sm" type="button" data-action="clear">Clear filters</button>
+            </div>
+            <div class="dt-foot">
+              <span class="muted num" id="s1-count">Showing 0 results</span>
+              <span class="muted" style="font-size:0.75rem">Page size 25</span>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot">
+          <span>v0.10.0</span>
+          <nav class="row-3"><span>Terms</span><span>Privacy</span></nav>
+        </footer>
+      </div>
+
+      <div class="drawer sia-hidden" id="s1-drawer" role="dialog" aria-modal="true" aria-labelledby="s1-drawer-title" tabindex="-1">
+        <div class="drawer-head">
+          <div class="grow">
+            <h3 id="s1-drawer-title" class="t-card-title" style="margin:0">Sign-in attempt</h3>
+            <p class="muted" id="s1-drawer-sub" style="margin:0.25rem 0 0;font-size:0.875rem"></p>
+          </div>
+          <button class="icon-btn" type="button" aria-label="Close" data-action="close-drawer"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body" id="s1-drawer-body"></div>
+        <div class="drawer-foot">
+          <button class="btn btn-outline btn-sm" type="button" data-action="filter-user" id="s1-filter-user">All sign-ins for this user</button>
+          <button class="btn btn-primary btn-sm" type="button" id="s1-open-user" data-action="open-user">Open user security</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Filters reflect into the URL (<code class="t-mono">?result=failure&amp;userId=…&amp;ip=…</code>) so the drawer's "All sign-ins for this user" is a filtered view. IP and email filters are exact matches on keyed lookup hashes, never substring.</span></div>
+    <div class="note"><b>2</b><span>Click a row (or focus it and press Enter) to open the detail drawer; Escape closes it. Failed rows use the error status token; "New device" uses the warning token.</span></div>
+    <div class="note"><b>3</b><span>"Unknown IP" appears when the deployment has no trusted proxy configured (<code class="t-mono">RATE_LIMIT_TRUST_PROXY_DEPTH=0</code>). Attempts against non-existent emails are not stored (spec Q5).</span></div>
+    <div class="note"><b>4</b><span>No row actions or bulk actions: the log is read-only and append-only.</span></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── s2: Detail drawer (static review state) ───────────────────────── -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Detail drawer — failed attempt</h2>
+    <p>Static review state of the drawer for a failed sign-in, so reviewers can comment on its content without opening it.</p>
+    <div class="screen-refs"><span class="ref">§API GET /api/security/sign-ins/[id]</span><span class="ref">US-A2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/security/sign-ins?attempt=a3</span>
+    </div>
+    <div class="app app-narrow drawer-scrim sia-frame-rel" style="min-height:34rem">
+      <aside class="sidebar"><div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div></aside>
+      <div class="main"><main class="page"><div class="card card-pad muted">Sign-in activity list (behind the drawer)</div></main></div>
+      <div class="drawer" role="dialog" aria-label="Sign-in attempt (static)">
+        <div class="drawer-head">
+          <div class="grow">
+            <h3 class="t-card-title" style="margin:0">Sign-in attempt</h3>
+            <p class="muted" style="margin:0.25rem 0 0;font-size:0.875rem">13 Nov 2026, 09:41:07 · Marek Lindqvist</p>
+          </div>
+          <button class="icon-btn" type="button" aria-label="Close"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div class="alert alert-error"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">Failed — wrong password</div><div>The account exists and is active; the password did not match.</div></div></div>
+          <dl class="sia-kv">
+            <dt>User</dt><dd>Marek Lindqvist · marek.lindqvist@example.com</dd>
+            <dt>Organization</dt><dd>Northwind EU</dd>
+            <dt>IP address</dt><dd class="t-mono">198.51.100.23</dd>
+            <dt>Browser</dt><dd>Firefox 132</dd>
+            <dt>Operating system</dt><dd>Linux · desktop</dd>
+            <dt>MFA</dt><dd>—</dd>
+            <dt>Previous success</dt><dd>12 Nov 2026, 17:02 · Chrome 131 on macOS · 203.0.113.40</dd>
+          </dl>
+          <div><div class="t-label" style="margin-bottom:0.5rem">Raw user agent</div><div class="sia-ua">Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0</div></div>
+        </div>
+        <div class="drawer-foot">
+          <button class="btn btn-outline btn-sm" type="button" data-goto="s1">All sign-ins for this user</button>
+          <button class="btn btn-primary btn-sm" type="button">Open user security</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Open user security" links to the existing <code class="t-mono">/backend/security/users/[id]</code> page and is hidden when the user was deleted.</span></div>
+    <div class="note"><b>2</b><span>An id outside the caller's tenant or organizations returns 404 and the drawer shows the standard not-found message.</span></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── s3: No access ───────────────────────── -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. No access</h2>
+    <p>A user without <code class="t-mono">security.sign_ins.view</code> has no menu entry; opening the URL directly shows the standard access-denied state.</p>
+    <div class="screen-refs"><span class="ref">§ACL</span><span class="ref">US-A1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/security/sign-ins</span>
+    </div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Security</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><span class="nav-item"><svg><use href="#ic-shield"/></svg> My security</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <main class="page">
+          <div class="card card-pad" style="text-align:center;padding:3rem 1rem">
+            <div class="empty-icon" style="margin:0 auto 0.75rem"><svg width="24" height="24"><use href="#ic-lock"/></svg></div>
+            <p class="strong" style="margin:0 0 0.25rem">You don't have access to this page</p>
+            <p class="muted" style="margin:0 0 1rem">Ask an administrator for the "View sign-in activity" permission.</p>
+            <button class="btn btn-outline btn-sm" type="button" data-goto="s4">Go to my security settings</button>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── s4: Profile Recent sign-ins ───────────────────────── -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. My security › Recent sign-ins</h2>
+    <p>Any signed-in user sees their own last 10 sign-ins (30 days) below the password and MFA cards, to spot activity they don't recognise.</p>
+    <div class="screen-refs"><span class="ref">§UI/UX Own profile</span><span class="ref">§API GET /api/security/profile/sign-ins</span><span class="ref">US-U1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/profile/security</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Profile</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-shield"/></svg> Security</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Profile</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Security</span></div></div>
+          <div class="topbar-right">
+            <button class="icon-btn" aria-label="Notifications" data-goto="s5"><svg><use href="#ic-bell"/></svg><span class="badge-count">1</span></button>
+            <span class="avatar">AK</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="form-layout" style="display:grid;grid-template-columns:2fr 1fr;gap:1rem">
+            <div class="card card-pad" id="password-card"><div class="t-card-title">Change password</div><p class="muted" style="margin:0.5rem 0 0">Existing password form (unchanged).</p></div>
+            <div class="card card-pad"><div class="t-card-title">Multi-factor authentication</div><p class="muted" style="margin:0.5rem 0 0">Existing MFA card (unchanged).</p></div>
+          </div>
+
+          <div class="card" style="margin-top:1.5rem">
+            <div class="card-head" style="padding:0.75rem 1rem;border-bottom:1px solid var(--border)">
+              <div class="sia-head">
+                <div>
+                  <div class="t-card-title">Recent sign-ins</div>
+                  <p class="muted" style="margin:0.25rem 0 0;font-size:0.875rem">Last 30 days on this account.</p>
+                </div>
+                <div class="segmented" role="tablist" aria-label="Profile view state">
+                  <button type="button" role="tab" aria-selected="true" data-profile-state="list">With activity</button>
+                  <button type="button" role="tab" aria-selected="false" data-profile-state="empty">First sign-in</button>
+                </div>
+              </div>
+            </div>
+            <div class="card-body" style="padding:0 1rem">
+              <ul class="sia-list" id="s4-list">
+                <li><span class="ico"><svg><use href="#ic-phone"/></svg></span><div class="grow"><div class="strong">Safari 18 on iOS <span class="badge badge-warning">New device</span></div><div class="muted" style="font-size:0.875rem">192.0.2.88 · 12 minutes ago · MFA verified</div></div><span class="badge badge-success">Signed in</span></li>
+                <li><span class="ico"><svg><use href="#ic-monitor"/></svg></span><div class="grow"><div class="strong">Chrome 131 on macOS</div><div class="muted" style="font-size:0.875rem">203.0.113.40 · yesterday, 17:02 · MFA verified</div></div><span class="badge badge-success">Signed in</span></li>
+                <li><span class="ico"><svg><use href="#ic-monitor"/></svg></span><div class="grow"><div class="strong">Firefox 132 on Windows</div><div class="muted" style="font-size:0.875rem">Unknown IP · 3 days ago · Wrong password</div></div><span class="badge badge-error">Failed</span></li>
+                <li><span class="ico"><svg><use href="#ic-monitor"/></svg></span><div class="grow"><div class="strong">Chrome 131 on macOS</div><div class="muted" style="font-size:0.875rem">203.0.113.40 · 5 Nov 2026, 08:15 · MFA not completed</div></div><span class="badge badge-warning">MFA pending</span></li>
+              </ul>
+              <div class="sia-hidden" id="s4-empty" style="padding:1.5rem 0;text-align:center">
+                <p class="strong" style="margin:0 0 0.25rem">This is your first sign-in</p>
+                <p class="muted" style="margin:0">Future sign-ins to your account will be listed here.</p>
+              </div>
+            </div>
+            <div style="padding:0.75rem 1rem;border-top:1px solid var(--border)" class="row-3">
+              <svg width="16" height="16" style="color:var(--status-info-icon)"><use href="#ic-info"/></svg>
+              <span class="muted" style="font-size:0.875rem">Don't recognise a sign-in? <a href="#password-card">Change your password</a> and <a href="#s4">review your MFA methods</a>.</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Injected into the existing <code class="t-mono">security.profile.sections</code> spot; the page file itself is unchanged. Hidden entirely when <code class="t-mono">OM_SECURITY_SIGN_IN_ACTIVITY=false</code>.</span></div>
+    <div class="note"><b>2</b><span>Only the signed-in user's own rows; there is no user or IP filter here. Use the toggle in the card header to see the empty state.</span></div>
+    <div class="note"><b>3</b><span>Click the bell to see the new-device notification for the first row.</span></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── s5: Notification ───────────────────────── -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. New-device notification (in-app)</h2>
+    <p>The user's password was just used from a browser/OS combination not seen before; the notification center shows one warning per device.</p>
+    <div class="screen-refs"><span class="ref">§Notifications security.sign_in.new_device</span><span class="ref">US-U2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend</span>
+    </div>
+    <div class="app app-narrow sia-frame-rel" style="min-height:26rem">
+      <aside class="sidebar"><div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div></aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><span class="here">Dashboard</span></div></div>
+          <div class="topbar-right">
+            <button class="icon-btn" aria-label="Notifications" aria-expanded="true"><svg><use href="#ic-bell"/></svg><span class="badge-count">1</span></button>
+            <span class="avatar">AK</span>
+          </div>
+        </header>
+        <main class="page"><div class="card card-pad muted">Dashboard (behind the panel)</div></main>
+      </div>
+      <div class="popover sia-notif-panel" role="dialog" aria-label="Notifications">
+        <div class="between" style="padding:0.5rem 0.75rem"><span class="t-card-title">Notifications</span><span class="muted" style="font-size:0.75rem">1 unread</span></div>
+        <div class="sia-notif">
+          <span class="ico"><svg><use href="#ic-warn"/></svg></span>
+          <div class="grow">
+            <div class="strong">New sign-in to your account</div>
+            <div class="muted" style="font-size:0.875rem">Safari 18 on iOS from 192.0.2.88 at 14:02. If this wasn't you, change your password now.</div>
+            <div class="row-3" style="margin-top:0.5rem">
+              <button class="btn btn-outline btn-xs" type="button" data-goto="s4">Review</button>
+              <button class="btn btn-ghost btn-xs" type="button">Dismiss</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>In-app only — no email. Not sent on the user's very first sign-in, and at most once per device (group key per user + device).</span></div>
+    <div class="note"><b>2</b><span>Fires when the password is accepted, even if MFA is still pending — a correct password from an unknown device is exactly what the user should know about.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  document.getElementById('theme-toggle').addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+
+  var users = {
+    u1: { name: 'Anna Kowalczyk', email: 'anna.kowalczyk@example.com', org: 'Northwind EU' },
+    u2: { name: 'Marek Lindqvist', email: 'marek.lindqvist@example.com', org: 'Northwind EU' },
+    u3: { name: 'Julia Berger', email: 'julia.berger@example.com', org: 'Northwind US' },
+    u4: { name: 'Tomás Reyes', email: 'tomas.reyes@example.com', org: 'Northwind US' }
+  };
+  var rows = [
+    { id: 'a1', ageH: 0.2, time: '13 Nov 2026, 14:02', user: 'u1', result: 'success', reason: '', mfa: 'verified', ip: '192.0.2.88', browser: 'Safari 18', os: 'iOS', device: 'mobile', isNew: true, prev: '12 Nov 2026, 17:02 · Chrome 131 on macOS', ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1' },
+    { id: 'a2', ageH: 3, time: '13 Nov 2026, 11:20', user: 'u3', result: 'success', reason: '', mfa: 'not_required', ip: '203.0.113.12', browser: 'Edge 131', os: 'Windows', device: 'desktop', isNew: false, prev: '12 Nov 2026, 09:12 · Edge 131 on Windows', ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0' },
+    { id: 'a3', ageH: 4.5, time: '13 Nov 2026, 09:41', user: 'u2', result: 'failure', reason: 'Wrong password', mfa: '', ip: '198.51.100.23', browser: 'Firefox 132', os: 'Linux', device: 'desktop', isNew: false, prev: '12 Nov 2026, 17:02 · Chrome 131 on macOS', ua: 'Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0' },
+    { id: 'a4', ageH: 4.6, time: '13 Nov 2026, 09:40', user: 'u2', result: 'failure', reason: 'Wrong password', mfa: '', ip: '198.51.100.23', browser: 'Firefox 132', os: 'Linux', device: 'desktop', isNew: false, prev: '12 Nov 2026, 17:02 · Chrome 131 on macOS', ua: 'Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0' },
+    { id: 'a5', ageH: 20, time: '12 Nov 2026, 18:30', user: 'u4', result: 'failure', reason: 'Account deactivated', mfa: '', ip: '', browser: 'Chrome 131', os: 'Android', device: 'mobile', isNew: false, prev: '—', ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36' },
+    { id: 'a6', ageH: 21, time: '12 Nov 2026, 17:02', user: 'u1', result: 'success', reason: '', mfa: 'verified', ip: '203.0.113.40', browser: 'Chrome 131', os: 'macOS', device: 'desktop', isNew: false, prev: '11 Nov 2026, 08:55 · Chrome 131 on macOS', ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' },
+    { id: 'a7', ageH: 70, time: '10 Nov 2026, 15:44', user: 'u3', result: 'failure', reason: 'Area not allowed for this role', mfa: '', ip: '203.0.113.12', browser: 'Edge 131', os: 'Windows', device: 'desktop', isNew: false, prev: '10 Nov 2026, 09:01 · Edge 131 on Windows', ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0' },
+    { id: 'a8', ageH: 190, time: '5 Nov 2026, 08:15', user: 'u1', result: 'success', reason: '', mfa: 'pending', ip: '203.0.113.40', browser: 'Chrome 131', os: 'macOS', device: 'desktop', isNew: false, prev: '4 Nov 2026, 08:10 · Chrome 131 on macOS', ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' }
+  ];
+  var mfaLabel = { verified: 'Verified', pending: 'Pending', not_required: 'Not required' };
+  var state = { user: '', result: '', range: 7, ip: '' };
+  var body = document.getElementById('s1-body');
+  var empty = document.getElementById('s1-empty');
+  var count = document.getElementById('s1-count');
+  var chips = document.getElementById('s1-chips');
+  var drawer = document.getElementById('s1-drawer');
+  var app = document.getElementById('s1-app');
+  var lastFocus = null;
+  var current = null;
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+  function badge(kind, text) { return el('span', 'badge badge-' + kind, text); }
+
+  function render() {
+    var list = rows.filter(function (r) {
+      if (state.user && r.user !== state.user) return false;
+      if (state.result && r.result !== state.result) return false;
+      if (r.ageH > state.range * 24) return false;
+      if (state.ip && r.ip !== state.ip.trim()) return false;
+      return true;
+    });
+    body.textContent = '';
+    list.forEach(function (r) {
+      var tr = el('tr', 'sia-row');
+      tr.tabIndex = 0;
+      tr.setAttribute('data-id', r.id);
+      tr.appendChild(el('td', 'num', r.time));
+      var u = users[r.user];
+      var tdU = el('td');
+      tdU.appendChild(el('div', 'strong', u.name));
+      tdU.appendChild(el('div', 'muted', u.email));
+      tr.appendChild(tdU);
+      var tdR = el('td');
+      tdR.appendChild(r.result === 'success' ? badge('success', 'Succeeded') : badge('error', 'Failed'));
+      tr.appendChild(tdR);
+      tr.appendChild(el('td', r.reason ? '' : 'muted', r.reason || '—'));
+      var tdM = el('td');
+      if (r.mfa) tdM.appendChild(badge(r.mfa === 'pending' ? 'warning' : 'neutral', mfaLabel[r.mfa])); else tdM.textContent = '—';
+      tr.appendChild(tdM);
+      tr.appendChild(el('td', r.ip ? 't-mono' : 'muted', r.ip || 'Unknown IP'));
+      tr.appendChild(el('td', '', r.browser + ' · ' + r.os));
+      var tdN = el('td');
+      if (r.isNew) tdN.appendChild(badge('warning', 'New device'));
+      tr.appendChild(tdN);
+      body.appendChild(tr);
+    });
+    empty.classList.toggle('sia-hidden', list.length !== 0);
+    count.textContent = list.length ? 'Showing 1 to ' + list.length + ' of ' + list.length + ' results' : 'Showing 0 results';
+    chips.textContent = '';
+    var active = [];
+    if (state.user) active.push('User: ' + users[state.user].name);
+    if (state.result) active.push('Result: ' + (state.result === 'success' ? 'Succeeded' : 'Failed'));
+    active.push('Range: last ' + (state.range === 1 ? '24 hours' : state.range + ' days'));
+    if (state.ip) active.push('IP: ' + state.ip);
+    active.forEach(function (text) { chips.appendChild(el('span', 'chip chip-active', text)); });
+  }
+
+  function syncControls() {
+    document.getElementById('f-user').value = state.user;
+    document.getElementById('f-range').value = String(state.range);
+    document.getElementById('f-ip').value = state.ip;
+    document.querySelectorAll('[data-result]').forEach(function (b) {
+      b.setAttribute('aria-selected', b.getAttribute('data-result') === state.result ? 'true' : 'false');
+    });
+  }
+
+  function clearFilters() { state = { user: '', result: '', range: 7, ip: '' }; syncControls(); render(); }
+
+  function openDrawer(id) {
+    var r = rows.filter(function (x) { return x.id === id; })[0];
+    if (!r) return;
+    current = r;
+    lastFocus = document.activeElement;
+    var u = users[r.user];
+    document.getElementById('s1-drawer-sub').textContent = r.time + ' · ' + u.name;
+    var b = document.getElementById('s1-drawer-body');
+    b.textContent = '';
+    var alert = el('div', 'alert ' + (r.result === 'success' ? 'alert-success' : 'alert-error'));
+    var inner = el('div');
+    inner.appendChild(el('div', 'alert-title', r.result === 'success' ? 'Signed in' : 'Failed — ' + r.reason.toLowerCase()));
+    inner.appendChild(el('div', '', r.result === 'success' ? (r.isNew ? 'First sign-in from this device; the user was notified in-app.' : 'Password accepted.') : 'The response to the browser was the generic "Invalid email or password".'));
+    alert.appendChild(inner);
+    b.appendChild(alert);
+    var dl = el('dl', 'sia-kv');
+    [['User', u.name + ' · ' + u.email], ['Organization', u.org], ['IP address', r.ip || 'Unknown IP'], ['Browser', r.browser], ['Operating system', r.os + ' · ' + r.device], ['MFA', r.mfa ? mfaLabel[r.mfa] : '—'], ['Previous success', r.prev]].forEach(function (pair) {
+      dl.appendChild(el('dt', '', pair[0]));
+      dl.appendChild(el('dd', pair[0] === 'IP address' && r.ip ? 't-mono' : '', pair[1]));
+    });
+    b.appendChild(dl);
+    var uaWrap = el('div');
+    uaWrap.appendChild(el('div', 't-label', 'Raw user agent'));
+    uaWrap.lastChild.style.marginBottom = '0.5rem';
+    uaWrap.appendChild(el('div', 'sia-ua', r.ua));
+    b.appendChild(uaWrap);
+    drawer.classList.remove('sia-hidden');
+    app.classList.add('drawer-scrim');
+    drawer.focus();
+  }
+
+  function closeDrawer() {
+    drawer.classList.add('sia-hidden');
+    app.classList.remove('drawer-scrim');
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+
+  document.getElementById('f-user').addEventListener('change', function (e) { state.user = e.target.value; render(); });
+  document.getElementById('f-range').addEventListener('change', function (e) { state.range = Number(e.target.value); render(); });
+  document.getElementById('f-ip').addEventListener('input', function (e) { state.ip = e.target.value; render(); });
+  document.getElementById('f-clear').addEventListener('click', clearFilters);
+  document.querySelectorAll('[data-result]').forEach(function (btn) {
+    btn.addEventListener('click', function () { state.result = btn.getAttribute('data-result'); syncControls(); render(); });
+  });
+  body.addEventListener('click', function (e) {
+    var tr = e.target.closest('tr[data-id]');
+    if (tr) openDrawer(tr.getAttribute('data-id'));
+  });
+  body.addEventListener('keydown', function (e) {
+    var tr = e.target.closest('tr[data-id]');
+    if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openDrawer(tr.getAttribute('data-id')); }
+  });
+  app.addEventListener('click', function (e) {
+    var action = e.target.closest('[data-action]');
+    if (!action) return;
+    var name = action.getAttribute('data-action');
+    if (name === 'close-drawer') closeDrawer();
+    if (name === 'clear') clearFilters();
+    if (name === 'filter-user' && current) { state.user = current.user; state.result = ''; state.ip = ''; state.range = 90; syncControls(); render(); closeDrawer(); }
+    if (name === 'open-user') { action.textContent = 'Would open /backend/security/users/[id]'; }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !drawer.classList.contains('sia-hidden')) { e.stopPropagation(); closeDrawer(); }
+  }, true);
+
+  document.querySelectorAll('[data-profile-state]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var isEmpty = btn.getAttribute('data-profile-state') === 'empty';
+      document.getElementById('s4-list').classList.toggle('sia-hidden', isEmpty);
+      document.getElementById('s4-empty').classList.toggle('sia-hidden', !isEmpty);
+      document.querySelectorAll('[data-profile-state]').forEach(function (b) { b.setAttribute('aria-selected', b === btn ? 'true' : 'false'); });
+    });
+  });
+
+  render();
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
