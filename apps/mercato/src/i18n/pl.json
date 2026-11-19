@@ -1037,7 +1037,7 @@
   "ui.inputs.websiteInput.placeholder": "www.przyklad.pl",
   "ui.lookupSelect.change": "Zmień",
   "ui.lookupSelect.clearSelection": "Wyczyść wybór",
-  "ui.lookupSelect.minQueryHint": "Wpisz co najmniej {minQuery} znaków lub wklej id, aby wyszukać.",
+  "ui.lookupSelect.minQueryHint": "Minimalna liczba znaków do wyszukiwania: {minQuery}. Możesz też wkleić identyfikator.",
   "ui.lookupSelect.noResults": "Brak wyników",
   "ui.lookupSelect.searchPlaceholder": "Szukaj…",
   "ui.lookupSelect.searching": "Szukam…",
