@@ -209,6 +209,7 @@
   "customer_accounts.admin.roles.confirm.delete": "Delete role \"{{name}}\"?",
   "customer_accounts.admin.roles.default": "Default",
   "customer_accounts.admin.roles.error.delete": "Failed to delete role",
+  "customer_accounts.admin.roles.error.deleteAssigned": "No se puede eliminar un rol con {count} usuarios asignados. Reasigne primero los usuarios.",
   "customer_accounts.admin.roles.error.deleteDefault": "No se puede eliminar el rol predeterminado. Establezca primero otro rol como predeterminado.",
   "customer_accounts.admin.roles.error.load": "Failed to load roles",
   "customer_accounts.admin.roles.flash.deleted": "Role deleted",
@@ -372,6 +373,7 @@
   "customer_accounts.widgets.accountStatus": "Estado de la cuenta",
   "customer_accounts.widgets.accountStatus.description": "Muestra el estado de la cuenta del portal del cliente en el detalle de la persona del CRM",
   "customer_accounts.widgets.emailVerified": "Correo verificado",
+  "customer_accounts.widgets.errorLoading": "No se pudo cargar el estado de la cuenta del portal.",
   "customer_accounts.widgets.invitationExpires": "La invitación caduca",
   "customer_accounts.widgets.invitationPending": "Invitación pendiente",
   "customer_accounts.widgets.invite.button": "Invitar al portal",
@@ -395,7 +397,9 @@
   "customer_accounts.widgets.lastLogin": "Último acceso",
   "customer_accounts.widgets.noAccount": "No hay cuenta vinculada",
   "customer_accounts.widgets.noUsers": "No hay usuarios vinculados",
+  "customer_accounts.widgets.portalAccountTab": "Cuenta del portal",
   "customer_accounts.widgets.portalUsers": "Usuarios del portal",
+  "customer_accounts.widgets.retryLoading": "Reintentar",
   "customer_accounts.widgets.viewAccount": "Ver cuenta",
   "notifications.categories.customer_accounts": "Cuentas de clientes"
 }

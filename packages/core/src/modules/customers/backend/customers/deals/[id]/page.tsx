@@ -124,6 +124,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const {
     plannedActivities,
+    plannedLoadFailed,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,
@@ -338,9 +339,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           id: data.deal.pipelineId,
           name: currentPipelineName ?? t('customers.deals.detail.pipeline.defaultName', 'Current pipeline'),
           isDefault: false,
+          stageProbabilitiesEnabled: data.pipelineStageProbabilitiesEnabled === true,
         }]
       : [],
-    [currentPipelineName, data?.deal.pipelineId, t],
+    [currentPipelineName, data?.deal.pipelineId, data?.pipelineStageProbabilitiesEnabled, t],
   )
 
   if (isLoading) {
@@ -414,6 +416,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             typeof data.deal.valueAmount === 'string' && data.deal.valueAmount.trim().length
               ? Number(data.deal.valueAmount)
               : null,
+          valueAmountExact:
+            typeof data.deal.valueAmount === 'string' && data.deal.valueAmount.trim().length
+              ? data.deal.valueAmount.trim()
+              : null,
           personIds: data.linkedPersonIds,
           companyIds: data.linkedCompanyIds,
           customFields: data.customFields,
@@ -426,7 +432,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     </div>
   )
 
-  const zone2Content = (
+  const injectedTabContent = injectedTabMap.get(activeTab)
+  const zone2Content = injectedTabContent ? (
+    <div>{injectedTabContent()}</div>
+  ) : (
     <div className="rounded-[10px] border border-border bg-card px-5 py-5">
       {(() => {
 
@@ -503,6 +512,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               )}
               <PlannedActivitiesSection
                 activities={plannedActivities}
+                loadFailed={plannedLoadFailed}
+                onRetryLoad={() => { void loadPlannedActivities() }}
                 onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
                 onSchedule={selectedActivityEntity ? openSchedule : undefined}
                 onEdit={handleEditActivity}
@@ -667,7 +678,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isLoadingInjectedTabs={injectedTabsLoading}
             activeTab={activeTab}
             onTabChange={handleTabChange}
-            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
+            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
             peopleCount={data.counts.people}
             companiesCount={data.counts.companies}
           >

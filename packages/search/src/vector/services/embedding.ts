@@ -54,6 +54,11 @@ function timeoutError(providerId: EmbeddingProviderId, timeoutMs: number): Error
   )
 }
 
+export type EmbeddingPurpose = 'document' | 'query'
+
+// Cohere v3+ embeddings are asymmetric: queries must use `search_query`, indexed content `search_document`.
+const cohereInputType = (purpose: EmbeddingPurpose) => (purpose === 'query' ? 'search_query' : 'search_document')
+
 export class EmbeddingService {
   private config: EmbeddingProviderConfig
   private clientCache: Map<EmbeddingProviderId, ProviderClient> = new Map()
@@ -215,12 +220,12 @@ export class EmbeddingService {
     }
   }
 
-  private getProviderOptions(): ProviderOptions | undefined {
+  private getProviderOptions(purpose: EmbeddingPurpose = 'document'): ProviderOptions | undefined {
     const { providerId, outputDimensionality, model } = this.config
 
     if (!outputDimensionality) {
       if (providerId === 'cohere') {
-        return { cohere: { inputType: 'search_document' } }
+        return { cohere: { inputType: cohereInputType(purpose) } }
       }
       return undefined
     }
@@ -236,13 +241,13 @@ export class EmbeddingService {
       case 'bedrock':
         return { bedrock: { dimensions: outputDimensionality } }
       case 'cohere':
-        return { cohere: { inputType: 'search_document' } }
+        return { cohere: { inputType: cohereInputType(purpose) } }
       default:
         return undefined
     }
   }
 
-  async createEmbedding(input: string | string[]): Promise<number[]> {
+  async createEmbedding(input: string | string[], options?: { purpose?: EmbeddingPurpose }): Promise<number[]> {
     const merged = Array.isArray(input)
       ? input.map((part) => String(part ?? '')).filter((part) => part.length > 0).join('\n\n')
       : String(input ?? '')
@@ -256,7 +261,7 @@ export class EmbeddingService {
     }
 
     const model = this.getEmbeddingModel() as EmbeddingModel
-    const providerOptions = this.getProviderOptions()
+    const providerOptions = this.getProviderOptions(options?.purpose)
     const timeoutMs = resolveEmbeddingTimeoutMs()
 
     const abortController = new AbortController()
