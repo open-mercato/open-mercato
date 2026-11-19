@@ -119,6 +119,7 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
     const pipelineRow = {
       id: '550e8400-e29b-41d4-a716-446655440010',
       name: 'Default Pipeline',
+      stageProbabilitiesEnabled: true,
     }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: { name?: string }, where: Record<string, unknown>) => {
       if (entity?.name === 'User') {
@@ -257,6 +258,7 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
         icon: null,
       }),
     ])
+    expect(body.pipelineStageProbabilitiesEnabled).toBe(true)
     expect(body.stageTransitions).toEqual([
       {
         stageId: '550e8400-e29b-41d4-a716-446655440011',
@@ -448,6 +450,7 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
     expect(body.deal.pipelineId).toBe('pipeline-legacy')
     expect(body.deal.pipelineStageId).toBe('stage-3')
     expect(body.pipelineName).toBe('Enterprise Sales pipeline')
+    expect(body.pipelineStageProbabilitiesEnabled).toBe(false)
     expect(body.pipelineStages).toHaveLength(3)
   })
 })

@@ -273,6 +273,7 @@
   "staff.leaveRequests.detail.summary": "Request details",
   "staff.leaveRequests.empty.profileRequired": "Create your team member profile to submit leave requests.",
   "staff.leaveRequests.errors.accept": "Failed to approve leave request.",
+  "staff.leaveRequests.errors.alreadyFinalized": "Leave request is already finalized.",
   "staff.leaveRequests.errors.forbidden": "Forbidden",
   "staff.leaveRequests.errors.load": "Failed to load leave requests.",
   "staff.leaveRequests.errors.notFound": "Leave request not found.",
@@ -2087,11 +2088,14 @@
   "staff.timesheets.errors.assignerNeedsUser": "Only team members with a user account can be assigners, because they must log in and receive notifications.",
   "staff.timesheets.errors.bulkSave": "Failed to bulk save time entries.",
   "staff.timesheets.errors.bulkTagsUnsupported": "Tags cannot be changed from the timesheet grid. Open the time entry to edit its tags.",
+  "staff.timesheets.errors.capacity": "Failed to load the target.",
+  "staff.timesheets.errors.capacityForbidden": "You cannot view this person’s target.",
   "staff.timesheets.errors.copyDaySameDate": "The source and target day must be different.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "The target day already has time entries. Review them first, or confirm to add these copies anyway.",
   "staff.timesheets.errors.defaultAssigneeNotMember": "The default assignee must be an active member of this project.",
   "staff.timesheets.errors.entryNotFound": "Time entry not found, deleted, or not owned by you.",
   "staff.timesheets.errors.invalidBody": "Invalid request body.",
+  "staff.timesheets.errors.invalidCapacityQuery": "Invalid capacity period.",
   "staff.timesheets.errors.invalidProjectId": "Invalid project id.",
   "staff.timesheets.errors.loadPreference": "Failed to load timesheet preference.",
   "staff.timesheets.errors.memberNotFound": "Time project member not found or not accessible.",
@@ -2393,5 +2397,6 @@
   "staff.timesheets.widgets.timeReporting.stop": "Stop Timer",
   "staff.timesheets.widgets.timeReporting.stopError": "Failed to stop timer",
   "staff.timesheets.widgets.timeReporting.taskNote": "Task / Note",
-  "staff.timesheets.widgets.timeReporting.unknownProject": "Unknown project"
+  "staff.timesheets.widgets.timeReporting.unknownProject": "Unknown project",
+  "staff.validation.nonNegativeAmount": "Enter a valid amount."
 }

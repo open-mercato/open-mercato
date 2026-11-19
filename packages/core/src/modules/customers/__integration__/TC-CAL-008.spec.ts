@@ -6,6 +6,7 @@ import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/he
 import {
   createInteractionFixture,
   escapeRegExp,
+  gridBlockName,
   INTERACTIONS_PATH,
   mondayWeekRange,
   waitForCalendarLoaded,
@@ -18,8 +19,8 @@ import {
  *
  * - Clicking a time-grid event block opens the `EventPeekPopover` (the block is
  *   a `button` whose accessible name is `${title}, ${timeRange}` — e.g. the
- *   label contains the title and "9:00"). The popover shows the title, a
- *   `EEE, MMM d · h:mm` date·time line, and an **Edit** button.
+ *   label contains the title and "9:00"). The popover shows the title, the
+ *   date and time rows, and an **Edit** button.
  * - Clicking the popover's **Edit** opens the full `CalendarEventEditor` in edit
  *   mode ("Edit event" dialog) with the title prefilled.
  * - With two overlapping planned meetings sharing an owner, the time-grid column
@@ -34,12 +35,24 @@ import {
  * relying on seeded event placement. The pure drag time math is additionally
  * unit-tested in `lib/calendar/grid.ts`.
  *
+ * Dense overlaps (#7500) are covered by a third test: six meetings sharing one
+ * slot collapse into the readable blocks the column width allows plus one
+ * "+N more" overflow block whose popover lists every hidden meeting with its
+ * full title and time range; clicking a row opens the event editor directly.
+ * The width policy itself (how many columns fit) is unit-tested in
+ * `components/calendar/__tests__/TimeGrid.dense.test.tsx`.
+ *
+ * A fourth test covers #8867: when a long block keeps a whole afternoon in one
+ * dense cluster, a hidden meeting hours later stays at its own start time and
+ * the "+N more" slot covers only the meetings it really overlaps.
+ *
  * Determinism notes:
  * - The default Playwright viewport (1280px) boots the calendar in Week view.
  * - Both fixtures are anchored to **this week's Monday at 09:00** (overlapping:
  *   09:00–10:30 and 09:30–11:00). Monday is always inside the visible Mon–Fri
  *   week (weekends default OFF), so the blocks render regardless of the run day,
- *   and they share `ownerUserId` so `findConflicts` pairs them.
+ *   and they share `ownerUserId` so `findConflicts` pairs them. A retry moves two
+ *   hours later so it cannot stack with meetings a timed-out attempt left behind.
  * - A unique run token in both titles keeps seeded/demo interactions from
  *   colliding with the assertions.
  */
@@ -58,8 +71,9 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
 
     // This week's Monday at 09:00 — always inside the visible Mon–Fri week.
     const monday = mondayWeekRange(new Date()).from;
-    const startA = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 9, 0, 0, 0);
-    const startB = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 9, 30, 0, 0);
+    const slotHour = 9 + test.info().retry * 2;
+    const startA = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), slotHour, 0, 0, 0);
+    const startB = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), slotHour, 30, 0, 0);
 
     try {
       adminToken = await getAuthToken(request, 'admin');
@@ -92,9 +106,9 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
       await page.goto('/backend/calendar');
       await waitForCalendarLoaded(page);
 
-      // The block accessible name is `${title}, ${timeRange}`; the 09:00 start
-      // renders a "9:00" token in the range, so anchor on title + "9:00".
-      const blockA = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(titleA)},.*9:00`) });
+      // The block accessible name is `${title}, ${timeRange}`; the start renders
+      // its hour in the range, so anchor on title + start time.
+      const blockA = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(titleA)},.*${slotHour}:00`) });
       await expect(blockA).toBeVisible();
 
       // -- Inline conflict badge (Conflict warnings default ON) ------------------
@@ -103,12 +117,12 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
 
       // -- Clicking the block opens the peek popover -----------------------------
       await blockA.click();
-      // The peek is a Radix Popover (not a [role=dialog]); assert on its
-      // peek-unique content: the `EEE, MMM d · h:mm` date·time line (the "·"
-      // separator does not appear on the grid block) and the Edit button (grid
+      // The peek is a Radix Popover (not a [role=dialog]); scope the assertions
+      // to the open popover content: its time row and the Edit button (grid
       // blocks have no Edit affordance).
-      await expect(page.getByText(/·.*9:00/).first()).toBeVisible();
-      const peekEdit = page.getByRole('button', { name: 'Edit', exact: true });
+      const peek = page.locator('[data-slot="popover-content"][data-state="open"]');
+      await expect(peek.getByText(new RegExp(`${slotHour}:00`)).first()).toBeVisible();
+      const peekEdit = peek.getByRole('button', { name: 'Edit', exact: true });
       await expect(peekEdit).toBeVisible();
 
       // -- Edit opens the editor in edit mode with the title prefilled -----------
@@ -221,5 +235,224 @@ test.describe('TC-CAL-008: Calendar week-view states', () => {
     // No fixture was saved; just dismiss the editor.
     await page.keyboard.press('Escape');
     await expect(editor).toBeHidden();
+  });
+
+  // Click-to-create: a plain click on an empty half-hour slot opens the create
+  // editor prefilled with that slot, no drag required.
+  test('clicking an empty week-grid slot opens the create editor prefilled with that half hour', async ({ page }) => {
+    test.slow();
+    await login(page, 'admin');
+    await page.goto('/backend/calendar');
+    await waitForCalendarLoaded(page);
+
+    const emptyGridSearch = `__qa_empty_click_${Date.now()}__`;
+    const searchInput = page.locator('[data-calendar-search]');
+    await searchInput.fill(emptyGridSearch);
+    await searchInput.blur();
+
+    const dragLayer = page.locator('.cursor-cell').first();
+    const scroller = dragLayer.locator(
+      'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " overflow-auto ")][1]',
+    );
+    await expect(dragLayer).toBeVisible();
+    const [layerBox, scrollerBox] = await Promise.all([dragLayer.boundingBox(), scroller.boundingBox()]);
+    expect(layerBox).not.toBeNull();
+    expect(scrollerBox).not.toBeNull();
+    const point = { x: layerBox!.x + layerBox!.width / 2, y: scrollerBox!.y + scrollerBox!.height * 0.5 };
+
+    // Hovering highlights the slot under the pointer before any click.
+    await page.mouse.move(point.x, point.y);
+    await expect(page.locator('[data-calendar-hover-slot]')).toHaveCount(1);
+
+    await page.mouse.click(point.x, point.y);
+    const editor = page.getByRole('dialog');
+    await expect(editor).toBeVisible();
+    await expect(editor.getByText('New event').first()).toBeVisible();
+    await expect(editor.getByRole('combobox', { name: 'Starts' })).toContainText(/\d{1,2}:(00|30)/);
+    await expect(editor.getByRole('combobox', { name: 'Ends' })).toContainText(/\d{1,2}:(00|30)/);
+
+    await page.keyboard.press('Escape');
+    await expect(editor).toBeHidden();
+  });
+
+  // Dense overlaps (#7500): six simultaneous meetings must stay individually
+  // discoverable. The cluster sits on Wednesday 14:20–15:40 so it can never merge
+  // with the Monday 09:00 conflict fixtures above, and the odd time range makes
+  // the overflow block's accessible name (`N more events, 2:20 – 3:40 PM`) unique
+  // against any seeded data.
+  test('six simultaneous meetings collapse into an overflow list that still opens every peek', async ({ page, request }) => {
+    test.slow();
+
+    const stamp = Date.now();
+    const runToken = `QA Cal Dense ${stamp}`;
+    const titles = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'].map((name) => `${runToken} ${name}`);
+    let adminToken: string | null = null;
+    let personId: string | null = null;
+    const meetingIds: string[] = [];
+
+    const monday = mondayWeekRange(new Date()).from;
+    const wednesdayStart = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 2, 14, 20, 0, 0);
+
+    try {
+      adminToken = await getAuthToken(request, 'admin');
+      personId = await createPersonFixture(request, adminToken, {
+        firstName: 'CalDense',
+        lastName: `Person${stamp}`,
+        displayName: `CalDense Person ${stamp}`,
+      });
+      for (const title of titles) {
+        meetingIds.push(
+          await createInteractionFixture(request, adminToken, {
+            entityId: personId,
+            interactionType: 'meeting',
+            title,
+            status: 'planned',
+            scheduledAt: wednesdayStart,
+            durationMinutes: 80,
+          }),
+        );
+      }
+
+      await login(page, 'admin');
+      await page.goto('/backend/calendar');
+      await waitForCalendarLoaded(page);
+
+      const overflow = page.getByRole('button', { name: /more events, .*2:20.*3:40/ });
+      await expect(overflow).toHaveCount(1);
+      await overflow.scrollIntoViewIfNeeded();
+      await expect(overflow).toBeVisible();
+      await expect(overflow).toHaveText(/\+\d+ more/);
+
+      // -- Containment: the overflow block stays inside its day column -----------
+      const dayColumn = overflow.locator(
+        'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " flex-1 ")][1]',
+      );
+      const [overflowBox, columnBox] = await Promise.all([overflow.boundingBox(), dayColumn.boundingBox()]);
+      expect(overflowBox, 'overflow block should have a bounding box').not.toBeNull();
+      expect(columnBox, 'day column should have a bounding box').not.toBeNull();
+      expect(overflowBox!.x).toBeGreaterThanOrEqual(columnBox!.x - 0.5);
+      expect(overflowBox!.x + overflowBox!.width).toBeLessThanOrEqual(columnBox!.x + columnBox!.width + 0.5);
+
+      // -- Disclosure lists every hidden meeting with full title + time range ----
+      const runBlocks = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(runToken)} `) });
+      const visibleBlockCount = await runBlocks.count();
+      expect(visibleBlockCount).toBeLessThan(titles.length);
+      await overflow.click();
+      await expect(page.getByText(/\d+ overlapping events/)).toBeVisible();
+      const list = page.getByRole('list').filter({ has: runBlocks });
+      await expect(list).toBeVisible();
+      const rows = list.getByRole('button', { name: new RegExp(`^${escapeRegExp(runToken)} `) });
+      await expect(rows).toHaveCount(titles.length - visibleBlockCount);
+      await expect(list.getByText(/2:20.*3:40/).first()).toBeVisible();
+      for (const title of titles) {
+        await expect(page.getByRole('button', { name: gridBlockName(title) })).toHaveCount(1);
+      }
+
+      // -- A row opens the editor directly (no intermediate peek) ----------------
+      const firstRow = rows.first();
+      const firstRowTitle = (await firstRow.getAttribute('aria-label'))?.split(', ')[0] ?? '';
+      expect(titles).toContain(firstRowTitle);
+      await firstRow.click();
+      // Scope by accessible name: the overflow popover is a Radix popover
+      // content (role=dialog) that lingers briefly while animating out.
+      const editor = page.getByRole('dialog', { name: 'Edit event' });
+      await expect(editor).toBeVisible();
+      await expect(editor.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(firstRowTitle);
+      await page.keyboard.press('Escape');
+      await expect(editor).toBeHidden();
+
+      // -- Keyboard: the overflow block is focusable and opens with Enter --------
+      await overflow.focus();
+      await expect(overflow).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page.getByText(/\d+ overlapping events/)).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByText(/\d+ overlapping events/)).toBeHidden();
+
+      // -- Narrower viewport: the treatment still holds and stays contained ------
+      await page.setViewportSize({ width: 900, height: 900 });
+      await expect(overflow).toHaveCount(1);
+      await overflow.scrollIntoViewIfNeeded();
+      const [narrowOverflowBox, narrowColumnBox] = await Promise.all([overflow.boundingBox(), dayColumn.boundingBox()]);
+      expect(narrowOverflowBox).not.toBeNull();
+      expect(narrowColumnBox).not.toBeNull();
+      expect(narrowOverflowBox!.x + narrowOverflowBox!.width).toBeLessThanOrEqual(
+        narrowColumnBox!.x + narrowColumnBox!.width + 0.5,
+      );
+    } finally {
+      for (const meetingId of meetingIds) {
+        await deleteEntityIfExists(request, adminToken, INTERACTIONS_PATH, meetingId);
+      }
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId);
+    }
+  });
+  // #8867: a full-day block plus a burst of calls at 10:10 and a demo at 15:10
+  // on Thursday. The calls collapse into a "+N more" slot of their own; the demo
+  // must stay drawn at 15:10 instead of being pulled into that slot.
+  test('a later meeting keeps its own time slot when an earlier burst collapses', async ({ page, request }) => {
+    test.slow();
+
+    const stamp = Date.now();
+    const runToken = `QA Cal Burst ${stamp}`;
+    const trainingTitle = `${runToken} Training`;
+    const callTitles = ['Call A', 'Call B', 'Call C', 'Call D'].map((name) => `${runToken} ${name}`);
+    const demoTitle = `${runToken} Demo`;
+    let adminToken: string | null = null;
+    let personId: string | null = null;
+    const meetingIds: string[] = [];
+
+    const monday = mondayWeekRange(new Date()).from;
+    const thursdayAt = (hours: number, minutes: number) =>
+      new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 3, hours, minutes, 0, 0);
+
+    try {
+      adminToken = await getAuthToken(request, 'admin');
+      personId = await createPersonFixture(request, adminToken, {
+        firstName: 'CalBurst',
+        lastName: `Person${stamp}`,
+        displayName: `CalBurst Person ${stamp}`,
+      });
+      const meetings = [
+        { title: trainingTitle, scheduledAt: thursdayAt(9, 10), durationMinutes: 470 },
+        ...callTitles.map((title) => ({ title, scheduledAt: thursdayAt(10, 10), durationMinutes: 45 })),
+        { title: demoTitle, scheduledAt: thursdayAt(15, 10), durationMinutes: 60 },
+      ];
+      for (const meeting of meetings) {
+        meetingIds.push(
+          await createInteractionFixture(request, adminToken, {
+            entityId: personId,
+            interactionType: 'meeting',
+            status: 'planned',
+            ...meeting,
+          }),
+        );
+      }
+
+      await login(page, 'admin');
+      await page.goto('/backend/calendar');
+      await waitForCalendarLoaded(page);
+
+      const overflow = page.getByRole('button', { name: /more events, .*10:10.*10:55/ });
+      await expect(overflow, 'the calls collapse into a slot of their own').toHaveCount(1);
+      await expect(
+        page.getByRole('button', { name: /more events, .*10:10.*4:10/ }),
+        'no slot stretches from the calls to the demo',
+      ).toHaveCount(0);
+
+      const demo = page.getByRole('button', { name: gridBlockName(demoTitle) });
+      await expect(demo, 'the demo is drawn as its own block').toHaveCount(1);
+      await demo.scrollIntoViewIfNeeded();
+      await expect(demo).toBeVisible();
+      await overflow.scrollIntoViewIfNeeded();
+      const [overflowBox, demoBox] = await Promise.all([overflow.boundingBox(), demo.boundingBox()]);
+      expect(overflowBox, 'overflow block should have a bounding box').not.toBeNull();
+      expect(demoBox, 'demo block should have a bounding box').not.toBeNull();
+      expect(demoBox!.y, 'the demo sits below the collapsed calls').toBeGreaterThan(overflowBox!.y + overflowBox!.height);
+    } finally {
+      for (const meetingId of meetingIds) {
+        await deleteEntityIfExists(request, adminToken, INTERACTIONS_PATH, meetingId);
+      }
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId);
+    }
   });
 });

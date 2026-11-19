@@ -3,15 +3,16 @@ import {
   combineDateAndClock,
   createIntervalState,
   describeTaskOption,
-  formatRateText,
+  localizeRateText,
   mergeProjectOptions,
-  parseRateText,
   reduceIntervalState,
   resolveTimeEntryDialogMode,
   shiftIsoDate,
+  timeEntryRateOverrideText,
   toTaskOption,
   toTimeEntryRecord,
 } from '../timeEntryDialogState'
+import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 
 describe('time entry interval state (2-of-3 arithmetic)', () => {
   it('derives the end from a start and a duration and marks it computed', () => {
@@ -97,6 +98,13 @@ describe('time entry interval state (2-of-3 arithmetic)', () => {
 })
 
 describe('time entry dialog helpers', () => {
+  it('keeps an exact rate sibling alongside the legacy numeric rate', () => {
+    const exact = '98.765432109876543212'
+    const record = toTimeEntryRecord({ id: 'e1', rate_override_amount: exact })
+    expect(record?.rateOverrideAmount).toBe(Number(exact))
+    expect(record?.rateOverrideAmountExact).toBe(exact)
+  })
+
   it('shifts a calendar date across a month boundary', () => {
     expect(shiftIsoDate('2026-07-31', 1)).toBe('2026-08-01')
   })
@@ -176,6 +184,28 @@ describe('task option references', () => {
   })
 })
 
+describe('time entry override rate precision', () => {
+  const PRECISE_RATE = '98.765432109876543212'
+
+  it('keeps the exact stored override string next to its float copy', () => {
+    const record = toTimeEntryRecord({ id: 'e1', date: '2026-07-20', rate_override_amount: PRECISE_RATE })
+    expect(record?.rateOverrideAmountExact).toBe(PRECISE_RATE)
+    expect(record?.rateOverrideAmount).toBe(Number(PRECISE_RATE))
+    expect(record ? timeEntryRateOverrideText(record) : null).toBe(PRECISE_RATE)
+  })
+
+  it('reads a camelCase or numeric override and no override at all', () => {
+    expect(toTimeEntryRecord({ id: 'e1', rateOverrideAmount: '120.50' })?.rateOverrideAmountExact).toBe('120.5')
+    expect(toTimeEntryRecord({ id: 'e1', rate_override_amount: 260 })?.rateOverrideAmountExact).toBe('260')
+    expect(toTimeEntryRecord({ id: 'e1' })?.rateOverrideAmountExact).toBeNull()
+  })
+
+  it('falls back to the float copy for a record mapped without the exact field', () => {
+    expect(timeEntryRateOverrideText({ rateOverrideAmount: 180.5 })).toBe('180.5')
+    expect(timeEntryRateOverrideText({ rateOverrideAmount: null })).toBeNull()
+  })
+})
+
 describe('resolveTimeEntryDialogMode', () => {
   const projectOnly = { taskId: null, timeProjectId: 'project-1' }
   const withTask = { taskId: 'task-1', timeProjectId: 'project-1' }
@@ -229,30 +259,25 @@ describe('mergeProjectOptions', () => {
   })
 })
 
-describe('formatRateText', () => {
+describe('localizeRateText', () => {
   it.each([
-    [100.5, 'pl', '100,50'],
-    [100.5, 'en', '100.50'],
-    [1234567.5, 'de', '1234567,50'],
-    [12.3456, 'pl', '12,3456'],
-    [100, 'es', '100,00'],
-  ])('formats %p for %s as %p', (amount, locale, expected) => {
-    expect(formatRateText(amount, locale)).toBe(expected)
+    ['100.5', 'pl', '100,5'],
+    ['100.5', 'en', '100.5'],
+    ['1234567.5', 'de', '1234567,5'],
+    ['12.34567891', 'pl', '12,34567891'],
+    ['100', 'es', '100'],
+    ['100.5', 'fa', '100.5'],
+    ['100.5', 'ar-EG', '100.5'],
+  ])('shows %p for %s as %p', (text, locale, expected) => {
+    expect(localizeRateText(text, locale)).toBe(expected)
   })
-})
 
-describe('formatRateText round-trips through parseRateText', () => {
   it.each(['en', 'pl', 'de', 'es', 'ko', 'fa', 'bn', 'ar-EG', 'mr', 'th-TH-u-nu-thai'])(
-    'keeps a stored rate under %s',
+    'keeps the exact stored digits under %s',
     (locale) => {
-      for (const amount of [0, 100.5, 12.3456, 1234567.5]) {
-        expect(parseRateText(formatRateText(amount, locale))).toBe(amount)
+      for (const text of ['0', '100.5', '12.34567891', '1234567.5']) {
+        expect(parseLocaleDecimal(localizeRateText(text, locale))).toBe(text)
       }
     },
   )
-
-  it('emits Latin digits for locales with a native numbering system', () => {
-    expect(formatRateText(100.5, 'fa')).toBe('100.50')
-    expect(formatRateText(100.5, 'bn')).toBe('100.50')
-  })
 })
