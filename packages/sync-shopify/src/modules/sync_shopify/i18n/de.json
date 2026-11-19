@@ -1,0 +1,18 @@
+{
+  "sync_shopify.credentials.apiVersion.defaultOption": "{version} (Standard)",
+  "sync_shopify.credentials.apiVersion.help": "Für GraphQL verwendete Version der Shopify Admin API. Standard ist 2026-07.",
+  "sync_shopify.credentials.apiVersion.label": "API-Version",
+  "sync_shopify.credentials.clientId.help": "Client-ID aus den App-Einstellungen im Dev Dashboard. Veröffentlichen Sie die Berechtigungen read_products, read_customers und read_orders und installieren Sie anschließend die App in diesem Shop.",
+  "sync_shopify.credentials.clientId.label": "Client-ID",
+  "sync_shopify.credentials.clientSecret.help": "Client-Geheimnis von derselben Einstellungsseite. Open Mercato tauscht es gegen ein kurzlebiges Admin-API-Token aus.",
+  "sync_shopify.credentials.clientSecret.label": "Client-Geheimnis",
+  "sync_shopify.credentials.shopDomain.help": "Der Hostname *.myshopify.com ohne https://.",
+  "sync_shopify.credentials.shopDomain.label": "Shop-Domain",
+  "sync_shopify.credentials.shopDomain.placeholder": "dein-shop.myshopify.com",
+  "sync_shopify.health.connected": "Verbunden mit {shopName}",
+  "sync_shopify.health.failed": "Verbindung mit Shopify fehlgeschlagen: {message}",
+  "sync_shopify.health.unknownError": "Unbekannter Shopify-Fehler",
+  "sync_shopify.integration.description": "Produkte, Kunden und Bestellungen aus Shopify in Open Mercato importieren.",
+  "sync_shopify.integration.title": "Shopify",
+  "sync_shopify.validation.failed": "Shopify-Validierung fehlgeschlagen"
+}

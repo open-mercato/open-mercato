@@ -373,6 +373,8 @@
   "auth.acl.features.storage_providers.manage": "Administrar proveedores de almacenamiento",
   "auth.acl.features.sync_excel.run": "Subir archivos CSV y preparar importaciones",
   "auth.acl.features.sync_excel.view": "Ver archivos subidos y vistas previas de sync_excel",
+  "auth.acl.features.sync_shopify.configure": "Configurar la sincronización de Shopify",
+  "auth.acl.features.sync_shopify.view": "Ver la sincronización de Shopify",
   "auth.acl.features.tillio.manage": "Gestionar la integración con Tillio",
   "auth.acl.features.translations.manage": "Administrar traducciones de entidades",
   "auth.acl.features.translations.manage_locales": "Configurar idiomas soportados",

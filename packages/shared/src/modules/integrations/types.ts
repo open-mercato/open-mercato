@@ -47,6 +47,7 @@ export type CredentialFieldType =
 export interface CredentialFieldOption {
   value: string
   label: string
+  labelKey?: string
 }
 
 export interface CredentialFieldVisibleWhen {
@@ -72,9 +73,13 @@ export interface IntegrationCredentialWebhookHelp {
 export interface IntegrationCredentialFieldBase {
   key: string
   label: string
+  /** Optional i18n key resolved by the integrations detail page via `useT`. */
+  labelKey?: string
   required?: boolean
   placeholder?: string
+  placeholderKey?: string
   helpText?: string
+  helpTextKey?: string
   helpDetails?: IntegrationCredentialWebhookHelp
   visibleWhen?: CredentialFieldVisibleWhen
 }

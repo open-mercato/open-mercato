@@ -373,6 +373,8 @@
   "auth.acl.features.storage_providers.manage": "Manage storage providers",
   "auth.acl.features.sync_excel.run": "Upload CSV files and prepare imports",
   "auth.acl.features.sync_excel.view": "View sync_excel uploads and previews",
+  "auth.acl.features.sync_shopify.configure": "Shopify 동기화 구성",
+  "auth.acl.features.sync_shopify.view": "Shopify 동기화 보기",
   "auth.acl.features.tillio.manage": "Tillio 통합 관리",
   "auth.acl.features.translations.manage": "Manage entity translations",
   "auth.acl.features.translations.manage_locales": "Configure supported locales",
