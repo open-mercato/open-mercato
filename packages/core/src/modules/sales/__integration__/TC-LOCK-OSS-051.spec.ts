@@ -83,8 +83,9 @@ function sendWrite(
   })
 }
 
-async function purgeCreditMemo(creditMemoId: string | null): Promise<void> {
+async function purgeCreditMemo(request: APIRequestContext, token: string, creditMemoId: string | null): Promise<void> {
   if (!creditMemoId) return
+  if ((await readRow(creditMemoId))?.deleted_at === null) await sendWrite(request, token, 'DELETE', creditMemoId).catch(() => undefined)
   await withClient(async (client) => {
     await client.query('delete from sales_credit_memo_lines where credit_memo_id = $1', [creditMemoId])
     await client.query('delete from sales_credit_memos where id = $1', [creditMemoId])
@@ -149,7 +150,7 @@ test.describe('TC-LOCK-OSS-051: sales.credit_memo update and delete check the ve
           expect(again.status(), 'deleting an already deleted credit memo answers 404').toBe(404)
         }
       } finally {
-        await purgeCreditMemo(creditMemoId)
+        await purgeCreditMemo(request, token, creditMemoId)
       }
     })
   }
