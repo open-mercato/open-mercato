@@ -693,3 +693,7 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## Sync Excel upload access (2026-11-19, #8763)
+
+STABLE break: generic routes bypassed `sync_excel.view`; bridge retains disclosure. [Migration](UPGRADE_NOTES.md#sync-excel-attachments-enforce-upload-view-permission-8763). Steps 1–3 waiver PENDING.
