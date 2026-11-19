@@ -47,3 +47,7 @@ Admin detail/action routes for customer users follow the organization switcher (
 - [x] 2.1 Validate requested roles before any write in admin user PUT — 0cc7f88179
 - [x] 2.2 Give never-updated customer users a non-null optimistic-lock version — c6b11c3b9e
 - [x] 2.3 Load role options for the edited user's organization — 56c6150182
+
+### Phase 3: Address review/security finding (cross-organization authorization)
+
+- [x] 3.1 Re-check the required customer_accounts feature in the target user's organization on every admin customer-user route — b3cae4a4a2
