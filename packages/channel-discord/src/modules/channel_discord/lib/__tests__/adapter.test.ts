@@ -9,6 +9,10 @@ import {
 } from '../discord-rest'
 import { DISCORD_CONVERSATION_PREFIX } from '../normalize-inbound'
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ t: (key: string) => key })),
+}))
+
 function makeSigner() {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519')
   const spki = publicKey.export({ type: 'spki', format: 'der' }) as Buffer
@@ -44,6 +48,9 @@ function stubRest(overrides: Partial<DiscordRestClient> = {}): {
     },
     async getCurrentUser(): Promise<DiscordUser> {
       return { id: 'bot-user', username: 'bot' }
+    },
+    async getCurrentApplication() {
+      return { id: credentials.applicationId, verify_key: credentials.publicKey }
     },
     async getGatewayBot() {
       return { url: 'wss://gateway', shards: 1 }
@@ -207,7 +214,7 @@ describe('DiscordChannelAdapter.verifyWebhook (fail-closed)', () => {
 })
 
 describe('DiscordChannelAdapter.validateCredentials', () => {
-  it('accepts a good token (users/@me succeeds)', async () => {
+  it('accepts a token belonging to the supplied application and verification key', async () => {
     stubRest()
     const adapter = getDiscordChannelAdapter()
     const result = await adapter.validateCredentials({ providerKey: 'discord', credentials, scope: { organizationId: 'o', tenantId: 't' } })
@@ -229,7 +236,7 @@ describe('DiscordChannelAdapter.validateCredentials', () => {
 
   it('rejects a bad token with a field error', async () => {
     stubRest({
-      async getCurrentUser() {
+      async getCurrentApplication() {
         const { DiscordApiError } = await import('../discord-rest')
         throw new DiscordApiError('unauthorized', 401, 'unauthorized')
       },
@@ -239,5 +246,73 @@ describe('DiscordChannelAdapter.validateCredentials', () => {
     expect(result.ok).toBe(false)
     expect(result.errors?.botToken).toBeTruthy()
     expect(result.externalIdentifier).toBeUndefined()
+  })
+
+  it.each([
+    ['applicationId', { applicationId: 'another-application' }],
+    ['publicKey', { publicKey: 'b'.repeat(64) }],
+  ])('rejects a mismatched %s even when the bot token authenticates', async (field, mismatch) => {
+    stubRest()
+    const result = await getDiscordChannelAdapter().validateCredentials({
+      providerKey: 'discord', credentials: { ...credentials, ...mismatch },
+      scope: { tenantId: 't', organizationId: 'o' },
+    })
+    expect(result.ok).toBe(false)
+    expect(result.errors?.[field]).toBeTruthy()
+    expect(result.externalIdentifier).toBeUndefined()
+  })
+
+  it('accepts equivalent uppercase hex verification keys', async () => {
+    stubRest()
+    const result = await getDiscordChannelAdapter().validateCredentials({
+      providerKey: 'discord', credentials: { ...credentials, publicKey: credentials.publicKey.toUpperCase() },
+      scope: { tenantId: 't', organizationId: 'o' },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.externalIdentifier).toBe('discord:123')
+  })
+
+  it('fails closed for a legacy REST override without authenticated application metadata', async () => {
+    stubRest({ getCurrentApplication: undefined })
+    const result = await getDiscordChannelAdapter().validateCredentials({
+      providerKey: 'discord', credentials, scope: { tenantId: 't', organizationId: 'o' },
+    })
+    expect(result.ok).toBe(false)
+    expect(result.errors?.botToken).toBeTruthy()
+    expect(result.externalIdentifier).toBeUndefined()
+  })
+
+  it('fails closed when the authenticated application lookup is unavailable', async () => {
+    stubRest({ async getCurrentApplication() { throw new Error('[internal] unavailable') } })
+    const result = await getDiscordChannelAdapter().validateCredentials({
+      providerKey: 'discord', credentials, scope: { tenantId: 't', organizationId: 'o' },
+    })
+    expect(result.ok).toBe(false)
+    expect(result.errors?.botToken).toBeTruthy()
+    expect(result.externalIdentifier).toBeUndefined()
+  })
+})
+
+describe('Discord credential validation through the REST transport', () => {
+  afterEach(() => jest.restoreAllMocks())
+
+  it.each([
+    [{ id: credentials.applicationId, verify_key: credentials.publicKey }, true],
+    [{ id: 'another-application', verify_key: credentials.publicKey }, false],
+    [{ id: credentials.applicationId, verify_key: 'b'.repeat(64) }, false],
+    [{ id: credentials.applicationId }, false],
+    [{ id: credentials.applicationId, verify_key: 123 }, false],
+    [{ id: credentials.applicationId, verify_key: 'not-hex' }, false],
+    [null, false],
+  ])('validates authenticated application metadata %j', async (application, accepted) => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(application)))
+    const result = await getDiscordChannelAdapter().validateCredentials({
+      providerKey: 'discord', credentials, scope: { tenantId: 't', organizationId: 'o' },
+    })
+    expect(fetchSpy).toHaveBeenCalledWith('https://discord.com/api/v10/oauth2/applications/@me', expect.objectContaining({
+      method: 'GET', headers: { Authorization: `Bot ${credentials.botToken}` }, signal: expect.any(AbortSignal),
+    }))
+    expect(result.ok).toBe(accepted)
+    expect(result.externalIdentifier).toBe(accepted ? 'discord:123' : undefined)
   })
 })
