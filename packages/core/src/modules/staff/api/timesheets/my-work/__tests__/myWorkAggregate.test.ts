@@ -76,3 +76,41 @@ describe('pickRecentTaskIds', () => {
     expect(pickRecentTaskIds([{ id: 'e1', date: '2026-07-10', taskId: null }], 5)).toEqual([])
   })
 })
+
+describe('buildMyWorkKpis with an EP-40 capacity provider (#6934)', () => {
+  const contributed = (targetMinutesByDate: Record<string, number>, totalTargetMinutes: number | null) => ({
+    targetMinutesByDate,
+    totalTargetMinutes,
+    providerId: 'app.contract_hours',
+    isBuiltIn: false,
+  })
+
+  it('uses the contributed targets for today, the week and the month', () => {
+    const kpis = buildMyWorkKpis(TOTALS, RANGES, 8, {
+      today: '2026-07-15',
+      week: contributed({ '2026-07-13': 240, '2026-07-15': 240 }, 480),
+      month: contributed({}, 5040),
+    })
+    expect(kpis.dailyTargetMinutes).toBe(240)
+    expect(kpis.weekTargetMinutes).toBe(480)
+    expect(kpis.monthTargetMinutes).toBe(5040)
+    expect(kpis.weekWorkingDays).toBe(5)
+  })
+
+  it('answers no daily target for a day the provider left out', () => {
+    const kpis = buildMyWorkKpis(TOTALS, RANGES, 8, {
+      today: '2026-07-14',
+      week: contributed({ '2026-07-13': 240 }, 240),
+      month: contributed({}, 240),
+    })
+    expect(kpis.dailyTargetMinutes).toBeNull()
+  })
+
+  it('ignores the built-in answer and keeps the flat arithmetic', () => {
+    const builtIn = { targetMinutesByDate: {}, totalTargetMinutes: 0, providerId: 'built-in', isBuiltIn: true }
+    const kpis = buildMyWorkKpis(TOTALS, RANGES, 8, { today: '2026-07-15', week: builtIn, month: builtIn })
+    expect(kpis.dailyTargetMinutes).toBe(480)
+    expect(kpis.weekTargetMinutes).toBe(2400)
+    expect(kpis.monthTargetMinutes).toBe(480 * 23)
+  })
+})
