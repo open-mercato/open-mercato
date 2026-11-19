@@ -12,6 +12,7 @@ jest.mock('@open-mercato/shared/lib/db/advisoryLock', () => ({
 import type { EmbeddingProviderConfig } from '../../../../../vector'
 import { EMBEDDING_CONFIG_KEY } from '../../../../../vector'
 import { SEARCH_AUTO_INDEX_CONFIG_KEY } from '../../../lib/auto-indexing'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockCreateRequestContainer = jest.fn()
@@ -46,6 +47,7 @@ describe('tenant embedding updates preserve the shared index', () => {
   const invalidate = jest.fn()
   const updateConfig = jest.fn()
   const dispose = jest.fn()
+  const enforceRecordLock = jest.fn()
   const key = (tenantId: string, name: string) => `${tenantId}:${name}`
 
   function prepare(tenantId = 'tenant-a') {
@@ -62,6 +64,7 @@ describe('tenant embedding updates preserve the shared index', () => {
     mockCreateRequestContainer.mockResolvedValueOnce({
       resolve: (name: string) => {
         if (name === 'moduleConfigService') return service
+        if (name === 'commandOptimisticLockGuardService') return { enforce: enforceRecordLock }
         if (name === 'vectorDrivers') return [{ id: 'pgvector', getTableDimension, recreateWithDimension, count: async () => rows.get(tenantId)?.length ?? 0 }]
         if (name === 'vectorEmbeddingService') return { updateConfig }
         if (name === 'em') return {
@@ -92,6 +95,7 @@ describe('tenant embedding updates preserve the shared index', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    enforceRecordLock.mockResolvedValue(undefined)
     process.env = { ...originalEnv, OPENAI_API_KEY: 'test-placeholder', MISTRAL_API_KEY: 'test-placeholder' }
     delete process.env.OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING
     delete process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
@@ -175,6 +179,20 @@ describe('tenant embedding updates preserve the shared index', () => {
     expect((await POST(request())).status).toBe(401)
     expect(mockCreateRequestContainer).not.toHaveBeenCalled()
     expect(setValue).not.toHaveBeenCalled()
+  })
+
+  it('preserves optional record-lock refusals before either settings key is written', async () => {
+    enforceRecordLock.mockRejectedValueOnce(new CrudHttpError(409, {
+      error: '[internal] Record is locked', code: 'record_lock_conflict',
+    }))
+    prepare()
+    const response = await POST(request(nextConfig, { autoIndexingEnabled: false }, originalConfig.updatedAt))
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: 'record_lock_conflict' })
+    expect(enforceRecordLock).toHaveBeenCalledWith(expect.objectContaining({ resourceKind: 'search.embedding_config' }))
+    expect(setValue).not.toHaveBeenCalled()
+    expect(configs.get(key('tenant-a', EMBEDDING_CONFIG_KEY))).toEqual(originalConfig)
+    expect(configs.get(key('tenant-a', SEARCH_AUTO_INDEX_CONFIG_KEY))).toBe(true)
   })
 
   it.each([

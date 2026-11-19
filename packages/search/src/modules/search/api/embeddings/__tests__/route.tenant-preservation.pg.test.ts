@@ -215,6 +215,22 @@ describePostgres('embedding POST with real PostgreSQL settings and shared pgvect
     await assertPreserved()
   })
 
+  it('rejects the inherited version after another actor creates the first tenant override', async () => {
+    await pool.query(`DELETE FROM "${schema}".module_configs WHERE tenant_id = $1 AND name = $2`, [tenantA, EMBEDDING_CONFIG_KEY])
+    await pool.query(`INSERT INTO "${schema}".module_configs (module_id, name, value_json) VALUES ('vector', $1, $2::jsonb)`,
+      [EMBEDDING_CONFIG_KEY, JSON.stringify(config)])
+    const first = await request(tenantA, { ...config, model: 'tenant-override' }, undefined, config.updatedAt)
+    expect(first.status).toBe(200)
+    const beforeA = await storedSettings(tenantA)
+    expect((await request(tenantA, config, undefined, config.updatedAt)).status).toBe(409)
+    expect(await storedSettings(tenantA)).toEqual(beforeA)
+    const global = await pool.query<{ value_json: unknown }>(
+      `SELECT value_json FROM "${schema}".module_configs WHERE tenant_id IS NULL AND name = $1`, [EMBEDDING_CONFIG_KEY],
+    )
+    expect(global.rows).toEqual([{ value_json: config }])
+    await assertPreserved()
+  })
+
   it('serializes the first override and keeps versions distinct within one clock tick', async () => {
     await pool.query(`DELETE FROM "${schema}".module_configs WHERE tenant_id = $1 AND name = $2`, [tenantA, EMBEDDING_CONFIG_KEY])
     const epoch = '1970-01-01T00:00:00.000Z'
