@@ -10,6 +10,10 @@ const mockEm = {
   findOne: jest.fn(),
   findAndCount: jest.fn(),
   count: jest.fn(),
+  createQueryBuilder: jest.fn(() => {
+    const subquery = { select: () => subquery, where: () => subquery }
+    return subquery
+  }),
 }
 
 const mockContainer = {
@@ -108,7 +112,7 @@ function expectNoQueries() {
 }
 
 function expectTenantWideQueries() {
-  const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls]
+  const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls, ...mockEm.count.mock.calls]
   expect(calls.length).toBeGreaterThan(0)
   for (const call of calls) {
     const where = call[1] as Record<string, unknown>
@@ -239,7 +243,7 @@ describe('interactions/tasks GET organization scoping', () => {
     )
     expect(res.status).toBe(200)
 
-    const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls]
+    const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls, ...mockEm.count.mock.calls]
     expect(calls.length).toBeGreaterThan(0)
     for (const call of calls) {
       expect((call[1] as Record<string, unknown>).organizationId).toEqual({ $in: [ORG_1] })

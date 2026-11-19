@@ -3,6 +3,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CustomerInteraction,
   CustomerTodoLink,
@@ -180,15 +181,20 @@ export function normalizeTodoSearch(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function compareTodoRowsNewestFirst(
+  left: { id: string; createdAt: string },
+  right: { id: string; createdAt: string },
+): number {
+  const leftTime = new Date(left.createdAt).getTime()
+  const rightTime = new Date(right.createdAt).getTime()
+  if (leftTime === rightTime) {
+    return right.id.localeCompare(left.id)
+  }
+  return rightTime - leftTime
+}
+
 export function sortTodoRows(rows: CustomerTodoRow[]): CustomerTodoRow[] {
-  return [...rows].sort((left, right) => {
-    const leftTime = new Date(left.createdAt).getTime()
-    const rightTime = new Date(right.createdAt).getTime()
-    if (leftTime === rightTime) {
-      return right.id.localeCompare(left.id)
-    }
-    return rightTime - leftTime
-  })
+  return [...rows].sort(compareTodoRowsNewestFirst)
 }
 
 export function filterTodoRows(rows: CustomerTodoRow[], search: string | null): CustomerTodoRow[] {
@@ -430,7 +436,7 @@ export async function listLegacyTodoRows(
   tenantId: string,
   organizationIds: string[] | null,
   entityId: string | undefined,
-  options?: { limit?: number | null; isUnrestricted?: boolean },
+  options?: { limit?: number | null; isUnrestricted?: boolean; ids?: string[] },
 ): Promise<CustomerTodoRow[]> {
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
     return []
@@ -441,6 +447,9 @@ export async function listLegacyTodoRows(
   }
   if (entityId) {
     where.entity = entityId
+  }
+  if (options?.ids) {
+    where.id = { $in: options.ids }
   }
 
   const findOptions: Record<string, unknown> = {
@@ -482,6 +491,7 @@ export async function listCanonicalTodoRows(
     searchText?: string | null
     limit?: number | null
     isUnrestricted?: boolean
+    ids?: string[]
   },
 ): Promise<CanonicalTodoListResult> {
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
@@ -502,6 +512,9 @@ export async function listCanonicalTodoRows(
   }
   if (options?.source) {
     where.source = Array.isArray(options.source) ? { $in: options.source } : options.source
+  }
+  if (options?.ids) {
+    where.id = { $in: options.ids }
   }
   const trimmedSearch =
     typeof options?.searchText === 'string' ? options.searchText.trim() : ''
@@ -598,6 +611,116 @@ export async function listCanonicalTodoRows(
       .map((interaction) => rowByInteractionId.get(interaction.id) ?? null)
       .filter((row): row is CustomerTodoRow => !!row),
     bridgeIds: new Set(interactions.map((interaction) => interaction.id)),
+    total,
+  }
+}
+
+type TodoHead = { id: string; createdAt: string; legacy: boolean }
+
+function mergeTodoHeads(left: TodoHead[], right: TodoHead[]): TodoHead[] {
+  const merged: TodoHead[] = []
+  let leftIndex = 0
+  let rightIndex = 0
+  while (leftIndex < left.length && rightIndex < right.length) {
+    if (compareTodoRowsNewestFirst(left[leftIndex], right[rightIndex]) <= 0) {
+      merged.push(left[leftIndex++])
+    } else {
+      merged.push(right[rightIndex++])
+    }
+  }
+  return [...merged, ...left.slice(leftIndex), ...right.slice(rightIndex)]
+}
+
+export async function listMergedTodoPage(
+  em: EntityManager,
+  queryEngine: QueryEngine,
+  container: CustomersContainerLike,
+  auth: CustomersAuthLike & { tenantId: string },
+  selectedOrganizationId: string | null,
+  organizationIds: string[] | null,
+  options: { entityId?: string; page: number; pageSize: number; isUnrestricted?: boolean },
+): Promise<{ items: CustomerTodoRow[]; total: number }> {
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, options.isUnrestricted)) {
+    return { items: [], total: 0 }
+  }
+  const scope: Record<string, unknown> = { tenantId: auth.tenantId }
+  if (organizationIds && organizationIds.length > 0) {
+    scope.organizationId = { $in: organizationIds }
+  }
+  if (options.entityId) {
+    scope.entity = options.entityId
+  }
+  const taskScope = { ...scope, interactionType: 'task' }
+  const legacyWhere = {
+    ...scope,
+    todoId: { $nin: em.createQueryBuilder(CustomerInteraction).select('id').where(taskScope) },
+  }
+  const canonicalWhere = { ...taskScope, deletedAt: null }
+  const [legacyTotal, canonicalTotal] = await Promise.all([
+    em.count(CustomerTodoLink, legacyWhere),
+    em.count(CustomerInteraction, canonicalWhere),
+  ])
+  const total = legacyTotal + canonicalTotal
+  const start = (options.page - 1) * options.pageSize
+  if (start >= total) {
+    return { items: [], total }
+  }
+  const window = options.page * options.pageSize
+  const decryptionScope = { tenantId: auth.tenantId, organizationId: selectedOrganizationId }
+  const headOptions = {
+    fields: ['id', 'createdAt'] as const,
+    orderBy: { createdAt: 'desc', id: 'desc' } as const,
+    disableIdentityMap: true,
+  }
+  const [legacyHeads, canonicalHeads] = await Promise.all([
+    legacyTotal > 0
+      ? findWithDecryption(
+          em,
+          CustomerTodoLink,
+          legacyWhere,
+          { ...headOptions, limit: Math.min(window, legacyTotal) },
+          decryptionScope,
+        )
+      : Promise.resolve([]),
+    canonicalTotal > 0
+      ? findWithDecryption(
+          em,
+          CustomerInteraction,
+          canonicalWhere,
+          { ...headOptions, limit: Math.min(window, canonicalTotal) },
+          decryptionScope,
+        )
+      : Promise.resolve([]),
+  ])
+  const toHead = (legacy: boolean) => (head: { id: string; createdAt: Date }): TodoHead => ({
+    id: head.id,
+    createdAt: head.createdAt.toISOString(),
+    legacy,
+  })
+  const pageHeads = mergeTodoHeads(legacyHeads.map(toHead(true)), canonicalHeads.map(toHead(false)))
+    .slice(start, start + options.pageSize)
+  const pageLegacyIds = pageHeads.filter((head) => head.legacy).map((head) => head.id)
+  const pageCanonicalIds = pageHeads.filter((head) => !head.legacy).map((head) => head.id)
+  const [legacyRows, canonicalRows] = await Promise.all([
+    pageLegacyIds.length > 0
+      ? listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, options.entityId, {
+          ids: pageLegacyIds,
+          isUnrestricted: options.isUnrestricted,
+        })
+      : Promise.resolve([]),
+    pageCanonicalIds.length > 0
+      ? listCanonicalTodoRows(em, container, auth, selectedOrganizationId, organizationIds, {
+          entityId: options.entityId,
+          ids: pageCanonicalIds,
+          isUnrestricted: options.isUnrestricted,
+        })
+      : Promise.resolve(emptyCanonicalTodoList()),
+  ])
+  const rowsById = new Map([...legacyRows, ...canonicalRows.items].map((row) => [row.id, row]))
+  return {
+    items: pageHeads
+      .map((head) => rowsById.get(head.id) ?? null)
+      .filter((row): row is CustomerTodoRow => !!row),
     total,
   }
 }
