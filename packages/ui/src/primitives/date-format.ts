@@ -142,9 +142,23 @@ type DisplayStyle = keyof typeof DISPLAY_STYLES
 // Constructing an `Intl.DateTimeFormat` costs ~40x using one (Node 24: ~31 µs vs ~0.8 µs), and these
 // helpers render every date cell AND its tooltip in `DataTable` — two constructions per cell, so a
 // 100-row page with two date columns would pay 400 of them on every sort, filter and keystroke.
-// A formatter is immutable and the key space is the locales and zones a deployment ships, so one
-// instance per (locale, zone, style) is kept for the process.
+// A formatter is immutable, so one instance per (locale, zone, style) is kept for the process.
+//
+// The key carries the tenant's configured locale and time zone, and every tenant of one SSR process
+// can set its own. That makes the key space attacker-reachable, not "the locales a deployment
+// ships": an unbounded map would retain one formatter per accepted locale for the life of the
+// process. It is therefore an LRU with a hard cap — big enough to cover the working set of a page
+// render, small enough that the retained formatters cannot grow without bound.
+export const FORMATTER_CACHE_MAX_ENTRIES = 64
 const formatterCache = new Map<string, Intl.DateTimeFormat>()
+
+export function getFormatterCacheSizeForTests(): number {
+  return formatterCache.size
+}
+
+export function getFormatterCacheKeysForTests(): string[] {
+  return [...formatterCache.keys()]
+}
 
 function getFormatter(
   locale: string | undefined,
@@ -154,12 +168,20 @@ function getFormatter(
 ): Intl.DateTimeFormat {
   const key = `${locale ?? ''}|${timeZone ?? ''}|${style}|${hourCycle ?? ''}`
   const cached = formatterCache.get(key)
-  if (cached) return cached
+  if (cached) {
+    formatterCache.delete(key)
+    formatterCache.set(key, cached)
+    return cached
+  }
   const created = new Intl.DateTimeFormat(locale, {
     ...DISPLAY_STYLES[style],
     ...(timeZone ? { timeZone } : {}),
     ...(hourCycle ? { hourCycle } : {}),
   })
+  if (formatterCache.size >= FORMATTER_CACHE_MAX_ENTRIES) {
+    const oldest = formatterCache.keys().next().value
+    if (oldest !== undefined) formatterCache.delete(oldest)
+  }
   formatterCache.set(key, created)
   return created
 }

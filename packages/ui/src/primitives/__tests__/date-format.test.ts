@@ -1,9 +1,12 @@
 import { pl } from 'date-fns/locale/pl'
 import {
+  FORMATTER_CACHE_MAX_ENTRIES,
   deriveDateDisplayFormat,
   formatDisplayDate,
   formatDisplayDateTime,
   formatWithPublicDateFormat,
+  getFormatterCacheKeysForTests,
+  getFormatterCacheSizeForTests,
   normalizeDateFormatPattern,
   resolveDisplayDateTimeFormat,
   resolvePublicDateFormat,
@@ -224,5 +227,43 @@ describe('rendering a stored date-only column', () => {
 
   it('renders nothing when the column is empty', () => {
     expect(formatDisplayDate(toUtcDateInputValue(null))).toBeNull()
+  })
+})
+
+// Every tenant of one SSR process can configure its own formatting locale, so the formatter cache is
+// reachable with many distinct valid tags. It must stay a bounded LRU, not a process-lifetime map
+// that retains one `Intl.DateTimeFormat` per locale it has ever rendered.
+describe('formatter cache bounds', () => {
+  const NO_EXPLICIT_FORMATS = {
+    locale: null,
+    dateFormat: null,
+    dateTimeFormat: null,
+    timeFormat: null,
+    timeZone: null,
+  }
+
+  it('never retains more formatters than the cap under many tenant locales', () => {
+    for (let index = 1; index <= FORMATTER_CACHE_MAX_ENTRIES * 4; index += 1) {
+      const locale = `en-${String(index).padStart(3, '0')}`
+      expect(formatDisplayDate('2026-07-01', locale, NO_EXPLICIT_FORMATS)).not.toBeNull()
+    }
+
+    expect(getFormatterCacheSizeForTests()).toBeLessThanOrEqual(FORMATTER_CACHE_MAX_ENTRIES)
+  })
+
+  it('evicts by recency, so a re-used old entry survives the next eviction wave', () => {
+    for (let index = 1; index <= FORMATTER_CACHE_MAX_ENTRIES; index += 1) {
+      formatDisplayDate('2026-07-01', `nl-${String(index).padStart(3, '0')}`, NO_EXPLICIT_FORMATS)
+    }
+    const oldestKey = getFormatterCacheKeysForTests()[0]
+    const oldestLocale = oldestKey.split('|')[0]
+
+    formatDisplayDate('2026-07-01', oldestLocale, NO_EXPLICIT_FORMATS)
+    for (let index = 1; index < FORMATTER_CACHE_MAX_ENTRIES; index += 1) {
+      formatDisplayDate('2026-07-01', `de-${String(index).padStart(3, '0')}`, NO_EXPLICIT_FORMATS)
+    }
+
+    expect(getFormatterCacheKeysForTests()).toContain(oldestKey)
+    expect(getFormatterCacheSizeForTests()).toBeLessThanOrEqual(FORMATTER_CACHE_MAX_ENTRIES)
   })
 })
