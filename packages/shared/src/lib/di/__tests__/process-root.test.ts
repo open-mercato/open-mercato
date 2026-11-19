@@ -491,3 +491,198 @@ it.each(['registration', 'activation'] as const)('preserves the root %s failure 
   expect(dispose).toHaveBeenCalledTimes(1)
   expect(mockProcessBootstrap).toHaveBeenCalledTimes(phase === 'registration' ? 1 : 2)
 })
+
+function registerRetirementProbe(dispose: () => Promise<void> | void) {
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    root.register({ generationResource: asFunction(() => ({})).singleton().disposer(dispose) })
+    root.resolve('generationResource')
+  })])
+}
+
+it('retires a published generation only after every caller releases it, exactly once', async () => {
+  const dispose = jest.fn()
+  registerRetirementProbe(dispose)
+  const first = await createRequestContainer()
+  const second = await createRequestContainer()
+  invalidateProcessContainer()
+  invalidateProcessContainer()
+  expect(dispose).not.toHaveBeenCalled()
+  const replacement = await createRequestContainer()
+  await first.dispose()
+  expect(dispose).not.toHaveBeenCalled()
+  await Promise.all([second.dispose(), second.dispose()])
+  expect(dispose).toHaveBeenCalledTimes(1)
+  await first.dispose()
+  expect(dispose).toHaveBeenCalledTimes(1)
+  await replacement.dispose()
+  expect(dispose).toHaveBeenCalledTimes(1)
+})
+
+it('disposes an unused published generation on invalidation and rebuilds after explicit root disposal', async () => {
+  const dispose = jest.fn()
+  registerRetirementProbe(dispose)
+  const first = await initializeProcessContainer()
+  invalidateProcessContainer()
+  await first!.dispose()
+  expect(dispose).toHaveBeenCalledTimes(1)
+  const second = await initializeProcessContainer()
+  await second!.dispose()
+  expect(dispose).toHaveBeenCalledTimes(2)
+  const caller = await createRequestContainer()
+  expect(mockProcessBootstrap).toHaveBeenCalledTimes(3)
+  await caller.dispose()
+})
+
+it('counts direct background scopes and nested descendants independently of their parents', async () => {
+  const dispose = jest.fn()
+  registerRetirementProbe(dispose)
+  const root = await initializeProcessContainer()
+  const background = root!.createScope()
+  const caller = await createRequestContainer()
+  const nested = caller.createScope()
+  invalidateProcessContainer()
+  await caller.dispose()
+  const grandchild = nested.createScope()
+  await nested.dispose()
+  await background.dispose()
+  expect(dispose).not.toHaveBeenCalled()
+  await grandchild.dispose()
+  expect(dispose).toHaveBeenCalledTimes(1)
+})
+
+it('retains a generation until all caller disposers settle even when another disposer rejects', async () => {
+  const rootDispose = jest.fn()
+  registerRetirementProbe(rootDispose)
+  const caller = await createRequestContainer()
+  const failure = new Error('[internal] scoped disposal failed')
+  let release!: () => void
+  const blocked = new Promise<void>((resolve) => { release = resolve })
+  const generationResource = caller.resolve('generationResource')
+  caller.register({
+    fails: asFunction(() => ({})).scoped().disposer(() => { throw failure }),
+    slow: asFunction(() => ({})).scoped().disposer(async () => {
+      await blocked
+      expect(caller.resolve('generationResource')).toBe(generationResource)
+      expect(rootDispose).not.toHaveBeenCalled()
+    }),
+  })
+  caller.resolve('fails')
+  caller.resolve('slow')
+  invalidateProcessContainer()
+  const disposing = caller.dispose()
+  const rejected = expect(disposing).rejects.toBe(failure)
+  await new Promise((resolve) => setImmediate(resolve))
+  expect(rootDispose).not.toHaveBeenCalled()
+  expect(caller.dispose()).toBe(disposing)
+  release()
+  await rejected
+  expect(rootDispose).toHaveBeenCalledTimes(1)
+})
+
+it('releases failed caller setup while preserving its error when retired root disposal rejects', async () => {
+  const rootFailure = new Error('[internal] root disposal failed')
+  const setupFailure = new Error('[internal] setup failed')
+  const dispose = jest.fn(async () => { throw rootFailure })
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    root.register({ generationResource: asFunction(() => ({})).singleton().disposer(dispose) })
+    root.resolve('generationResource')
+    registerCallerSetup(root, () => {
+      invalidateProcessContainer()
+      throw setupFailure
+    })
+  })])
+  await expect(createRequestContainer()).rejects.toBe(setupFailure)
+  expect(dispose).toHaveBeenCalledTimes(1)
+  expect(mockReportError).toHaveBeenCalledWith(rootFailure, {
+    module: 'shared', code: 'shared.root_retirement_cleanup_failed',
+  })
+})
+
+it('observes unused retired root cleanup rejection even when the telemetry sink throws', async () => {
+  const failure = new Error('[internal] root cleanup failed')
+  const dispose = jest.fn(async () => { throw failure })
+  registerRetirementProbe(dispose)
+  const root = await initializeProcessContainer()
+  mockReportError.mockImplementationOnce(() => { throw new Error('[internal] telemetry failed') })
+  expect(() => invalidateProcessContainer()).not.toThrow()
+  await root!.dispose()
+  await root!.dispose()
+  expect(dispose).toHaveBeenCalledTimes(1)
+  expect(mockReportError).toHaveBeenCalledWith(failure, {
+    module: 'shared', code: 'shared.root_retirement_cleanup_failed',
+  })
+})
+
+it('retries acquisition when invalidation retires the root across the initialization await', async () => {
+  const dispose = jest.fn()
+  registerRetirementProbe(dispose)
+  const oldRoot = await initializeProcessContainer()
+  const oldResource = oldRoot!.resolve('generationResource')
+  const pending = createRequestContainer()
+  queueMicrotask(invalidateProcessContainer)
+  const caller = await pending
+  expect(mockProcessBootstrap).toHaveBeenCalledTimes(2)
+  expect(caller.resolve('generationResource')).not.toBe(oldResource)
+  expect(dispose).toHaveBeenCalledTimes(1)
+  await caller.dispose()
+})
+
+it('rejects failed activation promptly while its background scope retains the unpublished generation', async () => {
+  const dispose = jest.fn()
+  const failure = new Error('[internal] activation failed with background work')
+  let background: AppContainer | undefined
+  let failActivation = true
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    root.register({ generationResource: asFunction(() => ({})).singleton().disposer(dispose) })
+    root.resolve('generationResource')
+    registerProcessActivation(root, () => {
+      if (!failActivation) return
+      background = root.createScope()
+      throw failure
+    })
+  })])
+  await expect(initializeProcessContainer()).rejects.toBe(failure)
+  expect(background).toBeDefined()
+  expect(dispose).not.toHaveBeenCalled()
+  failActivation = false
+  const caller = await createRequestContainer()
+  expect(dispose).not.toHaveBeenCalled()
+  await background!.dispose()
+  expect(dispose).toHaveBeenCalledTimes(1)
+  await caller.dispose()
+})
+
+it.each(['invalidate', 'dispose'] as const)('does not publish a generation retired during activation via %s', async (action) => {
+  const dispose = jest.fn()
+  let retireFirst = true
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    root.register({ generationResource: asFunction(() => ({})).singleton().disposer(dispose) })
+    root.resolve('generationResource')
+    registerProcessActivation(root, () => {
+      if (!retireFirst) return
+      retireFirst = false
+      if (action === 'invalidate') invalidateProcessContainer()
+      else void root.dispose()
+    })
+  })])
+  const caller = await createRequestContainer()
+  expect(mockProcessBootstrap).toHaveBeenCalledTimes(2)
+  expect(mockActivate).toHaveBeenCalledTimes(1)
+  expect(dispose).toHaveBeenCalledTimes(1)
+  await caller.dispose()
+})
+
+it('rebuilds if the final bootstrap activation disposes its unpublished root', async () => {
+  const dispose = jest.fn()
+  let firstRoot: AppContainer | undefined
+  registerDiRegistrars([defineProcessDiRegistrar((root) => {
+    firstRoot ??= root
+    root.register({ generationResource: asFunction(() => ({})).singleton().disposer(dispose) })
+    root.resolve('generationResource')
+  })])
+  mockActivate.mockImplementationOnce(() => { void firstRoot!.dispose() })
+  const caller = await createRequestContainer()
+  expect(mockProcessBootstrap).toHaveBeenCalledTimes(2)
+  expect(dispose).toHaveBeenCalledTimes(1)
+  await caller.dispose()
+})

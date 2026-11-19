@@ -212,7 +212,17 @@ function toAwilixRegistrations(registrations: Record<string, unknown>): Record<s
 const PROCESS_ROOT_STATE_KEY = Symbol.for('@open-mercato/shared/di/process-root')
 
 type InitializedProcessRoot = { container: AppContainer; activate: () => void }
+type ProcessRootLifetime = {
+  container: AppContainer
+  activeScopes: number
+  retired: boolean
+  published: boolean
+  retire: () => Promise<void>
+}
+
 type ProcessRootState = {
+  currentRoot?: ProcessRootLifetime
+  lifetimes?: WeakMap<AppContainer, ProcessRootLifetime>
   generation: number
   pending: Promise<AppContainer | null> | null
   rootInitializations: number
@@ -252,6 +262,108 @@ export function invalidateProcessContainer(): void {
   const state = getProcessRootState()
   state.generation += 1
   state.pending = null
+  const root = state.currentRoot
+  state.currentRoot = undefined
+  if (root) void root.retire()
+}
+
+async function settleContainerDisposal(container: AppContainer, dispose: () => Promise<void>): Promise<void> {
+  const pending: Promise<unknown>[] = []
+  for (const [key, entry] of container.cache) {
+    const resolver = entry.resolver as Resolver<unknown> & { dispose?: (value: unknown) => unknown }
+    const disposeValue = resolver.dispose
+    if (!disposeValue) continue
+    const trackedResolver: typeof resolver = {
+      ...resolver,
+      dispose: (value: unknown) => {
+        const completion = Promise.resolve().then(() => disposeValue.call(resolver, value))
+        pending.push(completion)
+        return completion
+      },
+    }
+    container.cache.set(key, { ...entry, resolver: trackedResolver })
+  }
+  let failure: { error: unknown } | undefined
+  try {
+    await dispose()
+  } catch (error) {
+    failure = { error }
+  }
+  await Promise.allSettled(pending)
+  if (failure) throw failure.error
+}
+
+function observeCleanup(action: () => void): void {
+  try {
+    action()
+  } catch {
+    return
+  }
+}
+
+function observeRootRetirementFailure(error: unknown, published: boolean): void {
+  observeCleanup(() => logger.error('Failed to dispose DI root', { err: error }))
+  observeCleanup(() => getTelemetryRuntime()?.reportError(error, {
+    module: 'shared',
+    code: published ? 'shared.root_retirement_cleanup_failed' : 'shared.root_initialization_cleanup_failed',
+  }))
+}
+
+function ownProcessRoot(root: AppContainer): ProcessRootLifetime {
+  const disposeRoot = root.dispose.bind(root)
+  const createRootScope = root.createScope.bind(root)
+  let completeRetirement!: () => void
+  const completion = new Promise<void>((resolve) => { completeRetirement = resolve })
+  let disposalStarted = false
+  const lifetime: ProcessRootLifetime = {
+    container: root,
+    activeScopes: 0,
+    retired: false,
+    published: false,
+    retire: () => {
+      lifetime.retired = true
+      drain()
+      return completion
+    },
+  }
+  const drain = () => {
+    if (!lifetime.retired || lifetime.activeScopes !== 0 || disposalStarted) return
+    disposalStarted = true
+    void settleContainerDisposal(root, disposeRoot)
+      .catch((error) => observeRootRetirementFailure(error, lifetime.published))
+      .then(completeRetirement)
+  }
+  const ownScope = (scope: AppContainer): AppContainer => {
+    lifetime.activeScopes += 1
+    const dispose = scope.dispose.bind(scope)
+    const createScope = scope.createScope.bind(scope)
+    let disposing: Promise<void> | undefined
+    scope.createScope = (() => {
+      if (disposing) throw new Error('[internal] Cannot create a child of a disposing DI scope')
+      return ownScope(createScope())
+    }) as AppContainer['createScope']
+    scope.dispose = () => {
+      disposing ??= settleContainerDisposal(scope, dispose).finally(async () => {
+        lifetime.activeScopes -= 1
+        drain()
+        if (lifetime.retired && lifetime.activeScopes === 0) await completion
+      })
+      return disposing
+    }
+    return scope
+  }
+  root.createScope = (() => {
+    if (lifetime.retired) throw new Error('[internal] Cannot create a scope from a retired DI root')
+    return ownScope(createRootScope())
+  }) as AppContainer['createScope']
+  root.dispose = () => {
+    if (getProcessRootState().currentRoot === lifetime) invalidateProcessContainer()
+    return lifetime.retire()
+  }
+  const state = getProcessRootState()
+  state.lifetimes ??= new WeakMap()
+  state.lifetimes.set(root, lifetime)
+  return lifetime
 }
 
 export function getProcessContainerStats() {
@@ -413,12 +525,26 @@ export async function initializeProcessContainer(): Promise<AppContainer | null>
           await container.dispose()
           return container
         }
+        const lifetime = ownProcessRoot(container)
         try {
           runProcessActivations(container)
+          if (state.generation !== generation || lifetime.retired) {
+            if (state.generation === generation) invalidateProcessContainer()
+            void lifetime.retire()
+            return container
+          }
           activate()
+          lifetime.published = true
+          if (state.generation === generation && !lifetime.retired) state.currentRoot = lifetime
+          else {
+            if (state.generation === generation) invalidateProcessContainer()
+            void lifetime.retire()
+          }
           return container
         } catch (error) {
-          return disposeFailedContainer(container, error, 'root')
+          const retirement = lifetime.retire()
+          if (lifetime.activeScopes === 0) await retirement
+          throw error
         }
       })
       state.pending = pending
@@ -462,7 +588,10 @@ async function disposeFailedContainer(
 }
 
 export async function createRequestContainer(): Promise<AppContainer> {
-  const root = await initializeProcessContainer()
+  let root = await initializeProcessContainer()
+  while (root && getProcessRootState().lifetimes?.get(root)?.retired) {
+    root = await initializeProcessContainer()
+  }
   if (root) {
     const caller = root.createScope()
     try {

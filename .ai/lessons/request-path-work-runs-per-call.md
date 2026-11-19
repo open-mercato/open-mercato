@@ -2,7 +2,7 @@
 title: "Request-path work runs per call, not per request"
 modules: ["shared","core","query_index","customers","auth"]
 areas: ["architecture","module-data"]
-topics: ["performance","dependency-injection","auth-context","service-lifetimes"]
+topics: ["performance","dependency-injection","auth-context","service-lifetimes","resource-disposal"]
 ---
 
 # Request-path work runs per call, not per request
@@ -19,3 +19,5 @@ topics: ["performance","dependency-injection","auth-context","service-lifetimes"
 - Check a change with a statement count: the `pg_stat_statements` delta over N sequential requests, or the ORM query log.
 
 **Process-root review correction (#9837)**: Audit work by lifetime, not only factory signatures. Caller setup must not await process-wide queue reconciliation; defer it after activation into an owned background scope with observed failure and cleanup. Cache caller-independent Meilisearch initialization per generation when encrypted-field filtering is off, but retain caller scope for SQL-backed encryption policy. Custom event buses need the complete legacy registration path unless their subscriber-definition lifecycle is explicitly supported. Calendar/provider/webhook global writes belong in activation hooks, so discarded generations cannot publish them. Cover each boundary with a regression test.
+
+**Generation retirement correction (#9837)**: Dropping a published root promise does not dispose its singleton cache, and disposing an Awilix child only cleans that child. Retain generation ownership through every caller and nested scope, retire on invalidation, and dispose the root exactly once after all owned scopes finish cleanup. Test an already-published generation with live callers, nested scopes that outlive their parent, invalidation during acquisition/setup, and rejecting disposers. Every scope owner must call `dispose()`; do not rely on garbage collection to close resources.

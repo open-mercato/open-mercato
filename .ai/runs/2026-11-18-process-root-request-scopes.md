@@ -81,3 +81,10 @@ PR: #9837
 - Final-source production app builds pass. Native runtime integration passes13/13 in both enabled and disabled modes, without retries, flakes or skips in the test cases. Coverage includes real PostgreSQL unit-of-work separation, tenant/organization isolation, partial updates, concurrent workers, cart jobs and promotion evaluation.
 - Both modes retain120 distinct caller EntityManagers. Enabled workload adds63 registrar executions for20 generation-cold callers and none for100 warm callers; disabled executes7,560 across120 callers. This is generation setup with warm ORM/imports, not a process cold-start or general HTTP performance claim.
 - Rollout decision: keep `OM_PROCESS_CONTAINER_ROOT` default-off. Technical implementation/qualification is complete; external re-review and the existing `needs-qa` approval gate remain outstanding. The ready-for-review state is preserved; no merge or QA approval is claimed. Disposable app/database resources were stopped and verified absent. Earlier incomplete-gate and draft-state notes above are historical and superseded by these results.
+
+### Review 5979805899 plan (2026-11-19)
+- [x] Track generation ownership through caller and nested-scope lifetimes; retire invalidated roots and dispose their singletons once all callers finish. Preserve original failure behavior and observe cleanup failures.
+- [x] Add race, active-caller, nested-scope and failure-path regressions; independently review the lifecycle change.
+- [ ] Run the configured gate and enabled/disabled runtime coverage, publish evidence and request re-review.
+
+- Retirement focused validation: all62 DI tests across7 suites and shared typecheck pass. Independent review found no remaining major finding under the explicit scope-disposal contract. Full-gate evidence follows after completion.
