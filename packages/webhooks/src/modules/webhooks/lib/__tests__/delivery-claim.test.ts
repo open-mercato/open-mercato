@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { processWebhookDeliveryJob } from '../delivery'
+import { processWebhookDeliveryJob, resetWebhookDeliveryForRetry } from '../delivery'
 
 jest.mock('../../events', () => ({
   emitWebhooksEvent: jest.fn(async () => undefined),
@@ -187,5 +187,40 @@ describe('processWebhookDeliveryJob — delivery claim', () => {
     expect(data.lastAttemptAt.getTime() - filter.$or[2].lastAttemptAt.$lt.getTime()).toBe(5000 + 15_000)
     expect(data.status).toBe('sending')
     expect(delivery.attemptNumber).toBe(1)
+  })
+})
+
+describe('resetWebhookDeliveryForRetry', () => {
+  it('resets the delivery with a single conditional update that excludes in-flight sends', async () => {
+    const delivery = buildDelivery({ status: 'failed', nextRetryAt: new Date(), errorMessage: 'HTTP 500' })
+    const em = buildEm(delivery, 1)
+
+    const reset = await resetWebhookDeliveryForRetry(em as unknown as EntityManager, delivery as never, 5000)
+
+    expect(reset).toBe(true)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    const [, where, data] = em.nativeUpdate.mock.calls[0] as unknown as [unknown, Record<string, unknown>, Record<string, unknown>]
+    expect(where).toMatchObject({ id: 'delivery-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+    const branches = where.$or as Array<Record<string, unknown>>
+    expect(branches).toContainEqual({ status: { $ne: 'sending' } })
+    const staleBranch = branches.find((branch) => branch.status === 'sending' && branch.lastAttemptAt !== null) as {
+      lastAttemptAt: { $lt: Date }
+    }
+    expect(Date.now() - staleBranch.lastAttemptAt.$lt.getTime()).toBeGreaterThanOrEqual(5000 + 15_000)
+    expect(data).toMatchObject({ status: 'pending', nextRetryAt: null, errorMessage: null })
+    expect(delivery).toMatchObject({ status: 'pending', nextRetryAt: null, errorMessage: null })
+  })
+
+  it('leaves a delivery that is still being sent untouched', async () => {
+    const lastAttemptAt = new Date()
+    const delivery = buildDelivery({ status: 'sending', lastAttemptAt })
+    const em = buildEm(delivery, 0)
+
+    const reset = await resetWebhookDeliveryForRetry(em as unknown as EntityManager, delivery as never, 5000)
+
+    expect(reset).toBe(false)
+    expect(delivery).toMatchObject({ status: 'sending', lastAttemptAt })
+    expect(enqueueWebhookDeliveryMock).not.toHaveBeenCalled()
   })
 })
