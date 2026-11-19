@@ -46,7 +46,7 @@ async function readPrice(
   const response = await apiRequest(
     request,
     'GET',
-    `${PRICES_PATH}?id=${encodeURIComponent(priceId)}&productId=${encodeURIComponent(productId)}&page=1&pageSize=100`,
+    `${PRICES_PATH}?ids=${encodeURIComponent(priceId)}&productId=${encodeURIComponent(productId)}&page=1&pageSize=100`,
     { token },
   );
   expect(response.status(), 'prices should be readable').toBe(200);
@@ -107,9 +107,14 @@ test.describe('TC-CAT-PRICES-005: date-only price update keeps the validity wind
         data: { id: priceId, endsAt: '2031-01-01T00:00:00.000Z' },
       });
       expect(endsTooEarly.status(), 'endsAt before the stored startsAt must be rejected').toBe(400);
-      const endsBody = await readJsonSafe<{ error?: string; fieldErrors?: Record<string, string> }>(endsTooEarly);
+      const endsBody = await readJsonSafe<{
+        fieldErrors?: Record<string, string>;
+        details?: Array<{ path?: string[]; origin?: string }>;
+      }>(endsTooEarly);
       expect(endsBody?.fieldErrors?.endsAt, 'the error must point at endsAt').toBeTruthy();
-      expect(endsBody?.fieldErrors?.endsAt).not.toBe('catalog.prices.validation.validityWindow');
+      expect(endsBody?.details).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: ['endsAt'], origin: 'validation' })]),
+      );
 
       const startsTooLate = await apiRequest(request, 'PUT', PRICES_PATH, {
         token,

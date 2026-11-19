@@ -434,4 +434,17 @@ describe('catalog price update checks the validity window against the stored dat
     expect(record.startsAt).toEqual(DECEMBER)
     expect(record.endsAt).toBeNull()
   })
+
+  it('accepts an endsAt-only edit that ends on the stored startsAt', async () => {
+    const { record } = await runUpdate({ endsAt: new Date(JUNE) }, { startsAt: JUNE })
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(JUNE)
+  })
+
+  it('still reprices a stored price whose dates are already reversed', async () => {
+    const { record } = await runUpdate({ unitPriceGross: 31 }, { startsAt: JUNE, endsAt: JANUARY })
+    expect(record.unitPriceGross).toBe('31')
+    expect(record.startsAt).toEqual(JUNE)
+    expect(record.endsAt).toEqual(JANUARY)
+  })
 })
