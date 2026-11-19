@@ -1,6 +1,15 @@
 import { TransactionContext } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  decimalToNumber,
+  divideDecimals,
+  isZeroDecimal,
+  multiplyDecimals,
+  parseDecimal,
+  roundDecimal,
+  subtractDecimals,
+} from '@open-mercato/shared/lib/decimal'
 import { CatalogProduct, CatalogProductVariant } from '@open-mercato/core/modules/catalog/data/entities'
 import type { ScopedProductScope } from '@open-mercato/core/modules/catalog/services/catalogScopedProductService'
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
@@ -101,8 +110,12 @@ function giftLineKey(promotionId: string, productId: string, variantId: string |
   return `${promotionId}:${productId}:${variantId ?? ''}`
 }
 
-function round(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1e4) / 1e4
+function discountTaxRate(amountNet: unknown, amountGross: unknown): number | null {
+  const net = parseDecimal(amountNet)
+  const gross = parseDecimal(amountGross)
+  if (!net || !gross || isZeroDecimal(net)) return null
+  const rate = multiplyDecimals(subtractDecimals(divideDecimals(gross, net), 1), 100)
+  return decimalToNumber(roundDecimal(rate, 4))
 }
 
 type ApplicationEntry = {
@@ -149,6 +162,8 @@ export type BuildPromotionsEffectsPhaseParams = {
   createdGiftLines: CartLine[]
   /** Gift `CartLine`s removed because their promotion no longer applies, same reason. */
   removedGiftLines: CartLine[]
+  /** The cart currency's amount precision, resolved before the transaction (`max(4, currency decimals)`). */
+  amountDecimalPlaces?: number
 }
 
 /**
@@ -166,7 +181,7 @@ export type BuildPromotionsEffectsPhaseParams = {
  * `resolvePromotionsServiceScope`/`resolvePromotionsServiceAuthAndScope`).
  */
 export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseParams): () => Promise<void> {
-  const { em, container, cart, lines, assortmentScope, tenantScope, now, adjustments, warnings, createdGiftLines, removedGiftLines } = params
+  const { em, container, cart, lines, assortmentScope, tenantScope, now, adjustments, warnings, createdGiftLines, removedGiftLines, amountDecimalPlaces } = params
 
   return () => TransactionContext.create(em, async () => {
     const promotionsService = container.resolve<PromotionsService>('promotionsService')
@@ -382,7 +397,7 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
           taxRate: null,
           configuration: null,
         },
-        context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode },
+        context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode, amountDecimalPlaces },
       })
 
       const giftLine = em.create(CartLine, {
@@ -430,14 +445,15 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
       pushApplication(promotionId, { cartLineId: line.id, effect, amountNet: effect.amountNet, amountGross: effect.amountGross })
     }
     for (const { promotionId, effect } of cartDiscountEntries) {
-      const amountNet = Number(effect.amountNet)
-      const amountGross = Number(effect.amountGross)
+      const taxRate = discountTaxRate(effect.amountNet, effect.amountGross)
       adjustments.push({
         scope: 'order',
         kind: 'discount',
         promotionId,
-        amountNet,
-        amountGross,
+        amountNet: Number(effect.amountNet),
+        amountGross: Number(effect.amountGross),
+        amountNetExact: effect.amountNet,
+        amountGrossExact: effect.amountGross,
         currencyCode: effect.currency,
         label: pickEffectLabel(effect.label, cart.locale),
         // The sales calculator only reduces `taxTotal` for a discount adjustment when it
@@ -446,7 +462,7 @@ export function buildPromotionsEffectsPhase(params: BuildPromotionsEffectsPhaseP
         // entered flat amount but wrong here: `amountNet`/`amountGross` above already embed
         // the cart's blended tax split, so without this metadata the order's tax total kept
         // reflecting the pre-discount price while subtotalNet/Gross were correctly reduced.
-        metadata: amountNet !== 0 ? { taxRate: round((amountGross / amountNet - 1) * 100) } : null,
+        metadata: taxRate !== null ? { taxRate } : null,
       })
       pushApplication(promotionId, { cartLineId: null, effect, amountNet: effect.amountNet, amountGross: effect.amountGross })
     }

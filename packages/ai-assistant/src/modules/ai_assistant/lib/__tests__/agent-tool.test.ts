@@ -15,7 +15,30 @@ jest.mock('../agent-registry', () => ({
   getAgent: (id: string) => mockAgents.get(id),
 }))
 
-import { AgentPolicyError } from '../agent-tools'
+jest.mock('../tool-loader', () => ({
+  ensureModuleToolsLoaded: async () => undefined,
+}))
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: async () => ({
+    resolve: () => {
+      throw new Error('not registered')
+    },
+  }),
+}))
+
+jest.mock('../tool-executor', () => ({
+  executeTool: async (name: string, args: unknown, context: unknown) => {
+    const { toolRegistry: registry } = await import('../tool-registry')
+    const registered = registry.getTool(name)
+    if (!registered) return { success: false, error: `Tool "${name}" not found` }
+    return { success: true, result: await registered.handler(args as never, context as never) }
+  },
+}))
+
+import { AgentPolicyError, resolveAiAgentTools } from '../agent-tools'
+import { resolveAgentRunMutationPolicyOverride } from '../agent-channel-policy'
+import { registerMcpTool, toolRegistry } from '../tool-registry'
 import { AiAgentDispatchDeniedError } from '../agent-run-dispatcher'
 import { AgentToolError } from '../agent-tool-error'
 import {
@@ -369,6 +392,61 @@ describe('defineAgentTool', () => {
       tool.handler({ input: 'x' }, buildContext({ userFeatures: ['catalog.*'] }, dispatcher)),
     ).rejects.toThrow(/requiredFeatures must cover/)
     expect(dispatcher.runObject).not.toHaveBeenCalled()
+  })
+
+  it('runs a nested agent read-only when the outer agent was called over mcp with mutations denied', async () => {
+    seedAgent({ mutationPolicy: 'confirm-required', readOnly: false })
+    mockAgents.set('catalog.outer', {
+      id: 'catalog.outer',
+      moduleId: 'catalog',
+      label: 'Outer',
+      description: 'Outer agent',
+      systemPrompt: 'Outer',
+      allowedTools: ['catalog.review_product'],
+      requiredFeatures: ['catalog.products.view'],
+    })
+    toolRegistry.clear()
+    registerMcpTool(buildTool({ requiredFeatures: ['catalog.products.view'] }), { moduleId: 'catalog' })
+    try {
+      const outer = await resolveAiAgentTools({
+        agentId: 'catalog.outer',
+        authContext: {
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          userId: 'user-1',
+          features: ['catalog.products.view'],
+          isSuperAdmin: false,
+        },
+        channel: 'mcp',
+        mutationMode: 'deny',
+        apiKeyId: 'key-1',
+        correlationId: 'corr-outer',
+      })
+      const nested = outer.tools.catalog__review_product as {
+        execute: (args: unknown, options?: unknown) => Promise<unknown>
+      }
+      await nested.execute({ input: 'Review product 42' }, { toolCallId: 'call-1', messages: [] })
+
+      expect(runAiAgentObjectMock).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: AGENT_ID, channel: 'mcp', mutationMode: 'deny', apiKeyId: 'key-1' }),
+      )
+      const innerRun = runAiAgentObjectMock.mock.calls[0][0] as {
+        channel: 'mcp'
+        mutationMode: 'deny'
+        container: unknown
+      }
+      expect(
+        resolveAgentRunMutationPolicyOverride({
+          channel: innerRun.channel,
+          mutationMode: innerRun.mutationMode,
+          declaredPolicy: 'confirm-required',
+          tenantOverride: null,
+          canQueueMutations: typeof innerRun.container !== 'undefined',
+        }),
+      ).toBe('read-only')
+    } finally {
+      toolRegistry.clear()
+    }
   })
 
   it('maps tool channels to agent run channels', () => {
