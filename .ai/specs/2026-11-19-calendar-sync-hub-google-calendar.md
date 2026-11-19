@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft (rev 3.11) — PR #10009 review findings addressed; awaiting re-review |
+| **Status** | Draft (rev 3.17) — PR #10009 review findings addressed; internal verification approved (rev 3.16); awaiting re-review |
 | **Created** | 2026-11-19 |
 | **Builds on** | [CRM Calendar](./2026-06-11-crm-calendar.md), [Configurable Calendar Event Types](./2026-09-28-configurable-calendar-event-types.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md), [CRM Email Integration](./implemented/2026-05-27-crm-email-integration.md), [Email Integration Foundation](./2026-05-21-email-integration-foundation.md) |
 | **Reuses** | `communication_channels` hub OAuth flow + token refresh, `@open-mercato/channel-gmail` Google OAuth client, `customers` interaction/person commands + `syncOrigin`, `findPeopleByAddresses`, `hashForLookup`, the `communication_channels` adapter-registry pattern (`registerChannelAdapter`) |
@@ -146,9 +146,16 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
   - all-day instances: `YYYY-MM-DD`.
   - Each provider's source is converted to this form: Google `originalStartTime.dateTime` / `.date`, Graph `originalStart` (DateTimeOffset), CalDAV `RECURRENCE-ID` (TZID / `VALUE=DATE`).
 - **Interaction-placed meeting.** At most **one primary link**, ranked: (1) the organizer's own connection, (2) the CRM-origin link, (3) the earliest linked.
-  - Other connections' links are **attached**: they share the `interaction_id`, have `is_primary = false`, and only maintain their own user's participant entry and RSVP via `customers.interactions.update` (`syncOrigin`). **Watermark rule:** every hub write to an interaction, from any link, advances the **primary** link's `synced_interaction_updated_at` to the interaction's new `updatedAt` in the same provider transaction that records the write. Attendee RSVP updates therefore never look like CRM edits (pristine checks and the conflict rule stay correct).
+  - Other connections' links are **attached**: they share the `interaction_id`, have `is_primary = false`, and only maintain their own user's participant entry and RSVP via `customers.interactions.update` (`syncOrigin`). **Watermark rule:** every hub write to an interaction, from any link, advances the **primary** link's `synced_interaction_updated_at` to the interaction's new `updatedAt` in the **bookkeeping transaction run right after the customers command commits**. The gap between the two commits is covered by a **pending-write marker**. The `beforeTransactionalWrite` guard writes the marker on the **current** primary link **inside the command's own transaction**, after the per-interaction lock and the version check. If the interaction has no primary, the guard writes no marker and bookkeeping is a no-op. The marker has two fields:
+  - `pending_write_hash`: `syncedFieldsHash` of the row **as it will be stored**. The guard takes the locked row, applies the hub's changes, and runs them through `customerInteractionAccess.toStoredSyncedFields(...)`, a Part A DI method that reuses the customers validators and normalization (title trim, `canonicalCalendarTimezone`, participant shape), so the hash matches what the command actually persists. Bookkeeping and recovery hash the stored, decrypted row with the same helper.
+  - `pending_write_was_pristine`: whether the locked row was **effectively pristine** (predicate below) before this write. For `customers.interactions.create` (no prior row) it is `true`, and the hash is `syncedFieldsHash(toStoredSyncedFields(createInput))`.
+  - The marker commits only if the write commits, and hub writers set it strictly one after another. The latest committed hub write always owns the marker.
+  - **Effectively pristine** is the single predicate used **everywhere** pristine-ness or a CRM-side change is checked: the guard, bookkeeping, recovery, the demotion check, the first-apply-as-primary check, the **conflict rule**, and the **CRM-only-change** check. Every inbound apply first runs recovery under the per-interaction lock, then evaluates these checks in the same locked transaction. It is true when `row.updatedAt = link.synced_interaction_updated_at`, **or** when `link.pending_write_hash IS NOT NULL AND syncedFieldsHash(toStoredSyncedFields(row)) = link.pending_write_hash AND link.pending_write_was_pristine`.
+    - The second clause recognises a hub write whose bookkeeping has not run yet. When hub write W2 locks the row after W1 committed but before W1's bookkeeping (the normal case for parallel inbound jobs on a shared meeting), W2 still sees the row as pristine, and W2's bookkeeping then advances the watermark to W2's `updatedAt`.
+    - A user CRM edit fails both clauses, so it stays visible. Clause 2 is sound because `StoredSyncedFields` covers the interaction's **complete user-editable surface**, not just the fields the hub writes: `interactionType`, `title`, `body`, `status`, `scheduledAt`, `occurredAt`, `durationMinutes`, `allDay`, `timezone`, `location`, `meetingUrl`, `meetingProvider`, `meetingDetails`, `participants`, `linkedEntities`, `entityId`, `dealId`, `ownerUserId`, `visibility`, `priority`, `recurrenceRule`, `recurrenceEnd`, `reminderMinutes`, `guestPermissions`, plus the custom-field values. A user edit to any of them changes the hash.
+  - **Recovery:** if bookkeeping never runs (crash, lost lease), the next apply finds `interaction.updatedAt > synced_interaction_updated_at`. It advances the watermark to the current `updatedAt` and clears the marker **only when** the stored row hashes to `pending_write_hash` **and** `pending_write_was_pristine` is true. Otherwise it only clears the marker, so a user edit preceding the hub write is never absorbed. So it neither reports a fake CRM edit nor pushes an echo to the provider. Attendee RSVP updates therefore never look like CRM edits (pristine checks and the conflict rule stay correct).
   - **Eligibility:** a link whose copy is private (`is_private = true`) is **never eligible** to *become* primary, whatever its rank. The single exception is an organizer primary whose copy turns private on a non-pristine interaction: it stays primary with content writes frozen (see Private organizer copy).
-  - **Primary swap mechanics:** Postgres checks the partial unique indexes per statement, so a swap is two-phase inside one transaction: clear `is_primary` on the old primary, flush, then set it on the new one (the trap documented in `communication_channels/lib/connect-channel.ts`). Every swap (re-election or handover) copies **only** `synced_interaction_updated_at` (an interaction-level fact) to the new primary. Each link keeps its own `external_updated_at` and `content_hash`, which describe *its* calendar copy. On its **first apply as primary**, a link uses **its own** change signal (`event.updatedAt > link.externalUpdatedAt`, or a `content_hash` change) and the normal conflict rule. Genuine provider changes, such as the organizer moving the meeting, are applied (or resolved last-writer-wins against a concurrent CRM edit). An unchanged copy never overwrites a CRM edit. Only a link with **no watermark of its own** (never applied) falls back to pristine-only.
+  - **Primary swap mechanics:** Postgres checks the partial unique indexes per statement, so a swap is two-phase inside one transaction: clear `is_primary` on the old primary, flush, then set it on the new one (the trap documented in `communication_channels/lib/connect-channel.ts`). Every swap (re-election or handover) copies **only** the interaction-level facts `synced_interaction_updated_at`, `pending_write_hash` and `pending_write_was_pristine` to the new primary. Each link keeps its own `external_updated_at` and `content_hash`, which describe *its* calendar copy. On its **first apply as primary**, a link uses **its own** change signal (`event.updatedAt > link.externalUpdatedAt`, or a `content_hash` change) and the normal conflict rule. Genuine provider changes, such as the organizer moving the meeting, are applied (or resolved last-writer-wins against a concurrent CRM edit). An unchanged copy never overwrites a CRM edit. Only a link with **no watermark of its own** (never applied) falls back to pristine-only.
   - **Re-election while `promoting`:** re-election is deferred while the current primary is `promoting`. The attaching link is stored as attached, and the winner's finalize runs the election over all attached links.
   - **Re-election on attach:** when an attaching *eligible* link outranks the current primary (for example, the organizer connects after an attendee's copy was promoted), it **becomes primary** in the same transaction (the old primary is demoted to attached). Its copy is then applied as content subject to the first-apply-as-primary rule (own change signal + normal conflict rule).
   - **Private organizer copy:**
@@ -162,12 +169,17 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
   - the colleague-side links attach to it, with their linked persons unioned into `linkedEntities`;
   - the duplicate interaction is deleted via `customers.interactions.delete` (`syncOrigin`);
   - then the primary key is updated.
-  This runs in one hub transaction ordered so that the unique index is never violated: the duplicate's primary is cleared first.
+  The merge is a resumable sequence of separate transactions, so it never awaits a customers command while holding a lock:
+  - **(1)** One locked hub transaction takes both interactions' advisory locks in ascending id order. It moves the links: the duplicate's primary is cleared first, so the unique index is never violated. It **updates the surviving primary's `ical_uid` to the provider UID in the same transaction**, so no other inbound event can reserve a second interaction for that key in the meantime. It stamps `merged_from_interaction_id = <duplicate id>` and `state_changed_at = now()` on the moved links, so the resumer's staleness clock measures the merge itself, which is what steps (2) and (3) need to resume.
+  - **(2)** `customers.interactions.update` unions the linked persons into the surviving interaction (it locks through its guard).
+  - **(3)** `customers.interactions.delete` removes the duplicate (`syncOrigin`; it locks through its guard).
+  - **(4)** A hub transaction holding the surviving interaction's lock clears `merged_from_interaction_id` on the moved links. This is not the duplicate's bookkeeping: the duplicate has no primary.
+  - **Resumer:** the stale-state sweep finds links whose `merged_from_interaction_id` is older than `OM_CALENDAR_SYNC_STALE_STATE_MINUTES` (by `state_changed_at`). It re-runs the remaining steps, which are idempotent: a union already applied is a no-op, and an already-deleted duplicate is skipped. Each step takes the locks as described.
 - **Series attach.** An incoming recurring instance (`instance_key ≠ ''`) with no exact match also looks for a link with the same `ical_uid` and `instance_key = ''` whose placement is `interaction` (a **CRM-owned series master**). If found, the instance link attaches to that series interaction: its user is added once as a participant, and every instance link of that connection points to the same interaction. A colleague whose provider materializes a CRM-pushed series per instance therefore never creates per-instance duplicates. The same applies on the **organizer's own connection**: modified instances of a CRM-pushed series come back as separate events with the same `iCalUID`, and they attach to the series interaction as non-primary instance links. Re-election only compares links of *other* connections, so the series master stays primary.
 - **Content and pushes.** Content changes (title, time, description, attendees, meeting) are applied **only from the primary link**, so stale attendee copies can never overwrite the organizer's version. Outbound pushes also go only through the primary.
 - **Primary handover.** When the primary link is unlinked (disconnect, event deleted from that calendar), the next candidate becomes primary in the same transaction.
   - **Candidates** (for handover and re-election alike): only eligible links whose `(ical_uid, instance_key)` equals the interaction's **own meeting key**. For a series interaction that means `instance_key = ''` (series-master links); occurrence links attached through Series attach are **never** candidates and never write content to a series interaction. They only maintain their user's participant entry.
-  - The hub copies `synced_interaction_updated_at` (only) from the old primary to the new one in the same transaction, and the new primary's first apply uses its own change signal (Primary swap mechanics), so the handover never fakes a CRM edit or a conflict and never drops a genuine provider change.
+  - The hub copies the interaction-level facts (`synced_interaction_updated_at`, `pending_write_hash`, `pending_write_was_pristine`) from the old primary to the new one in the same transaction, and the new primary's first apply uses its own change signal (Primary swap mechanics), so the handover never fakes a CRM edit or a conflict and never drops a genuine provider change.
   - If no candidate remains, the interaction stays as normal CRM history with no primary.
 - **External-placed meeting** (no customer). Each attendee's connection keeps its **own** external row; it is that user's availability, with that user as owner. When the meeting is promoted, every external sibling with the same key is attached to the one new interaction in the same promote job.
 - **Privacy.** A private copy never writes content (see Eligibility). A connection whose copy is private but whose sibling is already an interaction attaches as a participant only. When the private copy is the **organizer's**, the demotion rule runs; an attendee's private copy alone never demotes.
@@ -183,25 +195,25 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
   - when the owner chooses "Add to CRM" (required for private events).
 - **User deletes an interaction (CRM-side delete) — state machine:**
   - **Handler:** the **only** handler of `customers.interaction.deleted` is a hub subscriber, and it acts only when `syncOrigin` is **not** `calendar_sync`.
-  - **Staleness guard:** in one hub transaction it first re-reads the interaction including soft-deleted rows (`findOneWithDecryption` with `deletedAt` visible), locking the owning link row `FOR UPDATE`.
+  - **Staleness guard:** in one hub transaction it first takes the **per-interaction lock** `pg_advisory_xact_lock(hashtext('calendar_sync:interaction:' || :interactionId))`. The undo restore handler and the sweep safety net take the same lock first, so the three are fully serialized and none acts on a state another is about to change. It then re-reads the interaction including soft-deleted rows (`findOneWithDecryption` with `deletedAt` visible) and the owning link. During a delete flow the owning link is identified by the **owning-delete key** below, not by `is_primary`, because the delete-flow unlink clears `is_primary`.
     - Interaction **live**: the delete was already undone, so this delivery is superseded. It is a **no-op**.
     - Interaction **deleted**: it proceeds only when this deletion has not been handled yet, that is, when the owning link's `deletion_marker` differs from the interaction's current `deletedAt`. A re-delivery of an already-handled deletion is a no-op; a re-delete after an undo has a new `deletedAt` and is handled.
-  - **Safety net:** the stale-state sweep restores a `deleting` link whose interaction is live (`state = 'linked'`, `deletion_marker` cleared), so a link can never stay stuck in `deleting`.
+  - **Safety net:** when the stale-state sweep finds a `deleting` link with `state_changed_at < now() − OM_CALENDAR_SYNC_STALE_STATE_MINUTES` whose interaction is live, it takes the per-interaction lock and runs **exactly the undo restore handler's `deleting` branch**. That restores the owning link (or gives it the disconnect outcome when its connection is paused), clears `deletion_marker`, and runs the generic marker restore for colleague links. A link can therefore never stay stuck in `deleting`, and colleagues are never left detached.
   - When it proceeds, it:
     1. Picks the **owning link**: the interaction's primary link if `push_enabled` and (`origin = 'crm'` or `is_organizer`); the CRM then owns the provider event. It moves it with a compare-and-set (`UPDATE … SET state = 'deleting', deletion_marker = :deletedAt WHERE id = ? AND state = 'linked'`), keeps `interaction_id`, and enqueues outbound **after** commit.
     2. **Detaches** every other link with this `interaction_id` and `state NOT IN ('unlinked','deleting')`: each is re-placed as external from its latest normalized copy (the user's availability stays on the calendar), gets `auto_promote_suppressed_at`, and records `detached_from_interaction_id`.
   - **Worker (owning link):**
     - It acts on a soft-deleted interaction **only when the link is `deleting`**. A pending outbound job that meets a soft-deleted interaction while the link is still `linked` is a **no-op**: the handler has not committed yet and will enqueue its own job. So the worker can never run "before the handler".
     - With the connection `active`, it deletes or cancels the provider event, then performs the **delete-flow unlink** with a compare-and-set: `UPDATE … SET state = 'unlinked', unlink_reason = 'crm_delete', is_primary = false WHERE id = ? AND state = 'deleting' AND state_changed_at = :readAt`. `interaction_id` is kept, there is **no handover** (the interaction is deleted), and no external row is created.
-    - If the CAS fails because undo restored the link meanwhile, the provider event is already gone. The worker then applies the **CRM-only outcome** in one transaction: owning link `unlinked` / `crm_delete` with push off; colleague links that undo re-attached are detached again and their markers cleared.
+    - The worker's post-provider-call transaction takes the per-interaction lock first, like every hub writer. If the CAS fails because undo restored the link meanwhile, the provider event is already gone. The worker then applies the **CRM-only outcome** in that same locked transaction: owning link `unlinked` / `crm_delete` with push off; colleague links that undo re-attached are detached again and their markers cleared.
     - With the connection **not** `active`, the worker exits without provider calls and the link stays `deleting`. Reactivation re-enqueues it; this includes the undo of a channel disconnect **or** delete, which emits `channel.connected`.
     - **Abandonment:** a `deleting` link that cannot complete is abandoned by the sweep. This covers a connection inactive since `connection.status_changed_at < now() − OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS`, or the link itself `deleting` for longer than that window on **any** connection (a permanent provider error such as `403`). The sweep runs one compare-and-set: `UPDATE … SET state = 'unlinked', unlink_reason = 'provider_delete_abandoned', is_primary = false WHERE id = ? AND state = 'deleting' AND state_changed_at = :readAt`. It uses the `(state, state_changed_at)` index, and the hub emits `calendar_sync.connection.failed` (reason `provider_delete_abandoned`).
   - **`unlink_reason`:** every unlink records one of `crm_delete`, `provider_delete_abandoned`, `disconnect`, `channel_deleted`, `provider_cancelled`, `sweep`, `not_organizer`. Only `crm_delete` and `provider_delete_abandoned` take part in undo.
   - **Undo:** undoing the delete emits `customers.interaction.created`.
-    - **Single handler, fixed order:** one hub subscriber on that event handles every restore. It first re-reads the interaction (`findOneWithDecryption`) and **no-ops** when it is soft-deleted or missing. That covers a stale `created` delivery arriving after a quick re-delete; the re-delete's own handler owns the state then.
+    - **Single handler, fixed order:** one hub subscriber on that event handles every restore. It first takes the per-interaction lock, the same one the delete handler and the safety net use, then re-reads the interaction (`findOneWithDecryption`) and **no-ops** when it is soft-deleted or missing. That covers a stale `created` delivery arriving after a quick re-delete; the re-delete's own handler owns the state then.
     - **Owning-delete key:** it first looks up the owning link: `interaction_id = :id AND (state = 'deleting' OR (state = 'unlinked' AND unlink_reason IN ('crm_delete','provider_delete_abandoned')))`. There is at most one by construction, because only the primary can be owning; if several match, it takes the latest `state_changed_at`.
     - It branches on **link state only**, never on connection status:
-      - **`deleting`** (provider event never touched; colleague copies alive). If the connection is `active`, `requires_reauth` or `error` (still the user's live connection), it does a CAS (`WHERE state = 'deleting'`) back to `linked` primary. If the connection is `paused` (disconnected or channel-deleted), the CAS instead gives the link the **disconnect outcome**: `unlinked`, `unlink_reason = 'disconnect'` (or `'channel_deleted'` when the connection is soft-deleted), `is_primary = false`. A dead connection's link is never made primary; a later reconnect on the same channel re-attaches it through the `(connection_id, external_event_id)` reuse. Either way, it then runs the **generic marker restore** re-attaches the colleague links. No provider write is needed. If the CAS loses (the worker unlinked first), re-read and take the matching `unlinked` branch.
+      - **`deleting`** (provider event never touched; colleague copies alive). If the connection is `active`, `requires_reauth` or `error` (still the user's live connection), it does a CAS (`WHERE state = 'deleting'`) back to `linked` primary. If the connection is `paused` (disconnected or channel-deleted), the CAS instead gives the link the **disconnect outcome**: `unlinked`, `unlink_reason = 'disconnect'` (or `'channel_deleted'` when the connection is soft-deleted), `is_primary = false`. A dead connection's link is never made primary; a later reconnect on the same channel re-attaches it through the `(connection_id, external_event_id)` reuse. Either way, it then runs the **generic marker restore**, which re-attaches the colleague links. No provider write is needed. If the CAS loses (the worker unlinked first), re-read and take the matching `unlinked` branch.
       - **`unlinked` + `crm_delete`** (provider event deleted, colleague copies cancelled with it): restore **the CRM record only**.
         - The owning link stays `unlinked`, with `push_enabled` set to false.
         - Colleague links are **not** re-attached: their markers are cleared, and their external rows go when the provider's cancellations arrive.
@@ -219,7 +231,7 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
   - Apply, RSVP and attach **skip** links in `state = 'deleting'` and links whose interaction is soft-deleted; those belong to the user-delete flow.
   - Whenever apply, RSVP, attach or outbound finds a non-owning link whose interaction is **hard-missing**, or soft-deleted without a `deleting` sibling (an out-of-band delete), it treats the link as detached: it re-places the link as external from its latest normalized copy, clears `is_primary`, and sets `auto_promote_suppressed_at`. When the row is soft-deleted, it also sets `detached_from_interaction_id`, so undo can restore the link. The removal is therefore not silently undone by re-import.
 - **Demotion (interaction → external):**
-  - **When:** the organizer's copy becomes private **and** the interaction is sync-pristine (`origin = 'provider'` and `interaction.updatedAt = link.syncedInteractionUpdatedAt`).
+  - **When:** the organizer's copy becomes private **and** the interaction is sync-pristine (`origin = 'provider'` and **effectively pristine** per the Watermark rule predicate).
   - **How:** it runs as one `demote` job, the reverse of promote's finalize:
     - **(a)** in one hub (`calendar_sync`) database transaction, mark every link whose `interaction_id` equals the interaction (primary, attached and series-instance links alike) `state = 'demoting'` and record `detached_from_interaction_id`;
     - **(b)** `customers.interactions.delete` (undoable, `syncOrigin`);
@@ -310,14 +322,35 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
 
 1. **Triggers:** a webhook, a poll tick (`OM_CALENDAR_SYNC_POLL_INTERVAL`), "Sync now", or a connect.
 2. **Coalesce and lock:** the `calendar-sync-inbound` queue is built with `coalesceBy: (p) => \`connection:${p.connectionId}\`` (`@open-mercato/queue` coalescing: a burst of triggers runs once, and a trigger landing mid-run still gets one follow-up run). Across processes the worker takes a **lease**, not a row lock held across network calls: a short transaction runs `UPDATE … SET sync_lease_until = now() + interval '5 minutes', sync_lease_owner = :me WHERE id = ? AND (sync_lease_until IS NULL OR sync_lease_until < now())`. Each acquisition also increments `lease_epoch` (a monotonically increasing fencing token), and the job keeps the epoch it acquired. Renewals, cursor writes and the final clear add `AND sync_lease_owner = :me AND lease_epoch = :epoch`, so a stalled worker whose lease was taken over can no longer write.
-   - **Fencing of placement and content mutations** (not only cursor writes): every transaction that applies a page's results first runs `SELECT lease_epoch FROM calendar_sync_connections WHERE id = ? AND sync_lease_owner = :me AND lease_epoch = :epoch FOR SHARE` and aborts when no row comes back. Those results are link/placement changes, external rows, the full-sync sweep, attach, promote and customers writes.
-   - `FOR SHARE` blocks a concurrent lease takeover (an `UPDATE` of the row) until the transaction commits, so a takeover is either visible before the mutation (abort) or waits until after it (the old worker's mutation is still valid).
-   - The **customers command runs inside the same transaction** via `ctx.transactionalEm`. `customers.interactions.create` and `update` already honor it; Part A adds the same support to `cancel` and `delete`, which today always fork their own EntityManager. That puts the customers write behind the same fence.
-   - **Version guard** (defence in depth): a link applies a normalized event only when `event.updatedAt ≥ link.externalUpdatedAt`. A provider call that returns after a newer page of the same event was applied is dropped instead of overwriting newer content. Zero rows updated means another worker holds it, so this one exits. The lease is renewed per page and cleared at the end. No database connection or row lock is held during provider calls, and `PUT /connections` never waits on a running sync. The job payload is only `{ connectionId }`. The mode comes from the persisted **traversal** (see step 6): an unfinished traversal is always continued in its own mode; otherwise the run is `full` when `full_resync_requested_at` is set or the cursor is missing, else `incremental`. Workers stay idempotent (queue `AGENTS.md`).
+   - Zero rows updated means another worker holds the lease, so this one exits. The lease is renewed per page and cleared at the end. No database connection or row lock is held during provider calls. The job payload is only `{ connectionId }`. The mode comes from the persisted **traversal** (see step 6): an unfinished traversal is always continued in its own mode; otherwise the run is `full` when `full_resync_requested_at` is set or the cursor is missing, else `incremental`. Workers stay idempotent (queue `AGENTS.md`).
+   - **Fencing scope.** The lease fence covers **everything an inbound job mutates**, not only cursor writes: link and placement changes, external rows, attach, auto-promote decisions taken while applying a page, the full-sync sweep, and customers writes. The separate `promote` job holds no lease and is not fenced by it; it is serialized by its per-meeting coalescing key, the primary-per-meeting unique index, and the per-interaction lock below.
+   - **The fence check** is `SELECT lease_epoch FROM calendar_sync_connections WHERE id = ? AND sync_lease_owner = :me AND lease_epoch = :epoch FOR SHARE`, aborting when no row comes back. `FOR SHARE` blocks a concurrent lease takeover (an `UPDATE` of the row) until the checking transaction ends, so a takeover is either visible before the mutation (abort) or waits until after it (the old worker's mutation is still valid).
+   - **Hub-only mutations** (links, external rows, sweep) run in short hub transactions that start with the fence check.
+   - **Customers writes keep their own transaction**, so their side effects stay durable-after-commit. They are **not** run on a hub transaction via `ctx.transactionalEm`: a command that joins a caller-owned transaction emits its CRUD side effects (events, query-index jobs) **before** the outer commit (`customers/commands/interactions.ts`, `runInTransaction`), and `CommandBus.execute` runs post-commit work immediately. Instead:
+     - The hub passes the fence through the existing, documented **`ctx.beforeTransactionalWrite`** guard, which supported handlers invoke inside their own write transaction before reading or mutating. The guard runs the fence check on that transaction-bound EntityManager and throws `[internal] calendar_sync lease lost` on failure, which rolls the command back.
+     - Because the command owns its transaction, its events and indexing fire only after its own commit, and never for a rolled-back write.
+     - `create` and `update` already invoke the guard. Part A adds the same `beforeTransactionalWrite` support to `customers.interactions.cancel` and `customers.interactions.delete`, which today always fork their own EntityManager without it.
+   - **Hub bookkeeping** for a customers write (link watermarks, `content_hash`, clearing `pending_write_hash`) is a separate hub transaction run right after the command commits. It takes the fence, then the per-interaction lock, and then:
+     - sets the primary's `synced_interaction_updated_at` to **exactly** the interaction's current `updatedAt` (no `GREATEST`, which could run ahead under app-clock skew) **only if** both hold:
+       - the stored row still hashes to *this* write's `pending_write_hash`, which is how bookkeeping identifies its own write, since the command returns only `{ interactionId }`;
+       - `pending_write_was_pristine` is true.
+     - When the row was **not** pristine (a user's CRM edit preceded this hub write), the watermark is left behind, so the user's edit stays visible as a CRM edit. A hub write such as an RSVP therefore never "absorbs" an earlier user edit: such an interaction never becomes pristine again by accident, and a later private-organizer demotion keeps it (`privacy_changed_kept`) instead of deleting it.
+     - clears the marker with **compare-and-clear** (`WHERE pending_write_hash = :mine`). Recovery also clears a marker that no longer matches the stored row (a later non-hub edit superseded it).
+     - A later hub write that already superseded this one owns the marker and advances the watermark itself, so out-of-order bookkeeping can neither regress the watermark nor erase another write's marker. If the lease is lost in between, the bookkeeping aborts and the next lease holder re-derives it through the pending-write marker (Watermark rule). Re-applying is idempotent: the version guard and `content_hash` skip unchanged content, and repeating an identical customers update is harmless.
+   - **Lost-update protection and per-interaction serialization** (independent of `OM_OPTIMISTIC_LOCK`). The hub's `beforeTransactionalWrite` guard runs inside the customers command's own transaction, before the command reads anything, and acquires locks in one fixed order on every hub path:
+     1. Fence check: the connection row `FOR SHARE`, as above.
+     2. The per-interaction advisory lock `pg_advisory_xact_lock(hashtext('calendar_sync:interaction:' || :interactionId))`, which serializes **all hub writers** of that interaction.
+     3. The interaction row locked `FOR UPDATE` (`findOne` with `LockMode.PESSIMISTIC_WRITE` on the transaction-bound EntityManager; read-only use of the customers entity, as in `example_customers_sync`). A concurrent CRM user edit therefore waits for this write instead of being overwritten.
+     4. The locked row's `updatedAt` compared with the version the hub computed its change from. On a mismatch the guard throws a hub conflict and rolls the command back; the hub re-reads, recomputes and retries (≤ 3, then requeues).
+     - Because the check is the hub's own, it holds even when `OM_OPTIMISTIC_LOCK` is off or excludes `customers.interaction`. No synthetic request header is used.
+     - For `customers.interactions.create`, steps 3–4 are skipped: the row does not exist yet, and the reserved caller-supplied id plus the primary-per-meeting unique index already make creation single-writer. The guard writes the marker with `pending_write_was_pristine = true` and the hash of `toStoredSyncedFields(createInput)`.
+     - A **missing** interaction (hard-removed, or soft-deleted outside the delete flow) is never retried: it goes to the Missing interaction path.
+   - **Version guard** (defence in depth): a link applies a normalized event only when `event.updatedAt ≥ link.externalUpdatedAt`. A provider call that returns after a newer page of the same event was applied is dropped instead of overwriting newer content.
+   - **Contention:** `PUT /connections` writes the connection row, so it can wait for one short fence-holding transaction: one page-apply or one customers command. That transaction can itself briefly wait on the per-interaction lock (held by a delete, restore or bookkeeping transaction) or on a CRM user's row lock. Every lock holder is short-lived. A settings save never waits on a provider network call or on a whole sync.
 3. **Token:** `refreshCredentialsIfNeeded` returns a fresh token. Reauth errors route to the hub's `requires_reauth`.
 4. **Listing:**
    - `adapter.listChanges({ state: connection.providerState, mode: 'incremental' | 'full', horizon, pageBudget })` returns `{ events, deletedExternalIds, nextState, hasMore, fullResyncRequired }`.
-   - `fullResyncRequired` (Google `410`, Graph expired delta link, CalDAV invalid sync-token) triggers a full sync.
+   - `fullResyncRequired` (Google `410`, Graph expired delta link, CalDAV invalid sync-token), on any page of any traversal, sets `full_resync_requested_at = now()` and **invalidates the current traversal record** (the committed cursor is not advanced). The next run therefore starts a fresh full traversal under the rules in step 6, even when the error arrived on page 2 of an incremental traversal or in the middle of a full one.
    - Provider-owned series masters fan out through `adapter.listInstances` within the horizon.
 5. **Placement:** each event is validated against the hub's zod schema for `NormalizedCalendarEvent` and goes through `applyNormalizedEvent` (placement, shared-meeting identity, § Mapping). **Echo skip:** the event is skipped only when **all** of these hold: the hub-computed `content_hash` (SHA-256 of the normalized, mapped fields) equals `link.contentHash`, the link is `state = 'linked'`, its placement is live (an external row exists for `external`, or `interaction_id` is current for `interaction`), and the run is `incremental`. A `full` run **always re-evaluates placement** (attach, promote, re-create external rows, auto-create), so reconnects and "enable auto-create, then full resync" take effect on unchanged events. `content_hash` is cleared whenever a link is unlinked or re-placed.
    - **Placement re-evaluation is separate from content application.** Provider content is written to an interaction **only when the provider copy changed** since the last apply: `content_hash ≠ link.content_hash` (link not freshly cleared) or `event.updatedAt > link.externalUpdatedAt`.
@@ -335,7 +368,7 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
      - During an **incremental** traversal: its page state is incompatible with a full listing, so it is **invalidated**. The traversal record is cleared, while the committed cursor is untouched. A fresh full traversal starts with a new `traversal_run_id`, a new fixed horizon and `traversal_started_at = now()`.
      - During a **full** traversal: no restart. The running traversal continues.
    - **Completion:** when a traversal finishes (`hasMore = false`), the worker commits `provider_state`. If the traversal was `full`, it runs the sweep below **for its own `traversal_run_id` only**, then clears `full_resync_requested_at` **only if it is ≤ `traversal_started_at`**. A request made after that traversal began was not serviced by it and triggers another full run. Finally the traversal record is cleared.
-   - A full traversal sets `last_seen_run_id = traversal_run_id` on every link it sees. On completion it **marks and sweeps**, within its fixed horizon: links of the connection whose `starts_at` is inside the horizon and that were not seen are treated as deleted. Excluded from the sweep: **owning** links (`push_enabled` and (`origin = 'crm'` or `is_organizer`)) with `external_event_id IS NULL` (first push or re-insert still pending), and links in `deleting` (their delete flow owns them). Only links with `state NOT IN ('unlinked','deleting')` are considered. Each unseen link is unlinked (`unlink_reason = 'sweep'`, with primary handover) and its external row soft-deleted. The sweep never overwrites an existing `unlink_reason`, so a `crm_delete` row keeps its reason for undo. This sweep is needed because providers return deletions only for a limited time.
+   - A full traversal sets `last_seen_run_id = traversal_run_id` on every link it sees. On completion it **marks and sweeps**, within its fixed horizon: links of the connection whose `starts_at` is inside the horizon and that were not seen are treated as deleted. Excluded from the sweep: **owning** links (`push_enabled` and (`origin = 'crm'` or `is_organizer`)) with `external_event_id IS NULL` (first push or re-insert still pending); links in `deleting` (their delete flow owns them); and every link whose provider identity was established **after the traversal started** (`external_identity_at ≥ traversal_started_at`). Provider listings are not snapshots, so an event inserted by an outbound push, re-inserted, or attached while a long full traversal was paging may never be listed by it. That exclusion keeps such links from being swept. Only links with `state NOT IN ('unlinked','deleting')` are considered. Each unseen link is unlinked (`unlink_reason = 'sweep'`, with primary handover) and its external row soft-deleted. The sweep never overwrites an existing `unlink_reason`, so a `crm_delete` row keeps its reason for undo. This sweep is needed because providers return deletions only for a limited time.
    - Failed events are retried on the next tick (`pendingRetryExternalIds`, ≤ 50).
 
 ### Outbound flow (interactions only)
@@ -361,6 +394,10 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
    - These **automatic** triggers enqueue the coalesced `promote` job described below. Its payload carries **no intent** (`{ organizationId, meetingKey }` only), so the job re-derives everything from current state, as queue `AGENTS.md` rule 4 requires.
    - **Manual** promotion (`POST /api/calendar_sync/events/[id]/promote`: Create person, Link to existing customer, Add to CRM) never goes through the queue. If its reserve loses the race, it attaches, adds the requested `entityId` to the winner's `linkedEntities`, and returns the winner's `interactionId`. **Undo of a manual promotion is sticky:** it sets `auto_promote_suppressed_at` on the event's links. Automatic promotion skips suppressed links until the event's attendee set changes or a user promotes manually again, so undo is not silently reversed by the next person update. It runs **synchronously inside the `calendar_sync.external_event.promote` command**, using the same reserve → create → finalize steps, so the chosen `entityId` cannot be dropped by coalescing, the undo snapshot is captured at execution time, and the API returns the created `interactionId`.
 2. **Reserve → create → finalize** (shared by the `promote` worker on queue `calendar-sync-promote`, `coalesceBy: (p) => \`meeting:${p.organizationId}:${p.meetingKey}\``, and the manual command). It re-matches attendees (the worker) or uses the request's `entityId` (the command), then runs:
+   - **Locking:** each step runs in **its own** transaction. Before (a) the meeting has no interaction id; it is serialized by the primary-per-meeting unique index and the per-meeting coalescing key.
+     - (b) `customers.interactions.create` takes the per-interaction lock through its `beforeTransactionalWrite` guard.
+     - (c) finalize takes the lock in its own hub transaction for link changes, and applies the bookkeeping rules to the create's marker (own-write hash check, pristine flag, compare-and-clear). Its participant additions are separate `customers.interactions.update` calls that lock through their guard.
+     - No step holds the lock while awaiting a customers command (see Locking rules).
    - **(a) Reserve:** in one transaction, set the chosen primary link to `placement = 'interaction'`, `is_primary = true`, `state = 'promoting'` and a new `interaction_id`. A unique violation on the primary-per-meeting index means another job won, so this job re-runs as ATTACH (see First-import race);
    - **(b) Create:** `customers.interactions.create` with that caller-supplied `id` and `syncOrigin`;
    - **(c) Finalize:** set the primary to `state = 'linked'`, attach every external sibling link with the same meeting key, add the participants of **every** link attached to this interaction (including links that attached while it was `promoting`), soft-delete all their external rows, and advance the primary's watermark.
@@ -372,7 +409,7 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
 
 ### Conflict rule
 
-Applied on the primary link only, and only when the provider copy changed (see Inbound step 5; a CRM-only change is never a conflict and never overwritten). A conflict exists when `event.updatedAt > link.externalUpdatedAt` **and** `interaction.updatedAt > link.syncedInteractionUpdatedAt`. Last writer wins; the worker sets `link.lastConflictAt` and emits `calendar_sync.event_link.conflict_resolved`.
+Applied on the primary link only, and only when the provider copy changed (see Inbound step 5; a CRM-only change is never a conflict and never overwritten). A conflict exists when `event.updatedAt > link.externalUpdatedAt` **and** the interaction is **not effectively pristine** (Watermark rule predicate, evaluated after recovery, under the per-interaction lock). A committed hub write whose bookkeeping has not run yet therefore never counts as a CRM edit. Last writer wins; the worker sets `link.lastConflictAt` and emits `calendar_sync.event_link.conflict_resolved`.
 
 ### Commands & Events
 
@@ -535,7 +572,7 @@ One row per (communication channel, external calendar). User-editable → `updat
 | `provider_state` | jsonb null | committed cursor owned by the adapter (validated by `providerStateSchema`); no PII |
 | `provider_page_state` | jsonb null | in-progress page token of the current traversal; persisted atomically with the traversal record, cleared on completion or invalidation |
 | `sync_lease_until` | timestamptz null | inbound worker lease (see Inbound flow step 2) |
-| `sync_lease_owner` | uuid null | random id of the lease holder; renewals, the final clear, and every `provider_state` / `provider_page_state` write are conditional on `sync_lease_owner = :me` |
+| `sync_lease_owner` | uuid null | random id of the lease holder; renewals, the final clear, and every `provider_state` / `provider_page_state` write are conditional on `sync_lease_owner = :me AND lease_epoch = :epoch` |
 | `pending_retry_external_ids` | jsonb null | ≤ 50 |
 | `notification_channel_id` | uuid null | unique; our id for the provider subscription |
 | `notification_resource` | text null | provider resource / subscription id |
@@ -580,6 +617,10 @@ Identity and sync state per (connection, external event or instance). Holds no c
 | `origin` | text | `provider` \| `crm` |
 | `state` | text | `linked` \| `promoting` \| `demoting` \| `deleting` \| `unlinked` \| `error` |
 | `starts_at` | timestamptz null | event or instance start (scheduling metadata, not content); used by the full-sync sweep window |
+| `external_identity_at` | timestamptz NOT NULL default `now()` | when this link's provider identity (`external_event_id`) was established or last re-established; set with the **database** clock (`now()`) by inbound placement, outbound insert/re-insert and attach, as is `traversal_started_at`, so app-clock skew cannot make a sweep catch a fresh insert. The full-sync sweep only considers links with `external_identity_at < traversal_started_at` |
+| `merged_from_interaction_id` | uuid null | the duplicate interaction an in-progress UID merge is folding into this link's interaction; makes steps (2)–(3) resumable by the stale-state sweep; cleared at the end |
+| `pending_write_was_pristine` | boolean null | whether the interaction was pristine when the guard locked it; bookkeeping advances the watermark only when true |
+| `pending_write_hash` | text null | hash of the CRM fields a hub write is about to set; covers the gap between a customers command commit and its bookkeeping (Watermark rule) |
 | `last_seen_run_id` | uuid null | last full-sync run that listed this event (mark-and-sweep) |
 | `state_changed_at` | timestamptz | set whenever `state` changes; separates a live `promoting`/`demoting` row from a crashed one |
 | `auto_promote_suppressed_at` | timestamptz null | set by undo of a manual promotion, by a user-delete detach and by the missing-interaction detach; suppresses automatic promotion until the attendee set changes or a manual promote |
@@ -607,6 +648,7 @@ Indexes:
 - `(organization_id, ical_uid, instance_key) WHERE ical_uid IS NOT NULL AND deleted_at IS NULL` (shared-meeting lookup);
 - **unique** `(organization_id, ical_uid, instance_key) WHERE is_primary AND placement = 'interaction' AND deleted_at IS NULL` (at most one primary per meeting; arbitrates the first-import race);
 - `(detached_from_interaction_id) WHERE detached_from_interaction_id IS NOT NULL` (undo lookup);
+- `(merged_from_interaction_id, state_changed_at) WHERE merged_from_interaction_id IS NOT NULL` (merge resumer);
 - `(tenant_id, organization_id, interaction_id)`;
 - `(connection_id, external_series_id)`;
 - `(state, state_changed_at) WHERE state IN ('promoting','demoting','deleting')` (stale-state sweep);
@@ -668,10 +710,10 @@ One row per organization. User-editable → `updated_at` for optimistic locking.
 | `meeting_details` | jsonb null | strict `{ conferenceId?: ≤200, entryPoints?: max 10 × { type: video\|phone\|sip\|more, uri ≤2048 (**scheme allowlist by type**: `video`/`more` → `https:` only; `phone` → `tel:` only; `sip` → `sip:`/`sips:` only; anything else, including `javascript:`, `data:` and `http:`, is rejected), label? ≤200, pin? ≤50, regionCode? ≤10 }, notes? ≤2000 }` |
 
 - **Encryption:** `meeting_url`, `meeting_details` **and `participants`** (jsonb: attendee names and emails, which sync writes at volume) are added to the `customers:customer_interaction` map, with a `buildEncryptionMapBackfillSql` migration (empty `down()`) that also backfills existing `participants`. Every reader already loads interactions through `findWithDecryption` (list route, detail routes, conflict check, calendar), and no SQL filters on `participants`; Phase 2 verifies both with a grep plus the existing conflict/visibility tests.
-- **Entry-point URI safety (validation and rendering):** the scheme allowlist on `meetingDetails.entryPoints[].uri` lives in one exported helper, `isAllowedMeetingEntryPointUri(type, uri)` (`customers/lib/meetingLinks.ts`).
+- **Entry-point URI safety (validation and rendering):** the scheme allowlist on `meetingDetails.entryPoints[].uri` lives in one pure, domain-free exported helper, `isAllowedMeetingEntryPointUri(type, uri)` in `@open-mercato/shared/lib/url/meetingEntryPoint`. Customers (validator, render) and the hub (normalizer) both import it from `shared`, so the hub never imports a customers library. As a new shared export, it is flagged for maintainer confirmation (`packages/shared/AGENTS.md` → Ask First).
   - The zod validator uses it, so the API rejects a bad entry point with 400.
   - The hub's normalizer uses it to **drop** non-conforming entry points from provider data instead of failing the whole event.
-  - Every UI that renders entry points uses it **again at render time**: an entry point that fails the check renders as plain text, never as an anchor. Rows stored before the rule existed are therefore safe too.
+  - Every UI that renders entry points uses it **again at render time**: an entry point that fails the check renders as plain text, never as an anchor. This is defence in depth against values written by any path that bypassed the validator (for example direct SQL or a future import).
   - `meetingUrl` keeps its own `http(s):` rule.
 - **Index:** GIN `jsonb_path_ops` on `linked_entities`, built `CONCURRENTLY` (precedent: `sales/migrations/Migration20260916120000_sales_payment_allocation_order_idx.ts`).
 - **Applicability:** `meetingUrl` is applicable to the `meeting` and `event` base kinds.
@@ -763,7 +805,7 @@ Calendar behavior:
 - `meetingUrl` / `meetingProvider` / `meetingDetails` on the interactions API;
 - `includeLinked=true` (opt-in; `entity_id = ? OR linked_entities @> ?::jsonb`, with the second parameter bound as `JSON.stringify([{ type: 'person', id }])`; never string-interpolated);
 - DI `customerPersonEmailMatcher` (`matchPeopleByEmails`, `getPrimaryEmails`);
-- DI `customerInteractionAccess.describeForUser({ interactionId, userId, tenantId, organizationId }) → { visible: boolean; baseKind: string | null }`. It reuses `lib/visibilityFilter.ts` and the event-type resolver, so other modules never re-implement interaction visibility;
+- DI `customerInteractionAccess.describeForUser({ interactionId, userId, tenantId, organizationId }) → { visible: boolean; baseKind: string | null }`, plus `toStoredSyncedFields(rowAndChanges) → StoredSyncedFields` (the complete user-editable field set listed in the Watermark rule, including custom-field values), which applies the same validator normalization the interaction commands apply (title trim, `canonicalCalendarTimezone`, participant shape), so hub hashes match persisted values. It is pure; no database access. It reuses `lib/visibilityFilter.ts` and the event-type resolver, so other modules never re-implement interaction visibility;
 - participant "Create person" in `CalendarEventEditor` (`CreatePersonDialog`, adds a `person` linked entity on save);
 - `EmailCardActions.tsx` / `PersonEmailThreadsTab.tsx` filter `channelType === 'email'`.
 
@@ -951,7 +993,7 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
 
 ### Phase 2 — Customers seams (A)
 
-6. Meeting columns/validators/encryption/backfill/applicability/API; `isAllowedMeetingEntryPointUri` (validator + render-time check); `ctx.transactionalEm` support added to `customers.interactions.cancel` and `customers.interactions.delete` (create/update already have it), so hub writes can run behind the lease fence.
+6. Meeting columns/validators/encryption/backfill/applicability/API; `isAllowedMeetingEntryPointUri` (validator + render-time check); `ctx.beforeTransactionalWrite` support added to `customers.interactions.cancel` and `customers.interactions.delete` (create/update already invoke it), so the hub's lease fence runs inside every customers write transaction while side effects stay post-commit.
 7. Meeting link field; Join prefers `meetingUrl`.
 8. `customerPersonEmailMatcher`; `customerInteractionAccess` (visibility + base kind); `includeLinked` + GIN (bound `?::jsonb` parameter); person activities use `includeLinked=true`.
 9. Item-source + details hosts and types; `fetchExternalCalendarItems`; external rendering; conflicts; peek.
@@ -1024,13 +1066,14 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
 | File | Action | Purpose |
 |------|--------|---------|
 | `packages/google-auth/**` | Create | Shared Google OAuth |
+| `packages/shared/src/lib/url/meetingEntryPoint.ts` (new `lib/url/` directory) | Create | `isAllowedMeetingEntryPointUri` per-type scheme allowlist (pure, domain-free), shared by customers and the hub |
 | `packages/channel-gmail/src/modules/channel_gmail/lib/{oauth,credentials}.ts` | Modify | Re-export |
 | `packages/core/src/modules/communication_channels/{lib/adapter.ts,lib/oauth-client-config.ts,lib/credential-refresh.ts,lib/connect-channel.ts,events.ts,api/post/oauth/[provider]/initiate/route.ts,api/get/oauth/[provider]/callback/route.ts,commands/connect-credential-channel.ts,commands/disconnect-channel.ts,commands/delete-channel.ts,commands/set-primary-channel.ts,api/post/webhook/[provider]/route.ts}` | Modify | Seams (fallback keys reach every `resolveOAuthClientCredentials` caller; `channel.connected` from both connect paths and both undo handlers; issuing-client refresh; calendar channel types rejected by the messaging webhook) |
 | `apps/mercato/.env.example`, create-app template (via `yarn template:sync:fix`) | Modify | New `OM_CALENDAR_SYNC_*` / `OM_GOOGLE_CALENDAR_*` variables |
 | `apps/mercato/src/modules.ts`, `packages/create-app/template/src/modules.ts` | Modify | Enable `{ id: 'calendar_sync', from: '@open-mercato/core' }` and `{ id: 'channel_google_calendar', from: '@open-mercato/channel-google-calendar' }` (same pattern as `channel_gmail`) |
 | `apps/mercato/package.json`, `packages/create-app/template/package.json.template` | Modify | Add `@open-mercato/channel-google-calendar` and `@open-mercato/google-auth` |
 | `packages/channel-gmail/package.json` | Modify | Depend on `@open-mercato/google-auth` |
-| `packages/core/src/modules/customers/**` (entities, validators, encryption, migrations, di, extension-points, `lib/personEmailMatcher.ts`, `lib/interactionAccess.ts`, `lib/meetingLinks.ts`, `commands/interactions.ts` (transactional EM for cancel/delete), `lib/calendar/*`, calendar components, interactions route, email components) | Modify/Create | Part A |
+| `packages/core/src/modules/customers/**` (entities, validators, encryption, migrations, di, extension-points, `lib/personEmailMatcher.ts`, `lib/interactionAccess.ts`, `commands/interactions.ts` (`beforeTransactionalWrite` for cancel/delete), `lib/calendar/*`, calendar components, interactions route, email components) | Modify/Create | Part A |
 | `packages/core/src/modules/calendar_sync/**` | Create | Hub (contract, registry, entities, engine, workers, subscribers, API, widgets, pages, i18n, tests, fake adapter) |
 | `packages/channel-google-calendar/src/modules/channel_google_calendar/**` | Create | Google provider |
 | `apps/docs/docs/framework/modules/building-calendar-sync-provider.mdx`, `apps/docs/docs/user-guide/calendar-sync-google.mdx` | Create | Docs |
@@ -1071,7 +1114,20 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
     - disconnect then Undo → the connection is reactivated (`channel.connected` from the undo);
     - a primary swap never violates the unique index (two-phase flush);
     - re-election during `promoting` is deferred to finalize;
-    - parallel RSVP updates from two connections both persist (interaction advisory lock);
+    - parallel RSVP updates from two connections both persist under a forced interleaving, **with `OM_OPTIMISTIC_LOCK=off`** too (the guard's own lock and version check → conflict → re-read → retry); a CRM user edit committed before the hub write is not overwritten (the guard's version check fails → re-read → recompute); a user edit arriving during the hub write waits on the row lock and then applies on top, its own optimistic-lock rules deciding (by design);
+    - a crash between a customers command commit and its bookkeeping → the next apply recognises the hub's own write via `pending_write_hash`: no fake conflict and no echo push;
+    - two attached-link writes (B then C) interleaved with an organizer change between B's commit and B's bookkeeping → no fake CRM edit, no conflict, the organizer's change applied; out-of-order bookkeeping never moves the watermark backwards or clears the newer marker; the marker survives a primary swap;
+    - promote/finalize and the delete/restore flows never hold the per-interaction lock while awaiting a customers command (asserted with a lock-held probe under a short per-test timeout, so a regression fails fast instead of hanging);
+    - on a pristine interaction, hub write W2's guard runs between W1's commit and W1's bookkeeping → W2 records `pending_write_was_pristine = true` (effectively pristine), and the watermark ends at W2's `updatedAt` with no fake CRM edit; a primary swap in that window keeps all three interaction-level fields;
+    - recovery after a crashed bookkeeping following a user edit → the marker is cleared without advancing the watermark (the user edit stays visible);
+    - promoted (created) interactions start effectively pristine (`pending_write_was_pristine = true`, create-input hash);
+    - the primary applies a genuine organizer change while an attached link's hub write is committed but un-bookkept → no `conflict_resolved` (the conflict rule uses the effectively-pristine predicate after recovery);
+    - a user edit to a field the hub never writes (e.g. `priority`, a custom field) while a marker is pending → the hash differs, the edit stays visible, and the interaction is not demoted;
+    - an inbound title with surrounding spaces and an alias timezone (e.g. `US/Pacific`) → the own-write hash matches the stored, normalized row, the watermark advances, and there is no fake conflict or echo push;
+    - a user CRM edit followed by a hub RSVP write → the watermark is not advanced (`pending_write_was_pristine = false`), the user edit stays visible, and a later private-organizer change keeps the interaction (`privacy_changed_kept`);
+    - a page that marks a series master and attaches an occurrence of the same interaction while a guard on that interaction runs → no 40P01 (advisory lock before the first link-row write);
+    - UID merge interrupted after step (2) → the sweep resumes from `merged_from_interaction_id`, and no second interaction can be reserved for the key between steps (1) and (4), ending with one interaction and no lock held across customers commands;
+    - a hub write to an interaction that was meanwhile hard-removed → the missing-interaction path, never retried;
     - outbound coalescing of update + delete → delete executed (payload `{ linkId }`, action from state);
     - a manual promote that loses the reserve race adds its `entityId` to the winner and returns the winner's id;
     - undo of a manual promote is not reversed by the next person update (`auto_promote_suppressed_at`);
@@ -1083,6 +1139,11 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
     - a delete delivery arriving after its undo was handled → no-op (interaction live); a duplicate delivery of a handled deletion → no-op (`deletion_marker`); a re-delete after undo → handled; a `deleting` link with a live interaction is restored by the sweep;
     - two connections returning the same local external id for unrelated UID-less events → placed independently (connection-scoped synthetic key);
     - the normalizer drops entry points with disallowed schemes, and the render-time check never emits a link for them;
+    - a lease lost during a customers write → `beforeTransactionalWrite` throws, the command rolls back, and **no** `customers.interaction.*` event or query-index job is emitted; on success, events fire only after the command's own commit;
+    - the delete handler and the undo restore handler interleaved (undo commits while the delete handler holds the per-interaction lock) → the end state is the owning link `linked` and the colleague links re-attached, never stuck in `deleting`;
+    - an outbound insert completing while a full traversal is paging → the link (with `external_identity_at ≥ traversal_started_at`) is not swept;
+    - `fullResyncRequired` on page 2 of an incremental traversal → traversal invalidated, `full_resync_requested_at` set, the next run starts a fresh full traversal;
+    - the safety net on a `deleting` link with a live interaction on a paused connection → disconnect outcome (never primary), colleagues restored by the generic marker restore;
     - reconnect with unchanged provider events restores the external rows and re-elects primaries (full mode bypasses the echo skip); enabling auto-create, then a full resync, creates People for unchanged events;
     - undo of a manual promotion after a colleague attached → every link attached at undo time is re-placed as external (none dangling);
     - a user deleting an imported interaction → all its links detached to external rows with auto-promotion suppressed; undoing the delete restores them;
@@ -1166,9 +1227,28 @@ Self-contained Playwright specs in `calendar_sync/__integration__/`, `channel_go
 - **One writer per meeting:** a partial unique index (`interaction_id WHERE is_primary`) guarantees a single primary. Handover runs in one transaction with the unlink.
 - **Concurrency:**
   - Queues coalesce per entity (`connection:<id>`, `link:<id>`, `meeting:<org>:<key>`), and every worker is idempotent (queue `AGENTS.md`).
-  - The owner-tokened connection lease (`sync_lease_until` + `sync_lease_owner`) guards against cross-process overlap without holding a row lock across provider calls.
+  - The owner-tokened, epoch-fenced connection lease (`sync_lease_until` + `sync_lease_owner` + `lease_epoch`) guards against cross-process overlap without holding a row lock across provider calls.
   - **Shared meetings:** the unique primary-per-meeting index makes the first-import race safe. The reserve step inserts the primary before any customers write, and the loser retries as ATTACH, so at most one interaction is ever created per meeting.
-  - **Every** hub read-modify-write of an interaction (attach, RSVP, participants, linked persons, content) runs under `pg_advisory_xact_lock(hashtext('calendar_sync:interaction:' || interaction_id))`, with the customers command executed on the same transactional EntityManager where the command supports it. Parallel inbound jobs from different connections therefore never lose participant updates.
+  - **Locking rules** (per-interaction advisory lock `pg_advisory_xact_lock(hashtext('calendar_sync:interaction:' || interaction_id))`):
+    - **Order:** connection `FOR SHARE` (fenced inbound work only) → per-interaction advisory lock(s), taken in **ascending interaction id** order when one transaction touches several interactions → then rows. Page-apply therefore first collects the interaction ids its page will touch (the page's links **and** their meeting-key attach and series-attach targets), then locks them in order. Postgres detects advisory-lock deadlocks (40P01), and a slip is retried as a transient error.
+      - Hub link-only transactions write link rows.
+      - The customers guard locks the interaction row `FOR UPDATE` and then writes the primary link row (the marker).
+      - Every row write below the advisory lock is serialized by that lock, so the order among rows cannot deadlock.
+      - **Rule:** any transaction that writes an interaction-placed link row takes that interaction's advisory lock **before its first such write**. That includes page-apply writes of `last_seen_run_id` and external watermarks on interaction-placed links.
+      - Paths that do not touch the connection row skip the first step.
+    - **Never await a customers command while holding the lock.** A customers command opens its own connection and takes the same lock through its `beforeTransactionalWrite` guard. A hub transaction holding the lock while awaiting it would wait on itself through two sessions, which Postgres cannot detect (it would hang until `lock_timeout` or the idle-in-transaction timeout). Hub link changes and customers commands are therefore always separate, sequential transactions.
+    - **Writers that take the lock** (in addition to the general rule above):
+      - `event_link.update`, including re-enabling push, which makes a link primary again;
+      - promote finalize;
+      - the UID merge's link moves;
+      - customers writes through the guard (create, update, cancel, delete);
+      - the hub bookkeeping transaction after each customers write;
+      - inbound **link-only** transactions that change interaction-placed links: attach, re-election, handover, provider-cancel unlink, reservation release, and sweep unlinks of interaction-placed links;
+      - the delete handler, the undo restore handler and the sweep safety net;
+      - promote steps after the reserve, and demote steps (a) and (c);
+      - the outbound worker's post-provider-call transaction.
+    - **Writers that don't need it:** transactions touching only external-placed links or external rows. These carry no `interaction_id`, so the delete, restore and safety-net flows never read them.
+    - The guard's locked-row version check makes parallel inbound jobs from different connections, and concurrent CRM user edits, unable to overwrite one another unknowingly.
 
 ### Cascading Failures & Side Effects
 
@@ -1322,6 +1402,11 @@ Self-contained Playwright specs in `calendar_sync/__integration__/`, `channel_go
 ### Non-Compliant Items
 
 None blocking. (`CustomerInteraction.participants` encryption, previously a follow-up, is now part of Part A.)
+
+### Open Items for Maintainers (Ask First)
+
+- **New shared export:** `@open-mercato/shared/lib/url/meetingEntryPoint` → `isAllowedMeetingEntryPointUri`, a new cross-package helper (`packages/shared/AGENTS.md` → Ask First). The alternative, if maintainers prefer, is to keep it in customers and expose it to the hub through a customers DI service.
+- **Spec split:** Part A/B/C split (see Resolved Assumptions).
 
 ### Verdict
 
@@ -1533,6 +1618,68 @@ None blocking. (`CustomerInteraction.participants` encryption, previously a foll
     - `meetingDetails.entryPoints[].uri` has a per-type scheme allowlist enforced at validation, normalization and render time.
     - Synthetic meeting keys are scoped by connection.
 
+- 2026-11-19 — **Rev 3.12 (internal review of rev 3.11):**
+  - **Major fixes:**
+    - **Customers writes keep their own transaction** (side effects stay post-commit). The lease fence reaches them through the existing `ctx.beforeTransactionalWrite` guard instead of `ctx.transactionalEm`; Part A adds `beforeTransactionalWrite` support to cancel/delete. Lost updates are prevented with the commands' optimistic lock (`buildOptimisticLockHeader` on a synthetic request, retry ≤ 3) instead of running commands on a hub transaction.
+    - The delete handler, the undo restore handler and the sweep safety net serialize on one per-interaction advisory lock.
+    - The full-sync sweep skips links whose provider identity was established after the traversal started (new `external_identity_at`).
+  - **Minor fixes:**
+    - `fullResyncRequired` on any page invalidates the traversal and requests a full run;
+    - the safety net runs the full `deleting` restore branch, connection-aware and with colleagues;
+    - the delete guard uses the owning-delete key;
+    - `isAllowedMeetingEntryPointUri` moved to `@open-mercato/shared` (flagged for maintainer confirmation);
+    - contention wording corrected;
+    - fence scope clarified (the promote job is not lease-fenced).
+  - **Nits:** misplaced lease sentences moved; lease wording includes the epoch; "legacy rows" rephrased as defence in depth.
+
+- 2026-11-19 — **Rev 3.13 (internal verification of rev 3.12):**
+  - **Major fix:** lost-update protection no longer depends on the optimistic-lock header, which checks and then writes without a lock and is disabled when `OM_OPTIMISTIC_LOCK` is off. The hub's `beforeTransactionalWrite` guard locks in a fixed order (connection `FOR SHARE` → per-interaction advisory lock → interaction row `FOR UPDATE`) and compares the locked row's version itself; a missing interaction goes to the missing path. The client-only `buildOptimisticLockHeader` is no longer referenced.
+  - **Minor fixes:**
+    - a pending-write marker (`pending_write_hash`) covers the gap between a customers commit and its bookkeeping, and the watermark wording is corrected;
+    - promote and the outbound worker's CRM-only outcome take the per-interaction lock, and every hub writer is listed;
+    - a manifest row and an Ask-First open item for the new shared helper;
+    - `external_identity_at` is NOT NULL and uses the database clock.
+  - **Nits:** the safety-net condition is now measurable; grammar fixes.
+
+- 2026-11-19 — **Rev 3.14 (internal verification of rev 3.13):**
+  - **Major fix:** the pending-write marker is set inside the customers command transaction by the guard, after the lock and version check. Bookkeeping runs under the per-interaction lock with compare-and-clear, a forward-only watermark (`GREATEST`), and an own-write hash check. The marker is copied on primary swaps.
+  - **Minor fixes:**
+    - explicit locking rules: a fixed order, and **never await a customers command while holding the lock**; promote and demote steps run in their own transactions;
+    - a complete list of the lock-taking writers, plus the exempt external-only transactions.
+  - **Nits:** test wording on CRM user edits; contention wording.
+
+- 2026-11-19 — **Rev 3.15 (internal verification of rev 3.14):**
+  - **Major fixes:**
+    - The own-write hash uses the stored, normalized form via the new pure customers DI method `customerInteractionAccess.toStoredSyncedFields` (title trim, canonical timezone, participants), so normal hub writes match their own marker.
+    - A hub write no longer absorbs an earlier CRM user edit: the guard records `pending_write_was_pristine`, and bookkeeping advances the watermark only for pristine rows. This fixes a pre-existing defect the reviewer flagged out of scope.
+  - **Minor fixes:**
+    - the guard's real lock order is stated, with the rule that every transaction writing an interaction-placed link row takes the advisory lock first, plus ascending-id order for multi-interaction transactions;
+    - missing writers listed (`event_link.update`, promote finalize, UID merge);
+    - the UID merge is split into resumable steps (`merge_into_interaction_id`) that never await a customers command while holding a lock;
+    - the watermark is set exactly, with no `GREATEST`.
+  - **Nits:**
+    - finalize applies the bookkeeping rules;
+    - the marker goes on the current primary, and is skipped when there is none;
+    - recovery clears superseded markers;
+    - tests use a per-test timeout.
+
+- 2026-11-19 — **Rev 3.16 (internal verification of rev 3.15):**
+  - **Major fix:** a single **effectively pristine** predicate, which also recognises a pending hub write whose bookkeeping has not run, is used by the guard, bookkeeping, recovery, demotion and first apply. Back-to-back hub writes no longer make an interaction permanently non-pristine.
+  - **Minor fixes:**
+    - swaps copy all three interaction-level fields;
+    - the create path defines its marker (pristine, create-input hash);
+    - recovery honours the pristine flag;
+    - the UID merge stores `merged_from_interaction_id` (renamed), updates the surviving primary's key in step (1), and is resumed by the stale-state sweep.
+  - **Nit:** page-apply collects interaction ids before taking locks in order.
+
+- 2026-11-19 — **Rev 3.17 (precision fixes from the rev 3.16 verification, verdict approve):**
+  - The conflict rule and the CRM-only-change check use the effectively-pristine predicate, evaluated after recovery under the per-interaction lock.
+  - The merge resumer's staleness clock starts at step (1), and a partial index is added for `merged_from_interaction_id`.
+  - `StoredSyncedFields` is enumerated as the complete user-editable surface, including custom fields, so clause 2 can never absorb a user edit.
+  - **Nits:**
+    - merge step (4) is described as a locked hub transaction;
+    - page-apply's lock set includes attach and series-attach targets.
+
 ### Review — 2026-11-19 (rev 3)
 
 - **Reviewer:** Agent (author pass, checklist §§2–7) + fresh-context agent (checklist §1 + consistency, given only this file)
@@ -1667,3 +1814,39 @@ None blocking. (`CustomerInteraction.participants` encryption, previously a foll
   - entry-point URI schemes;
   - synthetic key scope.
 - All six were addressed in rev 3.11.
+
+### Review — 2026-11-19 (rev 3.11, internal `om-code-review`)
+
+- **Verdict:** request changes.
+- **Upstream findings:** 4 of 6 were fully resolved by rev 3.11; the fencing finding and the delete-supersession finding were only partially resolved.
+- **New findings:** 3 major (customers side effects firing before the hub commit under `ctx.transactionalEm`; delete handler vs restore handler race; sweep vs push during a traversal), 6 minor, 3 nits.
+- All findings were addressed in rev 3.12.
+
+### Review — 2026-11-19 (rev 3.12, internal verification `om-code-review`)
+
+- **Verdict:** request changes. All rev 3.11 internal findings (M1–M3, m1–m6) were confirmed resolved.
+- **New findings:** 1 major (optimistic-lock lost-update window and `OM_OPTIMISTIC_LOCK=off` bypass), 5 minor, nits. All addressed in rev 3.13.
+
+### Review — 2026-11-19 (rev 3.13, internal verification `om-code-review`)
+
+- **Verdict:** request changes. N1 and N3–N6 resolved; N2 partly.
+- **New findings:** 1 major (the marker and the watermark bookkeeping ran outside the lock, so concurrent writers could produce a fake conflict, a watermark regression, or a marker lost on swap), 2 minor (lock held while awaiting a customers command could hang; incomplete writer list), 2 nits.
+- All addressed in rev 3.14.
+
+### Review — 2026-11-19 (rev 3.14, internal verification `om-code-review`)
+
+- **Verdict:** request changes. All rev 3.14 targeted races were resolved.
+- **New findings:** 1 major (own-write hash vs customers normalization), 3 minor (lock order/writer list, UID merge awaiting customers commands under the lock, `GREATEST` under clock skew), nits.
+- **Pre-existing defect** flagged out of scope (a hub write absorbing a user edit).
+- All addressed in rev 3.15.
+
+### Review — 2026-11-19 (rev 3.15, internal verification `om-code-review`)
+
+- **Verdict:** request changes. All rev 3.15 targets resolved (normalization hash, user-edit absorption, lock order, writer list, exact watermark).
+- **New findings:** 1 major (back-to-back hub writes recorded as not pristine), 3 minor (swap copy, create flag, recovery flag + merge resumability/key window), 1 nit.
+- All addressed in rev 3.16.
+
+### Review — 2026-11-19 (rev 3.16, internal verification `om-code-review`)
+
+- **Verdict: approve.** All rev 3.16 changes resolve their findings, with no new Blocker or Major.
+- 3 minor and 2 nit precision items were folded into rev 3.17.
