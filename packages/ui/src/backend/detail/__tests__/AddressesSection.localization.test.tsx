@@ -9,13 +9,10 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { AddressTiles, type AddressValue } from '../AddressTiles'
 import { AddressesSection, type AddressDataAdapter, type AddressSummary } from '../AddressesSection'
 import type { AddressTypeOption, AddressTypesAdapter } from '../AddressEditor'
+import { registerTelemetryErrorReporter } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const mockReportError = jest.fn()
-let mockTelemetryRuntime: { reportError: typeof mockReportError } | undefined
-
-jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
-  getTelemetryRuntime: () => mockTelemetryRuntime,
-}))
+let disposeReporter: () => void
 
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/staff/team-members/member-1',
@@ -71,8 +68,10 @@ describe('localized shared addresses', () => {
   beforeEach(() => {
     jest.mocked(flash).mockClear()
     mockReportError.mockReset()
-    mockTelemetryRuntime = { reportError: mockReportError }
+    disposeReporter = registerTelemetryErrorReporter(mockReportError)
   })
+
+  afterEach(() => disposeReporter())
 
   it('shows dictionary labels on cards and preserves unknown type values', async () => {
     const list = jest.fn(async () => [{ value: 'office', label: 'Biuro' }])
@@ -92,7 +91,7 @@ describe('localized shared addresses', () => {
 
   it.each(['active', 'disabled', 'throwing'] as const)('keeps addresses readable and localizes a dictionary load failure with %s telemetry', async (telemetry) => {
     const error = new Error('[internal] dictionary unavailable')
-    if (telemetry === 'disabled') mockTelemetryRuntime = undefined
+    if (telemetry === 'disabled') disposeReporter()
     if (telemetry === 'throwing') {
       mockReportError.mockImplementation(() => { throw new Error('[internal] telemetry unavailable') })
     }
