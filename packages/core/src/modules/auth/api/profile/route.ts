@@ -10,6 +10,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -210,6 +211,11 @@ export async function PUT(req: Request) {
         ctx,
       },
     )
+    await decryptEntitiesWithFallbackScope(result, {
+      em,
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+    })
     const res = NextResponse.json({
       ok: true,
       email: String(result.email),

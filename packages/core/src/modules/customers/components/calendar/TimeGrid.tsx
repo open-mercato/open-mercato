@@ -105,10 +105,11 @@ function buildDayColumn(
   const dayEnd = addDays(dayStart, 1)
   const dayStartMs = dayStart.getTime()
   const dayEndMs = dayEnd.getTime()
-  const geometry = (start: Date, end: Date) => {
+  const project = (start: Date, end: Date) => {
     const from = start.getTime() === dayStartMs ? 0 : wallMinutes(start, timeZone)
     const to = end.getTime() === dayEndMs ? HOURS_PER_DAY * 60 : wallMinutes(end, timeZone)
-    return verticalGeometry(from, to - from)
+    const elapsed = (end.getTime() - start.getTime()) / 60_000
+    return { start: new Date(from * 60_000), end: new Date(Math.min(HOURS_PER_DAY * 60, Math.max(to, from + elapsed)) * 60_000) }
   }
   const allDayItems: CalendarItem[] = []
   const segments: Array<{ original: CalendarItem; start: Date; end: Date }> = []
@@ -130,7 +131,11 @@ function buildDayColumn(
 
   allDayItems.sort((first, second) => first.start.getTime() - second.start.getTime())
 
-  const clones = segments.map((segment) => ({ ...segment.original, start: segment.start, end: segment.end }))
+  const clones = segments.map((segment) => ({ ...segment.original, ...project(segment.start, segment.end) }))
+  const geometry = (start: Date, end: Date) => verticalGeometry(
+    start.getTime() / 60_000,
+    (end.getTime() - start.getTime()) / 60_000,
+  )
   const originalByClone = new Map<CalendarItem, CalendarItem>()
   clones.forEach((clone, index) => originalByClone.set(clone, segments[index].original))
 
@@ -146,8 +151,8 @@ function buildDayColumn(
   const overflows: PositionedOverflow[] = overflow.map((entry) => ({
     key: `${dayStartMs}-${entry.cluster}-${entry.group}`,
     items: entry.items.map((clone) => originalByClone.get(clone) ?? clone),
-    start: entry.start,
-    end: entry.end,
+    start: new Date(Math.max(dayStartMs, Math.min(...entry.items.map((clone) => (originalByClone.get(clone) ?? clone).start.getTime())))),
+    end: new Date(Math.min(dayEndMs, Math.max(...entry.items.map((clone) => (originalByClone.get(clone) ?? clone).end.getTime())))),
     ...geometry(entry.start, entry.end),
     ...packedColumnGeometry(entry.column, entry.columns),
   }))

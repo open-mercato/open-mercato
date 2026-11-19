@@ -6,7 +6,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 
 type EntitlementClaim = {
   id?: string | null
@@ -62,7 +62,7 @@ function statusVariant(status: string | null | undefined): StatusBadgeVariant {
 }
 
 function formatDateLabel(value: string, fallback: string, locale: string): string {
-  return formatDisplayDate(value, locale || undefined) ?? fallback
+  return formatDisplayDate(toUtcDateInputValue(value), locale || undefined) ?? fallback
 }
 
 export function EntitlementLookupBadge({ claim, lines }: EntitlementLookupBadgeProps) {

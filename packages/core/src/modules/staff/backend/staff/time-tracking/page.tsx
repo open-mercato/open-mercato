@@ -256,10 +256,11 @@ export default function TimeTrackingMyWorkPage() {
   // server fault as an empty account.
   const load = React.useCallback(async () => {
     try {
-      const result = await readApiResultOrThrow<MyWorkPayload>(MY_WORK_ENDPOINT, undefined, {
-        errorMessage: loadError,
-        fallback: EMPTY_PAYLOAD,
-      })
+      const result = await readApiResultOrThrow<MyWorkPayload>(
+        `${MY_WORK_ENDPOINT}?timeZone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`,
+        undefined,
+        { errorMessage: loadError, fallback: EMPTY_PAYLOAD },
+      )
       setData({ ...EMPTY_PAYLOAD, ...result })
       setLoadState('ready')
     } catch (error) {

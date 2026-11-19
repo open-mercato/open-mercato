@@ -151,3 +151,29 @@ it('places meetings and creates slots in the configured zone across DST', () => 
 
   expect(onCreateRange).toHaveBeenCalledWith(item.start, item.end)
 })
+
+it('gives rollback-spanning and repeated-hour meetings distinct visible lanes', () => {
+  const settings = resolveDateLocaleSettings({ tenant: { timeZone: 'Europe/Warsaw', timeFormat: 'HH:mm' } })
+  const crossing = buildCalendarItem({
+    id: 'crossing',
+    start: new Date('2026-10-25T00:45:00Z'),
+    end: new Date('2026-10-25T01:15:00Z'),
+  })
+  const repeated = buildCalendarItem({
+    id: 'repeated', title: 'Second occurrence',
+    start: new Date('2026-10-25T01:50:00Z'),
+    end: new Date('2026-10-25T02:00:00Z'),
+  })
+  renderWithProviders(
+    <DateLocaleSettingsProvider value={settings}>
+      <TimeGrid days={1} anchor={crossing.start} items={[crossing, repeated]}
+        conflictIds={new Set()} showWeekends showConflicts={false} aiSummaries={false}
+        onItemClick={jest.fn()} onJoin={jest.fn()} onNavigate={jest.fn()} onCreateRange={jest.fn()}
+      />
+    </DateLocaleSettingsProvider>,
+  )
+  const first = screen.getByRole('button', { name: /Quarterly review.*02:45/ })
+  const second = screen.getByRole('button', { name: /Second occurrence.*02:50/ })
+  expect(Number.parseFloat(first.style.height)).toBeGreaterThan(32)
+  expect(first.style.insetInlineStart).not.toBe(second.style.insetInlineStart)
+})

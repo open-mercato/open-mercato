@@ -22,6 +22,7 @@
  *    burn (which is a money statement). An `hours` budget is not money and stays.
  */
 
+import { canonicalizeTimeZone } from '@open-mercato/shared/lib/date/timezone'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -165,18 +166,24 @@ export async function GET(req: Request) {
       })
     }
 
+    const query = readSearchParamsRecord(req.url)
+    const requestedZone = typeof query.timeZone === 'string' ? query.timeZone : undefined
+    const browserTimeZone = requestedZone && requestedZone.length <= 64
+      ? canonicalizeTimeZone(requestedZone)
+      : null
+
     const interceptors = await runTimesheetInterceptors({
       request: req,
       method: 'GET',
       scope: { container, userId: auth.sub, tenantId, organizationId },
-      query: readSearchParamsRecord(req.url),
+      query,
     })
     if (!interceptors.ok) return interceptors.response
     const { session } = interceptors
 
     const em = container.resolve('em') as EntityManager
     const dateLocaleSettings = await resolveDateLocaleSettingsForScope(container, { tenantId, userId: auth.sub })
-    const { todayDate, weekStart, weekEnd, monthStart, nextMonthStart } = resolveMyWorkPeriods(new Date(), dateLocaleSettings.timeZone)
+    const { todayDate, weekStart, weekEnd, monthStart, nextMonthStart } = resolveMyWorkPeriods(new Date(), browserTimeZone ?? dateLocaleSettings.timeZone)
     const monthEnd = addUtcDays(nextMonthStart, -1)
 
     let dailyHours: number | null = null
@@ -477,6 +484,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Today, this week and this month for the calling staff member',
       description:
         'One aggregate for the time tracking landing page: day/week/month/non-billable totals with working-day targets, today’s entries, the caller’s projects with budget burn, and the tasks they last logged against. Always scoped to the caller — there is no way to ask about another person. Rate and amount-budget fields are present only for holders of `staff.timesheets.rates.view`.',
+      query: z.object({ timeZone: z.string().max(64).optional() }),
       responses: [
         { status: 200, description: 'My work summary', schema: responseSchema },
         { status: 400, description: 'Missing scope', schema: z.object({ error: z.string() }) },

@@ -115,8 +115,9 @@ export function EventPeekPopover({
   const dateSettings = useDateLocaleSettings()
   const title = item.title || t('customers.calendar.grid.untitled', 'Untitled')
   const dateLabel = React.useMemo(
-    () => new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric' }).format(item.start),
-    [locale, item.start],
+    () => new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric',
+      timeZone: item.allDay ? undefined : dateSettings.timeZone ?? undefined, }).format(item.start),
+    [locale, item.start, item.allDay, dateSettings.timeZone],
   )
   const timeRange = item.allDay
     ? t('customers.calendar.grid.allDay', 'All day')

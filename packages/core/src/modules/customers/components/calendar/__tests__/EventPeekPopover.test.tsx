@@ -4,6 +4,9 @@
 import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { DateLocaleSettingsProvider } from '@open-mercato/ui/primitives/date-locale-settings'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale'
+import { UpcomingCards } from '../UpcomingCards'
 import { EventPeekPopover } from '../EventPeekPopover'
 import type { CalendarItem } from '../types'
 
@@ -43,21 +46,23 @@ function buildItem(overrides: Partial<CalendarItem> = {}): CalendarItem {
 
 type PopoverOverrides = Partial<React.ComponentProps<typeof EventPeekPopover>>
 
-function renderPopoverWith(overrides: PopoverOverrides = {}) {
+function renderPopoverWith(overrides: PopoverOverrides = {}, timeZone?: string) {
   return renderWithProviders(
-    <EventPeekPopover
-      item={buildItem()}
-      open
-      joinUrl={null}
-      aiSummaries={false}
-      canManage
-      onOpenChange={jest.fn()}
-      onJoin={jest.fn()}
-      onEdit={jest.fn()}
-      {...overrides}
-    >
-      <button type="button">trigger</button>
-    </EventPeekPopover>,
+    <DateLocaleSettingsProvider value={resolveDateLocaleSettings({ tenant: { timeZone } })}>
+      <EventPeekPopover
+        item={buildItem()}
+        open
+        joinUrl={null}
+        aiSummaries={false}
+        canManage
+        onOpenChange={jest.fn()}
+        onJoin={jest.fn()}
+        onEdit={jest.fn()}
+        {...overrides}
+      >
+        <button type="button">trigger</button>
+      </EventPeekPopover>
+    </DateLocaleSettingsProvider>,
     { dict },
   )
 }
@@ -249,4 +254,35 @@ describe('EventPeekPopover — AI summaries setting', () => {
 
     expect(screen.getByText('Head office')).toBeInTheDocument()
   })
+})
+
+it('labels the event day in the same configured zone as the grid', () => {
+  renderPopoverWith({
+    item: buildItem({
+      start: new Date('2026-11-17T02:30:00Z'),
+      end: new Date('2026-11-17T03:00:00Z'),
+    }),
+  }, 'America/New_York')
+  expect(screen.getByText(/Mon, Nov 16/)).toBeInTheDocument()
+})
+
+it('counts upcoming days in the same display zone as the card date', () => {
+  jest.useFakeTimers({ now: new Date('2026-11-17T02:00:00Z') })
+  try {
+    const item = buildItem({
+      start: new Date('2026-11-18T23:00:00Z'),
+      end: new Date('2026-11-19T00:00:00Z'),
+    })
+    renderWithProviders(
+      <DateLocaleSettingsProvider value={resolveDateLocaleSettings({ tenant: { timeZone: 'America/New_York' } })}>
+        <UpcomingCards cards={[{ item, kind: 'future', conflictCount: 0 }]}
+          onJoin={jest.fn()} onSeeConflict={jest.fn()} onOpen={jest.fn()}
+          onEdit={jest.fn()} onCancel={jest.fn()}
+        />
+      </DateLocaleSettingsProvider>,
+    )
+    expect(screen.getByText('2 days later')).toBeInTheDocument()
+  } finally {
+    jest.useRealTimers()
+  }
 })

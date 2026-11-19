@@ -26,7 +26,7 @@ import { REGISTRATION_COVERAGE_TYPES, REGISTRATION_SOURCES } from '../../../data
 import { normalizeRegistration, type RegistrationRecord } from './registrationForm'
 import { WarrantyWorkspace } from '../../components/WarrantyWorkspace'
 import { extensionPoints } from '../../../extension-points'
-import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 
 type RegistrationsResponse = {
   items?: unknown[]
@@ -123,7 +123,7 @@ function registrationSegmentQuery(segment: RegistrationSegment): Record<string, 
 
 function formatDate(value: string | null, locale: string): string | null {
   if (!value) return null
-  return formatDisplayDate(value, locale || undefined)
+  return formatDisplayDate(toUtcDateInputValue(value), locale || undefined)
 }
 
 function hasExpired(value: string | null): boolean {

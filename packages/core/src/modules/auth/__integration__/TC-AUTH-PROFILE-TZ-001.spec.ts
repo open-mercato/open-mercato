@@ -19,6 +19,7 @@ test.describe('TC-AUTH-PROFILE-TZ-001: Personal time zone', () => {
   test('a personal zone wins over the tenant zone and can be cleared', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const originalProfile = (await (await apiRequest(request, 'GET', '/api/auth/profile', { token })).json()) as {
+      email: string
       timezone?: string | null
     }
     const originalSettings = (await (await apiRequest(request, 'GET', '/api/configs/date-locale', { token })).json()) as {
@@ -33,7 +34,10 @@ test.describe('TC-AUTH-PROFILE-TZ-001: Personal time zone', () => {
 
       const setResponse = await apiRequest(request, 'PUT', '/api/auth/profile', { token, data: { timezone: 'asia/tokyo' } })
       expect(setResponse.status()).toBe(200)
-      expect(((await setResponse.json()) as { timezone?: string }).timezone).toBe('Asia/Tokyo')
+      expect(await setResponse.json()).toMatchObject({ ok: true, timezone: 'Asia/Tokyo', email: originalProfile.email })
+      const repeatSet = await apiRequest(request, 'PUT', '/api/auth/profile', { token, data: { timezone: 'Asia/Tokyo' } })
+      expect(repeatSet.status()).toBe(200)
+      expect(await repeatSet.json()).toMatchObject({ ok: true, timezone: 'Asia/Tokyo', email: originalProfile.email })
 
       const withOverride = (await (await apiRequest(request, 'GET', '/api/configs/date-locale', { token })).json()) as {
         effective: { timeZone: string }
@@ -44,6 +48,10 @@ test.describe('TC-AUTH-PROFILE-TZ-001: Personal time zone', () => {
 
       const clear = await apiRequest(request, 'PUT', '/api/auth/profile', { token, data: { timezone: null } })
       expect(clear.status()).toBe(200)
+      expect(await clear.json()).toMatchObject({ ok: true, timezone: null, email: originalProfile.email })
+      const repeatClear = await apiRequest(request, 'PUT', '/api/auth/profile', { token, data: { timezone: null } })
+      expect(repeatClear.status()).toBe(200)
+      expect(await repeatClear.json()).toMatchObject({ ok: true, timezone: null, email: originalProfile.email })
       const cleared = (await (await apiRequest(request, 'GET', '/api/configs/date-locale', { token })).json()) as {
         effective: { timeZone: string }
         sources: { timeZone: string }

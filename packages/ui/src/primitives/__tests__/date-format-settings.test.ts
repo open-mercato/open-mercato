@@ -170,6 +170,14 @@ describe('zone helpers', () => {
     )
   })
 
+  it('renders UTC wall time even when it falls in the New York runtime DST gap', () => {
+    const value = '2026-03-08T02:30:00Z'
+    expect(formatDisplayDateTime(value, 'en-US', settings({
+      timeZone: 'UTC',
+      dateTimeFormat: 'yyyy-MM-dd HH:mm',
+    }))).toBe('2026-03-08 02:30')
+  })
+
   it('returns the original date for an unknown zone', () => {
     const date = new Date(INSTANT)
     expect(toZonedWallClock(date, 'Mars/Olympus')).toBe(date)

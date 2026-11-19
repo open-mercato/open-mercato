@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { differenceInCalendarDays } from 'date-fns/differenceInCalendarDays'
+import { tz } from '@date-fns/tz'
 import { AlertTriangle, ChevronDown, Clock } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -105,7 +106,9 @@ function UpcomingCardStatus({
     )
   }
 
-  const daysLater = Math.max(0, differenceInCalendarDays(item.start, new Date()))
+  const daysLater = Math.max(0, differenceInCalendarDays(item.start, new Date(), {
+    in: dateSettings.timeZone ? tz(dateSettings.timeZone) : undefined,
+  }))
   return (
     <div className="flex w-full items-center gap-1.5 rounded-lg bg-muted py-2 pl-2 pr-3">
       <Clock className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />

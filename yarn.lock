@@ -9716,6 +9716,7 @@ __metadata:
   resolution: "@open-mercato/ui@workspace:packages/ui"
   dependencies:
     "@codemirror/view": "npm:^6.23.0"
+    "@date-fns/tz": "npm:^1.4.1"
     "@dnd-kit/core": "npm:^6.3.1"
     "@dnd-kit/sortable": "npm:^10.0.0"
     "@dnd-kit/utilities": "npm:^3.2.2"
