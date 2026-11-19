@@ -305,6 +305,26 @@ describe('MetadataEditor', () => {
     expect(lastPlaceholderInput('Value')).toHaveValue('')
   })
 
+  it('preserves a blank draft row across an unrelated rerender when a stored key is itself whitespace-only', () => {
+    const onChange = jest.fn()
+    const baseValue = { ' ': 'legacy' }
+    const { rerender } = render(
+      <MetadataEditor value={baseValue} onChange={onChange} defaultCollapsed={false} />,
+    )
+    addBlankDraftRowAndConsumeSkip(rerender, onChange, baseValue)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+
+    // The metadata schema allows a stored key that is itself whitespace-only
+    // (`' '`); it must stay counted as committed, not discarded as a
+    // draft-in-progress, or the comparison undercounts and wrongly wipes the
+    // genuinely blank draft row added above.
+    rerender(<MetadataEditor value={{ ' ': 'legacy' }} onChange={onChange} defaultCollapsed={false} />)
+    expect(screen.getAllByPlaceholderText('Key')).toHaveLength(2)
+    expect(lastPlaceholderInput('Key')).toHaveValue('')
+    expect(lastPlaceholderInput('Value')).toHaveValue('')
+  })
+
   it('renders without border in embedded mode', () => {
     const onChange = jest.fn()
     const { container } = render(

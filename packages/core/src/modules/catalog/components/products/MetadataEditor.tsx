@@ -82,16 +82,20 @@ const jsonValuesEqual = (a: unknown, b: unknown): boolean => {
 const isPlainObjectOrArray = (value: unknown): boolean => value !== null && typeof value === 'object'
 
 const entriesMatchValue = (entries: MetadataEntry[], value?: Record<string, unknown> | null): boolean => {
-  // Only a blank (whitespace-only) key is excluded as a draft-in-progress —
-  // the key used for lookup stays untrimmed, so a stored key that itself
-  // has surrounding whitespace still matches the incoming value's verbatim
-  // key instead of silently failing to look it up.
+  const incoming = value && typeof value === 'object' ? value : {}
+  // A blank (whitespace-only) key is excluded as a draft-in-progress only
+  // when the incoming side has nothing stored under that exact key — the
+  // metadata schema allows a legitimate whitespace-only key (e.g. `{" ":
+  // "legacy"}`), and that row must stay counted as committed, not dropped
+  // as a draft, or an equivalent rerender would wrongly wipe a real blank
+  // draft row alongside it. The key used for lookup stays untrimmed, so a
+  // stored key with surrounding whitespace still matches the incoming
+  // value's verbatim key instead of silently failing to look it up.
   const committedRaw = new Map<string, string>()
   for (const entry of entries) {
-    if (entry.key.trim().length === 0) continue
+    if (entry.key.trim().length === 0 && !Object.prototype.hasOwnProperty.call(incoming, entry.key)) continue
     committedRaw.set(entry.key, entry.value)
   }
-  const incoming = value && typeof value === 'object' ? value : {}
   const incomingKeys = Object.keys(incoming)
   if (committedRaw.size !== incomingKeys.length) return false
   return incomingKeys.every((key) => {
@@ -130,13 +134,10 @@ export function MetadataEditor({
   const [collapsed, setCollapsed] = React.useState(defaultCollapsed)
   const [entries, setEntries] = React.useState<MetadataEntry[]>(() => toEntries(value))
   const skipSyncRef = React.useRef(false)
-  const lastSyncedValueRef = React.useRef(serializeMetadataValue(value))
 
   React.useEffect(() => {
-    const serializedValue = serializeMetadataValue(value)
     if (skipSyncRef.current) {
       skipSyncRef.current = false
-      lastSyncedValueRef.current = serializedValue
       return
     }
     setEntries((prevEntries) => (entriesMatchValue(prevEntries, value) ? prevEntries : toEntries(value)))
