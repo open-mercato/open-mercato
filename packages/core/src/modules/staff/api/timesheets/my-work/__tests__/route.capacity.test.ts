@@ -106,3 +106,18 @@ describe('GET /api/staff/timesheets/my-work capacity (#6934)', () => {
     expect(kpis.monthTargetMinutes).toBe(5040)
   })
 })
+
+it.each([
+  ['2026-06-14T23:30:00Z', '2026-06-14', '2026-06-08'],
+  ['2026-06-30T23:30:00Z', '2026-06-30', '2026-06-29'],
+])('keeps My Work on the browser day used by the timer at %s', async (instant, today, weekStart) => {
+  jest.useFakeTimers({ now: new Date(instant) })
+  try {
+    const response = await GET(new Request('http://localhost/api/staff/timesheets/my-work?timeZone=America%2FNew_York'))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ today })
+    expect(resolveCapacityForRange).toHaveBeenCalledWith(expect.objectContaining({ range: expect.objectContaining({ from: weekStart }) }))
+  } finally {
+    jest.useRealTimers()
+  }
+})

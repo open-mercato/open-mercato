@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { TZDate } from '@date-fns/tz'
 import { addDays } from 'date-fns/addDays'
 import { format } from 'date-fns/format'
 import { isToday } from 'date-fns/isToday'
@@ -10,6 +11,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useDateLocaleSettings, useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { eventDisplayTitle, pluralCategory } from '../../lib/calendar/labels'
 import { formatTimeLabel, formatTimeRangeLabel } from '../../lib/calendar/format'
 import type { AgendaListProps, CalendarCategory, CalendarItem } from './types'
@@ -59,11 +61,11 @@ function participantLabel(participant: CalendarItem['participants'][number]): st
   return participant.name ?? participant.email ?? participant.userId ?? ''
 }
 
-function buildDayGroups(anchor: Date, horizonDays: number, items: CalendarItem[]): AgendaDayGroup[] {
+function buildDayGroups(anchor: Date, horizonDays: number, items: CalendarItem[], timeZone: string): AgendaDayGroup[] {
   const sorted = [...items].sort((first, second) => first.start.getTime() - second.start.getTime())
   const byDay = new Map<string, CalendarItem[]>()
   for (const item of sorted) {
-    const key = dayKeyOf(item.start)
+    const key = dayKeyOf(new TZDate(item.start.getTime(), timeZone))
     const bucket = byDay.get(key)
     if (bucket) bucket.push(item)
     else byDay.set(key, [item])
@@ -114,6 +116,7 @@ function AgendaRow({
 }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const canceled = item.status === 'canceled'
   const done = item.status === 'done'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
@@ -129,9 +132,9 @@ function AgendaRow({
     : item.locationKind === 'url' && item.location
       ? formatUrlHost(item.location)
       : item.location
-  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTimeLabel(locale, item.start)
-  const endLabel = item.allDay ? null : formatTimeLabel(locale, item.end)
-  const ariaTime = item.allDay ? startLabel : formatTimeRangeLabel(locale, item.start, item.end)
+  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTimeLabel(locale, item.start, dateSettings)
+  const endLabel = item.allDay ? null : formatTimeLabel(locale, item.end, dateSettings)
+  const ariaTime = item.allDay ? startLabel : formatTimeRangeLabel(locale, item.start, item.end, dateSettings)
   return (
     <Button
       type="button"
@@ -197,7 +200,8 @@ function AgendaRow({
 
 export function AgendaList({ anchor, horizonDays, items, typeLabels, onItemClick }: AgendaListProps) {
   const t = useT()
-  const groups = React.useMemo(() => buildDayGroups(anchor, horizonDays, items), [anchor, horizonDays, items])
+  const timeZone = useDisplayTimeZone()
+  const groups = React.useMemo(() => buildDayGroups(anchor, horizonDays, items, timeZone), [anchor, horizonDays, items, timeZone])
   return (
     <div className="flex w-full flex-col divide-y divide-border overflow-hidden border border-border bg-background">
       {groups.map((group) => (

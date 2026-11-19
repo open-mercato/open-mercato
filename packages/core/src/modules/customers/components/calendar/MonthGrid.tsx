@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { TZDate } from '@date-fns/tz'
 import { addDays } from 'date-fns/addDays'
 import { format } from 'date-fns/format'
 import { isSameMonth } from 'date-fns/isSameMonth'
@@ -8,6 +9,8 @@ import { isToday } from 'date-fns/isToday'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useDateLocaleSettings, useDisplayTimeZone, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
+import type { FirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/types'
 import { getVisibleRange } from '../../lib/calendar/range'
 import { eventDisplayTitle } from '../../lib/calendar/labels'
 import { formatTimeRangeLabel } from '../../lib/calendar/format'
@@ -30,8 +33,8 @@ function isWeekend(date: Date): boolean {
   return weekday === 0 || weekday === 6
 }
 
-function buildWeeks(anchor: Date): Date[][] {
-  const range = getVisibleRange('month', anchor, 0)
+function buildWeeks(anchor: Date, weekStartsOn: FirstDayOfWeek): Date[][] {
+  const range = getVisibleRange('month', anchor, 0, weekStartsOn)
   const weeks: Date[][] = []
   let cursor = range.from
   while (cursor.getTime() <= range.to.getTime()) {
@@ -45,11 +48,11 @@ function buildWeeks(anchor: Date): Date[][] {
   return weeks
 }
 
-function groupItemsByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
+function groupItemsByDay(items: CalendarItem[], timeZone: string): Map<string, CalendarItem[]> {
   const sorted = [...items].sort((first, second) => first.start.getTime() - second.start.getTime())
   const byDay = new Map<string, CalendarItem[]>()
   for (const item of sorted) {
-    const key = dayKeyOf(item.start)
+    const key = dayKeyOf(new TZDate(item.start.getTime(), timeZone))
     const bucket = byDay.get(key)
     if (bucket) bucket.push(item)
     else byDay.set(key, [item])
@@ -60,9 +63,10 @@ function groupItemsByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
 function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (item: CalendarItem) => void }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const canceled = item.status === 'canceled'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
-  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end)}`
+  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end, dateSettings)}`
   const tintStyle = item.color
     ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: readableTypeColor(item.color) }
     : undefined
@@ -187,8 +191,10 @@ function MonthDayCell({
 export function MonthGrid({ anchor, items, onItemClick, onDayOpen }: MonthGridProps) {
   const t = useT()
   const locale = useLocale()
-  const weeks = React.useMemo(() => buildWeeks(anchor), [anchor])
-  const itemsByDay = React.useMemo(() => groupItemsByDay(items), [items])
+  const timeZone = useDisplayTimeZone()
+  const weekStartsOn = useWeekStartsOn()
+  const weeks = React.useMemo(() => buildWeeks(anchor, weekStartsOn), [anchor, weekStartsOn])
+  const itemsByDay = React.useMemo(() => groupItemsByDay(items, timeZone), [items, timeZone])
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background">
       <div className="flex h-9 w-full shrink-0 border-b border-border">

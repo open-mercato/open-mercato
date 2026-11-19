@@ -7,6 +7,7 @@ import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } fro
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -65,7 +66,7 @@ const SEARCH_DEBOUNCE_MS = 300
 function toDateOnly(value: string | null | undefined): string {
   if (!value) return ''
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
+  return Number.isNaN(date.getTime()) ? '' : todayInZone(undefined, date)
 }
 
 function normalizeLegacyActivity(activity: ActivitySummary): InteractionSummary {

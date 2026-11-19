@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { domainStatusMap } from './domainStatusMap'
 import type { DomainMappingRow } from './types'
 
@@ -10,15 +11,13 @@ export type StatusBadgeSectionProps = {
   mapping: DomainMappingRow
 }
 
-function formatTime(value: string | null, fallback: string): string {
-  if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleString()
+function formatTime(value: string | null, fallback: string, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? fallback
 }
 
 export function DefaultStatusBadge({ mapping }: StatusBadgeSectionProps) {
   const t = useT()
+  const locale = useLocale()
   const variant = domainStatusMap[mapping.status]
   const label = t(
     `customer_accounts.domainMapping.status.${mapping.status}`,
@@ -27,6 +26,7 @@ export function DefaultStatusBadge({ mapping }: StatusBadgeSectionProps) {
   const lastChecked = formatTime(
     mapping.lastDnsCheckAt,
     t('customer_accounts.domainMapping.autoVerify.checking', 'Automatically checking every 5 minutes'),
+    locale,
   )
   const showAutoCheck = mapping.status === 'pending' || mapping.status === 'dns_failed'
 

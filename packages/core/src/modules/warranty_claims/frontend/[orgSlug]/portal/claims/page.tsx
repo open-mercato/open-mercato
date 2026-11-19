@@ -17,6 +17,7 @@ import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import {
   ClaimStatusBadge,
   CLAIM_STATUS_BADGE_VARIANTS,
@@ -45,13 +46,7 @@ type PortalClaimsResponse = {
 
 function formatDate(value: string | null, fallback: string, locale: string): string {
   if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(locale || undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+  return formatDisplayDate(value, locale || undefined) ?? value
 }
 
 export default function WarrantyClaimsPortalListPage({ params }: Props) {

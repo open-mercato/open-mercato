@@ -13,7 +13,8 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 
 type Props = {
@@ -31,6 +32,7 @@ type ApiKeyResponse = {
 
 export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
   const t = useT()
+  const locale = useLocale()
   const [apiKey, setApiKey] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [copiedConfig, setCopiedConfig] = useState(false)
@@ -48,7 +50,7 @@ export default function McpConfigDialog({ open, onOpenChange, mcpUrl }: Props) {
       const res = await apiCall<ApiKeyResponse>('/api/ai_assistant/mcp-key', {
         method: 'POST',
         body: JSON.stringify({
-          name: `MCP Config - ${new Date().toLocaleDateString()}`,
+          name: `MCP Config - ${formatDisplayDate(new Date(), locale) ?? new Date().toISOString().slice(0, 10)}`,
           description: 'Generated from AI Assistant settings for MCP client',
         }),
       })

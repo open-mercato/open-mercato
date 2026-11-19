@@ -6,6 +6,7 @@ import ExternalIdsWidget from '../widget.client'
 import type { ExternalIdMapping } from '@open-mercato/shared/modules/integrations/types'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))
 

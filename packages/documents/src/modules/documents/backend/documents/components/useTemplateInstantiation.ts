@@ -6,6 +6,7 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import type { DocumentEntityType } from '../../../lib/entityRegistry'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import {
@@ -133,7 +134,7 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
 
   React.useEffect(() => {
     if (!selectedTemplate) { setTitle(''); setSelections({}); setPreview(null); return }
-    setTitle(`${selectedTemplate.name} ${new Date().toLocaleDateString(locale)}`)
+    setTitle(`${selectedTemplate.name} ${formatDisplayDate(new Date(), locale) ?? ''}`)
     const presetSelection = presetContext ? selectionForPreset({
       ...presetContext,
       fallbackLabel: t('documents.relatedDocuments.recordFallback'),

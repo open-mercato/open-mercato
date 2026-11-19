@@ -15,7 +15,7 @@ import {
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateSalesNewQuotesSettings, type DatePeriodOption, type SalesNewQuotesSettings } from './config'
 import { readString, toDateInputValue, openNativeDatePicker, formatAmount } from '../shared'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -104,6 +104,7 @@ const SalesNewQuotesWidget: React.FC<DashboardWidgetComponentProps<SalesNewQuote
   onRefreshStateChange,
 }) => {
   const translate = useT()
+  const appLocale = useLocale()
   const hydrated = React.useMemo(() => hydrateSalesNewQuotesSettings(settings), [settings])
   const [items, setItems] = React.useState<NewQuoteItem[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -242,7 +243,7 @@ const SalesNewQuotesWidget: React.FC<DashboardWidgetComponentProps<SalesNewQuote
       {items.map((item) => {
         const detailHref = resolveDetailHref(item)
         const amountLabel = formatAmount(item.grossAmount, item.currency, locale)
-        const createdLabel = formatRelativeTime(item.createdAt) ?? ''
+        const createdLabel = formatRelativeTime(item.createdAt, { locale: appLocale, translate }) ?? ''
         return (
           <li key={item.id} className="rounded-md border p-3">
             <div className="flex items-start justify-between gap-3">

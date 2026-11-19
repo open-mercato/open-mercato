@@ -7,6 +7,9 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveDateLocaleSettingsForScope } from '@open-mercato/shared/lib/date-locale/registry'
+import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
+import { DateLocaleSettingsProvider } from '@open-mercato/ui/primitives/date-locale-settings'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -77,6 +80,7 @@ export default async function FrontendLayout({ children }: LayoutProps) {
   let portalEnabled = true
   let portalAccessDenied = false
   let customerAuthMatchesUrlOrg = false
+  let dateLocaleSettings: ResolvedDateLocaleSettings | null = null
 
   try {
     const container = await createRequestContainer()
@@ -115,6 +119,12 @@ export default async function FrontendLayout({ children }: LayoutProps) {
       if (result.ok && result.value === false) {
         portalEnabled = false
       }
+    }
+
+    if (!portalAccessDenied && tenantId) {
+      // Portal visitors carry no staff session, so the root layout only sees env defaults; the
+      // organization in the URL decides whose date & time settings the portal renders with.
+      dateLocaleSettings = await resolveDateLocaleSettingsForScope(container, { tenantId })
     }
 
     if (!portalAccessDenied && customerAuthMatchesUrlOrg && customerAuth) {
@@ -163,7 +173,7 @@ export default async function FrontendLayout({ children }: LayoutProps) {
   // on the login and signup pages.
   const authenticatedChrome = customerAuthMatchesUrlOrg && (!isPublic || isPortalRoot)
 
-  return (
+  const portal = (
     <PortalLayoutShell
       orgSlug={orgSlug}
       organizationName={orgName}
@@ -177,4 +187,8 @@ export default async function FrontendLayout({ children }: LayoutProps) {
       {children}
     </PortalLayoutShell>
   )
+
+  return dateLocaleSettings
+    ? <DateLocaleSettingsProvider value={dateLocaleSettings}>{portal}</DateLocaleSettingsProvider>
+    : portal
 }

@@ -16,7 +16,19 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
-import { USER_TIMEZONE } from '../../../lib/localDay'
+import { scheduleOffsetMinutes, scheduleTimeZone, toScheduleWallTime } from './scheduleWallTime'
+
+// The fields are the wall clock of the configured display zone (see `scheduleWallTime`), so the
+// hint names that zone and its current offset, not the device's.
+function scheduleZoneLabel(now: Date = new Date()): string {
+  const timeZone = scheduleTimeZone()
+  const wall = toScheduleWallTime(now, timeZone)
+  const offset = scheduleOffsetMinutes(wall.date, wall.time, timeZone) ?? 0
+  const sign = offset < 0 ? '-' : '+'
+  const hours = Math.floor(Math.abs(offset) / 60)
+  const minutes = Math.abs(offset) % 60
+  return `${timeZone} (GMT${sign}${hours}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''})`
+}
 
 function parseIsoDate(value: string): Date | null {
   if (!value) return null
@@ -203,7 +215,7 @@ export function DateTimeFields({
           <span className="text-muted-foreground">&middot;</span>
           <span className="flex items-center gap-1.5">
             <Globe className="size-3.5" />
-            {USER_TIMEZONE} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
+            {scheduleZoneLabel()}
           </span>
           {showRecurrence && (
             <>

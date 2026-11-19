@@ -24,6 +24,7 @@ import {
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import {
   EUDR_MITIGATION_STATUSES,
   EUDR_MITIGATION_TYPES,
@@ -76,9 +77,7 @@ function optionalText(value: unknown): string | null {
 
 function formatDate(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleDateString(locale || undefined)
+  return formatDisplayDate(value, locale || undefined) ?? emptyLabel
 }
 
 function formatDateInput(value: string | null | undefined): string {

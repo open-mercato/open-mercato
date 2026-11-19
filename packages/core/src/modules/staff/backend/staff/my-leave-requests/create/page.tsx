@@ -10,6 +10,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { LeaveRequestForm, buildLeaveRequestPayload, type LeaveRequestFormValues } from '@open-mercato/core/modules/staff/components/LeaveRequestForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 type SelfMemberResponse = {
   member?: {
@@ -21,6 +22,7 @@ type SelfMemberResponse = {
 export default function StaffMyLeaveRequestCreatePage() {
   const t = useT()
   const router = useRouter()
+  const displayTimeZone = useDisplayTimeZone()
   const [member, setMember] = React.useState<{ id: string; displayName: string } | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -111,7 +113,7 @@ export default function StaffMyLeaveRequestCreatePage() {
     memberLabel: member.displayName,
     startDate: null,
     endDate: null,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone: displayTimeZone,
   }
 
   return (

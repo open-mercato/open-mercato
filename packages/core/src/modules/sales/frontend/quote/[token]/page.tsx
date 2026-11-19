@@ -2,11 +2,13 @@
 
 import * as React from 'react'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SearchX } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatQuoteValidUntil } from '../../../lib/quoteEmailDates'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -44,10 +46,25 @@ type PublicQuoteResponse = {
     totalGrossAmount: string
   }>
   isExpired: boolean
+  display?: { timeZone: string | null; locale: string | null }
+}
+
+// The same long date the quote email shows, in the quote tenant's zone and locale, whoever opens
+// the link: the viewer's own pattern (another tenant's, or the env default) must not apply here.
+function formatValidUntil(value: string, locale: string, settings: { timeZone: string | null; locale: string | null }): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  try {
+    return formatQuoteValidUntil(parsed, locale, settings)
+  } catch {
+    return formatQuoteValidUntil(parsed, locale, { locale: null, timeZone: null })
+  }
 }
 
 export default function QuotePublicPage({ params }: { params: { token: string } }) {
   const t = useT()
+  const locale = useLocale()
+  const dateLocaleSettings = useDateLocaleSettings()
   const token = params?.token
   const [loading, setLoading] = React.useState(true)
   const [accepting, setAccepting] = React.useState(false)
@@ -139,7 +156,7 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">{t('sales.quotes.public.pageTitle')} {data.quote.quoteNumber}</h1>
         <p className="text-sm text-muted-foreground">
-          {data.quote.validUntil ? t('sales.quotes.public.validUntil', { date: new Date(data.quote.validUntil).toLocaleDateString() }) : t('sales.quotes.public.noValidityDate')}
+          {data.quote.validUntil ? t('sales.quotes.public.validUntil', { date: formatValidUntil(data.quote.validUntil, locale, data.display ?? dateLocaleSettings) }) : t('sales.quotes.public.noValidityDate')}
         </p>
       </header>
 

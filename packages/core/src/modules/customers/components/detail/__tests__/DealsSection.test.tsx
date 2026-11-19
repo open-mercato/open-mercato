@@ -187,11 +187,11 @@ describe('DealsSection', () => {
     const valueLabel = await screen.findByText(/1000,00/)
     expect(valueLabel.textContent?.replace(/[  ]/g, ' ')).toBe('1000,00 USD')
 
-    // `9.06.2026`, not the en-US `6/9/2026` the runtime default would produce. Asserting the
+    // `9 cze 2026`, not the en-US `Jun 9, 2026` the runtime default would produce. Asserting the
     // absence of the en-US shape too means a component that silently stops threading the locale
     // fails here instead of merely looking plausible.
-    expect(screen.getByText('9.06.2026')).toBeInTheDocument()
-    expect(screen.queryByText('6/9/2026')).not.toBeInTheDocument()
+    expect(screen.getByText('9 cze 2026')).toBeInTheDocument()
+    expect(screen.queryByText('Jun 9, 2026')).not.toBeInTheDocument()
   })
 
   it('clamps a long deal description so one card cannot flood the page', async () => {

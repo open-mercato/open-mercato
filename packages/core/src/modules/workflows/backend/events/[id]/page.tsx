@@ -5,13 +5,14 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type WorkflowEvent = {
   id: string
@@ -39,6 +40,7 @@ type WorkflowEvent = {
 export default function WorkflowEventDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
   const t = useT()
+  const locale = useLocale()
   const eventId = params?.id
 
   const { data: event, isLoading, error } = useQuery({
@@ -166,7 +168,7 @@ export default function WorkflowEventDetailPage({ params }: { params?: { id?: st
                   {t('workflows.events.fields.occurredAt')}
                 </dt>
                 <dd className="mt-1 text-sm text-foreground">
-                  {new Date(event.occurredAt).toLocaleString()}
+                  {formatDisplayDateTime(event.occurredAt, locale)}
                 </dd>
               </div>
               <div>
@@ -278,7 +280,7 @@ export default function WorkflowEventDetailPage({ params }: { params?: { id?: st
                       {t('workflows.instances.fields.startedAt')}
                     </dt>
                     <dd className="mt-1 text-sm text-foreground">
-                      {new Date(event.workflowInstance.startedAt).toLocaleString()}
+                      {formatDisplayDateTime(event.workflowInstance.startedAt, locale)}
                     </dd>
                   </div>
                 )}
@@ -288,7 +290,7 @@ export default function WorkflowEventDetailPage({ params }: { params?: { id?: st
                       {t('workflows.instances.fields.completedAt')}
                     </dt>
                     <dd className="mt-1 text-sm text-foreground">
-                      {new Date(event.workflowInstance.completedAt).toLocaleString()}
+                      {formatDisplayDateTime(event.workflowInstance.completedAt, locale)}
                     </dd>
                   </div>
                 )}

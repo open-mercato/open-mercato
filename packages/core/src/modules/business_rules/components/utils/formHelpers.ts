@@ -1,6 +1,7 @@
 import type { BusinessRuleFormValues } from '../formConfig'
 import type { CreateBusinessRuleInput } from '../../data/validators'
 import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 
 /**
  * Convert form values to API payload
@@ -116,9 +117,6 @@ export function getEventTypeSuggestions(entityType?: string): string[] {
 /**
  * Format date for display
  */
-export function formatDate(date: Date | string | null | undefined): string {
-  if (!date) return '-'
-  const d = typeof date === 'string' ? new Date(date) : date
-  if (isNaN(d.getTime())) return '-'
-  return d.toLocaleDateString()
+export function formatDate(date: Date | string | null | undefined, locale?: string): string {
+  return formatDisplayDate(date, locale) ?? '-'
 }

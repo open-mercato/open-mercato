@@ -339,7 +339,7 @@ Self-contained Playwright specs in `packages/core/src/modules/customers/__integr
 #### Timezone display vs stored timestamps
 - **Scenario**: Users in different timezones see shifted blocks and blame data.
 - **Severity**: Low
-- **Mitigation**: All rendering uses the browser timezone and says so in the footer (mockup behavior). Storage stays UTC.
+- **Mitigation**: Calendar rendering uses the viewer’s configured display time zone, falling back to the browser zone. The footer names the active zone. Storage stays UTC.
 - **Residual risk**: No per-user tz preference exists platform-wide — out of scope here.
 
 ## Final Compliance Report — 2026-06-11
@@ -439,4 +439,4 @@ None.
 
 - Added an explicit IANA timezone selector and nullable `customer_interactions.timezone` storage. `scheduledAt` remains an instant; null-zone legacy records retain browser-local behavior, while explicit zones restore local editor fields and preserve recurrence wall time across DST.
 - Visit reuses the standard Customers type panel and adds module-owned availability feedback. Weekly availability templates are evaluated before their next-occurrence DTSTART anchor without changing dated one-off schedules or existing planner caller defaults.
-- Integration coverage: TC-CAL-014 exercises API zone persistence/validation, editor restoration and changing zone, and Warsaw DST recurrence; TC-EXAMPLE-018 covers staff/resource weekly and dated availability, direct-save rejection, and metadata-only updates. Live execution is pending the approved timezone migration and test gate.
+- Integration coverage: TC-CAL-014 exercises API zone persistence/validation, editor restoration and changing zone, Warsaw DST recurrence, and configured display-zone placement across the browser’s day boundary; TC-EXAMPLE-018 covers staff/resource weekly and dated availability, direct-save rejection, and metadata-only updates. Live execution is pending the approved timezone migration and test gate.

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { TZDate } from '@date-fns/tz'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { addDays } from 'date-fns/addDays'
 import { isSameDay } from 'date-fns/isSameDay'
@@ -9,6 +10,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { useDateLocaleSettings, useDisplayTimeZone, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import {
   collapseDenseClusters,
@@ -16,6 +18,7 @@ import {
   packedColumnGeometry,
   resolveMaxPackedColumns,
 } from '../../lib/calendar/layout'
+import { formatTimeLabel } from '../../lib/calendar/format'
 import { getVisibleRange } from '../../lib/calendar/range'
 import {
   applyWeekendVisibility,
@@ -78,9 +81,12 @@ function slotStartFor(minute: number): number {
   return Math.min(LAST_SLOT_START_MINUTES, Math.floor(minute / SLOT_MINUTES) * SLOT_MINUTES)
 }
 
-function verticalGeometry(dayStartMs: number, startMs: number, endMs: number): { top: number; height: number } {
-  const startMinutes = (startMs - dayStartMs) / 60000
-  const durationMinutes = (endMs - startMs) / 60000
+function wallMinutes(instant: Date, timeZone: string): number {
+  const wall = new TZDate(instant.getTime(), timeZone)
+  return wall.getHours() * 60 + wall.getMinutes() + wall.getSeconds() / 60
+}
+
+function verticalGeometry(startMinutes: number, durationMinutes: number): { top: number; height: number } {
   const rawTop = (startMinutes / 60) * HOUR_HEIGHT_PX
   const rawHeight = (durationMinutes / 60) * HOUR_HEIGHT_PX
   return {
@@ -94,10 +100,17 @@ function buildDayColumn(
   items: CalendarItem[],
   maxPackedColumns: number,
   usableWidthPx: number | null,
+  timeZone: string,
 ): DayColumnData {
   const dayEnd = addDays(dayStart, 1)
   const dayStartMs = dayStart.getTime()
   const dayEndMs = dayEnd.getTime()
+  const project = (start: Date, end: Date) => {
+    const from = start.getTime() === dayStartMs ? 0 : wallMinutes(start, timeZone)
+    const to = end.getTime() === dayEndMs ? HOURS_PER_DAY * 60 : wallMinutes(end, timeZone)
+    const elapsed = (end.getTime() - start.getTime()) / 60_000
+    return { start: new Date(from * 60_000), end: new Date(Math.min(HOURS_PER_DAY * 60, Math.max(to, from + elapsed)) * 60_000) }
+  }
   const allDayItems: CalendarItem[] = []
   const segments: Array<{ original: CalendarItem; start: Date; end: Date }> = []
 
@@ -118,7 +131,11 @@ function buildDayColumn(
 
   allDayItems.sort((first, second) => first.start.getTime() - second.start.getTime())
 
-  const clones = segments.map((segment) => ({ ...segment.original, start: segment.start, end: segment.end }))
+  const clones = segments.map((segment) => ({ ...segment.original, ...project(segment.start, segment.end) }))
+  const geometry = (start: Date, end: Date) => verticalGeometry(
+    start.getTime() / 60_000,
+    (end.getTime() - start.getTime()) / 60_000,
+  )
   const originalByClone = new Map<CalendarItem, CalendarItem>()
   clones.forEach((clone, index) => originalByClone.set(clone, segments[index].original))
 
@@ -126,7 +143,7 @@ function buildDayColumn(
 
   const blocks: PositionedBlock[] = visible.map(({ item: clone, column, columns }) => ({
     item: originalByClone.get(clone) ?? clone,
-    ...verticalGeometry(dayStartMs, clone.start.getTime(), clone.end.getTime()),
+    ...geometry(clone.start, clone.end),
     ...packedColumnGeometry(column, columns),
     compact: columns > 1 && usableWidthPx != null && usableWidthPx / columns < COMPACT_SLOT_MAX_WIDTH_PX,
   }))
@@ -134,9 +151,9 @@ function buildDayColumn(
   const overflows: PositionedOverflow[] = overflow.map((entry) => ({
     key: `${dayStartMs}-${entry.cluster}-${entry.group}`,
     items: entry.items.map((clone) => originalByClone.get(clone) ?? clone),
-    start: entry.start,
-    end: entry.end,
-    ...verticalGeometry(dayStartMs, entry.start.getTime(), entry.end.getTime()),
+    start: new Date(Math.max(dayStartMs, Math.min(...entry.items.map((clone) => (originalByClone.get(clone) ?? clone).start.getTime())))),
+    end: new Date(Math.min(dayEndMs, Math.max(...entry.items.map((clone) => (originalByClone.get(clone) ?? clone).end.getTime())))),
+    ...geometry(entry.start, entry.end),
     ...packedColumnGeometry(entry.column, entry.columns),
   }))
 
@@ -218,11 +235,13 @@ export function TimeGrid({
 }: TimeGridProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
+  const timeZone = useDisplayTimeZone()
   const isMobile = useIsMobile()
   const peekSide = isMobile ? 'bottom' : 'right'
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const nowMs = Date.now()
-  const today = startOfDay(new Date())
+  const today = startOfDay(new TZDate(nowMs, timeZone))
   const todayMs = today.getTime()
   const anchorMs = anchor.getTime()
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
@@ -238,11 +257,12 @@ export function TimeGrid({
     setDrag(next)
   }
 
+  const weekStartsOn = useWeekStartsOn()
   const dayStarts = React.useMemo(() => {
-    const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0).from
+    const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new TZDate(anchorMs, timeZone), 0, weekStartsOn).from
     const all = Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
-    return days === 7 ? applyWeekendVisibility(all, showWeekends, new Date(todayMs)) : all
-  }, [days, anchorMs, showWeekends, todayMs])
+    return days === 7 ? applyWeekendVisibility(all, showWeekends, new TZDate(todayMs, timeZone)) : all
+  }, [days, anchorMs, showWeekends, todayMs, weekStartsOn, timeZone])
 
   React.useEffect(() => {
     const node = scrollRef.current
@@ -264,8 +284,8 @@ export function TimeGrid({
   const maxPackedColumns = React.useMemo(() => resolveMaxPackedColumns(usableWidthPx), [usableWidthPx])
 
   const dayColumns = React.useMemo(
-    () => dayStarts.map((dayStart) => buildDayColumn(dayStart, items, maxPackedColumns, usableWidthPx)),
-    [dayStarts, items, maxPackedColumns, usableWidthPx],
+    () => dayStarts.map((dayStart) => buildDayColumn(dayStart, items, maxPackedColumns, usableWidthPx, timeZone)),
+    [dayStarts, items, maxPackedColumns, usableWidthPx, timeZone],
   )
 
   const resolveJoinUrl = React.useCallback((location: string | null): string | null => {
@@ -280,17 +300,18 @@ export function TimeGrid({
 
   const formatters = React.useMemo(
     () => ({
-      dayNumber: new Intl.DateTimeFormat(locale, { day: '2-digit' }),
-      weekdayShort: new Intl.DateTimeFormat(locale, { weekday: 'short' }),
-      weekdayLong: new Intl.DateTimeFormat(locale, { weekday: 'long' }),
+      dayNumber: new Intl.DateTimeFormat(locale, { timeZone, day: '2-digit' }),
+      weekdayShort: new Intl.DateTimeFormat(locale, { timeZone, weekday: 'short' }),
+      weekdayLong: new Intl.DateTimeFormat(locale, { timeZone, weekday: 'long' }),
     }),
-    [locale],
+    [locale, timeZone],
   )
 
   const hourLabels = React.useMemo(() => {
-    const formatter = new Intl.DateTimeFormat(locale, { hour: 'numeric' })
-    return Array.from({ length: HOURS_PER_DAY }, (_, hour) => formatter.format(new Date(2024, 0, 1, hour)))
-  }, [locale])
+    return Array.from({ length: HOURS_PER_DAY }, (_, hour) =>
+      formatTimeLabel(locale, new TZDate(2024, 0, 1, hour, timeZone), { ...dateSettings, timeZone }),
+    )
+  }, [locale, dateSettings, timeZone])
 
   React.useEffect(() => {
     const node = scrollRef.current
@@ -304,7 +325,7 @@ export function TimeGrid({
     if (!node) return
     const target = items.find((item) => item.id === highlightItemId && !item.allDay)
     if (!target) return
-    const minutes = (target.start.getTime() - startOfDay(target.start).getTime()) / 60000
+    const minutes = wallMinutes(target.start, timeZone)
     const top = (minutes / 60) * HOUR_HEIGHT_PX
     const reduceMotion =
       typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -523,10 +544,10 @@ export function TimeGrid({
             const dragActive = drag && drag.moved && drag.dayMs === dayStart.getTime()
             const dragRange = dragActive ? buildDragRange(dayStart, drag.startMin, drag.endMin) : null
             const dragStartMinutes = dragRange
-              ? (dragRange.start.getTime() - startOfDay(dragRange.start).getTime()) / 60000
+              ? wallMinutes(dragRange.start, timeZone)
               : 0
             const dragDurationMinutes = dragRange
-              ? (dragRange.end.getTime() - dragRange.start.getTime()) / 60000
+              ? (dragRange.end.getTime() === addDays(dayStart, 1).getTime() ? HOURS_PER_DAY * 60 : wallMinutes(dragRange.end, timeZone)) - dragStartMinutes
               : 0
             return (
               <div
@@ -587,7 +608,7 @@ export function TimeGrid({
                       {t('customers.calendar.actions.newEvent', 'New event')}
                     </span>
                     <span className="text-overline text-muted-foreground">
-                      {formatTimeRange(locale, dragRange.start, dragRange.end)}
+                      {formatTimeRange(locale, dragRange.start, dragRange.end, dateSettings)}
                     </span>
                   </div>
                 ) : null}

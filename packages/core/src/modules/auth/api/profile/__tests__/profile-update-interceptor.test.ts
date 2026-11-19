@@ -12,7 +12,7 @@ const mockGetAuthFromRequest = jest.fn()
 const mockCommandBusExecute = jest.fn()
 const mockGetUserRoles = jest.fn()
 
-const mockEm = { find: jest.fn(), findOne: jest.fn() }
+const mockEm = { find: jest.fn(), findOne: jest.fn(async () => ({ id: USER_ID, email: 'ada@example.com', updatedAt: null })) }
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -80,7 +80,7 @@ describe('PUT /api/auth/profile command interceptor rejections', () => {
     const response = await PUT(updateRequest())
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ ok: true, email: 'ada@example.com' })
+    await expect(response.json()).resolves.toEqual({ ok: true, email: 'ada@example.com', updatedAt: null })
   })
 
   it('surfaces the status and body of an interceptor rejection that carries one', async () => {

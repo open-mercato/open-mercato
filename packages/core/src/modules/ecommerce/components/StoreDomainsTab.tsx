@@ -19,6 +19,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { DomainMappingSummary } from '../lib/domainMappingSummaries'
 import { DomainStatusWarning } from './DomainStatusWarning'
 import { StoreDomainBindingDialog } from './StoreDomainBindingDialog'
@@ -106,11 +107,6 @@ export function StoreDomainsTab({ store, reload }: StoreDomainsTabProps) {
       reload(),
     ])
   }, [bindingsKey, mappingsKey, queryClient, reload])
-
-  const dateFormatter = React.useMemo(
-    () => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }),
-    [locale],
-  )
 
   const describeBinding = React.useCallback(
     (binding: DomainBindingRecord): string => {
@@ -278,7 +274,7 @@ export function StoreDomainsTab({ store, reload }: StoreDomainsTabProps) {
         cell: ({ row }) => {
           const mapping = row.original._domainMapping
           const value = mapping?.state === 'found' ? mapping.lastDnsCheckAt : null
-          return value ? dateFormatter.format(new Date(value)) : t('ecommerce.backend.store.domains.neverChecked', 'Not checked yet')
+          return formatDisplayDateTime(value, locale) ?? t('ecommerce.backend.store.domains.neverChecked', 'Not checked yet')
         },
       },
       {
@@ -308,7 +304,7 @@ export function StoreDomainsTab({ store, reload }: StoreDomainsTabProps) {
           ),
       },
     ],
-    [dateFormatter, t],
+    [locale, t],
   )
 
   const buildRowActions = React.useCallback(

@@ -1,3 +1,4 @@
+import { constructFrom } from 'date-fns/constructFrom'
 import { isSameDay } from 'date-fns/isSameDay'
 
 export const DRAG_SNAP_MINUTES = 15
@@ -48,11 +49,11 @@ export function buildDragRange(dayStart: Date, startMinutes: number, endMinutes:
     upper = MINUTES_PER_DAY
     lower = Math.max(0, upper - MIN_DRAG_DURATION_MINUTES)
   }
-  const start = new Date(dayStart)
+  const start = constructFrom(dayStart, dayStart.getTime())
   start.setHours(0, 0, 0, 0)
   start.setMinutes(lower)
-  const end = new Date(dayStart)
+  const end = constructFrom(dayStart, dayStart.getTime())
   end.setHours(0, 0, 0, 0)
   end.setMinutes(upper)
-  return { start, end }
+  return { start: new Date(start.getTime()), end: new Date(end.getTime()) }
 }

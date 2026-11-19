@@ -20,6 +20,7 @@ import { dashboardsTag, dashboardsErrorSchema } from '../../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from '../schema'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOptionalBaseCurrencyResolver } from '../../../../lib/optionalBaseCurrency'
+import { resolveWeekStartsOnScope } from '../../../../lib/weekStartsOnScope'
 
 const logger = createLogger('dashboards').child({ component: 'widgets-data-batch' })
 
@@ -102,7 +103,7 @@ export async function POST(req: Request) {
   const cache = container.resolve<CacheStrategy>('cache')
   const service = createWidgetDataService(
     em,
-    { tenantId, organizationIds },
+    { tenantId, organizationIds, ...(await resolveWeekStartsOnScope(container, tenantId)) },
     analyticsRegistry,
     cache,
     resolveOptionalBaseCurrencyResolver(container),

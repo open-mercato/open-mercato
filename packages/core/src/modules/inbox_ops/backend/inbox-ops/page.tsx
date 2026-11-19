@@ -11,7 +11,8 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -82,6 +83,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function InboxOpsProposalsPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -290,11 +292,10 @@ export default function InboxOpsProposalsPage() {
       header: t('inbox_ops.received_at', 'Received'),
       cell: ({ row }) => {
         const dateStr = row.original.receivedAt || row.original.createdAt
-        const d = new Date(dateStr)
-        return <span className="text-sm text-muted-foreground">{d.toLocaleDateString()} {d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        return <span className="text-sm text-muted-foreground">{formatDisplayDateTime(dateStr, locale) ?? ''}</span>
       },
     },
-  ], [t])
+  ], [locale, t])
 
   const totalCount = counts.pending + counts.partial + counts.accepted + counts.rejected
 

@@ -199,6 +199,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/ and apps/ — unescaped LIKE patterns in query builders',
       },
       {
+        path: 'src/lib/db/__tests__/pg-session-coverage.test.ts',
+        scans: 'every packages/*/src runtime tree — raw pg Pool/Client connections that skip getPgSessionConfig() and so keep the server default TimeZone instead of OM_DB_DEFAULT_TIMEZONE. The connections it guards live in cli, events, search and other packages rather than in shared, so the turbo filter never selects this workspace for the PRs that add them.',
+      },
+      {
         path: 'src/modules/__tests__/cli-registry-boundary.test.ts',
         scans: 'packages/ and apps/ — runtime files reading the CLI-only module registry',
       },

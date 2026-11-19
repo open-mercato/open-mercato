@@ -3,6 +3,7 @@ import {
   getFirstDayOfMonthUtc,
   getFirstDayOfNextMonthUtc,
   getLastNWeekStarts,
+  resolveMyWorkPeriods,
   getMondayUtc,
   toDateOnlyString,
 } from '../dateBuckets'
@@ -72,5 +73,35 @@ describe('toDateOnlyString', () => {
   it('formats as YYYY-MM-DD with zero padding', () => {
     const d = new Date(Date.UTC(2026, 0, 5))
     expect(toDateOnlyString(d)).toBe('2026-01-05')
+  })
+})
+
+describe('resolveMyWorkPeriods', () => {
+  // Sunday 2026-06-14 23:30 UTC is already Monday 2026-06-15 in Warsaw and still Sunday in New York.
+  const nearMidnight = new Date('2026-06-14T23:30:00.000Z')
+
+  it('names today and its week in the viewer zone', () => {
+    const periods = resolveMyWorkPeriods(nearMidnight, 'Europe/Warsaw')
+    expect(periods.todayDate).toBe('2026-06-15')
+    expect(periods.weekStart.toISOString()).toBe('2026-06-15T00:00:00.000Z')
+    expect(periods.weekEnd.toISOString()).toBe('2026-06-21T00:00:00.000Z')
+  })
+
+  it('keeps the previous week for a zone still on Sunday', () => {
+    const periods = resolveMyWorkPeriods(nearMidnight, 'America/New_York')
+    expect(periods.todayDate).toBe('2026-06-14')
+    expect(periods.weekStart.toISOString()).toBe('2026-06-08T00:00:00.000Z')
+  })
+
+  it('uses the UTC day when no zone is configured', () => {
+    const periods = resolveMyWorkPeriods(nearMidnight, null)
+    expect(periods.todayDate).toBe('2026-06-14')
+  })
+
+  it('rolls the month at the zone midnight', () => {
+    const periods = resolveMyWorkPeriods(new Date('2026-06-30T22:30:00.000Z'), 'Europe/Warsaw')
+    expect(periods.todayDate).toBe('2026-07-01')
+    expect(periods.monthStart.toISOString()).toBe('2026-07-01T00:00:00.000Z')
+    expect(periods.nextMonthStart.toISOString()).toBe('2026-08-01T00:00:00.000Z')
   })
 })

@@ -15,6 +15,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -84,16 +85,6 @@ export default function WmsAsnsListPage() {
       cancelled = true
     }
   }, [])
-
-  const dateFormatter = React.useMemo(
-    () =>
-      new Intl.DateTimeFormat(locale, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }),
-    [locale],
-  )
 
   const queryKey = React.useMemo(
     () => ['wms-asns-list', page, search, statusFilter, warehouseId, sorting, queueOpen],
@@ -205,15 +196,12 @@ export default function WmsAsnsListPage() {
         header: t('wms.backend.asns.columns.expectedAt', 'Expected'),
         enableSorting: true,
         cell: ({ row }) => {
-          const value = row.original.expected_at
-          if (!value) return '—'
-          const date = new Date(value)
-          if (Number.isNaN(date.getTime())) return '—'
-          return dateFormatter.format(date)
+          // A day picked in a date input, stored as UTC midnight: read it in UTC.
+          return formatDisplayDate(toUtcDateInputValue(row.original.expected_at), locale) ?? '—'
         },
       },
     ],
-    [dateFormatter, statusLabel, t, warehouseLabels],
+    [locale, statusLabel, t, warehouseLabels],
   )
 
   const rowActions = React.useCallback(

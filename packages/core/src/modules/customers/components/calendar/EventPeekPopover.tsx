@@ -23,6 +23,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
@@ -111,14 +112,16 @@ export function EventPeekPopover({
 }: EventPeekPopoverProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const title = item.title || t('customers.calendar.grid.untitled', 'Untitled')
   const dateLabel = React.useMemo(
-    () => new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric' }).format(item.start),
-    [locale, item.start],
+    () => new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric',
+      timeZone: item.allDay ? undefined : dateSettings.timeZone ?? undefined, }).format(item.start),
+    [locale, item.start, item.allDay, dateSettings.timeZone],
   )
   const timeRange = item.allDay
     ? t('customers.calendar.grid.allDay', 'All day')
-    : formatTimeRange(locale, item.start, item.end)
+    : formatTimeRange(locale, item.start, item.end, dateSettings)
   const TypeIcon = resolveEventTypeIcon(item, typeIcon)
 
   const attendeeCount = item.participants.length

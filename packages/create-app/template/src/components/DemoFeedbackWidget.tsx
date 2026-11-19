@@ -11,6 +11,7 @@ import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -32,7 +33,7 @@ function setCookie(name: string, value: string, days: number) {
 }
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10)
+  return todayInZone()
 }
 
 // Body attribute mirrored from the floating CTA's own visibility. `globals.css`

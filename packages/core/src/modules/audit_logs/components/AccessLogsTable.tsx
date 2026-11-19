@@ -4,9 +4,10 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AccessLogDetailsDialog } from './AccessLogDetailsDialog'
 import {
   ACCESS_LOG_OUTCOME_VARIANTS,
@@ -43,6 +44,7 @@ export type AccessLogsTableProps = {
 
 export function AccessLogsTable({ items, isLoading, actions, pagination, filters, filterValues, onFiltersApply, onFiltersClear }: AccessLogsTableProps) {
   const t = useT()
+  const locale = useLocale()
   const accessItems = Array.isArray(items) ? items : []
   const noneLabel = t('audit_logs.common.none')
   const [selected, setSelected] = React.useState<AccessLogItem | null>(null)
@@ -108,9 +110,9 @@ export function AccessLogsTable({ items, isLoading, actions, pagination, filters
     {
       accessorKey: 'createdAt',
       header: t('audit_logs.access.columns.when'),
-      cell: (info) => formatDate(info.getValue() as string),
+      cell: (info) => formatDate(info.getValue() as string, locale),
     },
-  ], [t, noneLabel])
+  ], [t, noneLabel, locale])
 
   return (
     <>
@@ -139,11 +141,6 @@ function formatResource(item: { resourceKind?: string | null; resourceId?: strin
   return [item.resourceKind, item.resourceId].filter(Boolean).join(' · ')
 }
 
-function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
+function formatDate(value: string, locale?: string) {
+  return formatDisplayDateTime(value, locale) ?? value
 }

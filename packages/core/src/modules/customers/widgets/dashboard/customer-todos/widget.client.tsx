@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS, hydrateCustomerTodoSettings, type CustomerTodoWidgetS
 import { resolveExampleIntegrationHref } from '../../../lib/interactionCompatibility'
 import { resolveTodoHref } from '../../../components/detail/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('customers')
 
@@ -76,10 +77,7 @@ async function loadTodos(settings: CustomerTodoWidgetSettings): Promise<TodoLink
 }
 
 function formatDate(value: string | null, locale?: string): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString(locale ?? undefined)
+  return formatDisplayDateTime(value, locale) ?? ''
 }
 
 function resolveDetailHref(entity: { id: string | null; kind: string | null } | null | undefined): string | null {

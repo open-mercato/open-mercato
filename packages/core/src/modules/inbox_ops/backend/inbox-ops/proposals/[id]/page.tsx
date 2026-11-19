@@ -9,6 +9,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import {
@@ -33,6 +35,7 @@ import { EditActionDialog } from '../../../../components/proposals/EditActionDia
 
 function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
   const t = useT()
+  const locale = useLocale()
   if (!email) return null
 
   const messages = email.threadMessages || []
@@ -51,7 +54,7 @@ function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
                 <div className="text-xs text-muted-foreground truncate">{msg.from?.email}</div>
               </div>
               <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {msg.date ? new Date(msg.date).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                {msg.date ? new Date(msg.date).toLocaleString(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: resolveDisplayTimeZone() }) : ''}
               </span>
             </div>
             <div className="text-sm whitespace-pre-wrap text-foreground/80">{msg.body}</div>
@@ -462,7 +465,7 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
           <div className="min-w-0 flex-1">
             <h1 className="text-base md:text-lg font-semibold truncate">{email?.subject || t('inbox_ops.proposal', 'Proposal')}</h1>
             <p className="text-xs text-muted-foreground truncate">
-              {email?.forwardedByName || email?.forwardedByAddress} · {email?.receivedAt && new Date(email.receivedAt).toLocaleString()}
+              {email?.forwardedByName || email?.forwardedByAddress} · {formatDisplayDateTime(email?.receivedAt, locale)}
             </p>
           </div>
         </div>

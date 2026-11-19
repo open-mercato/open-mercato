@@ -37,6 +37,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 
 ## CRM
 
+- Compare a late-night meeting in the deal activity and CRM calendar with the browser in a different time zone. Verify the day, displayed time, and drag-to-schedule result.
 - Test person, company and deal pages. Old and new detail pages differ.
 - Open the edit dialog of a completed activity and save a title change: dates must not move.
 - A feature behind a toggle needs the toggle on. Records made in one mode may not appear in the other.

@@ -4,6 +4,9 @@
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale'
+import { DateLocaleSettingsProvider } from '@open-mercato/ui/primitives/date-locale-settings'
+import { buildCalendarItem } from './fixtures'
 import { TimeGrid } from '../TimeGrid'
 import type { TimeGridProps } from '../types'
 
@@ -35,7 +38,7 @@ function renderGrid(days: TimeGridProps['days'], onCreateRange = jest.fn()) {
     )
   }
 
-  const view = renderWithProviders(<React.StrictMode><CalendarScreen /></React.StrictMode>)
+  const view = renderWithProviders(<React.StrictMode><CalendarScreen /></React.StrictMode>, { locale: 'pl' })
   const layers = Array.from(view.container.querySelectorAll<HTMLDivElement>('.cursor-cell'))
   expect(layers).toHaveLength(days)
   return { ...view, layers, onCreateRange }
@@ -113,4 +116,64 @@ describe('TimeGrid drag-to-create', () => {
     expect(onCreateRange).not.toHaveBeenCalled()
     expect(screen.queryByText('New event')).not.toBeInTheDocument()
   })
+})
+
+it('places meetings and creates slots in the configured zone across DST', () => {
+  const onCreateRange = jest.fn()
+  const settings = resolveDateLocaleSettings({ tenant: { timeZone: 'Europe/Warsaw', timeFormat: 'HH:mm' } })
+  const item = buildCalendarItem({
+    start: new Date('2026-10-25T21:30:00Z'),
+    end: new Date('2026-10-25T22:00:00Z'),
+  })
+  const view = renderWithProviders(
+    <DateLocaleSettingsProvider value={settings}>
+      <TimeGrid
+        days={1}
+        anchor={item.start}
+        items={[item]}
+        conflictIds={new Set()}
+        showWeekends
+        showConflicts={false}
+        aiSummaries={false}
+        onItemClick={jest.fn()}
+        onJoin={jest.fn()}
+        onNavigate={jest.fn()}
+        onCreateRange={onCreateRange}
+      />
+    </DateLocaleSettingsProvider>,
+  )
+
+  expect(screen.getByRole('button', { name: /Quarterly review.*22:30/ })).toBeInTheDocument()
+  const layer = view.container.querySelector<HTMLDivElement>('.cursor-cell')!
+  dispatchPointer(layer, 'pointerdown', 22.5 * 120)
+  dispatchPointer(layer, 'pointermove', 23 * 120)
+  dispatchPointer(layer, 'pointerup', 23 * 120)
+
+  expect(onCreateRange).toHaveBeenCalledWith(item.start, item.end)
+})
+
+it('gives rollback-spanning and repeated-hour meetings distinct visible lanes', () => {
+  const settings = resolveDateLocaleSettings({ tenant: { timeZone: 'Europe/Warsaw', timeFormat: 'HH:mm' } })
+  const crossing = buildCalendarItem({
+    id: 'crossing',
+    start: new Date('2026-10-25T00:45:00Z'),
+    end: new Date('2026-10-25T01:15:00Z'),
+  })
+  const repeated = buildCalendarItem({
+    id: 'repeated', title: 'Second occurrence',
+    start: new Date('2026-10-25T01:50:00Z'),
+    end: new Date('2026-10-25T02:00:00Z'),
+  })
+  renderWithProviders(
+    <DateLocaleSettingsProvider value={settings}>
+      <TimeGrid days={1} anchor={crossing.start} items={[crossing, repeated]}
+        conflictIds={new Set()} showWeekends showConflicts={false} aiSummaries={false}
+        onItemClick={jest.fn()} onJoin={jest.fn()} onNavigate={jest.fn()} onCreateRange={jest.fn()}
+      />
+    </DateLocaleSettingsProvider>,
+  )
+  const first = screen.getByRole('button', { name: /Quarterly review.*02:45/ })
+  const second = screen.getByRole('button', { name: /Second occurrence.*02:50/ })
+  expect(Number.parseFloat(first.style.height)).toBeGreaterThan(32)
+  expect(first.style.insetInlineStart).not.toBe(second.style.insetInlineStart)
 })

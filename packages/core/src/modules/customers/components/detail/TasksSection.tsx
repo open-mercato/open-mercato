@@ -17,11 +17,11 @@ import {
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InteractionSummary, SectionAction, TabEmptyStateConfig, TodoLinkSummary, Translator } from './types'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatDate, resolveTodoHref } from './utils'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
@@ -123,6 +123,7 @@ export function TasksSection({
   runGuardedMutation,
 }: TasksSectionProps) {
   const tHook = useT()
+  const locale = useLocale()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -454,14 +455,14 @@ export function TasksSection({
       }
       if (task.dueAt) {
         const dueLabel =
-          formatDate(task.dueAt) ??
-          formatDateTime(task.dueAt) ??
+          formatDate(task.dueAt, locale) ??
+          formatDisplayDateTime(task.dueAt, locale) ??
           t('customers.people.detail.tasks.dueLabel', 'Due {{date}}', { date: task.dueAt })
         meta.push(t('customers.people.detail.tasks.dueLabel', 'Due {{date}}', { date: dueLabel }))
       }
       return meta
     },
-    [t],
+    [locale, t],
   )
 
   const handleDialogSubmit = React.useCallback(
@@ -506,7 +507,7 @@ export function TasksSection({
             ) : null}
             {sortedTasks.map((task) => {
               const todoHref = task.externalHref ?? resolveTodoHref(task.todoSource, task.todoId)
-              const createdLabel = formatDateTime(task.createdAt) ?? emptyLabel
+              const createdLabel = formatDisplayDateTime(task.createdAt, locale) ?? emptyLabel
               const meta = renderTaskMeta(task)
               const title = task.title ?? t('customers.people.detail.tasks.untitled', 'Untitled task')
               const isDone = task.isDone === true

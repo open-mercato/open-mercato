@@ -51,7 +51,7 @@ import {
 import { EDGE_COLORS, STATUS_COLORS, toWorkflowStatus } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 
 /**
  * Arrowhead every control-flow route ends in. Sized against the 1.5px wire it
@@ -222,6 +222,7 @@ export default function WorkflowGraphImpl({
   onOpenTriggers,
 }: WorkflowGraphImplProps) {
   const t = useT()
+  const locale = useLocale()
   const [nodes, setNodes] = useNodesState(initialNodes)
   const [edges, setEdges] = useEdgesState(initialEdges)
 
@@ -488,7 +489,7 @@ export default function WorkflowGraphImpl({
       const presentation = resolveStepPresentation(
         runOverlay,
         { id: node.id, status: runStatus },
-        { agentLabels: runAgentLabels ?? undefined, agentId: readNodeAgentId(node.data) },
+        { agentLabels: runAgentLabels ?? undefined, agentId: readNodeAgentId(node.data), locale },
       )
       return {
         ...node,
@@ -500,7 +501,7 @@ export default function WorkflowGraphImpl({
         },
       }
     })
-  }, [decoratedNodes, runOverlay, runAgentLabels])
+  }, [decoratedNodes, runOverlay, runAgentLabels, locale])
 
   // Triggers (fidelity gap #5, Direction A). Derived at render time from the
   // definition's triggers and folded into the START node as a clickable cap —

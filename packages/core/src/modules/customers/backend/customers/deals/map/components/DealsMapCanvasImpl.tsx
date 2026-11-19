@@ -10,10 +10,11 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { formatCurrency } from '../../../../../components/detail/utils'
+import { formatCalendarDayParts, formatZonedDateParts } from '../../../../../lib/displayDate'
 import type {
   DealsMapCanvasDeal,
   DealsMapCanvasProps,
@@ -120,16 +121,9 @@ function buildClusterIcon(count: number): L.DivIcon {
   })
 }
 
-const shortDateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: '2-digit',
-})
-
-function formatShortDate(value: string | null): string | null {
+function formatShortDate(value: string | null, locale: string): string | null {
   if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return shortDateFormatter.format(date)
+  return formatZonedDateParts(value, { month: 'short', day: '2-digit' }, locale) || null
 }
 
 type PreviewCardProps = {
@@ -139,7 +133,8 @@ type PreviewCardProps = {
 
 function DealMapPreviewCard({ preview, onClose }: PreviewCardProps): React.ReactElement {
   const t = useT()
-  const closeDate = formatShortDate(preview.expectedCloseAt)
+  const locale = useLocale()
+  const closeDate = formatCalendarDayParts(preview.expectedCloseAt, { month: 'short', day: '2-digit' }, locale)
   const metaParts: string[] = []
   if (typeof preview.valueAmount === 'number') {
     metaParts.push(formatCurrency(preview.valueAmount, preview.valueCurrency))

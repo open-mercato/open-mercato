@@ -21,7 +21,7 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Users } from 'lucide-react'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -144,7 +144,7 @@ export default function StaffTeamsPage() {
       header: labels.table.updatedAt,
       meta: { priority: 5 },
       cell: ({ row }) => row.original.updatedAt
-        ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
+        ? <span className="text-xs text-muted-foreground">{formatDisplayDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
   ], [

@@ -6,7 +6,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { formatTimeLabel, formatTimeRangeLabel } from '../../lib/calendar/format'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
+import { formatTimeLabel, formatTimeRangeLabel, type CalendarFormatSettings } from '../../lib/calendar/format'
 import type { CalendarItem, CalendarPlatform } from './types'
 
 const SHOW_TIME_MIN_HEIGHT_PX = 44
@@ -99,8 +100,13 @@ export function EventAccentBar({ color }: AccentBarProps) {
   )
 }
 
-export function formatTimeRange(locale: string, start: Date, end: Date): string {
-  return formatTimeRangeLabel(locale, start, end)
+export function formatTimeRange(
+  locale: string,
+  start: Date,
+  end: Date,
+  settings?: CalendarFormatSettings,
+): string {
+  return formatTimeRangeLabel(locale, start, end, settings)
 }
 
 function participantLabel(participant: CalendarItem['participants'][number]): string {
@@ -176,10 +182,11 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
 ) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const tone = resolveEventTone(item, nowMs)
   const title = item.title || t('customers.calendar.grid.untitled', 'Untitled')
-  const timeRange = formatTimeRange(locale, item.start, item.end)
-  const visibleTime = compact ? formatTimeLabel(locale, item.start) : timeRange
+  const timeRange = formatTimeRange(locale, item.start, item.end, dateSettings)
+  const visibleTime = compact ? formatTimeLabel(locale, item.start, dateSettings) : timeRange
   const fullLabel = `${title}, ${timeRange}`
   const showTime = height >= SHOW_TIME_MIN_HEIGHT_PX
   const wrapTitle = height >= WRAP_TITLE_MIN_HEIGHT_PX
