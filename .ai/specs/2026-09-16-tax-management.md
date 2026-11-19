@@ -363,7 +363,11 @@ existing territory in `sales`, unaffected by this document.
     never reset or wrap. Mapping identity and revision are both checked.
   - `postTaxLiability(taxLiabilityRecordId)` — locks the record
     (`SELECT ... FOR UPDATE`), requires `status === 'calculated'`, and
-    for nonempty drafts, locks the scoped `TaxCodeAccountMapping` row,
+    locks the fiscal period using the trusted tenant and organization scope.
+    Before any status change, ledger call or event, it verifies the period is
+    open and holds the period lock through transaction completion. This check
+    applies to ordinary empty-journal posts even though they skip ledger. For
+    nonempty drafts, it also locks the scoped `TaxCodeAccountMapping` row,
     compares its ID and monotonic revision with the snapshot, and rejects a
     mismatch or missing row before any ledger call. Empty drafts skip this
     mapping check but retain all scope and fiscal-period checks. The accountant must recalculate and review a fresh draft.
@@ -606,10 +610,11 @@ as paid" button) lives in that document now (`#7524`).
   creates them lazily from the registry and is idempotent — covers an
   existing tenant that installs the plugin later, and an organization
   created after the tenant (the M2 fix).
-- **Fiscal period locked before `postTaxLiability` runs.**
-  `ledger.postJournalEntry` already enforces this — this module adds
-  no new bypass and relies entirely on GL core engine's existing
-  `isLocked` check.
+- **Fiscal period locked before `postTaxLiability` runs.** The command
+  checks the trusted-scope period under its transaction lock before writing,
+  including when an ordinary empty journal skips `ledger.postJournalEntry`.
+  A locked period rejects the post, leaves the draft unchanged, creates no
+  journal and emits no events. Nonempty ledger calls retain their own checks.
 
 ## Risks & Impact Review
 
@@ -773,7 +778,9 @@ decisions; doesn't fit VAT or PIT-4.
    for calculate, post (including zero lines), correction (period, original
    and superseded drafts) and mark-paid; assert no writes, ledger calls or
    events on rejection. Test a locked original period, including rollback,
-   and paid-original rejection at calculate and post (including a race with
+   and an ordinary empty-journal post against a locked period: assert the
+   draft remains calculated, no journal is created and no events are emitted.
+   Cover paid-original rejection at calculate and post (including a race with
    mark-paid) for higher, equal and lower amounts, asserting no new payment
    instruction. Also cover two-contender
    recalculation and concurrent-post races (mirroring `ledger`'s own
@@ -911,6 +918,11 @@ maintainer re-review of this revision, then implementation per the
 plan above.
 
 ## Changelog
+
+### 2026-11-19 - Review follow-up: fiscal-period guard
+
+- Require posting to lock and check the scoped fiscal period even when an
+  empty journal bypasses ledger, and specify rollback and event coverage.
 
 ### 2026-11-19 - Review follow-up: empty journals and mapping races
 
