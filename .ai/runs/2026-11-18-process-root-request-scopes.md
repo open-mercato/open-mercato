@@ -4,7 +4,7 @@
 Eliminate repeated process registration/bootstrap work while preserving isolated caller EntityManagers, auth, services and event dispatch.
 
 Source doc: .ai/specs/2026-11-18-process-root-request-scopes.md
-Status: in-progress
+Status: implemented; awaiting external review and QA
 Engine: om-auto-create-pr (steps: 8, --loop: no)
 
 ## Scope
@@ -14,7 +14,7 @@ Implement the separately published service-lifetime design. Stack on #9628 for e
 Phase 1 adds and proves lifecycle primitives. Phase 2 migrates bootstrap, events, query-index setup and first-party registrations. Phase 3 wires entry points and verifies API behavior, isolation and bounded setup work. All changes stay opt-in until live qualification supports default activation.
 
 ## Risks
-Captured mutable services, shared identity maps, subscriber duplication, incomplete HMR generations, legacy registrar ordering, and premature streaming disposal are explicit test targets. Current main has a known communication-channel attachment-test failure, independent of this work; report inherited failures honestly. No performance claim without enabled/disabled evidence. Missing integration infrastructure blocks completion rather than weakening coverage.
+Captured mutable services, shared identity maps, subscriber duplication, incomplete HMR generations, legacy registrar ordering, and premature streaming disposal are explicit test targets. Initial qualification encountered attachment-fixture failures; review 5977893022 follow-up below records their repair and corrects the dependency-related MDX diagnosis. No performance claim without enabled/disabled evidence. Missing integration infrastructure blocks completion rather than weakening coverage.
 
 ## Progress
 
@@ -34,7 +34,7 @@ PR: #9837
 ### Phase 3: Entry points and qualification
 - [x] 3.1 Wire startup, independent execution contexts and standalone parity.
 - [x] 3.2 Add and run self-contained request, caller, tenant and worker integration coverage. — c01dd6e65a
-- [ ] 3.3 Complete validation, independent review, workload evidence and documented rollout decision.
+- [x] 3.3 Complete validation, independent review, workload evidence and documented rollout decision. — 585a93fe8a
 
 ### Validation evidence
 - Phase 1: 30 shared lifecycle tests and 9 worker handler tests passed (local runner).
@@ -69,3 +69,15 @@ PR: #9837
 1. Dispose callers when initialization fails without replacing the original error; defer process event setup until module and app registration and custom-bus detection finish. Add lifecycle/event regressions.
 2. Resolve the attachment assertion failures and MDX dialog heap exhaustion at their root causes, preserving the existing assertions and heap limit.
 3. Run the configured gate, template/DI checks and both feature modes of runtime integration; publish results and request re-review.
+
+### Review 5977893022 results (2026-11-19)
+- Revision 585a93fe8a disposes partially initialized callers and preserves the original failure even if disposal or diagnostics throw. The shared helper also preserves root initialization/activation errors. Shared lifecycle23 and core bootstrap9 regression tests pass; healthy roots remain reusable.
+- Process event hooks finalize once after module/app registration and custom-bus detection. Tests verify app-hook delivery through the caller bus and generation isolation. Independent review found no remaining blocker in these fixes.
+- Attachment fixtures now include outbound provenance and scoped conversation records required by the existing command. All seven original cases pass; the full communication-channel scope also passes.
+- Correction to earlier MDX/base attribution: copied dependencies contained stale nested Radix versions absent from this branch's lockfile. `yarn install --immutable` repaired the graph without dependency/lockfile changes; the original unchanged dialog test then passed at 1 GiB. The earlier base reproduction used the same drifted graph and did not establish a source-level MDX defect. The updated fixture exercises the actual production overlay container with its original behavioral assertions; removing overlay routing fails the new containment assertion.
+- Full configured local gate passes: build/generate/build, translation checks, 42 workspace typechecks, exact `yarn test`, and `yarn build:app`. Unit result: 50,758 passed, zero failed, 456 existing skips; 51/51 tasks (five cached build dependencies, no cached test tasks). Template parity, CLASSIC DI checks and diff checks also pass.
+- Unit/build/runtime qualification uses checksum-verified official Node 24.22.3 after Node 24.13.1 repeatedly crashed inside native V8 GC. The original 1 GiB unit heap and Turbo concurrency2 remain unchanged. Local IPC access and an isolated npm cache resolve environment permissions without changing tests.
+- Next.js emitted a security advisory for the existing dependency. Its normal in-place build retry passed; the native disposable launcher clears the retry receipt before each build, so a local-only wrapper retries that identical build once in place. No security settings, receipts, dependencies or source were altered to suppress the notice. The advisory remains outstanding as dependency-maintenance work.
+- Final-source production app builds pass. Native runtime integration passes13/13 in both enabled and disabled modes, without retries, flakes or skips in the test cases. Coverage includes real PostgreSQL unit-of-work separation, tenant/organization isolation, partial updates, concurrent workers, cart jobs and promotion evaluation.
+- Both modes retain120 distinct caller EntityManagers. Enabled workload adds63 registrar executions for20 generation-cold callers and none for100 warm callers; disabled executes7,560 across120 callers. This is generation setup with warm ORM/imports, not a process cold-start or general HTTP performance claim.
+- Rollout decision: keep `OM_PROCESS_CONTAINER_ROOT` default-off. Technical implementation/qualification is complete; external re-review and the existing `needs-qa` approval gate remain outstanding. The ready-for-review state is preserved; no merge or QA approval is claimed. Disposable app/database resources were stopped and verified absent. Earlier incomplete-gate and draft-state notes above are historical and superseded by these results.
