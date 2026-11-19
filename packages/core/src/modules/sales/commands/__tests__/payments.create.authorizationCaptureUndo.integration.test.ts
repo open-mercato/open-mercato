@@ -296,8 +296,11 @@ describeWithPostgres('sales.payments.create — authorization-first / capture-se
     const restoredOrder = await verifyEm.findOneOrFail(SalesOrder, { id: order.id })
     expect({
       paidTotalAmount: Number(restoredOrder.paidTotalAmount),
+      paidTotalAmountExact: restoredOrder.paidTotalAmount,
       refundedTotalAmount: Number(restoredOrder.refundedTotalAmount),
+      refundedTotalAmountExact: restoredOrder.refundedTotalAmount,
       outstandingAmount: Number(restoredOrder.outstandingAmount),
+      outstandingAmountExact: restoredOrder.outstandingAmount,
     }).toEqual(authorizationTotals)
 
     const undoneLog = await verifyEm.findOneOrFail(ActionLog, { id: captureLogId as string })
