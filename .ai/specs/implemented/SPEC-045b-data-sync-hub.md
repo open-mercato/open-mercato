@@ -2525,7 +2525,9 @@ schedule/integration identifiers. Request bodies and schedule values are not
 included in that context. Typed schedule-value failures retain the structured
 422 field error; deliberate `CrudHttpError` responses remain unchanged.
 
-Migration & Backward Compatibility: callers must treat unexpected schedule-write
+#### Migration & Backward Compatibility
+
+Callers must treat unexpected schedule-write
 failures as server failures (500) rather than invalid requests (422), and must
 not depend on raw driver text in the `error` value. Operators should use the
 server log and `data_sync.schedule_write_failed` telemetry code to diagnose
@@ -2533,7 +2535,10 @@ failures. Route URLs, methods, response field types, successful responses,
 validation responses, mutation guards, optimistic locking, and persistence/
 compensation behavior are unchanged. This intentional error-status correction
 needs the compatibility review required by the repository policy; this spec does
-not grant a security-exception waiver.
+not grant a security-exception waiver. Named human maintainer approval is
+PENDING; do not merge until that approval acknowledges the waiver of deprecation
+steps 1–3. UPGRADE_NOTES.md records client and operator migration;
+BACKWARD_COMPATIBILITY.md records the dated pending exception.
 
 Regression coverage: route tests exercise POST/PUT/DELETE unexpected errors and
 non-Error throws, translated responses, original-error reporting with scope,

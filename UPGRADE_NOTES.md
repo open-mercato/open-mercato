@@ -1,5 +1,24 @@
 # Upgrade Notes
 
+## Schedule write infrastructure failures return generic 500 errors (#6001)
+
+**Proposed security correction; human compatibility waiver pending.** POST
+`/api/data_sync/schedules` and PUT/DELETE `/api/data_sync/schedules/[id]`
+return HTTP 500 with a translated generic `error` instead of HTTP 422 with raw
+driver text for unexpected failures. Typed schedule validation remains 422;
+explicit CRUD errors and successful responses retain their status and shape.
+
+**Client migration:** handle 500 as an infrastructure failure, remove comparisons
+against raw database messages, and check schedule state before retrying a write
+whose outcome is uncertain. Validation field errors still use the existing 422
+response.
+
+**Operator migration:** diagnose failures through server logs and the
+`data_sync.schedule_write_failed` telemetry code. No startup, configuration,
+database migration, or data repair change is required. A bridge that preserves raw
+error responses preserves the disclosure, so a named human maintainer must approve
+the security exception before merge.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.

@@ -1,4 +1,3 @@
-import { scheduleWriteErrorResponse } from '../../lib/schedule-write-error'
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
@@ -15,6 +14,7 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { scheduleWriteErrorResponse } from '../../lib/schedule-write-error'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['data_sync.configure'] },

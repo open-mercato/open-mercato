@@ -1,4 +1,3 @@
-import { scheduleWriteErrorResponse } from '../../../lib/schedule-write-error'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -16,6 +15,7 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { scheduleWriteErrorResponse } from '../../../lib/schedule-write-error'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),

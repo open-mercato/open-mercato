@@ -693,3 +693,19 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## Schedule write error disclosure (#6001, 2026-11-19)
+
+**STABLE API error behavior — proposed emergency security exception; named human
+maintainer approval is PENDING.** Unexpected POST/PUT/DELETE schedule failures
+change from raw-driver HTTP 422 responses to translated generic HTTP 500
+responses. Preserving the old error value as a bridge preserves internal error
+disclosure; no insecure opt-in is retained. Successful writes, structured
+schedule validation (422), and explicit CRUD failures are unchanged.
+
+Client and operator migration:
+[UPGRADE_NOTES.md](UPGRADE_NOTES.md#schedule-write-infrastructure-failures-return-generic-500-errors-6001).
+Design and qualifying argument:
+[Data Sync Hub spec](.ai/specs/implemented/SPEC-045b-data-sync-hub.md#schedule-write-error-disclosure-correction-6001).
+This record does not grant the exception. Keep the proposal blocked from merge
+until a human maintainer acknowledges the waiver of steps 1–3 by name.
