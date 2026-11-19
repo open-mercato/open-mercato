@@ -70,6 +70,7 @@ describe('POST /communication_channels/messages/[messageId]/reactions existence 
     })
     const response = await postReaction()
     expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'translated:communication_channels.errors.reactionUnavailable' })
     expect(afterSuccessMock).not.toHaveBeenCalled()
   })
 
@@ -79,6 +80,7 @@ describe('POST /communication_channels/messages/[messageId]/reactions existence 
     })
     const response = await postReaction()
     expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'translated:communication_channels.errors.reactionFailed' })
   })
 
   it('still lets the owner add a reaction', async () => {
