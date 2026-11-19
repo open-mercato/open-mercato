@@ -36,6 +36,7 @@
   "communication_channels.errors.pollNowPushDriven": "이 채널은 푸시 기반입니다 — 폴링은 적용되지 않습니다. 수신 메시지는 공급자의 푸시 연결로 전달됩니다.",
   "communication_channels.errors.reactionFailed": "반응 처리에 실패했습니다",
   "communication_channels.errors.reactionNotFound": "반응을 찾을 수 없습니다",
+  "communication_channels.errors.reactionUnavailable": "이 메시지에는 채널 반응을 사용할 수 없습니다.",
   "communication_channels.errors.reassignUndoConflict": "이 변경 이후 이 대화가 다시 재할당되었습니다. 최신 할당을 유지하기 위해 실행 취소가 거부되었습니다.",
   "communication_channels.errors.setPrimaryDisconnected": "이 채널은 연결이 끊겼습니다. 기본으로 설정하기 전에 다시 연결하세요.",
   "communication_channels.errors.threadNotFound": "스레드를 찾을 수 없습니다",

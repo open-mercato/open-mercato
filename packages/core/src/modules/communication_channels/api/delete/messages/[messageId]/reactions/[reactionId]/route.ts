@@ -121,7 +121,8 @@ export async function DELETE(_req: Request, context: RouteContext): Promise<Resp
     return reactionNotFoundResponse()
   }
   if (result.status === 'no_channel_link') {
-    return NextResponse.json({ error: result.reason }, { status: 409 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('communication_channels.errors.reactionUnavailable') }, { status: 409 })
   }
   // 'removed'
   await guard.afterSuccess()

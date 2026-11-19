@@ -4,7 +4,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../events'
-import { Message } from '../../messages/data/entities'
+import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import {
   CommunicationChannel,
   ChannelThreadMapping,
@@ -112,6 +112,33 @@ const toggleOutboundReactionCommand: CommandHandler<
     )
     if (!message) {
       return { status: 'not_found', reason: 'message not found' }
+    }
+    const isSender = message.senderUserId === input.reactedByUserId
+    const recipient = isSender ? null : await findOneWithDecryption(
+      em,
+      MessageRecipient,
+      { messageId: message.id, recipientUserId: input.reactedByUserId, deletedAt: null },
+      undefined,
+      dscope,
+    )
+    if (!isSender && !recipient) {
+      if (message.visibility !== 'public' || message.sourceEntityType !== 'communication_channels.external_conversation') {
+        return { status: 'not_found', reason: 'message not found' }
+      }
+      try {
+        const rbac = ctx.container.resolve('rbacService') as {
+          userHasAllFeatures: (
+            userId: string,
+            features: string[],
+            scope: typeof dscope,
+          ) => Promise<boolean>
+        }
+        if (!(await rbac.userHasAllFeatures(input.reactedByUserId, ['messages.view'], dscope))) {
+          return { status: 'not_found', reason: 'message not found' }
+        }
+      } catch {
+        return { status: 'not_found', reason: 'message not found' }
+      }
     }
     const channelLink = await findOneWithDecryption(
       em,

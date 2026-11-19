@@ -114,9 +114,9 @@ describe('toggleOutboundReactionCommand per-user ownership gate', () => {
 
   // The command resolves four rows in order: Message, MessageChannelLink,
   // ChannelThreadMapping, CommunicationChannel.
-  function primeResolution(channel: { id: string; userId: string | null }) {
+  function primeResolution(channel: { id: string; userId: string | null }, senderUserId = attacker) {
     mockFindOneWithDecryption
-      .mockResolvedValueOnce({ id: messageId, threadId: messageId })
+      .mockResolvedValueOnce({ id: messageId, threadId: messageId, senderUserId })
       .mockResolvedValueOnce({ id: 'link-1', providerKey: 'imap', channelType: 'email' })
       .mockResolvedValueOnce({ channelId: channel.id })
       .mockResolvedValueOnce({ ...channel, capabilities: null })
@@ -165,7 +165,7 @@ describe('toggleOutboundReactionCommand per-user ownership gate', () => {
 
   it('refuses a deleted personal mailbox of another user as not_owner (#3833)', async () => {
     mockFindOneWithDecryption
-      .mockResolvedValueOnce({ id: messageId, threadId: messageId })
+      .mockResolvedValueOnce({ id: messageId, threadId: messageId, senderUserId: attacker })
       .mockResolvedValueOnce({ id: 'link-1', providerKey: 'imap', channelType: 'email' })
       .mockResolvedValueOnce({ channelId: 'ch-owner' })
       .mockResolvedValueOnce({ id: 'ch-owner', userId: owner, capabilities: null, deletedAt: new Date() })
@@ -185,7 +185,7 @@ describe('toggleOutboundReactionCommand per-user ownership gate', () => {
 
   it('reports the owner\'s own deleted channel as no_channel_link', async () => {
     mockFindOneWithDecryption
-      .mockResolvedValueOnce({ id: messageId, threadId: messageId })
+      .mockResolvedValueOnce({ id: messageId, threadId: messageId, senderUserId: owner })
       .mockResolvedValueOnce({ id: 'link-1', providerKey: 'imap', channelType: 'email' })
       .mockResolvedValueOnce({ channelId: 'ch-owner' })
       .mockResolvedValueOnce({ id: 'ch-owner', userId: owner, capabilities: null, deletedAt: new Date() })
@@ -204,7 +204,7 @@ describe('toggleOutboundReactionCommand per-user ownership gate', () => {
   })
 
   it('lets the channel OWNER react (passes the ownership gate)', async () => {
-    primeResolution({ id: 'ch-owner', userId: owner })
+    primeResolution({ id: 'ch-owner', userId: owner }, owner)
     // Owner passes the gate and proceeds into the add path, which touches the
     // (empty) em — so it throws rather than returning `not_owner`. The point is
     // it does NOT short-circuit as not_owner.

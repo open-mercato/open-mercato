@@ -1099,6 +1099,7 @@ User clicks reaction emoji in Messages UI
   │
   ▼
 POST /api/communication_channels/messages/:messageId/reactions
+  │  0. Require message read access (participant or authorized public channel reader)
   │  1. Validate message is channel-linked
   │  2. Create MessageReaction (reactedByUserId = current user)
   │  3. Resolve adapter for thread's providerKey
@@ -1122,7 +1123,7 @@ GET    /api/communication_channels/messages/:messageId/reactions
   Response: { reactions: [{ id, emoji, reactedByUserId, reactedByExternalId, reactedByDisplayName, providerKey, createdAt }] }
 ```
 
-All routes require `communication_channels.view` feature and filter by `tenantId`.
+Mutation routes require `communication_channels.react` and exact tenant/organization scope. Before channel-link disclosure or writes, the command requires the message sender, an active recipient, or the existing public external-conversation fallback with scoped `messages.view`; personal channels still require their owner. Unreadable and unknown messages produce the same localized 404. Readable unlinked messages keep a localized 409. Unit coverage includes both actions, private/null visibility, scoped RBAC denial/failure, participant access, and public shared-channel access. `TC-CHANNEL-REACTION-READ-001` covers the HTTP public-to-internal transition, unchanged reaction rows on refusal, existence masking and authorized add/remove.
 
 ### 5.5 Reaction Enricher
 
@@ -2218,6 +2219,10 @@ Slices 2a through 2f deliver Phases 1–5 of SPEC-045d's original phase plan in 
 
 ## 18. Migration & Backward Compatibility
 
+### Reaction read-access correction (#7671, 2026-11-19)
+
+Reaction mutations now enforce the existing message read rule before disclosing channel linkage or changing reactions. Clients that previously reacted to unreadable messages receive the established masked 404 instead; adding a broad react grant cannot bypass a private note or the `messages.view` channel fallback. Participants and authorized public shared-channel readers retain the existing response schemas and add/remove behavior. Conflict text is translated rather than returning internal diagnostic reasons. No route, signature, event, ACL identifier, schema, startup or configuration changes are required. The STABLE denial narrowing uses the emergency security exception because retaining the unreadable-message branch would keep the vulnerability; a named human maintainer must acknowledge the steps 1–3 waiver before merge. Operators review custom react-only roles and grant `messages.view` only where public channel access is intended; clients handle 404 without inferring message existence. See UPGRADE_NOTES.md.
+
 This spec is the **first implementation** of the `communication_channels` hub. There is no v1 to be backward-compatible with. The BC impact is therefore characterised per the 13 contract-surface categories in `BACKWARD_COMPATIBILITY.md`:
 
 | # | Surface | Change | Impact |
@@ -2338,6 +2343,8 @@ None.
 ---
 
 ## Changelog
+
+- 2026-11-19: Require message read access before outbound reaction add/remove, mask unreadable targets and translate accessible conflicts (#7671).
 
 - 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
 

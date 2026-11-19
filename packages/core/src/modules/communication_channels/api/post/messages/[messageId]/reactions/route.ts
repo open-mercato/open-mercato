@@ -98,18 +98,18 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     },
   })
 
+  const { translate } = await resolveTranslations()
   if (result.status === 'not_found' || result.status === 'not_owner') {
-    const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('communication_channels.errors.messageNotFound', 'Message not found') },
       { status: 404 },
     )
   }
   if (result.status === 'no_channel_link') {
-    return NextResponse.json({ error: result.reason }, { status: 409 })
+    return NextResponse.json({ error: translate('communication_channels.errors.reactionUnavailable') }, { status: 409 })
   }
   if (result.status === 'noop') {
-    return NextResponse.json({ error: result.reason }, { status: 409 })
+    return NextResponse.json({ error: translate('communication_channels.errors.reactionFailed') }, { status: 409 })
   }
   if (result.status === 'added') {
     await guard.afterSuccess()
