@@ -11,10 +11,10 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | `CodeUsage` columns, migration `Migration20261119224920_promotions`, snapshot block | inline | done | |
-| 1 | 1.2 | `useCode` replay + `orderId`; `revertCodeUse`, command `promotions.code.use.revert`, optional facade member; unit tests | inline | done | |
-| 1 | 1.3 | `TC-PROM-090` HTTP replay integration spec | inline | done | |
-| 1 | 1.4 | `UPGRADE_NOTES.md` entry; SPEC-055 changelog 2.5.1 | inline | done | |
+| 1 | 1.1 | `CodeUsage` columns, migration `Migration20261119224920_promotions`, snapshot block | inline | done | 20d87f2bbe |
+| 1 | 1.2 | `useCode` replay + `orderId`; `revertCodeUse`, command `promotions.code.use.revert`, optional facade member; unit tests | inline | done | 70b03f4665 |
+| 1 | 1.3 | `TC-PROM-090` HTTP replay integration spec | inline | done | b38e3509d3 |
+| 1 | 1.4 | `UPGRADE_NOTES.md` entry; SPEC-055 changelog 2.5.1 | inline | done | 1b8b8fe45d |
 
 ## Goal
 
