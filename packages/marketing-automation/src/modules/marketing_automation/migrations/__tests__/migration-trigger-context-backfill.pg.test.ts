@@ -8,6 +8,7 @@
  * Gated on OM_MARKETING_AUTOMATION_PG_URL — a throwaway database, since the suite creates and
  * drops its own table. See active-run-occurrence-constraints.pg.test.ts for how to run it.
  */
+import { randomUUID } from 'node:crypto'
 import { Kysely, PostgresDialect, sql } from 'kysely'
 import { Migration20261002110000_marketing_trigger_context } from '../Migration20261002110000_marketing_trigger_context'
 
@@ -28,11 +29,13 @@ async function collectSql(direction: 'up' | 'down'): Promise<string[]> {
 
 maybe('Migration20261002110000_marketing_trigger_context against PostgreSQL', () => {
   jest.setTimeout(60_000)
+  const schemaName = `marketing_test_${randomUUID().replace(/-/g, '')}`
   let db: Kysely<any>
 
   beforeAll(async () => {
     const { Pool } = require('pg')
-    db = new Kysely<any>({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: PG_URL }) }) })
+    db = new Kysely<any>({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: PG_URL, options: `-c search_path=${schemaName}` }) }) })
+    await sql`create schema ${sql.id(schemaName)}`.execute(db)
     await sql`create table if not exists marketing_campaign_runs (
       id uuid not null default gen_random_uuid(),
       context jsonb not null
@@ -40,7 +43,7 @@ maybe('Migration20261002110000_marketing_trigger_context against PostgreSQL', ()
   })
 
   afterAll(async () => {
-    await sql`drop table if exists marketing_campaign_runs`.execute(db)
+    await sql`drop schema if exists ${sql.id(schemaName)} cascade`.execute(db)
     await db.destroy()
   })
 
@@ -117,7 +120,7 @@ maybe('Migration20261002110000_marketing_trigger_context against PostgreSQL', ()
     const columnStillExists = await sql<{ exists: boolean }>`
       select exists (
         select 1 from information_schema.columns
-        where table_name = 'marketing_campaign_runs' and column_name = 'trigger_context'
+        where table_schema = ${schemaName} and table_name = 'marketing_campaign_runs' and column_name = 'trigger_context'
       ) as exists
     `.execute(db)
     expect(columnStillExists.rows[0].exists).toBe(false)

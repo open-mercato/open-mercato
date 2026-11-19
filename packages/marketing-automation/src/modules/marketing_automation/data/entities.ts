@@ -1215,6 +1215,7 @@ export class MarketingSegmentSnapshot {
     'create unique index "marketing_product_watch_uniq" on "marketing_product_watches" ("tenant_id", "organization_id", "subject_entity_id", "sku") where deleted_at is null',
 })
 @Index({ name: 'mkt_product_watches_sku_idx', properties: ['tenantId', 'organizationId', 'sku'] })
+@Index({ name: 'mkt_watch_rotation_idx', properties: ['tenantId', 'organizationId', 'lastScannedAt'] })
 export class MarketingProductWatch {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'notifiedCount' | 'lastScannedAt'
 

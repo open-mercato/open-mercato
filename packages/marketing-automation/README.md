@@ -10,9 +10,12 @@ changing how any existing module behaves.
 
 ## Enabling it
 
-Off by default, on purpose: it migrates 23 tables and serves six public unauthenticated routes
-(open/click tracking, unsubscribe, the survey answer page and inbound hooks), which a shop should
-switch on deliberately rather than inherit.
+This phase ships the opt-in module, its 23 tables, migrations, and shared extension points. It does
+not yet ship marketing routes, screens, workers, or campaign execution. The capabilities and setup
+instructions below describe the planned full module; they are not available in this phase.
+
+Off by default, on purpose: the full module migrates 23 tables and will serve public unauthenticated
+routes, which a shop should switch on deliberately rather than inherit.
 
 Generate a signing secret first — a `.env` file is not a shell, so the command belongs in your
 terminal and its OUTPUT belongs in the file:
@@ -39,7 +42,7 @@ set for the same reason. Both appear as a blocking item on the module's setup sc
 Then `yarn generate` — the app's route registry is emitted from the enabled-module list, so a stale
 registry keeps the module hidden however the flag reads.
 
-## What a merchant can do
+## Planned merchant capabilities
 
 - **Author a journey visually** — triggers, an audience built with the platform's existing condition builder, and
   an ordered chain of steps, one of which may be an A/B split.
@@ -107,7 +110,7 @@ A dedicated engine rather than `workflows` or `business_rules` actions, for reas
 in production, and `business_rules`' action handler map has no extension point. Reusing either would have turned a
 self-contained package into a pull request that changes core.
 
-## What is in the box
+## Planned full-module inventory
 
 | | |
 |---|---|

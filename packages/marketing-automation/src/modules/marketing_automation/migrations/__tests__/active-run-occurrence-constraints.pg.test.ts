@@ -14,6 +14,7 @@
  *   OM_MARKETING_AUTOMATION_PG_URL=postgres://postgres:postgres@127.0.0.1:54372/om \
  *     yarn workspace @open-mercato/marketing-automation jest active-run-occurrence-constraints.pg
  */
+import { randomUUID } from 'node:crypto'
 import { Kysely, PostgresDialect, sql } from 'kysely'
 
 const PG_URL = process.env.OM_MARKETING_AUTOMATION_PG_URL
@@ -25,11 +26,13 @@ const CAMPAIGN = '33333333-3333-4333-8333-333333333333'
 
 maybe('marketing_campaign_runs partial unique indexes against PostgreSQL', () => {
   jest.setTimeout(60_000)
+  const schemaName = `marketing_test_${randomUUID().replace(/-/g, '')}`
   let db: Kysely<any>
 
   beforeAll(async () => {
     const { Pool } = require('pg')
-    db = new Kysely<any>({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: PG_URL }) }) })
+    db = new Kysely<any>({ dialect: new PostgresDialect({ pool: new Pool({ connectionString: PG_URL, options: `-c search_path=${schemaName}` }) }) })
+    await sql`create schema ${sql.id(schemaName)}`.execute(db)
     await sql`create table if not exists marketing_campaign_runs (
       id uuid not null default gen_random_uuid(),
       campaign_id uuid not null,
@@ -53,7 +56,7 @@ maybe('marketing_campaign_runs partial unique indexes against PostgreSQL', () =>
   })
 
   afterAll(async () => {
-    await sql`drop table if exists marketing_campaign_runs`.execute(db)
+    await sql`drop schema if exists ${sql.id(schemaName)} cascade`.execute(db)
     await db.destroy()
   })
 
