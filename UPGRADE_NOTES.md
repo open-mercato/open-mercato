@@ -1,5 +1,17 @@
 # Upgrade Notes
 
+## Event subscribers and worker jobs receive the real DI container (eComm Release 5, step F2)
+
+**Additive (`events`, `cli`, `shared`).** `SubscriberContext` gains an optional `container`: the real DI container behind `ctx.resolve`, on inline delivery and on queued delivery through the events worker (the job's own container first, the bus's otherwise). `CreateBusOptions.container` and the fifth `EventBus.dispatchQueued(..., container?)` argument carry it; `bootstrap` hands the bus its container. A queue worker's job context gets `container` too, but only when the per-job container factory returns one with `register()` (`WorkerJobContainer.register?` is new and optional). Handler code that calls `container.register({ auth: asValue(...) })` before nested command resolution now works there. `@open-mercato/shared/lib/di/scopedContainer` adds `buildScopedContainerFromResolve(resolve)`, a fallback overlay for callers that only hold a bound `resolve`; its `register()` is visible only to its own callers, not to services already bound to the real container. Subscribers that read only `ctx.resolve` are unchanged.
+
+**Behaviour change (`forms`).** Three `forms` subscribers read `ctx.container` and never got one, so they did nothing. They now run:
+
+- `forms.pdf-snapshot.submitted` (`forms.submission.submitted`) enqueues the PDF snapshot of a submitted form. The snapshot is stored as a submission attachment of `kind: 'snapshot'`, so it appears in the submission's attachments and in the GDPR export.
+- `forms.consent-projector.submitted` (`forms.submission.submitted`) writes consent records for submitted consent fields and emits `forms.consent.recorded`.
+- `forms.invitation-email` (`forms.invitation.sent`) sends the reminder e-mail. It sends it only for `forms.invitation.send` (send and resend). `forms.invitation.create` already e-mails the personal link and now marks its `forms.invitation.sent` payload with the additive optional field `source: 'create'`, which the subscriber skips; send and resend emit `source: 'send'`.
+
+**Action:** none required. If you relied on a submission having no attachments, filter out `kind: 'snapshot'`. If you consume `forms.invitation.sent` and want to tell the two paths apart, read `source` (absent on events emitted before this release).
+
 ## CRM preset enables the scheduler (#8804)
 
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
