@@ -11,7 +11,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |---|---|---|---|---|---|
 | 1 | 1.1 | `enforceCheckoutRateLimit` answers 503 under `fail-closed` without a limiter; rewrite the #5030 tests | inline | done | 05d89a21a8 |
-| 1 | 1.2 | UPGRADE_NOTES: checkout half of "Rate limiting fails closed" | inline | done | (this commit) |
+| 1 | 1.2 | UPGRADE_NOTES: checkout half of "Rate limiting fails closed" | inline | done | 07c1d9e90e |
 
 ## Goal
 
