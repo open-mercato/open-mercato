@@ -383,6 +383,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
                 : null
             }
             canManage={canManageTerms}
+            isDefaultGroup={initialValues?.isDefault === true}
             onSaved={setTerms}
           />
         )}

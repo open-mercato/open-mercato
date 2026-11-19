@@ -10,6 +10,7 @@ import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { LookupMultiPicker } from '@open-mercato/ui/backend/inputs/LookupPickers'
 import type { LookupSource } from '@open-mercato/ui/backend/inputs/lookupSources'
 import {
@@ -48,6 +49,10 @@ export type CustomerGroupTermsDTO = {
   approvalRequiredAboveExact?: string | null
   minOrderValue: number | null
   minOrderValueExact?: string | null
+  termsCurrencyCode?: string | null
+  approvalPolicy?: ApprovalPolicy | null
+  allowQuoteRequests?: boolean | null
+  requiresPoNumber?: boolean | null
   assortmentScope?: GroupAssortmentScope | null
   metadata: Record<string, unknown> | null
   createdAt: string
@@ -76,6 +81,25 @@ function fromPurchaseOnAccountValue(value: string | undefined): boolean | null {
   return null
 }
 
+const APPROVAL_POLICIES = ['buyer', 'merchant', 'both'] as const
+type ApprovalPolicy = (typeof APPROVAL_POLICIES)[number]
+const APPROVAL_POLICY_VALUES = ['inherit', ...APPROVAL_POLICIES] as const
+type ApprovalPolicyValue = (typeof APPROVAL_POLICY_VALUES)[number]
+
+function toApprovalPolicyValue(value: ApprovalPolicy | null | undefined): ApprovalPolicyValue {
+  return value && (APPROVAL_POLICIES as readonly string[]).includes(value) ? value : 'inherit'
+}
+
+function fromApprovalPolicyValue(value: string | undefined): ApprovalPolicy | null {
+  return value && (APPROVAL_POLICIES as readonly string[]).includes(value) ? (value as ApprovalPolicy) : null
+}
+
+const TERMS_CURRENCY_PATTERN = /^[A-Za-z]{3}$/
+
+function normalizeCurrencyCode(value: string | undefined): string | null {
+  return value && value.trim().length ? value.trim().toUpperCase() : null
+}
+
 type CustomerGroupTermsFormValues = AssortmentScopeFormValues & {
   priceKindId: string
   paymentTermsDays?: number
@@ -84,6 +108,10 @@ type CustomerGroupTermsFormValues = AssortmentScopeFormValues & {
   creditCurrencyCode: string
   approvalRequiredAbove?: string
   minOrderValue?: string
+  termsCurrencyCode: string
+  approvalPolicy: ApprovalPolicyValue
+  allowQuoteRequests: PurchaseOnAccountValue
+  requiresPoNumber: PurchaseOnAccountValue
 }
 
 function exactAmountOrUndefined(exact: string | null | undefined, legacy: number | null | undefined): string | undefined {
@@ -107,6 +135,10 @@ function mapTermsToFormValues(terms: CustomerGroupTermsDTO | null): CustomerGrou
     creditCurrencyCode: terms?.creditCurrencyCode ?? '',
     approvalRequiredAbove: exactAmountOrUndefined(terms?.approvalRequiredAboveExact, terms?.approvalRequiredAbove),
     minOrderValue: exactAmountOrUndefined(terms?.minOrderValueExact, terms?.minOrderValue),
+    termsCurrencyCode: terms?.termsCurrencyCode ?? '',
+    approvalPolicy: toApprovalPolicyValue(terms?.approvalPolicy),
+    allowQuoteRequests: toPurchaseOnAccountValue(terms?.allowQuoteRequests),
+    requiresPoNumber: toPurchaseOnAccountValue(terms?.requiresPoNumber),
     ...mapAssortmentScopeToFormValues(terms?.assortmentScope),
   }
 }
@@ -119,7 +151,53 @@ const TERMS_FIELD_IDS = [
   'creditCurrencyCode',
   'approvalRequiredAbove',
   'minOrderValue',
+  'termsCurrencyCode',
+  'approvalPolicy',
+  'allowQuoteRequests',
+  'requiresPoNumber',
+  'termsWarnings',
 ]
+
+// Release 5 (spec §7.3, D-R5-CG4): warnings derived from the values being edited.
+// A threshold on the tenant's default group also applies to guests, who cannot be
+// approved (D-R5-12, D-R5-29); a threshold or minimum without a terms currency falls
+// back to the parent chain and then the organization's base currency (D-R5-37), and
+// without either every cart requires approval and no minimum is checked (D-R5-4).
+function CustomerGroupTermsWarnings({
+  values,
+  isDefaultGroup,
+}: {
+  values: Record<string, unknown> | undefined
+  isDefaultGroup: boolean
+}) {
+  const t = useT()
+  const hasApprovalThreshold = !isEmptyAmount(values?.approvalRequiredAbove)
+  const hasMinOrderValue = !isEmptyAmount(values?.minOrderValue)
+  const currency = typeof values?.termsCurrencyCode === 'string' ? values.termsCurrencyCode.trim() : ''
+  const showDefaultGroupWarning = isDefaultGroup && hasApprovalThreshold
+  const showMissingCurrencyWarning = (hasApprovalThreshold || hasMinOrderValue) && currency.length === 0
+  if (!showDefaultGroupWarning && !showMissingCurrencyWarning) return null
+  return (
+    <div className="space-y-2">
+      {showDefaultGroupWarning ? (
+        <Alert status="warning" size="sm" data-testid="customer-group-terms-default-group-warning">
+          {t(
+            'customer_groups.groups.form.terms.warnings.defaultGroupApproval',
+            'This is the default group, so its approval threshold also applies to guests. Guest orders and pay-link orders by guests above this amount are refused, because a guest cannot be asked for approval.',
+          )}
+        </Alert>
+      ) : null}
+      {showMissingCurrencyWarning ? (
+        <Alert status="warning" size="sm" data-testid="customer-group-terms-missing-currency-warning">
+          {t(
+            'customer_groups.groups.form.terms.warnings.missingTermsCurrency',
+            'No terms currency is set on this group. The threshold and minimum order value use the currency inherited from a parent group or, failing that, the organization base currency. Without either, every cart requires approval and no minimum order value is checked.',
+          )}
+        </Alert>
+      ) : null}
+    </div>
+  )
+}
 
 function toIdList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
@@ -155,6 +233,7 @@ export function CustomerGroupTermsSection({
   loading,
   loadError,
   canManage,
+  isDefaultGroup = false,
   onSaved,
 }: {
   groupId: string
@@ -168,6 +247,8 @@ export function CustomerGroupTermsSection({
   // Without `customer_groups.terms.manage` the terms stay viewable but the form is
   // read-only and the empty state offers no "set terms" action — a save would 403.
   canManage: boolean
+  // The tenant's default group also resolves guests' terms (spec §7.3 warning).
+  isDefaultGroup?: boolean
   onSaved: (next: CustomerGroupTermsDTO) => void
 }) {
   const t = useT()
@@ -200,6 +281,16 @@ export function CustomerGroupTermsSection({
           .max(4, t('customer_groups.groups.form.terms.errors.currencyLength', 'Use up to 4 characters.')),
         approvalRequiredAbove: amountSchema,
         minOrderValue: amountSchema,
+        termsCurrencyCode: z
+          .string()
+          .trim()
+          .refine(
+            (value) => value.length === 0 || TERMS_CURRENCY_PATTERN.test(value),
+            t('customer_groups.groups.form.terms.errors.termsCurrencyCode', 'Use a three-letter ISO 4217 code, e.g., EUR.'),
+          ),
+        approvalPolicy: z.enum(APPROVAL_POLICY_VALUES),
+        allowQuoteRequests: z.enum(PURCHASE_ON_ACCOUNT_VALUES),
+        requiresPoNumber: z.enum(PURCHASE_ON_ACCOUNT_VALUES),
         categoryIds: z.array(z.string()).default([]),
         tagIds: z.array(z.string()).default([]),
         excludeProductIds: z.array(z.string()).default([]),
@@ -275,6 +366,65 @@ export function CustomerGroupTermsSection({
         type: 'decimal',
         layout: 'half',
       },
+      {
+        id: 'termsCurrencyCode',
+        label: t('customer_groups.groups.form.terms.field.termsCurrencyCode', 'Terms currency'),
+        type: 'text',
+        layout: 'half',
+        placeholder: t('customer_groups.groups.form.terms.field.termsCurrencyCodePlaceholder', 'Inherit (e.g., EUR)'),
+        description: t(
+          'customer_groups.groups.form.terms.field.termsCurrencyCodeHint',
+          'Currency of the approval threshold and the minimum order value. Carts in another currency always require approval.',
+        ),
+        maxLength: 3,
+      },
+      {
+        id: 'approvalPolicy',
+        label: t('customer_groups.groups.form.terms.field.approvalPolicy', 'Approval policy'),
+        type: 'select',
+        layout: 'half',
+        required: true,
+        description: t(
+          'customer_groups.groups.form.terms.field.approvalPolicyHint',
+          'Who signs a purchase approval request.',
+        ),
+        options: [
+          { value: 'inherit', label: t('customer_groups.groups.form.terms.field.approvalPolicyOptions.inherit', 'Inherit') },
+          { value: 'buyer', label: t('customer_groups.groups.form.terms.field.approvalPolicyOptions.buyer', 'Buyer') },
+          { value: 'merchant', label: t('customer_groups.groups.form.terms.field.approvalPolicyOptions.merchant', 'Merchant') },
+          { value: 'both', label: t('customer_groups.groups.form.terms.field.approvalPolicyOptions.both', 'Buyer and merchant') },
+        ],
+      },
+      {
+        id: 'allowQuoteRequests',
+        label: t('customer_groups.groups.form.terms.field.allowQuoteRequests', 'Allow quote requests'),
+        type: 'select',
+        layout: 'half',
+        required: true,
+        options: [
+          { value: 'inherit', label: t('customer_groups.groups.form.terms.field.allowQuoteRequestsOptions.inherit', 'Inherit') },
+          { value: 'allow', label: t('customer_groups.groups.form.terms.field.allowQuoteRequestsOptions.allow', 'Allow') },
+          { value: 'deny', label: t('customer_groups.groups.form.terms.field.allowQuoteRequestsOptions.deny', 'Do not allow') },
+        ],
+      },
+      {
+        id: 'requiresPoNumber',
+        label: t('customer_groups.groups.form.terms.field.requiresPoNumber', 'Require PO number'),
+        type: 'select',
+        layout: 'half',
+        required: true,
+        options: [
+          { value: 'inherit', label: t('customer_groups.groups.form.terms.field.requiresPoNumberOptions.inherit', 'Inherit') },
+          { value: 'allow', label: t('customer_groups.groups.form.terms.field.requiresPoNumberOptions.require', 'Require') },
+          { value: 'deny', label: t('customer_groups.groups.form.terms.field.requiresPoNumberOptions.notRequired', 'Do not require') },
+        ],
+      },
+      {
+        id: 'termsWarnings',
+        label: '',
+        type: 'custom',
+        component: ({ values }) => <CustomerGroupTermsWarnings values={values} isDefaultGroup={isDefaultGroup} />,
+      },
       scopePickerField(
         'categoryIds',
         t('customer_groups.groups.form.terms.assortment.field.categoryIds', 'Categories'),
@@ -311,7 +461,7 @@ export function CustomerGroupTermsSection({
         !canManage,
       ),
     ],
-    [canManage, t],
+    [canManage, isDefaultGroup, t],
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(
@@ -354,6 +504,10 @@ export function CustomerGroupTermsSection({
             : null,
         approvalRequiredAbove: amountOrNull(values.approvalRequiredAbove),
         minOrderValue: amountOrNull(values.minOrderValue),
+        termsCurrencyCode: normalizeCurrencyCode(values.termsCurrencyCode),
+        approvalPolicy: fromApprovalPolicyValue(values.approvalPolicy),
+        allowQuoteRequests: fromPurchaseOnAccountValue(values.allowQuoteRequests),
+        requiresPoNumber: fromPurchaseOnAccountValue(values.requiresPoNumber),
         assortmentScope: buildAssortmentScopePayload(values),
       }
       // `updateCrud` PUTs to `/api/customer_groups/customer-groups/{groupId}/terms`, matching the
