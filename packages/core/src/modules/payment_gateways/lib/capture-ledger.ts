@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { UnifiedPaymentStatus } from '@open-mercato/shared/modules/payment_gateways/types'
+import { decimalToString, parseDecimal, toDecimal, type DecimalValue } from '@open-mercato/shared/lib/decimal'
 import { GatewayPaymentOperation, GatewayTransaction } from '../data/entities'
 
 type Scope = { organizationId: string; tenantId: string }
@@ -11,10 +12,9 @@ const AMOUNT_UNITS_PER_WHOLE = 10n ** BigInt(AMOUNT_SCALE)
 const DECIMAL_PATTERN = /^(-?)(\d*)(?:\.(\d*))?$/
 
 /**
- * Money in this module lives in `numeric(18,4)` columns and is read back as strings. Every
- * comparison and every sum runs on integer minor units (1 unit = 10^-4) so partial captures
- * never accumulate floating-point drift. Extra precision beyond four decimals is rounded
- * half-up, matching what Postgres would store in the column anyway.
+ * Integer minor units at a fixed 4-decimal scale.
+ * @deprecated The ledger now uses exact decimals (`@open-mercato/shared/lib/decimal`); amounts
+ * are no longer limited to 4 decimals. Removal no earlier than 0.11.0.
  */
 export function parseAmountUnits(value: string | number | null | undefined): bigint {
   if (value === null || value === undefined) return 0n
@@ -32,6 +32,7 @@ export function parseAmountUnits(value: string | number | null | undefined): big
   return match[1] === '-' ? -units : units
 }
 
+/** @deprecated Use decimalToString for exact amounts. Removal no earlier than 0.11.0. */
 export function formatAmountUnits(units: bigint): string {
   const negative = units < 0n
   const absolute = negative ? -units : units
@@ -39,14 +40,30 @@ export function formatAmountUnits(units: bigint): string {
   return `${negative ? '-' : ''}${absolute / AMOUNT_UNITS_PER_WHOLE}.${fraction}`
 }
 
-function formatAmountLabel(units: bigint): string {
+function formatAmountUnitsLabel(units: bigint): string {
   return formatAmountUnits(units).replace(/\.?0+$/, '')
+}
+
+function formatAmountLabel(amount: DecimalValue): string {
+  return decimalToString(amount)
+}
+
+function toLedgerAmount(value: string | number | null | undefined): DecimalValue {
+  if (value === null || value === undefined) return toDecimal(0)
+  const parsed = parseDecimal(value)
+  if (!parsed) throw new Error(`[internal] Unsupported gateway amount value: ${String(value)}`)
+  return parsed
+}
+
+function nonNegative(value: DecimalValue): DecimalValue {
+  return value.lt(0) ? toDecimal(0) : value
 }
 
 function captureConflict(code: string, message: string): CrudHttpError {
   return new CrudHttpError(409, { error: message, code })
 }
 
+/** @deprecated Use ExactCaptureAmounts. Removal no earlier than 0.11.0. */
 export type CaptureAmounts = {
   authorizedUnits: bigint
   capturedUnits: bigint
@@ -54,10 +71,7 @@ export type CaptureAmounts = {
   requestedUnits: bigint
 }
 
-/**
- * Resolves what a capture request means for the transaction's running total. An omitted
- * amount captures everything that is still authorized, not the original full amount.
- */
+/** @deprecated Use resolveCaptureAmountsExact. Removal no earlier than 0.11.0. */
 export function resolveCaptureAmounts(transaction: GatewayTransaction, amount: number | undefined): CaptureAmounts {
   const authorizedUnits = parseAmountUnits(transaction.amount)
   const capturedUnits = parseAmountUnits(transaction.capturedAmount)
@@ -70,11 +84,7 @@ export function resolveCaptureAmounts(transaction: GatewayTransaction, amount: n
   }
 }
 
-/**
- * Rejects a capture whose amount would push the captured-to-date total past the authorized
- * amount. This is the cumulative ceiling: each individual request may look small, but the
- * sum of all captures against one authorization can never exceed it (#4487).
- */
+/** @deprecated Use assertCaptureWithinRemainingExact. Removal no earlier than 0.11.0. */
 export function assertCaptureWithinRemaining(
   transaction: GatewayTransaction,
   amount: number | undefined,
@@ -83,7 +93,7 @@ export function assertCaptureWithinRemaining(
   if (amounts.remainingUnits <= 0n) {
     throw captureConflict(
       'payment_capture_ceiling_exceeded',
-      `Transaction is already fully captured (${formatAmountLabel(amounts.capturedUnits)} of ${formatAmountLabel(amounts.authorizedUnits)})`,
+      `Transaction is already fully captured (${formatAmountUnitsLabel(amounts.capturedUnits)} of ${formatAmountUnitsLabel(amounts.authorizedUnits)})`,
     )
   }
   if (amounts.requestedUnits <= 0n) {
@@ -92,19 +102,13 @@ export function assertCaptureWithinRemaining(
   if (amounts.requestedUnits > amounts.remainingUnits) {
     throw captureConflict(
       'payment_capture_ceiling_exceeded',
-      `Capture amount ${formatAmountLabel(amounts.requestedUnits)} exceeds the ${formatAmountLabel(amounts.remainingUnits)} still capturable on authorized amount ${formatAmountLabel(amounts.authorizedUnits)} (already captured ${formatAmountLabel(amounts.capturedUnits)})`,
+      `Capture amount ${formatAmountUnitsLabel(amounts.requestedUnits)} exceeds the ${formatAmountUnitsLabel(amounts.remainingUnits)} still capturable on authorized amount ${formatAmountUnitsLabel(amounts.authorizedUnits)} (already captured ${formatAmountUnitsLabel(amounts.capturedUnits)})`,
     )
   }
   return amounts
 }
 
-/**
- * Claims the requested slice of the authorized amount before the provider is called, so two
- * concurrent captures can never both charge. The increment is a compare-and-swap on the
- * previous captured-to-date value: whoever loses it never reaches the adapter. The reserved
- * amount is stamped on the operation row in the same transaction, so a retry of the same
- * operation id reuses its reservation instead of reserving twice.
- */
+/** @deprecated Use reserveCaptureAmountExact. Removal no earlier than 0.11.0. */
 export async function reserveCaptureAmount(em: EntityManager, input: {
   transaction: GatewayTransaction
   operation: GatewayPaymentOperation
@@ -115,9 +119,118 @@ export async function reserveCaptureAmount(em: EntityManager, input: {
     return parseAmountUnits(input.operation.reservedAmount)
   }
   const amounts = assertCaptureWithinRemaining(input.transaction, input.amount)
+  const reservedAmount = await reserveCaptureAmountExact(em, {
+    ...input,
+    amount: formatAmountUnits(amounts.requestedUnits),
+  })
+  return parseAmountUnits(reservedAmount)
+}
+
+/** @deprecated Use settleCapturedAmountExact. Removal no earlier than 0.11.0. */
+export function settleCapturedAmount(
+  transaction: GatewayTransaction,
+  reservedUnits: bigint,
+  capturedAmount: number | undefined,
+): void {
+  const actualUnits = typeof capturedAmount === 'number' && Number.isFinite(capturedAmount) && capturedAmount >= 0
+    ? parseAmountUnits(capturedAmount)
+    : reservedUnits
+  if (actualUnits === reservedUnits) return
+  const settledUnits = parseAmountUnits(transaction.capturedAmount) - reservedUnits + actualUnits
+  transaction.capturedAmount = formatAmountUnits(settledUnits < 0n ? 0n : settledUnits)
+}
+
+/** @deprecated Use releaseCaptureAmountExact. Removal no earlier than 0.11.0. */
+export async function releaseCaptureAmount(em: EntityManager, input: {
+  transactionId: string
+  operation: GatewayPaymentOperation
+  reservedUnits: bigint
+  scope: Scope
+}): Promise<boolean> {
+  return releaseCaptureAmountExact(em, {
+    transactionId: input.transactionId,
+    operation: input.operation,
+    reservedAmount: formatAmountUnits(input.reservedUnits),
+    scope: input.scope,
+  })
+}
+
+/** Exact decimal amounts of a capture request against its authorization. */
+export type ExactCaptureAmounts = {
+  authorizedAmount: DecimalValue
+  capturedAmount: DecimalValue
+  remainingAmount: DecimalValue
+  requestedAmount: DecimalValue
+}
+
+/**
+ * Resolves what a capture request means for the transaction's running total. An omitted
+ * amount captures everything that is still authorized, not the original full amount.
+ */
+export function resolveCaptureAmountsExact(
+  transaction: GatewayTransaction,
+  amount: number | string | undefined,
+): ExactCaptureAmounts {
+  const authorizedAmount = toLedgerAmount(transaction.amount)
+  const capturedAmount = toLedgerAmount(transaction.capturedAmount)
+  const remainingAmount = authorizedAmount.minus(capturedAmount)
+  return {
+    authorizedAmount,
+    capturedAmount,
+    remainingAmount,
+    requestedAmount: amount === undefined ? remainingAmount : toLedgerAmount(amount),
+  }
+}
+
+/**
+ * Rejects a capture whose amount would push the captured-to-date total past the authorized
+ * amount. This is the cumulative ceiling: each individual request may look small, but the
+ * sum of all captures against one authorization can never exceed it (#4487).
+ */
+export function assertCaptureWithinRemainingExact(
+  transaction: GatewayTransaction,
+  amount: number | string | undefined,
+): ExactCaptureAmounts {
+  const amounts = resolveCaptureAmountsExact(transaction, amount)
+  if (amounts.remainingAmount.lte(0)) {
+    throw captureConflict(
+      'payment_capture_ceiling_exceeded',
+      `Transaction is already fully captured (${formatAmountLabel(amounts.capturedAmount)} of ${formatAmountLabel(amounts.authorizedAmount)})`,
+    )
+  }
+  if (amounts.requestedAmount.lte(0)) {
+    throw captureConflict('payment_capture_amount_invalid', 'Capture amount must be greater than zero')
+  }
+  if (amounts.requestedAmount.gt(amounts.remainingAmount)) {
+    throw captureConflict(
+      'payment_capture_ceiling_exceeded',
+      `Capture amount ${formatAmountLabel(amounts.requestedAmount)} exceeds the ${formatAmountLabel(amounts.remainingAmount)} still capturable on authorized amount ${formatAmountLabel(amounts.authorizedAmount)} (already captured ${formatAmountLabel(amounts.capturedAmount)})`,
+    )
+  }
+  return amounts
+}
+
+/**
+ * Claims the requested slice of the authorized amount before the provider is called, so two
+ * concurrent captures can never both charge. The increment is a compare-and-swap on the
+ * previous captured-to-date value: whoever loses it never reaches the adapter. The reserved
+ * amount is stamped on the operation row in the same transaction, so a retry of the same
+ * operation id reuses its reservation instead of reserving twice. Returns the reserved amount
+ * as an exact decimal string.
+ */
+export async function reserveCaptureAmountExact(em: EntityManager, input: {
+  transaction: GatewayTransaction
+  operation: GatewayPaymentOperation
+  amount: number | string | undefined
+  scope: Scope
+}): Promise<string> {
+  if (input.operation.reservedAmount !== null && input.operation.reservedAmount !== undefined) {
+    return decimalToString(toLedgerAmount(input.operation.reservedAmount))
+  }
+  const amounts = assertCaptureWithinRemainingExact(input.transaction, input.amount)
   const previousCapturedAmount = input.transaction.capturedAmount
-  const reservedAmount = formatAmountUnits(amounts.requestedUnits)
-  const nextCapturedAmount = formatAmountUnits(amounts.capturedUnits + amounts.requestedUnits)
+  const reservedAmount = decimalToString(amounts.requestedAmount)
+  const nextCapturedAmount = decimalToString(amounts.capturedAmount.plus(amounts.requestedAmount))
 
   await em.transactional(async (tx) => {
     const reserved = await tx.nativeUpdate(
@@ -156,7 +269,7 @@ export async function reserveCaptureAmount(em: EntityManager, input: {
   })
 
   Object.assign(input.operation, { reservedAmount })
-  return amounts.requestedUnits
+  return reservedAmount
 }
 
 /**
@@ -164,17 +277,17 @@ export async function reserveCaptureAmount(em: EntityManager, input: {
  * instance loaded inside the completion transaction, so the adjustment commits together with
  * the operation result.
  */
-export function settleCapturedAmount(
+export function settleCapturedAmountExact(
   transaction: GatewayTransaction,
-  reservedUnits: bigint,
-  capturedAmount: number | undefined,
+  reservedAmount: string,
+  capturedAmount: number | string | undefined,
 ): void {
-  const actualUnits = typeof capturedAmount === 'number' && Number.isFinite(capturedAmount) && capturedAmount >= 0
-    ? parseAmountUnits(capturedAmount)
-    : reservedUnits
-  if (actualUnits === reservedUnits) return
-  const settledUnits = parseAmountUnits(transaction.capturedAmount) - reservedUnits + actualUnits
-  transaction.capturedAmount = formatAmountUnits(settledUnits < 0n ? 0n : settledUnits)
+  const reserved = toLedgerAmount(reservedAmount)
+  const reported = capturedAmount === undefined ? null : parseDecimal(capturedAmount)
+  const actual = reported && reported.gte(0) ? reported : reserved
+  if (actual.eq(reserved)) return
+  const settled = toLedgerAmount(transaction.capturedAmount).minus(reserved).plus(actual)
+  transaction.capturedAmount = decimalToString(nonNegative(settled))
 }
 
 /**
@@ -190,9 +303,9 @@ export function alignCapturedAmountWithStatus(
   status: UnifiedPaymentStatus,
 ): void {
   if (status !== 'captured') return
-  const authorizedUnits = parseAmountUnits(transaction.amount)
-  if (parseAmountUnits(transaction.capturedAmount) >= authorizedUnits) return
-  transaction.capturedAmount = formatAmountUnits(authorizedUnits)
+  const authorized = toLedgerAmount(transaction.amount)
+  if (toLedgerAmount(transaction.capturedAmount).gte(authorized)) return
+  transaction.capturedAmount = decimalToString(authorized)
 }
 
 /**
@@ -202,13 +315,13 @@ export function alignCapturedAmountWithStatus(
  * means the reservation is still held — the conservative outcome when it is unknown whether
  * the provider took the money.
  */
-export async function releaseCaptureAmount(em: EntityManager, input: {
+export async function releaseCaptureAmountExact(em: EntityManager, input: {
   transactionId: string
   operation: GatewayPaymentOperation
-  reservedUnits: bigint
+  reservedAmount: string
   scope: Scope
 }): Promise<boolean> {
-  const reservedAmount = formatAmountUnits(input.reservedUnits)
+  const reservedAmount = decimalToString(toLedgerAmount(input.reservedAmount))
   try {
     return await em.transactional(async (tx) => {
       const current = await findOneWithDecryption(
@@ -223,8 +336,8 @@ export async function releaseCaptureAmount(em: EntityManager, input: {
         input.scope,
       )
       if (!current) return false
-      const releasedUnits = parseAmountUnits(current.capturedAmount) - input.reservedUnits
-      const released = await tx.nativeUpdate(
+      const released = toLedgerAmount(current.capturedAmount).minus(reservedAmount)
+      const updated = await tx.nativeUpdate(
         GatewayTransaction,
         {
           id: input.transactionId,
@@ -232,9 +345,9 @@ export async function releaseCaptureAmount(em: EntityManager, input: {
           tenantId: input.scope.tenantId,
           capturedAmount: current.capturedAmount,
         },
-        { capturedAmount: formatAmountUnits(releasedUnits < 0n ? 0n : releasedUnits), updatedAt: new Date() },
+        { capturedAmount: decimalToString(nonNegative(released)), updatedAt: new Date() },
       )
-      if (released !== 1) return false
+      if (updated !== 1) return false
       const cleared = await tx.nativeUpdate(
         GatewayPaymentOperation,
         {
