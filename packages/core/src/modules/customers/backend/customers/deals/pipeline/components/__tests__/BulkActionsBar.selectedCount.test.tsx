@@ -11,20 +11,13 @@ import es from '../../../../../../i18n/es.json'
 import ko from '../../../../../../i18n/ko.json'
 
 type Dictionary = Record<string, string>
-type Params = Record<string, string | number>
 
 let activeDictionary: Dictionary = en
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (key: string, params?: Params) => {
-    const template = activeDictionary[key]
-    if (template === undefined) return key
-    if (!params) return template
-    return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-      name in params ? String(params[name]) : match,
-    )
-  },
-}))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const { createTranslator } = jest.requireActual('@open-mercato/shared/lib/i18n/translate')
+  return { useT: () => createTranslator(activeDictionary) }
+})
 
 import { BulkActionsBar } from '../BulkActionsBar'
 
@@ -81,6 +74,14 @@ describe('BulkActionsBar selected count (#9377)', () => {
     const summary = renderBar({ ...en, [SELECTED_COUNT_KEY]: 'selected' }, 3)
 
     expect(readParts(summary)).toBe('3 selected')
+  })
+
+  it('resolves a double-brace placeholder the way the shared translator does', () => {
+    const summary = renderBar({ ...en, [SELECTED_COUNT_KEY]: '{{count}} selected' }, 3)
+
+    expect(readParts(summary)).toBe('3 selected')
+    expect(summary.textContent).not.toContain('{')
+    expect(summary.textContent).not.toContain('}')
   })
 
   it('keeps the count in front when the placeholder leads the sentence', () => {

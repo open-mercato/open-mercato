@@ -7,14 +7,14 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
-const COUNT_PLACEHOLDER = '{count}'
+const COUNT_MARKER = '\uE000'
 
-function splitAroundCount(template: string): { before: string; after: string } {
-  const index = template.indexOf(COUNT_PLACEHOLDER)
-  if (index === -1) return { before: '', after: template.trim() }
+function splitAroundCount(text: string): { before: string; after: string } {
+  const index = text.indexOf(COUNT_MARKER)
+  if (index === -1) return { before: '', after: text.trim() }
   return {
-    before: template.slice(0, index).trim(),
-    after: template.slice(index + COUNT_PLACEHOLDER.length).trim(),
+    before: text.slice(0, index).trim(),
+    after: text.slice(index + COUNT_MARKER.length).trim(),
   }
 }
 
@@ -64,7 +64,9 @@ export function BulkActionsBar({
   if (count === 0) return null
 
   const selectedLabel = splitAroundCount(
-    translateWithFallback(t, 'customers.deals.kanban.bulk.selectedCount', '{count} selected'),
+    translateWithFallback(t, 'customers.deals.kanban.bulk.selectedCount', '{count} selected', {
+      count: COUNT_MARKER,
+    }),
   )
 
   return (
