@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { traceIngestSchema } from '../data/validators'
 import { ingestTrace, type IngestTraceResult } from '../lib/trace/traceIngestionService'
-import { createArtifactOffloader } from '../lib/trace/artifactStore'
+import { createArtifactResultOffloader } from '../lib/trace/artifactStore'
+import { resolveIngestContentCapture } from '../lib/trace/ingestContentCapture'
 import { evaluateRun } from '../lib/eval/evalRuntimeService'
 import { resolveJudgeSampleRate, shouldSampleForJudge } from '../lib/eval/sampling'
 import { AgentEvalAssertion, AgentRun } from '../data/entities'
@@ -34,7 +35,8 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const result = await ingestTrace(em, scope, input.payload, {
-      offloadArtifact: createArtifactOffloader(ctx.container, scope),
+      offloadArtifactResult: createArtifactResultOffloader(ctx.container, scope),
+      ...(await resolveIngestContentCapture(ctx.container, scope, input.payload)),
     })
     // The ingest rewrites run status, usage and cost — everything the cached
     // runs list shows — so its tags have to go with it.

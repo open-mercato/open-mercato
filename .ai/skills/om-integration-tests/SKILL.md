@@ -371,7 +371,7 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts packages/core/src
 
 When converting multiple scenarios at once:
 
-1. List unconverted scenarios by comparing `.ai/qa/scenarios/` vs discovered `**/__integration__/**/*.spec.ts`
+1. List unconverted scenarios by comparing `.ai/qa/scenarios/TC-*.md` (other files there, such as `om-auto-qa-scenarios` reports, are not scenarios) vs discovered `**/__integration__/**/*.spec.ts`
 2. Convert one category at a time
 3. Run the full suite after each category to catch cross-test issues
 4. Report summary: total converted, passed, failed

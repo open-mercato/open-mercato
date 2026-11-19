@@ -4,6 +4,11 @@ import * as React from 'react'
 import { render as rtlRender, fireEvent, screen, waitFor } from '@testing-library/react'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { ColorPicker, normalizeHex, COLOR_PICKER_DEFAULT_SWATCHES } from '../color-picker'
+import enCatalog from '../../../../../apps/mercato/src/i18n/en.json'
+import plCatalog from '../../../../../apps/mercato/src/i18n/pl.json'
+import deCatalog from '../../../../../apps/mercato/src/i18n/de.json'
+import esCatalog from '../../../../../apps/mercato/src/i18n/es.json'
+import koCatalog from '../../../../../apps/mercato/src/i18n/ko.json'
 
 // ColorPicker uses useT() for the eyedropper aria-label; wrap every
 // render in an empty-dict I18nProvider so the primitive falls back
@@ -613,5 +618,39 @@ describe('ColorPicker', () => {
     const ref = React.createRef<HTMLButtonElement>()
     render(<ColorPicker ref={ref} value="#6366F1" onChange={() => {}} />)
     expect(ref.current?.getAttribute('data-slot')).toBe('color-picker-trigger')
+  })
+})
+
+
+describe('ColorPicker translated defaults', () => {
+  it.each([
+    ['en', enCatalog], ['pl', plCatalog], ['de', deCatalog], ['es', esCatalog], ['ko', koCatalog],
+  ] as const)('localizes the %s popup controls and hue accessible name', async (locale, dict) => {
+    rtlRender(
+      <I18nProvider locale={locale} dict={dict}>
+        <ColorPicker value="#6366F1" onChange={jest.fn()} onAddSwatch={jest.fn()} onEditSavedColors={jest.fn()} onRemoveColor={jest.fn()} />
+      </I18nProvider>,
+    )
+    fireEvent.click(document.querySelector('[data-slot="color-picker-trigger"]')!)
+    expect(await screen.findByText(dict['ui.colorPicker.choose'])).toBeInTheDocument()
+    expect(screen.getByText(dict['ui.colorPicker.saved'])).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: dict['ui.colorPicker.add'] })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: dict['ui.colorPicker.edit'] })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: dict['ui.colorPicker.remove'] })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: dict['ui.colorPicker.hue'].replace('{label}', dict['ui.colorPicker.choose']) })).toBeInTheDocument()
+    expect(screen.getByText(dict['ui.colorPicker.selected'])).toBeInTheDocument()
+  })
+
+  it('keeps explicit labels ahead of translated defaults and interpolates the custom hue label', async () => {
+    rtlRender(
+      <I18nProvider locale="pl" dict={plCatalog}>
+        <ColorPicker value="#6366F1" onChange={jest.fn()} chooseLabel="Custom choice" savedLabel="Custom saved" addLabel="Custom add" editLabel="Custom edit" removeAriaLabel="Custom remove" onAddSwatch={jest.fn()} onEditSavedColors={jest.fn()} onRemoveColor={jest.fn()} />
+      </I18nProvider>,
+    )
+    fireEvent.click(document.querySelector('[data-slot="color-picker-trigger"]')!)
+    expect(await screen.findByText('Custom choice')).toBeInTheDocument()
+    expect(screen.getByText('Custom saved')).toBeInTheDocument()
+    for (const name of ['Custom add', 'Custom edit', 'Custom remove']) expect(screen.getByRole('button', { name })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Custom choice: odcień' })).toBeInTheDocument()
   })
 })

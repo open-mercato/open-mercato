@@ -8,6 +8,7 @@ import type {
   IndexableRecord,
   PresenterEnricherFn,
 } from './types'
+import { resolveEntityIndexStrategies } from './lib/entity-strategy-policy'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
 
@@ -123,6 +124,8 @@ export class SearchService {
   private readonly fallbackStrategy: SearchStrategyId | undefined
   private readonly mergeConfig: ResultMergeConfig
   private readonly presenterEnricher?: PresenterEnricherFn
+  private readonly resolveEntityStrategies?: SearchServiceOptions['resolveEntityStrategies']
+  private readonly resolveResultFilter?: SearchServiceOptions['resolveResultFilter']
   private readonly availabilityCache = new Map<SearchStrategyId, { value: boolean; expiresAt: number }>()
   private readonly availabilityInflight = new Map<SearchStrategyId, Promise<boolean>>()
   private readonly availabilityCacheTtlMs: number
@@ -136,6 +139,8 @@ export class SearchService {
     this.fallbackStrategy = options.fallbackStrategy
     this.mergeConfig = options.mergeConfig ?? DEFAULT_MERGE_CONFIG
     this.presenterEnricher = options.presenterEnricher
+    this.resolveEntityStrategies = options.resolveEntityStrategies
+    this.resolveResultFilter = options.resolveResultFilter
     this.availabilityCacheTtlMs = options.availabilityCacheTtlMs ?? STRATEGY_AVAILABILITY_CACHE_TTL_MS
   }
 
@@ -225,9 +230,54 @@ export class SearchService {
         return [{ ...result, organizationId: null }]
       })
     const merged = mergeAndRankResults(scoped, this.mergeConfig)
+    const visible = await this.filterResultsByVisibility(merged, options)
 
     // Enrich results missing presenter or navigation metadata
-    return this.enrichResultsWithPresenter(merged, options.tenantId, options.organizationId)
+    return this.enrichResultsWithPresenter(visible, options.tenantId, options.organizationId)
+  }
+
+  /**
+   * Apply each entity's `filterResults` hook. Entities without the hook pass
+   * through; an entity with the hook loses every result when the search has no
+   * viewer or the hook throws (fail closed).
+   */
+  private async filterResultsByVisibility(results: SearchResult[], options: SearchOptions): Promise<SearchResult[]> {
+    if (!this.resolveResultFilter || results.length === 0) return results
+    const resultsByEntity = new Map<string, SearchResult[]>()
+    for (const result of results) {
+      const bucket = resultsByEntity.get(result.entityId)
+      if (bucket) bucket.push(result)
+      else resultsByEntity.set(result.entityId, [result])
+    }
+    const denied = new Set<SearchResult>()
+    for (const [entityId, entityResults] of resultsByEntity) {
+      const filterResults = this.resolveResultFilter(entityId)
+      if (!filterResults) continue
+      if (!options.viewer) {
+        for (const result of entityResults) denied.add(result)
+        continue
+      }
+      try {
+        const allowed = new Set(await filterResults({
+          entityId,
+          results: entityResults,
+          tenantId: options.tenantId,
+          organizationId: options.organizationId ?? null,
+          organizationIds: options.organizationIds ?? null,
+          viewer: options.viewer,
+        }))
+        for (const result of entityResults) {
+          if (!allowed.has(result)) denied.add(result)
+        }
+      } catch (error) {
+        searchError('SearchService', 'Result visibility filter failed', {
+          entityId,
+          error: error instanceof Error ? error.message : error,
+        })
+        for (const result of entityResults) denied.add(result)
+      }
+    }
+    return denied.size ? results.filter((result) => !denied.has(result)) : results
   }
 
   /**
@@ -256,7 +306,9 @@ export class SearchService {
    * @param record - Record to index
    */
   async index(record: IndexableRecord): Promise<void> {
-    const strategies = await this.getAvailableStrategies()
+    const strategies = (await this.getAvailableStrategies()).filter((strategy) =>
+      this.isIndexStrategyAllowed(record.entityId, strategy.id),
+    )
 
     if (strategies.length === 0) {
       return
@@ -301,12 +353,14 @@ export class SearchService {
 
     const results = await Promise.allSettled(
       strategies.map((strategy) => {
+        const allowedRecords = records.filter((record) => this.isIndexStrategyAllowed(record.entityId, strategy.id))
+        if (allowedRecords.length === 0) return Promise.resolve()
         if (strategy.bulkIndex) {
-          return strategy.bulkIndex(records)
+          return strategy.bulkIndex(allowedRecords)
         }
         // Fallback to individual indexing, bounded so a strategy without a batch
         // implementation cannot turn one batch job into hundreds of concurrent writes.
-        return mapWithConcurrency(records, BULK_INDEX_FALLBACK_CONCURRENCY, (record) =>
+        return mapWithConcurrency(allowedRecords, BULK_INDEX_FALLBACK_CONCURRENCY, (record) =>
           this.executeStrategyIndex(strategy, record),
         )
       }),
@@ -513,6 +567,15 @@ export class SearchService {
     })()
     this.availabilityInflight.set(strategy.id, probe)
     return probe
+  }
+
+  private isIndexStrategyAllowed(entityId: string, strategyId: SearchStrategyId): boolean {
+    if (this.resolveEntityStrategies) {
+      const allowedStrategies = this.resolveEntityStrategies(entityId)
+      return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
+    }
+    const allowedStrategies = resolveEntityIndexStrategies(entityId)
+    return allowedStrategies === undefined || allowedStrategies.includes(strategyId)
   }
 
   /**

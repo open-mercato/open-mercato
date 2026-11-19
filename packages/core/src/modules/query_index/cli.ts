@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -21,7 +22,8 @@ import {
   mergeUpsertIndexBatchResults,
   type AnyRow,
 } from './lib/batch'
-import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import { createSearchTokenGateQueryEngine } from './lib/search-entity-policy'
+import { reindexEntity, isTenantlessReindexTarget, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import type { ReindexJobResult } from './lib/reindexer'
 
 /**
@@ -89,22 +91,7 @@ function createGroupedProgress(label: string, partitionTargets: number[]) {
 }
 
 function parseArgs(rest: string[]): ParsedArgs {
-  const args: ParsedArgs = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part?.startsWith('--')) continue
-    const [rawKey, rawValue] = part.slice(2).split('=')
-    if (!rawKey) continue
-    if (rawValue !== undefined) {
-      args[rawKey] = rawValue
-    } else if (i + 1 < rest.length && !rest[i + 1]!.startsWith('--')) {
-      args[rawKey] = rest[i + 1]!
-      i += 1
-    } else {
-      args[rawKey] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { skipEmptyKeys: true, consumeEmptyValues: true })
 }
 
 function stringOption(args: ParsedArgs, ...keys: string[]): string | undefined {
@@ -206,6 +193,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
 
   const encryption = resolveTenantEncryptionService(em as any)
   const dekKeyCache = new Map<string | null, string | null>()
+  const searchTokenGateQueryEngine = createSearchTokenGateQueryEngine(em)
 
   // Neither helper swallows failures: upsertIndexBatch treats a failed encrypt as a
   // failed row (writing the plaintext document instead would break encryption at rest)
@@ -261,7 +249,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
       .executeTakeFirst() as AnyRow | undefined
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
-    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
+    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine })
     bar.update(singleResult.written)
     bar.complete()
     assertIndexBatchWritesLanded(entityType, singleResult)
@@ -303,7 +291,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     const chunkResult = await upsertIndexBatch(db, entityType, chunk as AnyRow[], {
       orgId: orgOverride,
       tenantId: tenantOverride,
-    }, { encryptDoc, decryptDoc })
+    }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine })
     mergeUpsertIndexBatchResults(writeTotals, chunkResult)
 
     processed += chunkResult.written
@@ -947,6 +935,22 @@ const reindex: ModuleCli = {
         if (!skipPurge) {
           console.log(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
           await purgeIndexScope(baseEm, { entityType: id, organizationId: orgId, tenantId })
+        }
+        if (tenantId != null && await isTenantlessReindexTarget(baseEm, id)) {
+          console.log(`[${idx + 1}/${entityIds.length}] Skipping ${id}: its table has no tenant_id column, so it is not tenant-scoped`)
+          await recordIndexerLog(
+            { em: baseEm },
+            {
+              source: 'query_index',
+              handler: 'cli:query_index.reindex',
+              message: `Reindex skipped for ${id}: not tenant-scoped`,
+              entityType: id,
+              tenantId,
+              organizationId: orgId ?? null,
+              details: { skipped: 'no-tenant-column' },
+            },
+          ).catch(() => undefined)
+          continue
         }
         console.log(
           `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,

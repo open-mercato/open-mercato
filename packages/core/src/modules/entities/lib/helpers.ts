@@ -200,7 +200,8 @@ export async function setRecordCustomFields(
     // the caller's organization (#6468). Collapse it to one value so the scalar branch
     // below reconciles the duplicates away.
     const collapseToSingle = Array.isArray(raw) && Boolean(def) && (def as any).configJson?.multi !== true
-    const isArray = Array.isArray(raw) && !collapseToSingle
+    const isArray = (Array.isArray(raw) && !collapseToSingle)
+      || (raw === null && def?.configJson?.multi === true)
     // When array (multi-value): replace all existing rows for the key. Delete
     // first, then create replacements, all inside the transaction opened above.
     // Creating rows before a native delete can auto-flush and delete the new
@@ -208,7 +209,7 @@ export async function setRecordCustomFields(
     // observed to commit an empty set under MikroORM v7. The explicit order keeps
     // the replacement atomic without letting old-row cleanup target new rows.
     if (isArray) {
-      const arr = raw as Primitive[]
+      const arr = Array.isArray(raw) ? raw.filter((value) => value != null) : []
       // Reconciling delete (see tenantScopeFilter/reconcileScopeFilter): pinning
       // organizationId here left the rows written under the record's PREVIOUS
       // organization alive next to the replacements, and the Query Engine's value join
