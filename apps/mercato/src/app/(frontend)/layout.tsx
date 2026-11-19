@@ -3,9 +3,10 @@ import Link from 'next/link'
 import { PortalLayoutShell } from '@open-mercato/ui/portal/PortalLayoutShell'
 import { getCustomerAuthFromCookies } from '@open-mercato/core/modules/customer_accounts/lib/customerAuthServer'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { resolvePortalOrganization } from '@open-mercato/core/modules/directory/lib/resolvePortalOrganization'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -29,11 +30,6 @@ function isPortalRootRoute(pathname: string): boolean {
 function isPublicPortalRoute(pathname: string): boolean {
   if (isPortalRootRoute(pathname)) return true
   return PUBLIC_SUFFIXES.some((s) => pathname.endsWith(s))
-}
-
-function getOrganizationTenantId(org: Organization): string | null {
-  const tenant = (org as any).tenant
-  return typeof tenant === 'string' ? tenant : tenant?.id ? String(tenant.id) : null
 }
 
 async function renderPortalAccessDenied() {
@@ -80,29 +76,15 @@ export default async function FrontendLayout({ children }: LayoutProps) {
 
   try {
     const container = await createRequestContainer()
-    const em = container.resolve('em') as EntityManager
-
-    const authOrg = customerAuth
-      ? await em.findOne(Organization, {
-          id: customerAuth.orgId,
-          slug: orgSlug,
-          deletedAt: null,
-        } as any)
-      : null
+    const org = await resolvePortalOrganization(container, orgSlug, headerStore.get('host'))
     customerAuthMatchesUrlOrg = !!customerAuth
-      && !!authOrg
-      && String(authOrg.id) === customerAuth.orgId
-
-    const org = customerAuthMatchesUrlOrg
-      ? authOrg
-      : (!customerAuth || isPublic)
-        ? await em.findOne(Organization, { slug: orgSlug, deletedAt: null }, { populate: ['tenant'] })
-        : null
+      && org?.id === customerAuth.orgId
+      && org.tenantId === customerAuth.tenantId
 
     if (org) {
       orgName = org.name
-      organizationId = String(org.id)
-      tenantId = customerAuthMatchesUrlOrg && customerAuth ? customerAuth.tenantId : getOrganizationTenantId(org)
+      organizationId = org.id
+      tenantId = org.tenantId
     }
 
     if (customerAuth && !isPublic && !customerAuthMatchesUrlOrg) {
@@ -118,7 +100,9 @@ export default async function FrontendLayout({ children }: LayoutProps) {
     }
 
     if (!portalAccessDenied && customerAuthMatchesUrlOrg && customerAuth) {
-      const user = await em.findOne(CustomerUser, { id: customerAuth.sub } as any)
+      const em = container.resolve<EntityManager>('em')
+      const scope = { tenantId: customerAuth.tenantId, organizationId: customerAuth.orgId }
+      const user = await findOneWithDecryption(em, CustomerUser, { id: customerAuth.sub, ...scope, deletedAt: null }, {}, scope)
       if (user) {
         userName = user.displayName || customerAuth.email
         userEmail = user.email || customerAuth.email

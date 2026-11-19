@@ -1,40 +1,27 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { slugify } from '@open-mercato/shared/lib/slugify'
+import { allocateOrganizationSlug, isOrganizationSlugConflict } from './lib/organizationSlug'
 
 async function backfillOrganizationSlugs(em: EntityManager, tenantId: string) {
-  const filter: FilterQuery<Organization> = {
+  const orgs = await findWithDecryption(em, Organization, {
     tenant: tenantId,
     slug: null,
     deletedAt: null,
-  } as unknown as FilterQuery<Organization>
-  const orgs = await em.find(Organization, filter)
-  if (!orgs.length) return
+  }, { orderBy: { createdAt: 'ASC', id: 'ASC' } }, { tenantId })
 
-  const existingSlugs = new Set<string>()
-  const allFilter: FilterQuery<Organization> = {
-    tenant: tenantId,
-    deletedAt: null,
-  } as unknown as FilterQuery<Organization>
-  const allOrgs = await em.find(Organization, allFilter, { fields: ['slug'] as any })
-  for (const org of allOrgs) {
-    if (org.slug) existingSlugs.add(org.slug)
-  }
-
+  const assigned = new Map<Organization, string>()
+  const reserved = new Set<string>()
   for (const org of orgs) {
     const base = slugify(org.name)
     if (!base) continue
-    let candidate = base
-    let suffix = 0
-    while (existingSlugs.has(candidate)) {
-      suffix += 1
-      candidate = `${base}-${suffix}`
-    }
-    org.slug = candidate
-    existingSlugs.add(candidate)
+    const slug = await allocateOrganizationSlug(em, tenantId, base, { reserved })
+    assigned.set(org, slug)
+    reserved.add(slug)
   }
-  await em.flush()
+  for (const [org, slug] of assigned) org.slug = slug
 }
 
 export const setup: ModuleSetupConfig = {
@@ -44,7 +31,16 @@ export const setup: ModuleSetupConfig = {
   },
 
   async seedDefaults({ em, tenantId }) {
-    await backfillOrganizationSlugs(em as EntityManager, tenantId)
+    const manager = em as EntityManager
+    const maxAttempts = 3
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await manager.transactional((transaction) => backfillOrganizationSlugs(transaction, tenantId), { clear: true })
+        return
+      } catch (error) {
+        if (attempt === maxAttempts || !isOrganizationSlugConflict(error)) throw error
+      }
+    }
   },
 }
 

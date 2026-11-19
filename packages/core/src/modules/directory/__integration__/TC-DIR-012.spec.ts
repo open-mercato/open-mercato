@@ -3,15 +3,8 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteGeneralEntityIfExists } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
- * TC-DIR-012: Organization slug uniqueness is enforced within a tenant
- * Covers: POST /api/directory/organizations
- *
- * Slug uniqueness per tenant is backed by the DB constraint `organizations_tenant_slug_uniq`
- * on (tenant_id, slug). The create command does NOT reject a colliding slug — it calls
- * `resolveUniqueSlug`, which auto-suffixes (`-1`, `-2`, ...) so the second create succeeds with
- * a distinct slug. The same slug is therefore unique *within* a tenant but allowed *across*
- * tenants. This test documents that contract: a same-tenant duplicate yields two organizations
- * with distinct slugs (no rejection), and the identical slug is accepted verbatim in another tenant.
+ * TC-DIR-012: Organization creation and updates allocate globally unique portal slugs.
+ * Covers POST and PUT /api/directory/organizations and GET /api/directory/organizations/lookup.
  */
 type ManageItem = { id?: string; slug?: string | null };
 
@@ -36,7 +29,7 @@ async function fetchOrgSlugs(
   return map;
 }
 
-test.describe('TC-DIR-012: Organization slug uniqueness within a tenant', () => {
+test.describe('TC-DIR-012: Organization portal slug allocation', () => {
   let superToken: string | null = null;
   let tenantA: string | null = null;
   let tenantB: string | null = null;
@@ -71,7 +64,7 @@ test.describe('TC-DIR-012: Organization slug uniqueness within a tenant', () => 
     await deleteGeneralEntityIfExists(request, superToken, '/api/directory/tenants', tenantB);
   });
 
-  test('a duplicate slug in the same tenant is auto-resolved, not rejected', async ({ request }) => {
+  test('organizations receive distinct portal addresses across tenants', async ({ request }) => {
     const firstRes = await apiRequest(request, 'POST', '/api/directory/organizations', {
       token: superToken!,
       data: { name: `QA TC-DIR-012 A1 ${stamp}`, slug, tenantId: tenantA },
@@ -92,24 +85,32 @@ test.describe('TC-DIR-012: Organization slug uniqueness within a tenant', () => 
 
     const slugs = await fetchOrgSlugs(request, superToken!, tenantA!, [firstId, secondId]);
     expect(slugs.get(firstId), 'the first org should keep the requested slug').toBe(slug);
-    expect(slugs.get(secondId), 'the second org should receive an auto-resolved slug').toBeTruthy();
-    expect(
-      slugs.get(secondId),
-      'the auto-resolved slug must differ from the original',
-    ).not.toBe(slug);
-  });
-
-  test('the same slug is allowed verbatim in a different tenant', async ({ request }) => {
+    expect(slugs.get(secondId)).toBe(`${slug}-1`);
     const res = await apiRequest(request, 'POST', '/api/directory/organizations', {
       token: superToken!,
-      data: { name: `QA TC-DIR-012 B1 ${stamp}`, slug, tenantId: tenantB },
+      data: { name: `QA TC-DIR-012 B1 ${stamp}`, slug: slug.toUpperCase(), tenantId: tenantB },
     });
-    expect(res.status(), 'the same slug should be accepted in another tenant').toBe(201);
+    expect(res.status(), 'organization creation should allocate the next slug').toBe(201);
     const id = ((await res.json()) as { id?: string }).id!;
     expect(id).toBeTruthy();
     orgIds.push(id);
 
-    const slugs = await fetchOrgSlugs(request, superToken!, tenantB!, [id]);
-    expect(slugs.get(id), 'the slug should be stored verbatim in the other tenant').toBe(slug);
+    const otherTenantSlugs = await fetchOrgSlugs(request, superToken!, tenantB!, [id]);
+    expect(otherTenantSlugs.get(id)).toBe(`${slug}-2`);
+
+    const update = await apiRequest(request, 'PUT', '/api/directory/organizations', {
+      token: superToken!,
+      data: { id, tenantId: tenantB, slug: `${slug}-1` },
+    });
+    expect(update.status()).toBe(200);
+    const updatedSlug = `${slug}-1-1`;
+    const updatedSlugs = await fetchOrgSlugs(request, superToken!, tenantB!, [id]);
+    expect(updatedSlugs.get(id)).toBe(updatedSlug);
+
+    for (const [portalSlug, expectedId] of [[slug, firstId], [updatedSlug, id]]) {
+      const lookup = await request.get(`/api/directory/organizations/lookup?slug=${encodeURIComponent(portalSlug)}`);
+      expect(lookup.status()).toBe(200);
+      expect(await lookup.json()).toMatchObject({ organization: { id: expectedId, slug: portalSlug } });
+    }
   });
 });

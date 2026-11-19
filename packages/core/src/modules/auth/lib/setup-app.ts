@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
+import { isOrganizationSlugConflict, organizationSlugFilter } from '@open-mercato/core/modules/directory/lib/organizationSlug'
 import { normalizeTenantId } from './tenantAccess'
 import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
@@ -251,7 +252,7 @@ export async function setupInitialTenant(
     const slugConflict = await findOneWithDecryption(
       em,
       Organization,
-      { slug: options.orgSlug },
+      organizationSlugFilter(options.orgSlug),
       {},
       { tenantId: null, organizationId: null },
     )
@@ -429,6 +430,9 @@ export async function setupInitialTenant(
           defaultEncryptionMaps,
         )
       }
+    }).catch((error: unknown) => {
+      if (options.orgSlug && isOrganizationSlugConflict(error)) throw new OrgSlugExistsError(options.orgSlug)
+      throw error
     })
 
     await em.transactional(async (tem) => {

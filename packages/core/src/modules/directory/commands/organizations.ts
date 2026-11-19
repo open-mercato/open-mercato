@@ -1,6 +1,6 @@
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
@@ -37,6 +37,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { slugify } from '@open-mercato/shared/lib/slugify'
+import { allocateOrganizationSlug, isOrganizationSlugConflict } from '../lib/organizationSlug'
 
 export const organizationCrudEvents: CrudEventsConfig = {
   module: 'directory',
@@ -370,21 +371,10 @@ async function clearRemovedChildren(em: EntityManager, tenantId: string, recordI
   await em.persist(toPersist).flush()
 }
 
-async function resolveUniqueSlug(em: EntityManager, tenantId: string, baseSlug: string, excludeId?: string): Promise<string> {
-  let candidate = baseSlug
-  let suffix = 0
-  const maxAttempts = 50
-  while (suffix < maxAttempts) {
-    const filter: FilterQuery<Organization> = {
-      tenant: tenantId,
-      slug: candidate,
-    } as unknown as FilterQuery<Organization>
-    const existing = await em.findOne(Organization, filter)
-    if (!existing || (excludeId && String(existing.id) === excludeId)) return candidate
-    suffix += 1
-    candidate = `${baseSlug}-${suffix}`
-  }
-  return `${baseSlug}-${Date.now()}`
+async function surfaceOrganizationSlugConflict(error: unknown): Promise<never> {
+  if (!isOrganizationSlugConflict(error)) throw error
+  const { translate } = await resolveTranslations()
+  throw conflict(translate('directory.organizations.errors.slugUnavailable', 'This organization slug is already in use.'))
 }
 
 const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organization> = {
@@ -412,7 +402,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         }
         await ensureChildrenValid(em, tenantId, childIds)
         const childParentsBefore = await loadChildParentSnapshots(em, tenantId, childIds)
-        const slug = baseSlug ? await resolveUniqueSlug(em, tenantId, baseSlug) : null
+        const slug = baseSlug ? await allocateOrganizationSlug(em, tenantId, baseSlug) : null
         organization = await de.createOrmEntity({
           entity: Organization,
           data: {
@@ -445,7 +435,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
         await rebuildHierarchyForTenant(em, tenantId)
       },
-    ], { transaction: true })
+    ], { transaction: true }).catch(surfaceOrganizationSlugConflict)
 
     const recordId = String(organization.id)
     const identifiers = { id: recordId, organizationId: recordId, tenantId }
@@ -626,7 +616,7 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
-    ], { transaction: true })
+    ], { transaction: true }).catch(surfaceOrganizationSlugConflict)
 
     const identifiers = { id: after.id, organizationId: after.id, tenantId }
     await emitCrudSideEffects({
@@ -720,7 +710,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
 
         let resolvedSlug: string | null | undefined
         if (parsed.slug !== undefined) {
-          resolvedSlug = parsed.slug ? await resolveUniqueSlug(em, tenantId, parsed.slug, parsed.id) : parsed.slug
+          resolvedSlug = parsed.slug ? await allocateOrganizationSlug(em, tenantId, parsed.slug, { excludeId: parsed.id }) : parsed.slug
         }
 
         const organization = await de.updateOrmEntity({
@@ -759,7 +749,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         await rebuildHierarchyForTenant(em, tenantId)
         resolvedOrganization = organization
       },
-    ], { transaction: true })
+    ], { transaction: true }).catch(surfaceOrganizationSlugConflict)
 
     const recordId = String(resolvedOrganization.id)
     const identifiers = { id: recordId, organizationId: recordId, tenantId }
@@ -866,7 +856,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
         ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
-    ], { transaction: true })
+    ], { transaction: true }).catch(surfaceOrganizationSlugConflict)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -1040,7 +1030,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
         ])
         await rebuildHierarchyForTenant(em, tenantId)
       },
-    ], { transaction: true })
+    ], { transaction: true }).catch(surfaceOrganizationSlugConflict)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',

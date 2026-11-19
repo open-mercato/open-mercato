@@ -349,6 +349,10 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.10.0 (Unreleased)
 
+### Organization portal slugs are globally unique (#9140)
+
+The directory reserves each undeleted organization slug case-insensitively across tenants. The migration keeps each shared slug on the oldest organization and adds a numeric suffix to the others. Review existing collisions before deploying. After the migration, check the affected organizations in the directory and update their shared portal links, bookmarks, and integrations to use the new slugs. Refresh the domain-routing caches during rollout so mapped domains use the updated slugs. An undo or redo that would restore an occupied slug returns a conflict. Dropping the index during rollback leaves the renamed slugs in place.
+
 ### Outbound email attachments: the hub fills `attachments` with bytes; `assembleRfc2822` is deprecated (#7098)
 
 `send-as-user` accepts `attachments` (attachments-module ids with their owning record), and the

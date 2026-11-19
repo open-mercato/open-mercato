@@ -1,3 +1,4 @@
+import { RawQueryFragment } from '@mikro-orm/core'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -51,6 +52,11 @@ jest.mock('@open-mercato/core/modules/customer_accounts/data/entities', () => ({
   CustomerUser: class CustomerUser {},
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.findOne(...args),
+  findWithDecryption: (em: { find: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.find(...args),
+}))
+
 const portalShellMock = jest.fn(({ children }: { children: React.ReactNode }) => (
   <div data-testid="portal-shell">{children}</div>
 ))
@@ -97,18 +103,21 @@ const orgs = new Map<string, { id: string; name: string; slug: string; tenant: {
 ])
 
 const mockEm = {
-  findOne: jest.fn(async (_entity: unknown, query: any) => {
+  findOne: jest.fn(async (_entity: unknown, query: { id: string }) => {
     if (query.id === 'customer-user-1') return { displayName: 'Customer One', email: 'customer@example.com' }
-    if (query.id) {
-      return Array.from(orgs.values()).find((org) => (
-        org.id === query.id
-        && (!query.slug || org.slug === query.slug)
-      )) ?? null
-    }
-    if (query.slug) return orgs.get(query.slug) ?? null
     return null
   }),
+  find: jest.fn(async (_entity: unknown, query: Record<PropertyKey, unknown>) => {
+    const slugKey = Object.getOwnPropertySymbols(query).find((key) => RawQueryFragment.isKnownFragmentSymbol(key))
+    const slug = slugKey ? RawQueryFragment.getKnownFragment(query[slugKey])?.params[0] : undefined
+    const org = typeof slug === 'string' ? orgs.get(slug) : undefined
+    return org && (!query.id || query.id === org.id) && (!query.tenant || query.tenant === org.tenant.id)
+      ? [org]
+      : []
+  }),
 }
+
+const mockResolveByHostname = jest.fn()
 
 const mockCustomerRbac = {
   userHasAllFeatures: jest.fn(async () => true),
@@ -124,6 +133,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (key === 'em') return mockEm
       if (key === 'customerRbacService') return mockCustomerRbac
       if (key === 'featureTogglesService') return mockFeatureToggles
+      if (key === 'domainMappingService') return { resolveByHostname: mockResolveByHostname }
       return null
     },
   })),
@@ -150,6 +160,7 @@ describe('frontend customer portal org binding', () => {
     jest.clearAllMocks()
     headerStore.get.mockReturnValue('/org-b/portal/dashboard')
     mockGetCustomerAuthFromCookies.mockResolvedValue(customerAuth)
+    mockResolveByHostname.mockResolvedValue(null)
   })
 
   it('denies protected portal page access when URL org does not match the customer JWT org', async () => {
@@ -159,11 +170,7 @@ describe('frontend customer portal org binding', () => {
 
     expect(routeLoad).not.toHaveBeenCalled()
     expect(mockCustomerRbac.userHasAllFeatures).not.toHaveBeenCalled()
-    expect(mockEm.findOne).toHaveBeenCalledWith(expect.any(Function), {
-      id: 'org-a-id',
-      slug: 'org-b',
-      deletedAt: null,
-    })
+    expect(mockEm.find).toHaveBeenCalledTimes(1)
   })
 
   it('allows protected portal page access when URL org matches the customer JWT org', async () => {
@@ -177,11 +184,38 @@ describe('frontend customer portal org binding', () => {
       ['portal.dashboard.view'],
       { tenantId: 'tenant-1', organizationId: 'org-a-id' },
     )
-    expect(mockEm.findOne).toHaveBeenCalledWith(expect.any(Function), {
-      id: 'org-a-id',
-      slug: 'org-a',
-      deletedAt: null,
-    })
+    expect(mockEm.find).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies the active custom-domain mapping in both server entry points', async () => {
+    headerStore.get.mockImplementation((key: string) => (
+      key === 'host' ? 'portal.example.test' : '/org-a/portal/dashboard'
+    ))
+    mockResolveByHostname.mockResolvedValue({ tenantId: 'tenant-1', organizationId: 'org-a-id', status: 'active' })
+
+    const layout = await FrontendLayout({ children: <div>child</div> })
+    renderToStaticMarkup(layout as React.ReactElement)
+    await SiteCatchAll({ params: Promise.resolve({ slug: ['org-a', 'portal', 'dashboard'] }) })
+
+    expect(mockResolveByHostname.mock.calls).toEqual([['portal.example.test'], ['portal.example.test']])
+    expect(mockEm.find.mock.calls.map(([, query]) => ({ id: query.id, tenant: query.tenant }))).toEqual([
+      { id: 'org-a-id', tenant: 'tenant-1' },
+      { id: 'org-a-id', tenant: 'tenant-1' },
+    ])
+    expect(portalShellMock).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 'org-a-id', authenticated: true }))
+    expect(routeLoad).toHaveBeenCalled()
+  })
+
+  it('requires the customer session tenant to match the resolved organization', async () => {
+    headerStore.get.mockReturnValue('/org-a/portal/dashboard')
+    mockGetCustomerAuthFromCookies.mockResolvedValue({ ...customerAuth, tenantId: 'different-tenant' })
+
+    const layout = await FrontendLayout({ children: <div>child</div> })
+    renderToStaticMarkup(layout as React.ReactElement)
+    await SiteCatchAll({ params: Promise.resolve({ slug: ['org-a', 'portal', 'dashboard'] }) })
+
+    expect(portalShellMock).not.toHaveBeenCalled()
+    expect(routeLoad).not.toHaveBeenCalled()
   })
 
   it('renders authenticated organization chrome when URL org matches the customer JWT org', async () => {

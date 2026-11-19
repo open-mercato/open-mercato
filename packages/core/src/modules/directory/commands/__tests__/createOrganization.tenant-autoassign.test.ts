@@ -44,6 +44,7 @@ const NEW_ORG_ID = 'aaaa1111-0000-4000-8000-000000000001'
 function makeEm() {
   return {
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
+    count: jest.fn(async () => 0),
     findOne: jest.fn(async () => null),
     find: jest.fn(async () => []),
     flush: jest.fn(async () => {}),
