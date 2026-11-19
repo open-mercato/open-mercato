@@ -351,7 +351,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 |-------|--------|------|-------|
 | Phase 1 — Value objects | Done | 2026-11-19 | `lib/money/*` + `CurrencyPrecisionResolver.getCurrency?`; unit tests passing |
 | Phase 2 — Persistence | Done | 2026-11-19 | `lib/db/moneyColumns.ts`, metadata test (`connect: false`), adopter recipe in `packages/shared/AGENTS.md` and `apps/docs` |
-| Phase 3 — Harness enforcement | In Progress | 2026-11-19 | — |
+| Phase 3 — Harness enforcement | Done | 2026-11-19 | Root `AGENTS.md`, `packages/shared/AGENTS.md`, review/spec checklists, `yarn money:check-new-code`, standalone harness case OMH-243. Live-runner harness lanes not run (see notes) |
 
 ### Phase 1 — Detailed Progress
 - [x] Step 1: `CurrencyDetails` + optional `getCurrency` on the resolver contract; `CurrencyPrecisionService.getCurrency` shares the per-request lookup with `getDecimalPlaces`
@@ -364,6 +364,19 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 ### Phase 2 — Detailed Progress
 - [x] Step 1: `MoneyColumns`, `moneyToColumns`, `moneyFromColumns` + metadata and round-trip tests. Discovery through the referencing entity works; no re-export fallback is needed
 - [x] Step 2: Adopter recipe in `packages/shared/AGENTS.md` and `apps/docs/docs/framework/data-integrity/money-value-objects.mdx`
+
+### Phase 3 — Detailed Progress
+- [x] Step 1: Root `AGENTS.md` `Always`/`Never` lines + Task Router row (existing wording tightened to stay inside the 31,232-byte root limit; `yarn agents:check-budget` passes) and `packages/shared/AGENTS.md` (`money/` row, `decimal.ts` row scoped to existing contracts, Money Value Objects recipe)
+- [x] Step 2: `.ai/review-checklist.md` (§3 items + anti-pattern row), `.ai/specs/AGENTS.md`, and the repo-local `om-spec-writing` spec checklist (§3)
+- [x] Step 3: `scripts/money-check-new-code.mjs`, `yarn money:check-new-code`, `.ai/money-allowlist.json`; fixture tests in `scripts/__tests__/money-check-new-code.test.mjs` (run by `yarn test:scripts`)
+- [x] Step 4: Standalone harness: Money Contract in `om-data-model-design/references/schema-design.md` (kept in a reference so no initial-context budget grows), pointers in `agentic/guides/contracts.md`, `om-data-model-design/SKILL.md` and `agentic/shared/ai/review-checklist.md`; routing case `OMH-243` with counts synced to 243, regenerated source-link inventory, and knowledge-change manifest `harness-evidence/D9-money-value-object.knowledge-change.json` (validator: PASS). The live-runner lanes (`harness:validate --runner …`, `harness:release`, portability, fresh packed-preset proof) need a live LLM runner and Linux containment and were not run here
+
+### Verification (2026-11-19)
+- `yarn build:packages` — 42/42 tasks pass; `yarn generate` — pass; `yarn lint` — pass; `tsc --noEmit` in `packages/shared` and `packages/core` — pass
+- `@open-mercato/shared` jest — 285 suites, 3565 tests pass (includes 92 new money / `MoneyColumns` tests)
+- `packages/core` currencies, payment_gateways, warranty_claims, staff and sales precision tests — 65 suites pass
+- `yarn test:scripts` — the 27 new money-check tests pass; 18 unrelated failures in this environment (docker/Traefik compose, Linux binary detection, npm snapshot tarball retries, PR-scope git history)
+- create-app harness: `agent-money-harness.test.mjs`, source-link inventory/links checks and the knowledge-change validator pass; the evaluator/coverage suites' sandbox and live-adapter tests abort with SIGABRT under nested `sandbox-exec` here (environmental)
 
 ### Implementation notes
 - The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract.
