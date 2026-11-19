@@ -8,7 +8,7 @@ import { TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { normalizeCoordinateInput, validateCoordinateInput } from '@open-mercato/shared/lib/location/coordinates'
 import { AddressView, type AddressFormatStrategy } from './addressFormat'
-import AddressEditor, { type AddressTypesAdapter } from './AddressEditor'
+import AddressEditor, { type AddressTypeOption, type AddressTypesAdapter } from './AddressEditor'
 import {
   Dialog,
   DialogContent,
@@ -198,12 +198,31 @@ export function AddressTiles<C = unknown>({
   const [fieldErrors, setFieldErrors] = React.useState<Partial<Record<DraftFieldKey, string>>>({})
   const [format, setFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [formatLoading, setFormatLoading] = React.useState(false)
+  const [addressTypes, setAddressTypes] = React.useState<AddressTypeOption[]>([])
 
   const label = React.useCallback(
     (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
       t(`${labelPrefix}.${suffix}`, fallback, params),
     [labelPrefix, t],
   )
+
+  React.useEffect(() => {
+    let cancelled = false
+    setAddressTypes([])
+    if (!addressTypesAdapter) return
+    async function loadAddressTypes(adapter: AddressTypesAdapter<C>) {
+      try {
+        const options = await adapter.list(addressTypesContext)
+        if (!cancelled) setAddressTypes(Array.isArray(options) ? options : [])
+      } catch {
+        if (!cancelled) flash(label('types.loadError', 'Failed to load address types'), 'error')
+      }
+    }
+    void loadAddressTypes(addressTypesAdapter)
+    return () => {
+      cancelled = true
+    }
+  }, [addressTypesAdapter, addressTypesContext, label, scopeVersion])
 
   const fieldLabels = React.useMemo(
     () => ({
@@ -430,7 +449,7 @@ export function AddressTiles<C = unknown>({
     (key: string) => (
       <div
         key={key}
-        className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/30 p-4 text-sm"
+        className="col-span-full min-w-0 rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/30 p-4 text-sm"
         onKeyDown={(event) => {
           if (event.defaultPrevented) return
           if (event.key === 'Escape') {
@@ -572,7 +591,7 @@ export function AddressTiles<C = unknown>({
                     </div>
                     {address.purpose ? (
                       <p className="text-xs text-muted-foreground">
-                        {address.purpose}
+                        {addressTypes.find((option) => option.value === address.purpose)?.label ?? address.purpose}
                       </p>
                     ) : null}
                     <AddressView address={address} format={format} className="text-sm text-foreground" />
