@@ -2,6 +2,7 @@ import BigConstructor from 'big.js'
 import {
   addDecimals,
   countDecimalPlaces,
+  MAX_DECIMAL_INTEGER_DIGITS,
   multiplyDecimals,
   subtractDecimals,
   toDecimal,
@@ -30,6 +31,7 @@ function divideOnce(dividend: DecimalValue, divisor: DecimalValue, decimalPlaces
   RoundedDivision.RM = mode
   try {
     const quotient = new RoundedDivision(dividend.toFixed()).div(divisor.toFixed())
+    if (!quotient.eq(0) && quotient.e >= MAX_DECIMAL_INTEGER_DIGITS) throw new Error('[internal] Decimal result out of range')
     return toDecimal(quotient.toFixed())
   } finally {
     RoundedDivision.DP = previousDecimalPlaces

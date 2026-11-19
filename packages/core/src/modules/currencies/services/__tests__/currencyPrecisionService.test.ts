@@ -74,4 +74,15 @@ describe('CurrencyPrecisionService', () => {
     await expect(service.getDecimalPlaces(lookup)).resolves.toBe(0)
     expect(findOne).toHaveBeenCalledTimes(1)
   })
+
+  it('returns frozen currency details so a caller cannot change the cached precision', async () => {
+    const { service } = createService({ code: 'USD', decimalPlaces: 2, symbol: '$' })
+    const lookup = { code: 'USD', tenantId: 't1', organizationId: 'o1' }
+    const details = await service.getCurrency(lookup)
+    expect(Object.isFrozen(details)).toBe(true)
+    expect(() => {
+      ;(details as { decimalPlaces: number }).decimalPlaces = 0
+    }).toThrow(TypeError)
+    await expect(service.getDecimalPlaces(lookup)).resolves.toBe(2)
+  })
 })

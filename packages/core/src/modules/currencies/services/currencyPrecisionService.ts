@@ -45,6 +45,6 @@ export class CurrencyPrecisionService implements CurrencyPrecisionResolver {
       { tenantId, organizationId },
     )
     if (!currency) return null
-    return { code, decimalPlaces: currency.decimalPlaces, symbol: currency.symbol || null }
+    return Object.freeze({ code, decimalPlaces: currency.decimalPlaces, symbol: currency.symbol || null })
   }
 }

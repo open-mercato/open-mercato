@@ -200,6 +200,16 @@ test('does not flag reads, calls or function-valued <field>Exact keys', () => {
   assert.deepEqual(checkDiff(diff).findings, [])
 })
 
+test('reads the property declared on the same line as its decorator', () => {
+  const diff = addedFile(ENTITY, [
+    "  @Property({ type: ExactDecimalType, columnType: 'numeric' }) unitCost!: string",
+    '  shippingFee!: string',
+    "  @Property({ type: 'numeric' }) @Index() taxRate!: string",
+    '  totalPrice!: string',
+  ])
+  assert.deepEqual(rulesOf(checkDiff(diff).findings), [`${RULE_NUMERIC_MONEY_COLUMN}:unitCost`])
+})
+
 test('does not flag object-literal writes that map an existing <field>Exact value', () => {
   const diff = addedFile('packages/core/src/modules/payment_gateways/api/transactions/route.ts', [
     '    amountExact: toMoneyString(transaction.amount),',

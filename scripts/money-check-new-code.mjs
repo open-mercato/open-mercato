@@ -23,6 +23,7 @@
  *                         `name: '...'`, the first quoted call argument
  *                         (`addColumn('x_amount', ...)`), the property key at the
  *                         line start, or, for a decorator without `name:`, the
+ *                         property declared after it on the same line, else the
  *                         property declared on the next added line. SQL (`.sql`
  *                         files, `migrations/` folders and lines containing
  *                         `create table` / `alter table` / `add column`) is matched
@@ -208,6 +209,25 @@ function collectMatches(regex, text, group) {
   return names
 }
 
+function stripLeadingDecorators(text) {
+  let rest = text
+  while (DECORATOR_LINE.test(rest)) {
+    let depth = 0
+    let end = -1
+    for (let index = rest.indexOf('('); index < rest.length; index += 1) {
+      if (rest[index] === '(') depth += 1
+      else if (rest[index] === ')') depth -= 1
+      if (depth === 0) {
+        end = index
+        break
+      }
+    }
+    if (end === -1) return null
+    rest = rest.slice(end + 1)
+  }
+  return rest
+}
+
 function numericColumnCandidates(filePath, text, nextAddedText) {
   const candidates = []
   const sqlContext = isSqlContext(filePath, text)
@@ -219,8 +239,12 @@ function numericColumnCandidates(filePath, text, nextAddedText) {
   candidates.push(...collectMatches(FIRST_QUOTED_CALL_ARG, text, 1))
   const leading = text.match(LEADING_PROPERTY)
   if (leading) candidates.push(leading[2])
-  if (named.length === 0 && DECORATOR_LINE.test(text) && typeof nextAddedText === 'string') {
-    const property = nextAddedText.match(LEADING_PROPERTY)
+  if (named.length === 0 && DECORATOR_LINE.test(text)) {
+    const afterDecorators = stripLeadingDecorators(text)
+    const sameLine = afterDecorators ? afterDecorators.match(LEADING_PROPERTY) : null
+    const property = sameLine ?? (afterDecorators !== null && afterDecorators.trim() === '' && typeof nextAddedText === 'string'
+      ? nextAddedText.match(LEADING_PROPERTY)
+      : null)
     if (property) candidates.push(property[2])
   }
   return candidates

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from '@jest/globals'
 import { divideDecimals, roundDecimal, toDecimal } from '../../decimal'
 import { CurrencyMismatchError, InvalidMoneyRoundingError } from '../errors'
-import { convertMoney, createMoney, divideMoney, rescaleMoney, roundMoney } from '../money'
+import { convertMoney, createMoney, divideMoney, multiplyMoney, rescaleMoney, roundMoney } from '../money'
 import type { Currency, Money, MoneyRounding, MoneyRoundingMode } from '../types'
 import { currencyOf } from './helpers'
 
@@ -81,6 +81,13 @@ describe('divideMoney', () => {
     expect(twiceRounded).toBe('0.01')
     const quotient = divideMoney(createMoney(dividend, usd), 2, { decimalPlaces: 2, mode: 'halfUp' })
     expect(quotient.amount.toFixed(2)).toBe('0.00')
+  })
+
+  it('reports a quotient beyond the decimal range like the other operations', () => {
+    const huge = createMoney('1e299', usd)
+    expect(() => divideMoney(huge, '1e-10', { decimalPlaces: 2, mode: 'halfUp' })).toThrow('[internal] Decimal result out of range')
+    expect(() => multiplyMoney(huge, '10')).toThrow('[internal] Decimal result out of range')
+    expect(text(divideMoney(huge, 10, { decimalPlaces: 0, mode: 'halfUp' }))).toBe(`1${'0'.repeat(298)}`)
   })
 
   it('leaves the shared Decimal settings unchanged, also when it throws', () => {
