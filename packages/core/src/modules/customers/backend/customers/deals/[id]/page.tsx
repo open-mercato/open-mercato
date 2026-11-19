@@ -76,7 +76,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
   const currentDealId = data?.deal.id ?? id
-  const { injectionContext, runMutationWithContext } = useDealMutationContext({
+  const { mutationContextId, injectionContext, runMutationWithContext } = useDealMutationContext({
     currentDealId,
     fallbackId: id,
     data,
@@ -403,6 +403,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
         showVersionHistory={false}
         showCancelAction={false}
         injectionSpotId={extensionPoints.hosts.dealForm.spotId}
+        formId={mutationContextId}
         optimisticLockUpdatedAt={data.deal.updatedAt}
         onDirtyChange={setIsDirty}
         initialPipelineOptions={formPipelineOptions}
