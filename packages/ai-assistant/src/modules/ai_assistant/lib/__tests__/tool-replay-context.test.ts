@@ -50,6 +50,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import type { AiAgentDefinition } from '../ai-agent-definition'
+import type { AiChatRequestContext } from '../attachment-bridge-types'
 import type { AiToolDefinition } from '../types'
 import { resolveAiAgentTools } from '../agent-tools'
 import { resetAgentRegistryForTests, seedAgentRegistryForTests } from '../agent-registry'
@@ -104,7 +105,7 @@ function makeTool(overrides: Partial<AiToolDefinition> & Pick<AiToolDefinition, 
 
 async function resolveWithTools(
   tools: AiToolDefinition[],
-  options: { mutationPolicy?: AiAgentDefinition['mutationPolicy']; withContainer?: boolean } = {},
+  options: { mutationPolicy?: AiAgentDefinition['mutationPolicy']; withContainer?: boolean; authContext?: AiChatRequestContext } = {},
 ) {
   for (const definition of tools) {
     registerMcpTool(definition, { moduleId: 'customers' })
@@ -119,7 +120,7 @@ async function resolveWithTools(
   ])
   return resolveAiAgentTools({
     agentId: 'customers.assistant',
-    authContext: baseAuth,
+    authContext: options.authContext ?? baseAuth,
     ...(options.withContainer ? { container } : {}),
   })
 }
@@ -262,6 +263,76 @@ describe('tool replay seam', () => {
       expect(JSON.parse(output as string)).toMatchObject({ status: 'pending-confirmation', pendingActionId: 'pa-1' })
       expect(handler).not.toHaveBeenCalled()
       expect(recorded).toEqual([])
+    })
+  })
+
+  describe('replay authorization', () => {
+    const toolName = 'customers.list_people'
+    const requiredFeatures = ['customers.people.view', 'customers.companies.view']
+
+    it.each([
+      { match: 'strict' as const, onMiss: 'error' as const },
+      { match: 'ordered' as const, onMiss: 'live' as const },
+    ])('refuses recorded output after a required grant is revoked ($match, $onMiss)', async ({ match, onMiss }) => {
+      const handler = jest.fn()
+      const authContext = { ...baseAuth, features: [...requiredFeatures], isSuperAdmin: false }
+      const result = await resolveWithTools([makeTool({ name: toolName, requiredFeatures, handler })], { authContext })
+      authContext.features = ['customers.people.view']
+      const misses: ToolReplayMiss[] = []
+      const observeHit = jest.fn()
+      await withToolReplayContext({
+        mode: 'replay',
+        fixtures: [fixture({ toolName, args: {}, output: { secret: 'recorded data' } })],
+        match,
+        onMiss,
+        observeMiss: (miss) => misses.push(miss),
+        observeHit,
+      }, async () => {
+        await expect(executable(result.tools, 'customers__list_people').execute({}, { toolCallId: 'denied' }))
+          .rejects.toMatchObject({ code: 'tool_replay_forbidden', toolName })
+      })
+      expect(misses).toEqual([expect.objectContaining({
+        toolName, reason: 'forbidden', resolution: 'error', occurrence: 0, toolCallId: 'denied',
+      })])
+      expect(observeHit).not.toHaveBeenCalled()
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    it.each(['replay', 'record'] as const)('checks authorization before lookup in %s mode', async (mode) => {
+      const handler = jest.fn()
+      const authContext = { ...baseAuth, features: [...requiredFeatures], isSuperAdmin: false }
+      const result = await resolveWithTools([makeTool({ name: toolName, requiredFeatures, handler })], { authContext })
+      authContext.features = []
+      const lookup = jest.fn(() => fixture({ toolName, args: {}, output: 'private mock' }))
+      const observeHit = jest.fn()
+      const sink = jest.fn()
+      const context = mode === 'record'
+        ? { mode, lookup, observeHit, sink }
+        : { mode, lookup, observeHit, fixtures: [], match: 'strict' as const, onMiss: 'live' as const }
+      await expect(withToolReplayContext(context, () => executable(result.tools, 'customers__list_people').execute({})))
+        .rejects.toMatchObject({ code: 'tool_replay_forbidden', toolName })
+      expect(lookup).not.toHaveBeenCalled()
+      expect(observeHit).not.toHaveBeenCalled()
+      expect(sink).not.toHaveBeenCalled()
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { features: requiredFeatures, isSuperAdmin: false },
+      { features: ['customers.*'], isSuperAdmin: false },
+      { features: ['*'], isSuperAdmin: false },
+      { features: [], isSuperAdmin: true },
+    ])('replays for authorized callers: %j', async (grants) => {
+      const handler = jest.fn()
+      const result = await resolveWithTools([makeTool({ name: toolName, requiredFeatures, handler })], {
+        authContext: { ...baseAuth, ...grants },
+      })
+      const output = await withToolReplayContext({
+        mode: 'replay', fixtures: [fixture({ toolName, args: {}, output: 'authorized data' })],
+        match: 'strict', onMiss: 'error',
+      }, () => executable(result.tools, 'customers__list_people').execute({}))
+      expect(output).toBe('authorized data')
+      expect(handler).not.toHaveBeenCalled()
     })
   })
 
