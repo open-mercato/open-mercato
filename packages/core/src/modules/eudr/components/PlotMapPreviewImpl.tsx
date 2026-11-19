@@ -5,6 +5,7 @@ import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { GeoJsonObject } from 'geojson'
 import type { PlotMapPreviewProps } from './PlotMapPreview'
+import { createPlotMapPopupContent } from './plotMapPopup'
 
 const leafletRuntime = ((L as { default?: typeof L }).default ?? L) as typeof L
 
@@ -91,7 +92,7 @@ export default function PlotMapPreviewImpl({
       }),
       onEachFeature: (feature, layerInstance) => {
         const name = featureName(feature)
-        if (name) layerInstance.bindPopup(name)
+        if (name) layerInstance.bindPopup(createPlotMapPopupContent(name))
       },
     }).addTo(map)
     layerRef.current = layer

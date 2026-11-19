@@ -71,12 +71,17 @@ export function MetadataEditor({
   const [collapsed, setCollapsed] = React.useState(defaultCollapsed)
   const [entries, setEntries] = React.useState<MetadataEntry[]>(() => toEntries(value))
   const skipSyncRef = React.useRef(false)
+  const lastSyncedValueRef = React.useRef(serializeMetadataValue(value))
 
   React.useEffect(() => {
+    const serializedValue = serializeMetadataValue(value)
     if (skipSyncRef.current) {
       skipSyncRef.current = false
+      lastSyncedValueRef.current = serializedValue
       return
     }
+    if (lastSyncedValueRef.current === serializedValue) return
+    lastSyncedValueRef.current = serializedValue
     setEntries(toEntries(value))
   }, [value])
 
@@ -124,12 +129,12 @@ export function MetadataEditor({
 
   const content = (
     <>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
           {hasTitle ? <p className="text-sm font-medium">{resolvedTitle}</p> : null}
           {hasDescription ? <p className="text-xs text-muted-foreground">{resolvedDescription}</p> : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="ghost"
