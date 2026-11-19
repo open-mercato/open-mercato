@@ -2179,6 +2179,7 @@
   "staff.timesheets.my.saving": "Wird gespeichert...",
   "staff.timesheets.my.status": "Status",
   "staff.timesheets.my.status_open": "Offen",
+  "staff.timesheets.my.timer.alreadyStopped": "Dieser Timer wurde bereits in einem anderen Fenster gestoppt.",
   "staff.timesheets.my.timer.noProjects": "Keine Projekte gefunden",
   "staff.timesheets.my.timer.noteChangedElsewhere": "Die Notiz dieses Timers wurde in einem anderen Tab geändert. Ihr ungespeicherter Text bleibt erhalten; beim Speichern werden Sie gebeten, den Konflikt aufzulösen.",
   "staff.timesheets.my.timer.noteConflictTitle": "Timer-Notiz an anderer Stelle geändert",
@@ -2197,6 +2198,7 @@
   "staff.timesheets.my.timer.stopError": "Timer konnte nicht gestoppt werden",
   "staff.timesheets.my.timer.stopLocked": "Jemand anderes bearbeitet diesen Zeiteintrag, daher wurde der Timer nicht gestoppt. Versuchen Sie es gleich noch einmal.",
   "staff.timesheets.my.timer.stoppedNoteNotSaved": "Timer gestoppt, aber Ihre Notiz konnte nicht dafür gespeichert werden. Der Text bleibt im Notizfeld, damit Sie ihn zum Eintrag hinzufügen können.",
+  "staff.timesheets.my.timer.unsavedNoteDropped": "Ihre ungespeicherte Timer-Notiz „{note}“ wurde nicht gespeichert: Dieser Timer wurde in einem anderen Fenster gestoppt oder ersetzt.",
   "staff.timesheets.my.timerStart": "Timer starten",
   "staff.timesheets.my.timerStop": "Timer stoppen",
   "staff.timesheets.my.total": "Gesamt",
@@ -2397,5 +2399,6 @@
   "staff.timesheets.widgets.timeReporting.stop": "Timer stoppen",
   "staff.timesheets.widgets.timeReporting.stopError": "Timer konnte nicht gestoppt werden",
   "staff.timesheets.widgets.timeReporting.taskNote": "Aufgabe / Notiz",
-  "staff.timesheets.widgets.timeReporting.unknownProject": "Unbekanntes Projekt"
+  "staff.timesheets.widgets.timeReporting.unknownProject": "Unbekanntes Projekt",
+  "staff.validation.nonNegativeAmount": "Geben Sie einen gültigen Betrag ein."
 }
