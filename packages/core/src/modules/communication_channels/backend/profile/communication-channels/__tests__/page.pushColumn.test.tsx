@@ -242,6 +242,39 @@ describe('profile communication channels — push column and poll action', () =>
     expect(screen.getByRole('menuitem', { name: 'Re-register push' })).toBeInTheDocument()
   })
 
+  // Regression for https://github.com/open-mercato/open-mercato/issues/9802 — the
+  // computed Push column fell back to DataTable's 150px truncation, clipping the
+  // long expired/failed tags mid-word with no tooltip.
+  it('opts the Push column out of truncation so long tags wrap instead of clipping', () => {
+    expect(findColumn('pushStatus')?.meta).toMatchObject({ truncate: false })
+
+    const { unmount } = renderCell(
+      'pushStatus',
+      buildRow({
+        providerKey: 'gmail',
+        supportsRealtimePush: false,
+        supportsPushRegistration: true,
+        pushStatus: 'active',
+        pushExpired: true,
+      }),
+    )
+    expect(
+      screen.getByText('Push expired — re-register to resume delivery').closest('[data-slot="tag"]'),
+    ).toHaveClass('max-w-60')
+    unmount()
+
+    renderCell(
+      'pushStatus',
+      buildRow({
+        providerKey: 'gmail',
+        supportsRealtimePush: false,
+        supportsPushRegistration: true,
+        pushStatus: 'failed',
+      }),
+    )
+    expect(screen.getByText('Push failed — using polling').closest('[data-slot="tag"]')).toHaveClass('max-w-60')
+  })
+
   it('keeps a live Gmail watch as "Push active" without a re-register action', () => {
     const live = buildRow({
       providerKey: 'gmail',

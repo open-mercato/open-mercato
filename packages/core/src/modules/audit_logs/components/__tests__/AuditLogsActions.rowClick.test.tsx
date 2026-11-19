@@ -186,6 +186,15 @@ describe('AuditLogsActions row controls', () => {
     expect(screen.getByRole('button', { name: polish['audit_logs.actions.undo'] })).toBeInTheDocument()
   })
 
+  it('lets the header toolbar wrap so the undo-last button stays visible on narrow screens', async () => {
+    renderWithProviders(<AuditLogsActions items={[baseItem]} onRefresh={jest.fn()}
+      headerExtras={<span data-testid="header-extra">extra</span>} />, { dict: polish })
+    const undoLast = await screen.findByRole('button', { name: polish['audit_logs.actions.undo'] })
+    const toolbar = undoLast.parentElement!
+    expect(toolbar).toContainElement(screen.getByTestId('header-extra'))
+    expect(toolbar).toHaveClass('flex', 'flex-wrap', 'min-w-0', 'max-w-full')
+  })
+
   it('keeps the ID fallback and only enables the newest undo for each resource', async () => {
     renderWithProviders(<AuditLogsActions items={[baseItem, { ...baseItem, id: 'log-old', undoToken: 'old-token' }]}
       onRefresh={jest.fn()} />, { dict: polish })

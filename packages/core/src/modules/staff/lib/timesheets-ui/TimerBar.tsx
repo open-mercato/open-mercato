@@ -70,6 +70,8 @@ type NoteSaveOutcome = { ok: true } | { ok: false; error: unknown }
 
 const NOTE_SAVED: NoteSaveOutcome = { ok: true }
 
+const NOTE_VERSION_UNCONFIRMED = new Error('[internal] timer note version could not be confirmed')
+
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -82,13 +84,22 @@ function formatElapsed(seconds: number): string {
  * time and `false` when the deadline passed first. `work` keeps running either way.
  */
 async function settleWithin(work: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  const outcome = await resolveWithin(work.then(() => true, () => true), timeoutMs)
+  return outcome === true
+}
+
+/**
+ * Resolves `work`'s value when it settles within `timeoutMs`, and `null` when it
+ * rejects or the deadline passes first. `work` keeps running either way.
+ */
+async function resolveWithin<T>(work: Promise<T>, timeoutMs: number): Promise<T | null> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined
-  const deadline = new Promise<false>((resolve) => {
-    timeoutId = setTimeout(() => resolve(false), timeoutMs)
+  const deadline = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => resolve(null), timeoutMs)
   })
   const settled = work.then(
-    () => true as const,
-    () => true as const,
+    (value) => value,
+    () => null,
   )
   try {
     return await Promise.race([settled, deadline])
@@ -124,19 +135,23 @@ function DefaultTimerBar({
   )
 
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
-  const [description, setDescription] = useState('')
-  const [persistedDescription, setPersistedDescription] = useState('')
+  const [description, setDescriptionState] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState(false)
   const [isStopping, setIsStopping] = useState(false)
-  const [isSavingDescription, setIsSavingDescription] = useState(false)
   const [showProjectDropdown, setShowProjectDropdown] = useState(false)
   const [projectFilter, setProjectFilter] = useState('')
   const [hasPendingNoteSync, setHasPendingNoteSync] = useState(false)
-  const [noteBaseVersion, setNoteBaseVersion] = useState<string | null>(null)
 
-  const descriptionRef = useRef(description)
-  const persistedDescriptionRef = useRef(persistedDescription)
+  // The field's text, the note last known to be saved on the running entry, and
+  // the entry version that note was read at are kept in refs so a save always
+  // sends the latest of each, even one queued behind an earlier save (#9079).
+  const descriptionRef = useRef('')
+  const persistedDescriptionRef = useRef('')
+  const noteBaseVersionRef = useRef<string | null>(null)
+  const noteVersionUnconfirmedRef = useRef(false)
+  const noteVersionSyncRef = useRef<Promise<void> | null>(null)
+  const ownStopEntryIdRef = useRef<string | null>(null)
   const startRequestedRef = useRef(false)
   const noteEntryIdRef = useRef<string | null>(null)
   const surfacedRemoteNoteVersionRef = useRef<string | null>(null)
@@ -149,6 +164,31 @@ function DefaultTimerBar({
   const hasSeededRef = useRef(false)
   const seededForMemberRef = useRef<string | null>(null)
   const activeTimer = useActiveTimesheetTimer({ staffMemberId })
+
+  const setDescription = useCallback((value: string) => {
+    descriptionRef.current = value
+    setDescriptionState(value)
+  }, [])
+
+  const setPersistedDescription = useCallback((value: string) => {
+    persistedDescriptionRef.current = value
+  }, [])
+
+  const setNoteBaseVersion = useCallback((version: string | null) => {
+    noteBaseVersionRef.current = version
+    noteVersionUnconfirmedRef.current = false
+  }, [])
+
+  const flashDroppedDraft = useCallback((draft: string) => {
+    flash(
+      t(
+        'staff.timesheets.my.timer.unsavedNoteDropped',
+        'Your unsaved timer note "{note}" was not saved: this timer was stopped or replaced in another window.',
+        { note: draft },
+      ),
+      'warning',
+    )
+  }, [t])
   const preference = useTimesheetPreference(staffMemberId)
 
   const activeEntryId = activeTimer.entryId
@@ -200,11 +240,6 @@ function DefaultTimerBar({
   }, [])
 
   useEffect(() => {
-    descriptionRef.current = description
-    persistedDescriptionRef.current = persistedDescription
-  }, [description, persistedDescription])
-
-  useEffect(() => {
     if (activeTimer.running && activeTimer.startedAt) {
       startElapsedCounter(activeTimer.startedAt)
       return
@@ -231,17 +266,33 @@ function DefaultTimerBar({
   // draft moves onto it: keeping the old version reported the user's own save back
   // as "changed by someone else" (#8236).
   // The latest field values are read through refs so typing does not re-run this.
+  //
+  // A timer that stops elsewhere (another window, the widget, a phone) takes its
+  // note with it: the field is cleared so a later Start here does not copy the
+  // stopped entry's note onto the new timer. A draft that is dropped this way, or
+  // by adopting another running entry, is reported instead of vanishing (#9079).
+  // This bar's own Stop handles its field itself.
   useEffect(() => {
+    const previousEntryId = noteEntryIdRef.current
+    const draft = descriptionRef.current.trim()
+    const hasUnsavedEdit = draft !== persistedDescriptionRef.current.trim()
     if (!activeTimer.running || !activeTimer.entryId) {
       noteEntryIdRef.current = null
+      if (!previousEntryId) return
+      if (ownStopEntryIdRef.current === previousEntryId) {
+        ownStopEntryIdRef.current = null
+        return
+      }
+      if (hasUnsavedEdit && draft) flashDroppedDraft(draft)
+      setDescription('')
+      setPersistedDescription('')
+      setNoteBaseVersion(null)
       return
     }
     const remoteNotes = activeTimer.notes
     const remoteVersion = activeTimer.updatedAt ?? null
-    const isSameEntry = noteEntryIdRef.current === activeTimer.entryId
+    const isSameEntry = previousEntryId === activeTimer.entryId
     noteEntryIdRef.current = activeTimer.entryId
-    const hasUnsavedEdit =
-      descriptionRef.current.trim() !== persistedDescriptionRef.current.trim()
     const isOwnStart = startRequestedRef.current
     startRequestedRef.current = false
     if (hasUnsavedEdit && isOwnStart) {
@@ -274,10 +325,21 @@ function DefaultTimerBar({
       return
     }
     const adoptedNotes = remoteNotes ?? ''
+    if (hasUnsavedEdit && draft && draft !== adoptedNotes.trim()) flashDroppedDraft(draft)
     setDescription(adoptedNotes)
     setPersistedDescription(adoptedNotes)
     setNoteBaseVersion(remoteVersion)
-  }, [activeTimer.running, activeTimer.entryId, activeTimer.notes, activeTimer.updatedAt, t])
+  }, [
+    activeTimer.running,
+    activeTimer.entryId,
+    activeTimer.notes,
+    activeTimer.updatedAt,
+    flashDroppedDraft,
+    setDescription,
+    setNoteBaseVersion,
+    setPersistedDescription,
+    t,
+  ])
 
   useEffect(() => {
     return () => {
@@ -451,7 +513,7 @@ function DefaultTimerBar({
       .finally(() => {
         adoptingLatestNoteRef.current = false
       })
-  }, [refreshActiveTimer, t])
+  }, [refreshActiveTimer, setDescription, setNoteBaseVersion, setPersistedDescription, t])
 
   const surfaceNoteSaveError = useCallback((error: unknown, entryId: string) => {
     if (isRecordLockedError(error)) {
@@ -464,7 +526,7 @@ function DefaultTimerBar({
       )
       return
     }
-    const surfaced = surfaceRecordConflict(error, t, {
+    const surfaced = error !== NOTE_VERSION_UNCONFIRMED && surfaceRecordConflict(error, t, {
       title: t('staff.timesheets.my.timer.noteConflictTitle', 'Timer note changed elsewhere'),
       onRefresh: () => adoptLatestNote(entryId),
     })
@@ -485,34 +547,65 @@ function DefaultTimerBar({
   }, [adoptLatestNote, t])
 
   /**
-   * A note save bumps the entry's version, so the field stays disabled until the
-   * re-read brings the new one in; an edit sent on the stale version would trip a
-   * false optimistic-lock conflict. This runs after the save has settled and is
-   * bounded: it is a read, so it must never hold back the save's outcome (which
-   * Stop waits for) or keep the field disabled when the request stalls.
+   * A note save bumps the entry's version, so the next save must wait for the
+   * re-read that brings the new one in; an edit sent on the stale version would
+   * trip a false optimistic-lock conflict. The field stays editable meanwhile, so
+   * text typed right after Enter is kept (#9079). The re-read is bounded: it must
+   * never hold back the save's outcome, which Stop waits for. When it does not
+   * confirm the new version in time, the next save reads the entry again first.
    */
-  const syncNoteVersionAfterSave = useCallback(async () => {
-    try {
-      const settled = await settleWithin(
-        refreshActiveTimer().catch((refreshErr: unknown) => {
-          logger.warn('staff.timesheets.timer.refreshAfterNoteSaveFailed', { err: refreshErr })
-        }),
-        REQUEST_TIMEOUT_MS,
-      )
-      if (!settled) {
+  const syncNoteVersionAfterSave = useCallback(async (entryId: string, savedNote: string) => {
+    let failed = false
+    const latest = await resolveWithin(
+      refreshActiveTimer().catch((refreshErr: unknown) => {
+        failed = true
+        logger.warn('staff.timesheets.timer.refreshAfterNoteSaveFailed', { err: refreshErr })
+        return null
+      }),
+      REQUEST_TIMEOUT_MS,
+    )
+    if (!latest) {
+      if (!failed) {
         logger.warn('staff.timesheets.timer.refreshAfterNoteSaveTimedOut', { timeoutMs: REQUEST_TIMEOUT_MS })
       }
-    } finally {
-      setIsSavingDescription(false)
+      noteVersionUnconfirmedRef.current = true
+      return
     }
-  }, [refreshActiveTimer])
+    if (latest.running && latest.entryId === entryId && (latest.notes ?? '').trim() === savedNote) {
+      setNoteBaseVersion(latest.updatedAt ?? null)
+    }
+  }, [refreshActiveTimer, setNoteBaseVersion])
+
+  /**
+   * Resolves `false` when the entry's version after this bar's own save is still
+   * unknown because the read that would confirm it failed or timed out again. A
+   * save sent then would carry the pre-save version and be refused as someone
+   * else's change, so the caller keeps the draft for a retry instead.
+   */
+  const ensureFreshNoteVersion = useCallback(async (entryId: string): Promise<boolean> => {
+    const versionSync = noteVersionSyncRef.current
+    if (versionSync) await versionSync
+    if (!noteVersionUnconfirmedRef.current) return true
+    const latest = await resolveWithin(refreshActiveTimer(), REQUEST_TIMEOUT_MS)
+    if (!latest) {
+      logger.warn('staff.timesheets.timer.noteVersionUnconfirmed', { timeoutMs: REQUEST_TIMEOUT_MS })
+      return false
+    }
+    if (
+      latest?.running &&
+      latest.entryId === entryId &&
+      (latest.notes ?? '').trim() === persistedDescriptionRef.current.trim()
+    ) {
+      setNoteBaseVersion(latest.updatedAt ?? null)
+    }
+    return true
+  }, [refreshActiveTimer, setNoteBaseVersion])
 
   const persistRunningDescription = useCallback(async (
     entryId: string,
     normalizedDescription: string,
     expectedUpdatedAt: string | null,
   ): Promise<NoteSaveOutcome> => {
-    setIsSavingDescription(true)
     try {
       const notesPayload = { id: entryId, notes: normalizedDescription || null }
       await runMutation({
@@ -533,29 +626,40 @@ function DefaultTimerBar({
         mutationPayload: notesPayload,
       })
     } catch (error) {
-      setIsSavingDescription(false)
       return { ok: false, error }
     }
     setPersistedDescription(normalizedDescription)
-    void syncNoteVersionAfterSave()
+    const versionSync: Promise<void> = syncNoteVersionAfterSave(entryId, normalizedDescription).finally(() => {
+      if (noteVersionSyncRef.current === versionSync) noteVersionSyncRef.current = null
+    })
+    noteVersionSyncRef.current = versionSync
     return NOTE_SAVED
-  }, [runMutation, staffMemberId, retryLastMutation, syncNoteVersionAfterSave])
+  }, [runMutation, staffMemberId, retryLastMutation, setPersistedDescription, syncNoteVersionAfterSave])
+
+  const saveRunningDescriptionRef = useRef<() => Promise<NoteSaveOutcome>>(() => Promise.resolve(NOTE_SAVED))
 
   const saveRunningDescription = useCallback((): Promise<NoteSaveOutcome> => {
     // Clicking Stop right after editing the note fires the input's blur save and
-    // then `handleStop`'s own save, both closing over the same not-yet-updated
-    // baseline. Joining the save already in flight keeps that to one write.
-    if (pendingNoteSaveRef.current) return pendingNoteSaveRef.current
-    if (!activeEntryId) return Promise.resolve(NOTE_SAVED)
+    // then `handleStop`'s own save. Joining the save already in flight keeps that
+    // to one write; text typed while it was in flight is saved right after it.
+    const inFlight = pendingNoteSaveRef.current
+    if (inFlight) {
+      return inFlight.then((outcome) => (outcome.ok ? saveRunningDescriptionRef.current() : outcome))
+    }
+    const entryId = noteEntryIdRef.current
+    if (!entryId) return Promise.resolve(NOTE_SAVED)
+    if (descriptionRef.current.trim() === persistedDescriptionRef.current.trim()) return Promise.resolve(NOTE_SAVED)
 
-    const normalizedDescription = description.trim()
-    const normalizedPersistedDescription = persistedDescription.trim()
-    if (normalizedDescription === normalizedPersistedDescription) return Promise.resolve(NOTE_SAVED)
-
-    const entryId = activeEntryId
     // A failure is surfaced here, once, however many callers joined the save —
     // unless Stop is running: it stops the timer anyway and reports the note itself.
-    const pending = persistRunningDescription(entryId, normalizedDescription, noteBaseVersion)
+    const pending = (async (): Promise<NoteSaveOutcome> => {
+      const versionConfirmed = await ensureFreshNoteVersion(entryId)
+      const normalizedDescription = descriptionRef.current.trim()
+      if (noteEntryIdRef.current !== entryId) return NOTE_SAVED
+      if (normalizedDescription === persistedDescriptionRef.current.trim()) return NOTE_SAVED
+      if (!versionConfirmed) return { ok: false, error: NOTE_VERSION_UNCONFIRMED }
+      return persistRunningDescription(entryId, normalizedDescription, noteBaseVersionRef.current)
+    })()
       .then((outcome) => {
         if (!outcome.ok && !stopInProgressRef.current) surfaceNoteSaveError(outcome.error, entryId)
         return outcome
@@ -565,7 +669,11 @@ function DefaultTimerBar({
       })
     pendingNoteSaveRef.current = pending
     return pending
-  }, [activeEntryId, noteBaseVersion, description, persistedDescription, persistRunningDescription, surfaceNoteSaveError])
+  }, [ensureFreshNoteVersion, persistRunningDescription, surfaceNoteSaveError])
+
+  useEffect(() => {
+    saveRunningDescriptionRef.current = saveRunningDescription
+  }, [saveRunningDescription])
 
   useEffect(() => {
     if (!hasPendingNoteSync || !isRunning || !activeEntryId) return
@@ -591,6 +699,9 @@ function DefaultTimerBar({
         action: 'timer-stop',
         staffMemberId,
       }
+      // Marks the idle state that follows as this bar's own Stop, which settles the
+      // field below, so the stopped-elsewhere handling leaves it alone.
+      ownStopEntryIdRef.current = entryId
       try {
         await runMutation({
           operation: () =>
@@ -607,6 +718,25 @@ function DefaultTimerBar({
           mutationPayload: stopPayload,
         })
       } catch (err) {
+        ownStopEntryIdRef.current = null
+        // A window that missed a Stop made elsewhere gets a 409 for an entry with no
+        // running segment. Once a re-read confirms the timer is no longer running,
+        // this window goes idle instead of counting on with a false note conflict.
+        if (!isRecordLockedError(err)) {
+          const latest = await resolveWithin(activeTimer.refresh(), REQUEST_TIMEOUT_MS)
+          if (latest && !(latest.running && latest.entryId === entryId)) {
+            if (!noteOutcome.ok && (noteConflictSurfacedRef.current || isConflictError(noteOutcome.error))) {
+              noteConflictSurfacedRef.current = false
+              dismissRecordConflict()
+            }
+            flash(
+              t('staff.timesheets.my.timer.alreadyStopped', 'This timer was already stopped in another window.'),
+              'info',
+            )
+            onTimerStopped()
+            return
+          }
+        }
         if (!noteOutcome.ok) surfaceNoteSaveError(noteOutcome.error, entryId)
         flash(
           isRecordLockedError(err)
@@ -625,13 +755,14 @@ function DefaultTimerBar({
       // timer silently inherited the previous task's note; both the field and the
       // baseline the unsaved-edit check compares against are cleared. A note that
       // was NOT saved stays in the field, visibly, with a warning.
+      const hasUnsavedNote = descriptionRef.current.trim() !== persistedDescriptionRef.current.trim()
       setPersistedDescription('')
-      if (noteOutcome.ok) {
+      if (noteOutcome.ok && !hasUnsavedNote) {
         setDescription('')
       } else {
         // The conflict bar this note raised (here, or by the guarded mutation for
         // any 409) offers a Refresh for a timer that is no longer running.
-        if (noteConflictSurfacedRef.current || isConflictError(noteOutcome.error)) {
+        if (!noteOutcome.ok && (noteConflictSurfacedRef.current || isConflictError(noteOutcome.error))) {
           noteConflictSurfacedRef.current = false
           dismissRecordConflict()
         }
@@ -665,7 +796,6 @@ function DefaultTimerBar({
         type="text"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        disabled={isSavingDescription}
         onBlur={() => {
           if (isRunning) {
             void saveRunningDescription()
