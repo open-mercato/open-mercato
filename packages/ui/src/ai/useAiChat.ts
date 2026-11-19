@@ -4,6 +4,7 @@ import * as React from 'react'
 import { createAiAgentTransport } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport'
 import { apiFetch } from '../backend/utils/api'
 import type { LoopTracePanelTrace } from './LoopTracePanel'
+import { readRunIdFromLoopTrace } from './run-trace-link'
 import {
   createAiServerConversation,
   importAiLocalConversation,
@@ -87,6 +88,12 @@ export interface AiChatMessage {
    * Not persisted in any chat storage payload.
    */
   taskPlan?: AiAgentTaskSnapshot[]
+  /**
+   * Run identifier (`ai_agent_runs.id`) the assistant turn was recorded
+   * under. Read from the `loop-finish` SSE event (`trace.runId`) while
+   * streaming and from the persisted message `metadata.runId` on reload.
+   */
+  runId?: string
 }
 
 export interface UseAiChatInput {
@@ -1252,13 +1259,14 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         }
         builder = { ...builder, reasoningStreaming: false }
         const finalSnapshot = builder
+        const turnRunId = readRunIdFromLoopTrace(pendingLoopTrace)
         updateMessages(
           (current) =>
-            current.map((entry) =>
-              entry.id === assistantId
-                ? mergeAssistantMessage(entry, finalSnapshot)
-                : entry,
-            ),
+            current.map((entry) => {
+              if (entry.id !== assistantId) return entry
+              const merged = mergeAssistantMessage(entry, finalSnapshot)
+              return turnRunId ? { ...merged, runId: turnRunId } : merged
+            }),
           { persistWhenUnmounted: true },
         )
         if (mountedRef.current) {

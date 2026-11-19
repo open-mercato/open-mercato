@@ -3,6 +3,8 @@ import { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, resolveNotificationDeliveryConfig
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
+import { padDecimalPlaces, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutTransaction, CheckoutLink } from '../data/entities'
 import PaymentStartEmail from '../emails/PaymentStartEmail'
@@ -138,8 +140,13 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
 
   const firstName = normalizeVariable(transaction.firstName ?? t('checkout.systemEmails.common.customerFallback'))
   const linkTitle = normalizeVariable(link?.title ?? link?.name ?? t('checkout.systemEmails.common.linkTitleFallback'))
-  const amount = String(transaction.amount ?? '0.00')
   const currencyCode = normalizeVariable(transaction.currencyCode ?? '')
+  const currencyDecimalPlaces = await resolveCurrencyDecimalPlaces(ctx, {
+    code: currencyCode,
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+  const amount = padDecimalPlaces(parseDecimal(transaction.amount) ?? 0, currencyDecimalPlaces ?? 2)
   const errorMessage = payload.type === 'error' && payload.errorMessage
     ? normalizeVariable(payload.errorMessage)
     : null
