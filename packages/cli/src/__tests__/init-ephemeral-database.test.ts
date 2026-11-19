@@ -25,7 +25,7 @@ describe('guarded init uses the effective child database before mutation', () =>
     jest.restoreAllMocks()
     directory = mkdtempSync(path.join(os.tmpdir(), 'init-owned-database-'))
     proofPath = path.join(directory, 'guard.json')
-    writeFileSync(proofPath, JSON.stringify({ version: 1, databaseName: 'owned_fixture', connectionDigest: createHash('sha256').update(ownedUrl).digest('hex'), ownershipMarker: marker }), { mode: 0o600 })
+    writeFileSync(proofPath, JSON.stringify({ version: 1, databaseName: 'owned_fixture', connectionDigest: createHash('sha256').update('postgresql://owned@127.0.0.1:6543/owned_fixture').digest('hex'), ownershipMarker: marker }), { mode: 0o600 })
     process.env.NODE_ENV = 'production'
     process.env.DATABASE_URL = ownedUrl
     process.env.REDIS_URL = ''
