@@ -103,6 +103,7 @@ type ExchangeRateRow = {
   source: string
   type: string | null
   externalReference: string | null
+  metadata: Record<string, unknown> | null
   isActive: boolean
   createdAt: string | null
   updatedAt: string | null
@@ -119,6 +120,7 @@ const toRow = (rate: ExchangeRate): ExchangeRateRow => ({
   source: String(rate.source),
   type: rate.type ?? null,
   externalReference: rate.externalReference ?? null,
+  metadata: rate.metadata ?? null,
   isActive: !!rate.isActive,
   createdAt: rate.createdAt ? rate.createdAt.toISOString() : null,
   updatedAt: rate.updatedAt ? rate.updatedAt.toISOString() : null,
@@ -212,6 +214,7 @@ const exchangeRateListItemSchema = z.object({
   source: z.string(),
   type: z.string().nullable(),
   externalReference: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
   isActive: z.boolean(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
