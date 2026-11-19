@@ -20,3 +20,9 @@
 
 ## 2026-11-19T20:19:06Z — final gate
 - Gate green except create-mercato-app#test (known local harness failure; package untouched). pg-integration 297 passed; Playwright 10 passed. Full Playwright suite skipped (brief names the two cart specs).
+
+## 2026-11-19T22:14:37Z — review
+- om-auto-review-pr: changes requested (2 major, 2 minor), all fixed in 0cbbcf7181 and 945021c792; fresh re-review clean. Declined: real-command suites (CA6/CA9a), 409 cart_not_active in cart.lock (CA1), unlock/markConverted lock (CA1).
+
+## 2026-11-19T22:14:37Z — run end
+- PR https://github.com/open-mercato/open-mercato/pull/10008 ready; Playwright after the fixes 11 passed.

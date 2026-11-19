@@ -4,13 +4,13 @@
 **Branch:** fix/r5-ca0-cart-lock-hardening
 **PR:** https://github.com/open-mercato/open-mercato/pull/10008
 **Current phase/step:** all Steps done; final gate recorded
-**Last commit:** 733ffc83e5 — Step 2.2
+**Last commit:** f584cf2b70 — review-fix follow-up
 
 ## What just happened
-- Steps 1.1–2.2 landed; final gate green apart from the known local create-app harness failure (final-gate-checks.md).
+- Steps 1.1–2.2 and the two review-fix steps landed; final gate green apart from the known local create-app harness failure (final-gate-checks.md). om-auto-review-pr found 2 majors + 2 minors, all fixed; re-review clean.
 
 ## Next concrete action
-- Review pass (om-auto-review-pr) and merge after #9999/#9988, then rebase onto main.
+- A second reviewer must submit the formal GitHub review (the automation account authored the PR); merge after #9999/#9988 and rebase onto main.
 
 ## Blockers / open questions
 - Re-landing plan file was unavailable (PLAN.md Risks).

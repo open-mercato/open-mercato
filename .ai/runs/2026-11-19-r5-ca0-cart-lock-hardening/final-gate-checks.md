@@ -26,3 +26,11 @@ Full Playwright suite not run (~53 min locally); the brief names the two cart sp
 
 ## Design-system pass
 Skipped — no UI file touched.
+
+## After the review fixes (0cbbcf7181, 945021c792, f584cf2b70)
+| Check | Result |
+|-------|--------|
+| Cart unit tests | ✅ 296 passed (lines 59, merge 30); the new merge and update race cases fail on the pre-fix code |
+| `packages/core` typecheck | ✅ clean |
+| Cart PostgreSQL suites | ✅ 19 passed |
+| Playwright `TC-CART-CONC-01-05`, `TC-CART-PRICE-01-02`, `TC-CART-R13-01` (live merge) | ✅ 11 passed (9.6m) |
