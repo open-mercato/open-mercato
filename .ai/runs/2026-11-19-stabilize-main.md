@@ -40,9 +40,12 @@ PR: #9867
 - [x] 2.1 Implement minimal root-cause corrections and regression coverage — f7fdfd527c
 
 ### Phase 3: Validate and review
-- [x] 3.1 Run the configured ordered validation gate and full PR CI — 6c2ddd77d8 (hosted run 44429737286; checks-first override)
-- [x] 3.2 Complete final independent review and address findings — 1c212131fa (independent task 749eae35 APPROVE)
-- [x] 3.3 Publish evidence, promote the draft, and request automerge — 1c212131fa (green reviewed head; tracker actions verified)
+- [ ] 3.1 Run the configured ordered validation gate and full PR CI — 6c2ddd77d8 (hosted run 44429737286; checks-first override)
+- [ ] 3.2 Complete final independent review and address findings — 1c212131fa (independent task 749eae35 APPROVE)
+- [ ] 3.3 Publish evidence, promote the draft, and request automerge — 1c212131fa (green reviewed head; tracker actions verified)
 
 ## Handoff
 PR #9867 is ready with `automerge` requested after independent approval and a full green run. No merge was performed. This final tracking-only commit must pass its own full CI before run `9f3dec20` releases its ownership claim and reports completion; current exact-head evidence belongs in the PR verification comment so it can be updated without another commit. Existing conditional skips and an unrelated invalid-login retry are disclosed in the review.
+
+## Final-head follow-up
+Full run `44483474581` at `8137cfb737` failed only shard 12. Main had added `TC-SALES-PRECISION-003` through reviewed upstream commit `2066fc61cd` (#7324); GitHub tests the synthetic merge, so the new test ran although it was absent from the old task branch. Both attempts exhausted 60 seconds while selecting Edit payment from a menu detached after opening. The trace identifies that exact blocked action, not amount rounding or a failed API write. Use the existing payment row-click edit affordance instead: both row click and menu call the same `openEditPayment` callback. This removes the transient two-step menu interaction while retaining the dialog value, PUT response, reference readback, exact 18-decimal amount and fixture cleanup checks, without changing production behavior or increasing timeouts. The upstream test is carried into the branch with only that local change; no unrelated main commits are merged. `automerge` was removed, completion reopened, and the same final reviewer must re-review the fix before final green CI handoff.
