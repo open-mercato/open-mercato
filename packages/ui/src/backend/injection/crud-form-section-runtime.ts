@@ -45,6 +45,12 @@ export type CrudFormSectionRuntime<TValues, TPayload> = CrudFormSectionRuntimeFi
   }>
 }
 
+export type CrudFormSectionHostRuntime<TValues, TPayload> = {
+  id: string
+  roundTripId: string
+  sectionDescriptors: readonly CrudFormSectionRuntime<TValues, TPayload>[]
+}
+
 export function defineCrudFormSectionRuntime<TValues, TParsed, TPayload>(
   descriptor: CrudFormSectionRuntimeDescriptor<TValues, TParsed, TPayload>,
 ): CrudFormSectionRuntimeDescriptor<TValues, TParsed, TPayload> & CrudFormSectionRuntime<TValues, TPayload> {

@@ -104,7 +104,10 @@ import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { mergeInjectionEventParticipants } from './injection/injectionEventParticipants'
 import { useRegisteredComponent } from './injection/useRegisteredComponent'
-import type { CrudFormSectionIdentityProps } from './injection/crud-form-section-identity'
+import { selectCrudFormSectionLedgerHost, type CrudFormSectionIdentityProps } from './injection/crud-form-section-identity'
+import { useCrudFormSectionLedger } from './injection/crud-form-section-ledger'
+import { CrudFormSectionPolicyBoundary, CrudFormSectionBody, applyCrudFormSectionLayout } from './injection/CrudFormSectionPolicyBoundary'
+import type { ResolvedCrudFormSectionPolicy } from './injection/useResolvedCrudFormSections'
 import type {
   CrudFormSectionCompositionValidator, CrudFormSectionRuntime, CrudFormSectionValues,
 } from './injection/crud-form-section-runtime'
@@ -116,7 +119,7 @@ import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { placeInjectedFieldsInGroups, type InjectedFieldWidgetPlacement } from './crud/injectedFieldGroups'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
-import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { ComponentReplacementHandles, crudFormSectionScope } from '@open-mercato/shared/modules/widgets/component-registry'
 import { crudFormExtensionSpotId, extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
 import MarkdownField from './inputs/MarkdownField'
@@ -816,6 +819,23 @@ export function CrudForm<
   TValues extends Record<string, unknown>,
   TSectionPayload extends Record<string, unknown> = Record<string, unknown>,
 >(props: CrudFormProps<TValues, TSectionPayload>) {
+  const ledger = useCrudFormSectionLedger()
+  if (!ledger?.hosts.length) return <LegacyCrudForm {...props} />
+  const entityId = buildResolvedEntityIdsKey(props.entityId, props.entityIds).split('\0')[0].replace(/[:]+/g, '.')
+  const spot = props.injectionSpotId || (entityId ? crudFormExtensionSpotId(entityId) : undefined)
+  const hostId = selectCrudFormSectionLedgerHost(ledger, spot, props)
+  if (!hostId || !spot) return <LegacyCrudForm {...props} />
+  const formHandle = props.replacementHandle ?? ComponentReplacementHandles.crudForm(entityId || 'unknown')
+  return (
+    <CrudFormSectionPolicyBoundary ledger={ledger} hostId={hostId} formHandle={formHandle} spot={spot} props={props}>
+      {(policy) => <CrudFormImpl {...props} {...applyCrudFormSectionLayout(props.fields, policy)} acceptedSectionPolicy={policy} />}
+    </CrudFormSectionPolicyBoundary>
+  )
+}
+
+function LegacyCrudForm<TValues extends Record<string, unknown>, TSectionPayload extends Record<string, unknown>>(
+  props: CrudFormProps<TValues, TSectionPayload>,
+) {
   const entityKey = buildResolvedEntityIdsKey(props.entityId, props.entityIds)
   const primaryEntityId = entityKey.split('\0')[0]
   const [handle] = React.useState(() => props.replacementHandle
@@ -881,7 +901,10 @@ function CrudFormImpl<
   collapsibleGroups,
   sortableGroups,
   shouldBypassUnsavedChangesGuard,
-}: CrudFormProps<TValues, TSectionPayload>) {
+  acceptedSectionPolicy,
+}: CrudFormProps<TValues, TSectionPayload> & {
+  acceptedSectionPolicy?: ResolvedCrudFormSectionPolicy<CrudFormValues<TValues>, TSectionPayload>
+}) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -989,19 +1012,20 @@ function CrudFormImpl<
     : undefined
 
   const recordId = React.useMemo(() => {
+    if (acceptedSectionPolicy) return acceptedSectionPolicy.identity.resourceId
     const raw = values.id
     if (typeof raw === 'string') return raw
     if (typeof raw === 'number') return String(raw)
     return undefined
-  }, [values])
+  }, [values, acceptedSectionPolicy])
   const explicitResourceId = resourceId?.trim() || undefined
-  const fallbackRecordId = explicitResourceId || recordId || (
+  const fallbackRecordId = acceptedSectionPolicy ? recordId : explicitResourceId || recordId || (
     versionHistory?.resourceId === undefined || versionHistory.resourceId === null
       ? undefined
       : String(versionHistory.resourceId).trim() || undefined
   )
 
-  const operation = explicitResourceId || recordId ? 'update' : 'create'
+  const operation = acceptedSectionPolicy?.identity.formOperation ?? (explicitResourceId || recordId ? 'update' : 'create')
 
   // Resolve the optimistic-lock version used to build the extension header.
   // Explicit `optimisticLockUpdatedAt` (including `null`) always wins. When the
@@ -1035,13 +1059,13 @@ function CrudFormImpl<
     setFormValue: setInjectedFormValue,
     t,
     entityId: entityId ?? primaryEntityId,
-    resourceKind: resourceKind ?? versionHistory?.resourceKind,
-    resourceId: explicitResourceId ?? recordId ?? versionHistory?.resourceId,
+    resourceKind: acceptedSectionPolicy?.hostResourceKind ?? resourceKind ?? versionHistory?.resourceKind,
+    resourceId: acceptedSectionPolicy ? recordId : explicitResourceId ?? recordId ?? versionHistory?.resourceId,
     recordId: fallbackRecordId,
     isLoading,
     pending,
     operation,
-  }), [formId, setInjectedFormValue, t, entityId, primaryEntityId, resourceKind, explicitResourceId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
+  }), [formId, setInjectedFormValue, t, entityId, primaryEntityId, resourceKind, explicitResourceId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation, acceptedSectionPolicy])
   const injectionContextRef = React.useRef(injectionContext)
   React.useEffect(() => {
     injectionContextRef.current = injectionContext
@@ -2454,7 +2478,7 @@ function CrudFormImpl<
   // Keyed off the DECLARED groups, not the filtered ones: testing
   // `resolvedGroupsForLayout.length > 0` would drop a fully-hidden form into the
   // ungrouped branch and render every field flat — the opposite of hiding them.
-  const useGroupedLayout = declaredGroupsForLayout.length > 0
+  const useGroupedLayout = Boolean(acceptedSectionPolicy) || declaredGroupsForLayout.length > 0
 
   // Sortable group order. Keyed off the DECLARED ids, not the filtered ones:
   // `useGroupOrder` prunes every saved id missing from its defaults and writes the
@@ -3888,6 +3912,14 @@ function CrudFormImpl<
       else col1.push(g)
     }
 
+    const sectionScope = acceptedSectionPolicy && crudFormSectionScope(acceptedSectionPolicy.identity)
+    const activeSectionIds = acceptedSectionPolicy && new Set(acceptedSectionPolicy.surface.orderedSectionIds)
+    const wrapSectionContent = (id: string, children: React.ReactNode) => sectionScope && activeSectionIds?.has(id)
+      ? <CrudFormSectionBody handle={ComponentReplacementHandles.section(sectionScope, id)}
+          values={values} setValue={setValue} errors={errors} requiredFieldIds={widgetRequiredFieldIds}>
+          {children}
+        </CrudFormSectionBody>
+      : children
     const renderGroupedCards = (items: CrudFormGroup[]) => {
       const nodes: React.ReactNode[] = []
       for (const g of items) {
@@ -3965,12 +3997,14 @@ function CrudFormImpl<
                 chevronPosition={collapsibleChevronPosition}
               >
                 <div className={densityStackMd}>
-                  {customFieldsInnerNodes}
+                  {wrapSectionContent(g.id, customFieldsInnerNodes)}
                 </div>
               </CollapsibleGroup>,
             )
           } else {
-            nodes.push(...customFieldsInnerNodes)
+            nodes.push(acceptedSectionPolicy
+              ? <React.Fragment key={g.id}>{wrapSectionContent(g.id, customFieldsInnerNodes)}</React.Fragment>
+              : customFieldsInnerNodes)
           }
           continue
         }
@@ -3984,7 +4018,7 @@ function CrudFormImpl<
         }) : null
         if (g.bare) {
           if (componentNode) {
-            nodes.push(<React.Fragment key={g.id}>{componentNode}</React.Fragment>)
+            nodes.push(<React.Fragment key={g.id}>{wrapSectionContent(g.id, componentNode)}</React.Fragment>)
           }
           continue
         }
@@ -4025,7 +4059,7 @@ function CrudFormImpl<
               chevronPosition={collapsibleChevronPosition}
             >
               <div className={densityStackMd}>
-                {groupContent}
+                {wrapSectionContent(g.id, groupContent)}
               </div>
             </CollapsibleGroup>,
           )
@@ -4035,7 +4069,7 @@ function CrudFormImpl<
               {g.title ? (
                 <div className="text-sm font-medium">{t(g.title, g.title)}</div>
               ) : null}
-              {groupContent}
+              {wrapSectionContent(g.id, groupContent)}
             </div>,
           )
         }

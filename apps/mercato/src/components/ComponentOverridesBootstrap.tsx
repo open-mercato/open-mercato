@@ -59,11 +59,13 @@ function DeferredOverrides({
 }) {
   const enabled = profileUsesComponentOverrides(profile)
   const [loaded, setLoaded] = React.useState<LoadedOverrides | null>(null)
+  const [failed, setFailed] = React.useState(false)
   // Start fetching during the first browser render so the override contract is
   // ready as early as possible, while keeping hydration itself unsuspended.
   const pending = enabled && typeof window !== 'undefined' ? loadOverrides() : null
 
   React.useEffect(() => {
+    setFailed(false)
     if (!enabled) {
       setLoaded(null)
       return
@@ -72,6 +74,7 @@ function DeferredOverrides({
     void (pending ?? loadOverrides()).then((result) => {
       if (active) setLoaded(result)
     }).catch((err) => {
+      if (active) setFailed(true)
       logger.error('Failed to load component overrides', { err })
     })
     return () => {
@@ -80,7 +83,8 @@ function DeferredOverrides({
   }, [enabled, pending])
 
   const overrides = enabled ? loaded?.overrides ?? EMPTY_OVERRIDES : EMPTY_OVERRIDES
-  return <ComponentOverrideProvider overrides={overrides}>{children}</ComponentOverrideProvider>
+  const registrationState = !enabled || loaded ? 'ready' : failed ? 'failed' : 'pending'
+  return <ComponentOverrideProvider overrides={overrides} registrationState={registrationState}>{children}</ComponentOverrideProvider>
 }
 
 export function ComponentOverridesBootstrap({

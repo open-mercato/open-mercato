@@ -218,6 +218,18 @@ describe('CrudForm section registry generation', () => {
     await expect(generateModuleRegistryApp({ resolver: resolver([{ id: 'test', from: '@app' }]), quiet: true })).rejects.toThrow(diagnostic)
   })
 
+  it('extracts named runtime helper identities without importing the client module', async () => {
+    write('app/src/modules/example/form-sections.ts', declaration('example.notes'))
+    write('app/src/modules/example/descriptor.client.ts', `
+      import { defineCrudFormSectionRuntime } from '@open-mercato/ui/backend/injection/crud-form-section-runtime'
+      export const crudFormSectionRuntime = defineCrudFormSectionRuntime({
+        id: 'example.notes', roundTripId: 'example.notes@v1', group: createClientOnlyGroup(),
+      })
+    `)
+    await generateModuleRegistries({ resolver: resolver([{ id: 'example', from: '@app' }]), quiet: true })
+    expect(generated('runtime')).toContain('load: () => import("../../src/modules/example/descriptor.client")')
+  })
+
   it('rejects descriptor ids repeated across enabled modules', async () => {
     for (const moduleId of ['alpha', 'beta']) {
       write(`app/src/modules/${moduleId}/form-sections.ts`, declaration('test.notes'))

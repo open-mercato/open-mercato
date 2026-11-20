@@ -189,7 +189,10 @@ function readRuntimePath(
   const runtimeSource = ts.createSourceFile(runtimeFile, fs.readFileSync(runtimeFile, 'utf8'), ts.ScriptTarget.Latest, true)
   const runtime = exportedDeclaration(runtimeSource, 'crudFormSectionRuntime')
   if (!runtime) return invalid(`runtime import "${specifier}" must export crudFormSectionRuntime`)
-  const actual = readIdentity(fieldsOf(runtime, invalid), invalid)
+  const runtimeValue = unwrap(runtime)
+  const literal = ts.isCallExpression(runtimeValue)
+    ? helperArgument(runtimeValue, 'defineCrudFormSectionRuntime', invalid) : runtimeValue
+  const actual = readIdentity(fieldsOf(literal, invalid), invalid)
   if (actual.id !== expected.id || actual.roundTripId !== expected.roundTripId) {
     return invalid(`runtime import "${specifier}" exports "${actual.roundTripId}" but loader declares "${expected.roundTripId}"`)
   }

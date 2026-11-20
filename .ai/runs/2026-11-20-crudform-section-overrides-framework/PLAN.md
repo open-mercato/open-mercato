@@ -27,7 +27,7 @@ Status: in-progress
 | 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | done | 2ce5c71565 |
 | 2 | 2.8-review-fix | Pin durable outbox contracts and recover terminal reporting | inline | done | ab8b3fb3e5 |
 | 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | done | ab709f0758 |
-| 3 | 3.2 | Resolve policies and block mutations until the host is ready | dispatch | todo | — |
+| 3 | 3.2 | Resolve policies and block mutations until the host is ready | dispatch | done | this commit |
 | 3 | 3.3 | Validate and project section fields and payload leaves | dispatch | todo | — |
 | 3 | 3.4 | Bind submit, delete and action clients to their own resource versions | dispatch | todo | — |
 | 4 | 4.1 | Build the non-production framework fixture | dispatch | todo | — |
