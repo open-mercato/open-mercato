@@ -261,6 +261,61 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
     expect((em.rows.get(lineEntity) ?? []).map((line) => ({ id: line.id, name: line.name }))).toEqual(original)
   })
 
+  it('matches legacy duplicate numbers by content and preserves each ID and all six snapshot fields', async () => {
+    const { bus, ctx, em, logs } = harness()
+    const duplicateNumbers = { ...input, lines: input.lines.map((line) => ({ ...line, lineNumber: 2 })) }
+    await bus.execute(commandId, { input: duplicateNumbers, ctx })
+    const identity = (line: Row) => Object.fromEntries(
+      ['id', 'name', ...Object.keys(frozen)].map((key) => [key, line[key] ?? null]),
+    )
+    const original = JSON.parse(JSON.stringify((em.rows.get(lineEntity) ?? []).map(identity))) as Row[]
+    await bus.undo(logs[0].undoToken, ctx)
+    const payload = logs[0].commandPayload as { undo: { lineIds?: string[]; after: { lines: Row[] } } }
+    delete payload.undo.lineIds
+    payload.undo.after.lines.reverse()
+    await bus.execute(commandId, { input: duplicateNumbers, ctx, redoLogEntry: logs[0] })
+    expect(JSON.parse(JSON.stringify((em.rows.get(lineEntity) ?? []).map(identity)))).toEqual(original)
+  })
+
+  it('refuses an ambiguous legacy duplicate before creating a document or line', async () => {
+    const { bus, ctx, em, logs, service, actionLogService } = harness()
+    const duplicateNumbers = { ...input, lines: [input.lines[0], input.lines[0]].map((line) => ({ ...line, lineNumber: 2 })) }
+    await bus.execute(commandId, { input: duplicateNumbers, ctx })
+    await bus.undo(logs[0].undoToken, ctx)
+    const payload = logs[0].commandPayload as { undo: { lineIds?: string[]; after: { lines: Row[] } } }
+    delete payload.undo.lineIds
+    payload.undo.after.lines.reverse()
+    em.trace.length = 0
+    service.getConfig.mockClear()
+    jest.mocked(emitCrudSideEffects).mockClear()
+    await expect(bus.execute(commandId, { input: duplicateNumbers, ctx, redoLogEntry: logs[0] })).rejects.toMatchObject({ status: 400 })
+    expect(em.rows.get(documentEntity)).toEqual([])
+    expect(em.rows.get(lineEntity)).toEqual([])
+    expect(em.trace).toEqual([])
+    expect(service.getConfig).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(actionLogService.releaseRedoClaim).toHaveBeenCalled()
+    expect(logs).toHaveLength(1)
+  })
+
+  it('distinguishes legacy tied lines by exact amounts beyond Number precision', async () => {
+    const { bus, ctx, em, logs } = harness()
+    const exactPrices = ['80.000000000000000001', '80.000000000000000002']
+    const duplicateNumbers = {
+      ...input,
+      lines: exactPrices.map((unitPriceNet) => ({ ...input.lines[0], lineNumber: 2, unitPriceNet })),
+    }
+    await bus.execute(commandId, { input: duplicateNumbers, ctx })
+    const original = (em.rows.get(lineEntity) ?? []).map((line) => ({ id: line.id, unitPriceNet: line.unitPriceNet }))
+    expect(original.map((line) => line.unitPriceNet)).toEqual(exactPrices)
+    await bus.undo(logs[0].undoToken, ctx)
+    const payload = logs[0].commandPayload as { undo: { lineIds?: string[]; after: { lines: Row[] } } }
+    delete payload.undo.lineIds
+    payload.undo.after.lines.reverse()
+    await bus.execute(commandId, { input: duplicateNumbers, ctx, redoLogEntry: logs[0] })
+    expect((em.rows.get(lineEntity) ?? []).map((line) => ({ id: line.id, unitPriceNet: line.unitPriceNet }))).toEqual(original)
+  })
+
   it('retains the command bus replay authorization guard', async () => {
     const { bus, ctx, em, logs } = harness()
     await bus.execute(commandId, { input, ctx })

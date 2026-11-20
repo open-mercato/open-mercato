@@ -240,14 +240,31 @@ function readDocumentCreateReplay(ctx: CommandRuntimeContext, scope: { tenantId:
 function buildDocumentCreateReplay(
   document: { id: string; tenantId: string; organizationId: string },
   lines: OrderGraphSnapshot['lines'],
-  inputLines: Array<{ lineNumber?: number }>,
+  inputLines: Array<Partial<OrderLineCreateInput>>,
   lineIds?: string[],
 ): DocumentCreateReplay {
   const remaining = [...lines];
   const replayLines = inputLines.map((inputLine, index) => {
-    const position = remaining.findIndex((line) => lineIds
+    let candidates = remaining.filter((line) => lineIds
       ? line.id === lineIds[index]
       : line.lineNumber === (inputLine.lineNumber ?? index + 1));
+    if (!lineIds && candidates.length > 1) {
+      candidates = candidates.filter((line) => {
+        const fields = ['kind', 'statusEntryId', 'productId', 'productVariantId', 'name', 'description', 'comment', 'quantityUnit', 'currencyCode', 'promotionCode', 'customFieldSetId'] as const;
+        return fields.every((field) => inputLine[field] === undefined || isDeepStrictEqual(inputLine[field], line[field]));
+      });
+    }
+    if (!lineIds && candidates.length > 1) {
+      candidates = candidates.filter((line) => {
+        const fields = ['configuration', 'promotionSnapshot', 'metadata', 'customFields'] as const;
+        const amounts = ['quantity', 'unitPriceNet', 'unitPriceGross', 'discountPercent', 'taxRate'] as const;
+        const exactInput = inputLine as Partial<OrderLineCreateInput> & Record<string, unknown>;
+        return fields.every((field) => inputLine[field] === undefined || isDeepStrictEqual(inputLine[field], line[field]))
+          && amounts.every((field) => inputLine[field] === undefined || decimalsEqual(resolveExactDecimal(exactInput[`${field}Exact`], inputLine[field]), line[field]));
+      });
+    }
+    if (candidates.length > 1) throw badRequest("[internal] sales document redo line correspondence is ambiguous");
+    const position = candidates.length ? remaining.findIndex((line) => line.id === candidates[0].id) : -1;
     if (position < 0) throw badRequest("[internal] sales document redo line unavailable");
     const [line] = remaining.splice(position, 1);
     return { id: line.id, snapshot: snapshotForReplay(line) };
@@ -5869,9 +5886,10 @@ const createQuoteCommand: CommandHandler<
     if (!after) return createQuoteCommand.execute(input, ctx);
     ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId);
     const parsed = quoteCreateSchema.parse(input);
+    const replayInputs = withExactListAmounts(parsed.lines, input, "lines", LINE_EXACT_AMOUNT_FIELDS) ?? parsed.lines;
     const replayCtx: DocumentCreateReplayContext = {
       ...ctx,
-      [documentCreateReplay]: buildDocumentCreateReplay(after.quote, after.lines, parsed.lines ?? [], payload.lineIds),
+      [documentCreateReplay]: buildDocumentCreateReplay(after.quote, after.lines, replayInputs ?? [], payload.lineIds),
     };
     return createQuoteCommand.execute({ ...input, quoteNumber: after.quote.quoteNumber }, replayCtx);
   },
@@ -7350,9 +7368,10 @@ const createOrderCommand: CommandHandler<
     if (!after) return createOrderCommand.execute(input, ctx);
     ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId);
     const parsed = orderCreateSchema.parse(input);
+    const replayInputs = withExactListAmounts(parsed.lines, input, "lines", LINE_EXACT_AMOUNT_FIELDS) ?? parsed.lines;
     const replayCtx: DocumentCreateReplayContext = {
       ...ctx,
-      [documentCreateReplay]: buildDocumentCreateReplay(after.order, after.lines, parsed.lines ?? [], payload.lineIds),
+      [documentCreateReplay]: buildDocumentCreateReplay(after.order, after.lines, replayInputs ?? [], payload.lineIds),
     };
     return createOrderCommand.execute({ ...input, orderNumber: after.order.orderNumber }, replayCtx);
   },
