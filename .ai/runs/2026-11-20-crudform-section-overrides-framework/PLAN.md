@@ -37,7 +37,7 @@ Status: in-progress
 | 4 | 4.4-review-fix | Preserve canonical order with explicit comparators | inline | done | 0183853f77 |
 | 4 | 4.4-budget-fix | Account for exact standalone context growth | dispatch | done | 6f500849aa |
 | 4 | 4.4 | Run and record the framework validation gates | dispatch | done | this commit |
-| 5 | 5.1 | Add the single-definition extension authoring API | dispatch | todo | — |
+| 5 | 5.1 | Add the single-definition extension authoring API | dispatch | done | this commit |
 | 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | todo | — |
 | 5 | 5.3 | Compile extension declarations into the framework registries and callbacks | dispatch | todo | — |
 | 5 | 5.4 | Add custom-field, table and external store builders | dispatch | todo | — |
