@@ -722,6 +722,22 @@ describe('setJournalEntryLineDimensionSchema', () => {
     })
   })
 
+  it.each([
+    ['a non-UUID journalEntryLineId', { journalEntryLineId: 'not-a-uuid' }],
+    ['an unknown dimensionType', { dimensionType: 'Currency' }],
+    ['an unknown writer', { writer: 'made_up' }],
+    ['an empty dimensionIds array', { dimensionIds: [] }],
+    ['an empty dimensionId', { dimensionIds: [''] }],
+    ['a non-UUID tenantId', { tenantId: 'x' }],
+    ['a non-UUID organizationId', { organizationId: 'x' }],
+  ])('marks the shape issue for %s as [internal] (no HTTP surface, never user-facing)', (_label, override) => {
+    const result = setJournalEntryLineDimensionSchema.safeParse({ ...base, ...override })
+    expect(result.success).toBe(false)
+    const messages = result.success ? [] : result.error.issues.map((issue) => issue.message)
+    expect(messages.length).toBeGreaterThan(0)
+    for (const message of messages) expect(message.startsWith('[internal] ')).toBe(true)
+  })
+
   it('accepts a non-UUID dimensionId (dimension_id is an opaque reference)', () => {
     expect(setJournalEntryLineDimensionSchema.safeParse({ ...base, dimensionIds: ['opaque-ref'] }).success).toBe(true)
   })

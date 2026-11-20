@@ -32,13 +32,24 @@ export type DimensionWriter = (typeof DIMENSION_WRITERS)[number]
  * is an opaque reference (`text` column), so a later dimension type with a
  * non-uuid identifier needs no migration. Phase 1's `CostCenter` ids are
  * uuids.
+ *
+ * Validation messages: this schema has no HTTP route or form behind it (the
+ * spec's API Contracts: "None") — it is parsed only inside the command,
+ * called in-process by trusted writer modules (`DIMENSION_WRITERS`) with ids
+ * they generated or loaded themselves. The shape checks below
+ * (uuid/non-empty/enum) therefore never reach an end user and carry the
+ * `[internal]` prefix (root AGENTS.md). The one rule a writer's own user
+ * input can trip — duplicate `dimensionIds` — keeps its `i18nKey` so a
+ * consumer surfacing it can translate it through `translateZodIssues`.
  */
 export const setJournalEntryLineDimensionSchema = z
   .object({
-    journalEntryLineId: z.string().uuid(),
-    dimensionType: z.enum(DIMENSION_TYPES),
-    writer: z.enum(DIMENSION_WRITERS),
-    dimensionIds: z.array(z.string().min(1)).min(1),
+    journalEntryLineId: z.uuid('[internal] journalEntryLineId must be a UUID'),
+    dimensionType: z.enum(DIMENSION_TYPES, '[internal] dimensionType is not one of DIMENSION_TYPES'),
+    writer: z.enum(DIMENSION_WRITERS, '[internal] writer is not one of DIMENSION_WRITERS'),
+    dimensionIds: z
+      .array(z.string().min(1, '[internal] a dimensionId must be a non-empty string'))
+      .min(1, '[internal] dimensionIds must list at least one dimension'),
     // Optional scope for trusted, in-process systemActor callers
     // (`ctx.auth: null`, e.g. `posting_rules`' `reclassify.ts` engine, which
     // "posts on nobody's behalf"). The command's `resolveScope` consults
@@ -46,8 +57,8 @@ export const setJournalEntryLineDimensionSchema = z
     // shape `warranty_claims`' `VendorRecoveryInput.tenantId` already relies
     // on for its own systemActor subscriber call. A real end-user request
     // always carries `ctx.auth`, so these fields are never read for one.
-    tenantId: z.string().uuid().optional(),
-    organizationId: z.string().uuid().optional(),
+    tenantId: z.uuid('[internal] tenantId must be a UUID').optional(),
+    organizationId: z.uuid('[internal] organizationId must be a UUID').optional(),
   })
   .refine((v) => new Set(v.dimensionIds).size === v.dimensionIds.length, {
     message: 'The same dimension cannot be listed more than once.',
