@@ -71,4 +71,14 @@ describe('BulkActionsBar actions', () => {
     expect(screen.getByTestId('kanban-bulk-total').textContent).toBe('Łącznie 2400 zł')
     expect(bar.textContent).not.toContain('·')
   })
+
+  it('marks Delete as destructive and resolves the tokens for a dark surface in both themes', () => {
+    const bar = renderBar(en, null)
+
+    expect(bar.className.split(' ')).toContain('dark')
+    expect(screen.getByRole('button', { name: 'Delete' }).className).toContain('text-destructive')
+    for (const name of ['Change owner', 'Export CSV']) {
+      expect(screen.getByRole('button', { name }).className).not.toContain('text-destructive')
+    }
+  })
 })
