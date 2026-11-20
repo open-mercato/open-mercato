@@ -1,9 +1,11 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { OM_LOG_LEVEL_ENV, resetLogLevelCache } from '@open-mercato/shared/lib/logger'
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
 import { hash } from 'bcryptjs'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EventBus } from '@open-mercato/events/types'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
@@ -22,6 +24,7 @@ import crypto from 'node:crypto'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
+import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
 
 async function resolveTenantScopedRole(em: any, name: string, normalizedTenantId: string | null) {
   const existing = await em.findOne(Role, { name, tenantId: normalizedTenantId })
@@ -62,40 +65,42 @@ const addUser: ModuleCli = {
     if (!org) throw new Error('Organization not found')
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
-    const u = em.create(User, {
-      email,
-      emailHash: computeEmailHash(email),
-      passwordHash: await hash(password, 10),
-      isConfirmed: true,
-      organizationId: org.id,
-      tenantId: org.tenant.id,
-    })
-    await em.persist(u).flush()
-    if (rolesCsv) {
-      const names = parseCommaSeparatedList(rolesCsv)
-      for (const name of names) {
-        const role = await resolveTenantScopedRole(em, name, normalizedTenantId)
-        const link = em.create(UserRole, { user: u, role })
-        await em.persist(link).flush()
+    const passwordHash = await hash(password, 10)
+    let createdUserId: string | null = null
+    await em.transactional(async (tem: EntityManager) => {
+      const user = tem.create(User, {
+        email,
+        emailHash: computeEmailHash(email),
+        passwordHash,
+        isConfirmed: true,
+        organizationId: org.id,
+        tenantId: org.tenant.id,
+        createdAt: new Date(),
+      })
+      await tem.persist(user).flush()
+      const roles = rolesCsv
+        ? await Promise.all(
+            parseCommaSeparatedList(rolesCsv).map((name) => resolveTenantScopedRole(tem, name, normalizedTenantId)),
+          )
+        : []
+      if (roles.length) {
+        await lockUserRoleWriterAuthorizationState(tem, {
+          userIds: [String(user.id)],
+          roleIds: roles.map((role) => String(role.id)),
+        })
+        for (const role of roles) {
+          tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
+        }
+        await tem.flush()
       }
-    }
-    console.log('User created with id', u.id)
+      createdUserId = String(user.id)
+    })
+    console.log('User created with id', createdUserId)
   },
 }
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]
-    if (!a) continue
-    if (a.startsWith('--')) {
-      const [k, v] = a.replace(/^--/, '').split('=')
-      if (v !== undefined) args[k] = v
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
-      else args[k] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 function normalizeKeyInput(value: string): string {
@@ -258,6 +263,21 @@ const rotateEncryptionKey: ModuleCli = {
     }
     const printedDek = new Set<string>()
     const oldDekCache = new Map<string, TenantDek | null>()
+    const unrecoverableRows: Array<{ rowId: string; tenantId: string; organizationId: string }> = []
+    const reportUnrecoverableRows = (): void => {
+      if (!unrecoverableRows.length) return
+      const maxListed = 20
+      console.warn(
+        `[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated: their ciphertext opens under neither the previous nor the current tenant key. Those rows were left untouched. Retain the previous keys and re-run with the key that sealed them.`,
+      )
+      for (const row of unrecoverableRows.slice(0, maxListed)) {
+        console.warn(`[internal] auth:user.email row=${row.rowId} tenant=${row.tenantId} org=${row.organizationId}`)
+      }
+      if (unrecoverableRows.length > maxListed) {
+        console.warn(`[internal] ... and ${unrecoverableRows.length - maxListed} more`)
+      }
+      throw new Error(`[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated. The command did not complete successfully; earlier successful updates remain applied.`)
+    }
     const processScope = async (scopeTenantId: string, scopeOrganizationId: string): Promise<number> => {
       if (debug && !printedDek.has(scopeTenantId)) {
         printedDek.add(scopeTenantId)
@@ -275,33 +295,18 @@ const rotateEncryptionKey: ModuleCli = {
         `select id, email, email_hash from ${qualifiedTable} where tenant_id = ? and organization_id = ?`,
         [scopeTenantId, scopeOrganizationId],
       )
-      const rows = Array.isArray(rawRows) ? rawRows : []
+      const rows: Array<{ id: string; email: string | null; email_hash: string | null }> = Array.isArray(rawRows) ? rawRows : []
       const pending = rotate
         ? rows
-        : rows.filter((row: any) => !isEncryptedPayload(row?.email))
+        : rows.filter((row) => !isEncryptedPayload(row.email))
       if (!pending.length) return 0
       console.log(
         `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
       )
       if (dryRun) return 0
-      const ids = pending.map((row: any) => String(row.id))
-      const users = rotate
-        ? await em.find(
-          User,
-          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-        )
-        : await findWithDecryption(
-          em,
-          User,
-          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-          {},
-          { tenantId: scopeTenantId, organizationId: scopeOrganizationId, encryptionService },
-        )
-      const usersById = new Map(users.map((user) => [String(user.id), user]))
+      let currentDek: TenantDek | null | undefined
       let updated = 0
       for (const row of pending) {
-        const user = usersById.get(String(row.id))
-        if (!user) continue
         const rawEmail = typeof row.email === 'string' ? row.email : String(row.email ?? '')
         if (!rawEmail) continue
         if (rotate && (!isEncryptedPayload(rawEmail) || !oldKms)) {
@@ -322,7 +327,12 @@ const rotateEncryptionKey: ModuleCli = {
             oldDekCache.set(scopeTenantId, oldDek)
           }
           const maybeEmail = decryptWithOldKey(rawEmail, oldDek)
-          if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) continue
+          if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) {
+            if (currentDek === undefined) currentDek = await encryptionService.getDek(scopeTenantId)
+            if (currentDek && decryptWithAesGcm(rawEmail, currentDek.key) !== null) continue
+            unrecoverableRows.push({ rowId: row.id, tenantId: scopeTenantId, organizationId: scopeOrganizationId })
+            continue
+          }
           plainEmail = maybeEmail
         }
         if (!plainEmail) continue
@@ -333,21 +343,24 @@ const rotateEncryptionKey: ModuleCli = {
           scopeOrganizationId,
         )
         const nextEmail = encrypted.email as string | undefined
-        if (nextEmail && nextEmail !== user.email) {
-          user.email = nextEmail as any
-          user.emailHash = (encrypted as any).emailHash ?? computeEmailHash(plainEmail)
-          em.persist(user)
+        if (nextEmail && nextEmail !== rawEmail) {
+          const nextEmailHash = encrypted.emailHash ?? computeEmailHash(plainEmail)
+          const result = await conn.execute(
+            `UPDATE ${qualifiedTable} SET email = ?, email_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id`,
+            [nextEmail, nextEmailHash, row.id, scopeTenantId, scopeOrganizationId, row.email, row.email_hash],
+          )
+          if (!Array.isArray(result) || result.length !== 1) {
+            throw new Error('[internal] A row changed concurrently during auth encryption maintenance. The conflicting row was not overwritten; retry after stopping writers.')
+          }
           updated += 1
         }
-      }
-      if (updated > 0) {
-        await em.flush()
       }
       return updated
     }
 
     if (tenantId && organizationId) {
       const updated = await processScope(String(tenantId), String(organizationId))
+      reportUnrecoverableRows()
       if (!updated) {
         console.log('All auth user emails already encrypted for the selected scope.')
       } else {
@@ -368,6 +381,7 @@ const rotateEncryptionKey: ModuleCli = {
       if (!scopeTenantId || !scopeOrganizationId) continue
       total += await processScope(scopeTenantId, scopeOrganizationId)
     }
+    reportUnrecoverableRows()
     if (total > 0) {
       console.log(`Encrypted ${total} auth user email(s) across all organizations.`)
     } else {
@@ -393,13 +407,19 @@ const addOrganization: ModuleCli = {
       return
     }
     const { resolve } = await createRequestContainer()
-    const em = resolve('em') as any
-    // Create tenant implicitly for simplicity
-    const tenant = em.create(Tenant, { name: `${name} Tenant` })
+    const em = resolve('em') as EntityManager
+    const eventBus = resolve('eventBus') as EventBus
+    const tenant = em.create(Tenant, { name: `${name} Tenant` }, { partial: true })
     await em.persist(tenant).flush()
-    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false })
+    await eventBus.emit('directory.tenant.created', {
+      id: String(tenant.id), tenantId: null, organizationId: null,
+    }, { persistent: true, tenantId: null, organizationId: null, rethrowHandlerErrors: true })
+    const org = em.create(Organization, { name, tenant, logoPreserveAspectRatio: false }, { partial: true })
     await em.persist(org).flush()
     await rebuildHierarchyForTenant(em, String(tenant.id))
+    await eventBus.emit('directory.organization.created', {
+      id: String(org.id), tenantId: String(tenant.id), organizationId: String(org.id),
+    }, { persistent: true, tenantId: String(tenant.id), organizationId: String(org.id), rethrowHandlerErrors: true })
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
 }

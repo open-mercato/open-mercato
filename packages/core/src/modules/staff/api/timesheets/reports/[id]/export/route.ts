@@ -27,6 +27,8 @@ import { StaffTimeReport, StaffTimeReportEvent } from '../../../../../data/entit
 import { loadReportProjectIds } from '../../../../../commands/timesheets-reports'
 import { buildReportSheet } from '../../../../../lib/timesheets-reports/buildReportSheet'
 import { buildReportRows } from '../../../../../lib/timesheets-reports/reportRows'
+import type { ReportGroup } from '../../../../../lib/timesheets-reports/reportTotals'
+import { formatReportPeriodDate } from '../../../../../lib/timesheets-reports/reportPeriod'
 import {
   normalizeReportExportFormat,
   serializeReportExport,
@@ -44,6 +46,7 @@ import {
   readSearchParamsRecord,
   runTimesheetInterceptors,
 } from '../../../_shared/withTimesheetInterceptors'
+import { resolveCurrencyDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/reports/export' })
 
@@ -126,6 +129,19 @@ function readCustomerName(snapshot: Record<string, unknown> | null | undefined, 
   return fallback
 }
 
+function stripAmounts(groups: readonly ReportGroup[]): ReportGroup[] {
+  return groups.map((group) => ({
+    ...group,
+    rate: null,
+    rateExact: null,
+    amount: 0,
+    amountExact: '0',
+    lines: group.lines.map(function strip(line): ReportGroup['lines'][number] {
+      return { ...line, rate: null, rateExact: null, amount: 0, amountExact: '0', children: line.children.map(strip) }
+    }),
+  }))
+}
+
 export async function GET(req: Request) {
   try {
     const context = await resolveReportRequestContext(req, { segment: 'export' })
@@ -172,6 +188,12 @@ export async function GET(req: Request) {
 
     const timeProjectIds = await loadReportProjectIds(em, report.id, { tenantId, organizationId })
     const labels = reportSheetLabels(translate)
+    const amountDecimalPlaces =
+      (await resolveCurrencyDecimalPlaces(container, {
+        code: report.currencyCode,
+        tenantId,
+        organizationId,
+      })) ?? undefined
     const sheet = await buildReportSheet({
       em,
       scope: { tenantId, organizationId },
@@ -179,16 +201,18 @@ export async function GET(req: Request) {
       timeProjectIds,
       labels,
       grouping,
+      amountDecimalPlaces,
     })
     const rows = buildReportRows({
       entries: sheet.entries,
       projects: sheet.projects,
       directory: sheet.directory,
       labels,
+      amountDecimalPlaces,
     })
 
-    const periodFrom = report.periodFrom instanceof Date ? report.periodFrom.toISOString().slice(0, 10) : ''
-    const periodTo = report.periodTo instanceof Date ? report.periodTo.toISOString().slice(0, 10) : ''
+    const periodFrom = formatReportPeriodDate(report.periodFrom) ?? ''
+    const periodTo = formatReportPeriodDate(report.periodTo) ?? ''
 
     const file = serializeReportExport(format, {
       reference: report.reference,
@@ -198,14 +222,19 @@ export async function GET(req: Request) {
       issuedByLabel: null,
       issuedAtLabel: report.closedAt ? report.closedAt.toISOString().slice(0, 10) : null,
       currencyCode: sheet.currencyCode,
+      canSeeMoney,
       showRates: (report.showRates ?? true) && canSeeMoney,
-      groups: sheet.totals.groups,
-      rows: canSeeMoney ? rows : rows.map((row) => ({ ...row, rate: null, amount: null })),
+      groups: canSeeMoney ? sheet.totals.groups : stripAmounts(sheet.totals.groups),
+      rows: canSeeMoney
+        ? rows
+        : rows.map((row) => ({ ...row, rate: null, rateExact: null, amount: null, amountExact: null })),
       totals: {
         billableMinutes: sheet.totals.billableMinutes,
         nonbillableMinutes: sheet.totals.nonbillableMinutes,
         totalAmount: canSeeMoney ? sheet.totals.totalAmount : 0,
+        totalAmountExact: canSeeMoney ? sheet.totals.totalAmountExact : '0',
       },
+      amountDecimalPlaces,
       roundingLabel: roundingLabel(
         translate,
         report.roundingUnitMinutes ?? 0,

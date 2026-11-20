@@ -17,13 +17,17 @@ import {
   isCheckoutLinkPublic,
   mapGatewayStatusToCheckoutStatus,
   resolveSubmittedAmount,
+  toMoneyString,
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
 import { validateCheckoutCustomerData } from '../../../../lib/customerDataValidation'
+import { findCheckoutChargePrecisionError } from '../../../../lib/amountPrecision'
 import { checkoutSubmitRateLimitConfig, enforceCheckoutRateLimit } from '../../../../lib/rateLimiter'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { checkoutTag } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 
 const logger = createLogger('checkout')
 
@@ -184,6 +188,23 @@ function requestHostAuthorities(req: Request): string[] {
   return authorities
 }
 
+function readTrimmedString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function buildPayerSessionMetadata(customerData: Record<string, unknown>): Record<string, string> {
+  const payerMetadata: Record<string, string> = {}
+  const email = readTrimmedString(customerData.email)
+  if (email) payerMetadata.customerEmail = email
+  const name = [readTrimmedString(customerData.firstName), readTrimmedString(customerData.lastName)]
+    .filter((part): part is string => part !== null)
+    .join(' ')
+  if (name) payerMetadata.customerName = name
+  return payerMetadata
+}
+
 function isIdempotencyConflict(error: unknown): boolean {
   const message = error instanceof Error ? error.message : ''
   return message.includes('checkout_transactions_organization_id_tenant_id_link_idempotency_key_index')
@@ -318,7 +339,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       return NextResponse.json({ error: 'Idempotency-Key must be between 16 and 128 characters' }, { status: 400 })
     }
 
-    const body = publicSubmitSchema.parse(await req.json().catch(() => ({})))
+    const rawBody = await readJsonSafe<unknown>(req, {})
+    const body = withExactAmounts(publicSubmitSchema.parse(rawBody), rawBody, ['amount'] as const)
     const em = container.resolve('em')
     const commandBus = container.resolve('commandBus') as CommandBus
     const paymentGatewayService = container.resolve('paymentGatewayService') as PaymentGatewayService
@@ -385,10 +407,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         await buildSubmitResponse(req, em, link, existingTransaction, link.gatewayProviderKey),
       )
     }
+    const precisionError = await findCheckoutChargePrecisionError(
+      container,
+      { organizationId: link.organizationId, tenantId: link.tenantId },
+      existingTransaction
+        ? { amount: existingTransaction.amount, currencyCode: existingTransaction.currencyCode }
+        : { amount: resolvedAmount.amountExact, currencyCode: resolvedAmount.currencyCode },
+    )
+    if (precisionError) {
+      return NextResponse.json(precisionError, { status: 400 })
+    }
 
     const transactionInput = {
       linkId: link.id,
-      amount: resolvedAmount.amount,
+      amount: resolvedAmount.amountExact,
       currencyCode: resolvedAmount.currencyCode,
       idempotencyKey,
       customerData: collectedCustomerData,
@@ -481,6 +513,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           paymentId: transactionId,
           idempotencyKey,
           amount: sessionAmount,
+          amountExact: toMoneyString(transaction.amount) ?? undefined,
           currencyCode: sessionCurrencyCode,
           paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
           description: link.title ?? link.name,
@@ -489,6 +522,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           metadata: {
             checkoutLinkId: link.id,
             checkoutSlug: link.slug,
+            ...buildPayerSessionMetadata(collectedCustomerData),
           },
           presentation: rendererKey || rendererSettings || presentationMode
             ? {
@@ -572,6 +606,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           status: refreshedTransaction.status,
           paymentStatus: refreshedTransaction.paymentStatus ?? null,
           amount: Number(refreshedTransaction.amount),
+          amountExact: toMoneyString(refreshedTransaction.amount),
           currency: refreshedTransaction.currencyCode,
           gatewayProvider: link.gatewayProviderKey,
           gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,

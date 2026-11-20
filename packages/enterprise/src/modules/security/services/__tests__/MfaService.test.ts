@@ -1,4 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
+import { UserMfaMethod } from '../../data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../../events'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
@@ -69,7 +71,7 @@ function createServiceContext(
   securityConfig: SecurityModuleConfig = defaultSecurityModuleConfig,
 ) {
   const methods: MockMethod[] = []
-  const recoveryCodes: Array<{ userId: string; codeHash: string; isUsed: boolean; usedAt?: Date | null; createdAt: Date }> = []
+  const recoveryCodes: Array<{ id?: string; tenantId?: string; userId: string; codeHash: string; isUsed: boolean; usedAt?: Date | null; createdAt: Date }> = []
   const enforcementPolicies: Array<{ scope: string; tenantId?: string | null; organizationId?: string | null; isEnforced: boolean; allowedMethods?: string[] | null; deletedAt?: Date | null }> = []
 
   const em = {
@@ -82,6 +84,8 @@ function createServiceContext(
       }
       if ('codeHash' in data) {
         const row = {
+          id: `recovery-${recoveryCodes.length + 1}`,
+          tenantId: String(data.tenantId),
           userId: String(data.userId),
           codeHash: String(data.codeHash),
           isUsed: Boolean(data.isUsed),
@@ -107,6 +111,16 @@ function createServiceContext(
       }
       methods.push(method)
       return method
+    }),
+    transactional: jest.fn(async (callback: (transaction: unknown) => Promise<unknown>): Promise<unknown> => callback(em)),
+    execute: jest.fn(async (sql: string, parameters: unknown[]) => {
+      if (!sql.startsWith('UPDATE mfa_recovery_codes')) return []
+      const [usedAt, id, userId, tenantId] = parameters
+      const code = recoveryCodes.find((item) => item.id === id && item.userId === userId && item.tenantId === tenantId && !item.isUsed)
+      if (!code) return []
+      code.isUsed = true
+      code.usedAt = usedAt as Date
+      return [{ id: code.id }]
     }),
     persist: jest.fn(),
     flush: jest.fn().mockResolvedValue(undefined),
@@ -170,12 +184,15 @@ const mockedEmitSecurityEvent = emitSecurityEvent as jest.MockedFunction<typeof 
 describe('MfaService', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockedFindOneWithDecryption.mockResolvedValue({
-      id: 'user-1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      deletedAt: null,
-    } as never)
+    mockedFindOneWithDecryption.mockImplementation(async (em, entity, query, options) => {
+      if (entity === UserMfaMethod) return em.findOne(entity, query, options) as never
+      return {
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        deletedAt: null,
+      } as never
+    })
   })
 
   test('setupMethod delegates to provider and persists pending method', async () => {
@@ -240,6 +257,43 @@ describe('MfaService', () => {
     })
   })
 
+  test.each(['synchronous', 'asynchronous'])('confirmMethod maps %s validation errors to 400 without activating or emitting enrollment', async (failureMode) => {
+    const { service, provider, methods, em } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    const pending = { ...methods[0] }
+    jest.mocked(provider.confirmSetup).mockImplementationOnce((_userId, _setupId, payload) => {
+      const validate = () => {
+        z.object({ code: z.string() }).parse(payload)
+        return { metadata: {} }
+      }
+      return failureMode === 'synchronous' ? Promise.resolve(validate()) : Promise.resolve().then(validate)
+    })
+    em.flush.mockClear()
+    mockedEmitSecurityEvent.mockClear()
+
+    await expect(service.confirmMethod('user-1', 'setup-1', {})).rejects.toMatchObject({
+      name: 'MfaServiceError',
+      statusCode: 400,
+      message: 'Invalid payload',
+    })
+    expect(methods[0]).toEqual(pending)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+  })
+
+  test('confirmMethod preserves non-validation provider failures without activating a method', async () => {
+    const { service, provider, methods, em } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    const error = new Error('Provider unavailable')
+    jest.mocked(provider.confirmSetup).mockRejectedValueOnce(error)
+    em.flush.mockClear()
+
+    await expect(service.confirmMethod('user-1', 'setup-1', {})).rejects.toBe(error)
+    expect(methods[0].isActive).toBe(false)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+  })
+
   test('confirmMethod rejects duplicate confirmation for a single-instance provider', async () => {
     const { service, registry, methods } = createServiceContext()
     registry.register(createProvider({
@@ -280,7 +334,7 @@ describe('MfaService', () => {
   test('confirmMethod rejects duplicate label for allowMultiple provider', async () => {
     const { service } = createServiceContext()
 
-    mockedFindOneWithDecryption.mockResolvedValue({
+    mockedFindOneWithDecryption.mockResolvedValueOnce({
       id: 'user-1',
       tenantId: 'tenant-1',
       organizationId: null,
@@ -386,6 +440,53 @@ describe('MfaService', () => {
       userId: 'user-1',
       remaining: 9,
     })
+  })
+
+  test('verifyRecoveryCode rejects a code consumed after the bcrypt comparison', async () => {
+    const { service, em } = createServiceContext()
+    const [code] = await service.generateRecoveryCodes('user-1')
+    mockedEmitSecurityEvent.mockClear()
+    em.execute.mockResolvedValueOnce([])
+
+    await expect(service.verifyRecoveryCode('user-1', code)).resolves.toBe(false)
+
+    expect(em.execute).toHaveBeenCalledWith(
+      expect.stringContaining('AND user_id = ? AND tenant_id = ? AND is_used = false RETURNING id'),
+      [expect.any(Date), expect.any(String), 'user-1', 'tenant-1'],
+    )
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+  })
+
+  test('confirmMethod emits enrollment only after the transaction commits', async () => {
+    const { service, em, provider } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    let committed = false
+    em.transactional.mockImplementationOnce(async (callback) => {
+      const result = await callback(em)
+      expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+      committed = true
+      return result
+    })
+    const request = new Request('https://example.test')
+
+    await service.confirmMethod('user-1', 'setup-1', { code: '123456' }, 'totp', { request })
+
+    expect(committed).toBe(true)
+    expect(provider.confirmSetup).toHaveBeenCalledWith('user-1', 'setup-1', { code: '123456' }, { request })
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledTimes(1)
+  })
+
+  test('confirmMethod does not emit when the transaction fails to commit', async () => {
+    const { service, em } = createServiceContext()
+    await service.setupMethod('user-1', 'totp', {})
+    const error = new Error('[internal] simulated commit failure')
+    em.transactional.mockImplementationOnce(async (callback) => {
+      await callback(em)
+      throw error
+    })
+
+    await expect(service.confirmMethod('user-1', 'setup-1', {})).rejects.toBe(error)
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
   })
 
   test('verifyRecoveryCode returns false for blank input', async () => {

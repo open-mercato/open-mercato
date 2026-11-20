@@ -16,17 +16,21 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { WorkflowDefinition } from '../../../../data/entities'
 import type { WorkflowIoContract } from '../../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { serializeWorkflowDefinition } from '../../serialize'
 import { findSubWorkflowCallers } from '../../../../lib/caller-graph'
+import { invalidateTriggerCache } from '../../../../lib/event-trigger-service'
 import {
   authorizeWorkflowGrantChange,
   normalizeGrantedFeatures,
   syncWorkflowDefinitionPrincipal,
 } from '../../../../lib/definition-grant'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { collectAgentInvokeGrantWarnings } from '../../../../lib/agent-invoke-grant-warnings'
 
 const logger = createLogger('workflows').child({ component: 'definition-publish-api' })
 
@@ -56,7 +60,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!tenantId || !organizationId) {
       return NextResponse.json({ error: 'Missing tenant or organization context' }, { status: 400 })
@@ -165,6 +169,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     em.persist(published)
     await em.flush()
 
+    // The minted version is now the one unpinned starts and event triggers
+    // resolve to, so the cached trigger set still pointing at the previous
+    // version must be dropped.
+    invalidateTriggerCache(tenantId, organizationId)
+
     if (guardResult?.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
         tenantId,
@@ -203,12 +212,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
       })
     }
 
+    const warnings = await collectAgentInvokeGrantWarnings(container, {
+      definition: published.definition,
+      grantedFeatures: published.grantedFeatures,
+    })
+
     return NextResponse.json({
       data: serializeWorkflowDefinition(published),
       breakingChanges,
       message: 'Workflow definition published successfully',
+      ...(warnings.length ? { warnings } : {}),
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('error publishing workflow definition', {
       error: error instanceof Error ? error.message : String(error),
     })
@@ -221,7 +237,7 @@ export const openApi = {
     POST: {
       summary: 'Publish a new workflow definition version',
       description:
-        'Mints a frozen published version snapshotting the definition and its IO port contract. Returns affected sub-workflow callers; pass acknowledgeBreakingChanges=true to publish despite breaking changes.',
+        'Mints a frozen published version snapshotting the definition and its IO port contract. Returns affected sub-workflow callers; pass acknowledgeBreakingChanges=true to publish despite breaking changes. May return non-blocking `warnings` (e.g. `agent_invoke_not_covered` when the definition grant cannot invoke an INVOKE_AGENT step\'s agent).',
       tags: ['Workflows'],
       pathParams: z.object({ id: z.string().describe('Workflow definition id') }),
       requestBody: publishInputSchema,

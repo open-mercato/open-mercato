@@ -42,6 +42,37 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   }
 }
 
+/**
+ * Builds a `container.resolve` DI mock that resolves `em`/`rbacService` so
+ * `resolveActorOrganizationScope` (issue #7808) runs the real
+ * `resolveOrganizationScopeForRequest` path instead of its no-DI fallback —
+ * needed for tests that assert the actual allowed-organization allowlist is
+ * enforced. `aclOrganizations: null` means unrestricted (same as the
+ * pre-#7808 single-current-org behavior); an array is the restricted
+ * allowlist; `[]` means explicitly denied.
+ */
+function makeOrgScopeResolver(options: {
+  aclOrganizations: string[] | null
+  isSuperAdmin?: boolean
+  knownOrgIds?: string[]
+}) {
+  const em = {
+    find: jest.fn(async (_entity: unknown, filter: { id?: { $in: string[] } }) => {
+      const ids = filter?.id?.$in ?? []
+      const known = new Set(options.knownOrgIds ?? ['org-1', 'org-2', 'org-3'])
+      return ids.filter((id) => known.has(id)).map((id) => ({ id, descendantIds: [] }))
+    }),
+  }
+  const rbacService = {
+    loadAcl: jest.fn(async () => ({
+      isSuperAdmin: options.isSuperAdmin ?? false,
+      features: [],
+      organizations: options.aclOrganizations,
+    })),
+  }
+  return { em, rbacService }
+}
+
 function makeSearchService(results: unknown[]): {
   service: { search: (query: string, options: Record<string, unknown>) => Promise<unknown[]> }
   calls: SearchCall[]
@@ -224,6 +255,8 @@ describe('search.hybrid_search', () => {
     const result = (await tool.handler({ q: 'test', entityTypes: ['secret:thing'] }, ctx as any)) as Record<string, unknown>
     expect(calls[0].options.entityTypes).toEqual(['secret:thing'])
     expect(result.totalResults).toBe(1)
+    // Regression (#7808): superadmins must stay unfiltered — no organizationIds restriction.
+    expect(calls[0].options.organizationIds).toBeUndefined()
   })
 })
 
@@ -385,6 +418,139 @@ describe('search.get_record_context', () => {
   })
 })
 
+describe('org-allowlist enforcement (issue #7808)', () => {
+  const hybridTool = findTool('search.hybrid_search')
+  const recordContextTool = findTool('search.get_record_context')
+
+  it('hybrid_search scopes a restricted user with no current org to their organization allowlist', async () => {
+    const lookup = permissiveLookup(['catalog:product'])
+    const { service, calls } = makeSearchService([
+      { entityId: 'catalog:product', recordId: 'c1', score: 0.8, source: 'fulltext' },
+    ])
+    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: ['org-2', 'org-3'] })
+    const ctx = makeCtx({ organizationId: null })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      if (name === 'em') return em
+      if (name === 'rbacService') return rbacService
+      throw new Error(`unexpected ${name}`)
+    })
+    const result = (await hybridTool.handler({ q: 'widget' }, ctx as any)) as Record<string, unknown>
+    expect(calls).toHaveLength(1)
+    expect(calls[0].options.organizationIds).toEqual(['org-2', 'org-3'])
+    expect(result.totalResults).toBe(1)
+  })
+
+  it('hybrid_search denies a restricted user whose allowlist is explicitly empty, without calling search', async () => {
+    const lookup = permissiveLookup(['catalog:product'])
+    const { service, calls } = makeSearchService([
+      { entityId: 'catalog:product', recordId: 'c1', score: 0.8, source: 'fulltext' },
+    ])
+    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: [] })
+    const ctx = makeCtx({ organizationId: null })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      if (name === 'em') return em
+      if (name === 'rbacService') return rbacService
+      throw new Error(`unexpected ${name}`)
+    })
+    const result = (await hybridTool.handler({ q: 'widget' }, ctx as any)) as Record<string, unknown>
+    expect(calls).toHaveLength(0)
+    expect(result.totalResults).toBe(0)
+    expect(result.results).toEqual([])
+  })
+
+  it('hybrid_search leaves a superadmin unfiltered regardless of the ACL allowlist', async () => {
+    const lookup = permissiveLookup(['catalog:product'])
+    const { service, calls } = makeSearchService([
+      { entityId: 'catalog:product', recordId: 'c1', score: 0.8, source: 'fulltext' },
+    ])
+    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: [], isSuperAdmin: true })
+    const ctx = makeCtx({ organizationId: null, isSuperAdmin: true, userFeatures: [] })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      if (name === 'em') return em
+      if (name === 'rbacService') return rbacService
+      throw new Error(`unexpected ${name}`)
+    })
+    const result = (await hybridTool.handler({ q: 'widget' }, ctx as any)) as Record<string, unknown>
+    expect(calls).toHaveLength(1)
+    expect(calls[0].options.organizationIds).toBeUndefined()
+    expect(result.totalResults).toBe(1)
+  })
+
+  it('get_record_context scopes a restricted user with no current org to their organization allowlist', async () => {
+    const lookup = permissiveLookup(['catalog:product'])
+    const { service, calls } = makeSearchService([
+      { entityId: 'catalog:product', recordId: 'rec-42', score: 1, source: 'fulltext', presenter: { title: 'Widget' } },
+    ])
+    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: ['org-2', 'org-3'] })
+    const ctx = makeCtx({ organizationId: null })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      if (name === 'em') return em
+      if (name === 'rbacService') return rbacService
+      throw new Error(`unexpected ${name}`)
+    })
+    const result = (await recordContextTool.handler(
+      { entityId: 'catalog:product', recordId: 'rec-42' },
+      ctx as any,
+    )) as Record<string, unknown>
+    expect(calls).toHaveLength(1)
+    expect(calls[0].options.organizationIds).toEqual(['org-2', 'org-3'])
+    expect(result.found).toBe(true)
+  })
+
+  it('get_record_context denies a restricted user whose allowlist is explicitly empty, without calling search', async () => {
+    const lookup = permissiveLookup(['catalog:product'])
+    const { service, calls } = makeSearchService([
+      { entityId: 'catalog:product', recordId: 'rec-42', score: 1, source: 'fulltext' },
+    ])
+    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: [] })
+    const ctx = makeCtx({ organizationId: null })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      if (name === 'em') return em
+      if (name === 'rbacService') return rbacService
+      throw new Error(`unexpected ${name}`)
+    })
+    const result = (await recordContextTool.handler(
+      { entityId: 'catalog:product', recordId: 'rec-42' },
+      ctx as any,
+    )) as Record<string, unknown>
+    expect(calls).toHaveLength(0)
+    expect(result.found).toBe(false)
+  })
+
+  it('get_record_context leaves a superadmin unfiltered regardless of the ACL allowlist', async () => {
+    const lookup = permissiveLookup(['catalog:product'])
+    const { service, calls } = makeSearchService([
+      { entityId: 'catalog:product', recordId: 'rec-42', score: 1, source: 'fulltext', presenter: { title: 'Widget' } },
+    ])
+    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: [], isSuperAdmin: true })
+    const ctx = makeCtx({ organizationId: null, isSuperAdmin: true, userFeatures: [] })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      if (name === 'em') return em
+      if (name === 'rbacService') return rbacService
+      throw new Error(`unexpected ${name}`)
+    })
+    const result = (await recordContextTool.handler(
+      { entityId: 'catalog:product', recordId: 'rec-42' },
+      ctx as any,
+    )) as Record<string, unknown>
+    expect(calls).toHaveLength(1)
+    expect(calls[0].options.organizationIds).toBeUndefined()
+    expect(result.found).toBe(true)
+  })
+})
+
 describe('search-pack tool surface', () => {
   it('exports exactly the expected tool names and shapes', () => {
     const names = searchAiTools.map((tool) => tool.name)
@@ -394,5 +560,113 @@ describe('search-pack tool surface', () => {
       expect(tool.isMutation).not.toBe(true)
       expect(tool.requiredFeatures).toContain('search.view')
     }
+  })
+})
+
+describe('search.* record citations', () => {
+  function makeUiPartsCtx(results: unknown[]) {
+    const { service } = makeSearchService(results)
+    const enqueue = jest.fn()
+    const ctx = { ...makeCtx(), uiParts: { enqueue } }
+    const lookup = permissiveLookup(['catalog:product'])
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      throw new Error(`unexpected ${name}`)
+    })
+    return { ctx, enqueue }
+  }
+
+  it('hybrid_search emits record citations for returned hits and drops unsafe hrefs', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([
+      { entityId: 'catalog:product', recordId: 'rec-1', score: 1, source: 'fulltext', presenter: { title: 'Widget' }, url: '/backend/catalog/products/rec-1' },
+      { entityId: 'catalog:product', recordId: 'rec-2', score: 0.5, source: 'fulltext', url: 'javascript:alert(1)' },
+    ])
+    await findTool('search.hybrid_search').handler({ q: 'widget' }, ctx as any)
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith({
+      componentId: 'ai_assistant:citations',
+      payload: {
+        citations: [
+          { kind: 'record', ref: 'catalog:product:rec-1', label: 'Widget', href: '/backend/catalog/products/rec-1' },
+          { kind: 'record', ref: 'catalog:product:rec-2' },
+        ],
+      },
+    })
+  })
+
+  it('hybrid_search emits nothing when there are no hits', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([])
+    await findTool('search.hybrid_search').handler({ q: 'nothing' }, ctx as any)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('get_record_context cites only the matched record', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([
+      { entityId: 'catalog:product', recordId: 'rec-9', score: 0.4, source: 'fulltext' },
+      { entityId: 'catalog:product', recordId: 'rec-42', score: 1, source: 'fulltext', presenter: { title: 'Gadget' } },
+    ])
+    await findTool('search.get_record_context').handler({ entityId: 'catalog:product', recordId: 'rec-42' }, ctx as any)
+    expect(enqueue).toHaveBeenCalledWith({
+      componentId: 'ai_assistant:citations',
+      payload: { citations: [{ kind: 'record', ref: 'catalog:product:rec-42', label: 'Gadget' }] },
+    })
+  })
+})
+
+describe('search viewer for per-record visibility (PR #9648 B-8)', () => {
+  function resolverFor(service: unknown, lookup: unknown) {
+    return (name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      return undefined
+    }
+  }
+
+  it('search.hybrid_search passes the calling user as the viewer', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx()
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    expect(calls[0].options.viewer).toEqual({
+      auth: {
+        sub: 'user-1',
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        orgId: 'org-1',
+        features: ['search.view'],
+        isSuperAdmin: false,
+      },
+      container: ctx.container,
+    })
+  })
+
+  it('search.hybrid_search passes the viewer on the superadmin branch too', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx({ userFeatures: [], isSuperAdmin: true })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    expect((calls[0].options.viewer as { auth: Record<string, unknown> }).auth).toMatchObject({
+      sub: 'user-1',
+      isSuperAdmin: true,
+    })
+  })
+
+  it('runs an API-key caller as the key itself, with no user identity', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = { ...makeCtx(), apiKeyId: 'key-1' }
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    const auth = (calls[0].options.viewer as { auth: Record<string, unknown> }).auth
+    expect(auth).toMatchObject({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1' })
+    expect(auth).not.toHaveProperty('userId')
+  })
+
+  it('search.get_record_context passes the viewer', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx()
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup(['catalog:product'])))
+    await findTool('search.get_record_context').handler({ entityId: 'catalog:product', recordId: 'rec-1' }, ctx as any)
+    expect((calls[0].options.viewer as { auth: Record<string, unknown> }).auth).toMatchObject({ sub: 'user-1', tenantId: 'tenant-1' })
   })
 })

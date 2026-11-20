@@ -681,6 +681,7 @@ function registerExecuteTool(commonTypes: string): void {
       // provide the structured before/after preview that approval flow requires.
       isMutation: true,
       isDestructive: true,
+      mcp: { approvalMode: 'refuse' },
       description: `Make API calls. Returns JSON.
 Globals: api.request({ method, path, query?, body? }) → { success, statusCode, data }, context { tenantId, organizationId, userId }.
 RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection path with id in BODY. NEVER PUT/POST/DELETE unless user explicitly asked to change data. Before ANY write operation (POST/PUT/DELETE), you MUST use the AskUserQuestion tool to get explicit user confirmation. Do NOT just ask in text — use the tool so execution pauses until the user responds.${typesBlock}`,
@@ -835,8 +836,18 @@ export function createApiRequestFn(
       method: normalizedMethod,
       headers,
       body: requestBody ? JSON.stringify(requestBody) : undefined,
+      redirect: 'manual',
       timeoutMs: resolveAiApiRequestTimeoutMs(),
     })
+
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel()
+      return {
+        success: false,
+        statusCode: response.status,
+        error: `API redirect ${response.status} blocked`,
+      }
+    }
 
     const responseText = await response.text()
     const data = tryParseJson(responseText)

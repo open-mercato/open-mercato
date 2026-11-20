@@ -29,6 +29,26 @@ import {
 import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
+import type {
+  AiAgentCallObserver,
+  AiAgentCallSettings,
+  AiAgentRunTraceOptions,
+} from './agent-call-contract'
+import { mergeCallSettings, toSdkCallSettings } from './agent-call-contract'
+import {
+  buildObjectResponseFormat,
+  composeCallObservers,
+  createModelCallObserverHooks,
+  createSynthesizedModelCall,
+  describeLanguageModel,
+  isLightweightCallObserver,
+  notifyPromptResolved,
+  observeStreamedObjectEnd,
+  readSynthesizedResultMetadata,
+  type ModelCallObserverHooks,
+} from './agent-call-observer'
+import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
+import { reportAiAssistantError } from './report-ai-assistant-error'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
 import type { EnvLookup } from '@open-mercato/shared/lib/ai/llm-provider'
@@ -62,6 +82,9 @@ import {
   sanitizeToolNameForModel,
 } from './agent-tools'
 import { resolveEffectiveMutationPolicy } from './agent-policy'
+import { resolveAgentRunMutationPolicyOverride } from './agent-channel-policy'
+import type { McpMutationMode } from './mcp-exposure'
+import type { AiPendingActionChannel } from './pending-action-types'
 import { toolRegistry } from './tool-registry'
 import {
   attachmentPartsToUiFileParts,
@@ -74,7 +97,11 @@ import { AiAgentRuntimeOverrideRepository } from '../data/repositories/AiAgentRu
 import { AiTenantModelAllowlistRepository } from '../data/repositories/AiTenantModelAllowlistRepository'
 import type { TenantAllowlistSnapshot } from './model-allowlist'
 import { composeSystemPromptWithOverride } from './prompt-override-merge'
+import { extractStepMeta, extractStepToolCalls } from './loop-step-extraction'
+import type { RawStepEvent, ToolCallTimings } from './loop-step-extraction'
 import { isAgentTaskPlanEnabled } from './agent-registry'
+import { createAgentRunCapture, stopWhenKinds } from './agent-run-capture'
+import type { AgentRunLoopParams, AgentRunModelSource } from './agent-run-recorder'
 import { isKnownMutationPolicy } from './agent-policy'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
 import { recordTokenUsage } from './token-usage-recorder'
@@ -209,6 +236,16 @@ export interface RunAiAgentTextInput {
    * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   emitLoopTrace?: boolean
+  /**
+   * Model-call contract fields (spec `2026-10-21-chat-run-tracing-and-citations` §6).
+   * `runId` pins the run identifier, `trace` controls run persistence and
+   * channel attribution, `callSettings` are merged over the agent's
+   * `modelSettings` key by key, and `observe` receives per-call events.
+   */
+  runId?: string
+  trace?: AiAgentRunTraceOptions
+  callSettings?: AiAgentCallSettings
+  observe?: AiAgentCallObserver
 }
 
 /**
@@ -247,40 +284,148 @@ export function resolveLoopBudgetPreset(
 
 const SSE_ENCODER = new TextEncoder()
 
+export type TextRunStreamOutcome = {
+  status: 'completed' | 'failed' | 'aborted'
+  error: { code: string; message: string } | null
+}
+
+type StreamOutcomeScanner = {
+  push(chunk: Uint8Array): void
+  outcome(): TextRunStreamOutcome
+}
+
+function readStreamPartOutcome(line: string): TextRunStreamOutcome | null {
+  if (!line.startsWith('data:')) return null
+  if (!line.includes('"type":"error"') && !line.includes('"type":"abort"')) return null
+  try {
+    const parsed = JSON.parse(line.slice('data:'.length).trim()) as { type?: unknown; errorText?: unknown }
+    if (parsed.type === 'error') {
+      const message = typeof parsed.errorText === 'string' ? parsed.errorText : ''
+      return { status: 'failed', error: { code: 'stream_error', message } }
+    }
+    if (parsed.type === 'abort') return { status: 'aborted', error: null }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function createStreamOutcomeScanner(): StreamOutcomeScanner {
+  const decoder = new TextDecoder()
+  let pending = ''
+  let current: TextRunStreamOutcome = { status: 'completed', error: null }
+  function consume(line: string): void {
+    const parsed = readStreamPartOutcome(line)
+    if (!parsed) return
+    if (current.status === 'failed') return
+    current = parsed
+  }
+  return {
+    push(chunk) {
+      pending += decoder.decode(chunk, { stream: true })
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+      for (const line of lines) consume(line)
+    },
+    outcome() {
+      if (pending.length > 0) {
+        consume(pending)
+        pending = ''
+      }
+      return current
+    },
+  }
+}
+
+type StreamFinalizeOptions = {
+  emitLoopTrace: boolean
+  finalizeLoopTrace: () => LoopTrace
+  abortSignal?: AbortSignal
+  onSettled?: (outcome: TextRunStreamOutcome, trace: LoopTrace) => Promise<unknown>
+}
+
 /**
- * Wraps a streaming `Response` to append a typed `loop-finish` SSE event
- * after the AI SDK stream closes. The event carries the serialized `LoopTrace`
- * for the turn so the `useAiChat` hook can render it in the debug panel.
+ * Wraps a streaming `Response` with a post-stream finalize hook. When
+ * `emitLoopTrace` is set, a typed `loop-finish` SSE event carrying the
+ * serialized `LoopTrace` is appended after the AI SDK stream closes. The
+ * optional `onSettled` hook runs after the client stream is closed, so it never
+ * holds the response open.
  *
- * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
+ * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`; generalized by
+ * spec `2026-10-21-chat-run-tracing-and-citations` §2.
  */
-function appendLoopFinishToStream(
-  baseResponse: Response,
-  finalizeLoopTrace: () => LoopTrace,
-): Response {
+async function cancelReaderQuietly(reader: ReadableStreamDefaultReader<Uint8Array>, reason: unknown): Promise<void> {
+  try {
+    await reader.cancel(reason)
+  } catch {
+    return
+  }
+}
+
+function appendLoopFinishToStream(baseResponse: Response, options: StreamFinalizeOptions): Response {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
   const writer = writable.getWriter()
+  const scanner = options.onSettled ? createStreamOutcomeScanner() : null
 
   async function pump(): Promise<void> {
+    let outcome: TextRunStreamOutcome = { status: 'completed', error: null }
+    let trace: LoopTrace | null = null
+    let downstreamClosed = false
+    const writeDownstream = async (chunk: Uint8Array): Promise<void> => {
+      try {
+        await writer.write(chunk)
+      } catch (error) {
+        downstreamClosed = true
+        throw error
+      }
+    }
     if (!baseResponse.body) {
       await writer.close()
-      return
-    }
-    const reader = baseResponse.body.getReader()
-    try {
-      for (;;) {
-        const { value, done } = await reader.read()
-        if (done) break
-        await writer.write(value)
+    } else {
+      const reader = baseResponse.body.getReader()
+      writer.closed.catch((reason: unknown) => {
+        downstreamClosed = true
+        void cancelReaderQuietly(reader, reason)
+      })
+      try {
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          scanner?.push(value)
+          await writeDownstream(value)
+        }
+        if (downstreamClosed) throw new Error('[internal] downstream stream closed')
+        trace = options.finalizeLoopTrace()
+        if (options.emitLoopTrace) {
+          const eventLine = `data: ${JSON.stringify({ type: 'loop-finish', trace })}\n\n`
+          await writeDownstream(SSE_ENCODER.encode(eventLine))
+        }
+        if (scanner) outcome = scanner.outcome()
+        if (outcome.status === 'completed' && options.abortSignal?.aborted === true) {
+          outcome = { status: 'aborted', error: null }
+        }
+      } catch (error) {
+        await cancelReaderQuietly(reader, error)
+        const aborted =
+          downstreamClosed ||
+          options.abortSignal?.aborted === true ||
+          (error instanceof Error && error.name === 'AbortError') ||
+          (scanner !== null && scanner.outcome().status === 'aborted')
+        outcome = aborted
+          ? { status: 'aborted', error: null }
+          : { status: 'failed', error: { code: 'stream_error', message: error instanceof Error ? error.message : String(error) } }
+      } finally {
+        reader.releaseLock()
+        await writer.close().catch(() => undefined)
       }
-      const trace = finalizeLoopTrace()
-      const eventLine = `data: ${JSON.stringify({ type: 'loop-finish', trace })}\n\n`
-      await writer.write(SSE_ENCODER.encode(eventLine))
-    } catch {
-      // Pass through — the reader abort is surfaced by the upstream consumer.
-    } finally {
-      reader.releaseLock()
-      await writer.close().catch(() => undefined)
+    }
+    if (options.onSettled) {
+      try {
+        await options.onSettled(outcome, trace ?? options.finalizeLoopTrace())
+      } catch (error) {
+        logger.warn('Run finalize hook failed; stream already delivered', { err: error })
+        reportAiAssistantError(error, 'ai_assistant.agent_run_finalize_failed')
+      }
     }
   }
 
@@ -305,6 +450,7 @@ function appendLoopFinishToStream(
  */
 export interface PreparedAiSdkOptions {
   model: LanguageModel
+  experimental_download?: import('ai').Experimental_DownloadFunction
   tools: ToolSet
   system: string
   messages: Awaited<ReturnType<typeof convertToModelMessages>>
@@ -364,7 +510,22 @@ export interface PreparedAiSdkOptions {
    * Spec `2026-06-04-ai-input-moderation-and-safety-identifiers`.
    */
   providerOptions?: Record<string, unknown>
+  /**
+   * Effective call settings (agent `modelSettings` merged with per-call
+   * `callSettings`). Present only when at least one setting is declared.
+   * `providerOptions` above already carries the merged provider options.
+   */
+  callSettings?: AiAgentCallSettings
+  /**
+   * AI SDK call-level hooks that feed `input.observe` with one start/end event
+   * per model call. Present only when an observer with model-call handlers is
+   * supplied. Callers SHOULD forward both to the SDK call.
+   */
+  onLanguageModelCallStart?: ModelCallObserverHooks['onLanguageModelCallStart']
+  onLanguageModelCallEnd?: ModelCallObserverHooks['onLanguageModelCallEnd']
 }
+
+type ToolLoopAgentSettingsWithModelCallHooks = ToolLoopAgentSettings<never, ToolSet> & Partial<ModelCallObserverHooks>
 
 /**
  * The fully prepared options bag handed to the `runAiAgentObject({ generateObject })`
@@ -374,6 +535,7 @@ export interface PreparedAiSdkOptions {
  */
 export interface PreparedAiSdkObjectOptions {
   model: LanguageModel
+  experimental_download?: import('ai').Experimental_DownloadFunction
   system: string
   messages: Awaited<ReturnType<typeof convertToModelMessages>>
   schemaName: string
@@ -382,6 +544,12 @@ export interface PreparedAiSdkObjectOptions {
   onStepFinish: AiAgentLoopConfig['onStepFinish']
   onStepStart: AiAgentLoopConfig['onStepStart']
   abortSignal: AbortSignal | undefined
+  /**
+   * Effective call settings (agent `modelSettings` merged with per-call
+   * `callSettings`). Present only when at least one setting is declared.
+   * Callers SHOULD spread them into the SDK call.
+   */
+  callSettings?: AiAgentCallSettings
 }
 
 /**
@@ -638,6 +806,7 @@ export function buildLoopTraceCollector(
   sessionId: string,
   turnId: string,
   userOnStepFinish: AiAgentLoopConfig['onStepFinish'],
+  toolCallTimings?: ToolCallTimings,
 ): {
   onStepFinish: AiAgentLoopConfig['onStepFinish']
   finalize: (abortReason: LoopBudgetAbortReason | null) => LoopTrace
@@ -647,45 +816,23 @@ export function buildLoopTraceCollector(
 
   const onStepFinish: AiAgentLoopConfig['onStepFinish'] = async (event) => {
     const stepIndex = steps.length
-    const toolCalls = (event.toolCalls ?? []).map((tc) => {
-      const raw = tc as unknown as {
-        toolName?: string
-        args?: unknown
-        result?: unknown
-        experimental_toToolResultError?: { code?: string; message?: string }
-        repairAttempted?: boolean
-        startTime?: number
-        endTime?: number
-      }
-      return {
-        toolName: raw.toolName
-          ? desanitizeToolNameForDisplay(raw.toolName)
-          : 'unknown',
-        args: raw.args ?? {},
-        result: raw.result,
-        error: raw.experimental_toToolResultError
-          ? {
-              code: String(raw.experimental_toToolResultError?.code ?? 'unknown'),
-              message: String(raw.experimental_toToolResultError?.message ?? ''),
-            }
-          : undefined,
-        repairAttempted: raw.repairAttempted === true,
-        durationMs:
-          typeof raw.startTime === 'number' && typeof raw.endTime === 'number'
-            ? raw.endTime - raw.startTime
-            : 0,
-      }
-    })
+    const rawEvent = event as unknown as RawStepEvent
+    const toolCalls: LoopStepRecord['toolCalls'] = extractStepToolCalls(rawEvent, toolCallTimings).map(
+      (extracted) => ({
+        ...(extracted.toolCallId ? { toolCallId: extracted.toolCallId } : {}),
+        toolName: desanitizeToolNameForDisplay(extracted.toolName),
+        args: extracted.args,
+        result: extracted.result,
+        error: extracted.error,
+        repairAttempted: extracted.repairAttempted,
+        durationMs: extracted.durationMs ?? 0,
+      }),
+    )
 
-    const textDelta =
-      (event as unknown as { text?: string }).text ?? ''
-
-    const finishReason = (
-      (event as unknown as { finishReason?: string }).finishReason ?? 'stop'
-    ) as LoopStepRecord['finishReason']
-
-    const modelId =
-      (event as unknown as { response?: { modelId?: string } }).response?.modelId ?? 'unknown'
+    const stepMeta = extractStepMeta(rawEvent)
+    const textDelta = stepMeta.text
+    const finishReason = stepMeta.finishReason as LoopStepRecord['finishReason']
+    const modelId = stepMeta.modelId
 
     steps.push({
       stepIndex,
@@ -693,8 +840,8 @@ export function buildLoopTraceCollector(
       toolCalls,
       textDelta,
       usage: {
-        inputTokens: event.usage?.inputTokens ?? 0,
-        outputTokens: event.usage?.outputTokens ?? 0,
+        inputTokens: stepMeta.usage.inputTokens,
+        outputTokens: stepMeta.usage.outputTokens,
       },
       finishReason,
     })
@@ -988,6 +1135,7 @@ export function assertLoopObjectModeCompatible(loopConfig: Partial<AiAgentLoopCo
 
 interface ResolvedAgentModel {
   model: LanguageModel
+  experimental_download?: import('ai').Experimental_DownloadFunction
   modelId: string
   providerId: string
   /**
@@ -999,6 +1147,58 @@ interface ResolvedAgentModel {
   supportsInputModeration: boolean
   /** Resolved base URL (if any), reused by the moderation endpoint call. */
   baseURL?: string
+  /** Which resolution source won, mapped onto the run trace `modelSource`. */
+  source?: string
+}
+
+function toAgentRunModelSource(source: string | undefined): AgentRunModelSource {
+  if (source === 'request_override' || source === 'caller_override') return 'request'
+  if (source === 'tenant_override') return 'runtime-override'
+  if (source === 'agent_default') return 'agent'
+  return 'default'
+}
+
+function listMutationToolNames(toolNames: string[]): Set<string> {
+  const mutationToolNames = new Set<string>()
+  for (const toolName of toolNames) {
+    const registered = toolRegistry.getTool(toolName) as { isMutation?: boolean } | undefined
+    if (registered?.isMutation === true) mutationToolNames.add(toolName)
+  }
+  return mutationToolNames
+}
+
+function listRunToolNames(tools: Record<string, unknown> | undefined): string[] {
+  return Object.keys(tools ?? {}).map((toolName) => desanitizeToolNameForDisplay(toolName))
+}
+
+function buildRunLoopParams(
+  loop: AiAgentLoopConfig,
+  modelSource: AgentRunModelSource,
+): AgentRunLoopParams {
+  return {
+    maxSteps: loop.maxSteps ?? null,
+    toolChoice: loop.toolChoice,
+    budget: loop.budget,
+    activeTools: loop.activeTools ?? null,
+    stopWhenKinds: stopWhenKinds(loop.stopWhen),
+    allowRuntimeOverride: loop.allowRuntimeOverride ?? null,
+    modelSource,
+  }
+}
+
+function joinStepText(steps: LoopStepRecord[]): string | null {
+  const text = steps.map((step) => step.textDelta ?? '').join('')
+  return text.length > 0 ? text : null
+}
+
+function serializeObjectOutput(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return null
+  }
 }
 
 function resolveAgentModel(
@@ -1029,11 +1229,13 @@ function resolveAgentModel(
   })
   return {
     model: resolution.model as LanguageModel,
+    experimental_download: resolution.download,
     modelId: resolution.modelId,
     providerId: resolution.providerId,
     providerOptions: resolution.providerOptions,
     supportsInputModeration: resolution.supportsInputModeration === true,
     baseURL: resolution.baseURL,
+    source: resolution.source,
   }
 }
 
@@ -1214,21 +1416,79 @@ export async function composeSystemPrompt(
   organizationId: string | null,
   userId?: string | null,
 ): Promise<string> {
-  const baseFromOverride = await resolveBaseSystemPromptWithOverride(
+  const composed = await composeSystemPromptWithMeta(
+    agent,
+    pageContext,
+    container,
+    tenantId,
+    organizationId,
+    userId,
+  )
+  return composed.prompt
+}
+
+export type PromptOverrideReference = { id: string; version: number }
+
+export type AgentRunPromptContext = {
+  systemPrompt: string
+  promptOverride: PromptOverrideReference | null
+  pageContextHydrated: boolean
+  attachmentCount: number
+  provider: string | null
+  modelId: string | null
+}
+
+async function reportPromptResolved(
+  observe: AiAgentCallObserver | undefined,
+  agentId: string,
+  runContext: AgentRunPromptContext,
+): Promise<void> {
+  await notifyPromptResolved(observe, {
+    agentId,
+    systemPrompt: runContext.systemPrompt,
+    promptOverride: runContext.promptOverride,
+    pageContextHydrated: runContext.pageContextHydrated,
+    attachmentCount: runContext.attachmentCount,
+    provider: runContext.provider,
+    modelId: runContext.modelId,
+  })
+}
+
+export type ComposedSystemPromptWithMeta = {
+  prompt: string
+  promptOverride: PromptOverrideReference | null
+  pageContextHydrated: boolean
+}
+
+export async function composeSystemPromptWithMeta(
+  agent: AiAgentDefinition,
+  pageContext: AgentRequestPageContext | undefined,
+  container: AwilixContainer | undefined,
+  tenantId: string | null,
+  organizationId: string | null,
+  userId?: string | null,
+): Promise<ComposedSystemPromptWithMeta> {
+  const resolvedBase = await resolveSystemPromptWithOverrideMeta(
     agent,
     container,
     tenantId,
     organizationId,
   )
+  const baseFromOverride = resolvedBase.prompt
+  const unhydrated: ComposedSystemPromptWithMeta = {
+    prompt: baseFromOverride,
+    promptOverride: resolvedBase.override,
+    pageContextHydrated: false,
+  }
   const resolve = agent.resolvePageContext
-  if (!resolve) return baseFromOverride
+  if (!resolve) return unhydrated
   const entityType = pageContext?.entityType
   const recordId = pageContext?.recordId
-  if (typeof entityType !== 'string' || entityType.length === 0) return baseFromOverride
-  if (typeof recordId !== 'string' || recordId.length === 0) return baseFromOverride
+  if (typeof entityType !== 'string' || entityType.length === 0) return unhydrated
+  if (typeof recordId !== 'string' || recordId.length === 0) return unhydrated
   if (!container) {
     logger.warn('Agent declares resolvePageContext but no container was passed to runAiAgentText; skipping hydration', { agentId: agent.id })
-    return baseFromOverride
+    return unhydrated
   }
   const hydrationInput: AiAgentPageContextInput = {
     entityType,
@@ -1241,12 +1501,12 @@ export async function composeSystemPrompt(
   try {
     const hydrated = await resolve(hydrationInput)
     if (typeof hydrated === 'string' && hydrated.trim().length > 0) {
-      return `${baseFromOverride}\n\n${hydrated}`
+      return { ...unhydrated, prompt: `${baseFromOverride}\n\n${hydrated}`, pageContextHydrated: true }
     }
   } catch (error) {
     logger.error('resolvePageContext failed; continuing without hydration', { agentId: agent.id, err: error })
   }
-  return baseFromOverride
+  return unhydrated
 }
 
 /**
@@ -1259,21 +1519,22 @@ export async function composeSystemPrompt(
  * override lookup (per Step 5.3 spec: "If the repo call throws, log and
  * fall back to the built-in prompt — never fail the chat request").
  */
-async function resolveBaseSystemPromptWithOverride(
+export async function resolveSystemPromptWithOverrideMeta(
   agent: AiAgentDefinition,
   container: AwilixContainer | undefined,
   tenantId: string | null,
   organizationId: string | null,
-): Promise<string> {
+): Promise<{ prompt: string; override: PromptOverrideReference | null }> {
   const base = agent.systemPrompt
-  if (!tenantId || !container) return base
+  const fallback = { prompt: base, override: null }
+  if (!tenantId || !container) return fallback
   let em: EntityManager | null = null
   try {
     em = container.resolve<EntityManager>('em')
   } catch {
     em = null
   }
-  if (!em) return base
+  if (!em) return fallback
   try {
     const repo = new AiAgentPromptOverrideRepository(em)
     const latest = await repo.getLatest(agent.id, {
@@ -1281,12 +1542,15 @@ async function resolveBaseSystemPromptWithOverride(
       organizationId: organizationId ?? null,
     })
     if (!latest || !latest.sections || Object.keys(latest.sections).length === 0) {
-      return base
+      return fallback
     }
-    return composeSystemPromptWithOverride(base, { sections: latest.sections })
+    return {
+      prompt: composeSystemPromptWithOverride(base, { sections: latest.sections }),
+      override: { id: latest.id, version: latest.version },
+    }
   } catch (error) {
     logger.warn('Prompt-override lookup failed; falling back to built-in prompt', { agentId: agent.id, err: error })
-    return base
+    return fallback
   }
 }
 
@@ -1361,10 +1625,18 @@ async function resolveRuntimeModelOverride(
       agentId,
     })
     if (!row) return null
+    const baseURL = resolveAllowlistedBaseurl(row.baseUrl)
+    if (!baseURL && row.baseUrl?.trim()) {
+      logger.warn('Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it', {
+        agentId,
+        tenantId,
+        organizationId,
+      })
+    }
     return {
       providerId: row.providerId ?? null,
       modelId: row.modelId ?? null,
-      baseURL: row.baseUrl ?? null,
+      baseURL,
     }
   } catch (error) {
     logger.warn('Runtime model override lookup failed; falling back to lower-priority sources', { agentId, err: error })
@@ -1502,6 +1774,7 @@ function appendAttachmentSummary(
 function buildRuntimeMutationPolicySection(
   agent: { id: string; mutationPolicy?: string | null; allowedTools: string[] },
   mutationPolicyOverride: string | null,
+  channel: AiPendingActionChannel = 'agent',
 ): string | null {
   const effective = resolveEffectiveMutationPolicy(
     (agent.mutationPolicy ?? null) as never,
@@ -1535,7 +1808,7 @@ function buildRuntimeMutationPolicySection(
       blocked.push(toolName)
       continue
     }
-    if (effective === 'confirm-required') {
+    if (effective === 'confirm-required' || channel !== 'agent') {
       gated.push(toolName)
       continue
     }
@@ -1573,7 +1846,9 @@ function buildRuntimeMutationPolicySection(
       `Tools that REQUIRE APPROVAL under the effective policy: ${gated.join(', ')}.`,
     )
     lines.push(
-      'When you call any of these, the dispatcher returns an "awaiting confirmation" envelope and renders an inline approval card. Tell the operator the change is pending their confirmation; do NOT claim it has been applied.',
+      channel === 'agent'
+        ? 'When you call any of these, the dispatcher returns an "awaiting confirmation" envelope and renders an inline approval card. Tell the operator the change is pending their confirmation; do NOT claim it has been applied.'
+        : 'When you call any of these, the change is queued as a pending action and the dispatcher returns an "awaiting confirmation" envelope. It will NOT run until it is approved on the Pending AI actions page. Report it as pending approval; do NOT claim it has been applied.',
     )
   }
   if (conditional.length > 0) {
@@ -1605,8 +1880,9 @@ function appendRuntimeMutationPolicy(
   systemPrompt: string,
   agent: { id: string; mutationPolicy?: string | null; allowedTools: string[] },
   mutationPolicyOverride: string | null,
+  channel?: AiPendingActionChannel,
 ): string {
-  const block = buildRuntimeMutationPolicySection(agent, mutationPolicyOverride)
+  const block = buildRuntimeMutationPolicySection(agent, mutationPolicyOverride, channel)
   if (!block) return systemPrompt
   return `${systemPrompt}\n\n${block}`
 }
@@ -1657,7 +1933,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // idempotency hashes are always correlated within the same session.
   const effectiveSessionId = (input.sessionId ?? input.conversationId) || randomUUID()
 
-  const { agent, tools } = await resolveAiAgentTools({
+  const { agent, tools, toolCallTimings } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
     pageContext: input.pageContext,
@@ -1674,7 +1950,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     container: input.container,
   })
 
-  const baseSystemPrompt = await composeSystemPrompt(
+  const composedPrompt = await composeSystemPromptWithMeta(
     agent,
     input.pageContext,
     input.container,
@@ -1683,7 +1959,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
-    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
+    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(composedPrompt.prompt, resolvedAttachments), agent),
     agent,
     mutationPolicyOverride,
   )
@@ -1700,7 +1976,46 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     resolveEndUserIdentifier(input.authContext),
   )
   const { model } = resolvedModel
-  const modelProviderOptions = resolvedModel.providerOptions
+  const runId = input.runId ?? randomUUID()
+  const turnId = randomUUID()
+  const runToolNames = listRunToolNames(tools)
+  const runCapture = createAgentRunCapture({
+    container: input.container,
+    trace: input.trace,
+    runId,
+    agent,
+    authContext: input.authContext,
+    executionMode: 'chat',
+    effectiveMutationPolicy: resolveEffectiveMutationPolicy(agent.mutationPolicy, mutationPolicyOverride, agent.id),
+    toolNames: runToolNames,
+    mutationToolNames: listMutationToolNames(runToolNames),
+    conversationId: effectiveSessionId,
+    turnId,
+    apiKeyId: null,
+    providerId: resolvedModel.providerId,
+    modelId: resolvedModel.modelId,
+    baseUrl: resolvedModel.baseURL,
+    systemPrompt,
+    promptOverride: composedPrompt.promptOverride,
+  })
+  const observe = composeCallObservers(input.observe, runCapture?.observer)
+  const runPromptContext: AgentRunPromptContext = {
+    systemPrompt,
+    promptOverride: composedPrompt.promptOverride,
+    pageContextHydrated: composedPrompt.pageContextHydrated,
+    attachmentCount: resolvedAttachments.length,
+    provider: resolvedModel.providerId ?? null,
+    modelId: resolvedModel.modelId ?? null,
+  }
+  await reportPromptResolved(observe, agent.id, runPromptContext)
+  const effectiveCallSettings = mergeCallSettings(agent.modelSettings, input.callSettings)
+  const hasCallSettings = Object.keys(effectiveCallSettings).length > 0
+  const sdkCallSettings = toSdkCallSettings(effectiveCallSettings, resolvedModel.providerOptions)
+  const { providerOptions: modelProviderOptions, ...sdkCallSettingsWithoutProviderOptions } = sdkCallSettings
+  const modelCallHooks = createModelCallObserverHooks(observe, {
+    agentId: agent.id,
+    providerOptions: modelProviderOptions,
+  })
   const normalizedMessages = ensureUiMessageShape(input.messages)
 
   // Pre-loop input moderation gate (spec 2026-06-04). Runs before the model
@@ -1764,9 +2079,13 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   //   budgetEnforcer.wire(traceOnStepFinish) → traceOnStepFinish calls userOnStepFinish
   // The trace collector builds the per-turn LoopTrace; the budget enforcer
   // aborts via AbortController when any limit is exceeded.
-  // Phase 6.2 — generate a per-call turnId as a UUID.
-  const turnId = randomUUID()
-  const loopTraceCollector = buildLoopTraceCollector(agent.id, effectiveSessionId, turnId, effectiveLoop.onStepFinish)
+  const loopTraceCollector = buildLoopTraceCollector(
+    agent.id,
+    effectiveSessionId,
+    turnId,
+    effectiveLoop.onStepFinish,
+    toolCallTimings,
+  )
   const abortController = new AbortController()
   const budgetEnforcer = new BudgetEnforcer(effectiveLoop.budget, abortController)
   const tracedOnStepFinish = budgetEnforcer.wire(loopTraceCollector.onStepFinish)
@@ -1784,6 +2103,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     if (tracedOnStepFinish) {
       await tracedOnStepFinish(event)
     }
+    runCapture?.recordStep(event)
     if (input.container) {
       const rawEvent = event as unknown as {
         usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
@@ -1831,8 +2151,10 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   //     activeTools/providerOptions (per spec §Phase 5 correction)
   let builtToolLoopAgent: ToolLoopAgent<never, ToolSet> | undefined
   if (agent.executionEngine === 'tool-loop-agent') {
-    const agentSettings: ToolLoopAgentSettings<never, ToolSet> = {
+    const agentSettings: ToolLoopAgentSettingsWithModelCallHooks = {
       model,
+      ...(resolvedModel.experimental_download ? { experimental_download: resolvedModel.experimental_download } : {}),
+      instructions: systemPrompt,
       tools: tools as ToolSet,
       stopWhen: stopConditions,
       prepareStep: wrapperPrepareStep,
@@ -1842,13 +2164,16 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
         : {}),
       ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
       ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
+      ...sdkCallSettingsWithoutProviderOptions,
       ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
+      ...(modelCallHooks ?? {}),
     }
-    builtToolLoopAgent = new ToolLoopAgent(agentSettings)
+    builtToolLoopAgent = new ToolLoopAgent<never, ToolSet>(agentSettings)
   }
 
   const preparedOptions: PreparedAiSdkOptions = {
     model,
+    ...(resolvedModel.experimental_download ? { experimental_download: resolvedModel.experimental_download } : {}),
     tools,
     system: systemPrompt,
     messages: modelMessages,
@@ -1863,9 +2188,11 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     activeTools: sdkActiveTools,
     toolChoice: sdkToolChoice,
     abortSignal: abortController.signal,
-    finalizeLoopTrace: () => loopTraceCollector.finalize(budgetEnforcer.abortReason),
+    finalizeLoopTrace: () => ({ ...loopTraceCollector.finalize(budgetEnforcer.abortReason), runId }),
     ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions } : {}),
+    ...(hasCallSettings ? { callSettings: effectiveCallSettings } : {}),
     ...(builtToolLoopAgent !== undefined ? { toolLoopAgent: builtToolLoopAgent } : {}),
+    ...(modelCallHooks ?? {}),
   }
 
   // Phase 1 of `2026-05-13-ai-chat-visible-task-plan` — every chat-mode
@@ -1875,89 +2202,125 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   // plan rows and leave raw lifecycle progress in the tool-call details.
   const taskPlanId = `turn_${turnId}`
 
-  if (input.generateText) {
+  const settleTextRun = async (
+    status: 'completed' | 'failed' | 'aborted',
+    trace: LoopTrace,
+    error?: unknown,
+  ): Promise<void> => {
+    if (!runCapture) return
     try {
-      const callbackResult = await input.generateText(preparedOptions)
-      const baseResponse = (callbackResult as StreamTextResult<ToolSet, Record<string, unknown>, never>).toUIMessageStreamResponse({
+      await runCapture.settle({
+        status,
+        loopParams: buildRunLoopParams(effectiveLoop, toAgentRunModelSource(resolvedModel.source)),
+        inputText: extractLatestUserText(normalizedMessages) || null,
+        steps: trace.steps,
+        stopReason: status === 'aborted' && trace.stopReason === 'finish-reason' ? 'abort' : trace.stopReason,
+        outputText: joinStepText(trace.steps),
+        ...(error !== undefined && error !== null ? { error } : {}),
+      })
+    } catch (settleError) {
+      logger.warn('Run settle failed; ignoring', { err: settleError })
+      reportAiAssistantError(settleError, 'ai_assistant.agent_run_settle_failed')
+    }
+  }
+
+  const dispatchTextStream = async (): Promise<Response> => {
+    if (input.generateText) {
+      try {
+        const callbackResult = await input.generateText(preparedOptions)
+        const baseResponse = (callbackResult as StreamTextResult<ToolSet, Record<string, unknown>, never>).toUIMessageStreamResponse({
+          sendReasoning: true,
+          headers: {
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          },
+        })
+        return injectTaskPlanIntoStream(baseResponse, taskPlanId)
+      } finally {
+        if (wallClockTimer !== undefined) clearTimeout(wallClockTimer)
+      }
+    }
+
+    // Phase 5 — engine dispatch: tool-loop-agent path vs default stream-text path.
+    if (builtToolLoopAgent !== undefined) {
+      // `ToolLoopAgent.stream` dispatches via the agent's own prepareCall/prepareStep
+      // pipeline. prepareStep is already wired at construction (security-critical),
+      // and so is `onStepFinish` — passing it here too makes the SDK merge both
+      // wirings without dedup, so the budget enforcer and the loop trace would count
+      // every step twice and abort the turn before the final answer (#5042).
+      const agentStreamResult = await builtToolLoopAgent.stream({
+        messages: modelMessages,
+        abortSignal: abortController.signal,
+      })
+      if (wallClockTimer !== undefined) {
+        const clearTimer = () => clearTimeout(wallClockTimer!)
+        Promise.resolve(agentStreamResult.consumeStream()).then(clearTimer, clearTimer)
+      }
+      const baseResponse = agentStreamResult.toUIMessageStreamResponse({
         sendReasoning: true,
         headers: {
           'Cache-Control': 'no-cache, no-transform',
           Connection: 'keep-alive',
         },
       })
-      const withTaskPlan = injectTaskPlanIntoStream(baseResponse, taskPlanId)
-      if (input.emitLoopTrace) {
-        return appendLoopFinishToStream(withTaskPlan, preparedOptions.finalizeLoopTrace)
-      }
-      return withTaskPlan
-    } finally {
-      if (wallClockTimer !== undefined) clearTimeout(wallClockTimer)
+      return injectTaskPlanIntoStream(baseResponse, taskPlanId)
     }
-  }
 
-  // Phase 5 — engine dispatch: tool-loop-agent path vs default stream-text path.
-  if (builtToolLoopAgent !== undefined) {
-    // `ToolLoopAgent.stream` dispatches via the agent's own prepareCall/prepareStep
-    // pipeline. prepareStep is already wired at construction (security-critical),
-    // and so is `onStepFinish` — passing it here too makes the SDK merge both
-    // wirings without dedup, so the budget enforcer and the loop trace would count
-    // every step twice and abort the turn before the final answer (#5042).
-    const agentStreamResult = await builtToolLoopAgent.stream({
+    // Default stream-text path (executionEngine === 'stream-text' or unset).
+    const result = streamText({
+      model,
+      ...(resolvedModel.experimental_download ? { experimental_download: resolvedModel.experimental_download } : {}),
+      system: systemPrompt,
       messages: modelMessages,
+      tools,
+      stopWhen: stopConditions as never,
+      prepareStep: wrapperPrepareStep as never,
+      onStepFinish: wiredOnStepFinish as never,
+      experimental_onStepStart: effectiveLoop.onStepStart as never,
+      experimental_onToolCallStart: effectiveLoop.onToolCallStart as never,
+      experimental_onToolCallFinish: effectiveLoop.onToolCallFinish as never,
+      experimental_repairToolCall: effectiveLoop.repairToolCall as never,
+      ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
+      ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
+      ...sdkCallSettingsWithoutProviderOptions,
+      ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
+      ...(modelCallHooks ?? {}),
       abortSignal: abortController.signal,
     })
     if (wallClockTimer !== undefined) {
       const clearTimer = () => clearTimeout(wallClockTimer!)
-      Promise.resolve(agentStreamResult.consumeStream()).then(clearTimer, clearTimer)
+      Promise.resolve(result.consumeStream()).then(clearTimer, clearTimer)
     }
-    const baseResponse = agentStreamResult.toUIMessageStreamResponse({
+    const baseResponse = result.toUIMessageStreamResponse({
       sendReasoning: true,
       headers: {
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
       },
     })
-    const withTaskPlan = injectTaskPlanIntoStream(baseResponse, taskPlanId)
-    if (input.emitLoopTrace) {
-      return appendLoopFinishToStream(withTaskPlan, preparedOptions.finalizeLoopTrace)
-    }
-    return withTaskPlan
+    return injectTaskPlanIntoStream(baseResponse, taskPlanId)
   }
 
-  // Default stream-text path (executionEngine === 'stream-text' or unset).
-  const result = streamText({
-    model,
-    system: systemPrompt,
-    messages: modelMessages,
-    tools,
-    stopWhen: stopConditions as never,
-    prepareStep: wrapperPrepareStep as never,
-    onStepFinish: wiredOnStepFinish as never,
-    experimental_onStepStart: effectiveLoop.onStepStart as never,
-    experimental_onToolCallStart: effectiveLoop.onToolCallStart as never,
-    experimental_onToolCallFinish: effectiveLoop.onToolCallFinish as never,
-    experimental_repairToolCall: effectiveLoop.repairToolCall as never,
-    ...(sdkActiveTools !== undefined ? { activeTools: sdkActiveTools } : {}),
-    ...(sdkToolChoice !== undefined ? { toolChoice: sdkToolChoice } : {}),
-    ...(modelProviderOptions !== undefined ? { providerOptions: modelProviderOptions as never } : {}),
+  let streamResponse: Response
+  try {
+    streamResponse = await dispatchTextStream()
+  } catch (error) {
+    void settleTextRun(
+      abortController.signal.aborted ? 'aborted' : 'failed',
+      preparedOptions.finalizeLoopTrace(),
+      error,
+    )
+    throw error
+  }
+  if (!input.emitLoopTrace && !runCapture) return streamResponse
+  return appendLoopFinishToStream(streamResponse, {
+    emitLoopTrace: input.emitLoopTrace === true,
+    finalizeLoopTrace: preparedOptions.finalizeLoopTrace,
     abortSignal: abortController.signal,
+    ...(runCapture
+      ? { onSettled: (outcome: TextRunStreamOutcome, trace: LoopTrace) => settleTextRun(outcome.status, trace, outcome.error) }
+      : {}),
   })
-  if (wallClockTimer !== undefined) {
-    const clearTimer = () => clearTimeout(wallClockTimer!)
-    Promise.resolve(result.consumeStream()).then(clearTimer, clearTimer)
-  }
-  const baseResponse = result.toUIMessageStreamResponse({
-    sendReasoning: true,
-    headers: {
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    },
-  })
-  const withTaskPlan = injectTaskPlanIntoStream(baseResponse, taskPlanId)
-  if (input.emitLoopTrace) {
-    return appendLoopFinishToStream(withTaskPlan, preparedOptions.finalizeLoopTrace)
-  }
-  return withTaskPlan
 }
 
 /**
@@ -2056,9 +2419,18 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * `toolChoice`) throws `AgentPolicyError` code
    * `loop_unsupported_in_object_mode`.
    *
+   * Exception: `prepareStep` is honoured on the `enableTools` tool-loop branch,
+   * composed under the wrapper-owned `prepareStep` exactly like chat mode (the
+   * caller's value replaces `agent.loop.prepareStep`). When `enableTools` is set
+   * but no tools resolve, the caller's `prepareStep` is dropped with a warning
+   * instead of failing the run; without `enableTools` it still throws.
+   *
    * Phase 1 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
-  loop?: Pick<AiAgentLoopConfig, 'maxSteps' | 'budget' | 'onStepFinish' | 'onStepStart' | 'allowRuntimeOverride'>
+  loop?: Pick<
+    AiAgentLoopConfig,
+    'maxSteps' | 'budget' | 'onStepFinish' | 'onStepStart' | 'allowRuntimeOverride' | 'prepareStep'
+  >
   /**
    * Optional escape-hatch callback receiving the fully prepared object-mode
    * options bag. When supplied the wrapper still enforces all policy guardrails
@@ -2070,6 +2442,30 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
   generateObject?: (
     options: PreparedAiSdkObjectOptions,
   ) => Promise<GenerateObjectResult<unknown> | StreamObjectResult<unknown, unknown, unknown>>
+  /**
+   * Surface the run is invoked on behalf of. Defaults to `'agent'` (today's
+   * behaviour). An MCP / tools-api caller passes its channel and server
+   * `mutationMode`: `direct` / `deny` force the run read-only, `approval`
+   * keeps the agent's own policy and queues its writes as pending actions
+   * stamped with the channel, `apiKeyId` and `correlationId` (spec
+   * `2026-10-21-mcp-tool-exposure-parity-and-audit` §3.1).
+   */
+  channel?: AiPendingActionChannel
+  mutationMode?: McpMutationMode
+  apiKeyId?: string | null
+  correlationId?: string | null
+  /**
+   * Model-call contract fields (spec `2026-10-21-chat-run-tracing-and-citations` §6).
+   * `runId` pins the run identifier, `trace` controls run persistence and
+   * channel attribution, `callSettings` are merged over the agent's
+   * `modelSettings` key by key, and `observe` receives per-call events.
+   */
+  runId?: string
+  trace?: AiAgentRunTraceOptions
+  callSettings?: AiAgentCallSettings
+  observe?: AiAgentCallObserver
+  /** Caller-owned signal; aborting it aborts the run's model calls. */
+  abortSignal?: AbortSignal
 }
 
 export type RunAiAgentObjectGenerateResult<TSchema> = {
@@ -2086,6 +2482,30 @@ export type RunAiAgentObjectGenerateResult<TSchema> = {
    * `2026-07-07-lightweight-agent-runtime` Phase 1).
    */
   steps?: LoopStepRecord[]
+  /**
+   * Ids of the pending actions the run's mutation tools queued for approval.
+   * Present only when at least one was created.
+   */
+  pendingActionIds?: string[]
+  /**
+   * Provider warnings of the toolless `generateObject` call (e.g. an
+   * `unsupported` setting the provider dropped). The tool-loop branch reports
+   * them per step through `loop.onStepFinish` instead. Additive.
+   */
+  warnings?: AiAgentCallWarning[]
+  /** Run identifier the call is traced under (`ai_agent_runs.id`). */
+  runId?: string
+}
+
+export type AiAgentCallWarning = { type: string; feature?: string; details?: string; message?: string }
+
+function readCallWarnings(result: unknown): AiAgentCallWarning[] | undefined {
+  const warnings = (result as { warnings?: unknown } | null)?.warnings
+  if (!Array.isArray(warnings) || warnings.length === 0) return undefined
+  return warnings.filter(
+    (warning): warning is AiAgentCallWarning =>
+      Boolean(warning) && typeof warning === 'object' && typeof (warning as { type?: unknown }).type === 'string',
+  )
 }
 
 export type RunAiAgentObjectStreamResult<TSchema> = {
@@ -2098,11 +2518,22 @@ export type RunAiAgentObjectStreamResult<TSchema> = {
   textStream: AsyncIterable<string>
   finishReason?: Promise<string | undefined>
   usage?: Promise<{ inputTokens?: number; outputTokens?: number } | undefined>
+  /** Run identifier the call is traced under (`ai_agent_runs.id`). */
+  runId?: string
 }
 
 export type RunAiAgentObjectResult<TSchema> =
   | RunAiAgentObjectGenerateResult<TSchema>
   | RunAiAgentObjectStreamResult<TSchema>
+
+function linkCallerAbortSignal(signal: AbortSignal | undefined, controller: AbortController): void {
+  if (!signal) return
+  if (signal.aborted) {
+    controller.abort(signal.reason)
+    return
+  }
+  signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true })
+}
 
 function normalizeObjectMessages(input: string | UIMessage[]): UIMessage[] {
   if (typeof input === 'string') {
@@ -2177,7 +2608,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       input.authContext.organizationId,
     ),
   ])
-  const { agent, tools } = await resolveAiAgentTools({
+  const { agent, tools, pendingActionIds, toolCallTimings } = await resolveAiAgentTools({
     agentId: input.agentId,
     authContext: input.authContext,
     pageContext: input.pageContext,
@@ -2185,6 +2616,17 @@ export async function runAiAgentObject<TSchema = unknown>(
     requestedExecutionMode: 'object',
     mutationPolicyOverride,
     container: input.container,
+    channel: input.channel,
+    mutationMode: input.mutationMode,
+    apiKeyId: input.apiKeyId,
+    correlationId: input.correlationId,
+  })
+  const runMutationPolicyOverride = resolveAgentRunMutationPolicyOverride({
+    channel: input.channel,
+    mutationMode: input.mutationMode,
+    declaredPolicy: agent.mutationPolicy,
+    tenantOverride: mutationPolicyOverride,
+    canQueueMutations: typeof input.container !== 'undefined',
   })
 
   const resolvedOutput = resolveStructuredOutput(agent, input.output)
@@ -2196,7 +2638,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     container: input.container,
   })
 
-  const baseSystemPrompt = await composeSystemPrompt(
+  const composedPrompt = await composeSystemPromptWithMeta(
     agent,
     input.pageContext,
     input.container,
@@ -2205,12 +2647,13 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.authContext.userId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
-    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
+    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(composedPrompt.prompt, resolvedAttachments), agent),
     agent,
-    mutationPolicyOverride,
+    runMutationPolicyOverride,
+    input.channel,
   )
 
-  const { model } = resolveAgentModel(
+  const resolvedObjectModel = resolveAgentModel(
     agent,
     input.modelOverride,
     input.providerOverride,
@@ -2220,130 +2663,299 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.requestOverride,
     tenantAllowlistSnapshot,
   )
+  const { model } = resolvedObjectModel
+  const objectRunId = input.runId ?? randomUUID()
+  const effectiveObjectSessionId = input.sessionId ?? randomUUID()
+  const objectTurnId = randomUUID()
+  const objectToolNames = listRunToolNames(tools)
+  const objectRunCapture = createAgentRunCapture({
+    container: input.container,
+    trace: input.trace,
+    runId: objectRunId,
+    agent,
+    authContext: input.authContext,
+    executionMode: 'object',
+    effectiveMutationPolicy: resolveEffectiveMutationPolicy(agent.mutationPolicy, runMutationPolicyOverride, agent.id),
+    toolNames: objectToolNames,
+    mutationToolNames: listMutationToolNames(objectToolNames),
+    conversationId: input.sessionId ?? null,
+    turnId: objectTurnId,
+    apiKeyId: input.apiKeyId ?? null,
+    fallbackCorrelationId: input.correlationId ?? null,
+    providerId: resolvedObjectModel.providerId,
+    modelId: resolvedObjectModel.modelId,
+    baseUrl: resolvedObjectModel.baseURL,
+    systemPrompt,
+    promptOverride: composedPrompt.promptOverride,
+  })
+  const objectObserve = composeCallObservers(input.observe, objectRunCapture?.observer)
+  const runPromptContext: AgentRunPromptContext = {
+    systemPrompt,
+    promptOverride: composedPrompt.promptOverride,
+    pageContextHydrated: composedPrompt.pageContextHydrated,
+    attachmentCount: resolvedAttachments.length,
+    provider: resolvedObjectModel.providerId ?? null,
+    modelId: resolvedObjectModel.modelId ?? null,
+  }
+  await reportPromptResolved(objectObserve, agent.id, runPromptContext)
+  const effectiveCallSettings = mergeCallSettings(agent.modelSettings, input.callSettings)
+  const hasCallSettings = Object.keys(effectiveCallSettings).length > 0
+  const { providerOptions: objectProviderOptions, ...objectCallSettings } = toSdkCallSettings(effectiveCallSettings)
+  const sdkCallSettings = {
+    ...objectCallSettings,
+    ...(objectProviderOptions !== undefined ? { providerOptions: objectProviderOptions as never } : {}),
+  }
   const normalizedMessages = ensureUiMessageShape(normalizeObjectMessages(input.input))
   const hydratedMessages = attachAttachmentsToMessages(
     normalizedMessages,
     resolvedAttachments,
   )
   const modelMessages = await convertToModelMessages(hydratedMessages)
-
-  // Phase 6.2 — resolve session id and generate per-call turn id for
-  // token-usage correlation in object mode.
-  const effectiveObjectSessionId = input.sessionId ?? randomUUID()
-  const objectTurnId = randomUUID()
-  // Expose for token recorder via closure (used by token-usage-recorder in Phase 6.3).
-  void effectiveObjectSessionId
-  void objectTurnId
+  const objectResponseFormat = objectObserve && !isLightweightCallObserver(objectObserve)
+    ? buildObjectResponseFormat(resolvedOutput.schemaName, resolvedOutput.schema)
+    : undefined
 
   const abortController = new AbortController()
+  linkCallerAbortSignal(input.abortSignal, abortController)
+  const objectInputText = extractLatestUserText(normalizedMessages) || null
+  const objectModelSource = toAgentRunModelSource(resolvedObjectModel.source)
+  let objectRunLoop: AiAgentLoopConfig = {}
+  const objectToolLoop: { trace: ReturnType<typeof buildLoopTraceCollector> | null } = { trace: null }
 
-  // Read-only tool-loop path (opt-in via `enableTools`). When the agent resolves
-  // tools, run a `generateText` loop that finalizes into the output schema via
-  // `experimental_output`, so the model can read through its allowlisted tools
-  // before proposing. The mutation gate + stop conditions are wired exactly as in
-  // chat mode; read-only agents have mutation tools stripped, so no direct write
-  // is ever possible. Falls through to `generateObject` when no tools resolve.
-  const resolvedToolNames = Object.keys((tools ?? {}) as ToolSet)
-  // Degrading to a single-shot call is a legitimate fallback, but it silently
-  // changes what the agent CAN do — an agent whose prompt says "validate your
-  // draft with the tool before returning" is now being asked to obey an
-  // instruction it has no way to follow. Say so, loudly, once per turn.
-  if (input.enableTools && resolvedToolNames.length === 0) {
-    logger.warn(
-      'Agent requested a tool loop but no tools resolved; falling back to a single-shot generateObject',
-      {
-        agentId: agent.id,
-        allowedTools: agent.allowedTools,
-      },
-    )
-  }
-  if (input.enableTools && resolvedToolNames.length > 0) {
-    const toolLoopConfig = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
-    const toolStopConditions = translateStopConditions(toolLoopConfig, sanitizeToolNameForModel)
-    const toolWrapperPrepareStep = buildWrapperPrepareStep(agent, toolLoopConfig, tools)
-    // Per-step exposure (native-runtime spec Phase 1, additive): aggregate the
-    // AI SDK's step records through the same collector the chat path uses and
-    // forward the caller's `loop.onStepFinish` — previously silently dropped on
-    // this branch. Callers that pass no `loop.onStepFinish` observe identical
-    // behavior plus the optional `steps` field on the result.
-    const toolLoopTrace = buildLoopTraceCollector(
-      agent.id,
-      effectiveObjectSessionId,
-      objectTurnId,
-      toolLoopConfig.onStepFinish,
-    )
-    const toolResult = await generateText({
-      model,
-      system: systemPrompt,
-      messages: modelMessages,
-      tools,
-      stopWhen: toolStopConditions as never,
-      prepareStep: toolWrapperPrepareStep as never,
-      onStepFinish: toolLoopTrace.onStepFinish as never,
-      output: Output.object({ schema: resolvedOutput.schema as never }),
-      abortSignal: abortController.signal,
-    })
-    return {
-      mode: 'generate',
-      object: (toolResult as unknown as { output: TSchema }).output,
-      finishReason: (toolResult as { finishReason?: string }).finishReason,
-      usage: {
-        inputTokens: toolResult.usage?.inputTokens,
-        outputTokens: toolResult.usage?.outputTokens,
-      },
-      steps: toolLoopTrace.finalize(null).steps,
+  const settleObjectRun = async (
+    status: 'completed' | 'failed' | 'aborted',
+    details: {
+      steps: LoopStepRecord[]
+      object?: unknown
+      finishReason?: string | null
+      usage?: { inputTokens?: number; outputTokens?: number } | null
+      error?: unknown
+    },
+  ): Promise<void> => {
+    if (!objectRunCapture) return
+    try {
+      await objectRunCapture.settle({
+        status,
+        loopParams: buildRunLoopParams(objectRunLoop, objectModelSource),
+        inputText: objectInputText,
+        steps: details.steps,
+        stopReason: status === 'aborted' ? 'abort' : status === 'completed' ? 'finish-reason' : null,
+        finishReason: details.finishReason ?? null,
+        outputText: serializeObjectOutput(details.object),
+        usage: details.usage ?? null,
+        ...(details.error !== undefined ? { error: details.error } : {}),
+      })
+    } catch (settleError) {
+      logger.warn('Run settle failed; ignoring', { err: settleError })
+      reportAiAssistantError(settleError, 'ai_assistant.agent_run_settle_failed')
     }
   }
 
-  if (input.loop) {
-    assertLoopObjectModeCompatible(input.loop)
+  const synthesizeObjectStep = (
+    finishReason: string | undefined,
+    usage: { inputTokens?: number; outputTokens?: number } | undefined,
+  ): LoopStepRecord[] => {
+    objectRunCapture?.recordStep({ finishReason, usage })
+    return [
+      {
+        stepIndex: 0,
+        modelId: resolvedObjectModel.modelId,
+        toolCalls: [],
+        textDelta: '',
+        usage: { inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0 },
+        finishReason: (finishReason ?? 'stop') as LoopStepRecord['finishReason'],
+      },
+    ]
   }
-  const effectiveLoop = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_OBJECT)
 
-  const preparedObjectOptions: PreparedAiSdkObjectOptions = {
-    model,
-    system: systemPrompt,
-    messages: modelMessages,
-    schemaName: resolvedOutput.schemaName,
-    schema: resolvedOutput.schema,
-    maxSteps: effectiveLoop.maxSteps,
-    onStepFinish: effectiveLoop.onStepFinish,
-    onStepStart: effectiveLoop.onStepStart,
-    abortSignal: abortController.signal,
-  }
+  const dispatchObjectRun = async (): Promise<RunAiAgentObjectResult<TSchema>> => {
+    // Read-only tool-loop path (opt-in via `enableTools`). When the agent resolves
+    // tools, run a `generateText` loop that finalizes into the output schema via
+    // `experimental_output`, so the model can read through its allowlisted tools
+    // before proposing. The mutation gate + stop conditions are wired exactly as in
+    // chat mode; read-only agents have mutation tools stripped, so no direct write
+    // is ever possible. Falls through to `generateObject` when no tools resolve.
+    const resolvedToolNames = Object.keys((tools ?? {}) as ToolSet)
+    // Degrading to a single-shot call is a legitimate fallback, but it silently
+    // changes what the agent CAN do — an agent whose prompt says "validate your
+    // draft with the tool before returning" is now being asked to obey an
+    // instruction it has no way to follow. Say so, loudly, once per turn.
+    if (input.enableTools && resolvedToolNames.length === 0) {
+      logger.warn(
+        'Agent requested a tool loop but no tools resolved; falling back to a single-shot generateObject',
+        {
+          agentId: agent.id,
+          allowedTools: agent.allowedTools,
+        },
+      )
+    }
+    if (input.enableTools && resolvedToolNames.length > 0) {
+      const toolLoopConfig = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
+      const toolStopConditions = translateStopConditions(toolLoopConfig, sanitizeToolNameForModel)
+      const toolWrapperPrepareStep = buildWrapperPrepareStep(agent, toolLoopConfig, tools)
+      // Per-step exposure (native-runtime spec Phase 1, additive): aggregate the
+      // AI SDK's step records through the same collector the chat path uses and
+      // forward the caller's `loop.onStepFinish` — previously silently dropped on
+      // this branch. Callers that pass no `loop.onStepFinish` observe identical
+      // behavior plus the optional `steps` field on the result.
+      objectRunLoop = toolLoopConfig
+      const toolLoopTrace = buildLoopTraceCollector(
+        agent.id,
+        effectiveObjectSessionId,
+        objectTurnId,
+        toolLoopConfig.onStepFinish,
+        toolCallTimings,
+      )
+      objectToolLoop.trace = toolLoopTrace
+      const toolLoopOnStepFinish: AiAgentLoopConfig['onStepFinish'] = objectRunCapture
+        ? async (event) => {
+            await toolLoopTrace.onStepFinish?.(event)
+            objectRunCapture.recordStep(event)
+          }
+        : toolLoopTrace.onStepFinish
+      const toolLoopModelCallHooks = createModelCallObserverHooks(objectObserve, {
+        agentId: agent.id,
+        providerOptions: objectProviderOptions,
+        responseFormat: objectResponseFormat,
+      })
+      const toolResult = await generateText({
+        model,
+        ...(resolvedObjectModel.experimental_download ? { experimental_download: resolvedObjectModel.experimental_download } : {}),
+        system: systemPrompt,
+        messages: modelMessages,
+        tools,
+        stopWhen: toolStopConditions as never,
+        prepareStep: toolWrapperPrepareStep as never,
+        onStepFinish: toolLoopOnStepFinish as never,
+        output: Output.object({ schema: resolvedOutput.schema as never }),
+        ...sdkCallSettings,
+        ...(toolLoopModelCallHooks ?? {}),
+        abortSignal: abortController.signal,
+      })
+      return {
+        mode: 'generate',
+        object: (toolResult as unknown as { output: TSchema }).output,
+        finishReason: (toolResult as { finishReason?: string }).finishReason,
+        usage: {
+          inputTokens: toolResult.usage?.inputTokens,
+          outputTokens: toolResult.usage?.outputTokens,
+        },
+        steps: toolLoopTrace.finalize(null).steps,
+        ...(pendingActionIds.length > 0 ? { pendingActionIds: [...pendingActionIds] } : {}),
+      }
+    }
 
-  if (input.generateObject) {
-    const callbackResult = await input.generateObject(preparedObjectOptions)
-    const typedResult = callbackResult as unknown as Record<string, unknown>
-    if ('partialObjectStream' in typedResult) {
-      const streamResult = typedResult as {
+    let toollessLoop = input.loop
+    if (toollessLoop?.prepareStep && input.enableTools) {
+      logger.warn('Caller prepareStep dropped: the tool loop fell back to a toolless generateObject', {
+        agentId: agent.id,
+      })
+      toollessLoop = { ...toollessLoop, prepareStep: undefined }
+    }
+    if (toollessLoop) {
+      assertLoopObjectModeCompatible(toollessLoop)
+    }
+    const effectiveLoop = resolveEffectiveLoopConfig(agent, toollessLoop, WRAPPER_DEFAULT_LOOP_OBJECT)
+    objectRunLoop = effectiveLoop
+
+    const preparedObjectOptions: PreparedAiSdkObjectOptions = {
+      model,
+      ...(resolvedObjectModel.experimental_download ? { experimental_download: resolvedObjectModel.experimental_download } : {}),
+      system: systemPrompt,
+      messages: modelMessages,
+      schemaName: resolvedOutput.schemaName,
+      schema: resolvedOutput.schema,
+      maxSteps: effectiveLoop.maxSteps,
+      onStepFinish: effectiveLoop.onStepFinish,
+      onStepStart: effectiveLoop.onStepStart,
+      abortSignal: abortController.signal,
+      ...(hasCallSettings ? { callSettings: effectiveCallSettings } : {}),
+    }
+
+    const modelDescriptor = describeLanguageModel(model, {
+      provider: resolvedObjectModel.providerId,
+      modelId: resolvedObjectModel.modelId,
+    })
+    const synthesizedModelCall = createSynthesizedModelCall(objectObserve, {
+      agentId: agent.id,
+      provider: modelDescriptor.provider,
+      modelId: modelDescriptor.modelId,
+      system: systemPrompt,
+      messages: modelMessages,
+      responseFormat: objectResponseFormat,
+      callSettings: effectiveCallSettings,
+      callerManaged: Boolean(input.generateObject),
+    })
+    await synthesizedModelCall?.start()
+
+    if (input.generateObject) {
+      const callbackResult = await input.generateObject(preparedObjectOptions)
+      const typedResult = callbackResult as unknown as Record<string, unknown>
+      if ('partialObjectStream' in typedResult) {
+        const streamResult = typedResult as {
+          object: Promise<TSchema>
+          partialObjectStream: AsyncIterable<Partial<TSchema>>
+          textStream: AsyncIterable<string>
+          finishReason?: Promise<string | undefined>
+          usage?: Promise<{ inputTokens?: number; outputTokens?: number } | undefined>
+        }
+        observeStreamedObjectEnd(synthesizedModelCall, streamResult)
+        return {
+          mode: 'stream',
+          object: streamResult.object,
+          partialObjectStream: streamResult.partialObjectStream,
+          textStream: streamResult.textStream,
+          finishReason: streamResult.finishReason,
+          usage: streamResult.usage,
+        }
+      }
+      const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
+      await synthesizedModelCall?.end(readSynthesizedResultMetadata(typedResult))
+      const genWarnings = readCallWarnings(typedResult)
+      return {
+        mode: 'generate',
+        object: genResult.object as TSchema,
+        finishReason: genResult.finishReason,
+        usage: genResult.usage,
+        ...(genWarnings ? { warnings: genWarnings } : {}),
+      }
+    }
+
+    if (resolvedOutput.mode === 'stream') {
+      const streamArgs = {
+        model,
+        ...(resolvedObjectModel.experimental_download ? { experimental_download: resolvedObjectModel.experimental_download } : {}),
+        system: systemPrompt,
+        messages: modelMessages,
+        schema: resolvedOutput.schema as never,
+        schemaName: resolvedOutput.schemaName,
+        ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
+        onStepFinish: effectiveLoop.onStepFinish,
+        onStepStart: effectiveLoop.onStepStart,
+        ...sdkCallSettings,
+        abortSignal: abortController.signal,
+      } as Parameters<typeof streamObject>[0]
+      const result = streamObject(streamArgs) as unknown as {
         object: Promise<TSchema>
         partialObjectStream: AsyncIterable<Partial<TSchema>>
         textStream: AsyncIterable<string>
         finishReason?: Promise<string | undefined>
         usage?: Promise<{ inputTokens?: number; outputTokens?: number } | undefined>
       }
+      observeStreamedObjectEnd(synthesizedModelCall, result)
       return {
         mode: 'stream',
-        object: streamResult.object,
-        partialObjectStream: streamResult.partialObjectStream,
-        textStream: streamResult.textStream,
-        finishReason: streamResult.finishReason,
-        usage: streamResult.usage,
+        object: result.object,
+        partialObjectStream: result.partialObjectStream,
+        textStream: result.textStream,
+        finishReason: result.finishReason,
+        usage: result.usage,
       }
     }
-    const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
-    return {
-      mode: 'generate',
-      object: genResult.object as TSchema,
-      finishReason: genResult.finishReason,
-      usage: genResult.usage,
-    }
-  }
 
-  if (resolvedOutput.mode === 'stream') {
-    const streamArgs = {
+    const generateArgs = {
       model,
+      ...(resolvedObjectModel.experimental_download ? { experimental_download: resolvedObjectModel.experimental_download } : {}),
       system: systemPrompt,
       messages: modelMessages,
       schema: resolvedOutput.schema as never,
@@ -2351,44 +2963,64 @@ export async function runAiAgentObject<TSchema = unknown>(
       ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
       onStepFinish: effectiveLoop.onStepFinish,
       onStepStart: effectiveLoop.onStepStart,
+      ...sdkCallSettings,
       abortSignal: abortController.signal,
-    } as Parameters<typeof streamObject>[0]
-    const result = streamObject(streamArgs) as unknown as {
-      object: Promise<TSchema>
-      partialObjectStream: AsyncIterable<Partial<TSchema>>
-      textStream: AsyncIterable<string>
-      finishReason?: Promise<string | undefined>
-      usage?: Promise<{ inputTokens?: number; outputTokens?: number } | undefined>
-    }
+    } as Parameters<typeof generateObject>[0]
+
+    const result = await generateObject(generateArgs)
+    await synthesizedModelCall?.end(readSynthesizedResultMetadata(result))
+    const resultWarnings = readCallWarnings(result)
     return {
-      mode: 'stream',
-      object: result.object,
-      partialObjectStream: result.partialObjectStream,
-      textStream: result.textStream,
-      finishReason: result.finishReason,
-      usage: result.usage,
+      mode: 'generate',
+      object: (result as { object: unknown }).object as TSchema,
+      finishReason: (result as { finishReason?: string }).finishReason,
+      usage: (result as { usage?: { inputTokens?: number; outputTokens?: number } }).usage,
+      ...(resultWarnings ? { warnings: resultWarnings } : {}),
     }
   }
 
-  const generateArgs = {
-    model,
-    system: systemPrompt,
-    messages: modelMessages,
-    schema: resolvedOutput.schema as never,
-    schemaName: resolvedOutput.schemaName,
-    ...(effectiveLoop.maxSteps !== undefined ? { maxSteps: effectiveLoop.maxSteps } : {}),
-    onStepFinish: effectiveLoop.onStepFinish,
-    onStepStart: effectiveLoop.onStepStart,
-    abortSignal: abortController.signal,
-  } as Parameters<typeof generateObject>[0]
-
-  const result = await generateObject(generateArgs)
-  return {
-    mode: 'generate',
-    object: (result as { object: unknown }).object as TSchema,
-    finishReason: (result as { finishReason?: string }).finishReason,
-    usage: (result as { usage?: { inputTokens?: number; outputTokens?: number } }).usage,
+  let objectResult: RunAiAgentObjectResult<TSchema>
+  try {
+    objectResult = await dispatchObjectRun()
+  } catch (error) {
+    void settleObjectRun(abortController.signal.aborted ? 'aborted' : 'failed', {
+      steps: objectToolLoop.trace ? objectToolLoop.trace.finalize(null).steps : [],
+      error,
+    })
+    throw error
   }
+
+  if (objectResult.mode === 'generate') {
+    void settleObjectRun('completed', {
+      steps: objectResult.steps ?? synthesizeObjectStep(objectResult.finishReason, objectResult.usage),
+      object: objectResult.object,
+      finishReason: objectResult.finishReason ?? null,
+      usage: objectResult.usage ?? null,
+    })
+    return { ...objectResult, runId: objectRunId }
+  }
+
+  if (objectRunCapture) {
+    const streamed = objectResult
+    void Promise.resolve(streamed.object).then(
+      async (value) => {
+        const [finishReason, usage] = await Promise.all([
+          Promise.resolve(streamed.finishReason).catch(() => undefined),
+          Promise.resolve(streamed.usage).catch(() => undefined),
+        ])
+        await settleObjectRun('completed', {
+          steps: synthesizeObjectStep(finishReason, usage),
+          object: value,
+          finishReason: finishReason ?? null,
+          usage: usage ?? null,
+        })
+      },
+      async (error: unknown) => {
+        await settleObjectRun(abortController.signal.aborted ? 'aborted' : 'failed', { steps: [], error })
+      },
+    )
+  }
+  return { ...objectResult, runId: objectRunId }
 }
 
 export { AgentPolicyError }

@@ -44,6 +44,7 @@ const events = [
   { id: 'staff.timesheets.time_task.updated', label: 'Time Task Updated', entity: 'time_task', category: 'crud' },
   { id: 'staff.timesheets.time_task.deleted', label: 'Time Task Deleted', entity: 'time_task', category: 'crud' },
   { id: 'staff.timesheets.time_task.status_changed', label: 'Time Task Status Changed', entity: 'time_task', category: 'lifecycle', clientBroadcast: true },
+  { id: 'staff.timesheets.time_task.assignee_changed', label: 'Time Task Assignee Changed', entity: 'time_task', category: 'lifecycle', clientBroadcast: true },
   { id: 'staff.timesheets.time_task_status.created', label: 'Time Task Status Created', entity: 'time_task_status', category: 'crud' },
   { id: 'staff.timesheets.time_task_status.updated', label: 'Time Task Status Updated', entity: 'time_task_status', category: 'crud' },
   { id: 'staff.timesheets.time_task_status.deleted', label: 'Time Task Status Deleted', entity: 'time_task_status', category: 'crud' },
@@ -116,6 +117,31 @@ const events = [
     id: 'staff.timesheets.time_report.portal_published',
     label: 'Time Report Published To Portal',
     entity: 'time_report',
+    category: 'lifecycle',
+    portalBroadcast: true,
+    excludeFromTriggers: true,
+  },
+
+  // Customer support tickets. `created` and `customer_replied` name the customer, so
+  // they stay server-side; `activity_recorded` carries ids only and is what open
+  // backoffice screens refetch on. `portal_updated` is emitted only by
+  // `lib/support/portalBroadcast.ts` (driven by the `subscribers/support-portal-*.ts`
+  // subscribers), always with the ticket's own customer users pinned in
+  // `recipientUserIds`, and never when that list is empty.
+  { id: 'staff.support_ticket.created', label: 'Support Ticket Created', entity: 'support_ticket', category: 'lifecycle' },
+  { id: 'staff.support_ticket.customer_replied', label: 'Support Ticket Customer Replied', entity: 'support_ticket', category: 'lifecycle' },
+  {
+    id: 'staff.support_ticket.activity_recorded',
+    label: 'Support Ticket Activity Recorded',
+    entity: 'support_ticket',
+    category: 'lifecycle',
+    clientBroadcast: true,
+    excludeFromTriggers: true,
+  },
+  {
+    id: 'staff.support_ticket.portal_updated',
+    label: 'Support Ticket Updated For Portal',
+    entity: 'support_ticket',
     category: 'lifecycle',
     portalBroadcast: true,
     excludeFromTriggers: true,

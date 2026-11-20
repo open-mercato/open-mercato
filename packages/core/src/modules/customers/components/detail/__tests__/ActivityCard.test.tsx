@@ -2,7 +2,9 @@
  * @jest-environment jsdom
  */
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import enDict from '../../../i18n/en.json'
+import plDict from '../../../i18n/pl.json'
 import { ActivityCard } from '../ActivityCard'
 import type { InteractionSummary } from '../types'
 
@@ -89,4 +91,67 @@ describe('ActivityCard', () => {
     renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
     expect(screen.queryByRole('button', { name: /Mark done/i })).not.toBeInTheDocument()
   })
+
+  it('hides the delete menu item when no onDelete handler is supplied', async () => {
+    renderWithProviders(<ActivityCard activity={createActivity()} onOpen={jest.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+
+    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Delete activity/i })).not.toBeInTheDocument()
+  })
+
+  it('deletes through the overflow menu and forwards the activity without opening the card', async () => {
+    const onDelete = jest.fn()
+    const onOpen = jest.fn()
+    const activity = createActivity()
+    renderWithProviders(<ActivityCard activity={activity} onOpen={onOpen} onDelete={onDelete} />)
+
+    expect(screen.queryByRole('button', { name: /Delete activity/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Delete activity/i }))
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(activity))
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
+  it('opens the edit dialog from the overflow menu Edit item', async () => {
+    const onOpen = jest.fn()
+    const activity = createActivity()
+    renderWithProviders(<ActivityCard activity={activity} onOpen={onOpen} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+
+    expect(onOpen).toHaveBeenCalledWith(activity)
+  })
+
+  it.each([
+    { locale: 'en', dict: enDict as Record<string, string>, label: 'Canceled' },
+    { locale: 'pl', dict: plDict as Record<string, string>, label: 'Anulowana' },
+  ])('labels a canceled activity and strikes its title through ($locale)', ({ locale, dict, label }) => {
+    renderWithProviders(<ActivityCard activity={createActivity({ status: 'canceled' })} />, { locale, dict })
+
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Discovery call (32 min)' })).toHaveClass('line-through')
+  })
+
+  it.each(['planned', 'done', 'completed'])('does not show the canceled label for status %s', (status) => {
+    renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
+
+    expect(screen.queryByText('Canceled')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Discovery call (32 min)' })).not.toHaveClass('line-through')
+  })
+})
+
+it.each([
+  { locale: 'en', dict: enDict, label: 'Unknown date' },
+  { locale: 'pl', dict: plDict, label: 'Nieznana data' },
+])('ActivityCard preserves unknown dates ($locale)', ({ locale, dict, label }) => {
+  const activity = createActivity({ occurredAt: null, scheduledAt: null, createdAt: '2035-01-01T12:34:00.000Z' })
+  renderWithProviders(<ActivityCard activity={activity} />, { locale, dict })
+  expect(screen.getByText(label)).toBeInTheDocument()
+  expect(screen.queryByText('2035')).not.toBeInTheDocument()
+  expect(screen.queryByText(/12:34/)).not.toBeInTheDocument()
 })

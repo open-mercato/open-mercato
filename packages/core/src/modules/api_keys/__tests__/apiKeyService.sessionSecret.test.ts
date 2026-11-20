@@ -17,7 +17,7 @@ jest.mock('@open-mercato/shared/lib/encryption/kms', () => ({
 }))
 
 import { generateDek, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
-import { createSessionApiKey, findSessionApiKeyWithSecret } from '../services/apiKeyService'
+import { createApiKey, createSessionApiKey, findSessionApiKeyWithSecret } from '../services/apiKeyService'
 
 const TENANT = 'tenant-1'
 const previousToggle = process.env.TENANT_DATA_ENCRYPTION
@@ -33,6 +33,7 @@ function mockKms(dek: string | null) {
 function buildEm() {
   const created: Array<Record<string, unknown>> = []
   const flush = jest.fn().mockResolvedValue(undefined)
+  let inTransaction = false
   const em = {
     create: jest.fn((_Entity: unknown, data: Record<string, unknown>) => {
       const row = { id: `key-${created.length + 1}`, ...data }
@@ -41,8 +42,13 @@ function buildEm() {
     }),
     persist: jest.fn(() => ({ flush })),
     flush,
+    find: jest.fn(async () => []),
     // `findApiKeyBySessionToken` reads the row back through the plain EntityManager.
     findOne: jest.fn(async () => created[0] ?? null),
+    isInTransaction: () => inTransaction,
+    begin: jest.fn(async () => { inTransaction = true }),
+    commit: jest.fn(async () => { inTransaction = false }),
+    rollback: jest.fn(async () => { inTransaction = false }),
   }
   return { em, created }
 }
@@ -72,6 +78,15 @@ afterEach(() => {
 })
 
 describe('session secret storage', () => {
+  it.each(['user-alice', null])('persists an explicit delegated owner without binding ordinary machine keys (%s)', async (ownerId) => {
+    const { em, created } = buildEm()
+    await createApiKey(em as never, {
+      name: 'MCP key', tenantId: TENANT, roles: ['role-a'],
+      createdBy: 'user-alice', ...(ownerId ? { sessionUserId: ownerId } : {}),
+    })
+    expect(created[0].sessionUserId).toBe(ownerId)
+  })
+
   it('seals the secret when encryption is active', async () => {
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     mockKms(generateDek())

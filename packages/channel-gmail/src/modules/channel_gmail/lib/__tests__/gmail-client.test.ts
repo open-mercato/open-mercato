@@ -153,29 +153,63 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     }
   })
 
-  it('honors an HTTP-date Retry-After value, bounded by the 8s cap', async () => {
-    let calls = 0
-    // 3 seconds in the future → ~3000ms wait, still under the 8s ceiling.
-    const retryAt = new Date(Date.now() + 3_000).toUTCString()
-    globalThis.fetch = (() => {
-      calls += 1
-      if (calls === 1) {
+  describe('HTTP-date Retry-After on a pinned clock', () => {
+    // A whole-second epoch, so the HTTP-date round trip (which drops sub-second
+    // precision) is lossless and the computed delay does not depend on how much
+    // real time elapses on a contended CI runner (issue #6437).
+    const PINNED_NOW = Date.UTC(2026, 0, 15, 12, 0, 0)
+
+    beforeEach(() => {
+      jest.spyOn(Date, 'now').mockReturnValue(PINNED_NOW)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    function mockRateLimitedOnce(retryAfter: string): () => number {
+      let calls = 0
+      globalThis.fetch = (() => {
+        calls += 1
+        if (calls === 1) {
+          return Promise.resolve(
+            fakeResponse({ status: 429, statusText: 'Too Many Requests', body: '', headers: { 'retry-after': retryAfter } }),
+          )
+        }
         return Promise.resolve(
-          fakeResponse({ status: 429, statusText: 'Too Many Requests', body: '', headers: { 'retry-after': retryAt } }),
+          fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '1' }) }),
         )
-      }
-      return Promise.resolve(
-        fakeResponse({ status: 200, statusText: 'OK', body: JSON.stringify({ emailAddress: 'a@gmail.com', historyId: '1' }) }),
-      )
-    }) as unknown as typeof globalThis.fetch
+      }) as unknown as typeof globalThis.fetch
+      return () => calls
+    }
 
-    await getGmailApiClient().getProfile({ accessToken: 'token' })
+    it('honors an HTTP-date Retry-After value, bounded by the 8s cap', async () => {
+      const callCount = mockRateLimitedOnce(new Date(PINNED_NOW + 3_000).toUTCString())
 
-    expect(calls).toBe(2)
-    expect(capturedDelays).toHaveLength(1)
-    // Date.parse(retryAt) drops sub-second precision, so the delta is ~2000-3000ms.
-    expect(capturedDelays[0]).toBeGreaterThan(1000)
-    expect(capturedDelays[0]).toBeLessThanOrEqual(8000)
+      await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+      expect(callCount()).toBe(2)
+      expect(capturedDelays).toEqual([3000])
+    })
+
+    it('clamps an HTTP-date Retry-After beyond the cap to 8s', async () => {
+      const callCount = mockRateLimitedOnce(new Date(PINNED_NOW + 60_000).toUTCString())
+
+      await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+      expect(callCount()).toBe(2)
+      expect(capturedDelays).toEqual([8000])
+    })
+
+    it('falls back to computeBackoff when the HTTP-date Retry-After is already in the past', async () => {
+      Math.random = () => 0
+      const callCount = mockRateLimitedOnce(new Date(PINNED_NOW - 5_000).toUTCString())
+
+      await getGmailApiClient().getProfile({ accessToken: 'token' })
+
+      expect(callCount()).toBe(2)
+      expect(capturedDelays).toEqual([500])
+    })
   })
 
   it('throws GmailApiError carrying the upstream status after exhausting retries', async () => {
@@ -314,5 +348,55 @@ describe('FetchGmailApiClient.requestJson retry/backoff', () => {
     // 1 initial + 3 retries = 4 attempts; backoff fired on the first 3.
     expect(calls).toBe(4)
     expect(capturedDelays).toEqual([500, 1000, 2000])
+  })
+})
+
+describe('FetchGmailApiClient.getMessageHeaders', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    setGmailApiClient(null)
+  })
+
+  it('requests only the named headers with format=metadata', async () => {
+    setGmailApiClient(null)
+    const urls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      urls.push(String(input))
+      return fakeResponse({
+        status: 200,
+        body: JSON.stringify({
+          id: 'gm-1',
+          threadId: 'th-1',
+          payload: { headers: [{ name: 'Message-ID', value: '<abc@mail.gmail.com>' }] },
+        }),
+      })
+    }) as typeof fetch
+
+    const client = getGmailApiClient()
+    const result = await client.getMessageHeaders!({ accessToken: 'token' }, 'gm-1', ['Message-ID'])
+
+    expect(urls).toHaveLength(1)
+    const url = new URL(urls[0])
+    expect(url.pathname).toBe('/gmail/v1/users/me/messages/gm-1')
+    expect(url.searchParams.get('format')).toBe('metadata')
+    expect(url.searchParams.getAll('metadataHeaders')).toEqual(['Message-ID'])
+    expect(result.payload?.headers?.[0]?.value).toBe('<abc@mail.gmail.com>')
+  })
+
+  it('makes a single attempt when called with maxRetries 0, even on a transient failure', async () => {
+    setGmailApiClient(null)
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls += 1
+      return fakeResponse({ status: 503, statusText: 'Service Unavailable', body: '{"error":{"message":"busy"}}' })
+    }) as typeof fetch
+
+    const client = getGmailApiClient()
+    await expect(
+      client.getMessageHeaders!({ accessToken: 'token' }, 'gm-1', ['Message-ID'], { maxRetries: 0, timeoutMs: 5_000 }),
+    ).rejects.toMatchObject({ name: 'GmailApiError', status: 503 })
+    expect(calls).toBe(1)
   })
 })

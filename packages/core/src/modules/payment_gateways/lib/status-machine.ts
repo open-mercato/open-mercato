@@ -42,3 +42,22 @@ export function canApplyManualAction(action: ManualGatewayAction, from: UnifiedP
   if (targets.includes(from)) return true
   return targets.some((target) => isValidTransition(from, target))
 }
+
+const REFUND_STATUSES: Set<UnifiedPaymentStatus> = new Set(['refunded', 'partially_refunded'])
+
+/**
+ * A provider-confirmed refund proves the payment was captured. When a refund status reaches a
+ * transaction whose capture was not recorded yet (the capture webhook is late, or was never
+ * delivered), the transaction passes through `captured` on its way to the refund status instead
+ * of dropping the refund. Returns that intermediate status, or `null` when no bridge applies.
+ */
+export function resolveImpliedCaptureStatus(
+  from: UnifiedPaymentStatus,
+  to: UnifiedPaymentStatus,
+): UnifiedPaymentStatus | null {
+  if (!REFUND_STATUSES.has(to)) return null
+  if (isValidTransition(from, to)) return null
+  if (!isValidTransition(from, 'captured')) return null
+  if (!isValidTransition('captured', to)) return null
+  return 'captured'
+}

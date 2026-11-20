@@ -26,6 +26,14 @@ Examples: `OMH-011` (CRUD routes), `OMH-093` (business contact-merge command),
 
 ---
 
+The executable test fixtures use a `.cjs` filename or an explicit CommonJS
+`package.json` inside the sandbox-admitted fake tool directory. Node 24 resolves
+the module type before running an extensionless executable; without that local scope it can attempt to
+read an ancestor manifest outside the sandbox and fail with
+`ERR_INVALID_PACKAGE_CONFIG`. Keep fixture scopes local rather than admitting
+ancestor directories. The evaluator regression verifies the launcher runs while
+controller reads and writes remain denied.
+
 ## Part 1 — How a code-generation case is validated (step by step)
 
 The authoritative single-case path is the evaluator's **writable branch** inside
@@ -77,9 +85,9 @@ The release gate wraps this in a larger ordered sequence.
    file and byte ceilings. `exampleReadAllowlist()` expands that declaration to exact
    files — entrypoints, the inventory, and each declared capability's mapped sources —
    and the root is resolved as immutable *before* any writable pattern, so a
-    `src/modules/**` grant can never reach inside it. Nine cases,
-    `OMH-181` and `OMH-203`…`OMH-226`, declare it today; every other case is byte-identical to
-    before. Seven are read-only. `OMH-181` and `OMH-223` are the two writable declarers:
+    `src/modules/**` grant can never reach inside it. Ten cases,
+    `OMH-181`, `OMH-203`…`OMH-226` and `OMH-238`, declare it today; every other case is byte-identical to
+    before. Eight are read-only. `OMH-181` and `OMH-223` are the two writable declarers:
     the former adapts the canonical DataTable bulk-action and operation-progress seams while
     proving their shared `progressJobId`; the latter writes only `.ai/specs/**`. Immutability
     refuses either case a write inside the reference root regardless.

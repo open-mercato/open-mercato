@@ -2,12 +2,16 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { autoColorFromName } from '../../timesheets-ui/colors'
+import { staffTimeEntryUpdateSchema } from '../../../data/validators'
+import { entryAmountExact } from '../../time-tracking/cost'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
+import { resolveIsoCurrencyDecimalPlaces } from '@open-mercato/shared/lib/decimal'
 import { TimeEntryDialog } from '../TimeEntryDialog'
 
 const TASK_ID = '11111111-1111-4111-8111-111111111111'
@@ -82,7 +86,7 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
  */
 jest.mock('../TaskPicker', () => {
   const ReactModule = jest.requireActual('react') as typeof React
-  type Item = { id: string; title: string }
+  type Item = { id: string; title: string; projectName: string | null; customerName: string | null }
   type Props = {
     value: string | null
     onChange: (id: string | null) => void
@@ -102,7 +106,17 @@ jest.mock('../TaskPicker', () => {
         },
         [
           ReactModule.createElement('option', { key: '__empty', value: '' }, ''),
-          ...items.map((item) => ReactModule.createElement('option', { key: item.id, value: item.id }, item.title)),
+          ...items.map((item) =>
+            ReactModule.createElement(
+              'option',
+              {
+                key: item.id,
+                value: item.id,
+                'data-project': [item.projectName, item.customerName].filter(Boolean).join(' · '),
+              },
+              item.title,
+            ),
+          ),
         ],
       ),
       // The real picker reports its search box on every keystroke so the dialog
@@ -116,6 +130,64 @@ jest.mock('../TaskPicker', () => {
       }),
     ])
   return { TaskPicker, __esModule: true }
+})
+
+/**
+ * The project field is a `ComboboxInput` — a typeahead with its own tests in
+ * `packages/ui`. Here it is a native select over what `loadSuggestions` returns,
+ * plus the label `resolveLabel` gives a selected value, which is the contract the
+ * dialog relies on.
+ */
+jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => {
+  const ReactModule = jest.requireActual('react') as typeof React
+  type Option = { value: string; label: string; description?: string | null }
+  type Props = {
+    value: string
+    onChange: (next: string) => void
+    seedOptions?: Option[]
+    loadSuggestions?: (query?: string) => Promise<Option[]>
+    resolveLabel?: (value: string) => string | Promise<string>
+    disabled?: boolean
+  }
+  const ComboboxInput = ({ value, onChange, seedOptions, loadSuggestions, resolveLabel, disabled }: Props) => {
+    const [loaded, setLoaded] = ReactModule.useState<Option[]>([])
+    const [label, setLabel] = ReactModule.useState<string>('')
+    ReactModule.useEffect(() => {
+      void loadSuggestions?.('').then((items) => setLoaded(items))
+    }, [loadSuggestions])
+    ReactModule.useEffect(() => {
+      if (!value || !resolveLabel || disabled) {
+        setLabel('')
+        return
+      }
+      void Promise.resolve(resolveLabel(value)).then((next) => setLabel(next))
+    }, [disabled, resolveLabel, value])
+    const options = new Map<string, Option>()
+    for (const option of [...(seedOptions ?? []), ...loaded]) options.set(option.value, option)
+    return ReactModule.createElement(ReactModule.Fragment, null, [
+      ReactModule.createElement(
+        'select',
+        {
+          key: '__select',
+          'data-testid': 'project-select',
+          value,
+          disabled,
+          onChange: (event: React.ChangeEvent<HTMLSelectElement>) => onChange(event.target.value),
+        },
+        [
+          ReactModule.createElement('option', { key: '__empty', value: '' }, ''),
+          ...[...options.values()].map((option) =>
+            ReactModule.createElement('option', { key: option.value, value: option.value }, option.label),
+          ),
+          ...(value && !options.has(value)
+            ? [ReactModule.createElement('option', { key: value, value }, label || value)]
+            : []),
+        ],
+      ),
+      ReactModule.createElement('span', { key: '__label', 'data-testid': 'project-label' }, label),
+    ])
+  }
+  return { __esModule: true, ComboboxInput }
 })
 
 /** Radix' Select needs pointer geometry jsdom lacks; a native select keeps the contract. */
@@ -409,6 +481,63 @@ beforeEach(() => {
   ;(window as unknown as { open: jest.Mock }).open = jest.fn()
 })
 
+describe('TimeEntryDialog - exact rate overrides', () => {
+  const exactRate = '98.765432109876543212'
+
+  function installPreciseEntry() {
+    entryRows = [{
+      id: ENTRY_ID,
+      date: '2026-07-20',
+      duration_minutes: 60,
+      description: 'Original description',
+      task_id: TASK_ID,
+      time_project_id: PROJECT_ID,
+      is_billable: true,
+      rate_override_amount: exactRate,
+      updated_at: VERSION,
+      tags: [],
+    }]
+  }
+
+  it('preserves every rate digit when only the description is edited', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    await waitFor(() => expect(rateInput).toHaveValue(exactRate))
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Updated description' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().description).toBe('Updated description')
+    expect(lastWriteBody().rateOverrideAmount).toBe(exactRate)
+    expect(mockWithScopedHeaders).toHaveBeenCalledWith(
+      { [OPTIMISTIC_LOCK_HEADER_NAME]: VERSION },
+      expect.any(Function),
+    )
+  })
+
+  it('submits a comma-separated precise rate edit exactly', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    await waitFor(() => expect(rateInput).toHaveValue(exactRate))
+    fireEvent.change(rateInput, { target: { value: '98,765432109876543213' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('98.765432109876543213')
+  })
+
+  it('keeps an oversized rate invalid at the API boundary instead of clearing it', async () => {
+    installPreciseEntry()
+    renderDialog({ entryId: ENTRY_ID })
+    const rateInput = await screen.findByTestId('entry-dialog-rate')
+    fireEvent.change(rateInput, { target: { value: '1e305' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('1e305')
+    expect(staffTimeEntryUpdateSchema.safeParse({ ...lastWriteBody(), id: ENTRY_ID }).success).toBe(false)
+  })
+})
+
 describe('TimeEntryDialog — 2-of-3 arithmetic', () => {
   it('derives the end from a start plus a duration and badges the derived field', async () => {
     renderDialog()
@@ -567,6 +696,104 @@ describe('TimeEntryDialog — money', () => {
     expect(cost.value).toContain('400')
   })
 
+  function installCurrencyEntry(
+    currencyCode: string,
+    rate: string | null,
+    configuredCurrencies: Array<{ code: string; decimalPlaces: number }>,
+    projectRate?: string,
+  ) {
+    entryRows = [{
+      id: ENTRY_ID,
+      date: '2026-07-20',
+      duration_minutes: 60,
+      description: 'Precise cost',
+      task_id: TASK_ID,
+      time_project_id: PROJECT_ID,
+      is_billable: true,
+      rate_override_amount: rate,
+      updated_at: VERSION,
+      tags: [],
+    }]
+    const route = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/timesheets/time-projects')) {
+        const rows = projectRows.map((row) => ({
+          ...row,
+          currency_code: currencyCode,
+          ...(projectRate === undefined ? {} : { hourly_rate: projectRate }),
+        }))
+        return ok({ items: rows, total: rows.length }) as never
+      }
+      if (url.includes('/api/currencies/currencies')) {
+        const code = new URLSearchParams(url.slice(url.indexOf('?') + 1)).get('code')
+        const items = configuredCurrencies.filter((item) => item.code === code)
+        return ok({ items, total: items.length }) as never
+      }
+      return route!(input, init)
+    })
+  }
+
+  async function renderedCost(): Promise<HTMLInputElement> {
+    renderDialog({ entryId: ENTRY_ID })
+    const cost = (await screen.findByTestId('entry-dialog-cost')) as HTMLInputElement
+    await waitFor(() => expect(cost.value).not.toBe(''))
+    return cost
+  }
+
+  it('previews a micro-rate cost at the configured 18 decimals instead of 0', async () => {
+    installCurrencyEntry('ETH', '0.00000001', [{ code: 'ETH', decimalPlaces: 18 }])
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: '0.00000001' },
+      null,
+      null,
+      18,
+    )
+    expect(saved).toBe('0.00000001')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toContain('0.00000001'))
+    expect(cost.value).toBe(formatCurrency(saved, 'ETH', undefined, 18))
+    expect(mockApiCall).toHaveBeenCalledWith(
+      expect.stringContaining('/api/currencies/currencies?code=ETH'),
+      expect.anything(),
+    )
+  })
+
+  it('previews a zero-decimal currency cost the way the server saves it', async () => {
+    installCurrencyEntry('JPY', '0.4996', [])
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: '0.4996' },
+      null,
+      null,
+      resolveIsoCurrencyDecimalPlaces('JPY') ?? 2,
+    )
+    expect(saved).toBe('0')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toBe(formatCurrency(saved, 'JPY', undefined, 0)))
+    expect(cost.value).toBe(formatCurrency('0', 'JPY'))
+    expect(cost.value).not.toBe(formatCurrency('1', 'JPY'))
+  })
+
+  it('previews the cost from the exact project rate when no override is set', async () => {
+    installCurrencyEntry('KWD', null, [{ code: 'KWD', decimalPlaces: 3 }], '1.234499999999999999')
+    const saved = entryAmountExact(
+      { isBillable: true, roundedMinutes: 60, rateOverrideAmount: null },
+      { hourlyRate: '1.234499999999999999' },
+      null,
+      3,
+    )
+    expect(saved).toBe('1.234')
+
+    const cost = await renderedCost()
+
+    await waitFor(() => expect(cost.value).toBe(formatCurrency(saved, 'KWD', undefined, 3)))
+    expect(cost.value).not.toBe(formatCurrency('1.235', 'KWD', undefined, 3))
+  })
+
   it('hides rates and cost without staff.timesheets.rates.view', async () => {
     mockUseBackendChrome.mockReturnValue({
       payload: { grantedFeatures: ['staff.timesheets.manage_own'] },
@@ -640,6 +867,47 @@ describe('TimeEntryDialog — saving', () => {
     const call = mockApiCallOrThrow.mock.calls[0]
     expect((call?.[1] as RequestInit).method).toBe('PUT')
     expect(lastWriteBody().id).toBe(ENTRY_ID)
+  })
+
+  it('sends the exact stored override rate back when only the description changes', async () => {
+    const preciseRate = '98.765432109876543212'
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        started_at: '2026-07-20T09:00:00.000Z',
+        ended_at: '2026-07-20T10:00:00.000Z',
+        duration_minutes: 60,
+        description: 'Analiza planów zapytań',
+        task_id: TASK_ID,
+        time_project_id: PROJECT_ID,
+        is_billable: true,
+        rate_override_amount: preciseRate,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await waitFor(() => expect((screen.getByTestId('entry-dialog-rate') as HTMLInputElement).value).toBe(preciseRate))
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Nowy opis' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(expect.objectContaining({ description: 'Nowy opis', rateOverrideAmount: preciseRate }))
+  })
+
+  it('sends a typed decimal-comma override rate as an exact string', async () => {
+    renderDialog()
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(screen.getByRole('switch', { name: 'Custom rate for this entry' }))
+    fireEvent.change(await screen.findByTestId('entry-dialog-rate'), { target: { value: '123,123456789012345678' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody().rateOverrideAmount).toBe('123.123456789012345678')
   })
 
   it('asks for the entry by `ids`, the parameter the list schema actually reads', async () => {
@@ -727,7 +995,7 @@ describe('TimeEntryDialog — saving', () => {
 
     fireEvent.click(screen.getByTestId('entry-dialog-locked-report'))
     expect(window.open).toHaveBeenCalledWith(
-      expect.stringContaining(REPORT_ID),
+      `/backend/staff/time-tracking/reports/${REPORT_ID}`,
       '_blank',
       'noopener',
     )
@@ -962,6 +1230,19 @@ describe('TimeEntryDialog — keyboard loop', () => {
     expect(dialog.textContent).toContain('save and add another')
     expect(dialog.textContent).toContain('cancel')
   })
+
+  it('lets the shortcut hint wrap inside the footer instead of running past the dialog edge', async () => {
+    renderDialog({})
+
+    const shortcuts = await screen.findAllByTestId('entry-dialog-shortcut')
+    expect(shortcuts.map((shortcut) => shortcut.textContent)).toEqual([
+      '⌘↵save',
+      '⌘⇧↵save and add another',
+      'esccancel',
+    ])
+    const hint = shortcuts[0].parentElement as HTMLElement
+    expect(hint.className.split(/\s+/)).toEqual(expect.arrayContaining(['min-w-0', 'flex-wrap']))
+  })
 })
 
 /**
@@ -1189,5 +1470,539 @@ describe('TimeEntryDialog — crud-form host lifecycle', () => {
     expect(
       mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'description'),
     ).toBe(true)
+  })
+})
+
+
+describe('TimeEntryDialog — project mode (#6989)', () => {
+  const OTHER_PROJECT_ID = '99999999-9999-4999-8999-999999999999'
+  const HIDDEN_PROJECT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const FAR_PROJECT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const FAR_TASK_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  const otherProject: Row = {
+    id: OTHER_PROJECT_ID,
+    name: 'Support retainer',
+    customer_snapshot: { name: 'Globex' },
+    hourly_rate: 200,
+    currency_code: 'EUR',
+  }
+  const farProject: Row = { id: FAR_PROJECT_ID, name: 'Far project', hourly_rate: 500, currency_code: 'PLN' }
+  const farTask: Row = { id: FAR_TASK_ID, title: 'Far task', time_project_id: FAR_PROJECT_ID }
+  let taskUrls: string[]
+
+  function projectSelect(): HTMLSelectElement {
+    return screen.getByTestId('project-select') as HTMLSelectElement
+  }
+
+  async function pickProject(projectId: string) {
+    const select = await screen.findByTestId('project-select')
+    await waitFor(() => expect(select.querySelector(`option[value="${projectId}"]`)).not.toBeNull())
+    fireEvent.change(select, { target: { value: projectId } })
+  }
+
+  beforeEach(() => {
+    taskUrls = []
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/timesheets/time-projects')) {
+        const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
+        const ids = query.get('ids')
+        const all = [...projectRows, otherProject, farProject]
+        if (ids === HIDDEN_PROJECT_ID) {
+          return { ok: false, status: 404, result: { error: 'no_project_access' }, response: {} as Response, cacheStatus: null } as never
+        }
+        if (ids) {
+          const rows = all.filter((row) => ids.split(',').includes(String(row.id)))
+          return ok({ items: rows, total: rows.length }) as never
+        }
+        if (query.get('status') === 'active') {
+          const term = (query.get('q') ?? '').toLowerCase()
+          const rows = all.filter((row) => String(row.name).toLowerCase().includes(term))
+          return ok({ items: rows, total: rows.length }) as never
+        }
+        return ok({ items: [...projectRows, otherProject], total: 2 }) as never
+      }
+      if (url.includes('/timesheets/tasks')) {
+        taskUrls.push(url)
+        const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
+        const scoped = query.get('timeProjectId')
+        const ids = query.get('ids')
+        const all = [...taskRows, farTask]
+        if (ids) {
+          const rows = all.filter((row) => ids.split(',').includes(String(row.id)))
+          return ok({ items: rows, total: rows.length }) as never
+        }
+        const rows = scoped ? all.filter((row) => row.time_project_id === scoped) : taskRows
+        return ok({ items: rows, total: rows.length }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+  })
+
+  it('saves a project-only entry when the tenant setting is project mode', async () => {
+    settingsPayload = { ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }
+    renderDialog()
+
+    await pickProject(OTHER_PROJECT_ID)
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(
+      expect.objectContaining({ taskId: null, timeProjectId: OTHER_PROJECT_ID, durationMinutes: 60 }),
+    )
+    expect(screen.queryByTestId('entry-dialog-task-error')).toBeNull()
+  })
+
+  it('switches to project mode when the settings answer after the dialog opened', async () => {
+    let releaseSettings: () => void = () => {}
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/settings')) {
+        await new Promise<void>((resolve) => {
+          releaseSettings = resolve
+        })
+        return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    renderDialog()
+
+    await screen.findByTestId('entry-dialog-task')
+    expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
+
+    releaseSettings()
+    await screen.findByTestId('entry-dialog-project')
+    await waitFor(() => expect(document.activeElement).toBe(projectSelect()))
+  })
+
+  it('remounts the task picker when the mode flips late, so a list opened in task mode does not linger', async () => {
+    let releaseSettings: () => void = () => {}
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/settings')) {
+        await new Promise<void>((resolve) => {
+          releaseSettings = resolve
+        })
+        return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    renderDialog()
+
+    const taskModePicker = await screen.findByTestId('task-picker-query')
+    releaseSettings()
+    await screen.findByTestId('entry-dialog-project')
+
+    expect(taskModePicker.isConnected).toBe(false)
+    expect(screen.getByTestId('task-picker-query')).not.toBe(taskModePicker)
+  })
+
+  it('leaves focus where the person moved it when the settings flip the mode late', async () => {
+    let releaseSettings: () => void = () => {}
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/settings')) {
+        await new Promise<void>((resolve) => {
+          releaseSettings = resolve
+        })
+        return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    renderDialog()
+
+    await screen.findByTestId('entry-dialog-task')
+    const description = document.getElementById('entry-dialog-description') as HTMLElement
+    act(() => description.focus())
+    expect(document.activeElement).toBe(description)
+
+    releaseSettings()
+    await screen.findByTestId('entry-dialog-project')
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(() => resolve(null)))
+    })
+    expect(document.activeElement).toBe(description)
+  })
+
+  it('requires the project, not the task, in project mode', async () => {
+    renderDialog({ mode: 'project' })
+
+    await screen.findByTestId('entry-dialog-project')
+    fireEvent.change(durationInput(), { target: { value: '30m' } })
+    fireEvent.click(saveButton())
+
+    const message = await screen.findByTestId('entry-dialog-project-error')
+    expect(message.textContent).toBe('Pick the project this time belongs to.')
+    expect(screen.queryByTestId('entry-dialog-task-error')).toBeNull()
+    expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('lets the mode prop override the tenant setting', async () => {
+    settingsPayload = { ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }
+    renderDialog({ mode: 'task' })
+
+    await pickTask()
+    expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
+  })
+
+  it('asks for the chosen project tasks only and keeps a picked task with its project', async () => {
+    renderDialog({ mode: 'project' })
+
+    expect(taskSelect().disabled).toBe(true)
+    expect(screen.getByTestId('entry-dialog-task-hint').textContent).toBe('Pick a project first')
+
+    await pickProject(PROJECT_ID)
+    await waitFor(() =>
+      expect(taskUrls.some((url) => url.includes(`timeProjectId=${PROJECT_ID}`))).toBe(true),
+    )
+    await pickTask(TASK_ID)
+    expect(screen.getByTestId('entry-dialog-task-hint').textContent).toBe(
+      'Optional — leave empty to log the time to the project.',
+    )
+
+    await pickProject(OTHER_PROJECT_ID)
+    await waitFor(() => expect(taskSelect().value).toBe(''))
+  })
+
+  it('moves the project to the project of a seeded task', async () => {
+    renderDialog({ mode: 'project', defaults: { taskId: FAR_TASK_ID } })
+
+    await waitFor(() => expect(projectSelect().value).toBe(FAR_PROJECT_ID))
+  })
+
+  it('keeps an explicit project choice when the entry task resolves only after it', async () => {
+    let releaseTasks: () => void = () => {}
+    const tasksGate = new Promise<void>((resolve) => {
+      releaseTasks = resolve
+    })
+    const scoped = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/tasks')) await tasksGate
+      return scoped ? scoped(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 60,
+        description: 'Daleki wpis',
+        task_id: FAR_TASK_ID,
+        time_project_id: FAR_PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID, mode: 'project' })
+
+    await waitFor(() => expect(projectSelect().value).toBe(FAR_PROJECT_ID))
+    await pickProject(OTHER_PROJECT_ID)
+    await waitFor(() => expect(projectSelect().value).toBe(OTHER_PROJECT_ID))
+
+    releaseTasks()
+    await waitFor(() =>
+      expect(taskUrls.some((url) => url.includes(`timeProjectId=${OTHER_PROJECT_ID}`))).toBe(true),
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(projectSelect().value).toBe(OTHER_PROJECT_ID)
+    expect(taskSelect().value).toBe('')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(
+      expect.objectContaining({ id: ENTRY_ID, taskId: null, timeProjectId: OTHER_PROJECT_ID }),
+    )
+  })
+
+  it('opens an entry without a task in project mode even when the tenant logs against tasks', async () => {
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 90,
+        description: 'Warsztat',
+        task_id: null,
+        time_project_id: OTHER_PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await screen.findByTestId('entry-dialog-project')
+    await waitFor(() => expect(projectSelect().value).toBe(OTHER_PROJECT_ID))
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(
+      expect.objectContaining({ id: ENTRY_ID, taskId: null, timeProjectId: OTHER_PROJECT_ID }),
+    )
+  })
+
+  it('labels a project the caller can no longer see without flashing an error', async () => {
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 30,
+        description: 'Stary wpis',
+        task_id: null,
+        time_project_id: HIDDEN_PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await waitFor(() => expect(screen.getByTestId('project-label').textContent).toBe('Project not available'))
+    expect(mockFlash).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [FAR_PROJECT_ID, 'Far project'],
+    [HIDDEN_PROJECT_ID, 'Project not available'],
+  ])('labels the project of a locked project-only entry outside the directory (%s)', async (projectId, label) => {
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 45,
+        description: 'Zamknięty wpis',
+        task_id: null,
+        time_project_id: projectId,
+        is_billable: true,
+        isLocked: true,
+        lockedReportId: REPORT_ID,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    renderDialog({ entryId: ENTRY_ID })
+
+    await screen.findByTestId('entry-dialog-project')
+    await waitFor(() =>
+      expect(projectSelect().querySelector(`option[value="${projectId}"]`)?.textContent).toBe(label),
+    )
+    expect(projectSelect().disabled).toBe(true)
+  })
+
+  it('prices the entry with a project found beyond the first directory page', async () => {
+    renderDialog({ mode: 'project' })
+
+    await pickProject(FAR_PROJECT_ID)
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+
+    await waitFor(() => expect(screen.getByTestId('entry-dialog').textContent).toContain('500'))
+  })
+
+  function projectRefusal() {
+    return Object.assign(new Error('Time project not found or not accessible.'), {
+      body: {
+        error: 'Time project not found or not accessible.',
+        details: [{ path: ['timeProjectId'], message: 'Time project not found or not accessible.' }],
+      },
+    })
+  }
+
+  it('flashes a server project refusal in task mode, where there is no project field to show it under', async () => {
+    mockApiCallOrThrow.mockRejectedValue(projectRefusal())
+    renderDialog()
+
+    await pickTask()
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() =>
+      expect(mockFlash).toHaveBeenCalledWith('Time project not found or not accessible.', 'error'),
+    )
+  })
+
+  it('shows a server project refusal under the project field in project mode', async () => {
+    mockApiCallOrThrow.mockRejectedValue(projectRefusal())
+    renderDialog({ mode: 'project' })
+
+    await pickProject(OTHER_PROJECT_ID)
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    fireEvent.click(saveButton())
+
+    const message = await screen.findByTestId('entry-dialog-project-error')
+    expect(message.textContent).toBe('Time project not found or not accessible.')
+    expect(mockFlash).not.toHaveBeenCalledWith('Time project not found or not accessible.', 'error')
+  })
+
+  it('keeps the mode when the settings answer after the user started typing', async () => {
+    let releaseSettings: () => void = () => {}
+    let settingsAnswered = false
+    const base = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/settings')) {
+        await new Promise<void>((resolve) => {
+          releaseSettings = resolve
+        })
+        settingsAnswered = true
+        return ok({ ...settingsPayload, defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'project' } }) as never
+      }
+      return base ? base(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    renderDialog()
+
+    await screen.findByTestId('entry-dialog-task')
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Already typing' } })
+    releaseSettings()
+
+    await waitFor(() => expect(settingsAnswered).toBe(true))
+    await act(async () => {})
+    expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
+  })
+
+  it('reports the chosen project to injected widgets as timeProjectId', async () => {
+    renderDialog({ mode: 'project' })
+
+    await pickProject(OTHER_PROJECT_ID)
+
+    await waitFor(() =>
+      expect(
+        mockInjection.calls.some(
+          (call) => call.event === 'onFieldChange' && call.fieldId === 'timeProjectId' && call.fieldValue === OTHER_PROJECT_ID,
+        ),
+      ).toBe(true),
+    )
+  })
+
+  it('ignores a widget write to timeProjectId in task mode and still reports the next project change', async () => {
+    mockInjection.fieldChange = { sideEffects: { timeProjectId: OTHER_PROJECT_ID } }
+    renderDialog()
+
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Typed' } })
+    await waitFor(() =>
+      expect(mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'description')).toBe(true),
+    )
+    mockInjection.fieldChange = null
+
+    await pickTask()
+    await waitFor(() =>
+      expect(
+        mockInjection.calls.some(
+          (call) => call.event === 'onFieldChange' && call.fieldId === 'timeProjectId' && call.fieldValue === PROJECT_ID,
+        ),
+      ).toBe(true),
+    )
+    expect(screen.queryByTestId('entry-dialog-project')).toBeNull()
+  })
+
+  it('drops a picked task of another project when a widget moves the project', async () => {
+    renderDialog({ mode: 'project' })
+
+    await pickProject(PROJECT_ID)
+    await pickTask(TASK_ID)
+    fireEvent.change(durationInput(), { target: { value: '1h' } })
+    await waitFor(() =>
+      expect(mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'durationMinutes')).toBe(true),
+    )
+
+    mockInjection.fieldChange = { sideEffects: { timeProjectId: OTHER_PROJECT_ID } }
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Moved by a widget' } })
+    await waitFor(() => expect(projectSelect().value).toBe(OTHER_PROJECT_ID))
+    mockInjection.fieldChange = null
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(projectSelect().value).toBe(OTHER_PROJECT_ID)
+    expect(taskSelect().value).toBe('')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(expect.objectContaining({ taskId: null, timeProjectId: OTHER_PROJECT_ID }))
+  })
+
+  it('keeps a widget project choice when the entry task resolves only after it', async () => {
+    let releaseTasks: () => void = () => {}
+    const tasksGate = new Promise<void>((resolve) => {
+      releaseTasks = resolve
+    })
+    const scoped = mockApiCall.getMockImplementation()
+    mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/timesheets/tasks')) await tasksGate
+      return scoped ? scoped(input, init) : (ok({ items: [], total: 0 }) as never)
+    })
+    entryRows = [
+      {
+        id: ENTRY_ID,
+        date: '2026-07-20',
+        duration_minutes: 60,
+        description: 'Daleki wpis',
+        task_id: FAR_TASK_ID,
+        time_project_id: FAR_PROJECT_ID,
+        is_billable: true,
+        isLocked: false,
+        updated_at: VERSION,
+        tags: [],
+      },
+    ]
+    mockInjection.fieldChange = { sideEffects: { timeProjectId: OTHER_PROJECT_ID } }
+    renderDialog({ entryId: ENTRY_ID, mode: 'project' })
+
+    await waitFor(() =>
+      expect(mockInjection.calls.some((call) => call.event === 'onFieldChange' && call.fieldId === 'taskId')).toBe(true),
+    )
+    await waitFor(() => expect(projectSelect().value).toBe(OTHER_PROJECT_ID))
+    mockInjection.fieldChange = null
+
+    releaseTasks()
+    await waitFor(() =>
+      expect(taskUrls.some((url) => url.includes(`timeProjectId=${OTHER_PROJECT_ID}`))).toBe(true),
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(projectSelect().value).toBe(OTHER_PROJECT_ID)
+    expect(taskSelect().value).toBe('')
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalled())
+    expect(lastWriteBody()).toEqual(
+      expect.objectContaining({ id: ENTRY_ID, taskId: null, timeProjectId: OTHER_PROJECT_ID }),
+    )
+  })
+
+  it('keeps a task the widget writes together with its project', async () => {
+    renderDialog({ mode: 'project' })
+
+    await pickProject(PROJECT_ID)
+    await pickTask(TASK_ID)
+
+    mockInjection.fieldChange = { sideEffects: { taskId: FAR_TASK_ID, timeProjectId: FAR_PROJECT_ID } }
+    fireEvent.change(screen.getByTestId('entry-dialog-description'), { target: { value: 'Moved with its task' } })
+    await waitFor(() => expect(projectSelect().value).toBe(FAR_PROJECT_ID))
+    mockInjection.fieldChange = null
+
+    await waitFor(() => expect(taskSelect().value).toBe(FAR_TASK_ID))
+    expect(projectSelect().value).toBe(FAR_PROJECT_ID)
+  })
+
+  it('leaves the project of the picked task to the picker instead of repeating it under the field', async () => {
+    renderDialog()
+
+    await pickTask()
+    await waitFor(() =>
+      expect(taskSelect().querySelector(`option[value="${TASK_ID}"]`)?.getAttribute('data-project')).toBe(
+        'migracja B2B · Nordvik',
+      ),
+    )
+    expect(screen.getByTestId('entry-dialog-task-hint').textContent).toBe(
+      'The project and the customer follow from the task — you do not pick them separately.',
+    )
   })
 })

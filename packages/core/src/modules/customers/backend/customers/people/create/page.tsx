@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -10,6 +10,7 @@ import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { extensionPoints } from '../../../../extension-points'
 import {
   buildPersonPayload,
   createPersonFormFields,
@@ -20,7 +21,6 @@ import {
 
 export default function CreatePersonPage() {
   const t = useT()
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
 
@@ -52,6 +52,10 @@ export default function CreatePersonPage() {
           fields={fields}
           groups={groups}
           initialValues={initialValues}
+          injectionSpotId={extensionPoints.hosts.personForm.spotId}
+          legacyInjectionSpotId="crud-form:customers.customer_entity"
+          entityId="customers.person"
+          resourceKind="customers.person"
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           submitLabel={t('customers.people.form.submit')}
           cancelHref={returnTo ?? '/backend/customers/people'}
@@ -127,9 +131,11 @@ export default function CreatePersonPage() {
             }
 
             flash(t('customers.people.form.success'), 'success')
-            if (returnTo) router.push(returnTo)
-            else if (newId) router.push(`/backend/customers/people-v2/${newId}`)
-            else router.push('/backend/customers/people')
+            return newId ? { resourceId: newId } : undefined
+          }}
+          successRedirect={(_values, result) => {
+            const newId = result?.resourceId
+            return returnTo || (newId ? `/backend/customers/people-v2/${newId}` : '/backend/customers/people')
           }}
         />
       </PageBody>

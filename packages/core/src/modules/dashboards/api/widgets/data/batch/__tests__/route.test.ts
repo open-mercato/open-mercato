@@ -151,4 +151,35 @@ describe('widget data batch route error mapping', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Tenant context is required' })
     expect(fetchWidgetData).not.toHaveBeenCalled()
   })
+
+  test('passes an explicit empty scope through as deny-all instead of using auth.orgId', async () => {
+    const { resolveOrganizationScopeForRequest } = jest.requireMock(
+      '@open-mercato/core/modules/directory/utils/organizationScope',
+    ) as { resolveOrganizationScopeForRequest: jest.Mock }
+    const { createWidgetDataService } = jest.requireMock(
+      '../../../../../services/widgetDataService',
+    ) as { createWidgetDataService: jest.Mock }
+    resolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId,
+    })
+    fetchWidgetData.mockResolvedValue({
+      value: 0,
+      data: [],
+      metadata: { fetchedAt: '2026-10-04T00:00:00.000Z', recordCount: 0 },
+    })
+
+    const response = await POST(buildRequest(['region']))
+
+    expect(response.status).toBe(200)
+    expect(createWidgetDataService).toHaveBeenCalledWith(
+      em,
+      { tenantId, organizationIds: [] },
+      analyticsRegistry,
+      cache,
+      undefined,
+    )
+  })
 })

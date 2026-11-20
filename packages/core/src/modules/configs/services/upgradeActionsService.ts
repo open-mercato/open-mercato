@@ -72,40 +72,55 @@ export async function executeUpgradeAction(
     throw new Error('UPGRADE_ACTION_NOT_AVAILABLE')
   }
   const em = container.resolve<EntityManager>('em')
-  const status = await em.transactional(async (tem) => {
-    logger.info('Executing upgrade action', {
-      component: 'upgrade-actions',
-      actionId: definition.id,
-      version: definition.version,
-      requestedVersion: version,
-      tenantId,
-      organizationId,
+  const afterCommitCallbacks: Array<() => void | Promise<void>> = []
+  let status: UpgradeActionStatus
+  try {
+    status = await em.transactional(async (tem) => {
+      logger.info('Executing upgrade action', {
+        component: 'upgrade-actions',
+        actionId: definition.id,
+        version: definition.version,
+        requestedVersion: version,
+        tenantId,
+        organizationId,
+      })
+      const alreadyCompleted = await tem.findOne(UpgradeActionRun, {
+        actionId: definition.id,
+        version: definition.version,
+        tenantId,
+        organizationId,
+      })
+      if (alreadyCompleted) return 'already_completed' as const
+      await definition.run({
+        container,
+        em: tem,
+        tenantId,
+        organizationId,
+        deferAfterCommit: (callback) => afterCommitCallbacks.push(callback),
+      })
+      const record = tem.create(UpgradeActionRun, {
+        actionId: definition.id,
+        version: definition.version,
+        tenantId,
+        organizationId,
+      })
+      tem.persist(record)
+      await tem.flush()
+      logger.info('Upgrade action completed', { component: 'upgrade-actions', actionId: definition.id, version, tenantId, organizationId })
+      return 'completed' as const
     })
-    const alreadyCompleted = await tem.findOne(UpgradeActionRun, {
-      actionId: definition.id,
-      version: definition.version,
-      tenantId,
-      organizationId,
-    })
-    if (alreadyCompleted) return 'already_completed' as const
-    await definition.run({ container, em: tem, tenantId, organizationId })
-    const record = tem.create(UpgradeActionRun, {
-      actionId: definition.id,
-      version: definition.version,
-      tenantId,
-      organizationId,
-    })
-    tem.persist(record)
-    await tem.flush()
-    logger.info('Upgrade action completed', { component: 'upgrade-actions', actionId: definition.id, version, tenantId, organizationId })
-    return 'completed' as const
-  }).catch((error) => {
+  } catch (error) {
     logger.error('Upgrade action failed', { component: 'upgrade-actions', actionId, tenantId, organizationId, version, err: error })
     if (error instanceof UniqueConstraintViolationException) {
-      return 'already_completed' as const
+      status = 'already_completed'
+    } else {
+      throw error
     }
-    throw error
-  })
+  }
+
+  if (status === 'completed') {
+    for (const callback of afterCommitCallbacks) await callback()
+  }
 
   return { action: definition, status }
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals'
 import {
   IMMUTABLE_UNACCENT_FUNCTION,
+  buildAccentInsensitiveContainsPatternSql,
   buildAccentInsensitivePatternSql,
   buildAccentInsensitiveSearchExpression,
   buildImmutableUnaccentFunctionSql,
@@ -25,6 +26,17 @@ describe('accent-insensitive search SQL', () => {
 
   it('unaccents the bound pattern with the same function, so both sides of the comparison match', () => {
     expect(buildAccentInsensitivePatternSql()).toBe(`${IMMUTABLE_UNACCENT_FUNCTION}(?)`)
+  })
+
+  // unaccent folds fullwidth ％ ＿ ＼ into ASCII LIKE metacharacters, so the raw
+  // term must be folded first and escaped afterwards (#6465).
+  it('escapes LIKE metacharacters after unaccent folds the raw term, backslash first', () => {
+    const sql = buildAccentInsensitiveContainsPatternSql()
+    expect(sql).toBe(
+      `'%' || replace(replace(replace(${IMMUTABLE_UNACCENT_FUNCTION}(?), chr(92), chr(92) || chr(92)), '%', chr(92) || '%'), '_', chr(92) || '_') || '%'`,
+    )
+    expect(sql.split('?')).toHaveLength(2)
+    expect(sql).not.toContain('\\')
   })
 
   // The wrapper may only be declared IMMUTABLE because the dictionary is pinned:

@@ -6,8 +6,9 @@ import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
 import { normalizeCrudServerError } from "@open-mercato/ui/backend/utils/serverErrors";
-import { LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
-import { Button } from "@open-mercato/ui/primitives/button";
+import { ErrorMessage, LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
+import { IconButton } from "@open-mercato/ui/primitives/icon-button";
+import { SimpleTooltip } from "@open-mercato/ui/primitives/tooltip";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
 import { Pencil, Trash2 } from "lucide-react";
 import {
@@ -16,18 +17,24 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
+import { cn } from "@open-mercato/shared/lib/utils";
 import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents";
 import { LineItemDialog } from "./LineItemDialog";
 import { handleSectionMutationError } from "./optimisticLock";
+import { useSalesDocumentMutation } from "./useSalesDocumentMutation";
 import type { SalesLineRecord } from "./lineItemTypes";
 import {
   formatMoney,
+  grossFromNet,
+  netFromGross,
   normalizeNumber,
   resolveLineDiscountDisplay,
+  toExactAmount,
 } from "./lineItemUtils";
+import { absDecimal, decimalToNumber, decimalToString, multiplyDecimals } from "@open-mercato/shared/lib/decimal";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
@@ -39,8 +46,55 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
 
+function DisabledActionHint({
+  label,
+  reason,
+  children,
+}: {
+  label: string
+  reason?: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = React.useState(false)
+  const touchOpenRef = React.useRef(false)
+  if (!reason) return <>{children}</>
+  return (
+    <SimpleTooltip
+      content={reason}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen || !touchOpenRef.current) setOpen(nextOpen)
+      }}
+    >
+      <span
+        className="inline-flex rounded-md focus-visible:outline-none focus-visible:shadow-focus"
+        tabIndex={0}
+        aria-label={`${label}: ${reason}`}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => {
+          if (event.pointerType !== 'touch') return
+          touchOpenRef.current = true
+          setOpen(true)
+          event.currentTarget.focus()
+        }}
+        onBlur={() => {
+          touchOpenRef.current = false
+          setOpen(false)
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape') return
+          touchOpenRef.current = false
+          setOpen(false)
+        }}
+      >
+        {children}
+      </span>
+    </SimpleTooltip>
+  )
+}
+
 type ResolvedUnitPriceReference = {
-  grossPerReference: number;
+  grossPerReference: string;
   referenceUnitCode: string;
 };
 
@@ -86,11 +140,10 @@ function resolveUnitPriceReference(
   if (!ref || !isPlainObject(ref)) return null;
 
   const refRecord = ref as Record<string, unknown>;
-  const grossPerReference = normalizeNumber(
+  const grossPerReference = toExactAmount(
     refRecord.grossPerReference ?? refRecord.gross_per_reference,
-    Number.NaN,
   );
-  if (!Number.isFinite(grossPerReference)) return null;
+  if (grossPerReference === null) return null;
 
   const referenceUnitCode =
     typeof refRecord.referenceUnitCode === "string"
@@ -150,6 +203,8 @@ type SalesDocumentItemsSectionProps = {
   tenantId?: string | null;
   onActionChange?: (action: SectionAction | null) => void;
   onItemsChange?: (items: SalesLineRecord[]) => void;
+  /** Disables line writes: on an external order they would all be rejected. */
+  amountsReadOnly?: boolean;
 };
 
 export function SalesDocumentItemsSection({
@@ -161,8 +216,10 @@ export function SalesDocumentItemsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onItemsChange,
+  amountsReadOnly = false,
 }: SalesDocumentItemsSectionProps) {
   const t = useT();
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId);
   const locale = useLocale();
   const { organizationId, tenantId } = useOrganizationScopeDetail();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
@@ -186,7 +243,7 @@ export function SalesDocumentItemsSection({
     kind !== "order",
   );
 
-  const { widgets: allColumnWidgets } = useInjectionDataWidgets(
+  const { widgets: allColumnWidgets, isLoading: injectedColumnsLoading, error: injectedColumnsError } = useInjectionDataWidgets(
     extensionPoints.hosts.orderItemColumns.spotId,
   );
   const columnWidgets = kind === "order" ? allColumnWidgets : [];
@@ -312,38 +369,30 @@ export function SalesDocumentItemsSection({
             const normalizedUnit =
               canonicalizeUnitCode(uomFields.normalizedUnit) ?? quantityUnit;
             const uomSnapshot = uomFields.uomSnapshot;
-            const unitPriceNetRaw = normalizeNumber(
+            const unitPriceNetRaw = toExactAmount(
               item.unit_price_net ?? item.unitPriceNet,
-              Number.NaN,
             );
-            const unitPriceGrossRaw = normalizeNumber(
+            const unitPriceGrossRaw = toExactAmount(
               item.unit_price_gross ?? item.unitPriceGross,
-              Number.NaN,
             );
-            const unitPriceNet = Number.isFinite(unitPriceNetRaw)
-              ? unitPriceNetRaw
-              : Number.isFinite(unitPriceGrossRaw)
-                ? unitPriceGrossRaw / (1 + taxRate / 100)
-                : 0;
-            const unitPriceGross = Number.isFinite(unitPriceGrossRaw)
-              ? unitPriceGrossRaw
-              : Number.isFinite(unitPriceNetRaw)
-                ? unitPriceNetRaw * (1 + taxRate / 100)
-                : 0;
-            const totalNetRaw = normalizeNumber(
-              item.total_net_amount ?? item.totalNetAmount,
-              Number.NaN,
-            );
-            const totalGrossRaw = normalizeNumber(
-              item.total_gross_amount ?? item.totalGrossAmount,
-              Number.NaN,
-            );
-            const totalNet = Number.isFinite(totalNetRaw)
-              ? totalNetRaw
-              : unitPriceNet * quantity;
-            const totalGross = Number.isFinite(totalGrossRaw)
-              ? totalGrossRaw
-              : unitPriceGross * quantity;
+            const unitPriceNetExact =
+              unitPriceNetRaw ??
+              (unitPriceGrossRaw !== null
+                ? netFromGross(unitPriceGrossRaw, taxRate)
+                : "0");
+            const unitPriceGrossExact =
+              unitPriceGrossRaw ??
+              (unitPriceNetRaw !== null
+                ? grossFromNet(unitPriceNetRaw, taxRate)
+                : "0");
+            const totalNetExact =
+              toExactAmount(item.total_net_amount ?? item.totalNetAmount) ??
+              decimalToString(multiplyDecimals(unitPriceNetExact, quantity));
+            const totalGrossExact =
+              toExactAmount(item.total_gross_amount ?? item.totalGrossAmount) ??
+              decimalToString(multiplyDecimals(unitPriceGrossExact, quantity));
+            const discountAmountExact =
+              toExactAmount(item.discount_amount ?? item.discountAmount) ?? "0";
             const priceModeRaw =
               item.metadata &&
               typeof item.metadata === "object"
@@ -383,19 +432,21 @@ export function SalesDocumentItemsSection({
                   : typeof currencyCode === "string"
                     ? currencyCode
                     : null,
-              unitPriceNet,
-              unitPriceGross,
-              discountAmount: normalizeNumber(
-                item.discount_amount ?? item.discountAmount,
-                0,
-              ),
+              unitPriceNet: decimalToNumber(unitPriceNetExact),
+              unitPriceGross: decimalToNumber(unitPriceGrossExact),
+              unitPriceNetExact,
+              unitPriceGrossExact,
+              discountAmount: decimalToNumber(discountAmountExact),
+              discountAmountExact,
               discountPercent: normalizeNumber(
                 item.discount_percent ?? item.discountPercent,
                 0,
               ),
               taxRate,
-              totalNet,
-              totalGross,
+              totalNet: decimalToNumber(totalNetExact),
+              totalGross: decimalToNumber(totalGrossExact),
+              totalNetExact,
+              totalGrossExact,
               priceMode,
               uomSnapshot,
               metadata:
@@ -533,15 +584,19 @@ export function SalesDocumentItemsSection({
     onActionChange({
       label: t("sales.documents.items.add", "Add item"),
       onClick: openCreate,
-      disabled: false,
+      disabled: amountsReadOnly,
     });
     return () => onActionChange(null);
-  }, [onActionChange, openCreate, t]);
+  }, [amountsReadOnly, onActionChange, openCreate, t]);
 
-  const handleEdit = React.useCallback((line: SalesLineRecord) => {
-    setLineForEdit(line);
-    setDialogOpen(true);
-  }, []);
+  const handleEdit = React.useCallback(
+    (line: SalesLineRecord) => {
+      if (amountsReadOnly) return;
+      setLineForEdit(line);
+      setDialogOpen(true);
+    },
+    [amountsReadOnly],
+  );
 
   const resolveVariantInfo = React.useCallback((record: SalesLineRecord) => {
     const meta =
@@ -582,7 +637,7 @@ export function SalesDocumentItemsSection({
       });
       if (!confirmed) return;
       try {
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             deleteCrud(resourcePath, {
@@ -597,7 +652,7 @@ export function SalesDocumentItemsSection({
                 "Failed to delete line.",
               ),
             }),
-        );
+        ), { id: line.id, [documentKey]: documentId });
         if (result.ok) {
           flash(t("sales.documents.items.deleted", "Line removed."), "success");
           await loadItems();
@@ -625,6 +680,7 @@ export function SalesDocumentItemsSection({
       resourcePath,
       t,
       resolvedTenantId,
+      runDocumentMutation,
     ],
   );
 
@@ -642,6 +698,7 @@ export function SalesDocumentItemsSection({
         <DictionaryValue
           value={value}
           map={lineStatusMap}
+          appearance="dot"
           fallback={<span className="text-xs font-medium">{value}</span>}
           className="text-xs font-medium"
           iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded bg-muted text-muted-foreground"
@@ -708,7 +765,10 @@ export function SalesDocumentItemsSection({
   return (
     <OrderItemsInjectionContext.Provider value={{ documentId, kind }}>
     <div className="space-y-4">
-      {loading ? (
+      {kind === "order" && injectedColumnsError ? (
+        <ErrorMessage label={t('ui.dataTable.extensions.error', 'Some table extensions could not load. Reload the page to retry.')} />
+      ) : null}
+      {loading || (kind === "order" && injectedColumnsLoading) ? (
         <LoadingMessage
           label={t("sales.documents.items.loading", "Loading items…")}
           className="border-0 bg-transparent p-0 py-8 justify-center"
@@ -725,10 +785,11 @@ export function SalesDocumentItemsSection({
           action={{
             label: t("sales.documents.items.add", "Add item"),
             onClick: openCreate,
+            disabled: amountsReadOnly,
           }}
         />
       ) : (
-        <div className="overflow-hidden rounded border">
+        <div className="relative overflow-x-auto rounded border">
           <table className="w-full text-sm">
             <thead className="bg-muted">
               <tr className="text-left">
@@ -807,7 +868,10 @@ export function SalesDocumentItemsSection({
                 return (
                   <tr
                     key={item.id}
-                    className="border-t hover:bg-muted/50 cursor-pointer transition-colors"
+                    className={cn(
+                      "border-t transition-colors",
+                      amountsReadOnly ? "" : "cursor-pointer hover:bg-muted/50",
+                    )}
                     onClick={() => handleEdit(item)}
                   >
                     <td className="px-3 py-3">
@@ -871,7 +935,7 @@ export function SalesDocumentItemsSection({
                       <div className="flex flex-col gap-0.5">
                         <span className="font-mono text-sm">
                           {formatMoney(
-                            item.unitPriceGross,
+                            item.unitPriceGrossExact ?? item.unitPriceGross,
                             item.currencyCode ?? currencyCode ?? undefined,
                             locale,
                           )}{" "}
@@ -881,7 +945,7 @@ export function SalesDocumentItemsSection({
                         </span>
                         <span className="font-mono text-xs text-muted-foreground">
                           {formatMoney(
-                            item.unitPriceNet,
+                            item.unitPriceNetExact ?? item.unitPriceNet,
                             item.currencyCode ?? currencyCode ?? undefined,
                             locale,
                           )}{" "}
@@ -914,11 +978,15 @@ export function SalesDocumentItemsSection({
                             {discount.amount !== null ? (
                               <span className="font-mono text-sm">
                                 {t(
-                                  "sales.documents.items.table.discountAmount",
-                                  "−{{value}}",
+                                  discount.amount < 0
+                                    ? "sales.documents.items.table.markupAmount"
+                                    : "sales.documents.items.table.discountAmount",
+                                  discount.amount < 0 ? "+{{value}}" : "−{{value}}",
                                   {
                                     value: formatMoney(
-                                      discount.amount,
+                                      item.discountAmountExact
+                                        ? decimalToString(absDecimal(item.discountAmountExact))
+                                        : Math.abs(discount.amount),
                                       item.currencyCode ??
                                         currencyCode ??
                                         undefined,
@@ -951,7 +1019,7 @@ export function SalesDocumentItemsSection({
                       <div className="flex flex-col gap-0.5">
                         <span>
                           {formatMoney(
-                            item.totalGross,
+                            item.totalGrossExact ?? item.totalGross,
                             item.currencyCode ?? currencyCode ?? undefined,
                             locale,
                           )}{" "}
@@ -961,7 +1029,7 @@ export function SalesDocumentItemsSection({
                         </span>
                         <span className="text-xs font-medium text-muted-foreground">
                           {formatMoney(
-                            item.totalNet,
+                            item.totalNetExact ?? item.totalNet,
                             item.currencyCode ?? currencyCode ?? undefined,
                             locale,
                           )}{" "}
@@ -987,37 +1055,49 @@ export function SalesDocumentItemsSection({
                     })}
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2 justify-end">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          aria-label={t('ui.actions.edit', 'Edit')}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleEdit(item);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <span
-                          title={kind === 'order' && items.length === 1
-                            ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                        <DisabledActionHint
+                          label={t('ui.actions.edit', 'Edit')}
+                          reason={amountsReadOnly
+                            ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
                             : undefined}
                         >
-                          <Button
-                            size="icon"
+                          <IconButton
+                            type="button"
+                            size="default"
                             variant="ghost"
-                            className="h-8 w-8 text-destructive"
+                            aria-label={t('ui.actions.edit', 'Edit')}
+                            disabled={amountsReadOnly}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleEdit(item);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </IconButton>
+                        </DisabledActionHint>
+                        <DisabledActionHint
+                          label={t('ui.actions.delete', 'Delete')}
+                          reason={amountsReadOnly
+                            ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
+                            : kind === 'order' && items.length === 1
+                              ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
+                              : undefined}
+                        >
+                          <IconButton
+                            type="button"
+                            size="default"
+                            variant="ghost"
+                            className="text-destructive"
                             aria-label={t('ui.actions.delete', 'Delete')}
-                            disabled={kind === 'order' && items.length === 1}
+                            disabled={amountsReadOnly || (kind === 'order' && items.length === 1)}
                             onClick={(event) => {
                               event.stopPropagation();
                               void handleDelete(item);
                             }}
                           >
                             <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </span>
+                          </IconButton>
+                        </DisabledActionHint>
                       </div>
                     </td>
                   </tr>

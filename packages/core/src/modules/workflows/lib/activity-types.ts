@@ -23,7 +23,7 @@
 import { z, type ZodTypeAny } from 'zod'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { getActivityType, registerActivityType } from './activity-registry'
-import { calculateWaitDelayMs } from './duration'
+import { assertInProcessWaitDelay, calculateWaitDelayMs } from './duration'
 import {
   callApiConfigSchema,
   callWebhookConfigSchema,
@@ -301,7 +301,10 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'headers', component: 'keyValue' },
       { id: 'body', component: 'json' },
     ],
-    execute: async (config, ctx, deps) => (await loadExecutor()).executeCallWebhook(config, ctx, { signal: deps.signal }),
+    execute: async (config, ctx, deps) => (await loadExecutor()).executeCallWebhook(config, ctx, {
+      signal: deps.signal,
+      timeoutMs: deps.timeoutMs,
+    }),
     async: { capable: true },
     mock: (config) => {
       const record = asConfigRecord(config)
@@ -339,7 +342,7 @@ export function registerBuiltinActivityTypes(): void {
       { id: 'until', component: 'datetime' },
     ],
     execute: (config) => {
-      const durationMs = calculateWaitDelayMs(config)
+      const durationMs = assertInProcessWaitDelay(calculateWaitDelayMs(config))
       return new Promise((resolve) => {
         setTimeout(() => resolve({ waited: true, durationMs }), durationMs)
       })

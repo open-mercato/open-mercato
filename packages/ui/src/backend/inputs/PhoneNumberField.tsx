@@ -551,6 +551,22 @@ export function PhoneNumberField({
     () => buildPhoneCountryOptions(countriesProp, t, locale),
     [countriesProp, t, locale],
   )
+  const countryItems = React.useMemo(
+    () => countryOptions.map(({ country: optionCountry, label }) => (
+      <SelectItem
+        key={`${optionCountry.iso2}-${optionCountry.dialCode}`}
+        value={optionCountry.iso2}
+        textValue={label}
+      >
+        <SelectItemLeading>
+          <span className="text-base leading-none">{optionCountry.flag}</span>
+        </SelectItemLeading>
+        <span className="flex-1 truncate">{label}</span>
+        <span className="ml-2 text-xs text-muted-foreground tabular-nums">{optionCountry.dialCode}</span>
+      </SelectItem>
+    )),
+    [countryOptions],
+  )
   const fallbackCountry = React.useMemo(
     () => (defaultCountryIso2 && findCountryByIso(defaultCountryIso2)) || DEFAULT_COUNTRY,
     [defaultCountryIso2],
@@ -569,6 +585,7 @@ export function PhoneNumberField({
   const [checking, setChecking] = React.useState(false)
   const [validationHint, setValidationHint] = React.useState<string | null>(null)
   const [focused, setFocused] = React.useState(false)
+  const [syncTick, setSyncTick] = React.useState(0)
   const userEditingRef = React.useRef(false)
 
   const externalFieldError = externalError && externalError.trim().length > 0 ? externalError : null
@@ -591,7 +608,7 @@ export function PhoneNumberField({
     setLocalNumber(next)
     onDigitsChange?.(extractPhoneDigits(String(value)) || null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value])
+  }, [value, syncTick])
 
   // Debounced duplicate lookup.
   React.useEffect(() => {
@@ -660,6 +677,10 @@ export function PhoneNumberField({
 
   const handleBlur = React.useCallback(() => {
     userEditingRef.current = false
+    // Force the prop-sync effect above to re-run even when `value` itself did
+    // not change on this blur, so a parent-side normalisation applied while
+    // the ref was gating that effect (see `handleLocalChange`) is picked up.
+    setSyncTick((tick) => tick + 1)
     setFocused(false)
     const trimmed = localNumber.trim()
     if (!trimmed) {
@@ -723,17 +744,7 @@ export function PhoneNumberField({
             <span className={cn('text-base leading-none', size && 'inline-flex size-5 shrink-0 items-center justify-center text-xl [&_img]:size-full')} aria-hidden="true">{renderCountryIcon ? renderCountryIcon(country) : country.flag}</span>
             <span className={cn("text-sm text-foreground tabular-nums", disabled && "text-text-disabled")}>{country.dialCode}</span>
           </SelectTrigger>
-          <SelectContent align="start">
-            {countryOptions.map(({ country: c, label }) => (
-              <SelectItem key={`${c.iso2}-${c.dialCode}`} value={c.iso2}>
-                <SelectItemLeading>
-                  <span className="text-base leading-none">{c.flag}</span>
-                </SelectItemLeading>
-                <span className="flex-1 truncate">{label}</span>
-                <span className="ml-2 text-xs text-muted-foreground tabular-nums">{c.dialCode}</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
+          <SelectContent align="start">{countryItems}</SelectContent>
         </Select>
         <div aria-hidden="true" className="w-px self-stretch bg-input" />
         <input

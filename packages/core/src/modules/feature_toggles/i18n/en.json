@@ -11,6 +11,8 @@
   "feature_toggles.detail.fields.failMode": "Fail Mode",
   "feature_toggles.detail.fields.identifier": "Identifier",
   "feature_toggles.detail.fields.name": "Name",
+  "feature_toggles.errors.overrideRedoConflict": "An override already exists for this feature toggle. Redo was refused.",
+  "feature_toggles.errors.overrideUndoConflict": "This override changed since the action you are undoing. Undo was refused.",
   "feature_toggles.form.action.save": "Save",
   "feature_toggles.form.errors.load": "Failed to load feature toggle overrides",
   "feature_toggles.form.fields.category.label": "Category",

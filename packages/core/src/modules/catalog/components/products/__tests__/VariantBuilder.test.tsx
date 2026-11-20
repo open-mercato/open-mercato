@@ -68,6 +68,13 @@ jest.mock('../ProductMediaManager', () => ({
 jest.mock('../MetadataEditor', () => ({
   MetadataEditor: () => <div data-testid="metadata-editor" />,
 }))
+const mockOmnibusRowProps: Array<Record<string, unknown>> = []
+jest.mock('../../PriceEditorOmnibusRow', () => ({
+  PriceEditorOmnibusRow: (props: Record<string, unknown>) => {
+    mockOmnibusRowProps.push(props)
+    return <div data-testid="omnibus-row" />
+  },
+}))
 
 jest.mock('#generated/entities.ids.generated', () => ({ E: { catalog: { catalog_product_variant: 'mock-variant-entity-id' } } }), {
   virtual: true,
@@ -295,23 +302,75 @@ describe('VariantPricesSection', () => {
     expect(screen.getByText('No tax override')).toBeInTheDocument()
   })
 
-  it('calls setValue when price amount is changed', () => {
+  it.each(['9.99', '149,99', '0,123456789012345678', '', '12,3,4'])('preserves the typed price amount %s', (amount) => {
     const setValue = jest.fn()
     render(
       <VariantPricesSection
-        values={createDefaultValues()}
+        values={createDefaultValues({ prices: {
+          'pk-1': { priceKindId: 'pk-1', amount: '1', displayMode: 'excluding-tax' },
+        } })}
         setValue={setValue}
         priceKinds={createPriceKinds()}
         taxRates={createTaxRates()}
       />,
     )
     const priceInputs = screen.getAllByPlaceholderText('0.00')
-    fireEvent.change(priceInputs[0], { target: { value: '9.99' } })
+    fireEvent.change(priceInputs[0], { target: { value: amount } })
     expect(setValue).toHaveBeenCalledWith(
       'prices',
       expect.objectContaining({
-        'pk-1': expect.objectContaining({ amount: '9.99', priceKindId: 'pk-1' }),
+        'pk-1': expect.objectContaining({ amount, priceKindId: 'pk-1' }),
       }),
+    )
+  })
+
+  it('shows and associates the submitted error only with invalid price fields, then clears it after correction', () => {
+    const values = createDefaultValues({
+      prices: {
+        'pk-1': { priceKindId: 'pk-1', amount: '12,3,4', displayMode: 'excluding-tax' },
+        'pk-2': { priceKindId: 'pk-2', amount: '149,99', displayMode: 'including-tax' },
+      },
+    })
+    const props = {
+      values,
+      setValue: jest.fn(),
+      priceKinds: createPriceKinds(),
+      taxRates: createTaxRates(),
+      errors: { prices: 'Provide a valid non-negative price.' },
+    }
+    const { rerender } = render(<VariantPricesSection {...props} showHeader={false} embedded />)
+    const retailInput = screen.getByLabelText('Retail')
+    const wholesaleInput = screen.getByLabelText('Wholesale')
+    expect(screen.getByRole('alert')).toHaveTextContent(props.errors.prices)
+    expect(retailInput).toHaveAttribute('aria-invalid', 'true')
+    expect(retailInput).toHaveAttribute('aria-describedby', screen.getByRole('alert').id)
+    expect(wholesaleInput).not.toHaveAttribute('aria-invalid')
+    rerender(<VariantPricesSection {...props} values={{
+      ...values,
+      prices: { ...values.prices, 'pk-1': { ...values.prices['pk-1'], amount: '12,34' } },
+    }} showHeader={false} embedded />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(retailInput).not.toHaveAttribute('aria-invalid')
+  })
+})
+
+describe('VariantPricesSection Omnibus row', () => {
+  it('renders the Omnibus row for a saved price without a channel selector', () => {
+    mockOmnibusRowProps.length = 0
+    render(
+      <VariantPricesSection
+        values={createDefaultValues({
+          id: 'variant-1',
+          prices: { 'pk-1': { priceKindId: 'pk-1', priceId: 'price-1', amount: '10', currencyCode: 'eur', displayMode: 'excluding-tax' } },
+        })}
+        setValue={jest.fn()}
+        priceKinds={createPriceKinds()}
+        taxRates={createTaxRates()}
+      />,
+    )
+    expect(screen.getAllByTestId('omnibus-row')).toHaveLength(1)
+    expect(mockOmnibusRowProps.at(-1)).toEqual(
+      expect.objectContaining({ variantId: 'variant-1', priceKindId: 'pk-1', currencyCode: 'eur', channelSelectable: false }),
     )
   })
 })
