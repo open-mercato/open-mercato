@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft (rev 3.17) — PR #10009 review findings addressed; internal verification approved (rev 3.16); awaiting re-review |
+| **Status** | Draft (rev 3.19) — pkarw re-review findings addressed; haxiorz approved rev 3.17; awaiting re-review |
 | **Created** | 2026-11-19 |
 | **Builds on** | [CRM Calendar](./2026-06-11-crm-calendar.md), [Configurable Calendar Event Types](./2026-09-28-configurable-calendar-event-types.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md), [CRM Email Integration](./implemented/2026-05-27-crm-email-integration.md), [Email Integration Foundation](./2026-05-21-email-integration-foundation.md) |
 | **Reuses** | `communication_channels` hub OAuth flow + token refresh, `@open-mercato/channel-gmail` Google OAuth client, `customers` interaction/person commands + `syncOrigin`, `findPeopleByAddresses`, `hashForLookup`, the `communication_channels` adapter-registry pattern (`registerChannelAdapter`) |
@@ -213,7 +213,7 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
     - **Single handler, fixed order:** one hub subscriber on that event handles every restore. It first takes the per-interaction lock, the same one the delete handler and the safety net use, then re-reads the interaction (`findOneWithDecryption`) and **no-ops** when it is soft-deleted or missing. That covers a stale `created` delivery arriving after a quick re-delete; the re-delete's own handler owns the state then.
     - **Owning-delete key:** it first looks up the owning link: `interaction_id = :id AND (state = 'deleting' OR (state = 'unlinked' AND unlink_reason IN ('crm_delete','provider_delete_abandoned')))`. There is at most one by construction, because only the primary can be owning; if several match, it takes the latest `state_changed_at`.
     - It branches on **link state only**, never on connection status:
-      - **`deleting`** (provider event never touched; colleague copies alive). If the connection is `active`, `requires_reauth` or `error` (still the user's live connection), it does a CAS (`WHERE state = 'deleting'`) back to `linked` primary. If the connection is `paused` (disconnected or channel-deleted), the CAS instead gives the link the **disconnect outcome**: `unlinked`, `unlink_reason = 'disconnect'` (or `'channel_deleted'` when the connection is soft-deleted), `is_primary = false`. A dead connection's link is never made primary; a later reconnect on the same channel re-attaches it through the `(connection_id, external_event_id)` reuse. Either way, it then runs the **generic marker restore**, which re-attaches the colleague links. No provider write is needed. If the CAS loses (the worker unlinked first), re-read and take the matching `unlinked` branch.
+      - **`deleting`** (provider event never touched; colleague copies alive). If the connection is `active`, `requires_reauth` or `error` (still the user's live connection), it does a CAS (`WHERE state = 'deleting'`) back to `linked` primary. If the connection is `paused` (disconnected or channel-deleted), the CAS instead gives the link the **disconnect outcome**: `unlinked`, `unlink_reason = 'disconnect'` (or `'channel_deleted'` when the connection's `paused_reason = 'channel_deleted'`), `is_primary = false`. A dead connection's link is never made primary; a later reconnect on the same channel re-attaches it through the `(connection_id, external_event_id)` reuse. Either way, it then runs the **generic marker restore**, which re-attaches the colleague links. No provider write is needed. If the CAS loses (the worker unlinked first), re-read and take the matching `unlinked` branch.
       - **`unlinked` + `crm_delete`** (provider event deleted, colleague copies cancelled with it): restore **the CRM record only**.
         - The owning link stays `unlinked`, with `push_enabled` set to false.
         - Colleague links are **not** re-attached: their markers are cleared, and their external rows go when the provider's cancellations arrive.
@@ -321,10 +321,20 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
 ### Inbound flow
 
 1. **Triggers:** a webhook, a poll tick (`OM_CALENDAR_SYNC_POLL_INTERVAL`), "Sync now", or a connect.
-2. **Coalesce and lock:** the `calendar-sync-inbound` queue is built with `coalesceBy: (p) => \`connection:${p.connectionId}\`` (`@open-mercato/queue` coalescing: a burst of triggers runs once, and a trigger landing mid-run still gets one follow-up run). Across processes the worker takes a **lease**, not a row lock held across network calls: a short transaction runs `UPDATE … SET sync_lease_until = now() + interval '5 minutes', sync_lease_owner = :me WHERE id = ? AND (sync_lease_until IS NULL OR sync_lease_until < now())`. Each acquisition also increments `lease_epoch` (a monotonically increasing fencing token), and the job keeps the epoch it acquired. Renewals, cursor writes and the final clear add `AND sync_lease_owner = :me AND lease_epoch = :epoch`, so a stalled worker whose lease was taken over can no longer write.
+2. **Coalesce and lock:** the `calendar-sync-inbound` queue is built with `coalesceBy: (p) => \`connection:${p.connectionId}\`` (`@open-mercato/queue` coalescing: a burst of triggers runs once, and a trigger landing mid-run still gets one follow-up run). Across processes the worker takes a **lease**, not a row lock held across network calls: a short transaction runs `UPDATE … SET sync_lease_until = now() + interval '5 minutes', sync_lease_owner = :me, lease_epoch = lease_epoch + 1 WHERE id = ? AND status = 'active' AND deleted_at IS NULL AND (sync_lease_until IS NULL OR sync_lease_until < now())`. A lease can only be acquired on an **active, non-deleted** connection. Each acquisition increments `lease_epoch` (a monotonically increasing fencing token), and the job keeps the epoch it acquired. Renewals, cursor writes and the final clear add `AND sync_lease_owner = :me AND lease_epoch = :epoch`, so a stalled worker whose lease was taken over can no longer write.
    - Zero rows updated means another worker holds the lease, so this one exits. The lease is renewed per page and cleared at the end. No database connection or row lock is held during provider calls. The job payload is only `{ connectionId }`. The mode comes from the persisted **traversal** (see step 6): an unfinished traversal is always continued in its own mode; otherwise the run is `full` when `full_resync_requested_at` is set or the cursor is missing, else `incremental`. Workers stay idempotent (queue `AGENTS.md`).
    - **Fencing scope.** The lease fence covers **everything an inbound job mutates**, not only cursor writes: link and placement changes, external rows, attach, auto-promote decisions taken while applying a page, the full-sync sweep, and customers writes. The separate `promote` job holds no lease and is not fenced by it; it is serialized by its per-meeting coalescing key, the primary-per-meeting unique index, and the per-interaction lock below.
-   - **The fence check** is `SELECT lease_epoch FROM calendar_sync_connections WHERE id = ? AND sync_lease_owner = :me AND lease_epoch = :epoch FOR SHARE`, aborting when no row comes back. `FOR SHARE` blocks a concurrent lease takeover (an `UPDATE` of the row) until the checking transaction ends, so a takeover is either visible before the mutation (abort) or waits until after it (the old worker's mutation is still valid).
+   - **The fence check** is `SELECT lease_epoch FROM calendar_sync_connections WHERE id = ? AND sync_lease_owner = :me AND lease_epoch = :epoch AND status = 'active' AND deleted_at IS NULL FOR SHARE`, aborting when no row comes back. Renewals and cursor writes carry the same `status`/`deleted_at` conditions.
+   - `FOR SHARE` blocks a concurrent lease takeover or revocation (an `UPDATE` of the row) until the checking transaction ends. A takeover is therefore either visible before the mutation (abort), or waits until after it (the old worker's mutation is still valid).
+   - **Revocation on leaving `active`:** every transition of a connection out of `active` revokes the lease **in the same `UPDATE`** that changes the status: `SET status = :new, status_changed_at = now(), lease_epoch = lease_epoch + 1, sync_lease_owner = NULL, sync_lease_until = NULL`.
+     - **External transitions** are unconditional (`WHERE id = ?`):
+       - disconnect sets `status = 'paused'` and `paused_reason = 'disconnect'`;
+       - channel delete sets `status = 'paused'` and `paused_reason = 'channel_deleted'`.
+       - Channel delete is undoable, so it does **not** soft-delete the connection row; `deleted_at` is set only when the connection is permanently removed.
+     - **Transitions the inbound worker makes itself** (`requires_reauth` after an auth error, `error` after repeated failures) are conditional on still holding the lease: `WHERE id = ? AND status = 'active' AND sync_lease_owner = :me AND lease_epoch = :epoch`. Zero rows updated means the worker was already fenced out, so it exits without touching status. A stale job whose delayed provider call fails with `CalendarAuthError` after a disconnect and immediate reconnect can therefore never push the reconnected connection back into `requires_reauth`.
+     - The revoking `UPDATE` conflicts with the `FOR SHARE` fence, so an in-flight fenced transaction finishes first: its mutation predates the revocation and is cleaned up by the flow that follows. Every later fenced transaction fails the epoch, status or `deleted_at` check. A provider call still in flight at disconnect therefore cannot recreate links or external rows, write CRM records, or advance the cursor when it returns.
+     - **Cleanup is fenced against reactivation.** The disconnect/delete cleanup (unlink, handover, purge) runs after the revoking `UPDATE` commits, in short transactions. Each one first locks the connection row `FOR UPDATE` and proceeds only while `status <> 'active' AND lease_epoch = :revocationEpoch`. If the connection was reactivated meanwhile (Undo or reconnect), the cleanup stops, and the reactivation's full resync reconciles whatever was already cleaned. Reactivation's own `UPDATE` serializes with these locks, so cleanup never undoes links that a new job re-attached.
+     - **Immediate reconnect:** reactivation sets `status = 'active'`, clears `paused_reason`, and never lowers `lease_epoch`; a new lease increments it again. The old job's epoch therefore stays invalid forever, even if the same connection row is reactivated while that job's provider call is still pending.
    - **Hub-only mutations** (links, external rows, sweep) run in short hub transactions that start with the fence check.
    - **Customers writes keep their own transaction**, so their side effects stay durable-after-commit. They are **not** run on a hub transaction via `ctx.transactionalEm`: a command that joins a caller-owned transaction emits its CRUD side effects (events, query-index jobs) **before** the outer commit (`customers/commands/interactions.ts`, `runInTransaction`), and `CommandBus.execute` runs post-commit work immediately. Instead:
      - The hub passes the fence through the existing, documented **`ctx.beforeTransactionalWrite`** guard, which supported handlers invoke inside their own write transaction before reading or mutating. The guard runs the fence check on that transaction-bound EntityManager and throws `[internal] calendar_sync lease lost` on failure, which rolls the command back.
@@ -349,7 +359,10 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
    - **Contention:** `PUT /connections` writes the connection row, so it can wait for one short fence-holding transaction: one page-apply or one customers command. That transaction can itself briefly wait on the per-interaction lock (held by a delete, restore or bookkeeping transaction) or on a CRM user's row lock. Every lock holder is short-lived. A settings save never waits on a provider network call or on a whole sync.
 3. **Token:** `refreshCredentialsIfNeeded` returns a fresh token. Reauth errors route to the hub's `requires_reauth`.
 4. **Listing:**
-   - `adapter.listChanges({ state: connection.providerState, mode: 'incremental' | 'full', horizon, pageBudget })` returns `{ events, deletedExternalIds, nextState, hasMore, fullResyncRequired }`.
+   - The worker **loops one page per call**, at most `OM_CALENDAR_SYNC_PAGE_BUDGET` pages per job; the adapter never sees the budget. Each call is `adapter.listChanges(ctx, { state: connection.providerState, pageState: connection.providerPageState, mode: traversal_mode, horizon: { from: traversal_horizon_from, to: traversal_horizon_to } })`, using the persisted traversal (step 6). It returns `{ events, deletedExternalIds, hasMore, nextPageState, nextState, fullResyncRequired? }`.
+   - After applying each page, a fenced transaction persists `provider_page_state = nextPageState` together with the traversal record.
+     - When `hasMore = false`, it instead finishes the traversal in the order given in step 6: commit `provider_state = nextState`, run the full-sync sweep (which needs the traversal's run id and start time), clear the serviced request, and only then clear the traversal.
+     - When the budget runs out with `hasMore = true`, the worker enqueues a follow-up job, which resumes from the stored `provider_page_state`. Page two and beyond are therefore always reachable.
    - `fullResyncRequired` (Google `410`, Graph expired delta link, CalDAV invalid sync-token), on any page of any traversal, sets `full_resync_requested_at = now()` and **invalidates the current traversal record** (the committed cursor is not advanced). The next run therefore starts a fresh full traversal under the rules in step 6, even when the error arrived on page 2 of an incremental traversal or in the middle of a full one.
    - Provider-owned series masters fan out through `adapter.listInstances` within the horizon.
 5. **Placement:** each event is validated against the hub's zod schema for `NormalizedCalendarEvent` and goes through `applyNormalizedEvent` (placement, shared-meeting identity, § Mapping). **Echo skip:** the event is skipped only when **all** of these hold: the hub-computed `content_hash` (SHA-256 of the normalized, mapped fields) equals `link.contentHash`, the link is `state = 'linked'`, its placement is live (an external row exists for `external`, or `interaction_id` is current for `interaction`), and the run is `incremental`. A `full` run **always re-evaluates placement** (attach, promote, re-create external rows, auto-create), so reconnects and "enable auto-create, then full resync" take effect on unchanged events. `content_hash` is cleared whenever a link is unlinked or re-placed.
@@ -569,10 +582,11 @@ One row per (communication channel, external calendar). User-editable → `updat
 | `user_id` | uuid | connected user |
 | `external_calendar_id` | text | |
 | `status` | text | `active` \| `paused` \| `error` \| `requires_reauth` |
+| `paused_reason` | text null | `disconnect` \| `channel_deleted` while `status = 'paused'`; cleared on reactivation (channel delete is undoable, so it pauses rather than soft-deletes the row) |
 | `provider_state` | jsonb null | committed cursor owned by the adapter (validated by `providerStateSchema`); no PII |
 | `provider_page_state` | jsonb null | in-progress page token of the current traversal; persisted atomically with the traversal record, cleared on completion or invalidation |
 | `sync_lease_until` | timestamptz null | inbound worker lease (see Inbound flow step 2) |
-| `sync_lease_owner` | uuid null | random id of the lease holder; renewals, the final clear, and every `provider_state` / `provider_page_state` write are conditional on `sync_lease_owner = :me AND lease_epoch = :epoch` |
+| `sync_lease_owner` | uuid null | random id of the lease holder; renewals, the final clear, and every `provider_state` / `provider_page_state` write are conditional on `sync_lease_owner = :me AND lease_epoch = :epoch AND status = 'active' AND deleted_at IS NULL` |
 | `pending_retry_external_ids` | jsonb null | ≤ 50 |
 | `notification_channel_id` | uuid null | unique; our id for the provider subscription |
 | `notification_resource` | text null | provider resource / subscription id |
@@ -585,7 +599,7 @@ One row per (communication channel, external calendar). User-editable → `updat
 | `status_changed_at` | timestamptz | set whenever `status` changes; drives delete abandonment for inactive connections |
 | `full_resync_requested_at` | timestamptz null | persisted intent from "Full resync"; cleared by a completed full traversal only when `≤ traversal_started_at` |
 | `traversal_mode`, `traversal_run_id`, `traversal_started_at`, `traversal_horizon_from`, `traversal_horizon_to` | text / uuid / timestamptz null | the in-progress traversal; written atomically with `provider_page_state` after every page, cleared on completion or invalidation |
-| `lease_epoch` | bigint default 0 | fencing token, incremented on every lease acquisition; checked `FOR SHARE` by every mutation transaction |
+| `lease_epoch` | bigint default 0 | fencing token, never decreasing: incremented on every lease acquisition **and** on every transition out of `active` (revocation); checked `FOR SHARE`, together with `status = 'active' AND deleted_at IS NULL`, by every mutation transaction |
 | `settings_updated_at` | timestamptz | **optimistic-lock version** for user settings, bumped only by `connection.update` (sync writes never touch it); returned as `updatedAt` by the connections API |
 | `last_error` | text null | machine code |
 | `created_at`, `updated_at`, `deleted_at` | timestamptz | |
@@ -1007,9 +1021,9 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
 12. Entities + migrations (all indexes in Data Models, including the primary-per-meeting unique index).
 13. The `channel.connected` subscriber (the channel's adapter resolves to a registered calendar provider) **upserts** the connection by `(channel_id, external_calendar_id)` via `resolvePrimaryCalendar`:
    - **new** → create;
-   - **existing** `paused` / `requires_reauth` / `error` (a reconnect reuses the same channel id) → reactivate (`status = 'active'`, clear `last_error`), set `full_resync_requested_at`, enqueue inbound, and **re-enqueue outbound for its `deleting` links**, so a provider delete lost while the connection needed reauth is completed. Its `provider_delete_abandoned` rows are re-evaluated as described under Re-enabling push.
+   - **existing** `paused` / `requires_reauth` / `error` (a reconnect, or the Undo of a disconnect or channel delete, reuses the same channel id and the same, never soft-deleted connection row) → reactivate (`status = 'active'`, clear `last_error` and `paused_reason`), set `full_resync_requested_at`, enqueue inbound, and **re-enqueue outbound for its `deleting` links**, so a provider delete lost while the connection needed reauth is completed. Its `provider_delete_abandoned` rows are re-evaluated as described under Re-enabling push.
    - The full resync reuses the connection's existing, unlinked link rows by `(connection_id, external_event_id)`, re-attaches them to shared meetings, and re-elects the primary where this connection outranks the current one.
-   - Disconnect/delete subscribers pause the connection, unlink its links, hand over primaries, and purge its external rows.
+   - Disconnect/delete subscribers first **revoke the lease** in the same `UPDATE` that pauses the connection (Inbound flow step 2, revocation on leaving `active`). Only after that commits do they unlink its links, hand over primaries, and purge its external rows.
      - **Disconnect and channel delete** (both are undoable, and their undo emits `channel.connected`): links in `deleting` are kept and completed on reactivation, or abandoned by the sweep after `OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS`. All other links are unlinked with `unlink_reason = 'disconnect'` / `'channel_deleted'`.
 14. Connections + settings APIs, user and org settings pages, i18n; `yarn generate`.
 15. Add the hub env vars (`OM_CALENDAR_SYNC_*`) to `apps/mercato/.env.example` and mirror them into the create-app template with `yarn template:sync:fix` (root `AGENTS.md` → Template Sync).
@@ -1121,6 +1135,12 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
     - on a pristine interaction, hub write W2's guard runs between W1's commit and W1's bookkeeping → W2 records `pending_write_was_pristine = true` (effectively pristine), and the watermark ends at W2's `updatedAt` with no fake CRM edit; a primary swap in that window keeps all three interaction-level fields;
     - recovery after a crashed bookkeeping following a user edit → the marker is cleared without advancing the watermark (the user edit stays visible);
     - promoted (created) interactions start effectively pristine (`pending_write_was_pristine = true`, create-input hash);
+    - a provider response delayed across a **disconnect** → its page-apply, customers write and cursor write all fail the fence (epoch bumped, status not `active`); no links, external rows or CRM records are recreated after cleanup;
+    - the same delayed response across a disconnect **followed by an immediate reconnect** → still rejected (the reactivated connection has a higher `lease_epoch`; the old epoch never becomes valid again); the new lease's job syncs normally;
+    - channel delete with a job mid-flight → the lease is revoked (`paused`, `paused_reason = 'channel_deleted'`) and acquisition is refused while paused; Undo of the channel delete reactivates the **same** row (`paused_reason` cleared), a lease can be acquired, and its `deleting` links complete;
+    - a delayed `CalendarAuthError` from the old epoch after disconnect + immediate reconnect → the conditional update matches zero rows and the connection stays `active`;
+    - disconnect followed by Undo while cleanup is still running → cleanup stops at the next transaction (connection active again, epoch changed); links re-attached by the new job are not unlinked;
+    - a full traversal of 3× the page budget calls `listChanges` once per page with the persisted `pageState` and fixed horizon; job 2 resumes on page `budget + 1` (not page 1); the adapter never receives a page budget;
     - the primary applies a genuine organizer change while an attached link's hub write is committed but un-bookkept → no `conflict_resolved` (the conflict rule uses the effectively-pristine predicate after recovery);
     - a user edit to a field the hub never writes (e.g. `priority`, a custom field) while a marker is pending → the hash differs, the edit stays visible, and the interaction is not demoted;
     - an inbound title with surrounding spaces and an alias timezone (e.g. `US/Pacific`) → the own-write hash matches the stored, normalized row, the watermark advances, and there is no fake conflict or echo push;
@@ -1680,6 +1700,17 @@ None blocking. (`CustomerInteraction.participants` encryption, previously a foll
     - merge step (4) is described as a locked hub transaction;
     - page-apply's lock set includes attach and series-attach targets.
 
+- 2026-11-20 — **Rev 3.18 (pkarw re-review of `fba5ded1`; haxiorz approved `fba5ded1`):**
+  - **High fix:** the lease is revoked atomically on every transition out of `active` (disconnect, channel delete, `requires_reauth`, `error`) by the same `UPDATE` that changes the status. It bumps `lease_epoch` and clears the owner. Acquisition, renewals, cursor writes and the fence all require `status = 'active' AND deleted_at IS NULL`. Disconnect/delete cleanup runs only after revocation commits. The epoch never decreases, so an old job stays fenced out after an immediate reconnect. Tests cover a delayed provider response across disconnect and across disconnect + reconnect.
+  - **Medium fix:** inbound step 4 now matches the paginated adapter contract. One page per `listChanges` call with the stored `pageState` and the traversal's fixed horizon. `nextPageState` is persisted after every page, and the page budget is enforced by the worker only.
+  - Merged the latest upstream `main` (no conflicts; only this spec differs).
+
+- 2026-11-20 — **Rev 3.19 (internal verification of rev 3.18):**
+  - Channel delete now pauses the connection (`paused_reason = 'channel_deleted'`) instead of soft-deleting it. Channel delete is undoable, so its Undo reactivates the same row and its `deleting` links complete.
+  - Status transitions the worker makes itself (`requires_reauth`, `error`) are conditional on still holding the lease, so a stale job cannot knock a reconnected connection back into reauth.
+  - Disconnect/delete cleanup is fenced against reactivation (row `FOR UPDATE` + revocation epoch).
+  - **Nits:** fence sentence placement, `sync_lease_owner` doc, step 4 → step 6 completion order.
+
 ### Review — 2026-11-19 (rev 3)
 
 - **Reviewer:** Agent (author pass, checklist §§2–7) + fresh-context agent (checklist §1 + consistency, given only this file)
@@ -1850,3 +1881,21 @@ None blocking. (`CustomerInteraction.participants` encryption, previously a foll
 
 - **Verdict: approve.** All rev 3.16 changes resolve their findings, with no new Blocker or Major.
 - 3 minor and 2 nit precision items were folded into rev 3.17.
+
+### Review — 2026-11-20 (PR #10009 re-reviews)
+
+- **haxiorz:** **approved** `fba5ded1`. All six earlier findings confirmed fixed.
+- **pkarw:** changes requested on `fba5ded1`. The six earlier findings were confirmed addressed. Two new findings:
+  - high: lease not revoked on disconnect or channel deletion;
+  - medium: inbound step 4 not aligned with the paginated adapter contract.
+  - Both addressed in rev 3.18.
+
+### Review — 2026-11-20 (rev 3.18, internal verification `om-code-review`)
+
+- **Verdict:** request changes. Both pkarw findings were confirmed resolved.
+- **New findings:**
+  - major: channel delete + Undo left the connection soft-deleted and unable to sync;
+  - narrow major: a stale worker could set `requires_reauth` on a reconnected connection;
+  - minor: cleanup vs reconnect race;
+  - nits.
+- All addressed in rev 3.19.
