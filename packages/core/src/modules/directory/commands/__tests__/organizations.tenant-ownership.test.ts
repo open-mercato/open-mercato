@@ -42,6 +42,7 @@ import '@open-mercato/core/modules/directory/commands/organizations'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CommandBus, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import {
   lockOrganizationHierarchyForTenant,
@@ -216,7 +217,10 @@ function makeContext(
         if (token === 'em') return harness.em
         if (token === 'dataEngine') return harness.dataEngine
         if (token === 'actionLogService') return harness.actionLogService
-        if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin, organizations: options.aclOrganizations ?? null }) }
+        if (token === 'rbacService') {
+          const loadAcl = async () => ({ isSuperAdmin, organizations: options.aclOrganizations ?? null, features: ['directory.organizations.manage'] })
+          return { loadAcl, loadAclWithEntityManager: loadAcl }
+        }
         throw new Error(`[internal] Unexpected DI token: ${token}`)
       },
     },
@@ -1062,6 +1066,45 @@ describe('directory organization command tenant ownership', () => {
     expect(harness.logs).toHaveLength(1)
   })
 
+  it.each(commandScenarios)('rejects $label when the target leaves the actor’s scope while waiting for the lock', async (scenario) => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID, { descendantIds: [TARGET_ID] })
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([parent, target])
+    const before = { ...target }
+    const ctx = makeContext(harness, { allowedIds: [PARENT_ID, TARGET_ID], aclOrganizations: [PARENT_ID] })
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      parent.descendantIds = []
+      return []
+    })
+
+    await expect(new CommandBus().execute(scenario.commandId, { input: scenario.input, ctx }))
+      .rejects.toMatchObject({ status: 404 })
+    expect(lockOrganizationHierarchyForTenant).toHaveBeenCalled()
+    expect(target).toEqual(before)
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(harness.logs).toHaveLength(0)
+  })
+
+  it('rechecks the create parent when it leaves the actor’s scope while waiting for the lock', async () => {
+    const ancestor = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { descendantIds: [PARENT_ID] })
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([ancestor, parent])
+    const ctx = makeContext(harness, { allowedIds: [TARGET_ID, PARENT_ID], aclOrganizations: [TARGET_ID] })
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      ancestor.descendantIds = []
+      return []
+    })
+
+    await expect(new CommandBus().execute('directory.organizations.create', {
+      input: { name: 'Denied', parentId: PARENT_ID }, ctx,
+    })).rejects.toMatchObject({ status: 404 })
+    expect(harness.createOrmEntity).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(harness.logs).toHaveLength(0)
+  })
+
   it.each([
     { label: 'new parent', input: { parentId: PARENT_ID }, target: {}, child: {} },
     { label: 'detached old parent', input: { parentId: null }, target: { parentId: PARENT_ID }, child: {} },
@@ -1330,6 +1373,29 @@ describe('directory organization command tenant ownership', () => {
 
     await createHandler.redo?.({ input: {}, logEntry, ctx: makeContext(harness, { allowedIds: [PARENT_ID] }) })
     expect(created.deletedAt).toBeNull()
+  })
+
+  it('denies tombstone replay when the direct grant is revoked while waiting for the lock', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target])
+    const grants = [TARGET_ID]
+    const ctx = makeContext(harness, { allowedIds: [TARGET_ID], aclOrganizations: grants })
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.delete', {
+      input: { body: { id: TARGET_ID }, query: {} }, ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    const before = { ...target }
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      grants.pop()
+      return []
+    })
+    jest.mocked(emitCrudSideEffects).mockClear()
+
+    await expect(bus.undo(String(logEntry.undoToken), ctx)).rejects.toMatchObject({ status: 404 })
+    expect(target).toEqual(before)
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
   })
 
   it('restores a deleted granted root organization whose grant is no longer live-expanded', async () => {

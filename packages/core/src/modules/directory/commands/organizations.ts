@@ -114,6 +114,7 @@ type OrganizationActorScope = {
   isUnrestricted: boolean
   tenantId: string | null
   allowedOrganizationIds: readonly string[] | null
+  directlyGrantedOrganizationIds?: readonly string[]
 }
 
 type AuthorizedOrganizationTarget = {
@@ -175,6 +176,49 @@ async function resolveOrganizationActorScope(ctx: CommandRuntimeContext): Promis
   return { isUnrestricted: false, tenantId, allowedOrganizationIds: organizationScope.allowedIds }
 }
 
+async function resolveLockedOrganizationActorScope(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  targetTenantId: string,
+): Promise<OrganizationActorScope> {
+  if (ctx.systemActor === true) return { isUnrestricted: true, tenantId: null, allowedOrganizationIds: null }
+  const tenantId = normalizeTenantId(ctx.auth?.tenantId ?? null) ?? null
+  if (!ctx.auth?.sub) throw notFound()
+
+  const scopedEm = em.fork({ keepTransactionContext: true })
+  const rbac = ctx.container.resolve<RbacService>('rbacService')
+  const acl = await rbac.loadAclWithEntityManager(scopedEm, ctx.auth.sub, {
+    tenantId,
+    organizationId: ctx.auth.orgId ?? null,
+  })
+  if (acl?.isSuperAdmin === true) return { isUnrestricted: true, tenantId, allowedOrganizationIds: null }
+  if (tenantId !== targetTenantId || !acl) throw notFound()
+  if (acl.organizations === null ? acl.features.length === 0 : !Array.isArray(acl.organizations)) {
+    throw notFound()
+  }
+
+  const scope = await resolveOrganizationScope({
+    em: scopedEm,
+    rbac: { loadAcl: async () => acl },
+    auth: { ...ctx.auth, isSuperAdmin: false },
+    tenantId,
+  })
+  const requestIds = ctx.organizationScope
+    ? ctx.organizationScope.tenantId === tenantId ? ctx.organizationScope.allowedIds : []
+    : ctx.organizationIds?.length === 0 ? [] : null
+  const currentIds = scope.allowedIds === null ? null : new Set(scope.allowedIds)
+  return {
+    isUnrestricted: false,
+    tenantId,
+    allowedOrganizationIds: requestIds === null
+      ? scope.allowedIds
+      : requestIds.filter((id) => currentIds === null || currentIds.has(id)),
+    directlyGrantedOrganizationIds: Array.isArray(acl.organizations)
+      ? normalizeGrantedOrganizationIds(acl.organizations)
+      : [],
+  }
+}
+
 function assertOrganizationIdsInScope(
   scope: OrganizationActorScope,
   ids: Iterable<string | null>,
@@ -219,23 +263,8 @@ async function assertHierarchyAssignmentsInScope(
     .map((entry) => entry.parentId), additionallyAllowedIds)
 }
 
-async function loadReplayGrantedOrganizationIds(
-  ctx: CommandRuntimeContext,
-  tenantId: string,
-): Promise<readonly string[] | null> {
-  const sub = ctx.auth?.sub
-  if (!sub) return []
-  const rbac = ctx.container.resolve<RbacService>('rbacService')
-  const acl = await rbac.loadAcl(sub, { tenantId, organizationId: ctx.auth?.orgId ?? null })
-  if (!acl || !Array.isArray(acl.organizations)) {
-    return ctx.organizationScope ? [] : acl?.organizations === null ? null : []
-  }
-  return normalizeGrantedOrganizationIds(acl.organizations)
-}
-
 async function assertOrganizationReplayTargetInScope(
   em: EntityManager,
-  ctx: CommandRuntimeContext,
   scope: OrganizationActorScope,
   tenantId: string,
   targetId: string,
@@ -246,12 +275,10 @@ async function assertOrganizationReplayTargetInScope(
   const target = await findOneWithDecryption(em, Organization, {
     id: targetId,
     tenant: tenantId,
-  } as FilterQuery<Organization>, undefined, { tenantId, organizationId: targetId })
+  } as FilterQuery<Organization>, { refresh: true }, { tenantId, organizationId: targetId })
   if (!target || !target.deletedAt) throw notFound()
   if (recordedParentId && scope.allowedOrganizationIds.includes(recordedParentId)) return
-  const grantedOrganizationIds = await loadReplayGrantedOrganizationIds(ctx, tenantId)
-  if (grantedOrganizationIds === null) return
-  if (grantedOrganizationIds.includes(targetId)) return
+  if (scope.directlyGrantedOrganizationIds?.includes(targetId)) return
   throw notFound()
 }
 
@@ -264,12 +291,12 @@ async function assertOrganizationReplayAccess(
   childParents: ChildParentSnapshot[],
   removingTarget = false,
 ): Promise<void> {
-  const scope = await resolveOrganizationActorScope(ctx)
+  const scope = await resolveLockedOrganizationActorScope(em, ctx, tenantId)
   if (scope.isUnrestricted || scope.allowedOrganizationIds === null) return
-  await assertOrganizationReplayTargetInScope(em, ctx, scope, tenantId, snapshot.id, parentId)
+  await assertOrganizationReplayTargetInScope(em, scope, tenantId, snapshot.id, parentId)
   const replayTargetIds = new Set<string>([snapshot.id])
   const current = await findOneWithDecryption(em, Organization,
-    buildOrganizationUndoTargetFilter(snapshot.id, tenantId), undefined, { tenantId, organizationId: snapshot.id })
+    buildOrganizationUndoTargetFilter(snapshot.id, tenantId), { refresh: true }, { tenantId, organizationId: snapshot.id })
   if (!current || current.parentId !== parentId) {
     assertOrganizationIdsInScope(scope, [current?.parentId ?? null, parentId])
   }
@@ -548,6 +575,8 @@ const createOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        const scope = await resolveLockedOrganizationActorScope(em, ctx, tenantId)
+        assertOrganizationCreateRootAccess(scope, parentId)
         assertOrganizationIdsInScope(scope, [parentId, ...childIds])
         await assertHierarchyAssignmentsInScope(em, scope, tenantId,
           childIds.map((childId) => ({ childId, parentId: null })))
@@ -814,7 +843,7 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(organizationUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { tenantId, scope } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
+    const { tenantId } = await loadAuthorizedOrganizationTarget(em, parsed.id, ctx)
 
     const parentProvided = parsed.parentId !== undefined
     const childrenProvided = parsed.childIds !== undefined
@@ -824,6 +853,8 @@ const updateOrganizationCommand: CommandHandler<Record<string, unknown>, Organiz
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        const scope = await resolveLockedOrganizationActorScope(em, ctx, tenantId)
+        assertOrganizationIdsInScope(scope, [parsed.id])
         const existing = await em.findOne(
           Organization,
           buildOrganizationMutationFilter(parsed.id, tenantId),
@@ -1069,7 +1100,7 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
   async execute(input, ctx) {
     const id = requireId(input, 'Organization id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const { tenantId, scope } = await loadAuthorizedOrganizationTarget(em, id, ctx)
+    const { tenantId } = await loadAuthorizedOrganizationTarget(em, id, ctx)
     let parentId: string | null = null
     let childSnapshotsBefore: ChildParentSnapshot[] = []
 
@@ -1079,6 +1110,8 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     await withAtomicFlush(em, [
       async () => {
         await lockOrganizationHierarchyForTenant(em, tenantId)
+        const scope = await resolveLockedOrganizationActorScope(em, ctx, tenantId)
+        assertOrganizationIdsInScope(scope, [id])
         const existing = await findOneWithDecryption(em, Organization,
           buildOrganizationMutationFilter(id, tenantId), { refresh: true }, { tenantId, organizationId: id })
         if (!existing) throw notFound()

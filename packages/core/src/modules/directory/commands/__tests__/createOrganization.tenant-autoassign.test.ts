@@ -43,6 +43,7 @@ const NEW_ORG_ID = 'aaaa1111-0000-4000-8000-000000000001'
 
 function makeEm() {
   return {
+    fork() { return this },
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     findOne: jest.fn(async () => null),
     find: jest.fn(async () => []),
@@ -67,7 +68,10 @@ function makeCtx(em: ReturnType<typeof makeEm>, de: ReturnType<typeof makeDataEn
       resolve: (token: string) => {
         if (token === 'em') return em
         if (token === 'dataEngine') return de
-        if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin, organizations: null }) }
+        if (token === 'rbacService') {
+          const loadAcl = async () => ({ isSuperAdmin, organizations: null, features: ['directory.organizations.manage'] })
+          return { loadAcl, loadAclWithEntityManager: loadAcl }
+        }
         throw new Error(`[internal] Unexpected DI token: ${token}`)
       },
     },

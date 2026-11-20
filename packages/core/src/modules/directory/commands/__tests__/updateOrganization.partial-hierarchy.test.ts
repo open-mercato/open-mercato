@@ -103,6 +103,7 @@ function matches(row: OrgRow, filter: RowFilter): boolean {
 
 function makeEm(rows: OrgRow[]) {
   return {
+    fork() { return this },
     findOne: jest.fn(async (_entity: unknown, filter: RowFilter) => rows.find((row) => matches(row, filter)) ?? null),
     find: jest.fn(async (_entity: unknown, filter: RowFilter) => rows.filter((row) => matches(row, filter))),
     flush: jest.fn(async () => {}),
@@ -127,7 +128,10 @@ function makeCtx(em: ReturnType<typeof makeEm>, de: ReturnType<typeof makeDataEn
       resolve: (token: string) => {
         if (token === 'em') return em
         if (token === 'dataEngine') return de
-        if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin: false, organizations: null }) }
+        if (token === 'rbacService') {
+          const loadAcl = async () => ({ isSuperAdmin: false, organizations: null, features: ['directory.organizations.manage'] })
+          return { loadAcl, loadAclWithEntityManager: loadAcl }
+        }
         throw new Error(`[internal] Unexpected DI token: ${token}`)
       },
     },
