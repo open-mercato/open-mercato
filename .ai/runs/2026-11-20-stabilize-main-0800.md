@@ -40,9 +40,20 @@ Existing role-cancel and payment-edit failures already have merged fixes and pas
 
 Runner: local. The 13 source-expression compiler and scoped-resolution checks pass with locked Awilix 13.0.5 and isolated Awilix 13.0.7. Against the original six source files with 13.0.7, the same regression exits 1: six compiler cases fail, all seven other cases pass. Runtime expressions are transpiled before evaluation so existing TypeScript casts do not mask the baseline diagnostic. No production dependency or lockfile changed.
 
-A fresh standalone app uses published snapshot `0.11.1-develop.8352.1.063474b385`, actual Awilix 13.0.7, and only the six corrected package source files overlaid after verifying each published baseline file byte-for-byte against this branch's base. Its production build is in progress; this is a source-overlay build check, not a package publication or full standalone browser suite. An initial scaffold from a newer create-app dist-tag could not install its not-yet-visible core snapshot; the complete older snapshot avoids that registry timing issue.
+A fresh standalone app uses published snapshot `0.11.1-develop.8352.1.063474b385`, actual Awilix 13.0.7, and only the six corrected package source files overlaid after verifying each published baseline file byte-for-byte against this branch's base. Its production `yarn build` passed generation, compilation, TypeScript checking and page generation; this is a source-overlay build check, not a package publication or full standalone browser suite. An initial scaffold from a newer create-app dist-tag could not install its not-yet-visible core snapshot; the complete older snapshot avoids that registry timing issue.
 
 The newest supported release line `release/v0.10.x` contains the faulty bindings too. Applied its existing backport label under the repository's high-priority bug-fix policy; no release branch is edited here.
+
+## Full-suite and review outcome
+
+- Reviewed head: `9ff40ad5f06350774593f2382da38b9a2e762950`. [Full CI run 44719529483, attempt 2](https://github.com/open-mercato/open-mercato/actions/runs/44719529483/attempts/2) passed all 15 integration shards, coverage merge, package builds, generation, app build, full typechecking, unit tests, root script regressions, i18n sync/usage, Redis, template parity, repository guards, Docker, timezone and multi-instance checks. All reported checks and exact-head workflows settled successfully or were intentionally skipped. Dependency audit was scoped out; it was not executed.
+- Validation source: hosted GitHub checks. In configured order: first package build PASS; generation PASS; second package build PASS; i18n sync PASS; i18n usage PASS; typecheck PASS; unit tests PASS; app build PASS. The workflow builds the app in prepare before the test job. This table records configured-command coverage, not a separately executed ordered local gate. Local runner was used for the narrow compatibility tests and standalone build only.
+- ONE final independent review task `df909d7b` examined the source at this exact head, checked compatibility/security/scope, reran all 13 regressions on both Awilix versions, reproduced the failing baseline, and verified the standalone overlays. The parent independently read its report, source diff and supporting logs. No child changes were authored or merged.
+- The review's sole blocker F1 was validation: attempt 1 app typecheck hit a runner-reported OOM and skipped later gates. The failed-job retry passed full typecheck and every downstream gate on the unchanged reviewed source. No new source change was needed. The [authoritative review and resolution](https://github.com/open-mercato/open-mercato/pull/10073#issuecomment-7038168921) preserves the original finding and passing retry evidence. No implementation, security, compatibility or scope findings remain. GitHub refuses native self-review from the App author; evidence is recorded in the review comment without bypassing approval rules.
+
+## Final tracking-head gate
+
+This final tracking-only commit receives another complete suite. Keep the PR draft with `Status: in-progress` and withhold `automerge` until every applicable check and workflow on that exact head has settled green, including all 15 shards and coverage merge. The checklist records source validation and review completion; final metadata release remains gated here and its outcome is published on the PR without another source commit. If this head fails, reopen completion, investigate and verify again. Earlier-head results never prove the tracking head. This run does not merge into main or publish packages.
 
 ## Risks
 
@@ -62,9 +73,9 @@ PR: #10073
 ### Phase 2: Correct and verify
 
 - [x] 2.1 Correct demonstrated root causes with regression coverage; preserve behavior where no defect is established. — 47deb6e2d8
-- [ ] 2.2 Run the configured ordered validation gate and verify every applicable PR workflow, including 15 integration shards, on the exact head.
+- [x] 2.2 Run the configured ordered validation gate and verify every applicable PR workflow, including 15 integration shards, on the exact head. — 9ff40ad5f0
 
 ### Phase 3: Review and finalize
 
-- [ ] 3.1 Dispatch ONE final independent review task, verify its evidence and resolve actionable findings.
-- [ ] 3.2 Publish evidence, complete progress, promote the PR and apply automerge only after green final-head CI.
+- [x] 3.1 Dispatch ONE final independent review task, verify its evidence and resolve actionable findings. — 9ff40ad5f0
+- [x] 3.2 Publish evidence, complete progress, promote the PR and apply automerge only after green final-head CI. — 9ff40ad5f0
