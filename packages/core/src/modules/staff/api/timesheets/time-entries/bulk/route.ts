@@ -8,6 +8,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { withExactAmounts, type WithExactAmounts } from '@open-mercato/shared/lib/decimal'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -29,6 +30,7 @@ import {
   resolveTimeEntryWriteAccess,
   resolveTimeEntryWriteDenial,
   roundedMinutesFor,
+  timeEntryStoredTaskLeftBehind,
   timeEntryTaskMatchesProject,
   toStoredTimeEntryRateOverride,
   translateTimeEntryWriteDenial,
@@ -38,6 +40,7 @@ import {
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
 import { emitStaffEvent } from '../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
+import { localizeValidationIssues } from '../../../../lib/validationIssues'
 import { findLiveSegmentsForEntries, markSegmentsDeleted } from '../../../../lib/timesheets/timeEntrySegmentCascade'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
@@ -77,7 +80,7 @@ function bulkValidationError(errors: BulkRowError[]): NextResponse {
  * in scope) and the project the entry actually lands on, which a task-only row
  * inherits from its task exactly as the single-entry path does.
  */
-type BulkEntryInput = StaffTimeEntryBulkSaveInput['entries'][number]
+type BulkEntryInput = WithExactAmounts<StaffTimeEntryBulkSaveInput['entries'][number], 'rateOverrideAmount'>
 
 type ResolvedBulkRow = {
   index: number
@@ -115,14 +118,17 @@ export async function POST(req: Request) {
 
     const parsed = staffTimeEntryBulkSaveSchema.safeParse(session.body)
     if (!parsed.success) {
-      const errors = parsed.error.issues.map((issue) => ({
+      const errors = localizeValidationIssues(parsed.error.issues, translate).map((issue) => ({
         path: issue.path.join('.'),
         message: issue.message,
       }))
       return NextResponse.json({ ok: false, errors }, { status: 422 })
     }
 
-    const { entries } = parsed.data
+    const rawEntries = Array.isArray(session.body?.entries) ? (session.body.entries as unknown[]) : []
+    const entries: BulkEntryInput[] = parsed.data.entries.map((entry, index) =>
+      withExactAmounts(entry, rawEntries[index], ['rateOverrideAmount'] as const),
+    )
 
     // Tags are REFUSED here rather than accepted and dropped.
     //
@@ -458,6 +464,32 @@ export async function POST(req: Request) {
         { tenantId, organizationId },
       )
 
+      // A row that moves an existing entry to another project without naming a
+      // task must not keep a task of the previous project — the rule the
+      // single-entry update applies (#9473). The stored tasks are read here, once,
+      // for the same reason the segments are: no query may follow a pending change.
+      const storedTaskIds = [
+        ...new Set(
+          resolvedRows.flatMap(({ entry, timeProjectId }) => {
+            if (!entry.id || entry.taskId !== undefined || entry.durationMinutes === 0) return []
+            const existing = existingMap.get(entry.id)
+            if (!existing?.taskId || timeProjectId === (existing.timeProjectId ?? null)) return []
+            return [existing.taskId]
+          }),
+        ),
+      ]
+      const storedTasksById = new Map<string, { timeProjectId: string }>()
+      if (storedTaskIds.length > 0) {
+        const storedTasks = await trx.find(
+          StaffTimeTask,
+          { id: { $in: storedTaskIds }, tenantId, organizationId },
+          { fields: ['id', 'timeProjectId'] },
+        )
+        for (const storedTask of storedTasks) {
+          storedTasksById.set(storedTask.id, { timeProjectId: storedTask.timeProjectId })
+        }
+      }
+
       for (const { entry, task, timeProjectId } of resolvedRows) {
         const project = projectsById.get(timeProjectId) ?? null
         // Both branches read the five fields the schema has always accepted
@@ -517,9 +549,16 @@ export async function POST(req: Request) {
               organizationId,
             })
             if (entry.taskId !== undefined) existing.taskId = task?.id ?? null
+            else if (
+              projectChanged &&
+              existing.taskId &&
+              timeEntryStoredTaskLeftBehind(storedTasksById.get(existing.taskId), timeProjectId)
+            ) {
+              existing.taskId = null
+            }
             if (entry.isBillable !== undefined) existing.isBillable = entry.isBillable
             if (entry.rateOverrideAmount !== undefined) {
-              existing.rateOverrideAmount = toStoredTimeEntryRateOverride(entry.rateOverrideAmount)
+              existing.rateOverrideAmount = toStoredTimeEntryRateOverride(entry.rateOverrideAmount, entry.rateOverrideAmountExact)
             }
             if (notes !== undefined) existing.notes = notes
             existing.updatedAt = new Date()
@@ -564,7 +603,7 @@ export async function POST(req: Request) {
               settings,
               scope: { tenantId, organizationId },
             }),
-            rateOverrideAmount: toStoredTimeEntryRateOverride(entry.rateOverrideAmount),
+            rateOverrideAmount: toStoredTimeEntryRateOverride(entry.rateOverrideAmount, entry.rateOverrideAmountExact),
             rateCurrencyCode: project?.currencyCode ?? null,
             source: 'manual',
             createdAt: now,
