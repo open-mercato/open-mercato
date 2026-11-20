@@ -179,6 +179,27 @@ describe('VectorSearchSection confirmation keyboard controls', () => {
     expect(readApiResultOrThrowMock.mock.calls[0][0]).toBe('/api/search/embeddings/reindex')
   })
 
+  it('keeps provider confirmation open for another pointer click at Apply, but cancels elsewhere', async () => {
+    renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    const applyButton = screen.getByRole('button', { name: 'Apply' })
+    jest.spyOn(applyButton, 'getBoundingClientRect').mockReturnValue({
+      left: 10, right: 110, top: 20, bottom: 60, width: 100, height: 40, x: 10, y: 20, toJSON: () => ({}),
+    })
+    fireEvent.click(applyButton)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+
+    fireEvent(document.body, new MouseEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 40 }))
+    fireEvent.click(document.body, { clientX: 50, clientY: 40 })
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+
+    fireEvent(document.body, new MouseEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 200 }))
+    fireEvent.click(document.body, { clientX: 200, clientY: 200 })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+  })
+
   it('cancels a provider change with Escape without persisting it', async () => {
     renderSection()
     fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))

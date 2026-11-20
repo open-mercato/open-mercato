@@ -229,6 +229,7 @@ export function VectorSearchSection({
 
   const [pendingEmbeddingConfig, setPendingEmbeddingConfig] = React.useState<EmbeddingProviderConfig | null>(null)
   const [showEmbeddingConfirmDialog, setShowEmbeddingConfirmDialog] = React.useState(false)
+  const embeddingApplyButtonRef = React.useRef<HTMLButtonElement>(null)
 
   // Vector reindex state
   const [vectorReindexing, setVectorReindexing] = React.useState(false)
@@ -834,7 +835,7 @@ export function VectorSearchSection({
 
                             {hasUnsavedEmbeddingChanges && (
                               <div className="flex gap-2 pt-1">
-                                <Button type="button" variant="default" size="sm" className="flex-1" onClick={handleApplyEmbeddingChanges} disabled={embeddingLoading || embeddingSaving}>
+                                <Button ref={embeddingApplyButtonRef} type="button" variant="default" size="sm" className="flex-1" onClick={handleApplyEmbeddingChanges} disabled={embeddingLoading || embeddingSaving}>
                                   {embeddingSaving ? <Spinner size="sm" className="mr-1" /> : null}
                                   {t('search.settings.actions.apply', 'Apply')}
                                 </Button>
@@ -1070,7 +1071,17 @@ export function VectorSearchSection({
       {/* Embedding Provider Change Confirmation Dialog */}
       {showEmbeddingConfirmDialog && pendingEmbeddingConfig && (
         <Dialog open={showEmbeddingConfirmDialog} onOpenChange={(open) => { if (!open) handleEmbeddingCancelChange() }}>
-          <DialogContent onKeyDown={handleEmbeddingDialogKeyDown}>
+          <DialogContent
+            onKeyDown={handleEmbeddingDialogKeyDown}
+            onPointerDownOutside={(event) => {
+              const bounds = embeddingApplyButtonRef.current?.getBoundingClientRect()
+              if (!bounds) return
+              const { clientX, clientY } = event.detail.originalEvent
+              if (clientX >= bounds.left && clientX <= bounds.right && clientY >= bounds.top && clientY <= bounds.bottom) {
+                event.preventDefault()
+              }
+            }}
+          >
             <DialogHeader>
               <DialogTitle>{t('search.settings.change.title', 'Confirm Provider Change')}</DialogTitle>
               <DialogDescription>
