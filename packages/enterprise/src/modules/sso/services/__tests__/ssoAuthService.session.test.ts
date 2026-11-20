@@ -1,3 +1,4 @@
+import { IsolationLevel } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
@@ -22,6 +23,7 @@ function fixture(markerConfigId: string | null = null, userExists = true, tenant
     updatedAt: new Date('2026-11-15T00:00:00.000Z'),
   } as SsoConfig
   const authorization = {
+    assertAccountInSnapshot: jest.fn(async () => 'tenant-1'),
     assertAccount: jest.fn(async () => {
       locked = true
       return 'tenant-1'
@@ -34,9 +36,10 @@ function fixture(markerConfigId: string | null = null, userExists = true, tenant
     flush: jest.fn(async () => undefined),
   }
   txEm.persist.mockReturnValue(txEm)
-  const em = {
-    transactional: jest.fn(async (callback: (transaction: EntityManager) => Promise<unknown>) => callback(txEm as unknown as EntityManager)),
-  }
+  const runTransaction = async (callback: (transaction: EntityManager) => Promise<unknown>) =>
+    callback(txEm as unknown as EntityManager)
+  const snapshot = { transactional: jest.fn(runTransaction) }
+  const em = { transactional: jest.fn(runTransaction), fork: jest.fn(() => snapshot) }
   jest.mocked(lockAuthorizationUserRows).mockImplementation(async () => { locked = true })
   jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => {
     if (entity === SsoConfig) return config
@@ -52,7 +55,7 @@ function fixture(markerConfigId: string | null = null, userExists = true, tenant
     return null
   })
   return {
-    em, txEm, managedUser, config, authorization,
+    em, txEm, managedUser, config, authorization, snapshot,
     service: new SsoAuthService(em as unknown as EntityManager, authorization as unknown as SsoAuthorizationService),
   }
 }
@@ -147,14 +150,22 @@ describe('atomic SSO-aware session issuance', () => {
   )
 
   it('denies a previously issued session when the configuration author loses authority', async () => {
-    const { service, config, authorization } = fixture()
+    const { service, config, authorization, snapshot, txEm } = fixture()
     const { session } = await service.createSession(user, expiresAt, {
       tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
       configUpdatedAt: config.updatedAt.getTime(),
     })
 
     await expect(service.isSessionEligible(session, user)).resolves.toBe(true)
-    authorization.assertAccount.mockRejectedValue(forbidden())
+    expect(snapshot.transactional).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: IsolationLevel.REPEATABLE_READ, readOnly: true,
+    })
+    expect(findOneWithDecryption).toHaveBeenCalledWith(txEm, SsoConfig,
+      { id: config.id, organizationId: user.organizationId, isActive: true, deletedAt: null },
+      { refresh: true }, { tenantId: user.tenantId, organizationId: user.organizationId })
+    expect(authorization.assertAccountInSnapshot).toHaveBeenCalledWith(txEm, config, user)
+    expect(authorization.assertAccount).toHaveBeenCalledTimes(1)
+    authorization.assertAccountInSnapshot.mockRejectedValue(forbidden())
     await expect(service.isSessionEligible(session, user)).resolves.toBe(false)
   })
 

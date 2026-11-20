@@ -63,6 +63,10 @@ export class SsoAuthorizationService {
     return (await this.authorizeAccount(em, config, user, scimActorUserId)).tenantId
   }
 
+  async assertAccountInSnapshot(em: EntityManager, config: SsoConfig, user: User): Promise<string> {
+    return (await this.assertAuthorization(em, config, undefined, undefined, user, 'snapshot')).tenantId
+  }
+
   async authorizeAccount(
     em: EntityManager,
     config: SsoConfig,
@@ -78,6 +82,7 @@ export class SsoAuthorizationService {
     actorUserId?: string | null,
     scimActorUserId?: string | null,
     targetUser?: User,
+    mode: 'locked' | 'snapshot' = 'locked',
   ): Promise<SsoAccountAuthorization> {
     if (
       !em.isInTransaction()
@@ -95,21 +100,9 @@ export class SsoAuthorizationService {
     if (scimActorId) authorities.push({ userId: scimActorId, feature: 'sso.scim.manage' })
 
     const tenantId = await this.resolveTenant(em, config)
-    const initialRoles = await this.resolveMappedRoles(em, config, tenantId)
-    const priorGrants = targetUser ? await this.findRoleGrants(em, config, targetUser, tenantId) : []
-    const lockedRoleIds = new Set([...initialRoles.map((role) => role.id), ...priorGrants.map((grant) => grant.roleId)])
-
-    await lockAuthorizationState(em, {
-      userIds: [...new Set([...authorities.map((authority) => authority.userId), ...(targetUser ? [targetUser.id] : [])])],
-      roleIds: [...lockedRoleIds],
-      tenantIds: [tenantId],
-    })
-
-    if (await this.resolveTenant(em, config) !== tenantId) return denyAuthorization()
-    const mappedRoles = await this.resolveMappedRoles(em, config, tenantId)
-    if (mappedRoles.some((role) => !lockedRoleIds.has(role.id))) return denyAuthorization()
-    const currentGrants = targetUser ? await this.findRoleGrants(em, config, targetUser, tenantId) : []
-    if (currentGrants.some((grant) => !lockedRoleIds.has(grant.roleId))) return denyAuthorization()
+    const mappedRoles = mode === 'locked'
+      ? await this.lockAccountAuthorization(em, config, tenantId, authorities, targetUser)
+      : await this.resolveMappedRoles(em, config, tenantId)
 
     const scope = { tenantId, organizationId: config.organizationId }
     const currentTarget = targetUser ? await findOneWithDecryption(
@@ -177,6 +170,32 @@ export class SsoAuthorizationService {
     }
 
     return { tenantId, mappedRoleIds: Object.freeze(mappedRoles.map((role) => role.id)) }
+  }
+
+  private async lockAccountAuthorization(
+    em: EntityManager,
+    config: SsoConfig,
+    tenantId: string,
+    authorities: readonly SsoAuthority[],
+    targetUser?: User,
+  ): Promise<Role[]> {
+    const initialRoles = await this.resolveMappedRoles(em, config, tenantId)
+    const priorGrants = targetUser ? await this.findRoleGrants(em, config, targetUser, tenantId) : []
+    const lockedRoleIds = new Set([...initialRoles.map((role) => role.id), ...priorGrants.map((grant) => grant.roleId)])
+
+    await lockAuthorizationState(em, {
+      userIds: [...new Set([...authorities.map((authority) => authority.userId), ...(targetUser ? [targetUser.id] : [])])],
+      roleIds: [...lockedRoleIds],
+      tenantIds: [tenantId],
+    })
+
+    if (await this.resolveTenant(em, config) !== tenantId) return denyAuthorization()
+    const mappedRoles = await this.resolveMappedRoles(em, config, tenantId)
+    if (mappedRoles.some((role) => !lockedRoleIds.has(role.id))) return denyAuthorization()
+    const currentGrants = targetUser ? await this.findRoleGrants(em, config, targetUser, tenantId) : []
+    if (currentGrants.some((grant) => !lockedRoleIds.has(grant.roleId))) return denyAuthorization()
+
+    return mappedRoles
   }
 
   private async resolveMappedRoles(em: EntityManager, config: SsoConfig, tenantId: string): Promise<Role[]> {

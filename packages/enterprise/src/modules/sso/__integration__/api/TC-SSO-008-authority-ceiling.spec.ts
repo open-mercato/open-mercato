@@ -349,7 +349,7 @@ test.describe('TC-SSO-008: SSO authority ceilings', () => {
     })
   })
 
-  test('rejects existing SSO access and refresh credentials after the config author loses authority', async ({ request }) => {
+  test('validates concurrent SSO requests and rejects access and refresh after authority loss', async ({ request }) => {
     await withAuthorityFixture(request, async (fixture) => {
       const response = await apiRequest(request, 'POST', '/api/sso/config', {
         token: fixture.managerToken, data: configPayload(fixture),
@@ -360,14 +360,14 @@ test.describe('TC-SSO-008: SSO authority ceilings', () => {
       fixture.configIds.push(config.id)
       await activateFixture(fixture, config.id)
 
-      const email = `sso-session-${randomUUID()}@example.com`
-      const password = `Test-${randomUUID()}!`
-      const userId = await createUserFixture(request, fixture.adminToken, {
-        email, password, organizationId: fixture.organizationId, roles: [], name: 'SSO session fixture',
-      })
-      fixture.userIds.push(userId)
+      const provisionSession = async (isolated: APIRequestContext) => {
+        const email = `sso-session-${randomUUID()}@example.com`
+        const password = `Test-${randomUUID()}!`
+        const userId = await createUserFixture(request, fixture.adminToken, {
+          email, password, organizationId: fixture.organizationId, roles: [], name: 'SSO session fixture',
+        })
+        fixture.userIds.push(userId)
 
-      await withCredentialIsolatedRequest(async (isolated) => {
         const login = await postForm(isolated, '/api/auth/login', { email, password, remember: '1' })
         expect(login.status()).toBe(200)
         const credentials = await readJsonSafe<{ token: string; refreshToken: string }>(login)
@@ -387,20 +387,46 @@ test.describe('TC-SSO-008: SSO authority ceilings', () => {
           expect(scoped.rowCount).toBe(1)
         })
 
-        const profile = () => apiRequest(isolated, 'GET', '/api/auth/profile', { token: credentials.token })
+        const profile = () => apiRequest(isolated, 'GET', '/api/auth/profile', {
+          token: credentials.token, timeout: 4_000, retryTransport: false,
+        })
         const refresh = () => isolated.post('/api/auth/session/refresh', {
           data: { refreshToken: credentials.refreshToken },
         })
-        expect((await profile()).status()).toBe(200)
-        expect((await refresh()).status()).toBe(200)
-        await setRoleAclFeatures(request, fixture.adminToken, {
-          roleId: fixture.managerRoleId,
-          features: ['sso.config.view'],
-          organizations: null,
-        })
-        expect((await profile()).status()).toBe(401)
-        expect((await refresh()).status()).toBe(401)
+        return { email, password, profile, refresh }
+      }
 
+      await withCredentialIsolatedRequest(async (isolated) => {
+        const first = await provisionSession(isolated)
+        await withCredentialIsolatedRequest(async (other) => {
+          const second = await provisionSession(other)
+          await withClient(async (client) => {
+            await client.query('begin')
+            try {
+              const locked = await client.query(
+                'select id from sso_configs where id = $1 and organization_id = $2 and tenant_id = $3 for update',
+                [config.id, fixture.organizationId, fixture.tenantId],
+              )
+              expect(locked.rowCount).toBe(1)
+              const profiles = await Promise.all([first.profile(), second.profile()])
+              expect(profiles.map((profile) => profile.status())).toEqual([200, 200])
+            } finally {
+              await client.query('rollback')
+            }
+          })
+          expect((await first.refresh()).status()).toBe(200)
+          expect((await second.refresh()).status()).toBe(200)
+          await setRoleAclFeatures(request, fixture.adminToken, {
+            roleId: fixture.managerRoleId,
+            features: ['sso.config.view'],
+            organizations: null,
+          })
+          for (const session of [first, second]) {
+            expect((await session.profile()).status()).toBe(401)
+            expect((await session.refresh()).status()).toBe(401)
+          }
+        })
+        const { email, password } = first
         const passwordLogin = await postForm(isolated, '/api/auth/login', { email, password, remember: '1' })
         expect(passwordLogin.status()).toBe(200)
         const passwordCredentials = await readJsonSafe<{ refreshToken: string }>(passwordLogin)

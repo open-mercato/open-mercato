@@ -130,6 +130,15 @@ describe('SSO delegation authorization', () => {
     )
   })
 
+  it('checks the current author and target in a snapshot without taking writer locks', async () => {
+    const { service, em, config, target, actorAcl } = fixture()
+
+    await expect(service.assertAccountInSnapshot(em, config, target as User)).resolves.toBe('tenant')
+    actorAcl.features = ['customers.people.view']
+    await expect(service.assertAccountInSnapshot(em, config, target as User)).rejects.toMatchObject({ status: 403 })
+    expect(lockAuthorizationState).not.toHaveBeenCalled()
+  })
+
   it('rejects a custom mapped role whose live ACL grants superadmin', async () => {
     const { service, em, config, roleAcl } = fixture()
     roleAcl.isSuperAdmin = true

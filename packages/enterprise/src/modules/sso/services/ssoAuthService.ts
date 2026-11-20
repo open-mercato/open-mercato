@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { LockMode } from '@mikro-orm/core'
+import { IsolationLevel, LockMode } from '@mikro-orm/core'
 import { User, type Session } from '@open-mercato/core/modules/auth/data/entities'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { AuthSessionRejectedError, isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
@@ -83,21 +83,26 @@ export class SsoAuthService extends AuthService {
       || !Number.isFinite(provenance.configUpdatedAt)) return false
 
     try {
-      return await this.ssoEm.transactional(async (txEm) => {
+      return await this.ssoEm.fork().transactional(async (txEm) => {
         await this.assertSsoSessionAuthority(txEm, user, {
           tenantId, organizationId, ssoConfigId: provenance.configId, configUpdatedAt: provenance.configUpdatedAt,
-        })
+        }, 'snapshot')
         return !await isSsoUserDeactivated(txEm, {
           userId: user.id, tenantId, organizationId, ssoConfigId: provenance.configId,
         })
-      })
+      }, { isolationLevel: IsolationLevel.REPEATABLE_READ, readOnly: true })
     } catch (error) {
       if (isAuthSessionRejectedError(error) || (isCrudHttpError(error) && error.status === 403)) return false
       throw error
     }
   }
 
-  private async assertSsoSessionAuthority(txEm: EntityManager, user: User, scope: SsoSessionScope): Promise<void> {
+  private async assertSsoSessionAuthority(
+    txEm: EntityManager,
+    user: User,
+    scope: SsoSessionScope,
+    mode: 'issuance' | 'snapshot' = 'issuance',
+  ): Promise<void> {
     if (!this.ssoAuthorizationService) {
       throw new Error('[internal] SSO authorization service is unavailable')
     }
@@ -105,13 +110,15 @@ export class SsoAuthService extends AuthService {
       txEm,
       SsoConfig,
       { id: scope.ssoConfigId, organizationId: scope.organizationId, isActive: true, deletedAt: null },
-      { refresh: true, lockMode: LockMode.PESSIMISTIC_WRITE },
+      { refresh: true, ...(mode === 'issuance' ? { lockMode: LockMode.PESSIMISTIC_WRITE } : {}) },
       { tenantId: scope.tenantId, organizationId: scope.organizationId },
     )
     if (!config || !Number.isFinite(scope.configUpdatedAt) || config.updatedAt.getTime() !== scope.configUpdatedAt) {
       throw new AuthSessionRejectedError()
     }
-    const tenantId = await this.ssoAuthorizationService.assertAccount(txEm, config, user)
+    const tenantId = mode === 'issuance'
+      ? await this.ssoAuthorizationService.assertAccount(txEm, config, user)
+      : await this.ssoAuthorizationService.assertAccountInSnapshot(txEm, config, user)
     if (scope.tenantId !== tenantId) throw new AuthSessionRejectedError()
   }
 }
