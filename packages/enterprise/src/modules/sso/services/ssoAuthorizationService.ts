@@ -194,7 +194,8 @@ export class SsoAuthorizationService {
     authorities: readonly SsoAuthority[],
     targetUser?: User,
   ): Promise<Role[]> {
-    const initialRoles = await this.resolveMappedRoles(em, config, tenantId)
+    const requesterIsSaving = authorities.some((authority) => authority.isRequester)
+    const initialRoles = await this.resolveMappedRoles(em, config, tenantId, requesterIsSaving)
     const priorGrants = targetUser ? await this.findRoleGrants(em, config, targetUser, tenantId) : []
     const lockedRoleIds = new Set([...initialRoles.map((role) => role.id), ...priorGrants.map((grant) => grant.roleId)])
 
@@ -205,7 +206,7 @@ export class SsoAuthorizationService {
     })
 
     if (await this.resolveTenant(em, config) !== tenantId) return denyAuthorization()
-    const mappedRoles = await this.resolveMappedRoles(em, config, tenantId)
+    const mappedRoles = await this.resolveMappedRoles(em, config, tenantId, requesterIsSaving)
     if (mappedRoles.some((role) => !lockedRoleIds.has(role.id))) return denyAuthorization()
     const currentGrants = targetUser ? await this.findRoleGrants(em, config, targetUser, tenantId) : []
     if (currentGrants.some((grant) => !lockedRoleIds.has(grant.roleId))) return denyAuthorization()
@@ -213,7 +214,12 @@ export class SsoAuthorizationService {
     return mappedRoles
   }
 
-  private async resolveMappedRoles(em: EntityManager, config: SsoConfig, tenantId: string): Promise<Role[]> {
+  private async resolveMappedRoles(
+    em: EntityManager,
+    config: SsoConfig,
+    tenantId: string,
+    requesterIsSaving = false,
+  ): Promise<Role[]> {
     const desiredNames = [...new Set(Object.values(config.appRoleMappings ?? {}).map((name) => name.trim().toLowerCase()))]
     if (!desiredNames.length) return []
     const roles = await findWithDecryption(
@@ -228,13 +234,15 @@ export class SsoAuthorizationService {
     for (const role of roles) {
       const normalizedName = role.name.trim().toLowerCase()
       if (!desiredNameSet.has(normalizedName)) continue
-      if (rolesByName.has(normalizedName)) return denyAuthorization()
+      if (rolesByName.has(normalizedName)) {
+        return requesterIsSaving ? denyUnresolvedRoleMapping(role.name.trim()) : denyAuthorization()
+      }
       rolesByName.set(normalizedName, role)
     }
     const mappedRoles: Role[] = []
     for (const name of desiredNames) {
       const role = rolesByName.get(name)
-      if (!role) return denyAuthorization()
+      if (!role) return requesterIsSaving ? denyUnresolvedRoleMapping(findMappedRoleName(config, name)) : denyAuthorization()
       mappedRoles.push(role)
     }
     return mappedRoles
@@ -288,6 +296,16 @@ function relationId(value: unknown): string | null {
 async function denyAuthorityCeiling(): Promise<never> {
   const { translate } = await resolveTranslations()
   throw forbidden(translate('sso.errors.authorityCeilingExceeded'))
+}
+
+function findMappedRoleName(config: SsoConfig, normalizedName: string): string {
+  const mapped = Object.values(config.appRoleMappings ?? {}).find((name) => name.trim().toLowerCase() === normalizedName)
+  return mapped?.trim() ?? normalizedName
+}
+
+async function denyUnresolvedRoleMapping(roleName: string): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw forbidden(translate('sso.errors.roleMappingUnresolved', undefined, { role: roleName }))
 }
 
 async function denyAuthorization(): Promise<never> {

@@ -23,7 +23,10 @@ jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => (
 jest.mock('../../lib/deactivation', () => ({ isSsoUserDeactivated: jest.fn().mockResolvedValue(false) }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({ translate: (key: string) => key }),
+  resolveTranslations: async () => ({
+    translate: (key: string, _fallback?: string, params?: Record<string, string>) =>
+      params ? `${key}:${JSON.stringify(params)}` : key,
+  }),
 }))
 
 type Row = Record<string, unknown>
@@ -175,9 +178,38 @@ describe('SSO delegation authorization', () => {
   })
 
   it('keeps the stale-authority message for non-ceiling refusals of the requesting editor', async () => {
-    const { service, em, config, actor } = fixture()
-    config.appRoleMappings = { staff: 'missing' }
+    const { service, em, config, actor, actorAcl } = fixture()
+    actorAcl.features = ['customers.people.view']
     await expect(service.assertConfiguration(em, config, actor.id)).rejects.toMatchObject({
+      status: 403, body: { error: 'sso.errors.authorizationDenied' },
+    })
+  })
+
+  it('tells the requesting editor which mapped role name is unknown', async () => {
+    const { service, em, config, actor } = fixture()
+    config.appRoleMappings = { staff: '  Staf ' }
+    await expect(service.assertConfiguration(em, config, actor.id)).rejects.toMatchObject({
+      status: 403, body: { error: 'sso.errors.roleMappingUnresolved:{"role":"Staf"}' },
+    })
+  })
+
+  it('tells the requesting editor when a mapped role name is ambiguous', async () => {
+    const { service, em, config, actor, tables } = fixture()
+    tables.get(Role)!.push({ id: 'staff-role-2', name: 'staff ', tenantId: 'tenant', deletedAt: null })
+    await expect(service.assertConfiguration(em, config, actor.id)).rejects.toMatchObject({
+      status: 403, body: { error: expect.stringMatching(/^sso\.errors\.roleMappingUnresolved:/) },
+    })
+  })
+
+  it('keeps the stale-authority message for unresolved roles when nobody is saving', async () => {
+    const { service, em, config, tables } = fixture()
+    config.appRoleMappings = { staff: 'missing' }
+    await expect(service.assertConfiguration(em, config)).rejects.toMatchObject({
+      status: 403, body: { error: 'sso.errors.authorizationDenied' },
+    })
+    config.appRoleMappings = { staff: 'Staff' }
+    tables.get(Role)!.push({ id: 'staff-role-2', name: 'STAFF', tenantId: 'tenant', deletedAt: null })
+    await expect(service.assertConfiguration(em, config)).rejects.toMatchObject({
       status: 403, body: { error: 'sso.errors.authorizationDenied' },
     })
   })

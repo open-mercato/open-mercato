@@ -149,6 +149,7 @@
   "sso.errors.oidc_url.missing_host": "Die URL des OIDC-Endpunkts muss einen Host enthalten",
   "sso.errors.oidc_url.private_ip_literal": "Der OIDC-Endpunkt muss eine öffentliche IP-Adresse verwenden",
   "sso.errors.oidc_url.private_ip_resolved": "Der OIDC-Endpunkt darf nur auf öffentliche IP-Adressen aufgelöst werden",
+  "sso.errors.roleMappingUnresolved": "Die Rollenzuordnung verweist auf „{role}“, das nicht genau einer Rolle in diesem Mandanten entspricht. Prüfen Sie die Schreibweise oder benennen Sie doppelte Rollen um und speichern Sie dann erneut.",
   "sso.login.continueWithSso": "Mit SSO fortfahren",
   "sso.login.errors.emailNotVerified": "Ihre E-Mail-Adresse ist vom Identitätsanbieter nicht verifiziert. Bitte verifizieren Sie Ihre E-Mail und versuchen Sie es erneut.",
   "sso.login.errors.failed": "SSO-Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.",

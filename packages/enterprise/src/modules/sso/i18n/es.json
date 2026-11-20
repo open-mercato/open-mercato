@@ -149,6 +149,7 @@
   "sso.errors.oidc_url.missing_host": "La URL del punto de conexión OIDC debe incluir un host",
   "sso.errors.oidc_url.private_ip_literal": "El punto de conexión OIDC debe usar una dirección IP pública",
   "sso.errors.oidc_url.private_ip_resolved": "El punto de conexión OIDC debe resolverse solo a direcciones IP públicas",
+  "sso.errors.roleMappingUnresolved": "La asignación de roles hace referencia a \"{role}\", que no coincide exactamente con un rol de este inquilino. Revise la ortografía o cambie el nombre de los roles duplicados y vuelva a guardar.",
   "sso.login.continueWithSso": "Continuar con SSO",
   "sso.login.errors.emailNotVerified": "Su dirección de correo electrónico no está verificada por el proveedor de identidad. Por favor verifique su correo electrónico e intente de nuevo.",
   "sso.login.errors.failed": "El inicio de sesión SSO falló. Por favor intente de nuevo.",

@@ -149,6 +149,7 @@
   "sso.errors.oidc_url.missing_host": "Adres URL punktu końcowego OIDC musi zawierać hosta",
   "sso.errors.oidc_url.private_ip_literal": "Punkt końcowy OIDC musi używać publicznego adresu IP",
   "sso.errors.oidc_url.private_ip_resolved": "Punkt końcowy OIDC musi wskazywać wyłącznie na publiczne adresy IP",
+  "sso.errors.roleMappingUnresolved": "Mapowanie ról wskazuje rolę „{role}”, która nie odpowiada dokładnie jednej roli w tym tenancie. Sprawdź pisownię lub zmień nazwy zduplikowanych ról, a następnie zapisz ponownie.",
   "sso.login.continueWithSso": "Kontynuuj przez SSO",
   "sso.login.errors.emailNotVerified": "Twój adres e-mail nie został zweryfikowany przez dostawcę tożsamości. Zweryfikuj swój e-mail i spróbuj ponownie.",
   "sso.login.errors.failed": "Logowanie SSO nie powiodło się. Spróbuj ponownie.",

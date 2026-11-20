@@ -149,6 +149,7 @@
   "sso.errors.oidc_url.missing_host": "OIDC endpoint URL must include a host",
   "sso.errors.oidc_url.private_ip_literal": "OIDC endpoint must use a public IP address",
   "sso.errors.oidc_url.private_ip_resolved": "OIDC endpoint must resolve only to public IP addresses",
+  "sso.errors.roleMappingUnresolved": "The role mapping refers to \"{role}\", which does not match exactly one role in this tenant. Check the spelling, or rename the duplicate roles, then save again.",
   "sso.login.continueWithSso": "Continue with SSO",
   "sso.login.errors.emailNotVerified": "Your email address is not verified by the identity provider. Please verify your email and try again.",
   "sso.login.errors.failed": "SSO login failed. Please try again.",
