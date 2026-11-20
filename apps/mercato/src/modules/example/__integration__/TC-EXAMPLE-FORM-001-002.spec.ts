@@ -1,9 +1,10 @@
 import { captureShowcase, field, saveShowcase, test as configuredTest } from './todoShowcaseFixtures'
 import { randomUUID } from 'node:crypto'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Request } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { CONFLICT_BANNER_TESTID, CONFLICT_DIALOG_TESTID, expectConflictBanner } from '@open-mercato/core/helpers/integration/optimisticLockUi'
 import { buildCrudFormSectionPolicyHeaders } from '@open-mercato/shared/lib/crud/form-sections/policy-headers'
 import { readyResolveCrudFormSectionsResponseSchema } from '@open-mercato/shared/lib/crud/form-sections/protocol'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
@@ -77,8 +78,9 @@ test.describe('TC-EXAMPLE-FORM-001 configured Todo update', () => {
         expect(results.map((response) => response.status()).sort(), (await Promise.all(results.map((response) => response.text()))).join("\n")).toEqual([200, 409])
         const after = await apiRequest(request, 'GET', `${todoApi}?id=${id}&pageSize=1`, { token })
         const { items } = await after.json()
-        if (results[0].status() === 200) expect(items[0]).toMatchObject({ id, title, is_done: true })
-        else expect(items).toEqual([])
+        const deleteWon = contender === 'delete' && results[1].status() === 200
+        if (deleteWon) expect(items).toEqual([])
+        else expect(items[0]).toMatchObject({ id, title, is_done: true })
       } finally {
         await deleteEntityIfExists(request, token, todoApi, id)
       }
@@ -188,15 +190,27 @@ configuredTest('TC-EXAMPLE-FORM-001 saves a visible field and shows a concurrent
   } finally {
     await other.close()
   }
-  const conflict = page.getByTestId('record-conflict-banner')
+  const conflict = page.getByTestId(CONFLICT_BANNER_TESTID).or(page.getByTestId(CONFLICT_DIALOG_TESTID)).first()
   if (!await conflict.isVisible()) {
+    const staleWrites: Request[] = []
+    const captureWrite = (request: Request) => {
+      if (request.method() === 'PUT' && new URL(request.url()).pathname === policyApi) staleWrites.push(request)
+    }
     const submitStaleEdit = async () => {
       await field(page, 'cf_priority').getByRole('textbox', { name: 'Priority level' }).fill('4')
-      expect((await saveShowcase(page)).status()).toBe(409)
+      await field(page, 'is_done').locator('xpath=ancestor::form[1]').locator('button[type="submit"]').first().click()
     }
-    await Promise.race([submitStaleEdit(), conflict.waitFor({ state: 'visible' })])
+    page.on('request', captureWrite)
+    try {
+      const conflictVisible = expectConflictBanner(page)
+      await Promise.race([submitStaleEdit(), conflictVisible])
+      await conflictVisible
+      for (const request of staleWrites) expect((await request.response())?.status()).toBe(409)
+    } finally {
+      page.off('request', captureWrite)
+    }
   }
-  await expect(conflict).toBeVisible()
+  await expectConflictBanner(page)
   expect(await showcaseTodo.read()).toMatchObject({
     title: showcaseTodo.title, notes: showcaseTodo.notes, is_done: true, cf_priority: 3,
   })

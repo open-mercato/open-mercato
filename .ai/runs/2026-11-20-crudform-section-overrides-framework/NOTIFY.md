@@ -45,3 +45,9 @@
 
 - Verified the real Todo showcase and the two standalone fixture cases. Five verified screenshots are on the PR.
 - Verified the exact disabled-scaffold targets, source links, context reachability, and template parity.
+
+## 2026-11-20T21:45:00Z — final verification follow-up
+
+- The ordered local gate passed all eight commands, including all 51 unit test tasks and the app build. All 42 uncached typecheck tasks passed.
+- Independent review approved the implementation and final generated inventories. The updated app and template fixture now assert both supported browser conflict surfaces and the actual winning API operation after concurrent writes.
+- All 255 deterministic harness cases passed, and each of the twelve new cases passed individually with the live Codex CLI. The full Linux release remains open after the sandboxed foundation reached its memory limit.

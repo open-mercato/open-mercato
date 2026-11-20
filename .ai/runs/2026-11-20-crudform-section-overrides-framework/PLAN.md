@@ -48,17 +48,19 @@ Status: in-progress
 | 6 | 6.3 | Register example capabilities and verify template parity | dispatch | done | 9f4313cdc7 |
 | 6 | 6.2-lint-fix | Distinguish the Playwright fixture callback from a React hook | self | done | f5510f5eb1 |
 | 6 | 6.4 | Refresh standalone harness coverage for each showcase case | dispatch | todo | — |
-| 6 | 6.2-audit-review-fix | Keep private sink replay data out of audit responses | self | done | this commit |
-| 6 | 6.2-host-review-fix | Keep configured host and sink versions independent and extend compatibility coverage | self | done | this commit |
-| 6 | 6.4-packed-budget-fix | Account for the measured rendered scaffold context | self | done | this commit |
-| 6 | 6.2-custom-validation-fix | Preserve the complete submitted native field set for validation | self | done | this commit |
-| 6 | 6.4-release-config-fix | Accept canonical packed Yarn config and validate in production mode | self | done | this commit |
-| 6 | 6.4-release-foundation-fix | Keep OpenAPI temporary output outside protected dependencies and fix scaffold lint | self | done | this commit |
-| 6 | 6.4-routing-fix | Give each Todo policy one canonical Example recipe | self | done | this commit |
-| 6 | 6.4-final-review-fix | Enforce runtime file ownership, isolate generated-test mode, and publish reference documentation | self | done | this commit |
-| 6 | 6.4-live-routing-fix | Clarify the existing-host, independent table, and ERP recipe tasks | self | done | this commit |
-| 6 | 6.2-bootstrap-test-fix | Verify the new section registry and four Example integrations at bootstrap | self | done | this commit |
-| 6 | 6.5 | Record example, harness and integration evidence | dispatch | todo | — |
+| 6 | 6.2-audit-review-fix | Keep private sink replay data out of audit responses | self | done | 2a44c9b853 |
+| 6 | 6.2-host-review-fix | Keep configured host and sink versions independent and extend compatibility coverage | self | done | d7b3f51dd4 |
+| 6 | 6.4-packed-budget-fix | Account for the measured rendered scaffold context | self | done | 7032a5dc91 |
+| 6 | 6.2-custom-validation-fix | Preserve the complete submitted native field set for validation | self | done | ecae17cf3b |
+| 6 | 6.4-release-config-fix | Accept canonical packed Yarn config and validate in production mode | self | done | 7370a8ff5f |
+| 6 | 6.4-release-foundation-fix | Keep OpenAPI temporary output outside protected dependencies and fix scaffold lint | self | done | 5a98ac1a2e |
+| 6 | 6.4-routing-fix | Give each Todo policy one canonical Example recipe | self | done | 5174acd50d |
+| 6 | 6.4-final-review-fix | Enforce runtime file ownership, isolate generated-test mode, and publish reference documentation | self | done | 3f69f9d389 |
+| 6 | 6.4-live-routing-fix | Clarify the existing-host, independent table, and ERP recipe tasks | self | done | 226c128279 |
+| 6 | 6.2-bootstrap-test-fix | Verify the new section registry and four Example integrations at bootstrap | self | done | 49a807f701 |
+| 6 | 6.4-verify-harness-fixtures | Verify generated inventories, standalone OpenAPI and routing fixtures | self | done | 8c2c97c79e |
+| 6 | 6.2-concurrency-ci-fix | Assert the winning API operation and both supported browser conflict surfaces | self | done | this commit |
+| 6 | 6.5 | Record example, harness and integration evidence | dispatch | done | this commit |
 
 ## Goal
 

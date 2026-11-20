@@ -1,0 +1,21 @@
+# Final gate evidence
+
+## Configured validation
+
+All eight commands in the ordered local gate passed on `8c2c97c79e` with Node 24.22.3 and Yarn 4.17.1. All 51 test tasks passed, and the app built. A separate uncached typecheck passed all 42 tasks. The final fixture changes address the two assertions identified by GitHub and will be checked on the new head.
+
+## Integration and UI evidence
+
+- The isolated app passed 21 Example and Staff Playwright checks with screenshots. It covered concurrent edits, independent resource versions, rollback, authorization and organization scoping, and ERP retry and deletion. [Browser results and screenshots](https://github.com/open-mercato/open-mercato/pull/10067#issuecomment-7049223654)
+- A fresh packed standalone app ran the missing-provider and exact observer-mask cases. [Checkpoint 7 evidence](https://github.com/open-mercato/open-mercato/pull/10067#issuecomment-7047639284)
+- GitHub passed 14 of 15 integration shards on `8c2c97c79e`. The remaining shard exposed a test that assumed the first update won and a browser test that waited for the OSS banner while CI showed the Enterprise conflict dialog. The repaired fixtures remain subject to the full integration run. [CI run](https://github.com/open-mercato/open-mercato/actions/runs/44812902523)
+
+## Standalone harness
+
+The twelve new cases fail the focused route and source contract against the previous baseline and pass against the new owner changes. All 255 deterministic cases pass, the knowledge-change contract certificate passes, and every new case has a live Codex pass. The last single live cohort passed 10 of 12, with the other two passing separately. A fresh macOS scaffold using verified package archives passed generation, typecheck, lint and build.
+
+Full provider-backed release certification remains open. The Linux sandbox passed containment and deterministic validation. Its foundation reached the 6 GiB container limit during typecheck and build. The isolated Linux provider runner lacked an active session.
+
+## Design and review
+
+Design-system lint and client-boundary checks passed. No new design-system violations were verified in the changed lines. Independent review approved the implementation and re-reviewed the generated inventories and bootstrap fixtures. [Implementation review](https://github.com/open-mercato/open-mercato/pull/10067#issuecomment-7049691627)

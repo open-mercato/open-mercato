@@ -5,8 +5,8 @@ PR: https://github.com/open-mercato/open-mercato/pull/10067
 
 ## Completed
 
-The framework, Todo showcase, C1–C12 integration matrix, and disabled Example reference are published. See [checkpoint 7](checkpoint-7-checks.md) for the managed app and packed scaffold tests, exact target verification, and screenshots.
+The framework, Todo showcase, C1–C12 integration matrix and disabled Example reference are published. The twelve standalone harness cases have exact routes and immutable Example reads. The [final gate record](final-gate-checks.md) links the validation, review and browser evidence.
 
-## Next concrete action
+## Remaining gates
 
-Apply the twelve standalone harness cases and exact source links in Step 6.4. Record the focused, packed and release evidence in Step 6.5, then run the ordered validation and full integration gates, design-system pass, independent review, and UI evidence review.
+Step 6.4 awaits the complete provider-backed release on Linux. The release foundation hit the Docker memory limit, and the isolated Linux runner has no active provider session. Keep the required GitHub `test` check and all integration shards visible until they settle on the repaired head. GitHub requires one approving review from an eligible reviewer. The PR also requires manual QA sign-off.
