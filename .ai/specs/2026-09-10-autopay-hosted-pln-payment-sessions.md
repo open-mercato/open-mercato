@@ -260,8 +260,53 @@ Tpay (`.ai/specs/2026-08-01-tpay-hosted-pln-payment-sessions.md`, "Out of
 Scope: Authoritative notifications").
 
 This does **not** block a usable MVP: `getStatus()` (`transactionStatus`) is
-a real, confirmed, pollable API — the payer-return page and any background
-reconciliation can call it directly without needing push notifications.
+a real, confirmed, pollable API — the payer-return page and the scheduled
+reconciliation below call it directly without needing push notifications.
+
+## Scheduled Status Reconciliation
+
+Without ITN, a payment whose payer never reaches the return page (closed
+tab, bank transfer that settles later, failed return request) would stay
+`pending` forever. The package therefore schedules the generic
+payment-gateway status poller for its own transactions.
+
+**Schedule** (registered from `setup.seedDefaults` and
+`setup.onOrganizationCreated`, soft dependency on `schedulerService`):
+
+| Field | Value |
+| --- | --- |
+| `id` | Deterministic UUID derived from `gateway_autopay:status-poller:<tenantId>:<organizationId>` (`lib/status-poller-schedule.ts`), so repeated setup updates one row. |
+| `scopeType` / scope | `organization`, the setup-provided tenant and organization. |
+| `scheduleType` / `scheduleValue` | `interval` / `5m`, UTC. |
+| `targetQueue` | `gateway-autopay-status-poller` (this module's queue). |
+| `targetPayload` | `{ limit: 100 }` only. |
+| `sourceType` / `sourceModule` | `module` / `gateway_autopay`. |
+| `isEnabled` | Not passed. The scheduler creates the row enabled and keeps the stored value on later setup runs, so an operator pause survives `mercato seed:defaults`. An organization without pending Autopay transactions costs one scoped DB query per run and no provider call. |
+
+**Worker** (`workers/status-poller.ts`, id `gateway_autopay:status-poller`,
+concurrency 1): reads the trusted `payload.scope.{tenantId,organizationId}`
+the scheduler injects, fixes `providerKey: 'autopay'`, caps `limit` at 100
+and delegates to the core
+`payment_gateways/workers/status-poller` handler. That handler lists
+transactions in `pending`, `authorized` or `partially_captured`, oldest
+`lastPolledAt` first, and runs the canonical
+`paymentGatewayService.getPaymentStatus` for each, so a poll-driven
+transition emits the same events as a return-page transition. A job without
+a trusted scope is skipped with a warning.
+
+**Why not the shared `payment-gateways-status-poller` queue.** The
+scheduler (`packages/scheduler/.../safeQueueTargets.ts`) dispatches a
+module-authored schedule only onto a queue whose workers belong to
+`sourceModule`, and it strips `scope`, `tenantId` and `organizationId` from
+the stored `targetPayload` before dispatch. A `gateway_autopay` schedule on
+the core queue would never fire, and a `scope.providerKey` in the payload
+would never reach the worker. Owning the queue and fixing the provider key in
+the worker satisfies both guards without touching core or the scheduler.
+
+**Bounds inherited from the core worker:** batch 100 oldest-first,
+per-transaction error isolation with an integration-log entry, the next run
+retries whatever is still non-terminal. No provider-specific backoff,
+dead-letter queue or second status worker is added.
 
 ## Proposed Solution
 
@@ -452,6 +497,7 @@ Rollback disables new Autopay sessions; no migration rollback is required.
 | Refund | Mocked `transactionRefund`: full refund, partial refund, `TRANSACTION_TOO_OLD_TO_REFUND`, missing-balance rejection — asserting the adapter acknowledges without claiming a refund (payment `captured`, `refundedAmount` 0, `refundStatus: 'pending'`), and — through the real payment gateway service — that a replay of the same operation returns the recorded acknowledgment without a second provider call. |
 | Tenant scope | Two tenants use independent encrypted credentials. Through the real payment gateway service: a tenant cannot act on another tenant's payment, each tenant's requests are signed with its own Service ID and shared key, and a response signed with another tenant's key is rejected. The return route verifies the signature per candidate and fails closed on zero or several matches. |
 | Launch and return routes | Token validity, expiry, non-pending refusal, gateway-host allowlist, HTML escaping, no-store headers, rate limiting, redirect targets taken only from stored data, and the launch CSP kept identical in the app and template `next.config.ts`. |
+| Scheduled reconciliation (Playwright, `__integration__/TC-AUTOPAY-001..004`) | Against the running app with API-created tenant/organization fixtures, removed in `finally`, no seeded data. TC-AUTOPAY-001: the organization-created hook registers exactly one schedule per organization (`sourceModule: 'gateway_autopay'`, `targetQueue: 'gateway-autopay-status-poller'`, `targetPayload: { limit: 100 }`, interval `5m`, no acting-user stamp) and `mercato seed:defaults --module gateway_autopay` updates that row while keeping an operator-disabled schedule disabled. TC-AUTOPAY-002: one tick of the real local scheduler passes the module-authored dispatch guard and enqueues the trusted `payload.scope.{tenantId, organizationId}`; the worker polls only the `autopay` transaction, with a request signed by the tenant's key, and leaves a non-terminal mock-provider transaction in the same organization untouched. TC-AUTOPAY-003: a signed `SUCCESS` answer drives a pending payment to `captured` with exactly one poller transition log entry, and a terminal payment is not polled again. TC-AUTOPAY-004: HTTP 500 and a foreign-key-signed answer each leave the payment `pending` with a `payment_gateways.status_poll_failed` integration log entry, the next run retries, and a correctly signed answer then captures it. Autopay HTTP is answered by an in-process `fetch` stub with signed XML fixtures (`__tests__/support/autopay-xml.ts`); the Autopay client accepts only the two documented hosts, so TC-002..004 run only where the poller worker is drained in the Playwright process (`AUTO_SPAWN_WORKERS=false`, local queue strategy, no `OM_TEST_APP_ROOT`) and skip with that reason elsewhere. The `gateway-autopay-poller-integration` job in `.github/workflows/ci.yml` is that lane: it runs the four specs against the ephemeral app with `AUTO_SPAWN_WORKERS=false` and `OM_INTEGRATION_IN_PROCESS_WORKERS_REQUIRED=1` (under which the gate fails instead of skipping) and re-checks the Playwright report for all four. Residual risk: the sharded `ephemeral-integration` job (managed worker processes) and the standalone snapshot lane still skip TC-002..004, so a regression that only appears when the worker runs in the app's own worker process remains manual-only. |
 | Integration E2E | Blocked on real sandbox credentials from Autopay partner onboarding (known, pre-existing, non-automatable blocker) — needed for the actual redirect path and a live `transactionStatus` round trip. |
 
 Acceptance for this spec's scope: all hash unit tests pass against the
@@ -479,8 +525,8 @@ deferred until real sandbox credentials exist.
 - EUR/GBP/USD currencies.
 - Production credentials and rollout — explicitly out of scope per project
   decision; requires manual Autopay partner onboarding.
-- Background reconciliation polling / scheduled `getStatus` sweeps for
-  abandoned or async-refund transactions.
+- Refund-outcome reconciliation: the scheduled poller reads payment status
+  only; `transactionStatus` never reports refund results.
 
 ## Risks & Impact Review
 
@@ -627,6 +673,41 @@ would eventually plug into the generic webhook route) is explicitly deferred
 to a follow-up spec and does not block this spec's MVP scope.
 
 ## Changelog
+
+### 2026-11-18
+
+- Review follow-up: added the `gateway-autopay-poller-integration` CI job
+  so TC-AUTOPAY-002..004 run in a required lane with in-process queue
+  workers instead of skipping everywhere; the in-spec gate now fails rather
+  than skips under `OM_INTEGRATION_IN_PROCESS_WORKERS_REQUIRED`, and the job
+  re-checks the Playwright report for the four specs. Recorded the residual
+  manual-only risk in the Testing Strategy table.
+
+### 2026-11-17
+
+- Added Playwright integration coverage for the scheduled status
+  reconciliation (`__integration__/TC-AUTOPAY-001..004`), the follow-up the
+  review of the reconciliation PR asked for: schedule registration and
+  `seed:defaults` idempotency per organization, dispatch through the real
+  local scheduler with the trusted scope on the module-owned queue, a settled
+  payment reaching `captured` with one transition entry, and provider-error
+  isolation with retry on the next run. Autopay HTTP is stubbed in-process
+  with signed XML, so the dispatch, capture and retry specs run where the
+  poller worker is drained in the Playwright process and skip with a reason
+  elsewhere. Documented in the Testing Strategy table.
+
+### 2026-11-12
+
+- Added scheduled status reconciliation: a 5-minute organization-scoped
+  schedule on the module's own `gateway-autopay-status-poller` queue and a
+  thin worker that narrows the generic payment-gateway status poller to
+  `providerKey: 'autopay'`. Registered from `seedDefaults` and
+  `onOrganizationCreated`; skipped with a warning when the scheduler module
+  is absent, and a registration failure is reported without failing tenant
+  setup. Documented why the shared core queue cannot be targeted by a
+  provider-authored schedule.
+- Review follow-up: the registration no longer passes `isEnabled`, so a
+  schedule an operator disabled stays disabled when setup runs again.
 
 ### 2026-11-04
 
