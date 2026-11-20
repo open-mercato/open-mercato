@@ -689,7 +689,7 @@ export class DefaultDataEngine implements DataEngine {
     where: FilterQuery<T>
     apply: (current: T) => Promise<void> | void
   }): Promise<T | null> {
-    const current = await this.em.findOne(opts.entity as EntityName<T>, opts.where as FilterQuery<NoInfer<T>>)
+    const current = await this.em.findOne<T>(opts.entity, opts.where as Parameters<typeof this.em.findOne<T>>[1])
     if (!current) return null
     await opts.apply(current)
     await this.em.persist(current).flush()
@@ -702,7 +702,7 @@ export class DefaultDataEngine implements DataEngine {
     soft?: boolean
     softDeleteField?: keyof T & string
   }): Promise<T | null> {
-    const current = await this.em.findOne(opts.entity as EntityName<T>, opts.where as FilterQuery<NoInfer<T>>)
+    const current = await this.em.findOne<T>(opts.entity, opts.where as Parameters<typeof this.em.findOne<T>>[1])
     if (!current) return null
     if (opts.soft !== false) {
       const field = opts.softDeleteField || ('deletedAt' as keyof T & string)

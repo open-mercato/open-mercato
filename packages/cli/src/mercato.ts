@@ -36,6 +36,7 @@ import {
   startInProcessGenerateWatcher,
   type GenerateWatcherHandle,
 } from './lib/in-process-generate-watcher'
+import { runGenerateChildProcess } from './lib/generate-child-process'
 import {
   resolveGenerateWatcherMode,
   type GenerateWatcherMode,
@@ -381,10 +382,19 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     // Resolver might fail during early init, fall back to default behavior
   }
 
-  // Fall back to default dotenv behavior (loads from cwd)
+  // Preserve dotenv/config's environment/argv options in the cwd fallback.
+  const previousDotenvQuiet = process.env.DOTENV_CONFIG_QUIET
   try {
+    if (quietDotenv) process.env.DOTENV_CONFIG_QUIET = 'true'
     await import('dotenv/config')
-  } catch {}
+  } catch {
+    // Environment loading remains best effort.
+  } finally {
+    if (quietDotenv) {
+      if (previousDotenvQuiet === undefined) delete process.env.DOTENV_CONFIG_QUIET
+      else process.env.DOTENV_CONFIG_QUIET = previousDotenvQuiet
+    }
+  }
 }
 
 function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): string {
@@ -833,12 +843,7 @@ async function runPostGenerateStructuralInvalidation(quiet: boolean): Promise<vo
   }
 }
 
-/**
- * Generator suite invoked by both `mercato generate all` and the in-process
- * generate watcher embedded in `mercato server dev`. Hoisted to module scope
- * so the watcher embedded in the server lifecycle can reuse the same closure
- * without re-importing the closure-scoped version inside `buildBaseModules`.
- */
+/** Full one-shot suite; long-lived watchers invoke this in a disposable CLI process. */
 async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
   const { createResolver } = await import('./lib/resolver')
   const {
@@ -872,6 +877,17 @@ async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Prom
     return
   }
   await runPostGenerateStructuralInvalidation(quiet)
+}
+
+async function runWatchGeneratorSuite(): Promise<void> {
+  // Keep resolver setup behind command dispatch; other CLI modes do not need it.
+  const { resolveEnvironment } = await import('./lib/resolver')
+  const { rootDir, appDir } = resolveEnvironment()
+  await runGenerateChildProcess({
+    mercatoBin: resolveInstalledBinary([rootDir, appDir], '@open-mercato/cli/bin/mercato'),
+    cwd: process.cwd(),
+    quiet: true,
+  })
 }
 
 /**
@@ -995,16 +1011,18 @@ export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: 
   const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
   const readOnlyModuleCommand = first === 'module' && (parts[1] === 'search' || parts[1] === 'info')
   const jsonOutput = parts.includes('--json')
+  const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   const helpRequested = isHelpRequest(parts)
   return {
     createIfMissing: !helpRequested && !opaqueEnvCommand && !readOnlyModuleCommand,
-    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput,
+    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput || quietGeneration,
   }
 }
 
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
+  const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   // Help must never have side effects: it must not create .env, and must not fall through
   // to the command it is asking about.
   const helpRequested = isHelpRequest(parts)
@@ -2038,9 +2056,9 @@ export async function run(argv = process.argv) {
         run: async (args: string[]) => {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
-          console.log('Running all generators...')
+          if (!quiet) console.log('Running all generators...')
           await runGeneratorSuiteWithStructuralInvalidation(quiet)
-          console.log('All generators completed.')
+          if (!quiet) console.log('All generators completed.')
         },
       },
       {
@@ -2058,9 +2076,7 @@ export async function run(argv = process.argv) {
             skipInitial,
             quiet,
             ...generateWatchRuntime,
-            runGenerators: async () => {
-              await runGeneratorSuiteWithStructuralInvalidation(true)
-            },
+            runGenerators: runWatchGeneratorSuite,
           })
 
           const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
@@ -2529,12 +2545,10 @@ export async function run(argv = process.argv) {
               })
 
               if (generateWatcherMode === 'in-process') {
-                // Run the structural regeneration watcher inside this process
-                // instead of spawning a dedicated `mercato generate watch --skip-initial`
-                // sidecar. Saves ~190 MB of resident RSS on a typical dev box
-                // (measured against the legacy sidecar). Opt back into the
-                // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
-                console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                // Keep the event watcher here, but evaluate each generation in
+                // a fresh one-shot child so imported module revisions do not
+                // accumulate in this long-lived supervisor.
+                console.log('[server] In-process generate watcher enabled — structural changes regenerate in a one-shot child.')
                 const generateWatchRuntime = await createGenerateWatchRuntime()
                 activeGenerateWatcher = startInProcessGenerateWatcher({
                   // `--skip-initial` equivalent: `yarn dev` always runs an
@@ -2545,9 +2559,7 @@ export async function run(argv = process.argv) {
                   skipInitial: true,
                   quiet: false,
                   ...generateWatchRuntime,
-                  runGenerators: async () => {
-                    await runGeneratorSuiteWithStructuralInvalidation(true)
-                  },
+                  runGenerators: runWatchGeneratorSuite,
                 })
               } else {
                 console.log('[server] Legacy out-of-process generate watcher selected via OM_DEV_GENERATE_WATCH_MODE=legacy — expect the dev orchestrator to spawn `mercato generate watch --skip-initial`.')
@@ -2787,7 +2799,7 @@ export async function run(argv = process.argv) {
 
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
-  const quietBanner = process.env.OM_CLI_QUIET === '1'
+  const quietBanner = process.env.OM_CLI_QUIET === '1' || quietGeneration
   const banner = '🧩 Open Mercato CLI'
   if (!quietBanner) {
     const header = [
@@ -2851,18 +2863,20 @@ export async function run(argv = process.argv) {
     return 0
   }
 
-  console.log('')
+  if (!quietGeneration) console.log('')
   const started = Date.now()
-  const commandArgs = modName === 'deploy' && cmdName === 'railway'
-    ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
-    : rest
-  const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
-  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  if (!quietGeneration) {
+    const commandArgs = modName === 'deploy' && cmdName === 'railway'
+      ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
+      : rest
+    const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
+    console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  }
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
       await cmd.run(rest)
     })
-    if (modName !== 'deploy' || cmdName !== 'railway') {
+    if (!quietGeneration && (modName !== 'deploy' || cmdName !== 'railway')) {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)
     }

@@ -17,6 +17,16 @@ export const AGENT_PROPOSAL_PENDING_NOTIFICATION = 'agent_orchestrator.proposal.
 
 export const AGENT_PROPOSAL_SOURCE_ENTITY_TYPE = 'agent_orchestrator:agent_proposal'
 
+/**
+ * A run outside the proposal flow (research/analysis) asked for a human through
+ * an `abstain_or_review` rule on the `review` route. Without it the
+ * `run.review_requested` event reaches nobody (B-7). One notification per agent
+ * per recipient, refreshed by later runs, so a busy agent cannot flood the bell.
+ */
+export const AGENT_RUN_REVIEW_REQUESTED_NOTIFICATION = 'agent_orchestrator.run.review_requested'
+
+export const AGENT_RUN_SOURCE_ENTITY_TYPE = 'agent_orchestrator:agent_run'
+
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: AGENT_PROPOSAL_PENDING_NOTIFICATION,
@@ -36,6 +46,18 @@ export const notificationTypes: NotificationTypeDefinition[] = [
       },
     ],
     linkHref: '/backend/caseload/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
+  {
+    type: AGENT_RUN_REVIEW_REQUESTED_NOTIFICATION,
+    module: 'agent_orchestrator',
+    channels: ['in_app'],
+    titleKey: 'agent_orchestrator.notifications.runReviewRequested.title',
+    bodyKey: 'agent_orchestrator.notifications.runReviewRequested.body',
+    icon: 'alert-triangle',
+    severity: 'warning',
+    actions: [],
+    linkHref: '/backend/traces?facet=needs-review',
     expiresAfterHours: 168,
   },
 ]
