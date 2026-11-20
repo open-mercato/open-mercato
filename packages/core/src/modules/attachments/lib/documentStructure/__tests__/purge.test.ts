@@ -1,8 +1,16 @@
 /** @jest-environment node */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AttachmentDocumentExtraction, AttachmentDocumentSection } from '../../../data/entities'
-import { purgeDocumentStructure } from '../purge'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../purge'
+import { enqueueDocumentSectionSearch, type DocumentStructureQueueJob } from '../queue'
+import { fanOutPartitionSectionSearch, runDocumentSectionSearchSync } from '../sectionSearchSync'
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(),
+}))
 
 type Row = {
   id: string
@@ -75,8 +83,14 @@ function createEm(seed: { extractions: Row[]; sections: Row[] }) {
     tables.set(entity, kept)
     return rows.length - kept.length
   })
+  const nativeUpdate = jest.fn(async (entity: unknown, where: Record<string, unknown>, values: Partial<Row>) => {
+    const matching = (tables.get(entity) ?? []).filter((entry) => matches(entry, where))
+    matching.forEach((entry) => Object.assign(entry, values))
+    return matching.length
+  })
   const em = {
     nativeDelete,
+    nativeUpdate,
     getKysely,
     rawPredicates,
     transactional: jest.fn(async <T>(
@@ -97,6 +111,67 @@ function row(id: string, overrides: Partial<Row> = {}): Row {
 
 describe('purgeDocumentStructure', () => {
   const scope = { attachmentId: ATTACHMENT_ID, tenantId: TENANT_A, organizationId: ORG_A }
+
+  it('removes search records when toggle-off deletion runs after the attachment was purged', async () => {
+    const extractionId = '66666666-6666-4666-8666-666666666666'
+    const sectionId = '77777777-7777-4777-8777-777777777777'
+    const extraction = row(extractionId, { stats: { searchIndexed: true } })
+    const em = createEm({ extractions: [extraction], sections: [row(sectionId, { extractionId })] })
+    const manager = em as unknown as EntityManager
+    const jobs: DocumentStructureQueueJob[] = []
+    const queue = {
+      enqueue: jest.fn(async (job: DocumentStructureQueueJob) => {
+        jobs.push(job)
+        return `job-${jobs.length}`
+      }),
+    }
+    const container = { hasRegistration: () => true, resolve: <T,>() => queue as unknown as T }
+    jest.mocked(findOneWithDecryption).mockResolvedValueOnce({
+      indexDocumentSections: false, tenantId: TENANT_A,
+    } as unknown as Awaited<ReturnType<typeof findOneWithDecryption>>)
+    jest.mocked(findWithDecryption).mockResolvedValueOnce([
+      extraction,
+    ] as unknown as Awaited<ReturnType<typeof findWithDecryption>>)
+
+    await fanOutPartitionSectionSearch({
+      em: manager,
+      partitionCode: 'contracts',
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+      enqueue: (input) => enqueueDocumentSectionSearch(container, input),
+    })
+    expect(extraction.stats?.searchIndexed).toBe(false)
+    expect(jobs).toHaveLength(1)
+
+    const purged = await purgeDocumentStructure(manager, scope)
+    await enqueuePurgedSectionSearchDelete(scope, purged.indexedSectionIds, container)
+    expect(em.rows(AttachmentDocumentSection)).toEqual([])
+    expect(em.rows(AttachmentDocumentExtraction)).toEqual([])
+    jest.mocked(findWithDecryption).mockResolvedValue([])
+    const searchRecords = new Set([sectionId])
+    const emitEvent = jest.fn(async (_event: string, payload: Record<string, unknown>) => {
+      searchRecords.delete(String(payload.recordId))
+    })
+    const deps = { em: manager, eventBus: { emitEvent }, enqueue: async () => 'unexpected-continuation' }
+
+    expect(await runDocumentSectionSearchSync(jobs[0], deps)).toEqual({
+      kind: 'synced', emitted: 0, continuation: false,
+    })
+    expect(searchRecords.has(sectionId)).toBe(true)
+    expect(jobs).toHaveLength(2)
+    expect(await runDocumentSectionSearchSync(jobs[1], deps)).toEqual({
+      kind: 'synced', emitted: 1, continuation: false,
+    })
+    expect(emitEvent).toHaveBeenCalledWith('query_index.delete_one', {
+      entityType: 'attachments:attachment_document_section',
+      recordId: sectionId,
+      tenantId: TENANT_A,
+      organizationId: ORG_A,
+    })
+    expect(searchRecords.size).toBe(0)
+    await runDocumentSectionSearchSync(jobs[1], deps)
+    expect(searchRecords.size).toBe(0)
+  })
 
   it('deletes every extraction and section of the attachment within its scope in one transaction', async () => {
     const em = createEm({
@@ -142,12 +217,14 @@ describe('purgeDocumentStructure', () => {
     expect(em.rows(AttachmentDocumentSection)).toEqual([])
   })
 
-  it('returns the section ids of search-indexed extractions within scope before deleting them', async () => {
+  it('returns every scoped section id regardless of indexing state before deleting the rows', async () => {
     const em = createEm({
       extractions: [
         row('ext-indexed', { stats: { searchIndexed: true } }),
         row('ext-plain', { stats: { pageCount: 3 } }),
         row('ext-null-stats', { stats: null }),
+        row('ext-disabled', { stats: { searchIndexed: false } }),
+        row('ext-other-org', { organizationId: ORG_B, stats: { searchIndexed: false } }),
         row('ext-other-tenant', { tenantId: TENANT_B, organizationId: ORG_B, stats: { searchIndexed: true } }),
       ],
       sections: [
@@ -155,19 +232,24 @@ describe('purgeDocumentStructure', () => {
         row('sec-indexed-2', { extractionId: 'ext-indexed' }),
         row('sec-plain', { extractionId: 'ext-plain' }),
         row('sec-null-stats', { extractionId: 'ext-null-stats' }),
+        row('sec-disabled', { extractionId: 'ext-disabled' }),
+        row('sec-other-org', { extractionId: 'ext-other-org', organizationId: ORG_B }),
+        row('sec-wrong-extraction-scope', { extractionId: 'ext-other-org' }),
+        row('sec-wrong-section-scope', { extractionId: 'ext-disabled', organizationId: ORG_B }),
         row('sec-other-tenant', { extractionId: 'ext-other-tenant', tenantId: TENANT_B, organizationId: ORG_B }),
       ],
     })
 
     const result = await purgeDocumentStructure(em as unknown as EntityManager, scope)
 
-    expect(result.indexedSectionIds).toEqual(['sec-indexed-1', 'sec-indexed-2'])
-    expect(result.sectionCount).toBe(4)
-    expect(em.rawPredicates).toHaveLength(1)
-    expect(em.rawPredicates[0]).toContain('searchIndexed')
+    expect(result.indexedSectionIds).toEqual(['sec-indexed-1', 'sec-indexed-2', 'sec-plain', 'sec-null-stats', 'sec-disabled'])
+    expect(result.sectionCount).toBe(6)
+    expect(em.rawPredicates).toHaveLength(0)
     const selectOrder = em.getKysely.mock.invocationCallOrder[0]
     expect(selectOrder).toBeLessThan(em.nativeDelete.mock.invocationCallOrder[0])
-    expect(em.rows(AttachmentDocumentSection).map((entry) => entry.id)).toEqual(['sec-other-tenant'])
+    expect(em.rows(AttachmentDocumentSection).map((entry) => entry.id)).toEqual([
+      'sec-other-org', 'sec-wrong-section-scope', 'sec-other-tenant',
+    ])
   })
 
   it('selects indexed sections on the passed entity manager when flush is false', async () => {
