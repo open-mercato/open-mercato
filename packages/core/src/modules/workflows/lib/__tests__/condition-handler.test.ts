@@ -20,10 +20,16 @@ jest.mock('../parallel-handler', () => ({
   resumeBranch: jest.fn(),
 }))
 
+jest.mock('../../events', () => {
+  const actual = jest.requireActual('../../events') as Record<string, unknown>
+  return { ...actual, emitWorkflowsEvent: jest.fn() }
+})
+
 import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { logWorkflowEvent } from '../event-logger'
+import { emitWorkflowsEvent } from '../../events'
 import { resumeBranch } from '../parallel-handler'
 import * as stepHandler from '../step-handler'
 import {
@@ -53,6 +59,7 @@ const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<t
 const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 const mockLogWorkflowEvent = logWorkflowEvent as jest.MockedFunction<typeof logWorkflowEvent>
 const mockResumeBranch = resumeBranch as jest.MockedFunction<typeof resumeBranch>
+const mockEmitWorkflowsEvent = emitWorkflowsEvent as jest.MockedFunction<typeof emitWorkflowsEvent>
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
 const organizationId = '00000000-0000-4000-8000-000000000002'
@@ -148,6 +155,7 @@ describe('WAIT_FOR_CONDITION', () => {
       persistAndFlush: jest.fn(),
       flush: jest.fn(),
       nativeUpdate: jest.fn().mockResolvedValue(1),
+      execute: jest.fn().mockResolvedValue({ affectedRows: 1 }),
     } as any
 
     mockExitStep = jest.fn().mockResolvedValue(undefined)
@@ -639,12 +647,19 @@ describe('WAIT_FOR_CONDITION', () => {
       })
 
       expect(result.outcome).toBe('met')
-      expect(mockResumeBranch).toHaveBeenCalledWith(
+      const [claimSql, claimParams] = (mockEm as any).execute.mock.calls[0]
+      expect(claimSql).toMatch(/update workflow_branch_instances/)
+      expect(claimSql).toMatch(/status = 'PAUSED'/)
+      expect(claimSql).toMatch(/status in \('RUNNING', 'PAUSED', 'FORKED'\)/)
+      expect(claimParams).toEqual(expect.arrayContaining([branchInstanceId, stepInstanceId, tenantId, organizationId]))
+      expect(branch.status).toBe('ACTIVE')
+      expect(mockExitStep).toHaveBeenCalledWith(
         mockEm,
-        expect.objectContaining({ instanceId, branchInstanceId, exitStepInstanceId: stepInstanceId })
+        expect.objectContaining({ id: stepInstanceId }),
+        expect.objectContaining({ conditionMet: true, wokenBy: 'poll' })
       )
-      expect(mockExitStep).not.toHaveBeenCalled()
       expect(mockExecuteWorkflow).toHaveBeenCalled()
+      expect(mockResumeBranch).not.toHaveBeenCalled()
     })
   })
 
@@ -772,20 +787,16 @@ describe('WAIT_FOR_CONDITION', () => {
       })
 
       expect(result.outcome).toBe('met')
-      expect(mockEm.nativeUpdate).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          id: instanceId,
-          tenantId,
-          organizationId,
-          status: 'PAUSED',
-          currentStepId: 'wait_for_payment',
-        }),
-        expect.objectContaining({ status: 'RUNNING' })
+      const [claimSql, claimParams] = (mockEm as any).execute.mock.calls[0]
+      expect(claimSql).toMatch(/update workflow_instances\s+set status = 'RUNNING'/)
+      expect(claimSql).toMatch(/status = 'PAUSED' and current_step_id = \?/)
+      expect(claimSql).toMatch(/from step_instances[\s\S]*status = 'ACTIVE'/)
+      expect(claimParams).toEqual(
+        expect.arrayContaining([instanceId, tenantId, organizationId, 'wait_for_payment', stepInstanceId])
       )
       expect(seen.transition).toBe('RUNNING')
       expect(seen.workflow).toBe('RUNNING')
-      expect((mockEm.nativeUpdate as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      expect(((mockEm as any).execute as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
         mockExecuteTransition.mock.invocationCallOrder[0]
       )
     })
@@ -808,11 +819,7 @@ describe('WAIT_FOR_CONDITION', () => {
       })
 
       expect(result.outcome).toBe('timed_out')
-      expect(mockEm.nativeUpdate).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ status: 'PAUSED' }),
-        expect.objectContaining({ status: 'RUNNING' })
-      )
+      expect((mockEm as any).execute.mock.calls[0][0]).toMatch(/set status = 'RUNNING'/)
       expect(seen.transition).toBe('RUNNING')
       expect(seen.workflow).toBe('RUNNING')
     })
@@ -835,7 +842,7 @@ describe('WAIT_FOR_CONDITION', () => {
     test('a concurrent wake that lost the claim neither transitions nor re-enters the executor', async () => {
       const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
       primeLookups(instance, makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
-      ;(mockEm.nativeUpdate as jest.Mock).mockResolvedValueOnce(0 as never)
+      ;((mockEm as any).execute as jest.Mock).mockResolvedValueOnce({ affectedRows: 0 } as never)
 
       await evaluateWaitCondition(mockEm, mockContainer, {
         instanceId,
@@ -849,6 +856,323 @@ describe('WAIT_FOR_CONDITION', () => {
       expect(mockExecuteTransition).not.toHaveBeenCalled()
       expect(mockExecuteWorkflow).not.toHaveBeenCalled()
       expect(instance.status).toBe('PAUSED')
+    })
+  })
+
+  describe('claim gates every side effect of ending the wait', () => {
+    const futureDeadline = () => new Date(Date.now() + 20 * 60 * 1000).toISOString()
+    const pastDeadline = () => new Date(Date.now() - 1000).toISOString()
+    const lostClaim = { affectedRows: 0 }
+
+    beforeEach(() => {
+      mockFindOneWithDecryption.mockReset()
+      mockFindWithDecryption.mockReset()
+    })
+
+    function milestoneDefinition(config: Record<string, unknown>, transitions?: unknown[]): WorkflowDefinition {
+      const definition = makeDefinition(config) as any
+      definition.definition.steps[1].milestone = 'payment_captured'
+      if (transitions) definition.definition.transitions = transitions
+      return definition as WorkflowDefinition
+    }
+
+    function wireRealExitStep(instance: WorkflowInstance, definition: WorkflowDefinition) {
+      ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: any) =>
+        entity?.name === 'WorkflowInstance' ? instance : definition
+      )
+      mockExitStep.mockImplementation((em: any, step: any, output: any) => stepHandler.exitStep(em, step, output))
+    }
+
+    function primePoll(instance: WorkflowInstance, stepInstance: StepInstance, definition: WorkflowDefinition) {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(instance as any)
+        .mockResolvedValueOnce(stepInstance as any)
+        .mockResolvedValueOnce(definition as any)
+      wireRealExitStep(instance, definition)
+    }
+
+    function primeWake(instance: WorkflowInstance, stepInstance: StepInstance, definition: WorkflowDefinition) {
+      mockFindOneWithDecryption.mockResolvedValueOnce(instance as any).mockResolvedValueOnce(definition as any)
+      mockFindWithDecryption.mockResolvedValueOnce([stepInstance] as any)
+      wireRealExitStep(instance, definition)
+    }
+
+    function expectNoSideEffects(instance: WorkflowInstance, stepInstance: StepInstance) {
+      expect(mockLogWorkflowEvent).not.toHaveBeenCalled()
+      expect(mockEmitWorkflowsEvent).not.toHaveBeenCalled()
+      expect(mockExitStep).not.toHaveBeenCalled()
+      expect(mockFindValidTransitions).not.toHaveBeenCalled()
+      expect(mockExecuteTransition).not.toHaveBeenCalled()
+      expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+      expect(mockCompleteWorkflow).not.toHaveBeenCalled()
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+      expect((mockEm as any).execute).toHaveBeenCalledTimes(1)
+      expect(stepInstance.status).toBe('ACTIVE')
+      expect(stepInstance.exitedAt).toBeUndefined()
+      expect(instance.status).toBe('PAUSED')
+    }
+
+    test('the winning poll records completion and emits the step milestone exactly once', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      const stepInstance = makeStepInstance()
+      primePoll(instance, stepInstance, milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 1,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result.outcome).toBe('met')
+      expect(stepInstance.status).toBe('COMPLETED')
+      expect(mockEmitWorkflowsEvent).toHaveBeenCalledTimes(1)
+      expect(mockEmitWorkflowsEvent).toHaveBeenCalledWith(
+        'workflows.instance.milestone_reached',
+        expect.objectContaining({ milestoneKey: 'payment_captured', instanceId }),
+        expect.anything()
+      )
+      const eventTypes = mockLogWorkflowEvent.mock.calls.map(([, event]) => (event as any).eventType)
+      expect(eventTypes).toContain('CONDITION_MET')
+      const claimOrder = ((mockEm as any).execute as jest.Mock).mock.invocationCallOrder[0]
+      expect(claimOrder).toBeLessThan(mockLogWorkflowEvent.mock.invocationCallOrder[0])
+      expect(claimOrder).toBeLessThan(mockEmitWorkflowsEvent.mock.invocationCallOrder[0])
+    })
+
+    test('a poll that loses the claim is a no-op: no event, no step completion, no milestone', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      const stepInstance = makeStepInstance()
+      primePoll(instance, stepInstance, milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+      ;((mockEm as any).execute as jest.Mock).mockResolvedValueOnce(lostClaim as never)
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 1,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result).toEqual({ outcome: 'noop', reason: 'CLAIMED_BY_CONCURRENT_DELIVERY' })
+      expectNoSideEffects(instance, stepInstance)
+    })
+
+    test('a run cancelled between the load and the claim is never resumed or completed', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      const stepInstance = makeStepInstance()
+      primePoll(instance, stepInstance, milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+      ;((mockEm as any).execute as jest.Mock).mockImplementationOnce(async (sql: string) => {
+        expect(sql).toMatch(/status = 'PAUSED'/)
+        return lostClaim
+      })
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 1,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result.outcome).toBe('noop')
+      expectNoSideEffects(instance, stepInstance)
+    })
+
+    test('a timed-out poll that loses the claim neither logs the timeout nor continues', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'pending' } } } as any)
+      const stepInstance = makeStepInstance()
+      primePoll(
+        instance,
+        stepInstance,
+        milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M', onTimeout: 'CONTINUE' })
+      )
+      ;((mockEm as any).execute as jest.Mock).mockResolvedValueOnce(lostClaim as never)
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: pastDeadline(),
+        attempt: 5,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result).toEqual({ outcome: 'noop', reason: 'CLAIMED_BY_CONCURRENT_DELIVERY' })
+      expectNoSideEffects(instance, stepInstance)
+    })
+
+    test('a timed-out poll that loses the claim does not fail a wait another delivery resumed', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'pending' } } } as any)
+      const stepInstance = makeStepInstance()
+      primePoll(
+        instance,
+        stepInstance,
+        milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M', onTimeout: 'FAIL' })
+      )
+      ;((mockEm as any).execute as jest.Mock).mockResolvedValueOnce(lostClaim as never)
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: pastDeadline(),
+        attempt: 5,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result.outcome).toBe('noop')
+      expectNoSideEffects(instance, stepInstance)
+    })
+
+    test('a context wake that loses the claim does not report the step as woken', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      const stepInstance = makeStepInstance()
+      primeWake(instance, stepInstance, milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+      ;((mockEm as any).execute as jest.Mock).mockResolvedValueOnce(lostClaim as never)
+
+      const result = await wakeConditionWaiters(mockEm, mockContainer, { instanceId, tenantId, organizationId })
+
+      expect(result.woken).toEqual([])
+      expectNoSideEffects(instance, stepInstance)
+    })
+
+    test.each([
+      ['no auto transition', []],
+      [
+        'no valid auto transition',
+        [{ transitionId: 't1', fromStepId: 'wait_for_payment', toStepId: 'end', trigger: 'auto' }],
+      ],
+    ])('the %s arm runs behind the claim too', async (_label, transitions) => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      const stepInstance = makeStepInstance()
+      primePoll(
+        instance,
+        stepInstance,
+        milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }, transitions as unknown[])
+      )
+      mockFindValidTransitions.mockResolvedValue([{ transition: null, isValid: false }])
+      ;((mockEm as any).execute as jest.Mock).mockResolvedValueOnce(lostClaim as never)
+
+      const lost = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 1,
+        tenantId,
+        organizationId,
+      })
+      expect(lost.outcome).toBe('noop')
+      expectNoSideEffects(instance, stepInstance)
+
+      primePoll(
+        instance,
+        stepInstance,
+        milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }, transitions as unknown[])
+      )
+      const won = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 2,
+        tenantId,
+        organizationId,
+      })
+      expect(won.outcome).toBe('met')
+      expect(instance.status).toBe('RUNNING')
+      expect(stepInstance.status).toBe('COMPLETED')
+      expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+      expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+    })
+
+    test('a branch waiter that loses the claim leaves the branch parked', async () => {
+      const branch: any = {
+        id: branchInstanceId,
+        workflowInstanceId: instanceId,
+        status: 'PAUSED',
+        contextNamespace: { payment: { status: 'captured' } },
+        tenantId,
+        organizationId,
+      }
+      const instance = makeInstance({ status: 'FORKED', context: {} } as any)
+      const stepInstance = makeStepInstance({ branchInstanceId } as any)
+      primePoll(instance, stepInstance, milestoneDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+      ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: any) =>
+        entity?.name === 'WorkflowBranchInstance' ? branch : null
+      )
+      ;((mockEm as any).execute as jest.Mock).mockResolvedValueOnce(lostClaim as never)
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        branchInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 1,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result.outcome).toBe('noop')
+      expect(branch.status).toBe('PAUSED')
+      expect(mockLogWorkflowEvent).not.toHaveBeenCalled()
+      expect(mockEmitWorkflowsEvent).not.toHaveBeenCalled()
+      expect(mockExitStep).not.toHaveBeenCalled()
+      expect(mockExecuteWorkflow).not.toHaveBeenCalled()
+      expect(mockResumeBranch).not.toHaveBeenCalled()
+      expect(stepInstance.status).toBe('ACTIVE')
+    })
+
+    test('hands the wait back when resuming fails before the step was exited', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      const stepInstance = makeStepInstance()
+      primePoll(instance, stepInstance, makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+      mockLogWorkflowEvent.mockRejectedValueOnce(new Error('event store down'))
+
+      await expect(
+        evaluateWaitCondition(mockEm, mockContainer, {
+          instanceId,
+          stepInstanceId,
+          deadlineAt: futureDeadline(),
+          attempt: 1,
+          tenantId,
+          organizationId,
+        })
+      ).rejects.toThrow('event store down')
+
+      const calls = ((mockEm as any).execute as jest.Mock).mock.calls
+      expect(calls).toHaveLength(2)
+      expect(calls[1][0]).toMatch(/set status = 'PAUSED'/)
+      expect(calls[1][0]).toMatch(/status = 'RUNNING' and current_step_id = \?/)
+      expect(calls[1][0]).toMatch(/from step_instances[\s\S]*status = 'ACTIVE'/)
+      expect(instance.status).toBe('PAUSED')
+      expect(mockExitStep).not.toHaveBeenCalled()
+      expect(mockExecuteTransition).not.toHaveBeenCalled()
+    })
+
+    test('keeps the claim once the step was exited, even when driving the run on fails', async () => {
+      const instance = makeInstance({ status: 'PAUSED', context: { payment: { status: 'captured' } } } as any)
+      const stepInstance = makeStepInstance()
+      primePoll(instance, stepInstance, makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M' }))
+      mockExecuteTransition.mockRejectedValueOnce(new Error('transition blew up'))
+
+      await expect(
+        evaluateWaitCondition(mockEm, mockContainer, {
+          instanceId,
+          stepInstanceId,
+          deadlineAt: futureDeadline(),
+          attempt: 1,
+          tenantId,
+          organizationId,
+        })
+      ).rejects.toThrow('transition blew up')
+
+      expect((mockEm as any).execute).toHaveBeenCalledTimes(1)
+      expect(stepInstance.status).toBe('COMPLETED')
+      expect(instance.status).toBe('RUNNING')
     })
   })
 })

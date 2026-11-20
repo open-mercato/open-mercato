@@ -5,6 +5,8 @@ import {
   cancelWorkflowInstanceIfExists,
   createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
+  listWorkflowInstanceEvents,
+  listWorkflowInstanceSteps,
   pollWorkflowInstance,
   startWorkflowInstanceFixture,
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
@@ -20,9 +22,13 @@ import {
  * between the wait and END on purpose: without the flip the executor sees a
  * PAUSED instance after the first traversed step and the run stays parked there
  * instead of reaching END.
+ *
+ * Resuming is a claim on the one ACTIVE occurrence of the wait: concurrent
+ * deliveries resume it once (one `woken`, one CONDITION_MET, one completed wait
+ * step), and a run cancelled while parked is never resumed by a later write.
  */
-function buildConditionWaitDefinitionPayload(timestamp: number) {
-  const id = `qa-wf-condition-resume-${timestamp}`
+function buildConditionWaitDefinitionPayload(timestamp: number, suffix = '') {
+  const id = `qa-wf-condition-resume-${timestamp}${suffix}`
   return {
     workflowId: id,
     workflowName: `QA Condition Resume Workflow ${timestamp}`,
@@ -90,6 +96,108 @@ test.describe('TC-WF-080: WAIT_FOR_CONDITION met path resumes the run', () => {
       const finished = await pollWorkflowInstance(request, token, runId, (instance) => instance.status === 'COMPLETED')
       expect(finished?.status).toBe('COMPLETED')
       expect(finished?.currentStepId).toBe('end')
+      instanceId = null
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('concurrent context writes resume the wait exactly once', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const definitionPayload = buildConditionWaitDefinitionPayload(Date.now(), '-race')
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, definitionPayload)
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId: definitionPayload.workflowId,
+        initialContext: { qaFlag: false },
+      })
+      const runId = instanceId
+
+      await pollWorkflowInstance(
+        request,
+        token,
+        runId,
+        (instance) => instance.status === 'PAUSED' && instance.currentStepId === 'wait_for_flag',
+      )
+
+      const contextPath = `/api/workflows/instances/${encodeURIComponent(runId)}/context`
+      const responses = await Promise.all(
+        Array.from({ length: 4 }, () =>
+          apiRequest(request, 'PATCH', contextPath, { token, data: { context: { qaFlag: true } } }),
+        ),
+      )
+      const wokenReports: string[] = []
+      for (const response of responses) {
+        const body = await readJsonSafe<{ woken?: string[] }>(response)
+        if (response.status() === 200) wokenReports.push(...(body?.woken ?? []))
+      }
+      expect(wokenReports).toEqual(['wait_for_flag'])
+
+      const finished = await pollWorkflowInstance(request, token, runId, (instance) => instance.status === 'COMPLETED')
+      expect(finished?.status).toBe('COMPLETED')
+
+      const conditionMet = await listWorkflowInstanceEvents(request, token, runId, { eventType: 'CONDITION_MET' })
+      expect(conditionMet).toHaveLength(1)
+      const waitSteps = (await listWorkflowInstanceSteps(request, token, runId)).filter(
+        (step) => step.stepId === 'wait_for_flag',
+      )
+      expect(waitSteps).toHaveLength(1)
+      expect(waitSteps[0]?.status).toBe('COMPLETED')
+      instanceId = null
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('a context write after cancellation never resumes the wait', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const definitionPayload = buildConditionWaitDefinitionPayload(Date.now(), '-cancel')
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      definitionId = await createWorkflowDefinitionFixture(request, token, definitionPayload)
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId: definitionPayload.workflowId,
+        initialContext: { qaFlag: false },
+      })
+      const runId = instanceId
+
+      await pollWorkflowInstance(
+        request,
+        token,
+        runId,
+        (instance) => instance.status === 'PAUSED' && instance.currentStepId === 'wait_for_flag',
+      )
+
+      const cancel = await apiRequest(request, 'POST', `/api/workflows/instances/${encodeURIComponent(runId)}/cancel`, {
+        token,
+      })
+      expect(cancel.status(), `cancel should succeed (got ${cancel.status()})`).toBeLessThan(300)
+      await pollWorkflowInstance(request, token, runId, (instance) => instance.status === 'CANCELLED')
+
+      const response = await apiRequest(
+        request,
+        'PATCH',
+        `/api/workflows/instances/${encodeURIComponent(runId)}/context`,
+        { token, data: { context: { qaFlag: true } } },
+      )
+      const body = await readJsonSafe<{ woken?: string[] }>(response)
+      if (response.status() === 200) expect(body?.woken ?? []).toEqual([])
+
+      const after = await pollWorkflowInstance(request, token, runId, (instance) => instance.status === 'CANCELLED')
+      expect(after?.status).toBe('CANCELLED')
+      const conditionMet = await listWorkflowInstanceEvents(request, token, runId, { eventType: 'CONDITION_MET' })
+      expect(conditionMet).toHaveLength(0)
+      const waitSteps = (await listWorkflowInstanceSteps(request, token, runId)).filter(
+        (step) => step.stepId === 'wait_for_flag',
+      )
+      expect(waitSteps.every((step) => step.status !== 'COMPLETED')).toBe(true)
       instanceId = null
     } finally {
       await cancelWorkflowInstanceIfExists(request, token, instanceId)
