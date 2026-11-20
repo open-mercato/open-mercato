@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ExchangeRate } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
@@ -43,7 +45,10 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'currencies.exchange_rates.create',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: async ({ parsed, ctx }) => {
+        const { translate } = await resolveTranslations()
+        return withScopedPayload(parsed, ctx, translate)
+      },
       response: ({ result }) => ({ id: String(result.exchangeRateId) }),
       status: 201,
     },
@@ -95,6 +100,7 @@ type ExchangeRateRow = {
   date: string
   source: string
   type: string | null
+  metadata: Record<string, unknown> | null
   isActive: boolean
   createdAt: string | null
   updatedAt: string | null
@@ -110,6 +116,7 @@ const toRow = (rate: ExchangeRate): ExchangeRateRow => ({
   date: rate.date.toISOString(),
   source: String(rate.source),
   type: rate.type ?? null,
+  metadata: rate.metadata ?? null,
   isActive: !!rate.isActive,
   createdAt: rate.createdAt ? rate.createdAt.toISOString() : null,
   updatedAt: rate.updatedAt ? rate.updatedAt.toISOString() : null,
@@ -195,6 +202,7 @@ const exchangeRateListItemSchema = z.object({
   date: z.string(),
   source: z.string(),
   type: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
   isActive: z.boolean(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),

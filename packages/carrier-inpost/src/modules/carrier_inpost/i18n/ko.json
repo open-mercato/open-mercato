@@ -1,0 +1,19 @@
+{
+  "carrier_inpost.config.action.configureCredentials": "자격 증명 구성",
+  "carrier_inpost.config.credential.apiToken": "API 토큰(Bearer) — InPost Manager → API → Tokens에서 발급",
+  "carrier_inpost.config.credential.organizationId": "조직 ID — InPost Manager URL의 /organizations/ 뒤에 표시되는 UUID",
+  "carrier_inpost.config.help": "통합 자격 증명에서 InPost API 토큰과 조직 ID를 구성하세요. 사용 가능한 서비스: Paczkomat 보관함(일반 및 특급) 및 택배 배송.",
+  "carrier_inpost.config.requiredCredentials": "필수 자격 증명:",
+  "carrier_inpost.description": "InPost 보관함(Paczkomat)과 택배 배송으로 소포를 발송하고 실시간으로 추적합니다.",
+  "carrier_inpost.feature.configure": "InPost 설정 구성",
+  "carrier_inpost.feature.view": "InPost 구성 보기",
+  "carrier_inpost.tabs.settings": "InPost 설정",
+  "carrier_inpost.title": "InPost",
+  "carrier_inpost.tracking.errorFetch": "추적 정보를 가져오지 못했습니다",
+  "carrier_inpost.tracking.errorLoadShipments": "배송 목록을 불러오지 못했습니다",
+  "carrier_inpost.tracking.loading": "추적 정보 불러오는 중...",
+  "carrier_inpost.tracking.noEvents": "아직 추적 이벤트가 없습니다.",
+  "carrier_inpost.tracking.noShipment": "이 주문에 대한 InPost 배송이 없습니다.",
+  "carrier_inpost.tracking.title": "InPost 추적",
+  "carrier_inpost.tracking.trackingNumber": "운송장 번호"
+}

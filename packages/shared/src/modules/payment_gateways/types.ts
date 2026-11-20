@@ -37,8 +37,14 @@ export interface GatewayAdapter {
   /** Verify and parse an inbound webhook event */
   verifyWebhook(input: VerifyWebhookInput): Promise<WebhookEvent>
 
-  /** Map provider status to unified status */
-  mapStatus(providerStatus: string, eventType?: string): UnifiedPaymentStatus
+  /**
+   * Map provider status to unified status. The core webhook processor also passes the verified
+   * event's type and the verified event itself, so an adapter can tell apart events that share a
+   * type or a provider status (for example a partial and a full refund). Both extra arguments are
+   * optional. Map an event to `refunded` / `partially_refunded` only when the provider confirms
+   * captured funds were refunded: webhook sync treats such a status as proof of capture.
+   */
+  mapStatus(providerStatus: string, eventType?: string, event?: WebhookEvent): UnifiedPaymentStatus
 }
 
 export type PaymentGatewayDescriptorFieldType =
@@ -77,9 +83,21 @@ export interface PaymentGatewayPresentationRequest {
   rendererSettings?: Record<string, unknown>
 }
 
+/**
+ * Payer details a provider needs to create a payment session. Each value maps to
+ * canonical checkout customer fields: `email` → `email`, `name` → `firstName` + `lastName`.
+ */
+export type PaymentGatewayPayerField = 'email' | 'name'
+
 export interface PaymentGatewayDescriptor {
   providerKey: string
   label: string
+  /**
+   * Payer details the provider cannot create a session without. Hosts that collect
+   * payer data (for example checkout links) must collect each one as a required field.
+   * Omit when the provider needs no payer data.
+   */
+  requiresPayerFields?: PaymentGatewayPayerField[]
   sessionConfig?: {
     fields?: PaymentGatewayDescriptorField[]
     supportedCurrencies?: '*' | string[]
@@ -124,7 +142,9 @@ export interface PaymentGatewayScope {
 export interface PaymentOrderTotal {
   orderId: string
   currencyCode: string
+  /** Float copy of `amountDueExact`; prefer the exact field. */
   amountDue: number
+  amountDueExact?: string
 }
 
 /**
@@ -149,7 +169,9 @@ export interface CreateSessionInput {
   idempotencyKey?: string
   tenantId: string
   organizationId: string
+  /** Float copy of `amountExact`; prefer the exact field. */
   amount: number
+  amountExact?: string
   currencyCode: string
   captureMethod?: 'automatic' | 'manual'
   paymentTypes?: string[]
@@ -165,7 +187,9 @@ export interface CreateSessionInput {
 export interface SessionLineItem {
   name: string
   quantity: number
+  /** Float copy of `unitAmountExact`; prefer the exact field. */
   unitAmount: number
+  unitAmountExact?: string
   currencyCode: string
 }
 
@@ -180,7 +204,9 @@ export interface CreateSessionResult {
 
 export interface CaptureInput {
   sessionId: string
+  /** Float copy of `amountExact`; prefer the exact field. */
   amount?: number
+  amountExact?: string
   credentials: Record<string, unknown>
   metadata?: Record<string, unknown>
   idempotencyKey?: string
@@ -188,13 +214,17 @@ export interface CaptureInput {
 
 export interface CaptureResult {
   status: UnifiedPaymentStatus
+  /** Float copy of `capturedAmountExact`; prefer the exact field. */
   capturedAmount: number
+  capturedAmountExact?: string
   providerData?: Record<string, unknown>
 }
 
 export interface RefundInput {
   sessionId: string
+  /** Float copy of `amountExact`; prefer the exact field. */
   amount?: number
+  amountExact?: string
   reason?: string
   credentials: Record<string, unknown>
   metadata?: Record<string, unknown>
@@ -204,7 +234,9 @@ export interface RefundInput {
 export interface RefundResult {
   refundId: string
   status: UnifiedPaymentStatus
+  /** Float copy of `refundedAmountExact`; prefer the exact field. */
   refundedAmount: number
+  refundedAmountExact?: string
   providerData?: Record<string, unknown>
 }
 
@@ -227,8 +259,12 @@ export interface GetStatusInput {
 
 export interface GatewayPaymentStatus {
   status: UnifiedPaymentStatus
+  /** Float copy of `amountExact`; prefer the exact field. */
   amount: number
+  amountExact?: string
+  /** Float copy of `amountReceivedExact`; prefer the exact field. */
   amountReceived: number
+  amountReceivedExact?: string
   currencyCode: string
   providerData?: Record<string, unknown>
 }
@@ -284,6 +320,8 @@ export interface WebhookEvent {
   data: Record<string, unknown>
   idempotencyKey: string
   timestamp: Date
+  /** Provider API version the payload was rendered with, when the provider reports one */
+  apiVersion?: string
 }
 
 // ── Webhook Handler ─────────────────────────────────────────────────────────

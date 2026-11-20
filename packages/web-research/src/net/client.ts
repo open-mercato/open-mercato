@@ -349,6 +349,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
       if (outOfTime()) {
         throw new WebResearchError('timeout', `Request to ${rawUrl} exceeded its ${maxTotalMs}ms budget`)
       }
+      await init.assertUrlAllowed?.(currentUrl)
       const vetted = await assertPublicUrl(currentUrl, 'web research fetch', {
         ...(options.lookup ? { lookup: options.lookup } : {}),
         ...(options.allowPrivateHosts ? { allowPrivateHosts: options.allowPrivateHosts } : {}),

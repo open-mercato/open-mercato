@@ -4,13 +4,16 @@ When working on search functionality, use this guide. It covers indexing, queryi
 
 ## Always
 
-1. **MUST** create a `search.ts` file for every module with searchable entities.
-2. **MUST** define `fieldPolicy.excluded` for any sensitive fields (passwords, tokens, SSNs, bank accounts) -- never allow them into any index.
-3. **MUST** define `formatResult` for every entity that uses the tokens strategy -- without it, users see raw UUIDs instead of names.
-4. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
-5. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
-6. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
-7. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search, the hybrid `GET /api/search/search` endpoint and the AI tools all fail closed, so an entity without it silently vanishes from results for every non-superadmin.
+1. **MUST** resolve `SearchIndexer` from DI; direct `SearchIndexer` or `VectorIndexService` constructors pass `encryptedCustomFieldKeysResolver` and fail closed without it.
+2. **MUST** create a `search.ts` file for every module with searchable entities.
+3. **MUST** define `fieldPolicy.excluded` for any sensitive fields (passwords, tokens, SSNs, bank accounts) -- never allow them into any index.
+4. **MUST** define `formatResult` for every entity that uses the tokens strategy -- without it, users see raw UUIDs instead of names.
+5. **MUST** include `checksumSource` in every `buildSource` return value so the indexer can detect changes and skip redundant re-embedding.
+6. **MUST** use the `entityId` format `module:entity_name` and ensure it matches the entity registry exactly.
+7. **MUST** use `fieldPolicy.hashOnly` for PII fields (email, phone, tax_id) that need exact-match filtering but not fuzzy search.
+8. **MUST** declare `aclFeatures` on every entity, naming the owning module's view feature(s) — the same gate that entity's own list/read route enforces. `search.global` only authorizes *using* search; `aclFeatures` is what authorizes *reading the records*. Global search, the hybrid `GET /api/search/search` endpoint and the AI tools all fail closed, so an entity without it silently vanishes from results for every non-superadmin.
+9. **MUST** use the optional `shouldIndex(ctx)` hook when only some records of an entity may be searchable (per-record opt-in). `SearchIndexer` evaluates it on every index/reindex path; `false` or a throw deletes the record from all strategies (fail closed), and the query index evaluates the same hook per record before writing `search_tokens` (tokens on `true`, deleted on `false`/throw), so tokens work without fulltext/vector providers and every token writer honors the gate.
+10. **MUST** use the optional `filterResults(ctx)` hook when indexed records need a per-record read check beyond `aclFeatures` (e.g. the record's own open rule). `SearchService.search()` runs it per entity after merging, with `SearchOptions.viewer` (`{ auth, container }`); no viewer or a throw drops all of that entity's results (fail closed), and results can come back shorter than `limit`. Callers that should return such entities MUST pass `viewer` (the `/api/search/search` and global search routes do, and so do the `search_query`, `search.hybrid_search` and `search.get_record_context` AI tools — as the user, or as `api_key:<id>` with no user for API-key callers). Callers with no principal (agent context retrieval, the `search query` CLI) pass none, so such entities stay hidden there.
 
 ## Ask First
 
@@ -176,7 +179,6 @@ Use `buildSource` to generate text for embeddings. The returned text is converte
         title: ctx.record.name,
         subtitle: ctx.record.status,
         icon: 'lucide:file',
-        badge: 'Your Entity',
       },
       links: [
         { href: `/backend/your-module/${ctx.record.id}`, label: 'View', kind: 'primary' },
@@ -210,7 +212,6 @@ Presenter is resolved at **search time** using `formatResult`. When `formatResul
       title: ctx.record.display_name ?? ctx.record.name ?? 'Unknown',
       subtitle: ctx.record.email ?? ctx.record.status,
       icon: 'lucide:user',
-      badge: 'Customer',
     }
   },
 }
@@ -332,7 +333,14 @@ interface SearchResultPresenter {
   /** Icon identifier (e.g., 'lucide:user', 'user', 'building') */
   icon?: string
 
-  /** Badge/tag shown next to title (e.g., 'Customer', 'Deal') */
+  /**
+   * @deprecated Never rendered by any search UI; slated for removal in 0.11.0.
+   * Do not populate it. For an entity-type label add a
+   * `search.entityType.<module>.<entity>` key in your own module's `i18n/*.json`
+   * (dictionaries merge flat, so a `search.*` key resolves from any module), which
+   * all three surfaces do render; for per-record detail use `subtitle`.
+   * `VectorResultPresenter.badge` is deprecated on the same terms.
+   */
   badge?: string
 }
 ```

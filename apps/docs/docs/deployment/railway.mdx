@@ -9,6 +9,10 @@ description: Deploy a standalone Open Mercato app to Railway with one repeatable
 
 The command records Railway resource IDs locally, so running it again updates the same project instead of creating a duplicate.
 
+:::info Shared production gate
+Complete the provider-neutral [Production Readiness checklist](./production-readiness) before sending production traffic to Railway. This guide covers the Railway-specific CLI, token, source, domain, volume, and state behavior.
+:::
+
 :::info Availability
 This command was implemented for [issue #2414](https://github.com/open-mercato/open-mercato/issues/2414). Use a CLI release that includes `mercato deploy railway`; older releases do not provide it.
 :::
@@ -100,6 +104,14 @@ yarn build
 
 `yarn generate` refreshes module registries and generated metadata. `yarn build` verifies the Next.js production build before Railway receives the source. In standalone apps, `yarn build` also runs generation, but running `yarn generate` explicitly first makes discovery or registry failures easier to identify before deployment.
 
+Run the [Readiness Scanner](./readiness-scanner) from the same standalone app root:
+
+```bash
+npx --yes mercato-readiness-scanner@0.2.2 scan . --fail-on high
+```
+
+Credential checks are always enabled. Treat local `.env` and development-default findings as a reminder to replace unsafe values and deliver production secrets through Railway service variables, keeping environment files out of the deployed artifact. Review KMS and secret-injection warnings with the deployment owner.
+
 ### 6. Preview the deployment
 
 Run a dry run before creating billable resources:
@@ -127,6 +139,8 @@ The default deployment:
 - waits for `/api/healthz` to report a healthy deployment.
 
 On success, the CLI prints the app URL, healthcheck URL, Railway dashboard URL, source mode, and deployed services.
+
+Repeat the [runtime scanner check](./readiness-scanner#staging-and-production-servers) inside the deployed staging and production services using their own injected environment, before sending traffic. A local scan with Railway variables does not inspect the running service. The audit workload needs Node.js 24+ and the standalone release metadata; see the guide for slim-image limitations and warnings that remain manual review items.
 
 ## Source modes
 
@@ -325,7 +339,9 @@ Review current [Railway pricing](https://railway.com/pricing) and project usage 
 
 Use `--dry-run` to review the planned resources and `--no-worker` when a dedicated worker is not needed. Run `--cleanup` for test projects you no longer use.
 
-## Security checklist
+## Railway-specific security checklist
+
+Use the shared [Production Readiness checklist](./production-readiness) for TLS, application secrets, access control, backups, observability, validation, rollout, and rollback. For Railway itself:
 
 - Prefer `RAILWAY_API_TOKEN`, the interactive prompt, or the protected token cache over `--token`.
 - Never commit env files, Account tokens, private keys, or `.mercato/railway.json.local`.
@@ -387,3 +403,15 @@ Copy the exact records printed by the CLI and verify them with your DNS provider
 ### A second project was created
 
 Confirm that the repository contains the expected `.mercato/railway.json`, or the local `.mercato/railway.json.local` when using `--no-track`. Restore the correct state file before deploying again. Inspect duplicate projects carefully and use cleanup only from the repository whose state points to the project you intend to delete.
+
+### Storage volume ownership
+
+The monorepo production image runs as `omuser` (UID/GID `1001:1001`). Its Railway entrypoint invokes a root-owned, argument-free helper to assign only the fixed `/app/apps/mercato/storage` mount directory to that user. The helper refuses a missing directory or a symlink at that path; it does not recurse into attachments, follow links, accept another path, or grant general privileged `chown`.
+
+Fresh empty volumes initialize at the same path. Existing attachments and the `.initialized` marker already owned by `1001:1001` remain readable and writable. Initialization and subsequent migrations still execute as the application user.
+
+When restoring storage from a backup with different ownership, stop the application and have a trusted operator provision the restored files and directories for `1001:1001` before restarting. Review links and mount boundaries during that offline operation; startup no longer recursively repairs imported ownership. Do not restore the previous unrestricted sudoers rule.
+
+The create-app Docker template has no runtime sudo grant and retains its existing non-root startup. Provision externally mounted standalone-app storage for UID/GID `1001:1001` before launch.
+
+Run `node docker/tests/storage-init-smoke.mjs` from the repository root to exercise the production privilege configuration in an isolated Alpine runtime fixture. It checks fresh and repeated startup with stubbed Yarn commands, existing attachment writes, refusal of arbitrary privileged commands and arguments, immutable helper/parent paths, and symlink/hard-link containment. This focused check does not build or boot the complete application image or connect to Railway.

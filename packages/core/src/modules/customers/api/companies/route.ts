@@ -28,6 +28,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { isUuidListParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { expandCreatedAtDayRules } from '../../lib/createdAtDayFilter'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -41,6 +42,7 @@ import {
 } from '../../lib/personCompanyLinkTable'
 import { normalizeCompanyProfilePayload } from './payload'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('customers')
 
@@ -85,6 +87,8 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+const COMPANY_MONEY_FIELDS = ['annualRevenue'] as const
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -135,7 +139,7 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
-      const advancedFilterTree = consumeAdvancedFilterState(query)
+      const advancedFilterTree = expandCreatedAtDayRules(consumeAdvancedFilterState(query), 'UTC')
       const filters: Record<string, unknown> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
@@ -391,7 +395,7 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base, custom } = splitCustomFieldPayload(scoped)
-        const parsed = companyCreateSchema.parse(base)
+        const parsed = withExactAmounts(companyCreateSchema.parse(base), base, COMPANY_MONEY_FIELDS)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: ({ result }) => ({
@@ -408,7 +412,7 @@ const crud = makeCrudRoute({
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const normalized = normalizeCompanyProfilePayload(scoped, translate)
         const { base, custom } = splitCustomFieldPayload(normalized)
-        const parsed = companyUpdateSchema.parse(base)
+        const parsed = withExactAmounts(companyUpdateSchema.parse(base), base, COMPANY_MONEY_FIELDS)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       // Return the freshly-bumped updatedAt so inline-edit detail pages can refresh
@@ -491,6 +495,7 @@ const crud = makeCrudRoute({
           industry: profile.industry ?? null,
           size_bucket: profile.sizeBucket ?? null,
           annual_revenue: profile.annualRevenue ?? null,
+          tax_id: profile.taxId ?? null,
         }
       })
     },
@@ -520,6 +525,7 @@ const companyListItemSchema = z.object({
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
+  tax_id: z.string().nullable().optional(),
 })
 
 const companyCreateResponseSchema = z.object({
