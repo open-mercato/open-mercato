@@ -10,10 +10,10 @@ Status: in-progress
 
 | Phase | Step | Title | Exec | Status | Commit |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 1.1 | Compose and dispatch the forms.sections override domain | dispatch | done | this commit |
-| 1 | 1.2 | Discover section facts and lazy browser loaders with deterministic parity | dispatch | done | this commit |
-| 1 | 1.3 | Define serializable section, capability, dependency and surface facts | dispatch | done | this commit |
-| 1 | 1.4 | Add stable section scopes and pin legacy handle compatibility | dispatch | done | this commit |
+| 1 | 1.1 | Compose and dispatch the forms.sections override domain | dispatch | done | 435c1850a9 |
+| 1 | 1.2 | Discover section facts and lazy browser loaders with deterministic parity | dispatch | done | 0d589dcdc1 |
+| 1 | 1.3 | Define serializable section, capability, dependency and surface facts | dispatch | done | 498703b028 |
+| 1 | 1.4 | Add stable section scopes and pin legacy handle compatibility | dispatch | done | 05f57ef0aa |
 | 2 | 2.1 | Match final server capabilities by canonical facts | dispatch | todo | — |
 | 2 | 2.2 | Build the accepted manifest, host ledger and authenticated resolver | dispatch | todo | — |
 | 2 | 2.3 | Bind guarded mutation requests to reauthorized providers and resources | dispatch | todo | — |
