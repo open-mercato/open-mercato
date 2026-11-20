@@ -638,6 +638,29 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   stuck / awaiting-disposition-too-long halves of the needs-attention queue (the failed +
   attention-parked halves already ship as `api/instances/failure-queue`).
 
+## Business Key (idempotent start, #7182)
+
+- **`startOrReuseWorkflow` returns `{ instance, created }`**; `startWorkflow` delegates and keeps its
+  signature. A caller that gets `created: false` MUST NOT `executeWorkflow` the instance again.
+  `lib/business-key.ts` (PURE) owns the key rules and the reuse-policy decision.
+- **The DB is the arbiter**: partial UNIQUE `workflow_instances_business_key_open_uq` over OPEN
+  instances. Its `status not in (…)` list MUST equal `WORKFLOW_TERMINAL_INSTANCE_STATUSES` — adding a
+  terminal instance status needs a migration recreating the index (a test compares them).
+- **The holder is the OPEN instance first**, whatever its age; only with none open does the LATEST ended run decide the
+  reuse policy (`findBusinessKeyHolder`). A creation-order-only lookup returns a newer finished run over a recovered
+  older one that holds the key again.
+- **Every terminal → open write goes through `reopenWorkflowInstance`** (`lib/business-key-ownership.ts`): retry,
+  rerun-step and bulk replay today. An ended run's key may have moved to a newer open run, so a direct
+  `instance.status = 'RUNNING'` on an ended run hits the unique index. It refuses with
+  `WorkflowBusinessKeyHeldError` (HTTP 409 `WORKFLOW_BUSINESS_KEY_HELD` + `holderInstanceId`; bulk replay counts it
+  as skipped), commits the state change and its audit record together, and restores the entity on any failed write.
+  Step-through and advance refuse ended runs instead: an armed step-through marker survives a failure, and neither
+  path may re-enter an ended run.
+- The keyed insert runs in `em.transactional` (a SAVEPOINT inside a caller's transaction) so a lost
+  race rolls back only the insert; the loser re-reads the winner. Keys never go on dry runs.
+- Subject lookups are containment: GIN `jsonb_path_ops` on `workflow_instances.metadata` and
+  `user_tasks.entity_bindings`. Keep subject filters as ONE `$contains` predicate so the index answers.
+
 ## Dry Run (spec §8.2)
 
 - **A dry run is a REAL instance executed by the ordinary engine, not a second interpreter.**

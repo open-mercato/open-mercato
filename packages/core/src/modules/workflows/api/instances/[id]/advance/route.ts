@@ -29,6 +29,7 @@ import {
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('workflows')
 
@@ -140,6 +141,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (instance.status === 'FAILED') {
       return NextResponse.json(
         { error: 'Workflow has failed. Use retry endpoint to retry.' },
+        { status: 400 }
+      )
+    }
+
+    if (instance.status === 'COMPENSATED') {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate(
+            'workflows.instances.errors.compensatedNotAdvanceable',
+            'This run was compensated and cannot be advanced.',
+          ),
+        },
         { status: 400 }
       )
     }

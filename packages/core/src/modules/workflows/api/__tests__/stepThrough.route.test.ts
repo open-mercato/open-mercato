@@ -28,6 +28,12 @@ jest.mock('../../lib/event-logger', () => ({
   logWorkflowEvent: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  })),
+}))
+
 import { POST as stepThrough } from '../instances/[id]/step-through/route'
 import * as workflowExecutor from '../../lib/workflow-executor'
 
@@ -123,6 +129,23 @@ describe('POST /api/workflows/instances/[id]/step-through', () => {
 
     expect((instance.metadata as Record<string, unknown>).stepThrough).toBeNull()
     expect(workflowExecutor.executeWorkflow).toHaveBeenCalled()
+  })
+
+  test.each([
+    ['FAILED', 'continue'],
+    ['FAILED', 'stop'],
+    ['COMPLETED', 'continue'],
+    ['CANCELLED', 'continue'],
+    ['COMPENSATED', 'stop'],
+  ])('refuses a %s run on %s: its armed marker must not re-enter the executor', async (status, action) => {
+    instance.status = status
+
+    const response = await stepThrough(makeRequest({ action }), makeContext())
+
+    expect(response.status).toBe(409)
+    expect(workflowExecutor.executeWorkflow).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(instance.status).toBe(status)
   })
 
   test('refuses a run that is not stepping, and executes nothing', async () => {
