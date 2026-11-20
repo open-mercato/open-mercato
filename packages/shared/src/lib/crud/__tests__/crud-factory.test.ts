@@ -69,6 +69,9 @@ let crudMutationGuardService: { validateMutation: jest.Mock; afterMutationSucces
 let mockOrganizationScopeOverride: MockOrganizationScope | null
 
 const em = {
+  getMetadata: jest.fn<{
+    find: (entityName: string) => { properties: Record<string, { fieldNames: string[] }> }
+  } | undefined, []>(),
   transactional: async (cb: () => any) => {
     const snapshot = Object.fromEntries(Object.entries(db).map(([key, value]) => [key, { ...value }]))
     try {
@@ -806,6 +809,52 @@ describe('CRUD Factory', () => {
     const body = await res.json()
     expect(body.items).toHaveLength(1)
     expect(body.items[0]?.id).toBe(first.id)
+  })
+
+  it('GET ORM fallback translates column names inside logical filters', async () => {
+    const repository = em.getRepository(Todo)
+    const find = jest.fn(repository.find)
+    em.getMetadata.mockReturnValueOnce({
+      find: () => ({
+        properties: {
+          isDone: { fieldNames: ['is_done'] },
+          member: { fieldNames: ['member_id'] },
+        },
+      }),
+    })
+    const getRepository = jest.spyOn(em, 'getRepository').mockReturnValueOnce({ ...repository, find })
+    try {
+      const route = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        list: {
+          schema: querySchema.passthrough(),
+          fields: ['id', 'is_done'],
+          buildFilters: () => ({
+            $or: [{ member_id: 'first' }, { $not: { member_id: 'second' } }],
+          }),
+        },
+      })
+      const params = new URLSearchParams({
+        'filter[conditions][0][field]': 'is_done',
+        'filter[conditions][0][op]': 'is',
+        'filter[conditions][0][value]': 'true',
+      })
+
+      const response = await route.GET(new Request(`http://x/api/example/todos?${params}`))
+
+      expect(response.status).toBe(200)
+      expect(find).toHaveBeenCalledWith(expect.objectContaining({
+        tenantId: defaultTenantId,
+        organizationId: defaultOrganizationId,
+        $and: [
+          { $or: [{ member: 'first' }, { $not: { member: 'second' } }] },
+          { isDone: { $eq: 'true' } },
+        ],
+      }))
+    } finally {
+      getRepository.mockRestore()
+    }
   })
 
   it('GET ORM fallback keeps automatic tenant/org scoping by default', async () => {
