@@ -19,10 +19,19 @@ export type ScheduleSendDialogProps = {
 
 const pad = (value: number) => String(value).padStart(2, '0')
 
-function nextFullHour(): Date {
-  const date = new Date()
-  date.setHours(date.getHours() + 1, 0, 0, 0)
-  return date
+const MIN_LEAD_MS = 5 * 60_000
+const HALF_HOUR_MS = 30 * 60_000
+
+/** Next local :00/:30 at least ~5 minutes ahead; steps are anchored to the local hour so half-hour offsets stay correct. */
+export function defaultScheduleTime(now: Date = new Date()): Date {
+  const earliest = new Date(now.getTime() + MIN_LEAD_MS)
+  const next = new Date(earliest)
+  next.setSeconds(0, 0)
+  const minutes = next.getMinutes()
+  if (earliest.getSeconds() > 0 || earliest.getMilliseconds() > 0 || minutes % 30 !== 0) {
+    next.setMinutes(minutes < 30 ? 30 : 60)
+  }
+  return next.getTime() < earliest.getTime() ? new Date(next.getTime() + HALF_HOUR_MS) : next
 }
 
 /** Converts the picked local wall time to a UTC instant in the browser time zone; `null` for a DST-gap time. */
@@ -40,7 +49,7 @@ export function ScheduleSendDialog({ open, onOpenChange, maxDays, initialValue, 
 
   React.useEffect(() => {
     if (!open) return
-    setValue(initialValue && initialValue.getTime() > Date.now() ? initialValue : nextFullHour())
+    setValue(initialValue && initialValue.getTime() > Date.now() ? initialValue : defaultScheduleTime())
     setError(null)
   }, [initialValue, open])
 

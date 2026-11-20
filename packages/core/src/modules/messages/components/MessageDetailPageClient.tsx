@@ -148,7 +148,6 @@ function MessageConversationDetailItem({
         attachments={state.attachments}
         editOpen={state.editOpen}
         setEditOpen={state.setEditOpen}
-        onRefresh={() => state.detailQuery.refetch()}
       />
 
       <MessageDetailDialogs

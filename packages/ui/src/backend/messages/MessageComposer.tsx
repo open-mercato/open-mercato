@@ -162,11 +162,18 @@ export function MessageComposer(props: MessageComposerProps) {
     [compose, fallbackContextPreview],
   )
 
+  const storedScheduledAt = props.defaultValues?.scheduledAt ?? null
+  const scheduleInitialValue = React.useMemo(
+    () => (storedScheduledAt ? new Date(storedScheduledAt) : null),
+    [storedScheduledAt],
+  )
+
   const scheduleDialog = compose.canSchedule ? (
     <ScheduleSendDialog
       open={scheduleOpen}
       onOpenChange={setScheduleOpen}
       maxDays={compose.scheduleMaxDays}
+      initialValue={scheduleInitialValue}
       submitting={compose.submitting}
       onConfirm={(scheduledAt) => {
         setScheduleOpen(false)

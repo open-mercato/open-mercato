@@ -332,6 +332,7 @@ export function useMessageCompose({
         : [],
     )
     setSendViaEmail(Boolean(defaultValues?.sendViaEmail))
+    setSenderChannelId(defaultValues?.senderChannelId ?? '')
     if (contextObject) {
       const defaultContextActionType = requiredActionConfig?.defaultActionType?.trim() ?? ''
       const fallbackContextActionType = contextObject.actionType?.trim() ?? ''

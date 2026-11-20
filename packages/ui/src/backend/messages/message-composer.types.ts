@@ -120,6 +120,10 @@ export type MessageComposerProps = {
     sendViaEmail?: boolean
     replyAll?: boolean
     includeAttachments?: boolean
+    /** Stored "Send from" mailbox of a saved draft/scheduled message. */
+    senderChannelId?: string | null
+    /** ISO time of an already scheduled message; seeds the "Send later" picker. */
+    scheduledAt?: string | null
   }
   onSuccess?: (result: { id?: string }) => void
   onCancel?: () => void
