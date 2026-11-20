@@ -51,7 +51,8 @@ const SCOPE_LEVEL_CLAUSES: Record<OmnibusScopeColumn, RawBuilder<unknown>> = {
 const OBSERVATION_CLAUSE = sql`AND h.change_type <> 'delete'
         AND NOT (h.change_type = 'undo' AND h.metadata->>'undoneCommand' = ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND})`
 
-const NOT_CREATE_UNDONE_CLAUSE = sql`AND NOT EXISTS (
+function notCreateUndoneBefore(cutoff: RawBuilder<unknown>): RawBuilder<unknown> {
+  return sql`AND NOT EXISTS (
           SELECT 1 FROM catalog_price_history_entries undone
           WHERE undone.tenant_id = h.tenant_id
             AND undone.organization_id = h.organization_id
@@ -64,10 +65,13 @@ const NOT_CREATE_UNDONE_CLAUSE = sql`AND NOT EXISTS (
                 AND h.metadata->>'redoneCommand' IS DISTINCT FROM ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND}
               )
             )
-            AND undone.recorded_at <= w.window_end
+            AND ${cutoff}
             AND undone.change_type = 'undo'
             AND undone.metadata->>'undoneCommand' = ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND}
         )`
+}
+
+const NOT_CREATE_UNDONE_CLAUSE = notCreateUndoneBefore(sql`undone.recorded_at <= w.window_end`)
 
 const NOT_ENDED_BEFORE_WINDOW_CLAUSE = sql`AND NOT EXISTS (
           SELECT 1 FROM catalog_price_history_entries ended
@@ -314,6 +318,7 @@ async function runPrecedingGroup(
         AND h.currency_code = w.currency_code
         ${OBSERVATION_CLAUSE}
         AND h.recorded_at < w.before_at
+        ${notCreateUndoneBefore(sql`undone.recorded_at < w.before_at`)}
         AND NOT EXISTS (
           SELECT 1 FROM catalog_price_history_entries ended
           WHERE ended.tenant_id = h.tenant_id
@@ -372,6 +377,7 @@ export type OmnibusCampaignLookup = {
   priceKindId: string
   currencyCode: string
   channelId: string | null
+  asOf?: Date
 }
 
 export type OmnibusCampaignLookupResult = {
@@ -398,8 +404,9 @@ async function runCampaignGroup(
         ${lookups.map((lookup) => lookup.baselineScopeId)}::uuid[],
         ${lookups.map((lookup) => lookup.priceKindId)}::uuid[],
         ${lookups.map((lookup) => lookup.currencyCode)}::text[],
-        ${lookups.map((lookup) => lookup.channelId)}::uuid[]
-      ) WITH ORDINALITY AS t(tenant_id, organization_id, offer_id, scope_id, price_kind_id, currency_code, channel_id, ord)
+        ${lookups.map((lookup) => lookup.channelId)}::uuid[],
+        ${lookups.map((lookup) => (lookup.asOf ?? new Date()).toISOString())}::timestamptz[]
+      ) WITH ORDINALITY AS t(tenant_id, organization_id, offer_id, scope_id, price_kind_id, currency_code, channel_id, as_of, ord)
     ),
     campaign AS (
       SELECT w.ord, entry.id, entry.recorded_at
@@ -415,6 +422,8 @@ async function runCampaignGroup(
           AND h.price_kind_id = w.price_kind_id
           AND h.currency_code = w.currency_code
           ${OBSERVATION_CLAUSE}
+          AND h.recorded_at <= w.as_of
+          ${notCreateUndoneBefore(sql`undone.recorded_at <= w.as_of`)}
         ORDER BY h.recorded_at ASC, h.id ASC
         LIMIT ${OMNIBUS_IN_WINDOW_LIMIT + 1}
       ) entry
@@ -439,6 +448,7 @@ async function runCampaignGroup(
         AND h.currency_code = w.currency_code
         ${OBSERVATION_CLAUSE}
         AND h.recorded_at < cs.started_at
+        ${notCreateUndoneBefore(sql`undone.recorded_at < cs.started_at`)}
         AND NOT EXISTS (
           SELECT 1 FROM catalog_price_history_entries ended
           WHERE ended.tenant_id = h.tenant_id

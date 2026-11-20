@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { fetchOmnibusLatestPriceEntryIds, fetchOmnibusWindowIds } from '../../../catalog/lib/omnibusHistoryQueries'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { DefaultCatalogOmnibusService } from '../../../catalog/services/catalogOmnibusService'
 import type {
@@ -10,6 +11,7 @@ import type {
 import type { OmnibusBlock, PriceHistoryChangeType } from '../../../catalog/lib/omnibusTypes'
 import {
   applyOmnibusSnapshotToLine,
+  applyOmnibusSnapshotsToLines,
   readOmnibusSourcePriceId,
   readPricePersonalization,
   resolveOmnibusService,
@@ -90,7 +92,11 @@ jest.mock('../../../catalog/lib/omnibusHistoryQueries', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
-  findWithDecryption: jest.fn(async (_em: unknown, _entity: unknown, where: { id?: { $in?: string[] } }) => {
+  findWithDecryption: jest.fn(async (em: unknown, entity: { name?: string }, where: { id?: { $in?: string[] } }, options: unknown, scope: unknown) => {
+    if (entity.name === 'CatalogProductPrice') {
+      const found = await findOneWithDecryption(em as never, entity as never, where as never, options as never, scope as never)
+      return found ? [found] : []
+    }
     const ids = new Set(where.id?.$in ?? [])
     return mockHistoryStore.filter((row) => ids.has(row.id))
   }),
@@ -160,7 +166,11 @@ function makePrice(overrides: Partial<PriceFixture> = {}): PriceFixture {
 }
 
 function makeService(resolveOmnibusBlock: jest.Mock = jest.fn(async () => block)) {
-  const service = { resolveOmnibusBlock } as unknown as Parameters<typeof applyOmnibusSnapshotToLine>[0]['service']
+  const service = {
+    getConfig: jest.fn(async () => ({ enabled: true })),
+    resolveOmnibusBlocks: jest.fn(async (em: EntityManager, requests: Array<{context: unknown; presentedEntry: unknown; priceKindIsPromotion: boolean}>) =>
+      Promise.all(requests.map((request) => resolveOmnibusBlock(em, request.context, request.presentedEntry, request.priceKindIsPromotion)))),
+  } as unknown as Parameters<typeof applyOmnibusSnapshotToLine>[0]['service']
   return { service, resolveOmnibusBlock }
 }
 
@@ -348,7 +358,7 @@ describe('applyOmnibusSnapshotToLine', () => {
     expect(mockFindOne).toHaveBeenCalledWith(
       em,
       expect.anything(),
-      { id: priceId, tenantId, organizationId },
+      { id: { $in: [priceId] }, tenantId, organizationId },
       { populate: ['priceKind'] },
       { tenantId, organizationId },
     )
@@ -534,5 +544,37 @@ describe('applyOmnibusSnapshotToLine driven by the real CatalogOmnibusService', 
     })
 
     expect(line).toEqual({})
+    expect(mockFindOne).not.toHaveBeenCalled()
+  })
+
+  it.each([1, 100])('uses a constant number of read boundaries for %i new priced lines', async (count) => {
+    mockFindOne.mockResolvedValue(makePrice({ startsAt: promoAt }) as never)
+    const configRead = jest.fn().mockResolvedValue(enabledConfig)
+    const service = new DefaultCatalogOmnibusService({ getValue: configRead } as unknown as ModuleConfigService, null)
+    jest.mocked(findWithDecryption).mockClear()
+    jest.mocked(fetchOmnibusLatestPriceEntryIds).mockClear()
+    jest.mocked(fetchOmnibusWindowIds).mockClear()
+    const lines = Array.from({ length: count }, () => ({ line: {} as OmnibusSnapshotTarget, sourceLine: { productId, priceId } }))
+    await applyOmnibusSnapshotsToLines({ em, service, lines, document, documentKind: 'order' })
+    expect(configRead).toHaveBeenCalledTimes(1)
+    expect(mockFindOne).toHaveBeenCalledTimes(1)
+    expect(findWithDecryption).toHaveBeenCalledTimes(3)
+    expect(fetchOmnibusLatestPriceEntryIds).toHaveBeenCalledTimes(1)
+    expect(fetchOmnibusWindowIds).toHaveBeenCalledTimes(1)
+    expect(lines.every(({ line }) => line.omnibusReferenceGross === '100.0000')).toBe(true)
+  })
+
+  it('does no price/history reads for a disabled 100-line batch', async () => {
+    const configRead = jest.fn().mockResolvedValue({ enabled: false })
+    const service = new DefaultCatalogOmnibusService({ getValue: configRead } as unknown as ModuleConfigService, null)
+    jest.mocked(findWithDecryption).mockClear()
+    jest.mocked(fetchOmnibusLatestPriceEntryIds).mockClear()
+    jest.mocked(fetchOmnibusWindowIds).mockClear()
+    const lines = Array.from({ length: 100 }, () => ({ line: {}, sourceLine: { productId, priceId } }))
+    await applyOmnibusSnapshotsToLines({ em, service, lines, document, documentKind: 'quote' })
+    expect(configRead).toHaveBeenCalledTimes(1)
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(fetchOmnibusLatestPriceEntryIds).not.toHaveBeenCalled()
+    expect(fetchOmnibusWindowIds).not.toHaveBeenCalled()
   })
 })

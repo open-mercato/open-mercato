@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CatalogProductPrice } from '../../catalog/data/entities'
@@ -97,49 +97,72 @@ export async function applyOmnibusSnapshotToLine(params: {
   document: OmnibusDocumentScope
   documentKind: 'order' | 'quote'
 }): Promise<void> {
-  const { em, service, line, sourceLine, document, documentKind } = params
-  const priceId = readOmnibusSourcePriceId(sourceLine)
-  if (!priceId) return
+  const { line, sourceLine, ...scope } = params
+  await applyOmnibusSnapshotsToLines({ ...scope, lines: [{ line, sourceLine }] })
+}
+
+export async function applyOmnibusSnapshotsToLines(params: {
+  em: EntityManager
+  service: CatalogOmnibusService
+  lines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }>
+  document: OmnibusDocumentScope
+  documentKind: 'order' | 'quote'
+}): Promise<void> {
+  const { em, service, document, documentKind } = params
+  const candidates = params.lines.filter(({ sourceLine }) => readOmnibusSourcePriceId(sourceLine))
+  if (!candidates.length) return
   const scope = { tenantId: document.tenantId, organizationId: document.organizationId }
   try {
-    const price = (await findOneWithDecryption(
+    const config = await service.getConfig(scope)
+    if (!config?.enabled) return
+    const prices = (await findWithDecryption(
       em,
       CatalogProductPrice,
-      { id: priceId, tenantId: document.tenantId, organizationId: document.organizationId },
+      { id: { $in: [...new Set(candidates.map(({ sourceLine }) => readOmnibusSourcePriceId(sourceLine) as string))] }, ...scope },
       { populate: ['priceKind'] },
       scope,
-    )) as PriceRow | null
-    if (!price) return
-    const presentedEntries = await resolveOmnibusPresentedEntries(em, [price])
-    const block = await service.resolveOmnibusBlock(
+    )) as PriceRow[]
+    const pricesById = new Map(prices.map((price) => [price.id, price]))
+    const priced = candidates.flatMap((candidate) => {
+      const price = pricesById.get(readOmnibusSourcePriceId(candidate.sourceLine) as string)
+      return price ? [{ ...candidate, price }] : []
+    })
+    if (!priced.length) return
+    const presentedEntries = await resolveOmnibusPresentedEntries(em, prices)
+    const blocks = await service.resolveOmnibusBlocks(
       em,
-      {
-        tenantId: document.tenantId,
-        organizationId: document.organizationId,
-        productId: sourceLine.productId ?? null,
-        variantId: sourceLine.productVariantId ?? null,
-        offerId: null,
-        channelId: document.channelId ?? resolvePriceChannelId(price),
-        priceKindId: resolvePriceKindId(price),
-        currencyCode: sourceLine.currencyCode ?? document.currencyCode,
-        isStorefront: false,
-      },
-      presentedEntries.get(price.id) ?? null,
-      isPromotionPriceKind(price),
+      priced.map(({ sourceLine, price }) => ({
+        context: {
+          tenantId: document.tenantId,
+          organizationId: document.organizationId,
+          productId: sourceLine.productId ?? null,
+          variantId: sourceLine.productVariantId ?? null,
+          offerId: null,
+          channelId: document.channelId ?? resolvePriceChannelId(price),
+          priceKindId: resolvePriceKindId(price),
+          currencyCode: sourceLine.currencyCode ?? document.currencyCode,
+          isStorefront: false,
+        },
+        presentedEntry: presentedEntries.get(price.id) ?? null,
+        priceKindIsPromotion: isPromotionPriceKind(price),
+      })),
+      { scope, value: config },
     )
-    if (!block) return
-    line.omnibusReferenceNet = block.lowestPriceNet
-    line.omnibusReferenceGross = block.lowestPriceGross
-    line.omnibusPromotionAnchorAt = block.promotionAnchorAt ? new Date(block.promotionAnchorAt) : null
-    line.omnibusApplicabilityReason = block.applicabilityReason
-    const personalization = readPricePersonalization(price)
-    line.isPersonalized = personalization.isPersonalized
-    line.personalizationReason = personalization.personalizationReason
+    priced.forEach(({ line, price }, index) => {
+      const block = blocks[index]
+      if (!block) return
+      line.omnibusReferenceNet = block.lowestPriceNet
+      line.omnibusReferenceGross = block.lowestPriceGross
+      line.omnibusPromotionAnchorAt = block.promotionAnchorAt ? new Date(block.promotionAnchorAt) : null
+      line.omnibusApplicabilityReason = block.applicabilityReason
+      const personalization = readPricePersonalization(price)
+      line.isPersonalized = personalization.isPersonalized
+      line.personalizationReason = personalization.personalizationReason
+    })
   } catch (err) {
     logger.error('[internal] sales line omnibus snapshot capture failed', {
       documentKind,
-      priceId,
-      productId: sourceLine.productId ?? null,
+      lineCount: candidates.length,
       tenantId: document.tenantId,
       organizationId: document.organizationId,
       err,
@@ -147,7 +170,7 @@ export async function applyOmnibusSnapshotToLine(params: {
     getTelemetryRuntime()?.reportError(err, {
       module: 'sales',
       code: 'sales.omnibus_snapshot_capture_failed',
-      attributes: { documentKind, priceId },
+      attributes: { documentKind, lineCount: candidates.length },
     })
   }
 }

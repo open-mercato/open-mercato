@@ -3,6 +3,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { padDecimalPlaces, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { CatalogOffer, CatalogPriceHistoryEntry, CatalogProduct, CatalogProductVariant } from '../data/entities'
 import {
@@ -41,18 +42,17 @@ import {
   type OmnibusScopeColumn,
   type OmnibusWindowLookup,
 } from '../lib/omnibusHistoryQueries'
-import { formatFixedDecimal4 } from '../lib/priceHistoryQuery'
 
 const logger = createLogger('catalog')
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-const DECIMAL_SCALE = 4
-
 export type OmnibusConfigScope = {
   tenantId: string
   organizationId?: string | null
 }
+
+export type OmnibusScopedConfig = { scope: Pick<OmnibusResolutionContext, 'tenantId' | 'organizationId'>; value: OmnibusConfig | null }
 
 export interface CatalogOmnibusService {
   getConfig(scope: OmnibusConfigScope): Promise<OmnibusConfig | null>
@@ -77,7 +77,7 @@ export interface CatalogOmnibusService {
     presentedEntry?: OmnibusPresentedEntry | null,
     priceKindIsPromotion?: boolean,
   ): Promise<OmnibusBlock | null>
-  resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[]): Promise<Array<OmnibusBlock | null>>
+  resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Array<OmnibusBlock | null>>
 }
 
 type HistoryScope = { column: OmnibusScopeColumn; id: string }
@@ -118,17 +118,13 @@ function truncToUtcDay(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
-function parseScaledDecimal(value: string | null): bigint | null {
-  if (value === null) return null
-  const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(value.trim())
-  if (!match) return null
-  const [, sign, whole, fraction = ''] = match
-  const scaled = BigInt(`${whole}${fraction.slice(0, DECIMAL_SCALE).padEnd(DECIMAL_SCALE, '0')}`)
-  return sign === '-' ? -scaled : scaled
+function priceValue(row: OmnibusHistoryRow, axis: OmnibusMinimizationAxis) {
+  return parseDecimal(axis === 'gross' ? row.unitPriceGross : row.unitPriceNet)
 }
 
-function priceValue(row: OmnibusHistoryRow, axis: OmnibusMinimizationAxis): bigint | null {
-  return parseScaledDecimal(axis === 'gross' ? row.unitPriceGross : row.unitPriceNet)
+function formatReferenceAmount(value: string | null | undefined): string | null {
+  const amount = parseDecimal(value)
+  return amount === null ? value ?? null : padDecimalPlaces(amount, 4)
 }
 
 function compareChronological(left: OmnibusHistoryRow, right: OmnibusHistoryRow): number {
@@ -142,7 +138,7 @@ function compareByAxis(left: OmnibusHistoryRow, right: OmnibusHistoryRow, axis: 
   const rightValue = priceValue(right, axis)
   if (leftValue === null && rightValue !== null) return 1
   if (leftValue !== null && rightValue === null) return -1
-  if (leftValue !== null && rightValue !== null && leftValue !== rightValue) return leftValue < rightValue ? -1 : 1
+  if (leftValue !== null && rightValue !== null && !leftValue.eq(rightValue)) return leftValue.lt(rightValue) ? -1 : 1
   return compareChronological(left, right)
 }
 
@@ -219,14 +215,14 @@ export function evaluateProgressiveCampaign(input: {
   if (campaign.length > OMNIBUS_IN_WINDOW_LIMIT) return null
   const baselineValue = priceValue(input.baseline, input.axis)
   const firstValue = priceValue(campaign[0], input.axis)
-  if (baselineValue === null || firstValue === null || firstValue > baselineValue) return null
+  if (baselineValue === null || firstValue === null || firstValue.gt(baselineValue)) return null
   const maxGapMs = input.maxGapDays * DAY_MS
   for (let position = 1; position < campaign.length; position += 1) {
     const previous = campaign[position - 1]
     const current = campaign[position]
     const previousValue = priceValue(previous, input.axis)
     const currentValue = priceValue(current, input.axis)
-    if (previousValue === null || currentValue === null || currentValue > previousValue) return null
+    if (previousValue === null || currentValue === null || currentValue.gt(previousValue)) return null
     if (Date.parse(current.recordedAt) - Date.parse(previous.recordedAt) > maxGapMs) return null
   }
   return { lowestRow: input.baseline, previousRow: campaign[campaign.length - 1], anchorAt: campaign[0].recordedAt }
@@ -391,10 +387,10 @@ export function buildOmnibusBlock(
     windowStart: result.windowStart,
     windowEnd: result.windowEnd,
     coverageStartAt: result.coverageStartAt,
-    lowestPriceNet: formatFixedDecimal4(result.lowestRow.unitPriceNet),
-    lowestPriceGross: formatFixedDecimal4(result.lowestRow.unitPriceGross),
-    previousPriceNet: formatFixedDecimal4(result.previousRow?.unitPriceNet ?? null),
-    previousPriceGross: formatFixedDecimal4(result.previousRow?.unitPriceGross ?? null),
+    lowestPriceNet: formatReferenceAmount(result.lowestRow.unitPriceNet),
+    lowestPriceGross: formatReferenceAmount(result.lowestRow.unitPriceGross),
+    previousPriceNet: formatReferenceAmount(result.previousRow?.unitPriceNet ?? null),
+    previousPriceGross: formatReferenceAmount(result.previousRow?.unitPriceGross ?? null),
     currencyCode: context.currencyCode,
     applicable,
     applicabilityReason: reason,
@@ -507,10 +503,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     return block ?? null
   }
 
-  async resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[]): Promise<Array<OmnibusBlock | null>> {
+  async resolveOmnibusBlocks(em: EntityManager, requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Array<OmnibusBlock | null>> {
     const blocks: Array<OmnibusBlock | null> = requests.map(() => null)
     if (!requests.length) return blocks
-    const configs = await this.loadConfigs(requests)
+    const configs = await this.loadConfigs(requests, config)
     const enabled: Array<{ index: number; config: OmnibusConfig }> = []
     requests.forEach((request, index) => {
       const config = configs.get(configKey(request.context)) ?? null
@@ -556,8 +552,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     return blocks
   }
 
-  private async loadConfigs(requests: OmnibusResolutionRequest[]): Promise<Map<string, OmnibusConfig | null>> {
+  private async loadConfigs(requests: OmnibusResolutionRequest[], config?: OmnibusScopedConfig): Promise<Map<string, OmnibusConfig | null>> {
     const configs = new Map<string, OmnibusConfig | null>()
+    if (config) configs.set(configKey(config.scope), config.value)
     for (const request of requests) {
       const key = configKey(request.context)
       if (configs.has(key)) continue
@@ -713,6 +710,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       offerId: lookup.offerId as string,
       baselineScopeColumn: lookup.context.variantId ? 'variant_id' : 'product_id',
       baselineScopeId: (lookup.context.variantId ?? lookup.context.productId) as string,
+      asOf: lookup.now,
       priceKindId: lookup.presentedPriceKindId,
       currencyCode: lookup.context.currencyCode,
       channelId: lookup.channelId,

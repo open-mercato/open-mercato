@@ -9,13 +9,11 @@ import { Migration } from '@mikro-orm/migrations';
 // without the catalog module all leave them empty — so adding them is metadata-only and
 // rewrites no rows.
 //
-// numeric(18, 4) matches the sales line amount columns, deliberately wider than the catalog
-// price history table's numeric(16, 4).
 export class Migration20261015120000_sales_line_omnibus_snapshot extends Migration {
 
   override up(): void | Promise<void> {
-    this.addSql(`alter table "sales_order_lines" add column if not exists "omnibus_reference_net" numeric(18,4) null, add column if not exists "omnibus_reference_gross" numeric(18,4) null, add column if not exists "omnibus_promotion_anchor_at" timestamptz null, add column if not exists "omnibus_applicability_reason" text null, add column if not exists "is_personalized" boolean null, add column if not exists "personalization_reason" text null;`);
-    this.addSql(`alter table "sales_quote_lines" add column if not exists "omnibus_reference_net" numeric(18,4) null, add column if not exists "omnibus_reference_gross" numeric(18,4) null, add column if not exists "omnibus_promotion_anchor_at" timestamptz null, add column if not exists "omnibus_applicability_reason" text null, add column if not exists "is_personalized" boolean null, add column if not exists "personalization_reason" text null;`);
+    this.addSql(`alter table "sales_order_lines" add column if not exists "omnibus_reference_net" numeric null, add column if not exists "omnibus_reference_gross" numeric null, add column if not exists "omnibus_promotion_anchor_at" timestamptz null, add column if not exists "omnibus_applicability_reason" text null, add column if not exists "is_personalized" boolean null, add column if not exists "personalization_reason" text null;`);
+    this.addSql(`alter table "sales_quote_lines" add column if not exists "omnibus_reference_net" numeric null, add column if not exists "omnibus_reference_gross" numeric null, add column if not exists "omnibus_promotion_anchor_at" timestamptz null, add column if not exists "omnibus_applicability_reason" text null, add column if not exists "is_personalized" boolean null, add column if not exists "personalization_reason" text null;`);
   }
 
   override down(): void | Promise<void> {
