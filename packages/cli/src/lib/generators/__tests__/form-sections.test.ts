@@ -57,7 +57,13 @@ function declaration(
   } = {},
 ): string {
   const { kind = 'contributionFacts', version = 1, loaderVersion = version } = options
-  const fact = options.noFact ? '' : identity(id, version)
+  const descriptor = { id, roundTripId: `${id}@v${version}` }
+  const fact = options.noFact ? '' : JSON.stringify(kind === 'hostFacts' ? descriptor : {
+    ...descriptor,
+    address: { hostId: 'example.product', formVariant: 'default', formOperation: 'update', sectionId: 'notes' },
+    operation: 'add',
+    requiredCapabilities: [],
+  })
   const loaderIdentity = identity(id, loaderVersion).slice(1, -1)
   const loadExpression = options.loader ?? "lazyCrudFormSectionRuntime(() => import('./descriptor.client'))"
   const loader = options.noLoader ? '' : `{ ${loaderIdentity}, load: ${loadExpression} }`

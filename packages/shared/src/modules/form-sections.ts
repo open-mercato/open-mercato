@@ -1,3 +1,5 @@
+import type { CrudFormSectionContributionFact } from './form-section-facts'
+
 export type CrudFormSectionDescriptorIdentity = {
   id: string
   roundTripId: string
@@ -18,15 +20,13 @@ export type CrudFormSectionRuntimeEntry = CrudFormSectionRuntimeDeclaration & {
   moduleId: string
 }
 
-export type CrudFormSectionFactEntry = {
-  kind: CrudFormSectionRuntimeEntry['kind']
-  moduleId: string
-  fact: CrudFormSectionDescriptorIdentity
-}
+export type CrudFormSectionFactEntry =
+  | { kind: 'host'; moduleId: string; fact: CrudFormSectionDescriptorIdentity }
+  | { kind: 'contribution'; moduleId: string; fact: CrudFormSectionContributionFact }
 
 export type CrudFormSectionsDeclaration = {
   hostFacts?: readonly CrudFormSectionDescriptorIdentity[]
-  contributionFacts?: readonly CrudFormSectionDescriptorIdentity[]
+  contributionFacts?: readonly CrudFormSectionContributionFact[]
   runtimes?: readonly CrudFormSectionRuntimeDeclaration[]
 }
 
