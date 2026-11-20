@@ -1335,12 +1335,25 @@ a validation failure returns the standard 400 shape (see API Contracts).
   leave already-committed catch-up accruals behind.
   **Posting-date preflight, also before any catch-up:** under the same
   exclusive `(tenantId, organizationId, assetId)` lock, re-read the
-  authoritative committed history for this tenant/org/asset: every accrued
+  authoritative committed history for this tenant/org/asset: the capitalization
+  journal entry from the **current successful acceptance**, every accrued
   `DepreciationScheduleEntry` and every original or reversal
   `AssetImpairment` row, including fully reversed impairments. Resolve
-  their `journalEntryReferenceId` values to the same tenant/org's committed
+  the schedule and impairment rows' `journalEntryReferenceId` values to the same tenant/org's committed
   `ledger.JournalEntry` records and compare `disposalDate` with each
-  `JournalEntry.operationDate` (`journal_entries.operation_date`). The
+  `JournalEntry.operationDate` (`journal_entries.operation_date`). Resolve the
+  current acceptance's capitalization entry using its existing scoped ledger
+  linkage (`type: 'NORMAL'`, `referenceType: 'FixedAsset'`,
+  `referenceId: asset.id`); a capitalization entry already reversed by
+  `reopenFixedAsset` is historical, not the current acceptance. The pinned
+  ledger preserves original entries and links a `REVERSAL` through
+  `referenceType: 'journal_entry'`, `referenceId: originalEntry.id`
+  ([reversal linkage](https://github.com/open-mercato/open-mercato/blob/61bc044f43c7d8db963849fc16c1734a9795dacf/.ai/specs/2026-08-18-general-ledger-core-engine.md#L819-L827)).
+  After reopening and reaccepting, resolve the new committed capitalization
+  entry under the same asset lock; neither the old reversed acceptance nor
+  `acquisitionDate`/`otDate` substitutes for that entry's `operationDate`.
+  This capitalization floor applies even when no depreciation or impairment
+  has posted. The
   ledger prerequisite defines this date field and gives each reversal its
   own `operationDate` ([PR #5663, pinned entity definition](https://github.com/open-mercato/open-mercato/blob/61bc044f43c7d8db963849fc16c1734a9795dacf/.ai/specs/2026-08-18-general-ledger-core-engine.md#L893-L905),
   [storage-column index](https://github.com/open-mercato/open-mercato/blob/61bc044f43c7d8db963849fc16c1734a9795dacf/.ai/specs/2026-08-18-general-ledger-core-engine.md#L1041-L1046),
@@ -1873,8 +1886,9 @@ Custom write route (`disposeAsset`), mapped to `update`.
   has no capitalization posting to reverse and no schedule to catch up);
   the `FiscalPeriod` covering `disposalDate` itself is locked;
   `disposal_precedes_existing_posting` when the locked, authoritative
-  posting-date preflight above finds any committed depreciation,
-  impairment or impairment-reversal `JournalEntry.operationDate` later
+  posting-date preflight above finds the current acceptance's committed
+  capitalization, or any committed depreciation, impairment or
+  impairment-reversal `JournalEntry.operationDate` later
   than `disposalDate`; or a required account is unset in
   `FixedAssetSettings` —
   `saleProceedsAccountId` for `SALE`, or either
@@ -2405,6 +2419,18 @@ All user-facing strings resolve through `useT()` client-side /
   and included in totals, and a deleted stale candidate never posts. Race
   disposal catch-up against revision and impairment to prove no writer
   interleaves between its transactions and disposal posting.
+- Integration: accept an asset with a committed February 1 capitalization
+  operation date and no depreciation or impairment history, then request
+  January 31 disposal with valid accounts, unlocked periods and a current
+  optimistic header. Require 409 `disposal_precedes_existing_posting`, empty
+  catch-up buckets, no new journal entries or disposal, no number allocation,
+  and unchanged asset, schedule and ledger records. February 1 and later
+  dates pass this floor only, retaining all other guards. Reopen an eligible
+  asset, reverse its old capitalization, and reaccept it with a later committed
+  capitalization date; a disposal between the old and new acceptance dates
+  must still be refused. Assert the current ledger `operationDate`, rather
+  than the reversed original, `postedAt`, `acquisitionDate` or `otDate`, decides
+  this floor. Another tenant/org/asset's capitalization does not affect it.
 - Integration: with valid accounts, unlocked periods and a current optimistic
   header, reject a January disposal after a committed February depreciation
   posting with 409 `disposal_precedes_existing_posting`. Repeat separately
@@ -2922,6 +2948,11 @@ gates, not defects in this document.
   maintainer decision.
 
 ## Changelog
+
+### 2026-11-20 — current-acceptance capitalization floor (PR #9786)
+
+- Address finding 2 of [review 5989905207](https://github.com/open-mercato/open-mercato/pull/9786#pullrequestreview-5989905207): include the current acceptance's committed capitalization operation date in the existing locked, zero-write disposal preflight, including after reopen/reaccept. Preserve the existing 409 code and all depreciation/impairment guards; add before-capitalization, equal/later and cross-scope acceptance cases.
+- This is a partial specification correction. Zero-value completion and omitted zero lines (finding 1), impairment/reversal date ordering (finding 3), uncertain catch-up outcomes (finding 4), the Article 30 decision, ledger transaction prerequisite, financial/security acceptance and human QA remain unresolved. No implementation or accounting-policy approval is supplied.
 
 ### 2026-11-20 — partial review response (PR #9786, finding 2 only)
 
