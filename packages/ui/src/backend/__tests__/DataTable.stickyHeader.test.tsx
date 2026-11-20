@@ -142,6 +142,7 @@ describe('DataTable sticky column header', () => {
     const { header, wrapper, queryClient } = renderTable({ embedded: true })
     try {
       expect(wrapper.classList.contains('overflow-x-auto')).toBe(true)
+      expect(wrapper.classList.contains('md:overflow-visible')).toBe(true)
       setTop(wrapper, -240)
       scroll()
       expect(header.style.top).toBe('301px')
