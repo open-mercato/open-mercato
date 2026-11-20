@@ -4,6 +4,7 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { SCIM_ADMISSION_TTL_MS, scimAdmissionCacheKey, scimAdmissionTokenTag, scimAdmissionTokenKey, scimTokenLookupHash } from '../lib/scim-admission-cache'
+import { isBrandedSsoHttpError } from '../lib/errors'
 import type { RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager, LockMode } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
@@ -201,7 +202,11 @@ export class ScimTokenService {
   }
 }
 
+const SCIM_TOKEN_ERROR_MARKER = Symbol.for('@open-mercato/sso/ScimTokenError')
+
 export class ScimTokenError extends Error {
+  readonly [SCIM_TOKEN_ERROR_MARKER] = true
+
   constructor(
     message: string,
     public readonly statusCode: number,
@@ -209,4 +214,8 @@ export class ScimTokenError extends Error {
     super(message)
     this.name = 'ScimTokenError'
   }
+}
+
+export function isScimTokenError(error: unknown): error is ScimTokenError {
+  return error instanceof ScimTokenError || isBrandedSsoHttpError(error, SCIM_TOKEN_ERROR_MARKER, 'ScimTokenError')
 }

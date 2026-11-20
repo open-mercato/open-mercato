@@ -8,6 +8,7 @@ import type { SsoConfigAdminCreateInput, SsoConfigAdminUpdateInput, SsoConfigLis
 import { emitSsoEvent } from '../events'
 import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit } from '../lib/domains'
 import type { SsoProviderRegistry } from '../lib/registry'
+import { isBrandedSsoHttpError } from '../lib/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
@@ -446,7 +447,11 @@ export class SsoConfigService {
   }
 }
 
+const SSO_CONFIG_ERROR_MARKER = Symbol.for('@open-mercato/sso/SsoConfigError')
+
 export class SsoConfigError extends Error {
+  readonly [SSO_CONFIG_ERROR_MARKER] = true
+
   constructor(
     message: string,
     public readonly statusCode: number,
@@ -454,4 +459,8 @@ export class SsoConfigError extends Error {
     super(message)
     this.name = 'SsoConfigError'
   }
+}
+
+export function isSsoConfigError(error: unknown): error is SsoConfigError {
+  return error instanceof SsoConfigError || isBrandedSsoHttpError(error, SSO_CONFIG_ERROR_MARKER, 'SsoConfigError')
 }

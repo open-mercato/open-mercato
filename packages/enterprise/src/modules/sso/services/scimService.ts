@@ -13,6 +13,7 @@ import type { ScimPatchOperation } from '../lib/scim-patch'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SsoAuthorizationService } from './ssoAuthorizationService'
+import { isBrandedSsoHttpError } from '../lib/errors'
 
 export class ScimService {
   constructor(
@@ -490,8 +491,5 @@ export class ScimServiceError extends Error {
 }
 
 export function isScimServiceError(error: unknown): error is ScimServiceError {
-  return error instanceof ScimServiceError || (
-    !!error && typeof error === 'object'
-    && (error as Record<symbol, unknown>)[SCIM_SERVICE_ERROR_MARKER] === true
-  )
+  return error instanceof ScimServiceError || isBrandedSsoHttpError(error, SCIM_SERVICE_ERROR_MARKER, 'ScimServiceError')
 }

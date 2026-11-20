@@ -1,5 +1,6 @@
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { SsoAdminScope } from '../services/ssoConfigService'
+import { isBrandedSsoHttpError } from '../lib/errors'
 
 export async function resolveSsoAdminContext(req: Request): Promise<{
   auth: Awaited<ReturnType<typeof getAuthFromRequest>>
@@ -26,7 +27,11 @@ export async function resolveSsoAdminContext(req: Request): Promise<{
   }
 }
 
+const SSO_ADMIN_AUTH_ERROR_MARKER = Symbol.for('@open-mercato/sso/SsoAdminAuthError')
+
 export class SsoAdminAuthError extends Error {
+  readonly [SSO_ADMIN_AUTH_ERROR_MARKER] = true
+
   constructor(
     message: string,
     public readonly statusCode: number,
@@ -34,4 +39,8 @@ export class SsoAdminAuthError extends Error {
     super(message)
     this.name = 'SsoAdminAuthError'
   }
+}
+
+export function isSsoAdminAuthError(error: unknown): error is SsoAdminAuthError {
+  return error instanceof SsoAdminAuthError || isBrandedSsoHttpError(error, SSO_ADMIN_AUTH_ERROR_MARKER, 'SsoAdminAuthError')
 }
