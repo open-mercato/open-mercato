@@ -1,5 +1,8 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { AgentGuardrailCheck } from '../../data/entities'
 import type { AgentRun, AgentSpan, AgentToolCall } from '../../data/entities'
-import type { Json, ScorerRunView, ScorerToolCallView } from './types'
+import { readCheckOutcome, readCheckRuleId } from '../guardrails/integrity/summary'
+import type { Json, ScorerGuardrailCheckView, ScorerRunView, ScorerToolCallView } from './types'
 
 /**
  * Projects already-loaded ORM rows into the dependency-free view scorers consume.
@@ -16,10 +19,12 @@ export type ProjectRunViewInput = {
   spans?: ReadonlyArray<AgentSpan>
   /** From the run's AgentProposal, when one exists. */
   disposition?: string | null
+  /** The run's AgentGuardrailCheck rows, for the `guardrail_check` scorer. */
+  guardrailChecks?: ReadonlyArray<Pick<AgentGuardrailCheck, 'kind' | 'phase' | 'result' | 'evidence'>>
 }
 
 export function projectRunView(input: ProjectRunViewInput): ScorerRunView {
-  const { run, toolCalls = [], spans = [], disposition = null } = input
+  const { run, toolCalls = [], spans = [], disposition = null, guardrailChecks = [] } = input
 
   const sequenceBySpanId = new Map<string, number>()
   for (const span of spans) sequenceBySpanId.set(span.id, span.sequence)
@@ -49,5 +54,29 @@ export function projectRunView(input: ProjectRunViewInput): ScorerRunView {
     toolCalls: projectedCalls,
     stepCount: projectedCalls.length,
     disposition,
+    guardrailChecks: guardrailChecks.map(
+      (check): ScorerGuardrailCheckView => ({
+        kind: check.kind,
+        phase: check.phase,
+        result: check.result,
+        ruleId: readCheckRuleId(check.evidence),
+        outcome: readCheckOutcome(check.evidence),
+      }),
+    ),
   }
+}
+
+export type RunViewScope = { tenantId: string; organizationId: string | null }
+
+/** Loads a run's guardrail check rows (tenant + organization scoped) for `projectRunView`. */
+export function loadRunGuardrailChecks(
+  em: EntityManager,
+  runId: string,
+  scope: RunViewScope,
+): Promise<Array<Pick<AgentGuardrailCheck, 'kind' | 'phase' | 'result' | 'evidence'>>> {
+  return em.find(
+    AgentGuardrailCheck,
+    { agentRunId: runId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { orderBy: { createdAt: 'asc' }, fields: ['kind', 'phase', 'result', 'evidence'] },
+  )
 }

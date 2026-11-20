@@ -136,6 +136,19 @@ const RUNTIME_CLASSIFIERS = [
     title: 'Syntax error',
     detail: (match, message) => message,
   },
+  {
+    // React's streaming renderer wires this exact message to its own request
+    // *cancellation* path (`createCancelHandler` on the destination stream
+    // erroring), not to its generic render-error reporting. It fires whenever
+    // the client closes the connection before a streamed response finishes —
+    // a navigation, reload, or back/forward during dev HMR is the common
+    // case — so it is expected and does not indicate a runtime fault.
+    code: 'stream_write_cancelled',
+    pattern: /The destination stream errored while writing data\.?/i,
+    title: 'Streamed response cancelled',
+    detail: () => 'The browser closed the connection before a streamed page finished rendering (for example a navigation, reload, or back/forward). This is expected and does not indicate a runtime fault.',
+    severity: 'warning',
+  },
 ]
 
 const SOURCE_FALLBACKS = {
@@ -158,10 +171,11 @@ export function classifyRuntimeMessage(message, source = 'log') {
       title: classifier.title,
       detail: classifier.detail(match, text),
       recovery: classifier.recovery,
+      severity: classifier.severity,
     }
   }
   const fallback = SOURCE_FALLBACKS[source] ?? SOURCE_FALLBACKS.log
-  return { code: fallback.code, title: fallback.title, detail: text || undefined, recovery: undefined }
+  return { code: fallback.code, title: fallback.title, detail: text || undefined, recovery: undefined, severity: undefined }
 }
 
 function normalizeForFingerprint(message, cwd) {
@@ -368,7 +382,9 @@ export function createRuntimeStateStore(options = {}) {
     const rawMessage = typeof signal.message === 'string' ? signal.message : ''
     const classified = classifyRuntimeMessage(rawMessage, source)
     const code = typeof signal.code === 'string' && signal.code.trim() ? signal.code.trim() : classified.code
-    const severity = signal.severity === 'warning' ? 'warning' : 'error'
+    const severity = signal.severity === 'warning' || signal.severity === 'error'
+      ? signal.severity
+      : (classified.severity ?? 'error')
     const issuePath = sanitizePath(signal.path)
     const digest = sanitizeDigest(signal.digest)
     const title = redactSensitiveText(signal.title ?? classified.title, MAX_TITLE_LENGTH) ?? 'Runtime error detected'
