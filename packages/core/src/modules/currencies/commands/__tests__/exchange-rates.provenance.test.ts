@@ -40,6 +40,7 @@ function setup(overrides: Partial<ExchangeRate> = {}, duplicates: ExchangeRate[]
   const flush = jest.fn().mockResolvedValue(undefined)
   const em = {
     fork: jest.fn(), flush,
+    transactional: jest.fn(async (work: (manager: unknown) => Promise<unknown>): Promise<unknown> => work(em)),
     create: jest.fn((_entity: unknown, data: Partial<ExchangeRate>) => Object.assign(new ExchangeRate(), { id: '66666666-6666-4666-8666-666666666666', deletedAt: null }, data)),
     persist: jest.fn((created: ExchangeRate) => records.push(created)),
     findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) =>
@@ -204,6 +205,46 @@ it.each(['tenantId', 'organizationId'] as const)('cannot edit or undo a foreign 
   await expect(command.execute(input, ctx)).rejects.toMatchObject({ status: 404 })
   await command.undo!({ input, ctx, logEntry: { commandPayload: { undo: { before: { ...record, rate: '9', date: date.toISOString() } } } } })
   expect(record.rate).toBe('4.12345678901234567890123456789')
+  expect(em.flush).not.toHaveBeenCalled()
+  expect(markOrmEntityChange).not.toHaveBeenCalled()
+})
+
+it('refuses an occupied original publication key before dirtying or flushing either row', async () => {
+  const { record, records, ctx, em, markOrmEntityChange } = setup()
+  const input = { id: recordId, rate: '8.125' }
+  const prepared = await command.prepare!(input, ctx)
+  const result = await command.execute(input, ctx)
+  const after = await command.captureAfter!(input, result, ctx)
+  const log = await command.buildLog!({ input, result, ctx, snapshots: { before: prepared?.before, after } })
+  records.push(setup({ id: '44444444-4444-4444-8444-444444444444', deletedAt: new Date(), isActive: false }).record)
+  const unchanged = records.map((row) => ({ ...row }))
+  em.flush.mockClear()
+  markOrmEntityChange.mockClear()
+  await expect(command.undo!({ input, ctx, logEntry: { commandPayload: log?.payload } })).rejects.toMatchObject({
+    status: 409,
+    body: { error: 'This change cannot be undone because another exchange rate now occupies its original currency pair, date, and source.' },
+  })
+  expect(records).toEqual(unchanged)
+  expect(record.rate).toBe('8.125')
+  expect(em.flush).not.toHaveBeenCalled()
+  expect(markOrmEntityChange).not.toHaveBeenCalled()
+})
+
+it.each(['rate', 'metadata', 'updatedAt'] as const)('refuses intervening %s edits before dirtying or flushing', async (field) => {
+  const { record, ctx, em, markOrmEntityChange } = setup()
+  const input = { id: recordId, rate: '8.125' }
+  const prepared = await command.prepare!(input, ctx)
+  const result = await command.execute(input, ctx)
+  const after = await command.captureAfter!(input, result, ctx)
+  const log = await command.buildLog!({ input, result, ctx, snapshots: { before: prepared?.before, after } })
+  if (field === 'rate') record.rate = '9.75'
+  if (field === 'metadata') record.metadata = { intervening: true }
+  if (field === 'updatedAt') record.updatedAt = new Date(record.updatedAt.getTime() + 1)
+  const unchanged = { ...record }
+  em.flush.mockClear()
+  markOrmEntityChange.mockClear()
+  await expect(command.undo!({ input, ctx, logEntry: { commandPayload: log?.payload } })).rejects.toMatchObject({ status: 409 })
+  expect(record).toEqual(unchanged)
   expect(em.flush).not.toHaveBeenCalled()
   expect(markOrmEntityChange).not.toHaveBeenCalled()
 })

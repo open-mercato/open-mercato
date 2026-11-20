@@ -9,6 +9,8 @@
   "currencies.errors.baseCurrencyUnset": "Zamiast odznaczać walutę bazową, wybierz inną walutę jako bazową.",
   "currencies.errors.undoHasRates": "Tej zmiany nie można cofnąć, ponieważ kursy wymiany korzystają teraz z tej waluty. Najpierw usuń lub dezaktywuj te kursy wymiany.",
   "currencies.errors.undoWouldClearBase": "Tej zmiany nie można cofnąć, ponieważ organizacja zostałaby bez waluty bazowej.",
+  "currencies.errors.undoRateChanged": "Nie można cofnąć tej zmiany, ponieważ kurs walutowy został zmieniony od czasu tej edycji.",
+  "currencies.errors.undoRateKeyOccupied": "Nie można cofnąć tej zmiany, ponieważ inny kurs walutowy zajmuje już pierwotną parę walut, datę i źródło.",
   "currencies.exchange_rates.update": "Aktualizuj kurs wymiany",
   "currencies.fetch.description": "Zarządzaj automatycznym pobieraniem kursów walut od zewnętrznych dostawców",
   "currencies.fetch.disabled": "Wyłączony",
