@@ -1,5 +1,7 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { asValue, createContainer } from 'awilix'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
 import { DomainMappingService, DomainMappingOrgScopeError, DomainMappingRegistrationConflict, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import { emitCustomerAccountsEvent } from '../../events'
@@ -738,6 +740,60 @@ describe('DomainMappingService.healthCheck', () => {
 // ---------------------------------------------------------------------------
 
 describe('DomainMappingService.remove', () => {
+  it('keeps the OSS stale-version floor ahead of an optional command guard', async () => {
+    const row = seedDomain({ updatedAt: new Date('2026-11-20T00:00:01.000Z') })
+    const em = createFakeEm({ domains: [row] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+    const enforce = jest.fn(async () => undefined)
+    const container = createContainer()
+    container.register({ commandOptimisticLockGuardService: asValue({ enforce }) })
+
+    await expect(service.remove(row.id, {
+      tenantId: TENANT_A, expectedUpdatedAt: '2026-11-20T00:00:00.000Z', container,
+    })).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+
+    expect(enforce).not.toHaveBeenCalled()
+    expect(row.deletedAt).toBeNull()
+  })
+
+  it('awaits an optional command-guard refusal before releasing the mapping', async () => {
+    const row = seedDomain({ updatedAt: new Date('2026-11-20T00:00:01.000Z') })
+    const before = { ...row }
+    const em = createFakeEm({ domains: [row] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+    const conflict = new CrudHttpError(409, { code: 'record_lock_conflict' })
+    const enforce = jest.fn(async () => { throw conflict })
+    const container = createContainer()
+    container.register({ commandOptimisticLockGuardService: asValue({ enforce }) })
+    const eventCount = jest.mocked(emitCustomerAccountsEvent).mock.calls.length
+
+    await expect(service.remove(row.id, {
+      tenantId: TENANT_A, expectedUpdatedAt: row.updatedAt!.toISOString(), container,
+    })).rejects.toBe(conflict)
+
+    expect(enforce).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'customer_accounts.domain_mapping', resourceId: row.id, current: row.updatedAt,
+    }))
+    expect(row).toEqual(before)
+    expect(emitCustomerAccountsEvent).toHaveBeenCalledTimes(eventCount)
+  })
+
+  it('deletes after the optional command guard accepts the current mapping', async () => {
+    const row = seedDomain({ updatedAt: new Date('2026-11-20T00:00:01.000Z') })
+    const em = createFakeEm({ domains: [row] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+    const enforce = jest.fn(async () => { expect(row.deletedAt).toBeNull() })
+    const container = createContainer()
+    container.register({ commandOptimisticLockGuardService: asValue({ enforce }) })
+
+    await service.remove(row.id, {
+      tenantId: TENANT_A, expectedUpdatedAt: row.updatedAt!.toISOString(), container,
+    })
+
+    expect(enforce).toHaveBeenCalledTimes(1)
+    expect(row.deletedAt).toBeInstanceOf(Date)
+  })
+
   it('rejects a stale version under the row lock without changing the mapping', async () => {
     const row = seedDomain({ updatedAt: new Date('2026-11-20T00:00:01.000Z'), dnsFailureReason: 'Newer DNS state' })
     const before = { ...row }

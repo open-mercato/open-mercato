@@ -1954,6 +1954,7 @@ None.
 
 ### 2026-11-20 — Preserve domain lifecycle refusals (#9146)
 
+- The deletion route passes its request container into the locked service operation, which awaits the existing DI-aware command guard after the unconditional OSS version comparison. Optional enterprise guard conflicts prevent release and events; standalone service callers keep the default OSS guard. Regression coverage verifies both refusal layers and accepted deletion without exempting the path from the command-lock inventory.
 - Registration initializes the mapping version immediately. Custom domain deletion compares the optional client version with the current mapping while holding its existing transaction row lock. A stale request returns the shared optimistic-lock conflict without changing DNS state or emitting release effects; unversioned callers retain their existing behavior. The UI surfaces the conflict and retains failed-write lifecycle semantics.
 - TLS health checks on unverified mappings return a translated `409 domain_mapping_not_verified` instead of an internal error.
 - Coverage includes the custom DELETE/health routes, service refusals and successful removal, a PostgreSQL two-manager stale-delete whole-record comparison, and `TC-DOMAIN-9146-ownership-settings.spec.ts` for registration, both TXT clipboard values, the verification deadline and reload persistence. The destructive rollout's human compatibility approval and protected QA remain separate requirements.

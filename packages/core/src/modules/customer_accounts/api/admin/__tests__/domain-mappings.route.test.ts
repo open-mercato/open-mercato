@@ -296,7 +296,7 @@ describe('domain action lifecycle refusals', () => {
       method: 'DELETE', headers: { 'x-om-ext-optimistic-lock-expected-updated-at': expectedUpdatedAt },
     }))
 
-    expect(mockService.remove).toHaveBeenCalledWith(mappingId, { tenantId, expectedUpdatedAt })
+    expect(mockService.remove).toHaveBeenCalledWith(mappingId, { tenantId, expectedUpdatedAt, container: expect.anything() })
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual(conflict)
     expect(mockAfterSuccess).not.toHaveBeenCalled()

@@ -247,6 +247,7 @@ export async function DELETE(req: Request) {
     await service.remove(id, {
       tenantId: auth.tenantId,
       expectedUpdatedAt: readOptimisticLockExpected(req),
+      container,
     })
   } catch (error: unknown) {
     if (isCrudHttpError(error)) {

@@ -2,12 +2,13 @@ import { Resolver, promises as dnsPromises } from 'node:dns'
 import { randomUUID } from 'node:crypto'
 import { request as httpsRequest } from 'node:https'
 import type { ClientRequest } from 'node:http'
+import type { AwilixContainer } from 'awilix'
 import { resolveSafeHostAddress } from '@open-mercato/shared/lib/host-pinning'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { setTimeout as delay } from 'node:timers/promises'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { createCommandOptimisticLockGuardService, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
@@ -54,6 +55,7 @@ const TLS_HEALTH_CHECK_RETRY_DELAYS_MS = [1_000, 4_000, 16_000]
 const DEFAULT_DNS_RECHECK_THRESHOLD_MS = 5 * 60_000
 const DEFAULT_TLS_MAX_RETRIES = 6
 const LOCK_MAPPING = { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } as const
+const standaloneOptimisticLockGuard = createCommandOptimisticLockGuardService()
 
 export type ResolveResult = {
   domainMappingId: string
@@ -536,18 +538,23 @@ export class DomainMappingService {
     return entity
   }
 
-  async remove(id: string, scope?: { tenantId?: string; expectedUpdatedAt?: string | null }): Promise<void> {
+  async remove(id: string, scope?: { tenantId?: string; expectedUpdatedAt?: string | null; container?: AwilixContainer }): Promise<void> {
     const entity = await this.em.transactional(async (tx) => {
       const mapping = await tx.findOne(DomainMapping, {
         id, deletedAt: null, ...(scope?.tenantId ? { tenantId: scope.tenantId } : {}),
       }, LOCK_MAPPING)
       if (mapping) {
-        enforceCommandOptimisticLock({
+        const lockInput = {
           resourceKind: 'customer_accounts.domain_mapping',
           resourceId: mapping.id,
           expected: scope?.expectedUpdatedAt,
           current: mapping.updatedAt,
-        })
+        }
+        if (scope?.container) {
+          await enforceCommandOptimisticLockWithGuards(scope.container, lockInput)
+        } else {
+          await standaloneOptimisticLockGuard.enforce(lockInput)
+        }
         this.releaseMapping(mapping)
       }
       return mapping
