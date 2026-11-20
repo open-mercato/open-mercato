@@ -415,7 +415,7 @@ The suite owns registration of these marker-bearing fixture builders and its que
 
 | Test | Covers |
 |---|---|
-| TC-PRIVACY-VERIFY-001 | Seven-step erase-everywhere: encrypted graph, every class/table, exact row retained evidence, UUID/network/session/junction checks, positive token/query-index/configured fulltext/vector hits before erase, attachment/pending bytes, control probes, warmed exact list/detail cache replay; standard global tables not applicable |
+| TC-PRIVACY-VERIFY-001 | Seed C1 owner attribution for every positive alias-based fixture, including commerce, communication and forms. In separate unresolved shared/reassigned alias fixtures, prove withheld export and pre-write erasure refusal, and verify the mixed-alias coverage gap through TC-PRIVACY-COMMERCE-ALIASES-001. Seven-step erase-everywhere: encrypted graph, every class/table, exact row retained evidence, UUID/network/session/junction checks, positive token/query-index/configured fulltext/vector hits before erase, attachment/pending bytes, control probes, warmed exact list/detail cache replay; standard global tables not applicable |
 | TC-PRIVACY-VERIFY-002 | Own two tenants with same markers and separate ids, addresses/hashes, sessions, queue jobs and attachments; first erase/resolve never changes or reveals second, including organization attribution |
 | TC-PRIVACY-VERIFY-003 | Own tenant/person/control fixture; list stdin/file follows C1 no-echo handling; no marker printed; refused --value redacts; a run without `--reference` or with oversized input exits 1 with no store read and no audit entry; the audit entry carries the reference and host hints; `--only tables` reports other stores `not_requested` and exits 2; mode 0600, fsync/link/unlink no-replace publication, concurrent target/unsupported hard links/Windows ACL cases, force-only rename, production/audit gates, exit 2 matches/gaps and per-store statuses; remove all output |
 | TC-PRIVACY-VERIFY-004 | Reuse C4's `customersFixtures` with commerce's `salesFixtures` for the same owned person linked to a deal and protected fiscal invoice/order; erase anonymizes person and keeps both dependants readable, with only exact reported class/section/table/row/column/reason evidence. Plant text in the deal link's role and assert it clears with its history stripped; delete all fixtures after assertions |
@@ -493,6 +493,10 @@ Reviewed root/spec/QA rules, backward compatibility, shared encryption and bound
 **Verdict:** Design ready. Written upstream approval must name this proposed OSS carrier under [DEC-2](2026-11-15-gdpr-ready-deployments-program.md#decisions) before implementation or OSS submission. The C4 invoker also requires its DEC-2b disposition. Phase 1 requires DEC-9's module-owned readers with all registrations delivered. Phase 2 requires coverage-populated C4 row evidence, the pruners' published `operational_pruner` bound entries and handlers, and B6's retained-queue assessment under assumption 10. Program closure requires all acceptance/UI rows and additional C9 capture/replay cases green, empty baselines, named unread stores and waivers, acknowledged Known limits, and the two upstream DEC-14 scope dispositions. Technical requirements retained under DEC-14 need their own passing acceptance evidence. DEC-15 also requires independent owner absence and late-writer evidence for the required production-store scope or the applicable written disposition. A passing suite proves its inspected stores and fixture behavior only.
 
 ## Changelog
+
+### 2026-11-20 — Alias verification witnesses
+
+- Require independently attributable positive fixtures and explicit withheld or unsupported alias cases.
 
 ### 2026-11-20
 

@@ -71,8 +71,9 @@ For an integration requiring consent, follow E5's **Adding a non-essential
 integration** recipe in `apps/docs/docs/deployment/gdpr/index.mdx#adding-a-non-essential-integration`
 once shipped, as specified by [`2026-11-16-consent-gate-hook.md`](GDPR/2026-11-16-consent-gate-hook.md),
 **Phase 2 — The gate**. Allowing an origin does not obtain consent: create its
-script or invoke its dynamic loader only inside the granted branch. The existing
-origin controls and nonce behavior apply; this adds no per-visitor CSP or
+script or invoke its dynamic loader only inside the granted client branch. Keep
+server-side vendor requests and prefetch outside this integration boundary. The
+existing origin controls and nonce behavior apply; this adds no per-visitor CSP or
 consent-specific CSP variable.
 
 Module-authored inline assets need a trusted nonce, from `headers()` on the server
