@@ -302,24 +302,55 @@ describe('VariantPricesSection', () => {
     expect(screen.getByText('No tax override')).toBeInTheDocument()
   })
 
-  it('calls setValue when price amount is changed', () => {
+  it.each(['9.99', '149,99', '0,123456789012345678', '', '12,3,4'])('preserves the typed price amount %s', (amount) => {
     const setValue = jest.fn()
     render(
       <VariantPricesSection
-        values={createDefaultValues()}
+        values={createDefaultValues({ prices: {
+          'pk-1': { priceKindId: 'pk-1', amount: '1', displayMode: 'excluding-tax' },
+        } })}
         setValue={setValue}
         priceKinds={createPriceKinds()}
         taxRates={createTaxRates()}
       />,
     )
     const priceInputs = screen.getAllByPlaceholderText('0.00')
-    fireEvent.change(priceInputs[0], { target: { value: '9.99' } })
+    fireEvent.change(priceInputs[0], { target: { value: amount } })
     expect(setValue).toHaveBeenCalledWith(
       'prices',
       expect.objectContaining({
-        'pk-1': expect.objectContaining({ amount: '9.99', priceKindId: 'pk-1' }),
+        'pk-1': expect.objectContaining({ amount, priceKindId: 'pk-1' }),
       }),
     )
+  })
+
+  it('shows and associates the submitted error only with invalid price fields, then clears it after correction', () => {
+    const values = createDefaultValues({
+      prices: {
+        'pk-1': { priceKindId: 'pk-1', amount: '12,3,4', displayMode: 'excluding-tax' },
+        'pk-2': { priceKindId: 'pk-2', amount: '149,99', displayMode: 'including-tax' },
+      },
+    })
+    const props = {
+      values,
+      setValue: jest.fn(),
+      priceKinds: createPriceKinds(),
+      taxRates: createTaxRates(),
+      errors: { prices: 'Provide a valid non-negative price.' },
+    }
+    const { rerender } = render(<VariantPricesSection {...props} showHeader={false} embedded />)
+    const retailInput = screen.getByLabelText('Retail')
+    const wholesaleInput = screen.getByLabelText('Wholesale')
+    expect(screen.getByRole('alert')).toHaveTextContent(props.errors.prices)
+    expect(retailInput).toHaveAttribute('aria-invalid', 'true')
+    expect(retailInput).toHaveAttribute('aria-describedby', screen.getByRole('alert').id)
+    expect(wholesaleInput).not.toHaveAttribute('aria-invalid')
+    rerender(<VariantPricesSection {...props} values={{
+      ...values,
+      prices: { ...values.prices, 'pk-1': { ...values.prices['pk-1'], amount: '12,34' } },
+    }} showHeader={false} embedded />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(retailInput).not.toHaveAttribute('aria-invalid')
   })
 })
 

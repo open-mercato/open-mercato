@@ -89,7 +89,7 @@ export function LookupSelect({
   const resolvedStartTypingLabel = startTypingLabel ?? t('ui.lookupSelect.startTyping', 'Start typing to search.')
   const resolvedMinQueryHintLabel = minQueryHintLabel ?? t(
     'ui.lookupSelect.minQueryHint',
-    'Type at least {minQuery} characters or paste an id to search.',
+    'Minimum characters to search: {minQuery}. You can also paste an id.',
     { minQuery: String(minQuery) }
   )
   const [query, setQuery] = React.useState('')
@@ -571,7 +571,7 @@ export function LookupSelect({
             </IconButton>
           )}
         </div>
-      ) : hasTyped ? (
+      ) : hasTyped && minQuery > 0 ? (
         <p className="text-xs text-muted-foreground">
           {resolvedMinQueryHintLabel}
         </p>
