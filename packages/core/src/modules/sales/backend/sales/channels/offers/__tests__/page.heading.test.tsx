@@ -8,7 +8,9 @@ const mockReadApiResultOrThrow = jest.fn()
 const mockT = (key: string, fallback?: string) => fallback ?? key
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  usePathname: () => '/backend/sales/channels/offers',
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
