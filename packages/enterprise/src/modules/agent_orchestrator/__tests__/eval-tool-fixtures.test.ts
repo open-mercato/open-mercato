@@ -120,7 +120,7 @@ function evalSetFile(
   }
 }
 
-type ToolCallPlan = { toolName: string; args: unknown; isMutation?: boolean }
+type ToolCallPlan = { toolName: string; args: unknown; isMutation?: boolean; authorized?: boolean }
 
 async function simulateToolCall(call: ToolCallPlan, handler: (args: unknown) => Promise<unknown>): Promise<unknown> {
   let decision: ReturnType<typeof resolveToolReplayDecision>
@@ -130,6 +130,7 @@ async function simulateToolCall(call: ToolCallPlan, handler: (args: unknown) => 
       args: call.args,
       isMutation: call.isMutation === true,
       toolCallId: null,
+      authorized: call.authorized,
     })
   } catch (error) {
     return { toolError: error instanceof Error ? error.message : String(error) }
@@ -274,6 +275,23 @@ describe('eval tool record/replay', () => {
       onMiss: 'live',
       cases: { mixed: 1, replay: 0 },
     })
+  })
+
+  it.each(['error', 'live'] as const)('fails forbidden replay even when the runtime catches the tool error (onMiss %s)', async (onMiss) => {
+    const { store } = memoryStore({
+      'case-a': { ok: true, fidelity: 'full', fixtures: [fixture('catalog.search', { q: 'private' }, { secret: 'recorded data' })] },
+    })
+    const { suite, handler, observed, byKey } = await runSuite({
+      caseKeys: ['case-a'],
+      plan: { 'case-a': [{ toolName: 'catalog.search', args: { q: 'private' }, authorized: false }] },
+      toolFixtures: { mode: 'replay', store, onMiss },
+    })
+    expect(handler).not.toHaveBeenCalled()
+    expect(observed['case-a']).toEqual([{ toolError: expect.stringContaining('tool_replay_forbidden') }])
+    expect(byKey('case-a').status).toBe('error')
+    expect(byKey('case-a').errorMessage).toContain('tool_replay_forbidden')
+    expect(byKey('case-a').errorMessage).not.toContain('private')
+    expect(readEvalRunToolSummary(suite.summary)).toMatchObject({ mode: 'replay', misses: 1 })
   })
 
   it('refuses mutation tools under replay and errors the case', async () => {
