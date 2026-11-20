@@ -61,7 +61,7 @@ describe.each([
     },
   )
 
-  it('preserves omission instead of turning it into a clear', () => {
+  it('keeps an omitted description distinct from null', () => {
     const result = schema.parse(input)
 
     expect(result).not.toHaveProperty('description')

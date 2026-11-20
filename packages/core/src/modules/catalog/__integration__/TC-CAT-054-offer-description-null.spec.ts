@@ -70,6 +70,14 @@ test.describe('TC-CAT-054: offer description accepts an explicit null', () => {
       expect(offerUpdate.status(), 'PUT /api/catalog/offers with description null should succeed').toBe(200)
       expect(await readOfferDescription(request, token, offerId)).toBe(productDescription)
 
+      const offerDescription = `QA TC-CAT-054 offer description again ${stamp}`
+      const offerReset = await apiRequest(request, 'PUT', '/api/catalog/offers', {
+        token,
+        data: { id: offerId, description: offerDescription },
+      })
+      expect(offerReset.status(), 'PUT /api/catalog/offers with a new description should succeed').toBe(200)
+      expect(await readOfferDescription(request, token, offerId)).toBe(offerDescription)
+
       const productUpdate = await apiRequest(request, 'PUT', '/api/catalog/products', {
         token,
         data: {
