@@ -6,6 +6,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerAddress } from '../data/entities'
 import { addressCreateSchema, addressUpdateSchema, type AddressCreateInput, type AddressUpdateInput } from '../data/validators'
 import {
+  commandScopeWhere,
+  type CommandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   requireCustomerEntity,
@@ -74,8 +76,12 @@ type AddressCommandResult = {
   demotedPrimaryAddresses?: DemotedPrimaryAddress[]
 }
 
-async function loadAddressSnapshot(em: EntityManager, id: string): Promise<AddressSnapshot | null> {
-  const address = await em.findOne(CustomerAddress, { id }, { populate: ['entity'] })
+async function loadAddressSnapshot(
+  em: EntityManager,
+  id: string,
+  scopeWhere: CommandScopeWhere = {},
+): Promise<AddressSnapshot | null> {
+  const address = await em.findOne(CustomerAddress, { id, ...scopeWhere }, { populate: ['entity'] })
   if (!address) return null
   const entityRef = address.entity
   const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
@@ -368,13 +374,13 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
   async prepare(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadAddressSnapshot(em, parsed.id)
+    const snapshot = await loadAddressSnapshot(em, parsed.id, commandScopeWhere(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await em.findOne(CustomerAddress, { id: parsed.id })
+    const address = await em.findOne(CustomerAddress, { id: parsed.id, ...commandScopeWhere(ctx) })
     if (!address) throw notFound('Address not found')
     ensureTenantScope(ctx, address.tenantId)
     ensureOrganizationScope(ctx, address.organizationId)
@@ -572,13 +578,13 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async prepare(input, ctx) {
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadAddressSnapshot(em, id)
+      const snapshot = await loadAddressSnapshot(em, id, commandScopeWhere(ctx))
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const address = await em.findOne(CustomerAddress, { id })
+      const address = await em.findOne(CustomerAddress, { id, ...commandScopeWhere(ctx) })
       if (!address) throw notFound('Address not found')
       ensureTenantScope(ctx, address.tenantId)
       ensureOrganizationScope(ctx, address.organizationId)

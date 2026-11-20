@@ -47,6 +47,8 @@ import {
   type CompanyUpdateInput,
 } from '../data/validators'
 import {
+  commandScopeWhere,
+  type CommandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -272,9 +274,9 @@ type CompanyUndoPayload = {
 async function loadCompanySnapshot(
   em: EntityManager,
   id: string,
-  options: { includeInteractionRestoreDetails?: boolean } = {},
+  options: { includeInteractionRestoreDetails?: boolean; scopeWhere?: CommandScopeWhere } = {},
 ): Promise<CompanySnapshot | null> {
-  const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
+  const entity = await em.findOne(CustomerEntity, { id, deletedAt: null, ...options.scopeWhere })
   if (!entity || entity.kind !== 'company') return null
   const profile = await em.findOne(CustomerCompanyProfile, { entity })
   if (!profile) return null
@@ -780,14 +782,14 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadCompanySnapshot(em, parsed.id)
+    const snapshot = await loadCompanySnapshot(em, parsed.id, { scopeWhere: commandScopeWhere(ctx) })
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed: parsedInput, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
+    const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null, ...commandScopeWhere(ctx) })
     const record = assertFound(entity, 'Company not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1051,13 +1053,13 @@ const deleteCompanyCommand: CommandHandler<
     async prepare(input, ctx) {
       const id = requireId(input, 'Company id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadCompanySnapshot(em, id, { includeInteractionRestoreDetails: true })
+      const snapshot = await loadCompanySnapshot(em, id, { includeInteractionRestoreDetails: true, scopeWhere: commandScopeWhere(ctx) })
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Company id required')
       const baseEm = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadCompanySnapshot(baseEm, id)
+      const snapshot = await loadCompanySnapshot(baseEm, id, { scopeWhere: commandScopeWhere(ctx) })
 
       const { record, profile, labelAssignments } = await baseEm.transactional(async (em) => {
         // Lock the entity row first, before any dependent check or child
@@ -1065,7 +1067,7 @@ const deleteCompanyCommand: CommandHandler<
         // person link, deal link, direct person, etc.) serializes behind
         // this transaction instead of racing the final delete with a 409
         // FOREIGN_KEY_VIOLATION. See issue #7613.
-        const entity = await em.findOne(CustomerEntity, { id, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        const entity = await em.findOne(CustomerEntity, { id, deletedAt: null, ...commandScopeWhere(ctx) }, { lockMode: LockMode.PESSIMISTIC_WRITE })
         const record = assertFound(entity, 'Company not found')
         ensureTenantScope(ctx, record.tenantId)
         ensureOrganizationScope(ctx, record.organizationId)

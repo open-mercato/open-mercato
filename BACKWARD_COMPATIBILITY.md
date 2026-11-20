@@ -700,6 +700,15 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
+## CRUD factory security exceptions (2026-11, #3827 #9154 #9139 #9106)
+
+STABLE API narrowed; a bridge keeps each leak. Maintainer waiver pending.
+
+- #3827: mapped `sortFieldMap` routes ignore unmapped sort selectors. [Spec](.ai/specs/2026-11-07-crud-sort-map-boundary.md).
+- #9154: `withDeleted` needs a route opt-in. [Migration](UPGRADE_NOTES.md#explicit-deleted-row-list-access-9154).
+- #9139: translations need target permissions and registered fields. [Migration](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139).
+- #9106: relation labels need target access; unscoped tables need explicit opt-in. [Migration](UPGRADE_NOTES.md#issue-9106).
+
 ## SSO authority (2026-11-15, #9014)
 
 STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).

@@ -1,5 +1,18 @@
 # Upgrade Notes
 
+## CRUD factory security and query correctness bundle
+
+These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
+
+- **Full exports keep row scope (#9015).** `?format=…&exportScope=full` now always runs the route's `buildFilters` (with an empty query, or with the before-interceptor's rewritten query when one rewrote it). Rows a caller cannot see in the list (own records only, project membership, deny-all) are no longer exported. **Action:** none; a route whose `buildFilters` needs query params to be correct should handle an empty query.
+- **Advanced filters cannot override route scope (#9016, #9896).** Client `filter[conditions]` are AND-combined with `buildFilters` output (`$and`) instead of spread over it.
+- **List cache partitions (#7579, #7529).** With `ENABLE_CRUD_API_CACHE=true`, the list cache key now includes the resolved translation-overlay locale (or a `none` sentinel), a before-interceptor query rewrite, and an optional route-owned scope. Translation writes and undos drop cached localized lists of the entity. New additive `list.cacheScope(query, ctx)` option on `makeCrudRoute`: return a string to partition the cache, `null` to bypass it for the request, `undefined` for the default key. Staff time-projects uses it to partition by the caller's resolved project access. Existing cache entries simply miss once after the upgrade.
+- **Customers write commands load targets in scope (#7598).** Update/delete commands for people, companies, deals, addresses, comments, tags, pipelines, interactions and todo links look up the target inside the caller's tenant and allowed organizations. An out-of-scope id now answers 404 instead of 403.
+- **WMS commands check features in-command (#7673).** Every WMS write command requires the same feature its HTTP route requires, so notification actions, workflows and AI tools dispatching through the command bus cannot bypass it. `wms.inventory.adjust` accepts `wms.adjust_inventory` or `wms.import`; `wms.putaway-tasks.complete` also requires `wms.adjust_inventory`, as its routes do. Actor-less server dispatches (`auth: null`) are unaffected. **Action:** custom roles that dispatch WMS commands outside the HTTP routes need the matching feature.
+- **Sortable columns (#9548).** List routes whose `sortFieldMap` lacked keys the backend tables send (WMS, deals, staff, resources, planner, catalog products, company/person pickers) map them now, so those columns sort on the server again under the sort-map boundary (#3827).
+- **Empty `in` / `not in` (#7637).** Join-column, custom-field and index-doc filters with an empty list compile to never-match / match-all instead of invalid SQL.
+- **Search on plaintext columns (#5803).** With `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` off (default), a search-token match on a column the encryption map reports as plaintext must also contain each search word (case- and accent-folded), so `?search=2026-08` no longer returns `2026-01`. Encrypted columns are unchanged. The folding uses Postgres `normalize()`, which requires a UTF8 database (PostgreSQL 13+).
+
 ## SSO configuration and SCIM authority (#9014)
 
 **Operators:** deploy the additive `sso_configs.authorization_user_id` migration
@@ -72,6 +85,38 @@ stage, so narrow screens keep the quick stage change the header dropdown used to
 All of these stay for at least one minor release after 0.10.0 and are tracked in
 `.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
 
+## Entity translation authorization and field registration (#9139)
+
+`GET /api/translations/:entityType/:entityId` now requires the target record's view
+permission. PUT and DELETE require its manage permission. All three operations
+also require their existing translation feature and a live target in the
+effective tenant and organization. Unregistered entity types and unregistered
+PUT field keys return 400. Missing permissions return 403. Missing targets
+return 404. Stored keys outside the registration are omitted from reads, lists,
+and view exports.
+
+**Clients** should register each translated text field in the module's `translations.ts`
+and regenerate the application. Request translation operations for existing
+records using a caller with the corresponding target permission. Pass the
+registered entity type as the fourth argument to `applyLocalizedContent`.
+
+**Operators** should review legitimate translation roles and grant the matching target
+view or manage permissions where appropriate. Review existing translation rows
+for values entered before the permission checks, including values on fields
+that are still valid. Remove or replace suspect content through authorized
+translation operations. Rows for unregistered or missing targets require
+operator cleanup. No schema migration is required.
+
+<a id="issue-9106"></a>
+
+## Relation options and explicit global query scope (#9106)
+
+Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized callers can read scoped custom labels and declared module labels. Every first-party system entity declared in a `ce.ts` maps to its own module's view feature; third-party declared system targets without a mapped read feature require a superadmin.
+
+For stored relation fields, edit the field configuration and remove the `labelField` query parameter from the existing `optionsUrl` to use the target’s default label. Keep the other query parameters. If the field needs a specific label, use a label declared by the owning module or the custom entity definition.
+
+Module authors querying a table with neither `tenant_id` nor `organization_id` must explicitly use the existing trusted `omitAutomaticTenantOrgScope: true` option and enforce their own visibility filters. Never bind that option to a request parameter. Operators should review metadata-only roles that relied on excessive access and audit unintended secret or cross-tenant reads. No persisted data, migrations, startup options or configuration formats change. The security exception needs named human-maintainer acknowledgment before merge; automation does not supply it. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
+
 ## CRM preset enables the scheduler (#8804)
 
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
@@ -105,6 +150,7 @@ now warns when a connected channel relies on polling but no scheduler is enabled
 or the organization's poll schedule is missing or disabled, and
 `GET /api/communication_channels/me/channels` returns an additive
 `automaticSyncEnabled` boolean that drives that warning.
+
 ## Eval cases may declare tool mocks (#9648, A-4)
 
 **Additive (enterprise `agent_orchestrator`, `ai-assistant` seam).** An eval-set case can declare hand-written tool results in `cases[].mocks` (`strict`, `ordered` or `any` matching, `output` or `error`, optional `required`). They answer tool calls before recorded fixtures, enter the manifest content hash and are reported per trial as used / unused / unmatched. `ToolReplayContext` gains the optional `lookup` and `observeHit` fields; the eval report gains the optional `cases[].trials[].mocks` and `environment.mocks`. `formatVersion` stays `1`. Cases without mocks behave and hash exactly as before.
@@ -261,6 +307,23 @@ configuration change, route, event or response-field migration is needed for thi
 fix. Restart application and worker processes together when deploying.
 
 [Specification and coverage](.ai/specs/2026-07-06-eudr-compliance-module.md#migration--backward-compatibility).
+
+## Explicit deleted-row list access (#9154)
+
+`GET /api/entities/records` no longer honors `withDeleted=true`, including full
+exports. CRUD list routes honor the query only when their definition explicitly sets
+`list.allowWithDeleted: true`; declaring the query in a schema alone is insufficient.
+The generic records API previously published this parameter, so clients relying on
+its deleted-row results lose that behavior. This security exception is proposed and
+still requires a named human maintainer approval; it is not approved by automation.
+
+**Clients:** stop relying on the generic endpoint or an undeclared CRUD list to
+recover deleted data. Use a deliberately authorized recovery route whose owner has
+enabled `list.allowWithDeleted`; ordinary list/export requests continue to hide
+retracted notes and deleted contacts. **Operators/module owners:** audit recovery
+routes before rollout and add that opt-in only with the intended permission checks.
+No schema migration, environment change or data deletion is needed. Old list cache
+entries are bypassed by the new policy-specific keys and may expire normally.
 
 ## Production Compose tenant encryption key (#7231)
 
@@ -799,6 +862,39 @@ No tool input or result-field migration is required.
 Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
 
 An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
+### QueryEngine rejects empty OR and unsupported filter operators (#7831)
+
+`BasicQueryEngine` and `HybridQueryEngine` now throw `TypeError` for `{ $or: [] }`
+(including nested occurrences) and unsupported field operators in object or array
+filters. These predicates previously could be discarded, returning every otherwise
+visible row. Objects mixing supported and unsupported operators are rejected too.
+
+Module authors: omit an optional OR condition when no restriction is intended;
+use `{ id: { $in: [] } }` to match nothing. Replace unsupported operators with
+supported `FilterOp` values. Absent filters, `{}`, `[]`, and `{ $and: [] }` retain
+their existing unconstrained meaning. Operators: audit custom modules and saved
+filter presets before upgrading. No database migration or configuration change
+is required. See the [filter specification](.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md#migration--backward-compatibility).
+
+### Advanced-filter all-of and staff role filters (PR #7996)
+
+The built-in advanced-filter compilers now emit supported `$overlap` predicates
+for `has_all_of`. Staff role filtering uses the same operator. Native SQL arrays,
+JSONB string arrays, and custom-field value rows preserve their storage-specific
+membership semantics. No schema migration or configuration change is required.
+
+The approved additive `FilterOp` member `not_ilike` also accepts the existing
+field-level `{ $not: { $ilike: pattern } }` compiler output. Plaintext patterns
+retain PostgreSQL ILIKE wildcard/escaping semantics. Encrypted fields use scoped
+hashed-token exclusion, including the tokenizer's minimum-length/prefix behavior
+and order-independent multiword matching; arbitrary encrypted substring matching
+is not promised. Known encrypted base fields reject unindexable terms or disabled
+search. Custom-field/document plaintext remains literal, while encrypted values
+without usable scoped evidence are excluded. Missing values and empty arrays do
+not satisfy negation. Other negative forms remain unsupported and throw TypeError.
+Downstream exhaustive switches over `FilterOp` must account for `not_ilike`; no
+existing union member or signature is removed. There is no new HTTP 400 mapping.
 
 ### Workflow webhook responses have resource limits (#7814)
 
@@ -6052,3 +6148,11 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+# CRUD sort-map boundary (#3827)
+
+When a CRUD route supplies `list.sortFieldMap`, ordinary requested sort fields
+outside its own keys now fall back to the route's default order. Clients should
+use a mapped alias; module authors should add an alias for each intended sortable
+ordinary column. Dynamic `cf_`/`cf:` sorts and routes without maps are unchanged.
+Operators do not need a database migration or startup/configuration change.
