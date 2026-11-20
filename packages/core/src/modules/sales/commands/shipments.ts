@@ -394,14 +394,13 @@ function assertOrderPaymentsNotFullyRefunded(
   order: SalesOrder,
   translate: Awaited<ReturnType<typeof resolveTranslations>>['translate'],
 ): void {
-  const tolerance = 1e-4
-  const refundedAmount = parseFloat(order.refundedTotalAmount || '0')
-  const paidAmount = parseFloat(order.paidTotalAmount || '0')
-  const grandTotal = parseFloat(order.grandTotalGrossAmount || '0')
+  const refundedAmount = parseDecimal(order.refundedTotalAmount) ?? toDecimal(0)
+  const paidAmount = parseDecimal(order.paidTotalAmount) ?? toDecimal(0)
+  const grandTotal = parseDecimal(order.grandTotalGrossAmount) ?? toDecimal(0)
   const isFullyRefunded =
-    refundedAmount > tolerance &&
-    refundedAmount >= paidAmount - tolerance &&
-    refundedAmount >= grandTotal - tolerance
+    refundedAmount.gt(0) &&
+    coversGrandTotal(refundedAmount, paidAmount) &&
+    coversGrandTotal(refundedAmount, grandTotal)
   if (isFullyRefunded) {
     throw new CrudHttpError(422, {
       error: translate(

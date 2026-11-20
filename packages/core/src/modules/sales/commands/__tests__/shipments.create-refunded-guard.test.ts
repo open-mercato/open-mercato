@@ -189,6 +189,7 @@ describe('createShipmentCommand — refuses new shipments on fully refunded orde
     ['a deposit refunded on an order still due', { paid: '30.00', refunded: '30.00', grandTotal: '100.00' }],
     ['unpaid', { paid: '0', refunded: '0', grandTotal: '100.00' }],
     ['zero total', { paid: '0', refunded: '0', grandTotal: '0' }],
+    ['refunded just short of a payment too large for float math', { paid: '1000000000000000000.02', refunded: '1000000000000000000', grandTotal: '1000000000000000000.02' }],
   ])('still creates the shipment when the order is %s', async (_label, totals) => {
     const handler = commandRegistry.get('sales.shipments.create')
     const { tx, ctx } = buildHarness(totals)
