@@ -35,6 +35,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { z } from 'zod'
 import type {
   ImportDefaultChartOfAccountsInput,
@@ -119,6 +120,14 @@ export async function POST(req: Request) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('ledger.accounts.import_default_chart_of_accounts failed', { err })
+    // Same reporting as this module's other custom write routes
+    // (`api/fiscal-periods/generate`, `.../lock`), plus a `module.reason` code
+    // so the backends group these failures (error-reporting policy).
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'ledger',
+      code: 'ledger.chart_of_accounts_import_failed',
+      attributes: { route: 'accounts.import-default-chart-of-accounts', errorName: err instanceof Error ? err.name : undefined },
+    })
     return NextResponse.json({ error: translate('ledger.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }
