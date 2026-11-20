@@ -252,7 +252,7 @@ Currency rules from v1 are retained: one currency per link; mixed-currency templ
 | `quote_id` | uuid, nullable | New, additive. The real `CheckoutTransaction` entity has no such column today |
 | `order_id` | uuid, nullable | New, additive. Same as above |
 
-A session-backed gateway payment creates one `CheckoutTransaction` per attempt at §7.2 step 7, with `session_id`, `order_id` and `quote_id` set when present. The shipped `link_id` becomes nullable for a basket with no link. Keep the existing scoped idempotency guarantee for link-bound rows with a partial index where `link_id IS NOT NULL`. Add a scoped unique `(organization_id, tenant_id, session_id, idempotency_key)` index where `session_id IS NOT NULL`. Audit transaction create/update, link usage counters, gateway subscribers and admin readers for nullable links, with Phase A paths and tests preserved.
+A session-backed gateway payment creates one `CheckoutTransaction` per attempt at §7.2 step 7, with `session_id`, `order_id` and `quote_id` set when present. The shipped `link_id` becomes nullable for a basket with no link. Keep the existing scoped idempotency guarantee for link-bound rows with a partial index where `link_id IS NOT NULL`. Add a scoped unique `(organization_id, tenant_id, session_id, idempotency_key)` index where `session_id IS NOT NULL`. Keep link lookup, counter updates and legacy event production on the link-backed path. For a null link require and scope the checkout session and its order and gateway transaction, apply the same transition validation and status CAS, and use the session event contract in §10. A missing or out-of-scope non-null link remains an error. Audit the callback, poll and admin readers for nullable links.
 
 ---
 
@@ -379,7 +379,7 @@ The `delivery_method` rule and the `DELIVERY_DISCOUNT` effect are authorable in 
 ### 5.5 Payment methods
 
 `GET /api/checkout/sessions/current/payment-methods` returns, server-side:
-- the gateway methods from the store or link configuration whose descriptor supports the session currency;
+- the gateway methods from the store or link configuration whose descriptor supports the session currency and whose B.4 path meets the activation gate in §12.1;
 - `on_account` when the cart is identified (OQ1), the resolved terms have `allow_purchase_on_account`, and `customerCreditService.checkCredit` returns an account in the cart currency that is not on hold (D-R5-5). The response carries the `checkCredit` reason when it is not offered (`no_account`, `on_hold`, `not_permitted`), so the client can explain it;
 - `request_quote` when the resolved terms have `allow_quote_requests = true` (tenant default `false`, D-R5-20).
 
@@ -395,12 +395,13 @@ The `delivery_method` rule and the `DELIVERY_DISCOUNT` effect are authorable in 
 | `awaiting_approval` | `active` (not locked, not abandoned: cart K5) | Yes |
 | Entering `review` | `active` | Yes |
 | Submit begins | `locked` (forced re-price, fresh visibility pass, session id recorded) | No |
-| `awaiting_payment` | `locked`, lock extended to the payment expiry plus a margin (C1) | No |
+| `awaiting_payment` within the committed lock window | `locked`, with an extension covering the payment expiry plus the margin (C1) | No |
+| Cart lock expires with the payment outcome unresolved | Cart sweeper can return it to `active` at its committed expiry | Yes. The unresolved checkout attempt still excludes another submit (§12.1) |
 | Submit succeeds | `converted` (`markConverted` with the session id) | No |
 | Submit fails, compensated | `active` (`unlock` with the session id) | Yes |
 | Session expires or is canceled before submit | `active` (nothing to unlock) | Yes |
 
-The cart is locked **from submit until the outcome**, including payment, and never for the whole funnel. Locking at session creation would strand a cart behind every abandoned checkout, and abandoned checkouts are the majority.
+The cart lock is acquired during submit. The lock covers payment up to its committed expiry or until an earlier terminal cart transition. Locking at session creation would strand a cart behind every abandoned checkout, and abandoned checkouts are the majority.
 
 **Lock input (cart contract, C1, C2, D-R5-23).** `cartService.lock({ cartId, tenantId, organizationId, checkoutSessionId, lockTtlMs?, purpose, routeContext? })`:
 - `checkoutSessionId` is the session id. A second `lock` with the **same** `checkoutSessionId` on a locked cart is an idempotent extend: it returns the cart and sets the new expiry, with no re-price and no visibility pass (X15). A different session gets `423 cart_locked`.
@@ -431,7 +432,7 @@ Checked before any side effect; all failures are cheap and leave nothing to undo
 3. Cart non-empty, `active`, and `cart.id = session.cart_id`.
 4. **Consistency (C9, X13, D-R4-24 (4)).** Tenant, organization, `cart.channel` and the cart currency equal the session's; when the cart has a `store_id`, it equals the store resolved for the request (`storeContextService.resolve(request, { fresh: true })`). Otherwise `409 cart_store_mismatch`. The same check runs at session creation.
 5. Required steps complete for the effective configuration (`422 steps_incomplete`); terms accepted where required.
-6. Payment method still offered (§5.5), otherwise `422 payment_method_unavailable`.
+6. Payment method still offered, including the gateway activation gate (§5.5, §12.1). Otherwise return `422 payment_method_unavailable` before any submit side effect.
 7. **Approval (order purpose only).** Advisory read of the cart's approval state: if the cart requires approval (cart K1 basis: goods gross after promotions, excluding delivery, in the cart currency; a currency other than `terms_currency_code` always requires it, D-R5-4) and `Cart.approvalId` is not `approved` for at least the current total, answer `409 cart_requires_approval` with `request-approval` as the next action. A guest cart above the threshold answers `409 approval_requires_identified_buyer` (D-R5-12). `cart.lock` re-checks both authoritatively (K2).
 8. **`min_order_value` (order purpose only, D-R5-4).** Compared with the goods gross after promotions when the cart currency equals `terms_currency_code`; not checked otherwise. Below it: `409 below_min_order_value`.
 9. **PO number** present when the resolved `requires_po_number` is true (D-R5-28): otherwise `422 purchase_order_number_required`.
@@ -725,7 +726,7 @@ Every refusal body is `{ error: <code>, message, details? }`, with a translated 
 
 ## 10) Events
 
-Declared with `createModuleEvents`. These are state signals: no checkout event sends a notification to a buyer or approver (D-R5-32), except `checkout.compensation.failed`, which raises the operational notification. Every payload carries `tenantId` and `organizationId`, carries ids and statuses only, and never PII (C22).
+Declare the new session events with `createModuleEvents`. These state signals do not send notifications to a buyer or approver (D-R5-32), except `checkout.compensation.failed`, which raises the operational notification. Every payload carries `tenantId` and `organizationId`, carries ids and statuses only, and never PII (C22).
 
 | Event | Payload (besides `tenantId`, `organizationId`, `sessionId`) |
 |---|---|
@@ -748,7 +749,15 @@ Declared with `createModuleEvents`. These are state signals: no checkout event s
 
 The approval events are emitted by the §8.2 handlers. They are not the approval's own events, which are `customer_groups.approval.*`.
 
-**Relationship to Phase A's `checkout.transaction.*` events.** Phase A's `checkout.transaction.sessionStarted`/`.completed`/`.failed` are unchanged and continue to fire for every `CheckoutTransaction` row, session-backed or not. `checkout.payment.*` is additive and session-scoped, firing *alongside* the transaction-level events for a session-based checkout, not instead of them.
+**Transaction and session events.** Publish only from committed transitions and preserve the existing repeat-delivery guards.
+
+| Transaction | Emission contract |
+|---|---|
+| Link-backed Phase A pay link | Keep the existing `checkout.transaction.*` triggers, payload values and delivery behavior. A real non-null `linkId` and `slug` still identify the scoped link. The existing nullable payment fields, scope and amount fields keep their shapes. There is no session event. |
+| Link-backed session checkout | Keep the same legacy events for their corresponding transitions and real link, and publish the applicable `checkout.payment.*` and `checkout.session.*` events for the scoped session. Link-based counters and notifications still use their existing triggers. |
+| Linkless session checkout | Publish only the applicable scoped `checkout.payment.*` and `checkout.session.*` events from the table above. Legacy link events, including `checkout.transaction.sessionStarted`, terminal transaction events, and `checkout.link.usageLimitReached`, are inapplicable. Do not synthesize a link id or slug. |
+
+The link-backed events keep `transactionId`, `linkId`, `templateId`, `slug`, `status`, `paymentStatus`, `amount`, `amountExact`, `currency`, `gatewayProvider`, `gatewayTransactionId`, `occurredAt`, `tenantId` and `organizationId` under their existing contracts. Existing subscribers can continue to resolve links and send Phase A notifications without changes.
 
 ---
 
@@ -803,7 +812,9 @@ Acquire the attempt fence in §7.4 before any continuation. The job uses `buildT
 | Step 6 finalized or gateway operation issued | With no issued intent, resume step 7. For a known hand-off use the recorded gateway transaction. For a known capture and a still-owned cart, resume the success path; cart conversion and terminal outcome must checkpoint together to avoid mistaking a completed conversion for lost ownership. A definitive non-payable outcome permits the existing cancellation path. |
 | Issued operation unresolved at a deadline | Keep its durable identity and report the unresolved outcome to ops. An absent quote, order or provider reference, an unavailable gateway and an elapsed deadline are not definitive failure. Do not issue a new operation with a new key, complete the checkout or cancel/release on that evidence. |
 
-**Release gate for unresolved expiry.** Existing cart and stock expiry remain bounded, and their jobs still run. An unresolved attempt remains active for the one-session constraint. The cart becoming editable does not permit a second checkout attempt or session. Recovery may not infer from such expiry that the old call stopped. If a gateway can still settle or a sales operation can still commit after expiry, the provider eligibility, late-settlement and buyer-facing outcome require an approved contract before B.4 ships. This amendment does not select a new refund rule, extend the maximum hold, change Phase A or claim that escalation settles the transaction. See §18 and the blocked acceptance case in §16.
+**Gateway route activation (B.4).** Keep a session gateway method disabled until its provider path has a documented and approved settlement contract and passing acceptance coverage for every supported expiry outcome, including late capture and unavailable provider status. The contract must cover the bounded lock and stock timing, authoritative reconciliation and the buyer-visible outcome. Store or link configuration alone cannot enable an unqualified route. Keep the method out of discovery and refuse selection and submit with the existing `422 payment_method_unavailable` before creating an attempt, reserving resources, writing a sales document or calling the provider. Recheck eligibility before dispatch if configuration or availability changed; resolve an already issued call through the attempt checkpoint. This gate applies only to the B.4 session gateway flow.
+
+**Reconciliation at expiry.** Existing cart and stock expiry remain bounded, and their jobs still run. An unresolved attempt remains active for the one-session constraint. The cart becoming editable does not permit a second checkout attempt or session. Recovery may not infer from such expiry that the old call stopped. If a gateway can still settle or a sales operation can still commit after expiry, the provider eligibility, late-settlement and buyer-facing outcome require the approved contract before this B.4 provider path can be enabled. This amendment does not select a new refund rule, extend the maximum hold, change Phase A or claim that escalation settles the transaction. See §18 and the blocked acceptance case in §16.
 
 ---
 
@@ -881,6 +892,8 @@ All checkout changes are new or additive. The contract changes in other modules 
 | 12 | Signatures (3) | `storeContextService.resolveForBuyer` with optional store | Additive (D-R5-22) | SPEC-029 |
 | 13 | Imports (4) | `buildTrustedCommandContext` in `@open-mercato/shared/lib/commands/trustedContext` | Additive (X10) | shared |
 
+**Legacy event payloads remain stable (§10).** Only link-backed transactions use the legacy event family. Linkless sessions publish the additive session-scoped events with their own payloads. Existing Phase A subscribers retain the real link id and slug.
+
 **Phase A non-regression (C10).** A test boots an app with only `checkout` + `payment_gateways` and completes a pay link end to end; existing Phase A tests run unchanged.
 
 **Upgrade steps.** `yarn db:migrate` (new tables, nullable columns, sales index); `yarn mercato auth sync-role-acls` for the new grants. No data migration; no deprecation protocol applies.
@@ -901,7 +914,7 @@ All checkout changes are new or additive. The contract changes in other modules 
 | R8 | Approval bypassed by a price change | Medium | A cart approved at 150 000 re-prices to 180 000 and is submitted against the stale approval. | `cart.lock` compares the re-priced total with the approved amount (K2, D-R5-3) and refuses with `409 cart_requires_approval` | Low |
 | R9 | Compensation failure swallowed | **High** | A release call fails and is logged but not surfaced. | Never swallowed: `failure` event, `checkout.compensation.failed`, ops notification, retry job (§7.3) | Low |
 | R10 | Rate-quote API abuse | Medium | Scripted `delivery-options` calls incur carrier cost. | 30/min per session; 5 min cache; flat-rate fallback on carrier failure (§5.3) | Low |
-| R11 | Cart unlocked mid-payment (C1) | **Critical** | The 30 min cart lock lapses during a slow payment; the buyer edits or re-buys the basket while the first order completes. | Lock extended to the payment expiry + 15 min under the same session id; `unlock`/`markConverted` require the session id; `expire-awaiting-payment` resolves first (§6) | Low |
+| R11 | Cart unlocked mid-payment (C1) | **Critical** | The 30 min cart lock lapses during a slow payment; the buyer edits or re-buys the basket while the first order completes. | Lock extended to the payment expiry + 15 min within the cart bound; owner-only unlock and conversion; expiry uses the current lock and attempt checkpoints. Uncovered payment paths fail the B.4 activation gate (§6, §12.1) | Unresolved expiry paths disabled |
 | R12 | Duplicate document after a crash (C3) | **Critical** | A crash after `sales.quotes.create` and before the session write; recovery creates a second quote and order. | Scoped external-reference correlation (D-R5-30), durable admission before independent creation, and a fenced conversion/checkpoint transaction (§7.4) | Verify composition and definitively settle outstanding creates |
 | R13 | Codes reused or budgets overrun (C5) | **High** | A single-use code is never consumed, or a budget overrun is found after capture. | `useCode` + `registerUsage` before payment; abort with `409 promotion_unavailable`; promotions-owned reversal on cancellation | Low |
 | R14 | Visibility pass skipped at submit (C2) | **High** | A product that left the buyer's assortment is bought. | Storefront lock without a fresh context is refused by the cart; checkout always passes the request (or the `resolveForBuyer` context in recovery) | Low |
@@ -954,8 +967,13 @@ Integration tests are self-contained: each creates its tenant, store, products, 
 - Credit released by `customer_groups` when the order is cancelled (C6).
 - Code reuse refused; code returned on payment failure; budget overrun aborts with `409 promotion_unavailable` before payment (C5).
 
+**Link-backed and linkless transaction events:**
+- Run the existing Phase A link-backed success and failure fixtures with the post-commit event assertions. Assert exactly one event per applicable transition under callback/poll redelivery, real scoped link id and slug, the unchanged legacy payload (§10), and the existing link counter and subscriber behavior. Exercise a link-backed B.4 session separately to verify it emits its session events in addition to the legacy payloads.
+- Run a B.4 linkless session through intent creation, definitive success and definitive failure. Its transaction and session results commit without loading or updating a link. Assert scoped payment/session events with the proper ids, no legacy link-bound events, and no duplicate terminal emission on redelivery.
+
 **Lock and payment (C1, C2):**
-- Lock held through a payment longer than 30 min; the cart sweeper does not release it; `expire-awaiting-payment` compensates at the payment expiry.
+- A qualifying payment can outlast the 30 min default. Verify the owner extends the lock within the cart bound, confirms the expiry covers the intent and margin before returning the hand-off, and retains it until the committed deadline. At that deadline, the cart sweeper may release it even if the outcome is unknown. Assert no conflicting compensation or second submit on the unresolved attempt.
+- Configure a session method whose late-settlement case lacks approved acceptance coverage. Verify it is absent from discovery, and direct selection and submit get `422 payment_method_unavailable`. Assert no attempt, lock, holds, sales document, or gateway call. The Phase A pay-link fixture still works. Before enabling a qualified B.4 path, pass its approved late-capture and provider-unavailable acceptance cases. Until the policy is approved, test the disabled path and leave the late-settlement outcome case blocked.
 - `unlock`/`markConverted` with another session id → 404.
 - A storefront cart locked without a context is refused; checkout always supplies one.
 
@@ -1013,7 +1031,7 @@ Release 5 order (cross-spec review, final implementation order): B.1 and B.3 in 
 The §7 sequence for the gateway outcome, compensation, idempotency, concurrency guard, `recover-stuck-submits` with §12.1, `retry-failed-compensations`, `expire-awaiting-payment`, `/result`, submit rate limits, `CheckoutTransaction` columns.
 
 **Depends on:** availability Phase 3 (`reserve`/`release`/`commit`, per-line outcomes, D-R5-8…10); cart lock contract (C1, C2, `markConverted` inputs K8/D-R5-16/D-R5-26); promotions `revertCodeUse` and the cancellation subscriber (C5); the `sales_quotes` index (D-R5-30).
-**Gate:** every submit-correctness and compensation test passes, including a killed process at each step without duplicates.
+**Gate:** pass the submit, compensation, event and ownership cases in §16. Each B.4 gateway path remains disabled until its approved settlement/expiry cases pass. Prove discovery, selection and direct submit fail closed when those cases are missing (§12.1).
 
 ### Phase B.5 — B2B
 `on_account` with `customerCreditService` (reserve, link, release), approval request and the event-driven resume (§8.2), PO capture, `min_order_value`, `request_quote` and the quote branch (§8.6).
@@ -1102,7 +1120,7 @@ Every refusal names what went wrong and what the buyer can do instead (§9.2).
 ### Epic D — Two tabs, two taps
 
 - **US-D1** — As a buyer with the basket open in a second tab, I want editing it during submit or payment to send me back to checkout (§6, R6, R11).
-  - AC: a locked cart rejects mutation with `423 cart_locked` **and the session id**; the lock holds for the whole payment.
+  - AC: the cart rejects mutation while locked with `423 cart_locked` and the session id. After the bounded expiry the cart may be editable, but an unresolved checkout attempt prevents another submit (§12.1).
 - **US-D2** — As a buyer who double-tapped submit, I want the second attempt refused rather than queued (R2).
   - AC: a repeat in flight returns `409 submit_in_progress`; a repeat after success returns the original result including `sales_order_id`; a new key after failure starts a fresh attempt (§7.4).
 
@@ -1127,6 +1145,11 @@ Every refusal names what went wrong and what the buyer can do instead (§9.2).
 ---
 
 ## 21) Changelog
+
+### 2026-11-20 — transaction event compatibility and payment activation
+
+- **§4.4/§10/§16.** Preserve the existing link-backed event payloads, link counters and subscriber behavior. Linkless sessions use scoped payment and session events. Cover both paths and callback/poll replay.
+- **§5.5/§6/§12.1/§16/§17.** Make the lock deadline explicit and keep B.4 gateway paths disabled until their approved expiry cases pass. Cover direct submit and method-selection refusal with the existing error.
 
 ### 2026-11-20 — submit and cart reconciliation
 
