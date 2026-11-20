@@ -449,7 +449,8 @@ the existing `NBP` and `Raiffeisen Bank Polska` source values remain frozen lega
 `POST /api/currencies/fetch-rates` keeps its previous request shapes during a bridge release: a
 date-only `date` such as `2026-08-24`, an empty `providers` list (which continues to select the
 default providers) and unknown request properties are still accepted, and unknown properties are
-ignored instead of rejected. Duplicate provider names and unparseable dates are rejected. A later
+ignored instead of rejected. Arbitrary string provider entries, duplicate names and lists longer
+than twenty entries remain accepted. Non-string entries and unparseable dates are rejected. A later
 release will require a complete RFC 3339 timestamp, reject unknown properties and reject an empty
 provider list; update callers that still send the legacy shapes before upgrading past the bridge.
 ### Money and exchange-rate amounts are arbitrary precision (exact decimals)
