@@ -62,7 +62,7 @@ function ConfiguredForm<TValues extends Record<string, unknown>, TPayload extend
   return children(policy)
 }
 
-function CrudFormSectionPolicyError() {
+export function CrudFormSectionPolicyError() {
   const t = useT()
   return <ErrorMessage label={t('ui.errors.defaultTitle')} description={t('ui.errors.defaultMessage')} />
 }

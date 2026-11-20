@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 import * as React from 'react'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { renderToString } from 'react-dom/server'
 import { webcrypto } from 'node:crypto'
+import { deserialize, serialize } from 'node:v8'
 import { TextEncoder } from 'node:util'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
@@ -18,11 +19,13 @@ import {
   registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds, setInjectionRegistryError,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { registerComponentOverrides, ComponentReplacementHandles, crudFormSectionScope } from '@open-mercato/shared/modules/widgets/component-registry'
-import { CrudForm, type CrudField } from '../CrudForm'
+import { CrudForm, type CrudField, type CrudFormProps } from '../CrudForm'
 import { ComponentOverrideProvider } from '../injection/ComponentOverrideProvider'
 import { CrudFormSectionLedgerProvider } from '../injection/crud-form-section-ledger'
-import { defineCrudFormSectionRuntime } from '../injection/crud-form-section-runtime'
+import { defineCrudFormSectionRuntime, type CrudFormSectionRuntime } from '../injection/crud-form-section-runtime'
 import { apiCall } from '../utils/apiCall'
+import { fetchCustomFieldDefs, type CustomFieldDefDto } from '../utils/customFieldDefs'
+import { fetchCustomFieldFormStructure } from '../utils/customFieldForms'
 
 const mockSubscribe = jest.fn()
 jest.mock('@open-mercato/shared/lib/crud/form-sections/client-registry', () => {
@@ -38,7 +41,14 @@ jest.mock('@open-mercato/shared/lib/crud/form-sections/client-registry', () => {
 })
 jest.mock('../utils/apiCall', () => ({ ...jest.requireActual('../utils/apiCall'), apiCall: jest.fn() }))
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }), usePathname: () => '/', useSearchParams: () => new URLSearchParams() }))
-jest.mock('../fields/registry', () => ({ loadGeneratedFieldRegistrations: async () => {} }))
+jest.mock('../fields/registry', () => ({
+  ...jest.requireActual('../fields/registry'), loadGeneratedFieldRegistrations: async () => {},
+}))
+
+jest.mock('../utils/customFieldForms', () => ({
+  ...jest.requireActual('../utils/customFieldForms'), fetchCustomFieldFormStructure: jest.fn(),
+}))
+jest.mock('../utils/customFieldDefs', () => ({ ...jest.requireActual('../utils/customFieldDefs'), fetchCustomFieldDefs: jest.fn() }))
 
 const address = { hostId: 'test.record', formVariant: 'showcase', formOperation: 'update' } as const
 const fingerprint = 'a'.repeat(64)
@@ -82,16 +92,18 @@ function registry(): CrudFormSectionClientRegistry {
   }
 }
 
-function form(resourceId: string | undefined = 'actual-id', formVariant = 'showcase') {
+type FormProps = Partial<CrudFormProps<Record<string, unknown>>>
+
+function form(resourceId: string | undefined = 'actual-id', formVariant = 'showcase', props?: FormProps) {
   return (
-    <CrudForm fields={baseFields} groups={baseDescriptors.map(({ group }) => group)} entityId="test.record"
+    <CrudForm<Record<string, unknown>> fields={baseFields} groups={baseDescriptors.map(({ group }) => group)} entityId="test.record"
       initialValues={{ id: 'inferred-id', name: '', private: '' }}
-      formVariant={formVariant} formOperation="update" resourceId={resourceId} sectionDescriptors={baseDescriptors} />
+      formVariant={formVariant} formOperation="update" resourceId={resourceId} sectionDescriptors={baseDescriptors} {...props} />
   )
 }
 
-function configured(resourceId?: string) {
-  return <CrudFormSectionLedgerProvider value={ledger}>{form(resourceId)}</CrudFormSectionLedgerProvider>
+function configured(resourceId?: string, props?: FormProps) {
+  return <CrudFormSectionLedgerProvider value={ledger}>{form(resourceId, 'showcase', props)}</CrudFormSectionLedgerProvider>
 }
 
 function apiResponse(result: unknown): Awaited<ReturnType<typeof apiCall>> {
@@ -109,12 +121,15 @@ function Providers({ children }: { children: React.ReactNode }) {
 
 beforeAll(() => {
   Object.defineProperty(globalThis, 'TextEncoder', { configurable: true, value: TextEncoder })
+  Object.defineProperty(globalThis, 'structuredClone', { configurable: true, value: (value: unknown) => deserialize(serialize(value)) })
   Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto })
 })
 
 
 beforeEach(() => {
   jest.mocked(apiCall).mockReset()
+  jest.mocked(fetchCustomFieldFormStructure).mockResolvedValue({ definitions: [], metadata: {} })
+  jest.mocked(fetchCustomFieldDefs).mockReset().mockResolvedValue([])
   mockSubscribe.mockClear()
   registerCoreInjectionWidgets([])
   registerCoreInjectionTables([], [])
@@ -259,4 +274,185 @@ it('resolves accepted group content through its scoped replacement handle', asyn
   await screen.findByText('Scoped section')
   expect(screen.queryByRole('textbox', { name: 'Extra field' })).not.toBeInTheDocument()
   expect(screen.getByRole('textbox', { name: 'Replacement name' })).toBeInTheDocument()
+})
+
+type Runtime = CrudFormSectionRuntime<Record<string, unknown>, Record<string, unknown>>
+
+function publishWritePolicy(customRuntime: Runtime[], ownershipFacts: CrudFormSectionSurfaceAlternativeFact['ownershipFacts']) {
+  const fixture = registry()
+  registerCrudFormSectionClientRegistry({
+    ...fixture,
+    hostFacts: fixture.hostFacts.map((fact) => ({ ...fact, alternatives: [selection, { ...accepted, ownershipFacts }] })),
+    runtimeEntries: fixture.runtimeEntries.map((entry) => {
+      const replacement = customRuntime.find(({ id }) => id === entry.id)
+      return replacement ? { ...entry, load: async () => ({ crudFormSectionRuntime: replacement }) } : entry
+    }),
+  })
+  publishResponse()
+}
+
+function createWriteDescriptor(
+  id: string,
+  groupId: string,
+  formField: CrudField,
+  project: (value: string) => Record<string, unknown>,
+  validate = jest.fn(({ sectionValues }: { sectionValues: Readonly<Record<string, unknown>> }) => (
+    { success: true as const, data: String(sectionValues[formField.id]).trim() }
+  )),
+) {
+  return defineCrudFormSectionRuntime({
+    id, roundTripId: `${id}@v1`,
+    group: { id: groupId, fields: [formField] },
+    ownedFieldPaths: [formField.id],
+    validate,
+    projectPayload: project,
+  })
+}
+
+it('submits only active values and an independent deep-merged section payload', async () => {
+  const name = createWriteDescriptor('test.replacement', 'name', field('replacement', 'Replacement name'),
+    (value) => ({ details: { name: value.toUpperCase() } }))
+  const quantity = defineCrudFormSectionRuntime({
+    id: 'test.extra', roundTripId: 'test.extra@v1', group: { id: 'extra', fields: [field('extra', 'Quantity')] },
+    ownedFieldPaths: ['extra'],
+    validate: ({ sectionValues }) => ({ success: true, data: Number(sectionValues.extra) }),
+    projectPayload: (count) => ({ details: { count } }),
+  })
+  publishWritePolicy([name, quantity], [
+    { sectionId: 'name', payloadPaths: ['details.name'], customFieldOwnership: { mode: 'none' } },
+    { sectionId: 'extra', payloadPaths: ['details.count'], customFieldOwnership: { mode: 'none' } },
+  ])
+  const onSubmit = jest.fn()
+  const { container } = render(configured('actual-id', {
+    schema: z.object({ private: z.literal('unreachable legacy required value') }),
+    initialValues: { id: 'not-policy-id', private: 'stored', replacement: ' alice ', extra: '2' },
+    onSubmit,
+    compositionValidator({ activeSectionIds, parsedSections, fullValues, payload }) {
+      expect([...activeSectionIds]).toEqual(['extra', 'name'])
+      expect([...parsedSections]).toEqual([['extra', 2], ['name', 'alice']])
+      expect(fullValues.private).toBe('stored')
+      expect(payload).toEqual({ details: { count: 2, name: 'ALICE' } })
+      return { success: true, data: { details: { count: 2, name: 'ALICE!' } } }
+    },
+  }), { wrapper: Providers })
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  fireEvent.submit(container.querySelector('form')!)
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(
+    { extra: '2', replacement: ' alice ' }, expect.objectContaining({ sectionPayload: { details: { count: 2, name: 'ALICE!' } } }),
+  ))
+  expect(name.validate).toHaveBeenCalledWith(expect.objectContaining({ sectionValues: { replacement: ' alice ' } }))
+  expect(fetchCustomFieldDefs).not.toHaveBeenCalled()
+})
+
+it.each([
+  { fragment: { details: null }, path: 'details' },
+  { fragment: { details: { count: 4 } }, path: 'details.count' },
+  { fragment: { hiddenWrite: true }, path: 'other' },
+  { fragment: { details: Object.fromEntries([['constructor', 4]]) }, path: 'details.constructor' },
+])('blocks invalid or colliding payloads before calling the host callback', async ({ fragment, path }) => {
+  const name = createWriteDescriptor('test.replacement', 'name', field('replacement', 'Replacement name'), () => fragment)
+  const quantity = createWriteDescriptor('test.extra', 'extra', field('extra', 'Quantity'), () => ({ details: { count: 2 } }))
+  publishWritePolicy([name, quantity], [
+    { sectionId: 'name', payloadPaths: [path], customFieldOwnership: { mode: 'none' } },
+    { sectionId: 'extra', payloadPaths: ['details.count'], customFieldOwnership: { mode: 'none' } },
+  ])
+  const onSubmit = jest.fn()
+  const { container } = render(configured('actual-id', { onSubmit }), { wrapper: Providers })
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  fireEvent.submit(container.querySelector('form')!)
+  await screen.findByText('ui.forms.flash.saveError')
+  expect(onSubmit).not.toHaveBeenCalled()
+})
+
+const requiredDefinition = (key: string): CustomFieldDefDto => ({
+  key, entityId: 'test.record', label: key, kind: 'text',
+  validation: [{ rule: 'required', message: `test.required.${key}` }],
+})
+
+it('validates only accepted custom-field definitions before producing the policy payload', async () => {
+  const customRuntime = defineCrudFormSectionRuntime({
+    id: 'test.replacement', roundTripId: 'test.replacement@v1',
+    group: { id: 'name', kind: 'customFields' }, ownedFieldPaths: [],
+    ownedCustomFieldIds: ['published'], customFieldDefinitionSetId: 'test.allowed',
+    validate: ({ sectionValues }) => ({ success: true, data: String(sectionValues.cf_published) }),
+    projectPayload: (published) => ({ customFields: { published } }),
+  })
+  publishWritePolicy([customRuntime], [
+    { sectionId: 'name', payloadPaths: [], customFieldOwnership: { mode: 'ids', ids: ['published'], definitionSetId: 'test.allowed' } },
+  ])
+  jest.mocked(fetchCustomFieldFormStructure).mockResolvedValue({
+    definitions: [requiredDefinition('published'), requiredDefinition('private')], metadata: {},
+  })
+  const onSubmit = jest.fn()
+  const { container } = render(configured('actual-id', {
+    onSubmit, sectionCustomFieldDefinitionSets: { 'test.allowed': ['test.record'] },
+  }), { wrapper: Providers })
+  const published = await screen.findByRole('textbox', { name: /published/ })
+  expect(screen.queryByRole('textbox', { name: /private/ })).not.toBeInTheDocument()
+  fireEvent.submit(container.querySelector('form')!)
+  await screen.findByText('test.required.published')
+  expect(onSubmit).not.toHaveBeenCalled()
+  fireEvent.change(published, { target: { value: 'Selected' } })
+  fireEvent.submit(container.querySelector('form')!)
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(
+    expect.objectContaining({ cf_published: 'Selected' }),
+    expect.objectContaining({ sectionPayload: { customFields: { published: 'Selected' } } }),
+  ))
+  expect(fetchCustomFieldDefs).not.toHaveBeenCalled()
+})
+
+it('keeps the legacy custom-field gate independent of configured section ownership', async () => {
+  jest.mocked(fetchCustomFieldFormStructure).mockResolvedValue({ definitions: [], metadata: {} })
+  jest.mocked(fetchCustomFieldDefs).mockResolvedValue([requiredDefinition('private')])
+  const onSubmit = jest.fn()
+  const { container } = render(form('legacy-id', 'default', { onSubmit }), { wrapper: Providers })
+  fireEvent.submit(container.querySelector('form')!)
+  await waitFor(() => expect(fetchCustomFieldDefs).toHaveBeenCalledWith(['test.record']))
+  expect(onSubmit).not.toHaveBeenCalled()
+})
+
+it('blocks composition from adding a path that bypassed section validation', async () => {
+  const name = createWriteDescriptor('test.replacement', 'name', field('replacement', 'Replacement name'), () => ({ name: 'valid' }))
+  publishWritePolicy([name], [
+    { sectionId: 'name', payloadPaths: ['name', 'unvalidated'], customFieldOwnership: { mode: 'none' } },
+  ])
+  const onSubmit = jest.fn()
+  const { container } = render(configured('actual-id', {
+    onSubmit, compositionValidator: ({ payload }) => ({ success: true, data: { ...payload, unvalidated: true } }),
+  }), { wrapper: Providers })
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  fireEvent.submit(container.querySelector('form')!)
+  await screen.findByText('ui.forms.flash.saveError')
+  expect(onSubmit).not.toHaveBeenCalled()
+})
+
+it('keeps active field errors and does not render a hidden composition error', async () => {
+  const onSubmit = jest.fn()
+  publishResponse()
+  const { container } = render(configured('actual-id', {
+    onSubmit,
+    compositionValidator: () => ({ success: false, fieldErrors: { replacement: 'test.active', private: 'test.hidden' } }),
+  }), { wrapper: Providers })
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  fireEvent.submit(container.querySelector('form')!)
+  await screen.findByText('test.active')
+  expect(screen.queryByText('test.hidden')).not.toBeInTheDocument()
+  expect(onSubmit).not.toHaveBeenCalled()
+})
+
+it('does not mount controls for a configured all custom-field definition set without a scoped binding', async () => {
+  const customRuntime = defineCrudFormSectionRuntime({
+    id: 'test.replacement', roundTripId: 'test.replacement@v1',
+    group: { id: 'name', kind: 'customFields' }, ownedFieldPaths: [],
+    ownedCustomFieldIds: 'all', customFieldDefinitionSetId: 'test.allowed',
+    validate: () => ({ success: true, data: null }), projectPayload: () => ({}),
+  })
+  publishWritePolicy([customRuntime], [
+    { sectionId: 'name', payloadPaths: [], customFieldOwnership: { mode: 'all', definitionSetId: 'test.allowed' } },
+  ])
+  jest.mocked(fetchCustomFieldFormStructure).mockResolvedValue({ definitions: [requiredDefinition('published')], metadata: {} })
+  const { container } = render(configured(), { wrapper: Providers })
+  await screen.findByRole('alert')
+  expect(container.querySelector('form')).toBeNull()
+  expect(fetchCustomFieldDefs).not.toHaveBeenCalled()
 })
