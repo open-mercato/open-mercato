@@ -29,7 +29,7 @@ Status: in-progress
 | 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | done | ab709f0758 |
 | 3 | 3.2 | Resolve policies and block mutations until the host is ready | dispatch | done | this commit |
 | 3 | 3.3 | Validate and project section fields and payload leaves | dispatch | done | this commit |
-| 3 | 3.4 | Bind submit, delete and action clients to their own resource versions | dispatch | todo | — |
+| 3 | 3.4 | Bind submit, delete and action clients to their own resource versions | dispatch | done | this commit |
 | 4 | 4.1 | Build the non-production framework fixture | dispatch | todo | — |
 | 4 | 4.2 | Verify discovery, resolution, mutations and no-policy compatibility | dispatch | todo | — |
 | 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | todo | — |

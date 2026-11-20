@@ -86,6 +86,9 @@ import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import { withScopedApiRequestHeaders } from './utils/apiCall'
+import {
+  useCrudFormSectionMutation, type CrudFormBoundMutation, type RunCrudFormSectionMutation,
+} from './utils/crudFormSectionMutation'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
 import { surfaceRecordConflict } from './conflicts'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
@@ -329,6 +332,7 @@ export type CrudFormSubmitResult = {
 
 export type CrudFormSubmitContext<TSectionPayload extends Record<string, unknown> = Record<string, unknown>> = {
   sectionPayload?: Readonly<Partial<TSectionPayload>>
+  mutation?: CrudFormBoundMutation
   submitter?: {
     id?: string
     name?: string
@@ -336,6 +340,8 @@ export type CrudFormSubmitContext<TSectionPayload extends Record<string, unknown
     dataset: Record<string, string>
   }
 }
+
+export type CrudFormDeleteContext = { mutation: CrudFormBoundMutation }
 
 export type CrudFormProps<
   TValues extends Record<string, unknown>,
@@ -359,7 +365,7 @@ export type CrudFormProps<
   deleteRedirect?: string
   onSubmit?: (values: TValues, context?: CrudFormSubmitContext<TSectionPayload>) => Promise<void | CrudFormSubmitResult> | void | CrudFormSubmitResult
   onSubmitSuccess?: (values: TValues, result: void | CrudFormSubmitResult) => Promise<void> | void
-  onDelete?: () => Promise<void> | void
+  onDelete?: (context?: CrudFormDeleteContext) => Promise<void> | void
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
   /**
@@ -523,6 +529,7 @@ export type CrudFormGroupComponentProps = {
   values: Record<string, unknown>
   setValue: (id: string, v: unknown) => void
   errors: Record<string, string>
+  runSectionMutation?: RunCrudFormSectionMutation
   /**
    * Field ids that active injection widgets declare as required (e.g. the SEO
    * helper). Custom group components that render their own labels can use this
@@ -991,6 +998,10 @@ function CrudFormImpl<
     if (typeof snake === 'string' && snake.length > 0) return snake
     return null
   }, [disableOptimisticLock, optimisticLockUpdatedAt, initialValues])
+  const { sectionMutationClient, canSubmit, canDelete, runSectionMutation } = useCrudFormSectionMutation(
+    acceptedSectionPolicy, operation === 'create' && acceptedSectionPolicy
+      ? (disableOptimisticLock ? undefined : optimisticLockUpdatedAt) : resolvedOptimisticLockUpdatedAt, formId, formReadOnly,
+  )
 
   const setInjectedFormValue = React.useCallback((id: string, value: unknown) => {
     const nextValues = { ...valuesRef.current, [id]: value } as CrudFormValues<TValues>
@@ -1009,7 +1020,8 @@ function CrudFormImpl<
     isLoading,
     pending,
     operation,
-  }), [formId, setInjectedFormValue, t, entityId, primaryEntityId, resourceKind, explicitResourceId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation, acceptedSectionPolicy])
+    ...(runSectionMutation ? { runSectionMutation } : {}),
+  }), [formId, setInjectedFormValue, t, entityId, primaryEntityId, resourceKind, explicitResourceId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation, acceptedSectionPolicy, runSectionMutation])
   const injectionContextRef = React.useRef(injectionContext)
   React.useEffect(() => {
     injectionContextRef.current = injectionContext
@@ -1517,7 +1529,7 @@ function CrudFormImpl<
 
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
-    if (!onDelete) return
+    if (!onDelete || !canDelete) return
     if (deletingRef.current) return
     deletingRef.current = true
     const deletePayload = values as TValues
@@ -1577,17 +1589,17 @@ function CrudFormImpl<
         }
       }
 
-      const optimisticLockHeader = buildOptimisticLockHeader(resolvedOptimisticLockUpdatedAt)
-      const mergedDeleteHeaders = {
-        ...(injectionRequestHeaders ?? {}),
-        ...optimisticLockHeader,
-      }
-      if (Object.keys(mergedDeleteHeaders).length > 0) {
-        await withScopedApiRequestHeaders(mergedDeleteHeaders, async () => {
-          await onDelete()
-        })
+      if (sectionMutationClient) {
+        const mutation = sectionMutationClient.parent('delete', injectionRequestHeaders)
+        if (!mutation) throw new Error('[internal] CrudForm delete mutation is unavailable')
+        await onDelete({ mutation })
       } else {
-        await onDelete()
+        const mergedDeleteHeaders = { ...injectionRequestHeaders, ...buildOptimisticLockHeader(resolvedOptimisticLockUpdatedAt) }
+        if (Object.keys(mergedDeleteHeaders).length > 0) {
+          await withScopedApiRequestHeaders(mergedDeleteHeaders, async () => { await onDelete() })
+        } else {
+          await onDelete()
+        }
       }
 
       if (resolvedInjectionSpotId) {
@@ -1641,6 +1653,8 @@ function CrudFormImpl<
     }
   }, [
     confirm,
+    canDelete,
+    sectionMutationClient,
     deleteConfirmMessage,
     deleteErrorMessage,
     deleteRedirect,
@@ -1663,7 +1677,7 @@ function CrudFormImpl<
     if (rawId === undefined || rawId === null) return true
     return typeof rawId === 'string' ? rawId.trim().length === 0 : false
   }, [explicitResourceId, values])
-  const showDelete = Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
+  const showDelete = canDelete && Boolean(onDelete) && (typeof deleteVisible === 'boolean' ? deleteVisible : !isNewRecord)
   const versionHistoryEnabled = Boolean(versionHistory?.resourceId && String(versionHistory.resourceId).trim().length > 0)
   const versionHistoryAction = (
     <VersionHistoryAction
@@ -2551,11 +2565,11 @@ function CrudFormImpl<
   }, [allFields, hiddenGroupFieldIds, resolveGroupFields, resolvedGroupsForLayout, useGroupedLayout])
 
   const requestSubmit = React.useCallback(() => {
-    if (formReadOnly) return
+    if (formReadOnly || !canSubmit) return
     if (typeof document === 'undefined') return
     const form = document.getElementById(formId) as HTMLFormElement | null
     form?.requestSubmit()
-  }, [formId, formReadOnly])
+  }, [formId, formReadOnly, canSubmit])
 
   const lastFocusedFieldRef = React.useRef<string | null>(null)
   const lastErrorFieldRef = React.useRef<string | null>(null)
@@ -3114,7 +3128,7 @@ function CrudFormImpl<
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (formReadOnly) return
+    if (formReadOnly || !canSubmit) return
     if (submittingRef.current) return
     submittingRef.current = true
     let redirectNavigationStarted = false
@@ -3404,8 +3418,11 @@ function CrudFormImpl<
         ...(injectionRequestHeaders ?? {}),
         ...optimisticLockHeader,
       }
-      const submitResult = acceptedSectionPolicy
-        ? await onSubmit?.(coreSubmitValues, { ...submitContext, sectionPayload })
+      const submitResult = sectionMutationClient
+        ? await onSubmit?.(coreSubmitValues, {
+            ...submitContext, sectionPayload,
+            mutation: sectionMutationClient.parent(operation, injectionRequestHeaders),
+          })
         : Object.keys(mergedSubmitHeaders).length > 0
         ? await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => onSubmit?.(coreSubmitValues, submitContext))
         : await onSubmit?.(coreSubmitValues, submitContext)
@@ -3664,7 +3681,7 @@ function CrudFormImpl<
               values={values}
               loadFieldOptions={loadFieldOptions}
                 autoFocus={!disableInitialFocus && !formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
-              onSubmitRequest={requestSubmit}
+              onSubmitRequest={canSubmit ? requestSubmit : undefined}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
               recordId={explicitResourceId ?? recordId}
@@ -3927,7 +3944,8 @@ function CrudFormImpl<
     const activeSectionIds = acceptedSectionPolicy && new Set(acceptedSectionPolicy.surface.orderedSectionIds)
     const wrapSectionContent = (id: string, children: React.ReactNode) => sectionScope && activeSectionIds?.has(id)
       ? <CrudFormSectionBody handle={ComponentReplacementHandles.section(sectionScope, id)}
-          values={values} setValue={setValue} errors={errors} requiredFieldIds={widgetRequiredFieldIds}>
+          values={values} setValue={setValue} errors={errors} requiredFieldIds={widgetRequiredFieldIds}
+          runSectionMutation={runSectionMutation}>
           {children}
         </CrudFormSectionBody>
       : children
@@ -3971,7 +3989,9 @@ function CrudFormImpl<
           if (g.component) {
             customFieldsInnerNodes.push(
               <div key={`${g.id}-component`} className="rounded-lg border bg-card px-4 py-3">
-                {g.component({ values, setValue, errors, requiredFieldIds: widgetRequiredFieldIds })}
+                {g.component({ values, setValue, errors, requiredFieldIds: widgetRequiredFieldIds,
+                  ...(runSectionMutation ? { runSectionMutation } : {}),
+                })}
               </div>,
             )
           }
@@ -4026,6 +4046,7 @@ function CrudFormImpl<
           setValue,
           errors,
           requiredFieldIds: widgetRequiredFieldIds,
+          ...(runSectionMutation ? { runSectionMutation } : {}),
           injectedFields: g.bare ? renderFields(resolveGroupFields(g).filter((field) => injectedOnlyFieldIdSet.has(field.id))) : undefined,
         }) : null
         if (g.bare) {
@@ -4122,7 +4143,7 @@ function CrudFormImpl<
               deleteLabel,
               cancelHref,
               cancelLabel,
-              submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
+              submit: formReadOnly || !canSubmit ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
         ) : embeddedHeaderActions ? (
@@ -4175,7 +4196,7 @@ function CrudFormImpl<
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon }
+                  submit: canSubmit ? { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon } : undefined,
                 }}
               />
             ) : null}
@@ -4205,7 +4226,7 @@ function CrudFormImpl<
             deleteLabel,
             cancelHref,
             cancelLabel,
-            submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
+            submit: formReadOnly || !canSubmit ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
       ) : embeddedHeaderActions ? (
@@ -4252,7 +4273,7 @@ function CrudFormImpl<
                     values={values}
                     loadFieldOptions={loadFieldOptions}
                     autoFocus={!disableInitialFocus && !formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
-                    onSubmitRequest={requestSubmit}
+                    onSubmitRequest={canSubmit ? requestSubmit : undefined}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
                     recordId={explicitResourceId ?? recordId}
@@ -4274,7 +4295,7 @@ function CrudFormImpl<
                   deleteLabel,
                   cancelHref: !embedded ? cancelHref : undefined,
                   cancelLabel,
-                  submit: { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
+                  submit: canSubmit ? { pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon } : undefined,
                 }}
               />
             ) : null}
@@ -4753,7 +4774,7 @@ type FieldControlProps = {
   values: Record<string, unknown>
   loadFieldOptions: (field: CrudField, query?: string) => Promise<CrudFieldOption[]>
   autoFocus: boolean
-  onSubmitRequest: () => void
+  onSubmitRequest?: () => void
   wrapperClassName?: string
   entityIdForField?: string
   recordId?: string

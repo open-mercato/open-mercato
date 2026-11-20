@@ -19,6 +19,7 @@ import {
 import { getCurrentOrganizationScopeVersion, subscribeOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { getComponentEntry, getComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import type { CrudFormSectionSurfaceAlternativeFact } from '@open-mercato/shared/modules/form-section-facts'
+import { parseCrudFormSectionClientMutationFacts } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { useBackendChrome } from '../BackendChromeProvider'
 import { apiCall } from '../utils/apiCall'
@@ -78,11 +79,16 @@ async function resolvePolicy<TValues, TPayload>(
   const { surface, overrides } = selection
   const hostResourceKind = selection.host.hostResourceKind
   if (!hostResourceKind) return failed('invalid_host_resource_kind')
+  const clientMutationSurfaces = parseCrudFormSectionClientMutationFacts(surface.mutationSurfaceIds, surface.clientMutationSurfaces)
+  if (!clientMutationSurfaces || clientMutationSurfaces.some((fact) => fact.hostResourceKind !== hostResourceKind)) {
+    return failed('invalid_client_mutation_surface')
+  }
+  const canonicalSurface = { ...surface, clientMutationSurfaces }
   const { descriptors, identities } = composition
   const spots = inputs.legacySpot && inputs.legacySpot !== inputs.primarySpot ? [inputs.primarySpot, inputs.legacySpot] : [inputs.primarySpot]
   const [validDependencies, clientManifestFingerprint] = await Promise.all([
     checkCrudFormSectionDependencies({ surface, descriptors, spots, grantedFeatures: features }),
-    computeCrudFormSectionClientFingerprint(surface, identities, overrides),
+    computeCrudFormSectionClientFingerprint(canonicalSurface, identities, overrides),
   ])
   if (!validDependencies) return failed('section_dependency_unavailable')
   if (signal.aborted) return failed('cancelled')
@@ -97,7 +103,7 @@ async function resolvePolicy<TValues, TPayload>(
   if (new TextEncoder().encode(body).length > crudFormSectionsResolveMaxBytes) return failed('client_assertion_too_large')
   const response = await apiCall<unknown>('/api' + crudFormSectionsResolvePath, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body, signal,
-  })
+  }, { inheritScopedHeaders: false })
   const result = resolveCrudFormSectionsResponseSchema.safeParse(response.result)
   if (!response.ok || !result.success || result.data.state !== 'ready'
       || result.data.fingerprint !== inputs.ledger.fingerprint
@@ -105,7 +111,7 @@ async function resolvePolicy<TValues, TPayload>(
       || !sameCrudFormSectionIds(result.data.acceptedContributionIds, [...surface.contributionIds].sort())) {
     return failed('server_manifest_mismatch')
   }
-  return { ...result.data, identity, hostResourceKind, surface, descriptors, diagnostics: [] }
+  return { ...result.data, identity, hostResourceKind, surface: canonicalSurface, descriptors, diagnostics: [] }
 }
 
 export function useResolvedCrudFormSections<TValues, TPayload>(inputs: Inputs) {

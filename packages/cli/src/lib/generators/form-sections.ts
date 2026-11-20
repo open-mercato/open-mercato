@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto'
 import path from 'node:path'
 import ts from 'typescript-js'
 import { resolveModuleRequirement, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
+import {
+  crudFormSectionClientMutationFactSchema, crudSectionOperationMethods as derivedRouteMethods,
+  derivedCrudFormSectionClientMutationFact, parseCrudFormSectionClientMutationFacts,
+} from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
 import { writeGeneratedFile, type GeneratorResult } from '../utils'
 import {
   MODULE_CODE_EXTENSIONS,
@@ -49,6 +53,7 @@ type DerivedRouteDeclaration = {
   routePath: string
   hostDescriptorId: string
   operations: readonly ('create' | 'update' | 'delete')[]
+  versioned: boolean
 }
 export type GeneratedDerivedCrudRoute = {
   moduleId: string
@@ -57,7 +62,6 @@ export type GeneratedDerivedCrudRoute = {
   methods: DerivedMethod[]
 }
 
-const derivedRouteMethods = { create: 'POST', update: 'PUT', delete: 'DELETE' } as const
 export const generatedDerivedCrudRouteIndex = 'crud-form-section-derived-routes.generated.json'
 
 
@@ -336,7 +340,9 @@ function parseDerivedRoutes(
     if (!/^\/(?:[A-Za-z0-9_.-]+|\[[A-Za-z0-9_-]+\])(?:\/(?:[A-Za-z0-9_.-]+|\[[A-Za-z0-9_-]+\]))*$/.test(basePath)) {
       return invalid('derived route path must be a regular named API path')
     }
-    return { index, routePath: `${basePath}/section-policy`, hostDescriptorId, operations }
+    const versioned = options.has('expectedVersionField')
+    if (versioned) literalValue(options.get('expectedVersionField'), 'expectedVersionField', invalid)
+    return { index, routePath: `${basePath}/section-policy`, hostDescriptorId, operations, versioned }
   })
 }
 
@@ -431,18 +437,41 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
       const properties = fieldsOf(fact, invalid)
       const { id, roundTripId } = readIdentity(properties, invalid)
       if (kind === 'host') {
-        const alternatives = arrayField(properties, 'alternatives', invalid).map((entry) => {
-          const surface = fieldsOf(entry, invalid).get('surface')
-          if (!surface) return invalid('missing finite surface alternative')
-          const fact = literalData(surface, invalid)
-          const derived = derivedRoutes.find(({ hostDescriptorId }) => hostDescriptorId === id)
-          if (!derived) return fact
-          if (!fact || typeof fact !== 'object' || Array.isArray(fact)) return invalid('expected finite derived host facts')
-          return { ...fact, mutationSurfaceIds: derived.operations.map((operation) => `${id}.${operation}`) }
-        })
         const hostResourceKind = properties.has('hostResourceKind')
           ? literalValue(properties.get('hostResourceKind'), 'hostResourceKind', invalid)
           : undefined
+        const alternatives = arrayField(properties, 'alternatives', invalid).map((entry) => {
+          const alternative = fieldsOf(entry, invalid)
+          const surface = alternative.get('surface')
+          if (!surface) return invalid('missing finite surface alternative')
+          const fact = literalData(surface, invalid)
+          if (!fact || typeof fact !== 'object' || Array.isArray(fact)) return invalid('expected finite surface facts')
+          const derived = derivedRoutes.find(({ hostDescriptorId }) => hostDescriptorId === id)
+          if (Object.hasOwn(fact, 'clientMutationSurfaces')) return invalid('client mutation surface projection is generated')
+          const authoredIds = (fact as { mutationSurfaceIds?: unknown }).mutationSurfaceIds
+          if (!Array.isArray(authoredIds) || authoredIds.some((surfaceId) => typeof surfaceId !== 'string')) {
+            return invalid('mutationSurfaceIds must be a literal ID array')
+          }
+          const rows = derived ? derived.operations.map((operation) => derivedCrudFormSectionClientMutationFact({
+            operation, hostDescriptorId: id, route: derived.routePath,
+            versioned: derived.versioned, resourceKind: hostResourceKind ?? '',
+          })) : arrayField(alternative, 'mutationSurfaces', invalid).map((mutation) => {
+            const declaration = fieldsOf(mutation, invalid)
+            return Object.fromEntries(Object.keys(crudFormSectionClientMutationFactSchema.shape).flatMap((key) => {
+              const value = declaration.get(key)
+              return value ? [[key, literalData(value, invalid)]] : []
+            }))
+          })
+          const mutationSurfaceIds = derived ? derived.operations.map((operation) => `${id}.${operation}`) : authoredIds
+          const clientMutationSurfaces = parseCrudFormSectionClientMutationFacts(mutationSurfaceIds, rows)
+          if (!clientMutationSurfaces || clientMutationSurfaces.some((row) => row.hostResourceKind !== hostResourceKind)) {
+            return invalid('mutation surface projection does not match its host alternative')
+          }
+          return {
+            ...fact, mutationSurfaceIds,
+            ...(clientMutationSurfaces.length ? { clientMutationSurfaces } : {}),
+          }
+        })
         if (alternatives.length && !hostResourceKind) return invalid('host alternatives require a hostResourceKind')
         clientHosts.push({ id, roundTripId, hostResourceKind, alternatives })
       }

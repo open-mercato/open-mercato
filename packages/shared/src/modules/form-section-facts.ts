@@ -100,6 +100,9 @@ export type CrudFormSectionMutationSurfaceFact = {
   optimisticLock: 'none' | 'target-required' | 'target-optional'
 }
 
+export type CrudFormSectionClientMutationFact = Omit<CrudFormSectionMutationSurfaceFact,
+  'delegatedTarget' | 'resourceBindingIds'>
+
 export type CrudFormSectionCapabilityProviderFact = {
   capabilityId: string
   protocol: 'crud-form-sections/v1'
@@ -131,5 +134,6 @@ export type CrudFormSectionSurfaceAlternativeFact = {
     customFieldOwnership: CrudFormCustomFieldOwnershipFact
   }[]
   mutationSurfaceIds: readonly string[]
+  clientMutationSurfaces?: readonly CrudFormSectionClientMutationFact[]
   dependencies: readonly CrudFormSectionDependencyFact[]
 }

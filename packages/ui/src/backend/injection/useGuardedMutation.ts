@@ -9,11 +9,13 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui').child({ component: 'useGuardedMutation' })
+const noMutationWidgets: [] = []
 
 type GuardedMutationContext = Record<string, unknown>
 
 type GuardedMutationRunInput<TResult, TContext extends GuardedMutationContext> = {
-  operation: () => Promise<TResult>
+  operation: (requestHeaders?: Readonly<Record<string, string>>) => Promise<TResult>
+  headerMode?: 'request-local'
   context: TContext
   mutationPayload?: Record<string, unknown>
 }
@@ -22,21 +24,19 @@ type UseGuardedMutationOptions = {
   contextId: string
   blockedMessage?: string
   spotId?: string
+  enabled?: boolean
 }
 
-type StoredMutation<TContext extends GuardedMutationContext> = {
-  operation: () => Promise<unknown>
-  context: TContext
-  mutationPayload: Record<string, unknown>
-}
+type StoredMutation<TContext extends GuardedMutationContext> = GuardedMutationRunInput<unknown, TContext>
 
 export function useGuardedMutation<TContext extends GuardedMutationContext>({
   contextId,
   blockedMessage = 'Save blocked by validation',
   spotId = GLOBAL_MUTATION_INJECTION_SPOT_ID,
+  enabled = true,
 }: UseGuardedMutationOptions) {
   const t = useT()
-  const { triggerEvent } = useInjectionSpotEvents<TContext, Record<string, unknown>>(spotId)
+  const { triggerEvent } = useInjectionSpotEvents<TContext, Record<string, unknown>>(spotId, enabled ? undefined : noMutationWidgets)
   const lastMutationRef = React.useRef<StoredMutation<TContext> | null>(null)
 
   const emitMutationSaveError = React.useCallback((error: unknown) => {
@@ -63,12 +63,14 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     operation,
     context,
     mutationPayload,
+    headerMode,
   }: GuardedMutationRunInput<TResult, TContext>): Promise<TResult> => {
     const payload = mutationPayload ?? {}
     lastMutationRef.current = {
-      operation: operation as () => Promise<unknown>,
+      operation,
       context,
       mutationPayload: payload,
+      headerMode,
     }
 
     const beforeSave = await triggerEvent('onBeforeSave', payload, context)
@@ -78,8 +80,8 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     }
 
     try {
-      const result =
-        beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
+      const result = headerMode === 'request-local' ? await operation(beforeSave.requestHeaders)
+        : beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
           ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
           : await operation()
 
@@ -105,6 +107,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
         operation: lastMutation.operation,
         context: lastMutation.context,
         mutationPayload: lastMutation.mutationPayload,
+        headerMode: lastMutation.headerMode,
       })
       return true
     } catch {

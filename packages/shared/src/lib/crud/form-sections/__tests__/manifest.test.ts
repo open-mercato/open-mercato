@@ -1,4 +1,4 @@
-import type { CrudFormSectionSurfaceAlternativeFact } from '../../../../modules/form-section-facts'
+import type { CrudFormSectionMutationSurfaceFact, CrudFormSectionSurfaceAlternativeFact } from '../../../../modules/form-section-facts'
 import type { CrudFormSectionServerModule } from '../../../../modules/form-sections'
 import type { FormSectionOverridesMap } from '../../../../modules/overrides'
 import { InjectionPosition } from '../../../../modules/widgets/injection-position'
@@ -102,6 +102,37 @@ describe('accepted CrudForm section manifest', () => {
     expect(manifest.ledger.hosts).toEqual([address])
     expect(manifest.policies.size).toBe(0)
     expect(manifest.providers.has(key)).toBe(true)
+  })
+
+  it('fingerprints the final client mutation route and method independently of the surface ID', async () => {
+    const serverSurface: CrudFormSectionMutationSurfaceFact = {
+      id: 'example.todo.update', kind: 'section-action', requestOperation: 'update',
+      guardedFacade: { method: 'PUT', routePattern: '/example/todos/section-policy' },
+      delegatedTarget: { kind: 'command', id: 'example.todo.update' },
+      hostResourceKind: 'example.todo', mutationResourceKind: 'example.todo', optimisticLock: 'none',
+    }
+    const surface = { ...composed, mutationSurfaceIds: [serverSurface.id] }
+    const sections = modules[0].sections
+    const manifest = buildCrudFormSectionManifest([{ ...modules[0], sections: {
+      ...sections, hostFacts: [{ ...host, alternatives: [{ surface: plain }, { surface, mutationSurfaces: [serverSurface] }] }],
+      hostProviders: [{
+        ...sections.hostProviders![0], mutationProviders: [{
+          mutationSurfaceId: serverSurface.id, delegatedTarget: serverSurface.delegatedTarget,
+          finalInput: 'transactional-final-input/v1',
+        }],
+      }],
+    } }], overrides)
+    const { delegatedTarget: _serverOnly, ...browser } = serverSurface
+    const inputs = [contribution, host] as const
+    const placement = new Map([[sectionId, overrides[overrideKey]!]])
+    const fingerprint = await computeCrudFormSectionClientFingerprint({ ...surface, clientMutationSurfaces: [browser] }, inputs, placement)
+    expect(manifest.policies.get(key)?.clientFingerprint).toBe(fingerprint)
+    expect(manifest.policies.get(key)?.surface.clientMutationSurfaces).toEqual([browser])
+    const stale = { ...browser, guardedFacade: { method: 'PATCH' as const, routePattern: '/example/todos/old-policy' } }
+    await expect(computeCrudFormSectionClientFingerprint(
+      { ...surface, clientMutationSurfaces: [stale] }, inputs, placement,
+    )).resolves.not.toBe(fingerprint)
+    expect(Object.keys(manifest.ledger)).toEqual(['hosts', 'fingerprint'])
   })
 
   it('blocks unknown contribution IDs without losing the configured host', () => {

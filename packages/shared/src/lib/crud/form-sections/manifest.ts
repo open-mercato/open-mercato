@@ -33,6 +33,7 @@ import {
   type CrudFormSectionConfiguredHostLedger,
 } from './composition'
 import { symbolicIdSchema } from './protocol'
+import { parseCrudFormSectionClientMutationFacts, projectCrudFormSectionClientMutationFact } from './client-mutation-facts'
 import { getDerivedCrudRouteCapabilities } from './factory-route-source'
 import {
   collectCrudFormSectionSinks, crudFormSectionSinkAtomicities, selectCrudFormSectionSinks,
@@ -298,7 +299,14 @@ export function buildCrudFormSectionManifest(
     for (const entry of required.capabilities) matchedCapabilities.set(entry.fact.capabilityId, entry)
 
     const descriptors = [host.fact, ...selectedContributions]
-    const canonicalSurface = canonicalCrudFormSectionAlternative(surface)
+    const clientMutationSurfaces = parseCrudFormSectionClientMutationFacts(
+      surface.mutationSurfaceIds, canonicalSurfaces.map(projectCrudFormSectionClientMutationFact),
+    )
+    if (!clientMutationSurfaces || clientMutationSurfaces.some(({ hostResourceKind }) => hostResourceKind !== resourceKind.data)) {
+      fail('invalid_client_mutation_surface')
+      continue
+    }
+    const canonicalSurface = canonicalCrudFormSectionAlternative({ ...surface, clientMutationSurfaces })
     const capabilities = [...matchedCapabilities.values()]
       .sort((left, right) => compareSectionIds(left.fact.capabilityId, right.fact.capabilityId))
     const sinks = selectCrudFormSectionSinks({

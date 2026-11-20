@@ -14,7 +14,8 @@ import {
   registerCrudFormSectionClientRegistry,
   type CrudFormSectionClientRegistry,
 } from '@open-mercato/shared/lib/crud/form-sections/client-registry'
-import type { CrudFormSectionSurfaceAlternativeFact } from '@open-mercato/shared/modules/form-section-facts'
+import type { CrudFormSectionClientMutationFact, CrudFormSectionSurfaceAlternativeFact } from '@open-mercato/shared/modules/form-section-facts'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import {
   registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds, setInjectionRegistryError,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
@@ -41,6 +42,7 @@ jest.mock('@open-mercato/shared/lib/crud/form-sections/client-registry', () => {
 })
 jest.mock('../utils/apiCall', () => ({ ...jest.requireActual('../utils/apiCall'), apiCall: jest.fn() }))
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }), usePathname: () => '/', useSearchParams: () => new URLSearchParams() }))
+jest.mock('../confirm-dialog', () => ({ useConfirmDialog: () => ({ confirm: async () => true, ConfirmDialogElement: null }) }))
 jest.mock('../fields/registry', () => ({
   ...jest.requireActual('../fields/registry'), loadGeneratedFieldRegistrations: async () => {},
 }))
@@ -278,11 +280,22 @@ it('resolves accepted group content through its scoped replacement handle', asyn
 
 type Runtime = CrudFormSectionRuntime<Record<string, unknown>, Record<string, unknown>>
 
-function publishWritePolicy(customRuntime: Runtime[], ownershipFacts: CrudFormSectionSurfaceAlternativeFact['ownershipFacts']) {
+const parentUpdate: CrudFormSectionClientMutationFact = {
+  id: 'test.parent-update', kind: 'parent-submit', requestOperation: 'update',
+  guardedFacade: { method: 'PUT', routePattern: '/test/section-policy' },
+  hostResourceKind: 'test.record', mutationResourceKind: 'test.record', optimisticLock: 'none',
+}
+
+function publishWritePolicy(
+  customRuntime: Runtime[], ownershipFacts: CrudFormSectionSurfaceAlternativeFact['ownershipFacts'],
+  clientMutationSurfaces: CrudFormSectionClientMutationFact[] = [parentUpdate],
+) {
   const fixture = registry()
   registerCrudFormSectionClientRegistry({
     ...fixture,
-    hostFacts: fixture.hostFacts.map((fact) => ({ ...fact, alternatives: [selection, { ...accepted, ownershipFacts }] })),
+    hostFacts: fixture.hostFacts.map((fact) => ({ ...fact, alternatives: [selection, {
+      ...accepted, ownershipFacts, clientMutationSurfaces, mutationSurfaceIds: clientMutationSurfaces.map(({ id }) => id),
+    }] })),
     runtimeEntries: fixture.runtimeEntries.map((entry) => {
       const replacement = customRuntime.find(({ id }) => id === entry.id)
       return replacement ? { ...entry, load: async () => ({ crudFormSectionRuntime: replacement }) } : entry
@@ -428,7 +441,7 @@ it('blocks composition from adding a path that bypassed section validation', asy
 
 it('keeps active field errors and does not render a hidden composition error', async () => {
   const onSubmit = jest.fn()
-  publishResponse()
+  publishWritePolicy([], [])
   const { container } = render(configured('actual-id', {
     onSubmit,
     compositionValidator: () => ({ success: false, fieldErrors: { replacement: 'test.active', private: 'test.hidden' } }),
@@ -455,4 +468,91 @@ it('does not mount controls for a configured all custom-field definition set wit
   await screen.findByRole('alert')
   expect(container.querySelector('form')).toBeNull()
   expect(fetchCustomFieldDefs).not.toHaveBeenCalled()
+})
+
+it('does not run parent controls or programmatic form submission for display-only policies', async () => {
+  publishResponse()
+  const onSubmit = jest.fn()
+  const onDelete = jest.fn()
+  const { container } = render(configured('actual-id', { onSubmit, onDelete, deleteVisible: true }), { wrapper: Providers })
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  expect(container.querySelector('button[type="submit"]')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'ui.forms.actions.delete' })).not.toBeInTheDocument()
+  fireEvent.submit(container.querySelector('form')!)
+  expect(onSubmit).not.toHaveBeenCalled()
+  expect(onDelete).not.toHaveBeenCalled()
+})
+
+it('binds parent delete after its own hook with explicit version and domain headers', async () => {
+  const deleteSurface: CrudFormSectionClientMutationFact = {
+    ...parentUpdate, id: 'test.parent-delete', kind: 'parent-delete', requestOperation: 'delete',
+    guardedFacade: { ...parentUpdate.guardedFacade, method: 'DELETE' }, optimisticLock: 'target-required',
+  }
+  publishWritePolicy([], [], [deleteSurface])
+  const originalFetch = globalThis.fetch
+  const fetch = jest.fn(async () => new Response('{}', { status: 200 }))
+  globalThis.fetch = fetch
+  const hookVersion = '2026-11-20T01:35:02.000Z'
+  const onBeforeDelete = jest.fn(async () => ({
+    ok: true, requestHeaders: { 'x-sudo-token': 'delete-only', [OPTIMISTIC_LOCK_HEADER_NAME]: hookVersion },
+  }))
+  const onLoad = jest.fn()
+  const widgets = [{
+    moduleId: 'test', key: 'test.delete', widgetId: 'test.delete', source: 'package' as const,
+    loader: async () => ({
+      metadata: { id: 'test.delete' }, fields: [{ id: 'deleteHint', label: 'Delete hint', type: 'text', group: 'name' }],
+      eventHandlers: { onBeforeDelete, onLoad },
+    }),
+  }]
+  registerCoreInjectionWidgets(widgets)
+  registerCoreInjectionTables([{ moduleId: 'test', table: { 'crud-form:test.record:fields': 'test.delete' } }], widgets)
+  try {
+    const onDelete: NonNullable<FormProps['onDelete']> = async (context) => {
+      await context?.mutation.request('/api/test/section-policy?id=actual-id')
+    }
+    render(configured('actual-id', { onDelete, deleteVisible: true, optimisticLockUpdatedAt: '2026-11-20T01:30:00.000Z' }), { wrapper: Providers })
+    await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1))
+    const remove = screen.getAllByRole('button', { name: 'ui.forms.actions.delete' })[0]
+    fireEvent.click(remove)
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    expect(onBeforeDelete).toHaveBeenCalledTimes(1)
+    const [, init] = (fetch.mock.calls as unknown as [string, RequestInit][])[0]
+    expect(init.method).toBe('DELETE')
+    const headers = new Headers(init.headers)
+    expect(headers.get('x-sudo-token')).toBe('delete-only')
+    expect(headers.get(OPTIMISTIC_LOCK_HEADER_NAME)).toBe(hookVersion)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+it('exposes a section action to a rendered group without enabling parent controls', async () => {
+  const action: CrudFormSectionClientMutationFact = {
+    ...parentUpdate, id: 'test.retry', kind: 'section-action', requestOperation: 'retry',
+    guardedFacade: { method: 'POST', routePattern: '/test/[id]/retry' },
+  }
+  const custom = defineCrudFormSectionRuntime({
+    id: 'test.extra', roundTripId: 'test.extra@v1', ownedFieldPaths: [],
+    group: {
+      id: 'extra', bare: true,
+      component: ({ runSectionMutation }) => <button type="button" onClick={() => {
+        void runSectionMutation?.({
+          mutationSurfaceId: action.id, requestOperation: 'retry', operation: 'update',
+          mutationResourceKind: 'test.record', mutationResourceId: 'actual-id',
+        }, '/api/test/actual-id/retry')
+      }}>Retry section</button>,
+    },
+    validate: () => ({ success: true, data: null }), projectPayload: () => ({}),
+  })
+  publishWritePolicy([custom], [], [action])
+  const originalFetch = globalThis.fetch
+  const fetch = jest.fn(async (_input: string, _init: RequestInit) => new Response('{}', { status: 200 }))
+  globalThis.fetch = fetch
+  try {
+    const { container } = render(configured(), { wrapper: Providers })
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry section' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    expect(container.querySelector('button[type="submit"]')).toBeNull()
+    const [, init] = fetch.mock.calls[0]
+    expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('x-om-ext-crud-form-sections-mutation-surface')).toBe(action.id)
+  } finally { globalThis.fetch = originalFetch }
 })

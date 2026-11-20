@@ -5,8 +5,8 @@ import type { CommandExecuteResult, CommandRuntimeContext } from '../../commands
 import type { CrudCtx, CrudMethodMetadata } from '../factory'
 import type { RunInterceptorsAfterResult } from '../interceptor-runner'
 
-export type CrudSectionRouteOperation = 'create' | 'update' | 'delete'
-export const crudSectionOperationMethods = { create: 'POST', update: 'PUT', delete: 'DELETE' } as const
+import { crudSectionOperationMethods, type CrudSectionRouteOperation } from './client-mutation-facts'
+export { crudSectionOperationMethods, type CrudSectionRouteOperation }
 export type CrudSectionRouteMethod = (typeof crudSectionOperationMethods)[CrudSectionRouteOperation]
 
 type CrudRouteSectionAction = {

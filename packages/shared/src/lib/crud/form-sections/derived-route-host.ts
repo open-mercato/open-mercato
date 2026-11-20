@@ -15,6 +15,7 @@ import { CrudHttpError, isCrudHttpError } from '../errors'
 import { normalizeIsoToken } from '../optimistic-lock'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '../optimistic-lock-headers'
 import { crudSectionOperationMethods, findCrudRouteSectionSource, rememberDerivedCrudRouteCapabilities, type CrudRouteSectionSource, type CrudSectionRouteMethod, type CrudSectionRouteOperation } from './factory-route-source'
+import { derivedCrudFormSectionClientMutationFact } from './client-mutation-facts'
 import { runCrudFormSectionMutation, type CrudFormSectionMutationFacadeOptions } from './mutation-facade'
 import { crudFormSectionPolicyHeaderNames, crudFormSectionPolicyHeaderSchema, parseCrudFormSectionPolicyHeaders } from './policy-headers'
 import { decodeCrudFormSectionPolicyToken } from './policy-token'
@@ -149,8 +150,8 @@ export function defineCrudRouteSectionHost<const Host extends CrudRouteSectionHo
     }
   }
   const updatedAtField = findUpdatedAt(source)
-  if (updatedAtField && selected === 'update' && !declaration.expectedVersionField) {
-    refuse('versioned update requires the command’s expected version field')
+  if (selected === 'update' && Boolean(updatedAtField) !== Boolean(declaration.expectedVersionField)) {
+    refuse('versioned update requires the command’s expected version field and unversioned update must omit it')
   }
   checkProof(declaration.submit.proof, selected === 'update' && Boolean(updatedAtField))
   if (declaration.delete) checkProof(declaration.delete.proof, Boolean(updatedAtField))
@@ -187,17 +188,13 @@ function mutationSurface(host: DerivedHost, operation: CrudSectionRouteOperation
   const { declaration, source, updatedAtField } = host
   const action = source.actions[operation]
   if (!action) return refuse('missing delegated command')
-  const kind = operation === 'delete' ? 'parent-delete' : 'parent-submit'
   return {
-    id: `${declaration.hostDescriptorId}.${operation}`,
-    kind,
-    guardedFacade: { method: crudSectionOperationMethods[operation], routePattern: route },
+    ...derivedCrudFormSectionClientMutationFact({
+      hostDescriptorId: declaration.hostDescriptorId, operation, route,
+      resourceKind: source.resourceKind, versioned: Boolean(updatedAtField),
+    }),
     delegatedTarget: { kind: 'command', id: action.commandId },
-    requestOperation: operation,
-    hostResourceKind: source.resourceKind,
-    mutationResourceKind: source.resourceKind,
     resourceBindingIds: [],
-    optimisticLock: operation !== 'create' && updatedAtField ? 'target-required' : 'none',
   }
 }
 

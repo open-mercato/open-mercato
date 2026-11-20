@@ -310,6 +310,10 @@ describe('derived CRUD section route generation', () => {
     expect(fs.readFileSync(docsIndex, 'utf8')).toContain('/example/records/section-policy')
     expect(generated('facts')).toContain('bindDerivedCrudRouteSectionHosts')
     expect(generated('runtime')).toContain('"example.edit-rec.update"')
+    expect(generated('runtime')).toContain('"clientMutationSurfaces"')
+    expect(generated('runtime')).toContain('"routePattern": "/example/records/section-policy"')
+    expect(generated('runtime')).toContain('"method": "DELETE"')
+    expect(generated('runtime')).not.toContain('example.records.update')
     expect(generated('runtime')).not.toContain('createDerivedCrudFormSectionFacade')
     const second = await generateModuleRegistries({ resolver: fixture, quiet: true })
     expect(second.flatMap((result) => result.filesWritten)).toEqual([])
@@ -334,4 +338,24 @@ describe('derived CRUD section route generation', () => {
       resolver: resolver([{ id: 'example', from: '@app' }]), quiet: true,
     })).rejects.toThrow(diagnostic)
   })
+})
+
+it('projects a hand-written child façade without exposing its delegated command or binding definitions', async () => {
+  const source = derivedDeclaration
+    .replace("import { crudRoute } from './api/records/route'", '')
+    .replace(/derivedHosts: \[defineCrudRouteSectionHost\(\{[\s\S]*?\}\)\],/, '')
+    .replace('mutationSurfaceIds: [], dependencies: [],\n    } }]', `mutationSurfaceIds: ['example.offer.update'], dependencies: [],
+    }, mutationSurfaces: [{
+      id: 'example.offer.update', kind: 'section-action', requestOperation: 'update',
+      guardedFacade: { method: 'PATCH', routePattern: '/example/records/[parentId]/offers/[offerId]' },
+      hostResourceKind: 'example.records', mutationResourceKind: 'example.offer', optimisticLock: 'target-required',
+      delegatedTarget: { kind: 'command', id: 'secret.server.command' }, resourceBindingIds: ['server.binding.v1'],
+    }] }]`)
+  write('app/src/modules/example/form-sections.ts', source)
+  write('app/src/modules/example/descriptor.client.ts', runtime('example.edit-rec'))
+  const fixture = resolver([{ id: 'example', from: '@app' }])
+  await generateModuleRegistries({ resolver: fixture, quiet: true })
+  expect(generated('runtime')).toContain('"routePattern": "/example/records/[parentId]/offers/[offerId]"')
+  expect(generated('runtime')).toContain('"optimisticLock": "target-required"')
+  expect(generated('runtime')).not.toMatch(/secret\.server\.command|server\.binding\.v1/)
 })

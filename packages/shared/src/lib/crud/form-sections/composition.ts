@@ -85,6 +85,9 @@ export function canonicalCrudFormSectionAlternative(
         : customFieldOwnership,
     })).sort((left, right) => compareSectionIds(left.sectionId, right.sectionId)),
     mutationSurfaceIds: [...surface.mutationSurfaceIds].sort(),
+    ...(surface.clientMutationSurfaces?.length ? {
+      clientMutationSurfaces: [...surface.clientMutationSurfaces].sort((a, b) => compareSectionIds(a.id, b.id)),
+    } : {}),
     dependencies: surface.dependencies.map((dependency) => ({
       consumerContributionId: dependency.consumerContributionId,
       requiredSectionIds: [...dependency.requiredSectionIds].sort(),

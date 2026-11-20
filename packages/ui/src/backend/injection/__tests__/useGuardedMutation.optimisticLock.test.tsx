@@ -116,3 +116,17 @@ describe('useGuardedMutation — surfaces optimistic-lock conflict on the unifie
     expect(getRecordConflictForTest()).toBeNull()
   })
 })
+
+it('passes new request-local guard headers directly on retry', async () => {
+  const run = jest.fn(async (_headers?: Readonly<Record<string, string>>) => undefined)
+  triggerEventMock.mockResolvedValueOnce({ ok: true, requestHeaders: { 'x-sudo-token': 'first' } })
+    .mockResolvedValueOnce({ ok: true })
+    .mockResolvedValueOnce({ ok: true, requestHeaders: { 'x-sudo-token': 'retry' } })
+    .mockResolvedValueOnce({ ok: true })
+  const { result } = renderHook(() => useGuardedMutation({ contextId: 'test-form' }))
+  await act(async () => {
+    await result.current.runMutation({ context: {}, operation: run, headerMode: 'request-local' })
+    await result.current.retryLastMutation()
+  })
+  expect(run.mock.calls).toEqual([[{ 'x-sudo-token': 'first' }], [{ 'x-sudo-token': 'retry' }]])
+})
