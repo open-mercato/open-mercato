@@ -11,6 +11,7 @@ import {
   type MessageComposerProps,
   type MessageComposerRequiredActionConfig,
 } from './MessageComposer'
+import { useComposeScheduling } from './useComposeScheduling'
 
 export type SendObjectMessageDialogProps = {
   object: MessageComposerContextObject
@@ -41,6 +42,7 @@ export function SendObjectMessageDialog({
 }: SendObjectMessageDialogProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
+  const scheduling = useComposeScheduling(open)
   const label = buttonLabel ?? t('messages.compose', 'Compose message')
 
   const openComposer = React.useCallback(() => {
@@ -97,6 +99,7 @@ export function SendObjectMessageDialog({
         contextObject={contextObject}
         requiredActionConfig={requiredActionConfig}
         defaultValues={defaultValues}
+        scheduling={scheduling}
         onSuccess={onSuccess}
       />
     </>

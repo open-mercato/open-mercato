@@ -305,9 +305,11 @@ function ComposeModeFields({ compose }: ComposeProps) {
 
         {compose.senderOptions.length > 0 || compose.visibility === 'public' ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
-            <div className="min-w-0 flex-1">
-              <SenderSelector compose={compose} />
-            </div>
+            {compose.senderOptions.length > 0 ? (
+              <div className="min-w-0 flex-1">
+                <SenderSelector compose={compose} />
+              </div>
+            ) : null}
             {compose.visibility === 'public' ? <SendSeparatelyField compose={compose} /> : null}
           </div>
         ) : null}
