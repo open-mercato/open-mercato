@@ -29,9 +29,8 @@ export function register(container: AppContainer) {
   container.register({
     externalIdMappingService: asFunction(({ em }: Cradle) => createExternalIdMappingService(em)).scoped().proxy(),
     dataSyncRunService: asFunction(({ em }: Cradle) => createSyncRunService(em)).scoped().proxy(),
-    dataSyncScheduleService: asFunction(({ em, schedulerService }: Cradle) => createSyncScheduleService(em, schedulerService))
-      .inject(scope => ({ schedulerService: scope.resolve('schedulerService', { allowUnregistered: true }) }))
-      .scoped().proxy(),
+    dataSyncScheduleService: asFunction(({ em, schedulerService }: Cradle) => createSyncScheduleService(em, schedulerService)).scoped().proxy()
+      .inject(scope => ({ schedulerService: scope.resolve('schedulerService', { allowUnregistered: true }) })),
     dataSyncEngine: asFunction(({ em, dataSyncRunService, integrationCredentialsService, integrationLogService, integrationStateService, progressService }: Cradle & {
       dataSyncRunService: ReturnType<typeof createSyncRunService>
     }) => createSyncEngine({
@@ -41,8 +40,8 @@ export function register(container: AppContainer) {
       integrationLogService,
       integrationStateService,
       progressService,
-    })).inject(scope => ({ progressService: resolveProgressService(scope) }))
-      .scoped().proxy(),
+    })).scoped().proxy()
+      .inject(scope => ({ progressService: resolveProgressService(scope) })),
 
     SyncRun: asValue(SyncRun),
     SyncCursor: asValue(SyncCursor),
