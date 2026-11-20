@@ -15,7 +15,7 @@ function forcesFullSuite({ eventName = 'pull_request', branch, headRepository = 
   return eventName === 'pull_request' && headRepository === repository && (branch.startsWith('stabilize/') || labels.includes('ci-full'))
 }
 
-function executeScript(script, { eventName = 'pull_request', fullSuite = false, changedPath = 'README.md', workflowChanged = false } = {}) {
+function executeScript(script, { eventName = 'pull_request', fullSuite = false, changedPath = 'README.md', workflowChanged = false, baseMissing = false } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-scope-'))
   try {
     const output = path.join(directory, 'output')
@@ -29,6 +29,7 @@ function executeScript(script, { eventName = 'pull_request', fullSuite = false, 
         FORCE_FULL_SUITE: String(fullSuite),
         CHANGED_PATH: changedPath,
         WORKFLOW_CHANGED: String(workflowChanged),
+        BASE_MISSING: String(baseMissing),
       },
       encoding: 'utf8',
       timeout: 5000,
@@ -101,16 +102,20 @@ test('ordinary shared-code changes still select all 15 integration shards', () =
 })
 
 for (const [stepName, command] of [['Checking types', 'typecheck'], ['Test', 'test']]) {
-  for (const [scenario, options, expected] of [
+  for (const [scenario, options, expected, warns = false] of [
     ['stabilization PR', { fullSuite: forcesFullSuite({ branch: 'stabilize/main-2026-11-05' }) }, command],
-    ['ordinary PR', {}, `turbo run ${command} --filter=[origin/main]...`],
+    ['ordinary PR', {}, `turbo run ${command} --filter=[HEAD^1]...`],
     ['workflow change', { workflowChanged: true }, command],
+    ['missing PR base commit', { baseMissing: true }, command, true],
     ['protected branch push', { eventName: 'push' }, command],
   ]) {
     test(`${stepName} executes the correct command for ${scenario}`, () => {
       const step = workflow.jobs.test.steps.find((candidate) => candidate.name === stepName)
-      const script = `git() { [ "$WORKFLOW_CHANGED" != "true" ]; }\nyarn() { echo "$*"; }\n${step.run}`
-      assert.equal(executeScript(script, options).stdout, expected)
+      const gitStub = 'git() { if [ "$1" = rev-parse ]; then [ "$BASE_MISSING" != "true" ]; else [ "$WORKFLOW_CHANGED" != "true" ]; fi; }'
+      const script = `${gitStub}\nyarn() { echo "$*"; }\n${step.run}`
+      const lines = executeScript(script, options).stdout.split('\n')
+      assert.equal(lines.at(-1), expected)
+      assert.equal(lines.length > 1 && lines[0].startsWith('::warning::'), warns)
     })
   }
 }
