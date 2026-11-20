@@ -6584,3 +6584,23 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+## Production security headers (#10174)
+
+Production builds now send `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
+Ensure HTTPS works for the application and all its subdomains before deployment.
+For HTTP-only installations or domains with HTTP subdomains, set
+`OM_HSTS_ENABLED=false` before building; changing the running environment alone
+is insufficient because Next.js stores headers in its build manifest. The
+app sends no HSTS in the development-server phase. A reverse proxy can own
+transport protection when the app header is disabled. HSTS cannot protect an
+initial HTTP visit; keep HTTPS redirects and secure cookies enabled.
+
+Browsers cache HSTS for a year. Omitting it after a rebuild does not clear a
+cached policy; revocation requires `max-age=0` over HTTPS and consideration of
+independent subdomain policies. A new `Permissions-Policy` denies camera,
+microphone, geolocation, USB and motion sensors; custom modules that use them
+need a deployment policy allowing their intended origins. Payment and fullscreen
+permissions, existing CSP and checkout provider origins are unchanged. API
+clients need no request or response-body changes. The create-app template
+includes the same headers and environment guidance.
