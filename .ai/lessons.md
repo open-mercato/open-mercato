@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 194 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 195 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -87,6 +87,7 @@ This catalog indexes 194 focused lessons. Route the task first, then read only r
 
 - [Personal API-key data must fail closed when policy is unavailable](lessons/personal-data-api-keys-must-fail-closed-on-missing-policy.md) — area:module-data,debugging; module:auth,dashboards; topic:access-control,api-keys,failure-states
 - [Materialize locking prune batches before deleting](lessons/materialize-locking-prune-batches.md) — area:module-data,debugging,testing; module:payment_gateways; topic:concurrency,postgresql,retention,data-integrity
+- [Derive capture obligations from recorded facts rather than status ordering](lessons/derive-capture-obligations-from-recorded-facts.md) — area:module-data,testing; module:payment_gateways; topic:reconciliation,idempotency,data-integrity
 
 - [Authoritative command guards must validate final interceptor input](lessons/authoritative-command-guards-must-validate-final-interceptor-input.md) — area:module-data,architecture,testing; module:example,customers,shared,sales,warranty_claims; topic:command-pattern,data-integrity,concurrency,api-interceptors,testing
 - [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states

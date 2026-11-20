@@ -218,6 +218,7 @@ export interface CaptureResult {
   capturedAmount: number
   capturedAmountExact?: string
   providerData?: Record<string, unknown>
+  reconciliation?: { id: string; requiredAtCompletion: true }
 }
 
 export interface RefundInput {

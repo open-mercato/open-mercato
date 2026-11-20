@@ -85,3 +85,40 @@ export const listTransactionsQuerySchema = z.object({
 })
 
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>
+
+const exactPositiveAmountSchema = z.string().max(200).refine(
+  (value) => isDecimalInput(value) && toDecimal(value).gt(0),
+  { message: 'payment_gateways.errors.amountMustBePositive' },
+)
+
+const reconciliationCurrencySchema = z.string().length(3).transform((value) => value.replace(/[a-z]/g, (letter) => letter.toUpperCase()))
+
+export const reconciliationResolutionSchema = z.object({
+  refundReference: z.string().trim().min(1).max(200),
+  refundedAmountExact: exactPositiveAmountSchema,
+  currencyCode: reconciliationCurrencySchema,
+  confirmedAt: z.string().datetime(),
+  confirmed: z.literal(true),
+})
+
+export const reconciliationRecordSchema = z.object({
+  version: z.literal(1),
+  status: z.enum(['required', 'resolved']),
+  detectedAt: z.string().datetime(),
+  observedStatus: z.enum(['cancelled', 'failed', 'expired']),
+  capturedAmountExact: exactPositiveAmountSchema,
+  currencyCode: reconciliationCurrencySchema,
+  resolution: reconciliationResolutionSchema.extend({
+    actorUserId: z.string().min(1),
+    recordedAt: z.string().datetime(),
+  }).nullable(),
+})
+
+export const listReconciliationsSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  status: z.enum(['required', 'resolved']).default('required'),
+})
+
+export type ReconciliationResolution = z.infer<typeof reconciliationResolutionSchema>
+export type ReconciliationRecord = z.infer<typeof reconciliationRecordSchema>

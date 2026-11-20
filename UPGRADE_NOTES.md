@@ -1,5 +1,33 @@
 # Upgrade Notes
 
+## Capture reconciliation after an incompatible payment outcome
+
+Capture completion now atomically records a reconciliation obligation in the existing
+operation result JSON when confirmed captured funds cannot update a cancelled, failed or
+expired transaction. The captured amount, cancellation, original provider result and
+idempotency key are preserved. Capture responses may include the additive optional
+`reconciliation: { id, requiredAtCompletion: true }` reference on first completion and replay.
+It describes the historical completion; current resolution is read from the finance worklist.
+
+Open **Capture reconciliation** from Payment Transactions. Existing `payment_gateways.view`
+permits viewing; `payment_gateways.refund` permits attesting a confirmed full external refund.
+Resolution does not call the provider, reopen a payment or emit a fulfillment event. Verify
+the final refund reference, exact amount, currency and settlement time before attesting.
+Pending, partial or ambiguous refunds remain open for finance review. Evidence is immutable;
+identical retries return the original actor and record, while conflicts are refused.
+
+Legacy incompatible succeeded captures are discovered from their existing settled-status
+marker without a migration or backfill, including soft-deleted parent transactions. No new
+database schema, permission, environment setting or provider API is required. Deploy the
+repair consistently across payment writers; do not downgrade to a version that ignores open
+obligations. Existing required result fields, provider operation IDs and hashes are unchanged.
+Downstream clients should display the optional reconciliation reference as action required,
+rather than treating provider capture confirmation as completed business reconciliation.
+The main correction must accompany the original fix in the v0.10.x backport; source merge
+and earlier CI do not replace fresh independent review and head-pinned financial QA.
+
+See `.ai/specs/2026-11-20-capture-reconciliation-obligations.md`.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.

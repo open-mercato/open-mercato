@@ -26,6 +26,7 @@ import { canApplyManualAction, isValidTransition, resolveImpliedCaptureStatus, t
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
 import { reconcileSessionAmountWithOrder, resolvePaymentGatewayTranslator } from './order-amount-reconciliation'
+import { RECONCILIATION_KEY, readReconciliation, reconciliationResponse } from './reconciliation'
 import { decimalToNumber, resolveExactDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { resolveCurrencyDecimalPlaces, type CurrencyPrecisionResolver } from '@open-mercato/shared/lib/currencyPrecision'
 import {
@@ -288,7 +289,11 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           `Cannot replay ${input.action} because the payment status has changed since the operation completed`,
         )
       }
-      return prepared.result as unknown as TResult
+      const reconciliation = prepared.recordId && input.action === 'capture'
+        ? readReconciliation({ operationType: input.action, status: 'succeeded', updatedAt: transaction.updatedAt,
+          result: { ...prepared.result, __settledTransactionStatus: settledStatus } }, transaction.currencyCode)
+        : null
+      return { ...prepared.result, ...(reconciliation && prepared.recordId ? { reconciliation: reconciliationResponse(prepared.recordId) } : {}) } as unknown as TResult
     }
 
     const operation = prepared.claim.record
@@ -316,6 +321,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           transaction: currentTransaction,
           idempotencyKey: prepared.claim.providerIdempotencyKey,
         })
+        let completionResult = result
         providerInvoked = true
         const statusChanged = await completePaymentOperation(
           targetEm,
@@ -333,10 +339,19 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
               ? current.unifiedStatus as UnifiedPaymentStatus
               : null
             input.applyResult(current, result)
-            return { statusChanged: outcome === 'applied', settledStatus: current.unifiedStatus }
+            const reconciliation = input.action === 'capture'
+              ? readReconciliation({ operationType: input.action, status: 'succeeded', updatedAt: new Date(),
+                result: { ...result, __settledTransactionStatus: current.unifiedStatus } }, current.currencyCode)
+              : null
+            if (reconciliation) {
+              completionResult = { ...result, reconciliation: reconciliationResponse(operation.id) }
+              incompatibleConcurrentStatus = current.unifiedStatus as UnifiedPaymentStatus
+            }
+            return { statusChanged: outcome === 'applied', settledStatus: current.unifiedStatus,
+              ...(reconciliation ? { storedResult: { ...(completionResult as unknown as Record<string, unknown>), [RECONCILIATION_KEY]: reconciliation } } : {}) }
           },
         )
-        return { result, statusChanged }
+        return { result: completionResult, statusChanged }
       }
       const { result, statusChanged } = input.action === 'cancel'
         ? await withFreshCancelIdentityMap(async (tx) => {
