@@ -20,13 +20,13 @@ Status: in-progress
 | 2 | 2.4 | Enforce required leaves and scoped default providers | dispatch | done | db7c2bde2d |
 | 2 | 2.5 | Compose ambient command lifecycle with the final-input transaction boundary | group:A | done | 744cddf999 |
 | 2 | 2.5-review-fix | Keep create-only entity writes and pending effects within the ambient lifecycle | inline | done | bf3c4b1d7a |
-| 2 | 2.6 | Add transactional sink discovery, lifecycles and read-back | group:A | done | this commit |
-| 2 | 2.6-review-fix | Reauthorize scoped sink undo and clean up registered host variants | inline | done | this commit |
-| 2 | 2.7 | Derive section hosts for qualifying CRUD routes | dispatch | done | this commit |
-| 2 | 2.7-review-fix | Preserve original CRUD lifecycle and generated route authority | inline | done | this commit |
-| 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | done | this commit |
-| 2 | 2.8-review-fix | Pin durable outbox contracts and recover terminal reporting | inline | done | this commit |
-| 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | done | this commit |
+| 2 | 2.6 | Add transactional sink discovery, lifecycles and read-back | group:A | done | 24e2c0174d |
+| 2 | 2.6-review-fix | Reauthorize scoped sink undo and clean up registered host variants | inline | done | f64d5c9209 |
+| 2 | 2.7 | Derive section hosts for qualifying CRUD routes | dispatch | done | e7a8b0b6c4 |
+| 2 | 2.7-review-fix | Preserve original CRUD lifecycle and generated route authority | inline | done | 5ba3c6c7f2 |
+| 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | done | 2ce5c71565 |
+| 2 | 2.8-review-fix | Pin durable outbox contracts and recover terminal reporting | inline | done | ab8b3fb3e5 |
+| 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | done | ab709f0758 |
 | 3 | 3.2 | Resolve policies and block mutations until the host is ready | dispatch | todo | — |
 | 3 | 3.3 | Validate and project section fields and payload leaves | dispatch | todo | — |
 | 3 | 3.4 | Bind submit, delete and action clients to their own resource versions | dispatch | todo | — |

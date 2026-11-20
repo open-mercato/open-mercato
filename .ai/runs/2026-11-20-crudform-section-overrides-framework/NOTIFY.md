@@ -16,3 +16,9 @@
 - Steps 2.1–2.5 and the ambient engine review fix are verified and pushed.
 - The local gate and two existing Todo browser scenarios passed. Screenshots are attached to the PR.
 - A bounded independent review and the next sink implementation ran in parallel while the immutable Playwright application build served the checkpoint tests.
+
+## 2026-11-20T11:33:53Z — checkpoint 3
+
+- Verified local sinks, generated façades, and durable outbox delivery after independent review.
+- Backend checks and generation passed. The first UI type step passed focused compatibility tests.
+- Scoped review fixes and the first UI type step were prepared on disjoint files while local sources were available.
