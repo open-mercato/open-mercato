@@ -1877,7 +1877,7 @@ export class HybridQueryEngine implements QueryEngine {
       case 'ne':
         return value === null
           ? sql<boolean>`${textExpr} is not null`
-          : sql<boolean>`${textExpr} <> ${value}`
+          : sql<boolean>`not (${textExpr} = ${value} or ${arrContains(value)})`
       case 'in': {
         const values = this.toArray(value)
         return eb.or(
@@ -1901,7 +1901,9 @@ export class HybridQueryEngine implements QueryEngine {
       }
       case 'nin': {
         const values = this.toArray(value)
-        return sql<boolean>`${textExpr} not in (${sql.join(values.map((v) => sql`${v}`), sql`, `)})`
+        if (!values.length) return sql<boolean>`${textExpr} is not null`
+        const matches = values.map((val) => sql<boolean>`${textExpr} = ${val} or ${arrContains(val)}`)
+        return sql<boolean>`not (${sql.join(matches, sql` or `)})`
       }
       case 'like':
         return sql<boolean>`${textExpr} like ${value}`
