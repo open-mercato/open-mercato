@@ -18,6 +18,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   ComposeEmailDialog,
+  scheduledEmailFlashMessage,
   type ComposeEmailChannel,
   type ComposeEmailValues,
 } from './ComposeEmailDialog'
@@ -240,9 +241,9 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
   // Wrap the send through the mutation guard so record-lock/conflict handling and
   // retry flows run; shared by the initial send and the failure-retry path.
   const sendEmail = React.useCallback(
-    async (values: ComposeEmailValues): Promise<{ messageId: string | null; threadId: string | null }> => {
+    async (values: ComposeEmailValues): Promise<{ messageId: string | null; threadId: string | null; scheduledAt: string | null }> => {
       const operation = async () => {
-        const response = await apiCall<{ messageId?: string; threadId?: string }>(
+        const response = await apiCall<{ messageId?: string; threadId?: string; scheduledAt?: string }>(
           `/api/customers/people/${encodeURIComponent(personId)}/emails`,
           {
             method: 'POST',
@@ -257,6 +258,7 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         return {
           messageId: response.result?.messageId ?? null,
           threadId: response.result?.threadId ?? null,
+          scheduledAt: response.result?.scheduledAt ?? null,
         }
       }
       const result = await runMutation({
@@ -269,7 +271,7 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         },
         mutationPayload: values as unknown as Record<string, unknown>,
       })
-      return result ?? { messageId: null, threadId: null }
+      return result ?? { messageId: null, threadId: null, scheduledAt: null }
     },
     [personId, runMutation, retryLastMutation, t],
   )
@@ -363,7 +365,11 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
 
   const onSend = React.useCallback(
     async (values: ComposeEmailValues) => {
-      const { messageId, threadId } = await sendEmail(values)
+      const { messageId, threadId, scheduledAt } = await sendEmail(values)
+      if (scheduledAt) {
+        flash(scheduledEmailFlashMessage(t, scheduledAt), 'success')
+        return { messageId }
+      }
       flash(t('customers.email.compose.sent', 'Email sent'), 'success')
       // Show the message immediately in a "sending" state. It reconciles to
       // "sent" (or "failed" + Retry) via the delivery events above, and is

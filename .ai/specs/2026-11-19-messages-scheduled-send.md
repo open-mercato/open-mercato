@@ -15,7 +15,7 @@
 
 **Depends on:** `2026-11-19-messages-multiple-recipients.md` (participants and per-recipient status — a mailbox that needs re-authentication at release marks participants `failed`). Ship after its Phase 1.
 
-**Out of scope:** recurring sends, provider-native scheduling (Resend `scheduled_at`), CRM compose dialog, scheduling for non-message emails (password reset, notifications).
+**Out of scope:** recurring sends, provider-native scheduling (Resend `scheduled_at`), scheduling for non-message emails (password reset, notifications). The CRM compose dialog was out of scope originally and is now in scope — see "2026-11-21 — Send later in CRM and record dialogs".
 
 ## Overview
 
@@ -111,6 +111,7 @@ flowchart TD
 | `status` | text | adds value `scheduled` (`draft \| sent \| scheduled`) |
 | `scheduled_at` | timestamptz, nullable | UTC; set only while `status = 'scheduled'` |
 | `sender_channel_id` | uuid, nullable | FK id → communication channel (cross-module, no ORM relation); used when scheduled or draft is sent via a mailbox |
+| `sender_delivery_options` | jsonb, nullable | `{ channelMetadata?, inReplyTo?, references? }` replayed by the mailbox hand-off at release (CRM person/visibility, reply threading headers). Server-only; written by `sendAsUser` scheduled compose |
 
 | `scheduled_release_attempts` | int, not null, default 0 | hand-off attempts; capped (see release) |
 
@@ -365,3 +366,10 @@ Decisions taken while implementing, with their reasons. Where they differ from t
 - UI: "Send later" offered with a mailbox sender; a saved draft keeps the chosen mailbox; participant error `mailbox unavailable` has a translated label (`messages.detail.deliveryError.mailboxUnavailable`).
 - Integration specs TC-CHANNEL-EMAIL-HUB-013…015 (release driven through the release queue like the Phase 2 fixtures; HUB-015 sets `requires_reauth` in the DB because no API does).
 
+### 2026-11-21 — Send later in CRM and record dialogs
+- **Reversed decision:** the CRM "Compose email" dialog (`customers/components/detail/ComposeEmailDialog.tsx` — Emails tab "New email", Reply, Reply all, Forward) is now in scope. It gains "+ Bcc" (same reveal as "+ Cc") and "Send later", offered when `GET /api/messages/compose-capabilities` reports scheduling; the button is disabled until To, subject and body are filled, like Send. Scheduled CRM emails are managed in Messages → Scheduled (success flash points there); the Emails tab shows them after release.
+- Record "Compose message" dialogs (`SendObjectMessageDialog`) load the same capability through the new `useComposeScheduling(enabled)` hook (`@open-mercato/ui/backend/messages`) and offer Send later; no sender selector there. With no sender options, "Send separately" sits left-aligned.
+- `POST /api/customers/people/[id]/emails` accepts `scheduledAt` (ISO); the response carries `scheduledAt` instead of `queuedAt` when scheduled; facade field errors are returned as `fieldErrors` (400 for an invalid send time, 422 when scheduling is unavailable).
+- `sendAsUser` compose mode accepts `scheduledAt: Date`: refuses with 422 `code: 'scheduling_unavailable'` without the scheduler; composes with `scheduledAt`, `senderChannelId` and `senderDeliveryOptions` (`channelMetadata`, `inReplyTo`, `references`); creates no link and enqueues nothing; returns `scheduledAt` (ISO). Compose validation errors on `scheduledAt` map to `fieldErrors.scheduledAt` (400).
+- New column `messages.sender_delivery_options` (`Migration20261121120000`). Existing-message mode uses it when the caller passes no `channelMetadata` — so the release keeps `crmPersonId`, `crmVisibility` and reply threading. The compose command accepts `senderDeliveryOptions` as a server-only field; `POST /api/messages` strips it from request bodies. A draft PATCH that changes `senderChannelId` keeps it (it describes the CRM context, not the mailbox).
+- Integration spec TC-CHANNEL-EMAIL-HUB-016 (schedule via the CRM route with cc + bcc + shared visibility → release → link metadata and CRM interaction visibility).

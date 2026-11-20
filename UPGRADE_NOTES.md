@@ -190,6 +190,18 @@ sent message of the caller (409 when it is already linked or still a draft); fai
 (`requires_reauth`, disconnected, module absent) the participants become `failed` with
 `delivery_error = 'mailbox unavailable'` and the author gets `messages.delivery_failed`.
 
+### Messages: "Send later" from CRM email and record compose dialogs
+
+New nullable column `messages.sender_delivery_options` (jsonb, migration
+`messages/Migration20261121120000`) — run `yarn db:migrate`. It stores the mailbox delivery context
+(`channelMetadata`, `inReplyTo`, `references`) of a scheduled mailbox send so the release keeps CRM
+person, visibility and reply threading. Additive contracts: `sendAsUser` (DI facade
+`communicationChannelsSendAsUser`) compose mode accepts `scheduledAt: Date` and then returns
+`scheduledAt` (ISO) without creating a channel link; failure code `scheduling_unavailable`;
+existing-message mode falls back to the stored options when no `channelMetadata` is passed.
+`POST /api/customers/people/[id]/emails` accepts `scheduledAt` and responds with `scheduledAt` instead
+of `queuedAt` when scheduled. New UI hook `useComposeScheduling` in `@open-mercato/ui/backend/messages`.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

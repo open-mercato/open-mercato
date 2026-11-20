@@ -5,6 +5,17 @@ import * as React from 'react'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { ComposeEmailDialog } from '../ComposeEmailDialog'
+import { useComposeScheduling } from '@open-mercato/ui/backend/messages'
+
+const SCHEDULED_AT = '2099-01-01T10:00:00.000Z'
+
+jest.mock('@open-mercato/ui/backend/messages', () => ({
+  useComposeScheduling: jest.fn(() => null),
+  ScheduleSendDialog: ({ open, onConfirm }: { open: boolean; onConfirm: (value: string) => void }) =>
+    open ? <button type="button" onClick={() => onConfirm('2099-01-01T10:00:00.000Z')}>Confirm schedule</button> : null,
+}))
+
+const mockUseComposeScheduling = useComposeScheduling as jest.MockedFunction<typeof useComposeScheduling>
 
 // Stub out Radix dialog portals so they render inline in jsdom
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
@@ -60,6 +71,7 @@ describe('ComposeEmailDialog', () => {
   beforeEach(() => {
     baseProps.onOpenChange.mockClear()
     baseProps.onSend.mockClear()
+    mockUseComposeScheduling.mockReturnValue(null)
   })
 
   it('renders with default recipient pre-filled', () => {
@@ -125,5 +137,48 @@ describe('ComposeEmailDialog', () => {
     renderWithProviders(<ComposeEmailDialog {...replyProps} />)
     expect(screen.getByDisplayValue('alice@example.com')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Re: original')).toBeInTheDocument()
+  })
+
+  it('reveals Bcc and sends the hidden recipients', async () => {
+    renderWithProviders(<ComposeEmailDialog {...baseProps} />)
+    expect(screen.queryByLabelText('Bcc')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Add Bcc recipients' }))
+    fireEvent.change(screen.getByLabelText('Bcc'), { target: { value: 'hidden@example.com, other@example.com' } })
+    fireEvent.change(screen.getByLabelText(/subject/i), { target: { value: 'Hi' } })
+    fireEvent.change(screen.getByLabelText(/body/i), { target: { value: 'hello' } })
+    fireEvent.click(screen.getByRole('button', { name: /^send$/i }))
+    await waitFor(() => expect(baseProps.onSend).toHaveBeenCalled())
+    expect(baseProps.onSend).toHaveBeenCalledWith(expect.objectContaining({
+      bcc: ['hidden@example.com', 'other@example.com'],
+    }))
+    expect(baseProps.onSend.mock.calls[0][0]).not.toHaveProperty('scheduledAt')
+  })
+
+  it('hides Send later when scheduling is unavailable', () => {
+    mockUseComposeScheduling.mockReturnValue({ available: false, maxDays: 0 })
+    renderWithProviders(<ComposeEmailDialog {...baseProps} />)
+    expect(screen.queryByRole('button', { name: /send later/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps Send later disabled until the email is complete, then submits scheduledAt', async () => {
+    mockUseComposeScheduling.mockReturnValue({ available: true, maxDays: 30 })
+    renderWithProviders(<ComposeEmailDialog {...baseProps} />)
+    const sendLater = screen.getByRole('button', { name: /send later/i })
+    expect(sendLater).toBeDisabled()
+    fireEvent.click(sendLater)
+    expect(screen.queryByRole('button', { name: 'Confirm schedule' })).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/subject/i), { target: { value: 'Hi' } })
+    fireEvent.change(screen.getByLabelText(/body/i), { target: { value: 'hello' } })
+    fireEvent.click(sendLater)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm schedule' }))
+
+    await waitFor(() => expect(baseProps.onSend).toHaveBeenCalled())
+    expect(baseProps.onSend).toHaveBeenCalledWith(expect.objectContaining({
+      to: ['bob@example.com'],
+      subject: 'Hi',
+      scheduledAt: SCHEDULED_AT,
+    }))
+    await waitFor(() => expect(baseProps.onOpenChange).toHaveBeenCalledWith(false))
   })
 })
