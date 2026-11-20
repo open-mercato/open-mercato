@@ -115,7 +115,7 @@ This rule is stated once here and referenced by every consumer. Consumers MUST N
 
 ### 4.2 Dependency direction
 
-`customer_groups` depends on `customers` by FK id only (`CustomerEntity.id`), resolved through the query engine. `catalog`, `sales`, `cart`, `checkout`, `promotions` and `ecommerce` depend on `customer_groups` through `customerGroupsService` in DI. `customer_groups` MUST NOT import from any of them.
+`customer_groups` depends on `customers` by FK id only (`CustomerEntity.id`). Phases 3–4 read another module's rows (`customer_entities`, `customer_users`, `sales_orders.status`) by FK id with SQL through the caller's `em.execute`, always filtered by `tenant_id` and `organization_id`, never through a second connection (`getConnection()`) and never through an ORM import. `catalog`, `sales`, `cart`, `checkout`, `promotions` and `ecommerce` depend on `customer_groups` through `customerGroupsService` in DI. `customer_groups` MUST NOT import from any of them. The order-lifecycle subscribers (§6.5) interpret `sales_orders.status` with the pure predicate `isCancelledOrderStatus`. It lives in `sales/lib/orderCancellationGuard.ts` on `main`, a file that also imports `sales` entity classes, so the port first moves the predicate to `@open-mercato/shared` (re-exported from its current path, a small `sales` change, D-R5-CG10) and imports it from there. `customer_groups` never imports `sales`.
 
 ### 4.3 Why credit is a ledger
 
@@ -169,11 +169,11 @@ One row per group. Absent row means "inherit from parent group, then tenant defa
 | `price_kind_id` | uuid, nullable | `catalog.CatalogPriceKind.id` — the price kind this group buys at; its own `displayMode` (`including-tax` \| `excluding-tax`) is the **only** source of gross/net display for this group — see §6.1a. No separate `tax_display_mode` column: a `/om-pre-implement-spec` audit found the original draft stored gross/net twice (here, independently of `price_kind_id`), with no reconciliation rule and no codebase precedent for a buyer-level tax preference independent of the selected price kind (`catalog`'s own `LineItemDialog.tsx` derives mode from `displayMode` 1:1 everywhere). |
 | `payment_terms_days` | integer, nullable | Net days; `0` = prepayment |
 | `allow_purchase_on_account` | boolean, nullable | `null` = not set on this group, inherit from the parent chain; the tenant default is `false` |
-| `default_credit_limit` | numeric(16,2), nullable | Pre-fills the limit when an operator creates a credit account for a member (D-R5-5). Never creates an account by itself |
-| `credit_currency_code` | text, nullable | Currency pre-filled with `default_credit_limit` in the account form |
-| `approval_required_above` | numeric(16,2), nullable | A cart whose goods gross (cart `totals.grandTotalGrossAmount`: goods after promotions, no delivery) is above this routes to approval; null = never. Compared only in `terms_currency_code` (below) |
-| `min_order_value` | numeric(16,2), nullable | Rejected below this at checkout, on the same goods-gross basis, only in `terms_currency_code` |
-| `terms_currency_code` | text, nullable | Added Release 5 (D-R5-4). Currency of `approval_required_above` and `min_order_value`. Inherited like the other terms; tenant default `null`. A cart in another currency always requires approval (fail-closed) and is not checked against `min_order_value`. No FX conversion. **Base-currency fallback (D-R5-37).** When no group in the chain sets it, `resolveTerms` returns the organization's base currency (`currencies.Currency` with `is_base = true` in the buyer's organization) and records `sources.termsCurrencyCode = 'base_currency'`. Only when the organization has no base currency does it stay `null`; a non-null threshold with a `null` resolved currency then behaves as "every currency differs": approval always required |
+| `default_credit_limit` | numeric, nullable (`ExactDecimalType`, shipped by #7324) | Pre-fills the limit when an operator creates a credit account for a member (D-R5-5; the pre-fill is deferred with the banner, §7.3). Never creates an account by itself |
+| `credit_currency_code` | text, nullable | Currency pre-filled with `default_credit_limit` in the account form. ISO 4217, three uppercase letters (`/^[A-Z]{3}$/`) |
+| `approval_required_above` | numeric, nullable (`ExactDecimalType`, shipped by #7324) | A cart whose goods gross (cart `totals.grandTotalGrossAmount`: goods after promotions, no delivery) is above this routes to approval; null = never. Compared only in `terms_currency_code` (below) |
+| `min_order_value` | numeric, nullable (`ExactDecimalType`, shipped by #7324) | Rejected below this at checkout, on the same goods-gross basis, only in `terms_currency_code` |
+| `terms_currency_code` | text, nullable | Added Release 5 (D-R5-4). Currency of `approval_required_above` and `min_order_value`. The validator accepts only ISO 4217 codes of three uppercase letters (`/^[A-Z]{3}$/`), the same rule as the credit-account currency, so `eur` is refused with `400` instead of sending every cart to approval. Inherited like the other terms; tenant default `null`. A cart in another currency always requires approval (fail-closed) and is not checked against `min_order_value`. No FX conversion. **Base-currency fallback (D-R5-37).** When no group in the chain sets it, `resolveTerms` returns the organization's base currency (`currencies.Currency` with `is_base = true` in the buyer's organization) and records `sources.termsCurrencyCode = 'base_currency'`. Only when the organization has no base currency does it stay `null`; a non-null threshold with a `null` resolved currency then behaves as "every currency differs": approval always required |
 | `approval_policy` | text, nullable | Added Release 5 (D-R5-1). `buyer \| merchant \| both`: which side signs an approval request. `null` = inherit from the parent chain; tenant default `buyer`. No `either` value. Snapshotted on each request (§5.6) |
 | `allow_quote_requests` | boolean, nullable | Added Release 5 (D-R5-20). Whether checkout offers the `request_quote` payment method. `null` = inherit; tenant default `false` |
 | `requires_po_number` | boolean, nullable | Added Release 5 (D-R5-28). Whether checkout requires a purchase-order number, written to `SalesQuote.customer_reference`. `null` = inherit; tenant default `false` |
@@ -190,15 +190,19 @@ One row per customer per currency. The limit on the account is authoritative; th
 |---|---|---|
 | `organization_id` | uuid, **NOT NULL** | The customer's organization. Groups are tenant-scoped (`organization_id` nullable, §5.1), but customers, carts and orders are organization-scoped, and so is credit |
 | `customer_id` | uuid | `customers.CustomerEntity.id`, FK id only. For a B2B buyer this is the **company** entity (§6.5 identity rule, G11) |
-| `currency_code` | text | |
-| `credit_limit` | numeric(16,2) | Authoritative limit. May be set below current exposure; the account then refuses new reservations and the admin UI shows `available < 0` |
+| `currency_code` | text | ISO 4217, three uppercase letters (`/^[A-Z]{3}$/`). Only currencies with 2 minor units (D-R5-CG5, below) |
+| `credit_limit` | numeric (`ExactDecimalType`), stored at 2 dp | Authoritative limit. May be set below current exposure; the account then refuses new reservations and the admin UI shows `available < 0` |
 | `is_on_hold` | boolean | Manual block; blocks regardless of exposure |
-| `hold_reason` | text, nullable | Required when `is_on_hold = true` (validator). Free text, encrypted (§16) |
+| `hold_reason` | text, nullable | Required when `is_on_hold = true` (validator). Cleared when the hold is turned off. Free text, encrypted (§16) |
 | `updated_by_user_id` | uuid, nullable | Audit |
 
-**Provisioning (D-R5-5).** Accounts are created by an operator only. Nothing creates one lazily: with no account in the requested currency, `checkCredit` returns `no_account`, and checkout offers prepayment or, where `allow_quote_requests` allows it, `request_quote` (D-R5-20). A banner on the credit panel lists customers whose resolved terms allow purchase on account but who have no account in their resolved `terms_currency_code`, modelled on the Phase 1 orphan banner (§7.3).
+**Currency precision (D-R5-CG5).** Credit amounts are always 2 decimal places in Release 5. `POST …/credit-accounts` reads `decimal_places` of the currency in the account's organization (`currencies.Currency`, FK-free read by code) and refuses a currency whose `decimal_places` is not 2 with `400 credit_currency_unsupported`. When the `currencies` module is absent or has no row for the code, 2 is assumed. A 0-dp currency (JPY) or a 3-dp currency (BHD) is therefore never rounded silently.
 
-Optimistic locking uses the platform's standard `updated_at` mechanism (already present per the §5 header), not a `version` counter — this entity is `CrudForm`-edited, so the header is auto-derived from `initialValues.updatedAt`. List and detail responses return `updatedAt`. Reservations lock the row (§6.3) but never write to it, so they do not bump `updated_at` and cannot cause a false 409 on an admin edit. No separate `version` column.
+**Provisioning (D-R5-5).** Accounts are created by an operator only. Nothing creates one lazily: with no account in the requested currency, `checkCredit` returns `no_account`, and checkout offers prepayment or, where `allow_quote_requests` allows it, `request_quote` (D-R5-20). For a B2B buyer the operator creates the account on the company (company-first resolution, §6.5, never uses a person-level account while the person has a company). A banner on the credit panel that lists customers whose resolved terms allow purchase on account but who have no account in their resolved `terms_currency_code` is **deferred to a follow-up** (D-R5-CG4, §7.3).
+
+**Limit and hold changes (D-R5-CG6).** Changing `credit_limit`, `is_on_hold` or `hold_reason` is the audited, undoable command `customer_groups.credit_account.update`, not a plain CRUD write. It records an audit entry with the before and after values; its undo restores the previous values. A limit change is a change of financial authority (§9.1 keeps `credit.manage` separate for this reason).
+
+Optimistic locking uses the platform's standard `updated_at` mechanism (already present per the §5 header), not a `version` counter — this entity is `CrudForm`-edited, so the header is auto-derived from `initialValues.updatedAt`. List and detail responses return the version (`updated_at` in the list rows, like the shipped group routes, mapped to `initialValues.updatedAt` by the form). Reservations lock the row (§6.3) but never write to it, so they do not bump `updated_at` and cannot cause a false 409 on an admin edit. No separate `version` column.
 
 Constraint: unique `(tenant_id, organization_id, customer_id, currency_code)` among rows with `deleted_at IS NULL`. Accounts are never hard-deleted while ledger entries reference them; Release 5 has no delete route (§9).
 
@@ -210,24 +214,26 @@ Append-only. No `updated_at`, no `deleted_at`; corrections are compensating entr
 |---|---|---|
 | `credit_account_id` | uuid | FK → `customer_credit_accounts` (same module, so an ORM relation is allowed) |
 | `entry_type` | text | `reserve \| release \| settle \| adjust` |
-| `amount` | numeric(16,2) | Signed; `reserve` positive, `release`/`settle` negative, `adjust` either. Never zero |
+| `amount` | numeric (`ExactDecimalType`), stored at 2 dp | Signed; `reserve` positive, `release`/`settle` negative, `adjust` either. Never zero. The service refuses a `reserve` or `settle` input amount that is not greater than zero with `400 invalid_amount`, and an `adjust` amount of zero likewise |
 | `source_type` | text | `checkout \| order \| invoice \| payment \| manual` |
-| `source_id` | uuid, nullable | For a checkout reserve, the checkout session id |
-| `related_entry_id` | uuid, nullable | The `reserve` entry a `release` or `settle` belongs to, or the `adjust` entry an undo compensates. FK → `customer_credit_ledger_entries` |
-| `linked_order_id` | uuid, nullable | `sales.SalesOrder.id`, FK id only. Set on a `reserve` entry by `linkCreditReservationToOrder` (C6). It is the one column that is written after insert, and only once: `UPDATE … SET linked_order_id = ? WHERE id = ? AND linked_order_id IS NULL`. It does not change the amount or the exposure |
-| `idempotency_key` | text | Required on `reserve`, `release` and `settle`; for `adjust` the command id. Rules in §6.5 |
-| `balance_after` | numeric(16,2) | Exposure after this entry, computed under the account row lock (§6.3), for audit reconstruction |
+| `source_id` | uuid, nullable | For a checkout reserve, the checkout session id; for a reinstatement (§6.5), the order id |
+| `related_entry_id` | uuid, nullable | The `reserve` entry a `release` or `settle` belongs to, or the `adjust` entry an undo compensates. A same-table reference; the FK constraint is optional |
+| `linked_order_id` | uuid, nullable | `sales.SalesOrder.id`, FK id only. Set on a `reserve` entry by `linkCreditReservationToOrder` (C6). It is the one column that is written after insert, and only once: either `UPDATE … SET linked_order_id = ? WHERE id = ? AND linked_order_id IS NULL`, or an ORM write under the account row lock; both are safe. It does not change the amount or the exposure |
+| `idempotency_key` | text | Required on every entry. `reserve`, `settle`: the caller's key; `release`: `release:{reserveKey}`; reinstatement: `reinstate:{reserveKey}`; `adjust`: `adjust:client:{key}` when the client sends `idempotencyKey`, otherwise `adjust:auto:{uuid}`; undo of an adjust: `undo:{entryId}`. Rules in §6.5 |
+| `balance_after` | numeric (`ExactDecimalType`), stored at 2 dp | Exposure after this entry, computed under the account row lock (§6.3), for audit reconstruction |
 | `created_by_actor_type` | text | `staff_user \| system`. Service calls made by checkout or a subscriber are `system`; `/adjust` is `staff_user` |
 | `created_by_user_id` | uuid, nullable | Staff user for `staff_user` entries |
 | `note` | text, nullable | Required on `adjust`. Free text, encrypted (§16) |
 
-Constraints: unique `(tenant_id, idempotency_key)`. A key is therefore unique across every account of the tenant, which lets `releaseCredit` and `linkCreditReservationToOrder` address a reservation by key alone (G2). Indexes `(tenant_id, credit_account_id, created_at)`, `(tenant_id, related_entry_id)` and `(tenant_id, linked_order_id)` where non-null.
+Constraints: unique `(tenant_id, idempotency_key)`. A key is therefore unique across every account of the tenant, which lets `releaseCredit` and `linkCreditReservationToOrder` address a reservation by key alone (G2). Indexes `(tenant_id, credit_account_id, created_at)`, `(tenant_id, related_entry_id)` and `(tenant_id, linked_order_id)` (partial on non-null or full; either is acceptable).
 
-**Exposure** = `SUM(amount)` over the account's entries. `balance_after` is written for audit only and MUST NOT be read as the source of truth. Because every write happens under the account row lock, the latest `balance_after` equals `SUM(amount)` whenever no bug exists; the daily audit (§11) checks exactly that.
+**Exposure** = `SUM(amount)` over the account's entries, computed with SQL `SUM` through the caller's `em.execute`, never by loading every entry into memory.
+
+**Exposure floor (D-R5-CG3).** Exposure may go below zero after an `adjust`, a `settle` or an undo. `available` is then greater than `credit_limit`, which means prepaid credit. This is allowed. The credit panel shows a warning whenever `available > credit_limit`, so an operator notices a mistaken adjustment. `balance_after` is written for audit only and MUST NOT be read as the source of truth. Because every write happens under the account row lock, the latest `balance_after` equals `SUM(amount)` whenever no bug exists; the daily audit (§11) checks exactly that.
 
 **Open amount of a reservation** = the `reserve` amount plus the (negative) amounts of every `release` and `settle` entry whose `related_entry_id` points at it. A release releases this open amount, never the original amount.
 
-**Money.** The service contract carries amounts as decimal strings with 2 decimal places. Inputs with more places (sales amounts are `numeric(18,4)`) are rounded half-up to 2 dp at the service boundary, before the lock, using the minor-unit helpers promotions already uses (`promotions/lib/promotion-usage-service.ts`). The ledger never stores more than 2 dp, so the exposure audit cannot report rounding as drift (G14).
+**Money (after #7324).** Every money column of Phases 3–4 is an unconstrained `numeric` mapped with `ExactDecimalType` (`@open-mercato/shared/lib/db/exactDecimalType`), like the shipped terms columns. All arithmetic and comparison uses `@open-mercato/shared/lib/decimal` (`toDecimal`, `addDecimals`, `subtractDecimals`, `sumDecimals`, `compareDecimals`, `roundDecimal`), never `number` arithmetic, `toFixed` or module-local BigInt minor-unit helpers. The service contract carries amounts as decimal strings. The rounding rule: at the service boundary, before the lock, every input amount is rounded to 2 dp half-up (`roundDecimal(value, 2)`, half away from zero), and the rounded value is the value checked and stored. Validators accept decimal strings (`z.string()` checked with `parseDecimal`), never `z.coerce.number()`. The ledger never stores more than 2 dp, so the exposure audit cannot report rounding as drift (G14). Currencies with other minor units are refused at account create (D-R5-CG5, §5.4).
 
 ### 5.6 `CustomerPurchaseApproval` (`customer_purchase_approvals`)
 
@@ -241,7 +247,7 @@ An approval is consent to spend up to an amount in a currency (D-R5-3). It has t
 | `requested_by_actor_id` | uuid | `customer_accounts.CustomerUser.id` or `auth.User.id`, per the actor type |
 | `subject_type` | text | `cart \| quote`. The cart is the one canonical subject of a purchase (D-R5-3); checkout reuses `Cart.approvalId` and creates no approval of its own. `quote` is reserved for approval at quote acceptance (D-R5-23), which is outside Release 5; nothing creates it yet |
 | `subject_id` | uuid | |
-| `amount_gross` | numeric(16,2) | Snapshot at request time, on the cart's goods-gross basis (cart `totals.grandTotalGrossAmount`, no delivery; cart K1). Taken from server-side cart totals, never from a request body |
+| `amount_gross` | numeric (`ExactDecimalType`), stored at 2 dp | Snapshot at request time, on the cart's goods-gross basis (cart `totals.grandTotalGrossAmount`, no delivery; cart K1). Taken from server-side cart totals, never from a request body |
 | `currency_code` | text | The subject's currency |
 | `approval_policy` | text | `buyer \| merchant \| both`, snapshotted from the resolved terms at creation. Changing the group's terms does not change the rules of a pending request |
 | `status` | text | `pending \| approved \| rejected \| expired \| withdrawn` (§6.6) |
@@ -256,14 +262,28 @@ An approval is consent to spend up to an amount in a currency (D-R5-3). It has t
 | `merchant_decided_at` | timestamptz, nullable | |
 | `merchant_decision_note` | text, nullable | Free text, encrypted (§16) |
 | `decided_at` | timestamptz, nullable | When `status` left `pending` |
-| `withdrawn_reason` | text, nullable | `requester \| cart_merged \| cart_expired \| cart_purged`; set only with `status = 'withdrawn'` |
+| `withdrawn_reason` | text, nullable | `requester \| cart_merged \| cart_expired \| cart_purged \| cart_converted_as_quote`; set only with `status = 'withdrawn'` |
 | `expires_at` | timestamptz | `created_at` + the tenant's approval expiry, default **14 days** (D-R5-27, `ModuleConfigService` key `customer_groups.approval_expiry_days`). Cart expiry withdraws a pending request earlier (cart K3) |
 
-Constraints: a partial unique index `(tenant_id, subject_type, subject_id) WHERE status = 'pending'` — at most one pending request per subject, which makes `requestApproval` idempotent under concurrency (G8). Check constraints keep the slot actor types to their side. Indexes `(tenant_id, organization_id, customer_id, status)` and `(tenant_id, status, expires_at)` for the expiry job.
+Constraints: a partial unique index `(tenant_id, subject_type, subject_id) WHERE status = 'pending'` — at most one pending request per subject, which makes `requestApproval` idempotent under concurrency (G8). Check constraints keep the slot actor types to their side. Indexes `(tenant_id, organization_id, customer_id, status)` and `(tenant_id, status, expires_at)` for the expiry job. The table has no e-mail timestamp columns (`requested_email_sent_at`, `decided_email_sent_at`); e-mail delivery is recorded in §5.6a.
+
+**Derived expiry.** A `pending` row whose `expires_at <= now()` is reported as `status: 'expired'` by every read (`getApproval`, lists, the `approval_not_pending` body) even before the expiry job has updated it. `now()` is the database clock in every guard and read, never the application clock.
 
 **Concurrency.** Every transition is a conditional update on `status = 'pending'` (and, for a decision, on the caller's slot being `pending`) — §6.6. That compare-and-set is what prevents a double decision (R8). The `updated_at` header stays as the UX layer: the decide routes wrap the write with `enforceCommandOptimisticLock`, and a client that decided against a stale snapshot gets the standard conflict, surfaced with `surfaceRecordConflict`. The header alone is not the guard: it is fail-open without a header or with `OM_OPTIMISTIC_LOCK=off`, and the expiry job sends none. No separate `version` column.
 
 **Approver model (D-R5-1).** Buyer-side deciders are `CustomerUser`s whose company (`CustomerUser.customer_entity_id`) equals the approval's `customer_id` and who hold `customer_groups.portal.approvals.decide`. Merchant-side deciders are staff holding `customer_groups.approvals.decide` in the approval's organization. A requester can never decide their own request. `customers.CustomerEntityRole` is not the approver model — its `userId` is a staff user and it allows one holder per role per company; its `account_manager` rows only route staff notifications (§10).
+
+### 5.6a `CustomerPurchaseApprovalEmailDelivery` (`customer_purchase_approval_email_deliveries`) — added 2026-11-19
+
+Records each approval e-mail sent, so every recipient gets each e-mail exactly once even when the subscriber is redelivered (§10.2). Append-only: `id`, `tenant_id`, `organization_id`, `created_at`; no `updated_at`, no `deleted_at`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `approval_id` | uuid | FK → `customer_purchase_approvals` (same module) |
+| `kind` | text | `requested \| approved \| rejected \| expired` |
+| `recipient_key` | text | The recipient's `CustomerUser.id` |
+
+Constraint: unique `(tenant_id, approval_id, kind, recipient_key)`. The subscriber skips a recipient that already has a row, and writes the row after `sendEmail` resolves. Only a crash between the send and the write can resend one e-mail. The migration that creates the table has a real `down()`.
 
 ### 5.7 `CustomerAssortmentOverride` (`customer_assortment_overrides`) — added 2026-09-16
 
@@ -292,10 +312,16 @@ Three services are registered in `customer_groups/di.ts`, each with its own expo
 | DI key | Interface | Phase | Purpose |
 |---|---|---|---|
 | `customerGroupsService` | `CustomerGroupsService` | 1–2 (shipped) | Group, terms and assortment resolution. **No credit or approval method is added to it** (G26): an app that overrides this key through `entry.overrides.di` keeps satisfying its interface |
-| `customerCreditService` | `CustomerCreditService` | 3 | Credit check, reservation, release, settlement, order linkage |
+| `customerCreditService` | `CustomerCreditService` | 3 | Credit check, reservation, release, settlement, adjustment, exposure reads, order linkage |
+| `customerCreditServiceFactory` | `(em: EntityManager) => CustomerCreditService` | 3 | Builds the credit service over the caller's `EntityManager` (§6.3) |
 | `customerPurchaseApprovalService` | `CustomerPurchaseApprovalService` | 4 | Approval request, read, withdraw, decide |
+| `customerPurchaseApprovalServiceFactory` | `(em: EntityManager) => CustomerPurchaseApprovalService` | 4 | Builds the approval service over the caller's `EntityManager` |
 
-Consumers outside this module (`cart`, `checkout`) resolve the two new keys with `tryResolve`, so an app without `customer_groups` keeps booting (D-R5-18).
+Consumers outside this module (`cart`, `checkout`) resolve the new keys with `tryResolve`, so an app without `customer_groups` keeps booting (D-R5-18).
+
+**`EntityManager` binding.** `em` is registered per request, so `customerCreditService` and `customerPurchaseApprovalService` run on the request's `EntityManager`. A caller that already holds a transactional `EntityManager` (a command's `em`, a subscriber inside its own transaction, quote acceptance under a row lock) MUST use the factory with that `em`. Otherwise the service takes a second pooled connection while the first holds a lock, which exhausts the pool under parallel load (#8414). Both services resolve `customerGroupsService` from DI (so an `entry.overrides.di` override and the D-R5-37 base-currency fallback apply); they never construct their own `CustomerGroupsService`. Every `resolveTerms` call they make passes `organizationId`.
+
+**Consumer call shapes.** The signatures below are authoritative. Cart §9a step 4 calls `requestApproval` with `buyer: { customerIds: cart.customerIds }`, not a top-level `customerId`. Checkout §7.2 step 4 calls `reserveCredit` with `buyer: { customerIds }` (or `{ customerId }`), `sourceType: 'checkout'` and `sourceId: sessionId`. Those two specs follow this contract in the same re-landing pass.
 
 ```typescript
 type GroupResolution = {
@@ -327,7 +353,10 @@ type BuyerIdentityInput =
 interface CustomerGroupsService {
   resolveGroups(input: BuyerIdentityInput): Promise<GroupResolution>
 
-  resolveTerms(input: BuyerIdentityInput & { groupIds?: string[] }): Promise<ResolvedTerms>
+  // `organizationId` added Release 5 (additive, optional): the buyer's organization, used only for
+  // the D-R5-37 base-currency fallback of `termsCurrencyCode`. Without it the fallback never applies,
+  // so every Release 5 caller (cart, checkout, the credit and approval services, explain-terms) passes it.
+  resolveTerms(input: BuyerIdentityInput & { groupIds?: string[]; organizationId?: string }): Promise<ResolvedTerms>
 
   // Assortment scope resolves separately from the scalar terms above — §6.4.
   resolveAssortmentScope(input: BuyerIdentityInput): Promise<{
@@ -340,7 +369,7 @@ interface CustomerGroupsService {
 // ---- Phase 3: customerCreditService ----
 
 type CommerceScope = { tenantId: string; organizationId: string }
-type DecimalString = string   // 2 dp; inputs with more places are rounded half-up at the boundary (§5.5)
+type DecimalString = string   // decimal string; rounded to 2 dp half-up at the boundary with @open-mercato/shared/lib/decimal (§5.5)
 
 // The buyer as the caller knows it: person first, then company (§6.0). For carts outside the
 // storefront channel the caller fills it from `storeContextService.resolveForBuyer` (D-R5-22).
@@ -369,6 +398,8 @@ type CreditEntryView = {
   linkedOrderId: string | null
 }
 
+type AccountExposureView = { exposure: DecimalString; available: DecimalString | null }
+
 interface CustomerCreditService {
   // Read-only, no lock. A hint for the UI and checkout's payment-method list, never a guarantee.
   checkCredit(input: {
@@ -378,15 +409,20 @@ interface CustomerCreditService {
     amount: DecimalString
   }): Promise<CreditCheck>
 
+  // Read-only, no lock. Exposure of one account, or of many in one SQL query (the list route).
+  getAccountExposure(input: { scope: CommerceScope; creditAccountId: string }): Promise<AccountExposureView>
+  getAccountExposures(input: { scope: CommerceScope; creditAccountIds: string[] }): Promise<Map<string, AccountExposureView>>
+
   // Row lock on the credit account (§6.3); re-checks under the lock and appends the reserve entry.
   // `amount` is the caller's full payable total (D-R5-24): for checkout, goods gross after
-  // promotions + selected delivery cost − delivery discount.
+  // promotions + selected delivery cost − delivery discount. Must be > 0 (`invalid_amount`).
+  // `check` always describes the account at call time; `reason: 'ok'` only with `allowed: true`.
   reserveCredit(input: {
     scope: CommerceScope
     buyer: CreditBuyerInput
     currencyCode: string
     amount: DecimalString
-    sourceType: 'checkout' | 'order'
+    sourceType: 'checkout' | 'order'   // only these two; 'order' is the reinstatement (§6.5)
     sourceId: string
     idempotencyKey: string
   }): Promise<{
@@ -405,6 +441,8 @@ interface CustomerCreditService {
 
   // Lowers exposure for a payment. With `reserveIdempotencyKey`, the settle belongs to that
   // reservation and may not exceed its open amount; without it, it is account-level.
+  // A `reserveIdempotencyKey` that names no reservation is refused (`404 reservation_not_found`),
+  // never turned into an account-level settle. `amount` must be > 0 (`invalid_amount`).
   settleCredit(input: {
     scope: CommerceScope
     buyer: CreditBuyerInput
@@ -416,20 +454,45 @@ interface CustomerCreditService {
     reserveIdempotencyKey?: string
   }): Promise<{ settled: boolean; entry: CreditEntryView }>
 
-  // C6: writes the order id on the reservation once, so the `sales.order.cancelled`
-  // subscriber can release it (§6.5). Same order id again is a no-op; a different one is 409.
+  // The ledger write behind the `customer_groups.credit.adjust` command (§6.5). Called only by
+  // that command, on the command's transactional `em` (factory), so the entry and the audit
+  // log commit together. Signed amount, never zero; `note` required.
+  adjustCredit(input: {
+    scope: CommerceScope
+    buyer: CreditBuyerInput
+    currencyCode: string
+    amount: DecimalString
+    note: string
+    idempotencyKey: string           // adjust:client:{key} | adjust:auto:{uuid} | undo:{entryId} (§5.5)
+    relatedEntryId?: string | null   // set by the undo
+    createdByUserId?: string | null
+  }): Promise<{ entry: CreditEntryView }>
+
+  // C6: writes the order id on the reservation once, so the order-lifecycle subscribers
+  // can find it (§6.5). Same order id again is a no-op; a different one is 409.
+  // An unknown key answers { linked: false, entryId: null } and writes nothing.
   linkCreditReservationToOrder(input: {
     scope: CommerceScope
     idempotencyKey: string           // the reserve entry's key
     orderId: string
-  }): Promise<{ linked: boolean; entryId: string }>
+  }): Promise<{ linked: boolean; entryId: string | null }>
 }
+
+// Service errors carry a `code` (§9.2). Routes recognise them with the exported duck-typed guards
+// `isCustomerCreditServiceError(err)` / `isCustomerPurchaseApprovalServiceError(err)`, which check
+// `name` and `code`, never `instanceof` (it fails across bundles in a production build, #8820).
 
 // ---- Phase 4: customerPurchaseApprovalService ----
 
 type ApprovalActor =
-  | { actorType: 'customer_user'; actorId: string; customerEntityId: string }   // company from the customer session
+  // `customerEntityId` is the company from the customer session. The service does not trust it:
+  // it re-reads the user's company from `customer_users` by `actorId` and decides on that.
+  | { actorType: 'customer_user'; actorId: string; customerEntityId: string }
   | { actorType: 'staff_user'; actorId: string }
+
+type ApprovalWithdrawActor =
+  | ApprovalActor
+  | { actorType: 'system'; reason: 'cart_merged' | 'cart_expired' | 'cart_purged' | 'cart_converted_as_quote' }
 
 type ApprovalSlotView = {
   decision: 'pending' | 'approved' | 'rejected' | 'not_required'
@@ -446,11 +509,11 @@ type ApprovalView = {
   amountGross: DecimalString
   currencyCode: string
   approvalPolicy: 'buyer' | 'merchant' | 'both'
-  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'withdrawn'
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'withdrawn'   // 'expired' derived once expires_at <= now() (§5.6)
   requestedBy: { actorType: 'customer_user' | 'staff_user'; actorId: string }
   buyer: ApprovalSlotView
   merchant: ApprovalSlotView
-  withdrawnReason: 'requester' | 'cart_merged' | 'cart_expired' | 'cart_purged' | null
+  withdrawnReason: 'requester' | 'cart_merged' | 'cart_expired' | 'cart_purged' | 'cart_converted_as_quote' | null
   decidedAt: string | null
   expiresAt: string
   createdAt: string
@@ -484,22 +547,23 @@ interface CustomerPurchaseApprovalService {
   withdrawApproval(input: {
     scope: CommerceScope
     approvalId: string
-    actor: ApprovalActor | { actorType: 'system'; reason: 'cart_merged' | 'cart_expired' | 'cart_purged' }
+    actor: ApprovalWithdrawActor
   }): Promise<ApprovalView>
 
   // The actor's type selects the slot: customer_user → buyer, staff_user → merchant.
+  // The optimistic-lock header is checked by the route with `enforceCommandOptimisticLock`
+  // before this call (§5.6); the service takes no version field.
   decideApproval(input: {
     scope: CommerceScope
     approvalId: string
     decision: 'approved' | 'rejected'
     actor: ApprovalActor
     note?: string
-    expectedUpdatedAt?: string         // the optimistic-lock header value, UX layer only (§5.6)
   }): Promise<ApprovalView>
 }
 ```
 
-The feature check (`customer_groups.approvals.decide`, `customer_groups.portal.approvals.decide`) is the route's job. The service enforces everything that depends on the record: the slot must be required and `pending`, the actor must not be the requester, and a `customer_user` actor's `customerEntityId` must equal the approval's `customer_id`. Decision notes are returned to both sides.
+The feature check (`customer_groups.approvals.decide`, `customer_groups.portal.approvals.decide`) is the route's job. The service enforces everything that depends on the record: the slot must be required and `pending`, the actor must not be the requester, and a `customer_user` actor's company, read from `customer_users`, must equal the approval's `customer_id`. Decision notes are returned to both sides.
 
 ### 6.0 Multiple buyer identities (added 2026-10-05)
 
@@ -510,7 +574,7 @@ A storefront buyer is resolved as their person entity **and** their company enti
 - **Default group**: applied only when none of the ids has an effective membership, the same rule as shipped for one id.
 - **Terms** (§6.1) and **assortment** (§6.4) run over that ordered union without any other change. Scalar terms follow it per field; assortment unions every contributing group regardless of order.
 
-**Shipped `ResolvedTerms` differs from the type above (code = current behavior).** #6709 replaced the single `sourceGroupId` with a per-field `sources: Record<field, string | null>` map (`services/customerGroupsService.ts:25-43`), and `explain-terms` reads it per field. Treat the `sources` map as the contract; `sourceGroupId` above is the pre-implementation sketch. Release 5 adds `termsCurrencyCode`, `approvalPolicy`, `allowQuoteRequests` and `requiresPoNumber` to `TERMS_FIELD_NAMES`, so each gets its `sources` entry and its explain-terms row like the five shipped fields. The shipped number fields (`approvalRequiredAbove`, `minOrderValue`) keep their `number` type; callers compare them in minor units against their own decimal totals.
+**Shipped `ResolvedTerms` differs from the type above (code = current behavior).** #6709 replaced the single `sourceGroupId` with a per-field `sources: Record<field, string | null>` map (`services/customerGroupsService.ts:25-43`), and `explain-terms` reads it per field. Treat the `sources` map as the contract; `sourceGroupId` above is the pre-implementation sketch. Release 5 adds `termsCurrencyCode`, `approvalPolicy`, `allowQuoteRequests` and `requiresPoNumber` to `TERMS_FIELD_NAMES`, so each gets its `sources` entry and its explain-terms row like the five shipped fields. **Sentinel source.** `sources.termsCurrencyCode` may hold the value `'base_currency'` (D-R5-37), which is not a group id. Explain-terms renders it as "organization base currency", and every reader that resolves `sources` values as group ids skips it. The shipped number fields (`approvalRequiredAbove`, `minOrderValue`) keep their `number` type (a STABLE type); callers compare them against their own decimal totals with `compareDecimals` from `@open-mercato/shared/lib/decimal`, never with float arithmetic.
 
 ### 6.1 Terms inheritance
 
@@ -528,24 +592,28 @@ Fixed: `resolveTerms` resolves only `priceKindId` (§5.3). The consumer that nee
 
 ### 6.3 Concurrency Strategy
 
-Every write that changes an account's exposure (`reserveCredit`, `releaseCredit`, `settleCredit`, the `adjust` command and its undo) serializes on the account row (G1, revised 2026-10-26). It runs inside `withAtomicFlush(em, phases, { transaction: true })`, which joins the caller's transaction when one is open (checkout submit) and opens one otherwise:
+Every write that changes an account's exposure (`reserveCredit`, `releaseCredit`, `settleCredit`, `adjustCredit` and the undo of an adjust) serializes on the account row (G1, revised 2026-10-26 and 2026-11-19). It runs inside `withAtomicFlush(em, phases, { transaction: true })` on the `EntityManager` the service was built with (§6): it opens a transaction on that `em`, or joins the one that `em` is already in.
 
-1. `findOne(CustomerCreditAccount, { id, tenantId, organizationId, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })`;
+**Transaction model.** In Release 5 `reserveCredit` runs as its own transaction. Checkout §7.2 runs each submit step as a separate transaction, and step 4 calls `reserveCredit` through the DI key, with no outer transaction. The service never joins a transaction that runs on a different `EntityManager`; a caller that wants the write inside its own transaction (the adjust command, the order-lifecycle subscribers, quote acceptance) builds the service with `customerCreditServiceFactory(em)` over its transactional `em`.
+
+1. `findOne(CustomerCreditAccount, { id, tenantId, organizationId, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })`. `releaseCredit` and `settleCredit` with a reservation key first read the reserve entry by key, without a lock, only to learn its account; they then take this lock and re-read the entry and its open amount under it;
 2. the idempotency lookup by `(tenant_id, idempotency_key)` (§6.5); a replay returns here, still under the lock;
-3. `SUM(amount)` over the account's entries;
+3. `SUM(amount)` over the account's entries, in SQL;
 4. for a reserve: refuse when `is_on_hold`, or when `exposure + amount > credit_limit`;
 5. append the entry with `balance_after` computed under the lock.
 
-A parallel caller blocks at step 1 until the first commits, then reads the new sum. No retry loop is needed and no isolation level is requested. This is the Release 4 promotions mechanism (`promotions/lib/promotion-usage-service.ts`, D-R4-12), which replaced the same `SERIALIZABLE` design for a concrete reason that applies here too: `withAtomicFlush` ignores `isolationLevel` when it joins an existing transaction (`packages/shared/src/lib/commands/flush.ts`), and checkout calls `reserveCredit` inside its own submit sequence. No retry-on-40001 helper is built.
+A parallel caller blocks at step 1 until the first commits, then reads the new sum. No retry loop is needed and no isolation level is requested. This is the Release 4 promotions mechanism (`promotions/lib/promotion-usage-service.ts`, D-R4-12), which replaced the same `SERIALIZABLE` design because `withAtomicFlush` ignores `isolationLevel` when it joins an existing transaction (`packages/shared/src/lib/commands/flush.ts`). The row lock is correct both standalone and when joined. No retry-on-40001 helper is built.
 
-Rules that keep the lock cheap and deadlock-free:
+Rules that keep the lock cheap:
 
 - The lock covers only steps 1–5. No gateway or network call runs while it is held (checkout reserves before payment).
-- Lock order is "stock, then credit": checkout reserves availability before credit (checkout §7.2), and every other caller keeps that order.
+- Identity reads (§6.5) run before the lock, through the same `em` (`em.execute`), never through `getConnection().execute` or another connection.
 - `checkCredit` takes no lock. It is a hint; only `reserveCredit` decides.
 - The amount checked under the lock is the amount appended. `reserveCredit` is a service operation, not a command with interceptors; if a later release wraps it in a command, the check under the lock MUST use the post-interceptor amount, with a regression test for an interceptor that changes it (G25).
 
-The acceptance gate is the N=20 parallel-reservation test **and** the same test with each reservation called inside an outer transaction (§13). Both ship with the lock path, before any route (§14).
+**Events after commit.** When the service opened the transaction, it emits its events after that commit. When it joined a caller's open transaction (factory path), it does not emit: it queues the events, and the caller emits them after its own commit through the factory service's `drainPendingEvents(): Array<{ eventId, payload }>`. A rolled-back caller therefore never publishes an event for work that did not happen.
+
+The acceptance gate is the N=20 parallel-reservation test, the same test with each reservation called inside an outer transaction through the factory (kept as a guard), and a real-Postgres run with the pool size equal to the concurrency (§13). All ship with the lock path, before any route (§14).
 
 ### 6.4 Assortment scope resolves separately from the scalar terms (amended 2026-09-06)
 
@@ -569,7 +637,7 @@ The grant widens (one more OR-branch, like an extra group) and the restriction n
 
 ### 6.5 Credit lifecycle (added 2026-10-26)
 
-**Identity (G11, D-R5-22).** Credit and approvals belong to the company. From `customerIds` the service picks the first id that is a company entity; with no company it uses the person. It reads the entity kind through the query engine (FK id, no import of `customers`). Callers pass the ids they already hold: the storefront cart's `customerIds`, or, for carts outside the storefront channel (`pay_link`, `api`, `agent`), the `customerIds` returned by `storeContextService.resolveForBuyer` (SPEC-029). Every channel therefore resolves to the same account. The resolved `customerId` and `creditAccountId` are returned so the caller can snapshot them. `not_permitted` comes from `resolveTerms` over the same `customerIds`: `allowPurchaseOnAccount = false`.
+**Identity (G11, D-R5-22).** Credit and approvals belong to the company. From `customerIds` the service picks the first id that is a company entity. For credit, with no company it uses the person. For approvals, a buyer with no company entity (a single person id, or a `CustomerUser` without `customer_entity_id`) is refused with `400 invalid_buyer`: a person-level approval would match no company's buyer-side approvers. The service reads the entity kind by FK id with SQL through its own `em` (`em.execute`), filtered by `tenant_id` and `organization_id` (no import of `customers`, no second connection). Callers pass the ids they already hold: the storefront cart's `customerIds`, or, for carts outside the storefront channel (`pay_link`, `api`, `agent`), the `customerIds` returned by `storeContextService.resolveForBuyer` (SPEC-029). Every channel therefore resolves to the same account. The resolved `customerId` and `creditAccountId` are returned so the caller can snapshot them. `not_permitted` comes from `resolveTerms` over the same `customerIds`: `allowPurchaseOnAccount = false`.
 
 **Reason order of `checkCredit` and `reserveCredit`:** `not_permitted` → `no_account` (no live account in the currency) → `on_hold` → `limit_exceeded` → `ok`.
 
@@ -581,6 +649,8 @@ The grant widens (one more OR-branch, like an extra group) and the restriction n
 | — (link) | checkout, after the order is created (`linkCreditReservationToOrder`, C6) | Order outcome only | No amount; writes `linked_order_id` |
 | `release` | checkout compensation (`releaseCredit`) | A submit step after the reserve fails, before or after document creation | The reservation's open amount |
 | `release` | `customer_groups` subscriber on `sales.order.cancelled` | An order with a linked reservation is cancelled (a failed or abandoned payment is compensated by cancelling the order) | The open amount: nothing already settled is released |
+| `release` | `customer_groups` subscriber on `sales.order.deleted` (D-R5-CG1) | An order with a linked reservation is deleted and does not exist again | The open amount |
+| `reserve` (reinstatement) | `customer_groups` subscribers on `sales.order.revived` and `sales.order.confirmed` (D-R5-CG1, D-R5-CG7, D-R5-CG9) | An order leaves a cancelled status (undo of a cancel, or a revival to any live status) or is restored by the undo of a delete | The released amount (below) |
 | `settle` | An integration calling `settleCredit`, or an operator through `/adjust` | A payment is received. **Payments are not settled automatically in Release 5** | The paid amount, rounded to 2 dp |
 | `adjust` | Operator, `/adjust` command | Any correction, including manual settlement | Signed, with a required note |
 
@@ -592,25 +662,37 @@ The user documentation states plainly that without an integration calling `settl
 2. Same key, any difference → `409 idempotency_key_mismatch`. A checkout attempt that re-prices mints a new key.
 3. A key whose reservation was released is not reusable: `reserveCredit` returns the original entry with `reserved: false, released: true`.
 4. `releaseCredit` writes its entry with the key `release:{reserveKey}`, so a second call is a no-op returning `released: false` and the first entry's id. It releases the open amount; with an open amount of zero (fully settled) it writes nothing.
-5. `settleCredit` with `reserveIdempotencyKey` refuses an amount above the reservation's open amount with `400 settle_exceeds_reservation`; the excess is settled on the account level, without the reservation key.
-6. `linkCreditReservationToOrder` with the same order id is a no-op; with a different order id it answers `409 idempotency_key_mismatch`.
+5. `settleCredit` with `reserveIdempotencyKey` refuses an amount above the reservation's open amount with `400 settle_exceeds_reservation`; the excess is settled on the account level, without the reservation key. A `reserveIdempotencyKey` that names no reservation is refused with `404 reservation_not_found`.
+6. `linkCreditReservationToOrder` with the same order id is a no-op; with a different order id it answers `409 idempotency_key_mismatch`; with an unknown key it answers `{ linked: false, entryId: null }`.
+7. A reinstatement reserves under `reinstate:{reserveKey}` (the released reservation's key), never under the released key itself (rule 3). A second pass finds that entry and writes nothing; if the entry exists but is not yet linked to the order, the pass links it.
+8. `adjust` keys are `adjust:client:{key}` when the client sends `idempotencyKey`, else `adjust:auto:{uuid}`; a replay of a client key returns the original entry.
 
-**Commands, audit and undo (G20).** `adjust` is a command (`customer_groups.credit.adjust`) with an audit entry; its undo appends the inverse entry with `related_entry_id` set to the original and the key `undo:{entryId}`, never a delete. `reserve`, `release`, `settle` and the order link are service operations: each writes an audit-log entry marked system-initiated when no staff user is behind it, and none is undoable from the audit UI. Reversal is always the counter-entry above.
+**Commands, audit and undo (G20).** `adjust` is a command (`customer_groups.credit.adjust`) with an audit entry; its undo appends the inverse entry with `related_entry_id` set to the original and the key `undo:{entryId}`, never a delete. The command writes the ledger entry through `customerCreditServiceFactory` on the command's transactional `em`, so the entry and the audit log commit together. Limit and hold changes are the command `customer_groups.credit_account.update` with an audit entry and an undo (D-R5-CG6, §5.4). `reserve`, `release`, `settle` and the order link are service operations, not undoable from the audit UI; reversal is always the counter-entry above. They write no action-log entry: the ledger row itself, with `created_by_actor_type`, `created_by_user_id`, `source_type`, `source_id` and `idempotency_key`, is their audit trail (D-R5-CG2).
+
+**Order lifecycle (D-R5-CG1, D-R5-CG7, D-R5-CG8).** Persistent subscribers keep the credit hold in step with the order:
+
+- **Release on delete.** `sales.order.deleted` releases the open amount of every reservation linked to the order, exactly like `sales.order.cancelled`. A delivery that arrives after the order exists again (an undo of the delete) does nothing.
+- **Reinstatement on a transition out of a cancelled status.** When an order leaves a cancelled status — the undo of a cancellation, or a revival to any live status (`draft`, `sent`, `confirmed`, `in_fulfillment`, `fulfilled`, `on_hold`, directly or through intermediate statuses) — or is restored by the undo of a delete, each released reservation linked to the order is reserved again. `sales` emits `sales.order.revived` whenever an order leaves a cancelled status (D-R5-CG9, step SA2a); its payload has the shape of the other lifecycle events, `{ id, orderId, tenantId, organizationId, previousStatus, status }`, with `previousStatus` the cancelled status and `status` the live one. The trigger is the order's state, not the event's `previousStatus`: one state-based, idempotent handler subscribes to `sales.order.revived` and `sales.order.confirmed` (the undo of a delete restores the order without a revival), and acts only when the order is live and has a released reservation with no `reinstate:` entry. On an ordinary first confirmation it finds nothing and does nothing.
+- **Amount.** The reinstated amount is the amount the release freed (`−release.amount`), not the original reserve amount, so a partial settle is not counted twice.
+- **Refusal.** A reinstatement goes through `reserveCredit` (`sourceType: 'order'`, `sourceId` = order id), so it can be refused (`limit_exceeded`, `on_hold`, `not_permitted`, `no_account`). A refusal leaves the order live; the subscriber does not undo the order. It calls `reportError` and sends the in-app notification `customer_groups.credit.reinstatement_refused` with a link to the order (§10.2).
+- **Status read.** The subscriber reads `sales_orders.status` by the order's FK id with SQL through its transaction's `em` (§4.2) and interprets it with `isCancelledOrderStatus`, never with literal status strings. A row that no longer exists counts as not live.
+- **Serialization.** Release and reinstatement for one order run inside one transaction that first takes `pg_advisory_xact_lock(hashtextextended('customer_groups_credit_lifecycle:' || orderId, 0))`, then re-reads the order status and the ledger, then writes through `customerCreditServiceFactory(tx)`. A delayed or redelivered event therefore never re-releases a reinstated reservation, nor reinstates credit for an order that was cancelled again.
+- **Delivery.** These subscribers are persistent and idempotent. Redelivery after a failure depends on `sales` emitting `sales.order.cancelled`, `.confirmed`, `.deleted` and the new `.revived` as persistent events (`persistent: true`), which ships in step SA2a (D-R5-CG8, D-R5-CG9). Before SA2a lands, delivery is best-effort, a failed release or reinstatement is not retried, and a revival to a status other than `confirmed` is not seen at all; CG5b therefore depends on SA2a (§14). `customer_groups` never subscribes to `sales.order.updated`.
 
 ### 6.6 Approval lifecycle (added 2026-10-26)
 
-Every transition is one conditional `UPDATE … WHERE id = ? AND tenant_id = ? AND organization_id = ? AND status = 'pending' …`. Zero rows updated means `409 approval_not_pending`, with the current `status` and both slots in the body. Under Postgres's default isolation a concurrent update on the same row waits and then re-evaluates its `WHERE` and its `SET` expressions against the committed row, so with policy `both` two simultaneous decisions from different sides still produce the right final status.
+Every transition is one conditional `UPDATE … WHERE id = ? AND tenant_id = ? AND organization_id = ? AND status = 'pending' …`, with `now()` taken from the database. Zero rows updated means `409 approval_not_pending`, with the current (derived, §5.6) `status`, both slots' decisions and both slots' deciders (`decidedBy`, `decidedAt`) in the body. Under Postgres's default isolation a concurrent update on the same row waits and then re-evaluates its `WHERE` and its `SET` expressions against the committed row, so with policy `both` two simultaneous decisions from different sides still produce the right final status.
 
 | From | To | Actor | Guard (in the `WHERE` or before it) | Event |
 |---|---|---|---|---|
-| — | `pending` | cart command `cart.approval.request` on behalf of the buyer (`customer_user`) | No pending request for the subject (partial unique index); otherwise the existing one is returned with `created: false`. Amount from server-side cart totals. Policy snapshotted from `resolveTerms`; the slot the policy leaves out is `not_required` | `customer_groups.approval.requested` |
+| — | `pending` | cart command `cart.approval.request` on behalf of the buyer (`customer_user`) | No pending request for the subject (partial unique index); otherwise the existing one is returned with `created: false`. The insert is `INSERT … ON CONFLICT DO NOTHING` (or runs in a savepoint), followed by a re-read, so a lost race inside a caller's outer transaction does not abort that transaction. Amount from server-side cart totals. Policy snapshotted from `resolveTerms`; the slot the policy leaves out is `not_required`. A buyer with no company is refused with `400 invalid_buyer` (§6.5) | `customer_groups.approval.requested` |
 | `pending` | `pending` (one slot decided) | Eligible decider of one side, policy `both` | Slot `pending`; `expires_at > now()`; actor ≠ requester; `customer_user` of the approval's company. Decision `approved` while the other slot is still `pending` | none (the other side was notified at request) |
 | `pending` | `approved` | Eligible decider | Same guards; after this decision every required slot is `approved` | `customer_groups.approval.approved` |
 | `pending` | `rejected` | Eligible decider of either required side | Same guards; one rejection from either side ends the request | `customer_groups.approval.rejected` |
 | `pending` | `expired` | `expire-approvals` job (system) | `expires_at <= now()` | `customer_groups.approval.expired` |
-| `pending` | `withdrawn` | The requester (portal withdraw), or the cart as `system` (merged source, expired, purged; cart K3) | A `customer_user` actor must be the requester | `customer_groups.approval.withdrawn` |
+| `pending` | `withdrawn` | The requester (portal withdraw), or the cart as `system` (merged source, expired, purged, converted as a quote; cart K3) | `expires_at > now()`; a `customer_user` actor must be the requester | `customer_groups.approval.withdrawn` |
 
-`approved`, `rejected`, `expired` and `withdrawn` are terminal. Decide and expire use disjoint conditions on `expires_at`, so a decision at the boundary instant either lands or expires, never both. A decision is not undoable: a recorded decision is authoritative, and a mistaken approval is answered by a new request.
+`approved`, `rejected`, `expired` and `withdrawn` are terminal. Events follow the §6.3 rule: emitted after the service's own commit, or drained and emitted by the caller after its commit on the factory path. Decide and expire use disjoint conditions on `expires_at`, so a decision at the boundary instant either lands or expires, never both. A decision is not undoable: a recorded decision is authoritative, and a mistaken approval is answered by a new request.
 
 **What an approval authorises (D-R5-3).** An `approved` request covers the subject while the subject's goods gross stays at or below `amount_gross` in `currency_code`. Changed lines at the same or a lower total keep it; a higher total makes the cart re-request, and `Cart.approvalId` moves to the new request while the old one stays `approved` and no longer qualifies. There is no line digest. The policy is opaque to the cart: it reads only the final `status`.
 
@@ -647,11 +729,12 @@ The free-text UUID input for `customerGroupId` in the catalog price editor is re
 
 **Coupling direction (resolved).** The picker ships as a widget `customer_groups` injects into the `crud-form:catalog.catalog_product_price:fields` spot (`packages/core/AGENTS.md` → Widget Injection / CrudForm Field Injection), not as a `catalog`/`sales` import of `customer_groups`; the `crud-form:sales.sales_tax_rate:fields` entry is part of this design but is not shipped (§7.2). `catalog` and `sales` gain **no new `requires` entry** — `pricing.ts:66,84`'s matching logic already only compares against a `customerGroupId[s]` value the caller supplies, so neither module needs a runtime dependency on `customer_groups` to function; `catalog` in particular keeps its current zero-`requires` status. If `customer_groups` is ejected, both forms fall back to their present-day free-text UUID input — no error, no degraded matching behavior, just the loss of the picker convenience and the `Unknown group` explainer. The price API filter (`catalog/api/prices/route.ts`) is unaffected either way; it already accepts a raw UUID.
 
-**Phases 3–4 admin UI (added 2026-10-26).**
+**Phases 3–4 admin UI (added 2026-10-26, Release 5 scope set 2026-11-19 by D-R5-CG4).** Release 5 ships the terms-form fields with both warnings and the credit panel (account, ledger, adjust). The "no credit account" banner, the account-form pre-fill and the staff approvals page are **deferred to a follow-up**; until then merchant deciders act through the staff approval API (§9).
 
-- **Terms form.** Adds `terms_currency_code`, `approval_policy`, `allow_quote_requests` and `requires_po_number`, each with Inherit / explicit value, like `allow_purchase_on_account`. When `approval_required_above` is set on the tenant's **default group**, the form shows a warning that it blocks guest orders and pay-link orders by guests above that amount: a guest cart over the threshold is refused at lock with `409 approval_requires_identified_buyer` (D-R5-12), and pay-link, `api` and `agent` carts get no channel exemption (D-R5-29). When a threshold or minimum order value resolves without a `terms_currency_code`, the form warns that every cart will then require approval and no minimum will be checked (D-R5-4).
-- **Credit panel.** A tab injected on `detail:customers.company` and `detail:customers.person` with the account, its ledger and the adjust dialog (§17 Epic E). The credit list carries the "no credit account" banner of D-R5-5: customers whose resolved terms allow purchase on account and who have no live account in their resolved `terms_currency_code`. `default_credit_limit` and `credit_currency_code` pre-fill the create form.
-- **Approvals.** A staff list of approval requests with a decide dialog for the merchant slot (§17 Epic F).
+- **Terms form (Release 5).** Adds `terms_currency_code`, `approval_policy`, `allow_quote_requests` and `requires_po_number`, each with Inherit / explicit value, like `allow_purchase_on_account`. When `approval_required_above` is set on the tenant's **default group**, the form shows a warning that it blocks guest orders and pay-link orders by guests above that amount: a guest cart over the threshold is refused at lock with `409 approval_requires_identified_buyer` (D-R5-12), and pay-link, `api` and `agent` carts get no channel exemption (D-R5-29). When a threshold or minimum order value resolves without a `terms_currency_code`, the form warns that every cart will then require approval and no minimum will be checked (D-R5-4).
+- **Credit panel (Release 5).** A tab injected on `detail:customers.company` and `detail:customers.person` with the account, its ledger and the adjust dialog (§17 Epic E). Accounts are created on the company; a person page with a company links to the company's account instead of offering a person-level one. The panel shows `available < 0` explicitly, a warning when `available > credit_limit` (prepaid credit, D-R5-CG3), and the statement that payments are not settled automatically. The adjust dialog sends an `idempotencyKey` per dialog submit. Limit and hold edits run the `customer_groups.credit_account.update` command (D-R5-CG6).
+- **"No credit account" banner and pre-fill (deferred, D-R5-CG4).** The banner of D-R5-5 (customers whose resolved terms allow purchase on account and who have no live account in their resolved `terms_currency_code`) and pre-filling the create form from `default_credit_limit` and `credit_currency_code` ship in a follow-up.
+- **Approvals page (deferred, D-R5-CG4).** A staff list of approval requests with a decide dialog for the merchant slot (§17 Epic F) ships in a follow-up. Until it ships, the in-app `customer_groups.approval.requested` notification links to the company's detail page.
 
 ### 7.4 `cart` (Phase 4 consumer)
 
@@ -661,7 +744,8 @@ What the cart relies on from this module; the cart spec (`2026-08-14-cart-module
 - **`requiresApproval`.** Basis: `totals.grandTotalGrossAmount` (goods after promotions, no delivery). True when the cart's currency differs from `termsCurrencyCode` (fail-closed, D-R5-4), or when the basis exceeds `approvalRequiredAbove`.
 - **Gate in `cart.lock`.** Unless `Cart.approvalId` names an approval that is `approved`, in the cart's currency, with `amountGross ≥` the current basis (read live through `getApproval`), the lock refuses with `409 cart_requires_approval`. A guest cart over the threshold is refused with `409 approval_requires_identified_buyer` (D-R5-12). No channel is exempt (D-R5-29). With `purpose: 'quote'` the approval gate and the `min_order_value` check are skipped (D-R5-23); approval of a quote belongs to quote acceptance, outside Release 5.
 - **Request.** `cart.approval.request` (route `POST /api/cart/current/request-approval`) calls `requestApproval` with the requester taken from the customer session, never the body, and stores the returned id in `Cart.approvalId`.
-- **Withdraw.** Merging a cart away (source side), expiring it or purging it calls `withdrawApproval` with a `system` actor if the request is pending. Conversion leaves an approved request as it is.
+- **Withdraw.** Merging a cart away (source side), expiring it or purging it calls `withdrawApproval` with a `system` actor if the request is pending. Locking the cart with `purpose: 'quote'` withdraws a pending request with reason `cart_converted_as_quote`. Conversion leaves an approved request as it is.
+- **Call shape.** `requestApproval` takes `buyer: { customerIds: cart.customerIds }` (§6, consumer call shapes).
 - **Signals.** `cart.approval.requested` is a cart state signal with no notification (D-R5-32). A cart subscriber on `customer_groups.approval.*` with `subjectType = 'cart'` maintains `Cart.awaiting_approval_since`.
 
 ### 7.5 `checkout` (Phases 3–4 consumer)
@@ -671,7 +755,7 @@ What checkout relies on; `2026-03-19-checkout-simple-checkout.md` §7–§8 owns
 - **DI.** Checkout resolves `customerGroupsService`, `customerCreditService` and `customerPurchaseApprovalService` with `tryResolve`. Without `customer_groups`, on-account payment and approvals are unavailable; pay links keep working (D-R5-18).
 - **Payment methods.** `on_account` is offered when `allowPurchaseOnAccount` is true and a live, not-on-hold account exists in the cart currency; `request_quote` when `allowQuoteRequests` is true (D-R5-20). A PO number is required when `requiresPoNumber` is true (D-R5-28).
 - **Approval.** `POST /api/checkout/sessions/current/request-approval` delegates to `cart.approval.request`. The session stores no approval id and reads `Cart.approvalId`; it resumes on the `customer_groups.approval.*` events through its own subscriber. Checkout sends no approval notifications (D-R5-32).
-- **Credit at submit.** After `availability.reserve` (stock, then credit), checkout calls `reserveCredit` with the full payable amount (D-R5-24) and a key minted per attempt. A refusal aborts with `402 credit_refused`, carrying the `CreditCheck.reason`; the buyer is offered prepayment or, where allowed, `request_quote`, never switched automatically. After the order is created it calls `linkCreditReservationToOrder` (C6); any later compensation calls `releaseCredit`. The quote outcome reserves nothing.
+- **Credit at submit.** After `availability.reserve`, as its own step and its own transaction (checkout §7.2 step 4), checkout calls `reserveCredit` with `buyer`, the full payable amount (D-R5-24), `sourceType: 'checkout'`, `sourceId` = session id and a key minted per attempt. A refusal aborts with `402 credit_refused`, carrying the `CreditCheck.reason`; the buyer is offered prepayment or, where allowed, `request_quote`, never switched automatically. After the order is created it calls `linkCreditReservationToOrder` (C6); any later compensation calls `releaseCredit`. The quote outcome reserves nothing.
 
 ---
 
@@ -697,11 +781,16 @@ Everything Phases 3–4 add is additive. Nothing shipped in #6709 is renamed or 
 
 | Surface | Change | Classification |
 |---|---|---|
-| DI keys | New `customerCreditService`, `customerPurchaseApprovalService` with their own exported interfaces. `CustomerGroupsService` gains no method (G26) | Additive |
-| Types | `ResolvedTerms` gains `termsCurrencyCode`, `approvalPolicy`, `allowQuoteRequests`, `requiresPoNumber` and their `sources` entries. Additive for callers; an app that **overrides** `customerGroupsService` must return the four fields. Recorded in `UPGRADE_NOTES.md` | Additive (override note) |
-| DB | New tables `customer_credit_accounts`, `customer_credit_ledger_entries`, `customer_purchase_approvals`; four nullable columns on `customer_group_terms`, no backfill (null = inherit, tenant defaults per §5.3) | Additive |
-| Event ids and payloads | §10's `credit.*`, `credit_account.*` and `approval.*` ids and their payload types become FROZEN when Phase 3 / Phase 4 ships. Payloads may only gain optional fields afterwards | Additive, then frozen |
-| Notification type ids | `customer_groups.credit.limit_exceeded`, `customer_groups.approval.requested` (§10) | Additive, then frozen |
+| DI keys | New `customerCreditService`, `customerCreditServiceFactory`, `customerPurchaseApprovalService`, `customerPurchaseApprovalServiceFactory` with their own exported interfaces (§6). `CustomerGroupsService` gains no method (G26) | Additive |
+| Types | `ResolvedTerms` gains `termsCurrencyCode`, `approvalPolicy`, `allowQuoteRequests`, `requiresPoNumber` and their `sources` entries; `sources.termsCurrencyCode` may hold the sentinel `'base_currency'` (§6.0). `resolveTerms` input gains optional `organizationId`. Additive for callers; an app that **overrides** `customerGroupsService` must return the four fields and handle `organizationId`. Recorded in `UPGRADE_NOTES.md` | Additive (override note) |
+| DB | New tables `customer_credit_accounts`, `customer_credit_ledger_entries`, `customer_purchase_approvals`, `customer_purchase_approval_email_deliveries`; money columns are `numeric` with `ExactDecimalType` (§5.5); four nullable columns on `customer_group_terms`, no data backfill (null = inherit, tenant defaults per §5.3). Every schema migration has a real `down()` | Additive |
+| Encryption-map backfill | Three `buildEncryptionMapBackfillSql` migrations (from `@open-mercato/shared/lib/encryption/migration-backfill`), each with an empty `down()`, precedent `customers/migrations/Migration20261030195138_customers.ts`: `customer_groups:customer_credit_account` → `hold_reason`; `customer_groups:customer_credit_ledger_entry` → `note`; `customer_groups:customer_purchase_approval` → `buyer_decision_note`, `merchant_decision_note`. Without them, tenants that existed before the upgrade store these notes in plaintext | Additive |
+| Event ids and payloads | §10's `credit.reserved`, `.released`, `.settled`, `.adjusted`, `.limit_exceeded` and `approval.*` ids and their payload types become FROZEN when Phase 3 / Phase 4 ships. Payloads may only gain optional fields afterwards. `credit_account.*` is not declared in Release 5 (D-R5-CG2) | Additive, then frozen |
+| Notification type ids | `customer_groups.credit.limit_exceeded`, `customer_groups.credit.reinstatement_refused`, `customer_groups.approval.requested` (§10) | Additive, then frozen |
+| Commands | `customer_groups.credit.adjust`, `customer_groups.credit_account.update` (D-R5-CG6) | Additive |
+| Schedules | `expire-approvals` and `credit-exposure-audit` (§11) are registered by `seedDefaults` for new tenants and by the `configs` upgrade action `customer_groups.register-schedules` for existing tenants (#8822) | Additive |
+| Environment | Approval e-mails need `PLATFORM_PORTAL_BASE_URL` in production (§10.2). Documented in `UPGRADE_NOTES.md` and `apps/mercato/.env.example` (mirrored into the create-app template) | Deployment requirement |
+| Operator settings | `ModuleConfigService` keys `customer_groups.approval_expiry_days` and `customer_groups.approval_emails_enabled`, documented in the user docs (`apps/docs`) | Additive |
 | ACL features | Five staff features, two portal features (§9.1) | Additive, then frozen |
 | API routes | New staff routes under `/api/customer_groups/customer-groups/`, new portal routes under `/api/customer_groups/portal/` (§9) | Additive |
 | Behaviour | Thresholds already stored on groups start to apply: Phase 2 stored `approval_required_above` and `min_order_value` but nothing read them. A threshold with no `terms_currency_code` is read in the organization's base currency (D-R5-37), so a single-currency tenant keeps working without a data change; carts in other currencies require approval (D-R5-4). Only an organization without a base currency sees every cart require approval. Recorded in `UPGRADE_NOTES.md` | Behaviour change, documented |
@@ -713,13 +802,15 @@ yarn mercato auth sync-role-acls
 yarn mercato customer_accounts sync-customer-role-acls
 ```
 
-The first grants `employee` the two new view features; the second grants the portal features to `portal_admin` and `buyer` (D-R5-7). Both steps are listed in `UPGRADE_NOTES.md`.
+The first grants `employee` the two new view features and, since #5900, also syncs portal roles; the second, which grants the portal features to `portal_admin` and `buyer` (D-R5-7), is redundant but harmless. Both steps, and running the `customer_groups.register-schedules` upgrade action, are listed in `UPGRADE_NOTES.md`.
+
+**`UPGRADE_NOTES.md` entries Phases 3–4 ship** (each in the step that introduces it, §14): the `ResolvedTerms` override note (four fields, `organizationId`, the `'base_currency'` sentinel); the behaviour change of stored thresholds; the ACL sync step; the schedule upgrade action; the `PLATFORM_PORTAL_BASE_URL` requirement.
 
 ---
 
 ## 9) API Contracts
 
-All admin CRUD routes use `makeCrudRoute`, export `openApi`, validate with Zod, and support optimistic locking via `updated_at` per root `AGENTS.md`. Action routes (`adjust`, `decide`, `withdraw`) are command routes that export `openApi` and validate with Zod. Shipped routes live under the module prefix `/api/customer_groups/customer-groups/` (`api/customer-groups/` in the module); the new rows use the same prefix (G17).
+All admin CRUD routes use `makeCrudRoute`, export `openApi`, validate with Zod, and support optimistic locking via `updated_at` per root `AGENTS.md`. The credit-account update action is bound to the command `customer_groups.credit_account.update` (D-R5-CG6), not a plain entity write. Action routes (`adjust`, `decide`, `withdraw`) are command routes that export `openApi` and validate with Zod. Every `ids` filter is validated as a list of uuids (invalid values answer `400`, never `500`), and every list caps `pageSize` at 100. Shipped routes live under the module prefix `/api/customer_groups/customer-groups/` (`api/customer-groups/` in the module); the new rows use the same prefix (G17).
 
 | Method | Path | Feature |
 |---|---|---|
@@ -728,25 +819,25 @@ All admin CRUD routes use `makeCrudRoute`, export `openApi`, validate with Zod, 
 | GET/POST | `/api/customer_groups/customer-groups/memberships` | `customer_groups.memberships.view` / `.manage` |
 | PUT/DELETE | `/api/customer_groups/customer-groups/memberships/:id` | idem |
 | GET/PUT | `/api/customer_groups/customer-groups/:id/terms` | `customer_groups.terms.view` / `.manage` |
-| GET/POST | `/api/customer_groups/customer-groups/credit-accounts` | `customer_groups.credit.view` / `.manage`. List filters `customerId`, `currencyCode`, `isOnHold`, `ids`; returns `exposure` and `available` computed per row, and `updatedAt` |
-| GET/PUT | `/api/customer_groups/customer-groups/credit-accounts/:id` | `customer_groups.credit.view` / `.manage`. PUT edits `credit_limit`, `is_on_hold`, `hold_reason`; optimistic lock via `CrudForm` |
-| GET | `/api/customer_groups/customer-groups/credit-accounts/missing` | `customer_groups.credit.view`. The D-R5-5 banner: customers allowed on account with no account in their terms currency, with count |
+| GET/POST/PUT | `/api/customer_groups/customer-groups/credit-accounts` | `customer_groups.credit.view` / `.manage`. The module's CRUD convention: no `[id]` segment; detail is `GET ?id=`, PUT carries the id in the body. List filters `id`, `customerId`, `currencyCode`, `isOnHold`, `ids`; returns `exposure` and `available` per row (one batched `getAccountExposures` query) and `updated_at`. POST refuses an existing live account (`409 credit_account_exists`) and a currency without 2 minor units (`400 credit_currency_unsupported`). PUT edits `credit_limit`, `is_on_hold`, `hold_reason` through the `customer_groups.credit_account.update` command, optimistic lock via `CrudForm`, and answers `{ ok: true }` |
+| GET | `/api/customer_groups/customer-groups/credit-accounts/missing` | **Deferred (D-R5-CG4).** `customer_groups.credit.view`. The D-R5-5 banner: customers allowed on account with no account in their terms currency, with count |
 | GET | `/api/customer_groups/customer-groups/credit-accounts/:id/ledger` | `customer_groups.credit.view`. Read-only, newest first, `pageSize ≤ 100` |
-| POST | `/api/customer_groups/customer-groups/credit-accounts/:id/adjust` | `customer_groups.credit.adjust`. Body `{ amount: string, note: string }`; runs the `customer_groups.credit.adjust` command under the row lock (§6.3) |
-| GET | `/api/customer_groups/customer-groups/approvals` | `customer_groups.approvals.view`. Organization-scoped list; filters `status`, `customerId`, `subjectType`, `ids`; returns `ApprovalView` with `updatedAt` |
+| POST | `/api/customer_groups/customer-groups/credit-accounts/:id/adjust` | `customer_groups.credit.adjust`. Body `{ amount: string, note: string, idempotencyKey?: string }`; runs the `customer_groups.credit.adjust` command under the row lock (§6.3) |
+| GET | `/api/customer_groups/customer-groups/approvals` | `customer_groups.approvals.view`. Organization-scoped list; filters `status`, `customerId`, `subjectType`, `ids`; returns `ApprovalView` with `updatedAt`. Pending first, then newest |
+| GET | `/api/customer_groups/customer-groups/approvals/:id` | `customer_groups.approvals.view`. One `ApprovalView`, organization-scoped; unknown or other-organization ids answer `404` |
 | POST | `/api/customer_groups/customer-groups/approvals/:id/decide` | `customer_groups.approvals.decide`. Body `{ decision: 'approved' \| 'rejected', note?: string }` plus the optimistic-lock header; decides the merchant slot |
 | GET | `/api/customer_groups/customer-groups/reconcile` | `customer_groups.groups.manage` |
 
 There is no create route for approvals (requests come only from cart commands with server-side totals), no update or delete route for approvals, and no delete route for credit accounts.
 
-**Portal routes (Phase 4, D-R5-1, G5).** Release 5 sells API-only, so a buyer-side approver acts through these routes. Each uses `requireCustomerAuth` and `requireCustomerFeatures`, takes the customer user and company from the customer session (never from the body), exports `openApi`, and is scoped to the session's tenant, organization and company. A request for an approval of another company answers `404`, the same body as an unknown id.
+**Portal routes (Phase 4, D-R5-1, G5).** Release 5 sells API-only, so a buyer-side approver acts through these routes. `requireCustomerAuth` and `requireCustomerFeatures` are page metadata, so these API routes follow the platform pattern for portal API routes: `requireAuth: false` in the route metadata, and the handler authenticates the customer session and checks the portal feature itself (customer RBAC, wildcard-aware), answering `401` without a session and `403` without the feature. Each takes the customer user and company from the customer session (never from the body), exports `openApi`, and is scoped to the session's tenant, organization and company. A request for an approval the caller cannot see (another company's, or, for a caller without the decide feature, another user's) answers `404`, the same body as an unknown id.
 
 | Method | Path | Portal feature | Notes |
 |---|---|---|---|
 | GET | `/api/customer_groups/portal/approvals` | `customer_groups.portal.approvals.view` | Holders of `…decide` see their company's requests; others see only requests they made. Pending first, `pageSize ≤ 100` |
 | GET | `/api/customer_groups/portal/approvals/:id` | `customer_groups.portal.approvals.view` | Same visibility rule |
 | POST | `/api/customer_groups/portal/approvals/:id/decide` | `customer_groups.portal.approvals.decide` | Body `{ decision, note? }` plus the optimistic-lock header; decides the buyer slot |
-| POST | `/api/customer_groups/portal/approvals/:id/withdraw` | `customer_groups.portal.approvals.view` | Requester only |
+| POST | `/api/customer_groups/portal/approvals/:id/withdraw` | `customer_groups.portal.approvals.view` | Requester only: `404` when the request is not visible to the caller, `403 approval_withdraw_forbidden` when it is visible but the caller is not the requester. No optimistic-lock header; the §6.6 conditional update is the guard |
 
 `POST /api/customer_groups/customer-groups` returns `{ id, isDefault }`. When `isDefault: true` was requested but the default promotion lost a concurrent race, the group is still created (201) and the response carries `isDefault: false`; the admin UI warns about it.
 
@@ -773,7 +864,9 @@ export const features = [
 ]
 ```
 
-`credit.manage` (change the limit) and `credit.adjust` (move the balance) are separate on purpose — they are different kinds of financial authority and tenants will want to grant them to different roles.
+The snippet is abridged: as in the shipped `acl.ts`, every entry also carries `module: 'customer_groups'`, and each shipped `.manage` feature `dependsOn` its `.view`.
+
+`credit.manage` (change the limit, through the audited `customer_groups.credit_account.update` command) and `credit.adjust` (move the balance) are separate on purpose — they are different kinds of financial authority and tenants will want to grant them to different roles.
 
 **Grant plan (`setup.ts`, D-R5-7, least privilege):**
 
@@ -794,7 +887,7 @@ defaultCustomerRoleFeatures: {
 
 ### 9.2 Error codes (added 2026-10-26)
 
-Error bodies use the platform shape `{ error: <code>, … }`; user-facing messages come from `customer_groups.errors.<code>`.
+Error bodies use the platform shape `{ error: <translated message>, code: <code>, … }`; the message comes from `customer_groups.errors.<code>`. Routes map service errors with the duck-typed guards of §6, never `instanceof`.
 
 | Code | HTTP | Raised by | Meaning |
 |---|---|---|---|
@@ -802,13 +895,19 @@ Error bodies use the platform shape `{ error: <code>, … }`; user-facing messag
 | `no_account` | — (reason) | idem | No live credit account in the currency (D-R5-5) |
 | `on_hold` | — (reason) | idem | The account is on hold |
 | `limit_exceeded` | — (reason) | idem | `exposure + amount > credit_limit` under the lock; also emits `customer_groups.credit.limit_exceeded` |
-| `idempotency_key_mismatch` | 409 | `reserveCredit`, `settleCredit`, `linkCreditReservationToOrder` | The key was used with different inputs or another order (§6.5) |
+| `idempotency_key_mismatch` | 409 | `reserveCredit`, `settleCredit`, `adjustCredit`, `linkCreditReservationToOrder` | The key was used with different inputs or another order (§6.5) |
 | `settle_exceeds_reservation` | 400 | `settleCredit` | The settle amount is above the reservation's open amount |
+| `reservation_not_found` | 404 | `settleCredit` | `reserveIdempotencyKey` names no reservation (§6.5 rule 5) |
+| `invalid_amount` | 400 | `reserveCredit`, `settleCredit`, `adjustCredit`, `/adjust` | A `reserve` or `settle` amount not greater than zero, an `adjust` of zero, or a value that is not a decimal string |
+| `invalid_buyer` | 400 | credit service methods, `requestApproval`, `/adjust` | `customerIds` empty or naming no customer of the scope; for approvals, a buyer with no company (§6.5) |
+| `no_account` | 422 | `settleCredit`, `adjustCredit`, `/adjust` | No live credit account in the currency. For `checkCredit` / `reserveCredit` it is a reason, not an error (row above) |
 | `credit_account_exists` | 409 | `POST …/credit-accounts` | A live account already exists for the customer and currency |
-| `approval_not_pending` | 409 | decide, withdraw, expiry | The request, or the caller's slot, is no longer `pending` (decided, `not_required`, expired, withdrawn). Body carries `status`, both slots and the deciders. A request past `expires_at` the job has not yet processed reports `status: 'expired'` |
+| `credit_currency_unsupported` | 400 | `POST …/credit-accounts` | The currency's `decimal_places` is not 2 (D-R5-CG5) |
+| `approval_not_found` | 404 | approval reads, decide, withdraw | Unknown id, or not visible to the caller |
+| `approval_not_pending` | 409 | decide, withdraw, expiry | The request, or the caller's slot, is no longer `pending` (decided, `not_required`, expired, withdrawn). Body carries `status`, `buyerDecision`, `merchantDecision` and both slots' deciders (`decidedBy`, `decidedAt`). A request past `expires_at` the job has not yet processed reports `status: 'expired'` (§5.6) |
 | `approval_self_decision_forbidden` | 403 | decide | The actor is the requester (G24) |
-| `approval_withdraw_forbidden` | 403 | portal withdraw | The caller is not the requester |
-| optimistic-lock conflict | 409 | decide, credit account PUT | The standard platform conflict body; the client shows `surfaceRecordConflict` |
+| `approval_withdraw_forbidden` | 403 | portal withdraw | The request is visible to the caller, who is not the requester |
+| optimistic-lock conflict | 409 | decide, credit account PUT, terms PUT | The standard platform conflict body; the client shows `surfaceRecordConflict` |
 
 A portal request for another company's approval answers `404` with the unknown-resource body, never `403`, so it does not disclose that the id exists.
 
@@ -821,12 +920,11 @@ A portal request for another company's approval answers `404` with the unknown-r
 'customer_groups.membership.added' | '.removed' | '.expired'
 'customer_groups.terms.updated'
 'customer_groups.credit.reserved' | '.released' | '.settled' | '.adjusted' | '.limit_exceeded'
-'customer_groups.credit_account.put_on_hold' | '.released_from_hold'
 'customer_groups.approval.requested' | '.approved' | '.rejected' | '.expired' | '.withdrawn'
 'customer_groups.assortment_override.created' | '.updated' | '.deleted' | '.expired'
 ```
 
-**Shipped on `develop` (2026-10-05):** `customer_groups.group.created|updated|deleted`, `customer_groups.membership.added|removed|expired`, `customer_groups.terms.updated` (`events.ts:4-10`). Everything else above is unshipped Phase 3–5 scope. `customer_groups.membership.expired` is **declared but never emitted**; no worker or subscriber produces it. Consumers MUST therefore bound their membership-derived caches by TTL rather than rely on that event, until an expiry job emits it (§11). `terms.updated` and `group.*` carry `groupId` and no `customerId` (`lib/groupEvents.ts:19-49`). Consumers that cache per buyer need a per-group tag (for example `customer-group:{groupId}`) to honor the "every member of the group" duty below.
+**Shipped on `develop` (2026-10-05):** `customer_groups.group.created|updated|deleted`, `customer_groups.membership.added|removed|expired`, `customer_groups.terms.updated` (`events.ts:4-10`). Everything else above is unshipped Phase 3–5 scope. **Later (D-R5-CG2):** `customer_groups.credit_account.put_on_hold` and `.released_from_hold` are not declared in Release 5; they may be added with the follow-up that gives them a consumer, emitted by the `customer_groups.credit_account.update` command. `customer_groups.membership.expired` is **declared but never emitted**; no worker or subscriber produces it. Consumers MUST therefore bound their membership-derived caches by TTL rather than rely on that event, until an expiry job emits it (§11). `terms.updated` and `group.*` carry `groupId` and no `customerId` (`lib/groupEvents.ts:19-49`). Consumers that cache per buyer need a per-group tag (for example `customer-group:{groupId}`) to honor the "every member of the group" duty below.
 
 `customer_groups.membership.added` and `.removed` MUST invalidate any cached buyer context and any price cache keyed on that customer — see R2. `customer_groups.terms.updated` carries the same duty for every member of the group, since a terms change alters their resolved pricing.
 
@@ -834,7 +932,9 @@ A portal request for another company's approval answers `404` with the unknown-r
 
 ### 10.1 Phases 3–4 payloads (added 2026-10-26)
 
-Every new payload carries `tenantId` and `organizationId` (D-R5-32) and no personal data: no names, e-mails or notes, consistent with checkout's redaction rule. Amounts are 2-dp decimal strings. Events are emitted after the writing transaction commits.
+Every new payload carries `tenantId` and `organizationId` (D-R5-32) and no personal data: no names, e-mails or notes, consistent with checkout's redaction rule (user ids are identifiers, not personal data). Amounts are 2-dp decimal strings. Events are emitted after the writing transaction commits; on the factory path the caller emits them after its own commit (§6.3).
+
+**Credit entry events (D-R5-CG2).** `credit.reserved`, `.released`, `.settled` and `.adjusted` are declared and emitted, one per newly written ledger entry of that type: a reinstatement emits `credit.reserved`, the undo of an adjust emits `credit.adjusted`. An idempotent replay writes nothing and emits nothing. They are available to webhooks; no Release 5 module subscribes.
 
 ```typescript
 type CreditEntryEventPayload = {   // credit.reserved | .released | .settled | .adjusted
@@ -852,13 +952,13 @@ type CreditLimitExceededPayload = {   // credit.limit_exceeded, emitted on a ref
   sourceType: 'checkout' | 'order'; sourceId: string
 }
 
-type CreditAccountHoldPayload = {   // credit_account.put_on_hold | .released_from_hold
-  tenantId: string; organizationId: string
-  creditAccountId: string; customerId: string; currencyCode: string
-}
-
 type ApprovalEventPayload = {   // approval.requested | .approved | .rejected | .expired | .withdrawn
   tenantId: string; organizationId: string
+  // Portal SSE audience (required, D-R5-6, C3): CustomerUser ids of the requester (when a customer_user
+  // of the approval's company) and of the company's users holding customer_groups.portal.approvals.decide.
+  // At most 100 deciders. Never empty: with no recipient it is ['00000000-0000-0000-0000-000000000000'],
+  // so the portal stream never falls back to delivering to the whole organization.
+  recipientUserIds: string[]
   approvalId: string; customerId: string
   subjectType: 'cart' | 'quote'; subjectId: string
   amountGross: string; currencyCode: string
@@ -868,11 +968,11 @@ type ApprovalEventPayload = {   // approval.requested | .approved | .rejected | 
   merchantDecision: 'pending' | 'approved' | 'rejected' | 'not_required'
   requestedBy: { actorType: 'customer_user' | 'staff_user'; actorId: string }
   decidedBy?: { actorType: 'customer_user' | 'staff_user' | 'system'; actorId: string | null }
-  withdrawnReason?: 'requester' | 'cart_merged' | 'cart_expired' | 'cart_purged'
+  withdrawnReason?: 'requester' | 'cart_merged' | 'cart_expired' | 'cart_purged' | 'cart_converted_as_quote'
 }
 ```
 
-`approval.*` events are declared with `portalBroadcast: true` (D-R5-6), so a portal client of the approval's company can follow them, and are available to webhooks. `cart` and `checkout` subscribe to them persistently and idempotently to resume or clear their subject (cart §11, checkout §8.2); `customer_groups` imports neither (§4.2).
+`approval.*` events are declared with `portalBroadcast: true` (D-R5-6) and are available to webhooks. The portal stream scopes delivery by tenant, organization and `recipientUserIds` (`customer_accounts/api/portal/events/stream.ts`), so only the listed users of the approval's company receive an event; another company's users of the same organization never do. Every emitter (the service, the expiry job, withdraw by the cart) computes the audience with one shared helper. Release 5 checks the portal feature once per company user, within the cap of 100; a batched RBAC check is a follow-up (#8461). `cart` and `checkout` subscribe to them persistently and idempotently to resume or clear their subject (cart §11, checkout §8.2); `customer_groups` imports neither (§4.2).
 
 ### 10.2 Notifications and e-mail (added 2026-10-26)
 
@@ -882,15 +982,18 @@ type ApprovalEventPayload = {   // approval.requested | .approved | .rejected | 
 
 | Type id | Trigger | Recipients |
 |---|---|---|
-| `customer_groups.credit.limit_exceeded` | `credit.limit_exceeded` | The company's `account_manager` (`customers.CustomerEntityRole`); without one, staff holding `customer_groups.credit.manage` in the organization |
-| `customer_groups.approval.requested` | `approval.requested` with policy `merchant` or `both` | Staff holding `customer_groups.approvals.decide` in the organization |
+| `customer_groups.credit.limit_exceeded` | `credit.limit_exceeded`; also the `credit-exposure-audit` worker for a drifting account whose exposure is above its limit | The company's `account_manager` (`customers.CustomerEntityRole`); without one, staff holding `customer_groups.credit.manage` in the organization. Links to the order when `sourceType` is `'order'`, otherwise to the company |
+| `customer_groups.credit.reinstatement_refused` | A refused reinstatement (§6.5, D-R5-CG1), any reason | Same recipients as `credit.limit_exceeded`. Links to the order. For a `limit_exceeded` refusal it replaces the `credit.limit_exceeded` notification for that order, so the operator gets one notification |
+| `customer_groups.approval.requested` | `approval.requested` with policy `merchant` or `both` | Staff holding `customer_groups.approvals.decide` in the organization. Links to the company's detail page until the staff approvals page ships (D-R5-CG4) |
 
 **E-mail to buyer-side users** through the shared `sendEmail` pipeline, with templates and i18n in this module:
 
 | Trigger | Recipients |
 |---|---|
-| `approval.requested` with policy `buyer` or `both` | Every `CustomerUser` of the approval's company holding `customer_groups.portal.approvals.decide`, except the requester |
+| `approval.requested` with policy `buyer` or `both` | Every `CustomerUser` of the approval's company holding `customer_groups.portal.approvals.decide`, except the requester (at most 100, the §10.1 audience cap) |
 | `approval.approved`, `.rejected`, `.expired` | The requester, when a `customer_user` |
+
+The e-mail link points into the customer portal, built with `urlForCustomerOrg` (`customer_accounts/lib/customerUrl.ts`). That helper requires `PLATFORM_PORTAL_BASE_URL` in production and throws without it, so the variable is a deployment requirement of this feature (§8.4). Before sending a `requested` e-mail the subscriber re-reads the request and skips it when it is no longer pending. Each sent e-mail is recorded in the delivery ledger (§5.6a), so a redelivered event does not send it twice. A failed send calls `reportError`.
 
 E-mail is on by default and can be switched off per tenant through `ModuleConfigService` (key `customer_groups.approval_emails_enabled`), for integrators who notify through their own storefront (D-R5-6). Every eligible decider is notified; the first decision closes the slot (§6.6). A notification for a staff requester (`approval.decided`) is not declared in Release 5, because no Release 5 path creates a staff-requested approval (X7).
 
@@ -903,10 +1006,22 @@ A blocked B2B checkout that nobody is told about becomes a support ticket; that 
 | Job | Cadence | Purpose |
 |---|---|---|
 | `expire-memberships` | hourly | Emit `.expired` for memberships whose `valid_until` has passed; invalidate caches |
-| `expire-approvals` | hourly | Transition `pending` approvals past `expires_at` to `expired` with the §6.6 conditional update (`status = 'pending' AND expires_at <= now()`), per tenant in batches. Emits `customer_groups.approval.expired` once per row actually updated; a row a concurrent decision won is skipped silently. Safe to re-run |
-| `credit-exposure-audit` | daily, or on demand | Queue worker (`packages/queue/AGENTS.md`), one job per tenant, idempotent. Recomputes `SUM(amount)` per account and compares it with the latest `balance_after`. Meaningful because §6.3 writes `balance_after` under the row lock. Drift means a bug, so each drifting account is logged and passed to `reportError`, and the job result lists them. Triggered from the credit list it runs as a `ProgressJob` |
+| `expire-approvals` | hourly | Transition `pending` approvals past `expires_at` to `expired` with the §6.6 conditional update (`status = 'pending' AND expires_at <= now()`, database clock), per tenant in batches of 200. Emits `customer_groups.approval.expired` (with `recipientUserIds`) once per row actually updated; a row a concurrent decision won is skipped silently. Safe to re-run |
+| `credit-exposure-audit` | daily (cron `0 3 * * *`) | Queue worker (`packages/queue/AGENTS.md`), one job per organization, idempotent. Recomputes `SUM(amount)` per account and compares it with the `balance_after` of the latest entry (ordered by `created_at`, then `id`). Meaningful because §6.3 writes `balance_after` under the row lock. Drift means a bug, so each drifting account is logged and passed to `reportError`; the job result holds the counts. A drifting account whose exposure is above its limit also gets the `credit.limit_exceeded` notification (§10.2). An on-demand "run now" trigger as a `ProgressJob` from the credit list, with the list of drifting accounts, is deferred to the follow-up of D-R5-CG4 |
 
-**Subscriber** (persistent, idempotent): `sales.order.cancelled` → `customer_groups` finds the reservation with `linked_order_id = orderId` in the event's tenant and organization and calls `releaseCredit` with its key (D-R5-2). An order without a linked reservation is ignored. A replayed event is a no-op by rule 4 of §6.5.
+**Registration.** Both schedules are registered per scope by one helper: `seedDefaults` calls it for a new tenant, and the `configs` upgrade action `customer_groups.register-schedules` calls it for existing tenants (#8822). Without the action, approvals never expire and exposure drift is never audited on tenants that existed before the upgrade.
+
+**Error reporting.** Every catch in these jobs and in the subscribers below that logs an error also calls `reportError` (root `AGENTS.md`, logging row); logging alone is not enough.
+
+**Order-lifecycle subscribers** (persistent, idempotent; §6.5 "Order lifecycle"; prerequisite: step SA2a, D-R5-CG8):
+
+| Event | Handler |
+|---|---|
+| `sales.order.cancelled` | Under the per-order advisory lock, if the order's current status is cancelled (`isCancelledOrderStatus`), release the open amount of every reservation with `linked_order_id = orderId` in the event's tenant and organization (D-R5-2). An order without a linked reservation is ignored; a replay is a no-op by rule 4 of §6.5 |
+| `sales.order.deleted` | Same handler; acts only when the order row no longer exists (D-R5-CG1) |
+| `sales.order.revived`, `sales.order.confirmed` | One state-based reinstatement handler: under the same lock, if the order exists and is not cancelled, reserve again the released amount of each released linked reservation under `reinstate:{reserveKey}` and link it (D-R5-CG1, D-R5-CG7, D-R5-CG9). A refusal calls `reportError` and notifies (`credit.reinstatement_refused`) |
+
+Before SA2a adds `sales.order.revived` and makes `sales.order.cancelled`, `.confirmed`, `.deleted` and `.revived` persistent emits, delivery of these events is best-effort and a failed handler is not redelivered.
 
 ---
 
@@ -914,7 +1029,7 @@ A blocked B2B checkout that nobody is told about becomes a support ticket; that 
 
 | # | Risk | Severity | Area | Failure scenario | Mitigation | Residual |
 |---|---|---|---|---|---|---|
-| R1 | Concurrent credit overshoot | **Critical** | `customer_groups`, `checkout` | Two purchase-on-account checkouts for the same company each read exposure 80k against a 100k limit, each reserves 30k, exposure lands at 140k. The tenant has extended 40k of unsecured credit it never approved. The same happens if the guard silently weakens when called inside checkout's transaction. | `PESSIMISTIC_WRITE` lock on the credit account row around re-sum and append, inside `withAtomicFlush(…, { transaction: true })`, which joins an outer transaction (§6.3, the Release 4 promotions mechanism). Credit resolves to the company in every channel (§6.5), so a person and their company cannot hold two parallel limits. Merge gate: N=20 parallel reservations against a limit admitting 3 reserve exactly 3, standalone **and** each inside an outer transaction | Low. Same-company on-account checkouts serialize for the length of one short transaction |
+| R1 | Concurrent credit overshoot | **Critical** | `customer_groups`, `checkout` | Two purchase-on-account checkouts for the same company each read exposure 80k against a 100k limit, each reserves 30k, exposure lands at 140k. The tenant has extended 40k of unsecured credit it never approved. The same happens if the guard silently weakens when called inside a caller's transaction. | `PESSIMISTIC_WRITE` lock on the credit account row around re-sum and append, inside `withAtomicFlush(…, { transaction: true })` on the service's own `em`; checkout reserves in its own step transaction, other callers join through the factory (§6.3, the Release 4 promotions mechanism). Credit resolves to the company in every channel (§6.5), so a person and their company cannot hold two parallel limits. Merge gate: N=20 parallel reservations against a limit admitting 3 reserve exactly 3, standalone **and** each inside an outer transaction, on real Postgres with pool size = concurrency | Low. Same-company on-account checkouts serialize for the length of one short transaction |
 | R2 | Stale group membership in cache | **High** | `catalog`, `ecommerce` | A customer is removed from "Wholesale" at 14:00; a price cached at 13:59 keyed only on product+channel keeps serving the wholesale price for the rest of its TTL. Revenue loss, and the reverse case discloses contract pricing. | Buyer-context digest (ADR-7) includes the sorted group id set; `membership.added`/`.removed` invalidate by tag `customer:{id}`; membership expiry runs hourly and also invalidates | Medium — a membership expiring between hourly runs serves a stale group for up to an hour; acceptable for `valid_until`, which is operator-scheduled, and documented |
 | R3 | Orphan ids silently change prices | **High** | `catalog`, `sales` | An operator creates a group and, coincidentally or by copying, its id collides with an invented one already in price rows. Rows that previously never matched suddenly apply. | Generated UUIDs make accidental collision negligible; the real vector is `--adopt`, which is explicit and reversible; reconciliation report runs before any group creation is recommended in the rollout note | Low |
 | R4 | Priority uniqueness blocks bulk import | Medium | `customer_groups` | Unique `(tenant_id, priority)` makes importing a group list fail on the first collision, mid-import. | Import assigns priorities in gaps of 10 and renumbers on conflict; the admin list supports drag-reorder which rewrites priorities in one transaction | Low |
@@ -922,9 +1037,15 @@ A blocked B2B checkout that nobody is told about becomes a support ticket; that 
 | R6 | Deep group hierarchies degrade resolution | Low | `customer_groups` | Recursive ancestor walks on every price call. | Depth capped at 5; resolution result cached per `(customerId, date-bucket)` for 60s with tag `customer:{id}` | Low |
 | R7 | `PricingContext` change breaks third-party modules | Medium | `catalog` | A third-party module constructs `PricingContext` with `customerGroupId` and stops matching after the change. | Field retained and normalized for ≥1 minor version with `@deprecated`; documented in `UPGRADE_NOTES.md`; per `BACKWARD_COMPATIBILITY.md` this is ADDITIVE plus deprecation | Low |
 | R8 | Approval double-decision | High | `customer_groups`, `cart`, `checkout` | Two approvers of the same side open the request; both pass a header check made before either writes; one approves, one rejects, and the cart resumes on whichever event arrives last. Or the expiry job (no header) expires a request a decider just approved. | Every transition is a conditional update on `status = 'pending'` and on the caller's slot (§6.6); zero rows is `409 approval_not_pending`. Decide and expiry use disjoint `expires_at` conditions. The `updated_at` header stays as the UX layer for `surfaceRecordConflict` | Low |
-| R9 | Exposure never decreases | High | `customer_groups`, operators | Release 5 has no automatic payment settlement. A customer pays every invoice and still reaches `limit_exceeded`; operators "fix" it with ad-hoc adjusts. | Hybrid settlement (D-R5-2, §6.5): automatic release on `sales.order.cancelled`; payments settled by an integration through `settleCredit` or by an operator through `/adjust`, stated plainly in the user docs; the ledger and the audit job make every movement visible | Medium. Without an integration, settlement is manual work. An account-level settle for an order that is later cancelled lowers exposure twice; integrations pass `reserveIdempotencyKey` when a payment belongs to an order, and the ledger shows the pair |
+| R9 | Exposure never decreases | High | `customer_groups`, operators | Release 5 has no automatic payment settlement. A customer pays every invoice and still reaches `limit_exceeded`; operators "fix" it with ad-hoc adjusts. | Hybrid settlement (D-R5-2, §6.5): automatic release on `sales.order.cancelled` and `sales.order.deleted`; payments settled by an integration through `settleCredit` or by an operator through `/adjust`, stated plainly in the user docs; the ledger and the audit job make every movement visible | Medium. Without an integration, settlement is manual work. An account-level settle for an order that is later cancelled lowers exposure twice; integrations pass `reserveIdempotencyKey` when a payment belongs to an order, and the ledger shows the pair |
 | R10 | Duplicate approvals for one purchase | Medium | `customer_groups`, `cart`, `checkout` | Cart and checkout each create an approval for the same purchase; one is approved, one rejected; the subject resumes on whichever arrives last. | The cart is the one subject (D-R5-3); checkout delegates to `cart.approval.request`; a partial unique index allows one pending request per subject and `requestApproval` returns the existing one; `Cart.approvalId` is authoritative | Low |
-| R11 | No eligible decider | Medium | `customer_groups`, buyers | Policy `buyer`, and the requester is the company's only `portal_admin`: nobody can decide, since self-approval is refused. The request waits until it expires. | The request stays visible as pending in the portal and staff lists. The company grants the portal decide feature to another user, or the operator moves the group to `merchant` or `both` and the buyer withdraws and re-requests (the policy is snapshotted per request) | Medium, documented in the user docs |
+| R11 | No eligible decider | Medium | `customer_groups`, buyers | Policy `buyer`, and the requester is the company's only `portal_admin`: nobody can decide, since self-approval is refused. The request waits until it expires. | The request stays visible as pending in the portal list and the staff approval API. The company grants the portal decide feature to another user, or the operator moves the group to `merchant` or `both` and the buyer withdraws and re-requests (the policy is snapshotted per request) | Medium, documented in the user docs |
+| R12 | Cross-company approval leak over portal SSE | High | `customer_groups`, `customer_accounts` | An `approval.*` event without an audience reaches every portal user of the organization: one company sees another's purchase requests and amounts. | Required `recipientUserIds` with a sentinel when empty (§10.1); a two-company SSE isolation test (§13) | Low |
+| R13 | Plaintext notes on existing tenants | High | `customer_groups` | The encryption maps apply to new tenants only; hold reasons and decision notes of tenants created before the upgrade are stored unencrypted. | Three `buildEncryptionMapBackfillSql` migrations (§8.4) and an encryption-enabled test asserting ciphertext at rest (§13) | Low |
+| R14 | Order lifecycle desync | Medium | `customer_groups`, `sales` | An undo of a cancel or a delete, or a revival through intermediate statuses, leaves a live order with no credit held (#8404, #8406, #9073); or a stale redelivery releases a reinstated hold. | Release on delete and state-based reinstatement under a per-order advisory lock with a status re-read (§6.5, D-R5-CG1, D-R5-CG7); a refused reinstatement reports and notifies with the order link; persistent sales emits from SA2a (D-R5-CG8) | Medium: a refused reinstatement leaves a live order without credit until an operator acts; before SA2a a failed handler is not redelivered |
+| R15 | Approval e-mails never delivered | Medium | `customer_groups`, deployment | Without `PLATFORM_PORTAL_BASE_URL`, `urlForCustomerOrg` throws in production and buyer-side deciders never learn of a request (#8424). | Stated as a deployment requirement in `UPGRADE_NOTES.md` and `.env.example` (§8.4); the failure calls `reportError` | Low |
+| R16 | Jobs missing on existing tenants | Medium | `customer_groups` | `seedDefaults` runs for new tenants only: approvals never expire and the exposure audit never runs on upgraded tenants (#8822). | `customer_groups.register-schedules` upgrade action (§8.4, §11) | Low |
+| R17 | Mistaken adjustment creates prepaid credit | Low | `customer_groups`, operators | An `adjust` or `settle` drives exposure below zero, so `available` exceeds the limit and the customer can buy above it. | Allowed by D-R5-CG3; the credit panel warns when `available > credit_limit`; the ledger shows the entry and its actor; the adjust is undoable | Low |
 
 ---
 
@@ -944,41 +1065,68 @@ Per `.ai/qa/AGENTS.md`, shipping in the same change. Tests create their own fixt
 - Reconciliation lists orphans and `--adopt` creates inactive placeholders
 - Anonymous (`customerId: null`) resolves to the default group without error
 
-**Phase 3 — credit.** Every test runs with a second-tenant fixture **and** a second company in the same organization, and asserts neither can read or move the other's account. API paths: `GET/POST …/credit-accounts`, `GET/PUT …/credit-accounts/:id`, `GET …/credit-accounts/missing`, `GET …/credit-accounts/:id/ledger`, `POST …/credit-accounts/:id/adjust`, each with a caller lacking the feature (`403`).
+**Phase 3 — terms (CG1).**
+- `terms_currency_code` `eur` (lowercase) or `EURO` answers `400`; `EUR` is stored
+- `resolveTerms` with `organizationId` and no group setting `terms_currency_code` returns the organization's base currency with `sources.termsCurrencyCode = 'base_currency'`; without `organizationId`, or for an organization without a base currency, it returns `null` (D-R5-37); explain-terms renders the sentinel as the base currency, not as a group
+
+**Phase 3 — credit.** Every test runs with a second-tenant fixture **and** a second company in the same organization, and asserts neither can read or move the other's account. API paths: `GET/POST/PUT …/credit-accounts` (detail by `?id=`), `GET …/credit-accounts/:id/ledger`, `POST …/credit-accounts/:id/adjust`, each with a caller lacking the feature (`403`). `GET …/credit-accounts/missing` is deferred with its banner (D-R5-CG4).
 - `reserveCredit` under N=20 parallel calls against a limit admitting 3 reserves exactly 3
-- The same N=20 test with each `reserveCredit` called inside an outer transaction (G1)
+- The same N=20 test with each `reserveCredit` called inside an outer transaction through `customerCreditServiceFactory` (G1, kept as a guard)
+- The N=20 test on real Postgres with the pool size equal to the concurrency completes without a pool timeout (#8414)
+- An outer transaction that rolls back after a factory-path `reserveCredit` publishes no `credit.reserved` event (§6.3)
+- `reserveCredit` and `settleCredit` with amount `0` or `-1` answer `400 invalid_amount`; an `adjust` of `0` likewise
+- `settleCredit` with a `reserveIdempotencyKey` that names no reservation answers `404 reservation_not_found`; `linkCreditReservationToOrder` with an unknown key returns `{ linked: false, entryId: null }`
+- A service error reaches the route as its §9.2 code and status (not `500`) in a production build (duck-typed guard, #8820)
 - Repeated key with identical inputs returns the original entry; with a different amount answers `409 idempotency_key_mismatch` (G12)
 - A released key is not reusable: `reserved: false, released: true`
 - `releaseCredit` twice writes one entry; release after a partial settle releases only the open amount; release after a full settle writes nothing
 - `settleCredit` above the open amount answers `400 settle_exceeds_reservation`
 - `linkCreditReservationToOrder` then `sales.order.cancelled` releases the open amount; a replayed event is a no-op
+- `sales.order.deleted` releases the open amount; a redelivery after the undo of the delete releases nothing (D-R5-CG1)
+- Undo of a cancellation reserves again under `reinstate:{reserveKey}` and links it to the order; after reserve 100, settle 40, cancel, the reinstated amount is 60
+- A revival Canceled → On hold → Confirmed, and a revival from cancelled to `draft` delivered only as `sales.order.revived`, both reinstate (D-R5-CG7, D-R5-CG9); an ordinary first confirmation writes nothing
+- The undo of a delete restores the hold (D-R5-CG1)
+- A stale `sales.order.confirmed` delivered after a second cancellation reinstates nothing; a stale `sales.order.cancelled` delivered after a revival releases nothing (advisory lock and status re-read)
+- An order with status `cancelled` and one with `canceled` are both treated as cancelled (`isCancelledOrderStatus`)
+- A refused reinstatement (account on hold; limit now exceeded) leaves the order live, calls `reportError` and creates one `customer_groups.credit.reinstatement_refused` notification linking to the order
 - `on_hold` refuses regardless of exposure; `no_account` with no account in the currency; `not_permitted` when terms forbid purchase on account
 - A person + company `customerIds` input resolves to the company's account (G11)
-- Decimal inputs with 4 dp round half-up to 2 dp; the audit then reports zero drift
+- Decimal inputs with 4 dp round half-up to 2 dp (`0.005 → 0.01`, `-0.005 → -0.01`); the audit then reports zero drift; an amount with more significant digits than a float holds is stored exactly
 - Exposure equals `SUM(amount)`; the daily audit reports zero drift
 - A refused reserve emits `customer_groups.credit.limit_exceeded` and creates the in-app notification for the account manager
-- `adjust` appends an entry with a required note; its undo appends the inverse entry and deletes nothing
-- `POST …/credit-accounts` for an existing customer and currency answers `409 credit_account_exists`; `is_on_hold: true` without `hold_reason` answers `400`
-- `PUT …/credit-accounts/:id` with a stale header answers the optimistic-lock `409`; a reservation in between does not cause one
+- A new reserve, release and settle each emit `credit.reserved`, `.released`, `.settled` once, with `tenantId` and `organizationId`; an idempotent replay emits nothing (D-R5-CG2)
+- `adjust` appends an entry with a required note and emits `credit.adjusted`; its undo appends the inverse entry, emits `credit.adjusted` and deletes nothing; the entry and the audit log commit together
+- An `adjust` driving exposure below zero is accepted and the account then reports `available > credit_limit` (D-R5-CG3)
+- `POST …/credit-accounts` for an existing customer and currency answers `409 credit_account_exists`; for a currency with `decimal_places` 0 or 3 answers `400 credit_currency_unsupported` (D-R5-CG5); `is_on_hold: true` without `hold_reason` answers `400`
+- `PUT …/credit-accounts` changing the limit runs `customer_groups.credit_account.update`: an audit entry with before and after values, and its undo restores them (D-R5-CG6); turning the hold off clears `hold_reason`
+- `PUT …/credit-accounts` with a stale header answers the optimistic-lock `409`; a reservation in between does not cause one
+- With encryption enabled, the backfill migrations leave `hold_reason`, ledger `note` and both decision notes as ciphertext at rest on a tenant created before the migration (C4)
+- The `customer_groups.register-schedules` upgrade action registers both schedules on an existing tenant, and a second run creates no duplicate
 
-**Phase 4 — approvals.** Same isolation fixtures, plus a second company's `CustomerUser` holding the portal decide feature. API paths: `GET …/approvals`, `POST …/approvals/:id/decide`, `GET /api/customer_groups/portal/approvals`, `GET …/portal/approvals/:id`, `POST …/portal/approvals/:id/decide`, `POST …/portal/approvals/:id/withdraw`, each without the feature (`403`) and, for portal routes, without a customer session (`401`). Requests are created through the cart's `request-approval` route, since there is no create route; the service-level cases below are first covered by unit tests against `customerPurchaseApprovalService`, and the API-level tests ship once the cart route exists (§14).
-- `resolveTerms` with no group setting `terms_currency_code` returns the organization's base currency with `sources.termsCurrencyCode = 'base_currency'`; an organization without a base currency returns `null` (D-R5-37)
-- `requestApproval` twice for the same cart returns one request (`created: false`), also under concurrency (G8)
+**Phase 4 — approvals.** Same isolation fixtures, plus a second company's `CustomerUser` holding the portal decide feature. API paths: `GET …/approvals`, `GET …/approvals/:id`, `POST …/approvals/:id/decide`, `GET /api/customer_groups/portal/approvals`, `GET …/portal/approvals/:id`, `POST …/portal/approvals/:id/decide`, `POST …/portal/approvals/:id/withdraw`, each without the feature (`403`) and, for portal routes, without a customer session (`401`). Requests are created through the cart's `request-approval` route, since there is no create route; the service-level cases below are first covered by unit tests against `customerPurchaseApprovalService`, and the API-level tests ship once the cart route exists (§14).
+- `requestApproval` twice for the same cart returns one request (`created: false`), also under concurrency (G8), and also when the losing call runs inside an outer transaction, which stays usable
+- `requestApproval` for a buyer with no company entity answers `400 invalid_buyer`
 - Policy `buyer`: a portal approver's approval approves; a merchant decide answers `409 approval_not_pending` (slot `not_required`)
 - Policy `merchant`: the mirror case
 - Policy `both`: buyer then merchant approve → `approved`; merchant first then buyer → `approved`; either rejects → `rejected`; simultaneous decisions from both sides end correctly
-- Double decide on the same slot: one wins, the other gets `409 approval_not_pending` (G6)
+- Double decide on the same slot: one wins, the other gets `409 approval_not_pending` (G6) whose body names the winning decider
 - Decide versus expiry at the boundary instant: exactly one transition lands
+- A pending request past `expires_at` that the job has not processed reads as `status: 'expired'` and refuses decide and withdraw with `409 approval_not_pending`
 - Self-approval refused with `403 approval_self_decision_forbidden` (G24)
 - A portal approver of another company gets `404` on read, decide and withdraw (D-R5-1, G5)
-- A `buyer` without the decide feature sees only own requests; withdraw by a non-requester answers `403 approval_withdraw_forbidden`
+- A `buyer` without the decide feature sees only own requests; withdraw of a request the caller cannot see answers `404`; withdraw by a decider who can see the request but is not its requester answers `403 approval_withdraw_forbidden`
+- Locking a cart with `purpose: 'quote'` withdraws its pending request with `withdrawnReason: 'cart_converted_as_quote'`
 - A policy change on the group after the request does not change the pending request's slots
 - Default expiry is 14 days; the tenant setting overrides it (D-R5-27)
 - `expire-approvals` emits `.expired` once per row and skips a row a decision won
 - `approval.requested` creates the in-app notification for merchant deciders (policy `merchant`/`both`) and sends the e-mail to buyer deciders (policy `buyer`/`both`); with the tenant e-mail switch off, no e-mail is sent
-- Every `approval.*` payload carries `tenantId` and `organizationId`
+- A redelivered `approval.requested` sends no second e-mail to a recipient already in the delivery ledger (§5.6a); a request withdrawn before the subscriber runs sends no `requested` e-mail
+- Every `approval.*` payload carries `tenantId`, `organizationId` and a non-empty `recipientUserIds`
+- Portal SSE isolation: with two companies in one organization, a portal user of company B receives no `approval.*` event of company A; a buyer without the decide feature receives only events of their own requests (C3)
 
-**UI paths:** group list with drag-reorder, group edit with terms (including the default-group threshold warning), membership assignment from the customer detail page, credit panel with account edit and optimistic-lock conflict, ledger view, adjust dialog, the "no credit account" banner, staff approval list and decision with conflict, orphan banner.
+**UI paths (Release 5):** group list with drag-reorder, group edit with terms — the four new fields with Inherit, the default-group threshold warning and the missing-currency warning (#8663) — membership assignment from the customer detail page, credit panel with account edit (limit and hold through the command) and optimistic-lock conflict, the `available < 0` and `available > credit_limit` states, ledger view, adjust dialog, orphan banner.
+
+**Deferred with their screens (D-R5-CG4):** the "no credit account" banner and the account-form pre-fill, and the staff approval list and decision dialog with conflict. Their UI tests ship with the follow-up.
 
 ---
 
@@ -995,18 +1143,31 @@ Entities `CustomerGroup`, `CustomerGroupMembership`; `resolveGroups`; admin CRUD
 **Gate:** terms resolve correctly across a 3-level hierarchy; the deprecated single-value path is behaviourally identical.
 
 ### Phase 3 — Credit
-Steps, in order:
-1. **Lock path first.** `CustomerCreditAccount`, `CustomerCreditLedgerEntry` and `customerCreditService.reserveCredit` with the §6.3 row lock, with the N=20 test and the nested-transaction test, as its own reviewable step before any route.
-2. The rest of `customerCreditService` (`checkCredit`, `releaseCredit`, `settleCredit`, `linkCreditReservationToOrder`) with the §6.5 idempotency rules and identity resolution; the `sales.order.cancelled` subscriber.
-3. Staff routes, the `adjust` command with undo, `encryption.ts`, ACL features and grants, `notifications.ts` with `credit.limit_exceeded`, events with §10.1 payloads.
-4. Admin credit panel, ledger, adjust dialog, "no credit account" banner; `credit-exposure-audit` worker.
+Re-land steps, in order (one PR each; the ids match the Release 5 re-landing plan). Every step that adds a contract also adds its `UPGRADE_NOTES.md` entry (§8.4).
 
-**Gate:** the N=20 test passes standalone and inside an outer transaction; every §6.5 idempotency rule is tested; a cancelled order releases its open reservation; the audit reports zero drift; tenant and company isolation hold on every route.
+| Step | Scope | Depends on | Gate |
+|---|---|---|---|
+| **CG1** — terms | The four new `CustomerGroupTerms` columns (§5.3, ISO currency validation), their `ResolvedTerms` fields and `sources` entries, `organizationId` on `resolveTerms` and the `'base_currency'` sentinel (§6, §6.0), explain-terms rows, and the terms-form fields with the default-group and missing-currency warnings (§7.3, D-R5-CG4) | — | The §13 CG1 tests pass; the UPGRADE override note exists; the terms-form UI path passes |
+| **CG2a** — credit schema | `CustomerCreditAccount`, `CustomerCreditLedgerEntry` with `numeric`/`ExactDecimalType` money (§5.4, §5.5), the migration with `down()`, `encryption.ts` for the two credit maps and their two backfill migrations (§8.4) | CG1 | Migration up and down run; the encryption-enabled backfill test asserts ciphertext at rest |
+| **CG2b** — credit service | `customerCreditService` and `customerCreditServiceFactory` (§6): the §6.3 row lock, SQL `SUM`, identity reads through `em.execute`, the §5.5 rounding rule with `@open-mercato/shared/lib/decimal`, the §6.5 idempotency rules, `credit.reserved` / `.released` / `.settled` events with after-commit emission (§6.3), the real-Postgres concurrency suite and its CI wiring | CG2a | N=20 passes standalone, inside an outer transaction and with pool size = concurrency; every §6.5 idempotency rule and the amount-sign rule are tested; a rolled-back caller publishes no event |
+| **CG3a** — admin API | Staff credit-account and ledger routes (§9) with the `customer_groups.credit_account.update` command (D-R5-CG6), the currency-precision refusal (D-R5-CG5), ACL features and grants (§9.1), the §9.2 error shape with duck-typed guards | CG2b | Every §13 credit API path passes with tenant and company isolation and `403` without the feature; the update command's audit and undo are tested |
+| **CG3b** — adjust | The `customer_groups.credit.adjust` command and `/adjust` route, `adjustCredit` on the command's transactional `em`, `credit.adjusted`, the adjust key scheme (§5.5) | CG2b, CG3a | Adjust and its undo are atomic with the audit log; a client key replays; exposure below zero is accepted (D-R5-CG3) |
+| **CG4** — credit panel | The injected credit panel: account, ledger, adjust dialog, company-first account creation, `available < 0` and prepaid warnings (§7.3). No banner, no pre-fill (D-R5-CG4) | CG3a, CG3b | The §13 Release 5 credit UI paths pass |
+| **CG5a** — notifications and audit worker | `notifications.ts` with `credit.limit_exceeded` and `credit.reinstatement_refused`, the limit-exceeded subscriber, the `credit-exposure-audit` worker per organization, schedule registration in `seedDefaults` and the `customer_groups.register-schedules` upgrade action, `reportError` in every catch (§10.2, §11) | CG2b, CG4 | A refused reserve notifies the account manager; the audit reports zero drift; the upgrade action registers both schedules on an existing tenant |
+| **CG5b** — order-lifecycle subscribers | Release on `sales.order.cancelled` and `.deleted`, state-based reinstatement on `sales.order.revived` and `.confirmed`, the per-order advisory lock, the `isCancelledOrderStatus` status read (§6.5, §11; D-R5-CG1, D-R5-CG7) | CG2b, CG5a, **SA2a** (persistent sales emits, D-R5-CG8) | Every §13 order-lifecycle case passes, including the stale-redelivery and refused-reinstatement cases |
+
+**Phase gate:** all step gates pass; a cancelled or deleted order releases its open reservation and a revived or restored one gets it back; tenant and company isolation hold on every route.
 
 ### Phase 4 — Approvals
-`CustomerPurchaseApproval` with the two-slot model; the four new `CustomerGroupTerms` columns and their `ResolvedTerms` fields; `customerPurchaseApprovalService` with the §6.6 conditional transitions; staff and portal routes; portal features and grants; `approval.*` events with `portalBroadcast`; in-app notification for merchant deciders and e-mail for buyer deciders with the tenant switch; `expire-approvals` with the conditional update; terms-form fields and the default-group warning. Lands before the cart approval gate (cart Phase 4), which calls it.
+`CustomerPurchaseApproval` with the two-slot model; `customerPurchaseApprovalService` with the §6.6 conditional transitions; staff and portal routes; portal features and grants; `approval.*` events with `portalBroadcast` and `recipientUserIds`; in-app notification for merchant deciders and e-mail for buyer deciders with the tenant switch; `expire-approvals` with the conditional update. The four terms columns ship earlier, in CG1. The staff approvals page is deferred (D-R5-CG4). Lands before the cart approval gate (cart Phase 4), which calls it.
 
-**Gate:** service tests cover every §6.6 transition, the three policies, the double decision, the decide/expiry boundary and self-approval; portal routes refuse another company. Once the cart approval gate lands, the §13 API tests pass end to end: an over-threshold cart cannot lock until its request is approved.
+| Step | Scope | Depends on | Gate |
+|---|---|---|---|
+| **CG6** — approvals core | `CustomerPurchaseApproval` (§5.6) with its migration and the decision-notes encryption map plus its backfill migration; `customerPurchaseApprovalService` and `customerPurchaseApprovalServiceFactory` (§6), the §6.6 conditional transitions with the database clock, derived expiry, `ON CONFLICT` request creation, the company-required identity rule; `approval.*` events with `recipientUserIds` (§10.1); `expire-approvals` and its schedule | CG1, CG2b, CG5b | Service tests cover every §6.6 transition, the three policies, the double decision, the decide/expiry boundary, self-approval and derived expiry; every payload carries a non-empty `recipientUserIds` |
+| **CG7** — routes | Staff list, detail and decide routes; portal list, detail, decide and withdraw routes with in-handler customer auth (§9); portal features and grants (§9.1); the approval error codes (§9.2); uuid-validated `ids` | CG6 | Every §13 approval API path passes, including `401`/`403`, another company's `404`, and the withdraw `404`/`403` split; the two-company SSE isolation test passes |
+| **CG8** — notifications | The in-app `approval.requested` notification; approval e-mails through `sendEmail` with the tenant switch, the pending re-check and the delivery ledger (§5.6a, §10.2); the `PLATFORM_PORTAL_BASE_URL` UPGRADE note and `.env.example` entry | CG6, CG7 | The §13 notification and e-mail cases pass, including the redelivery case |
+
+**Phase gate:** all step gates pass; portal routes and the portal stream refuse another company. Once the cart approval gate lands, the §13 API tests pass end to end: an over-threshold cart cannot lock until its request is approved.
 
 ### Phase 5 — Per-customer assortment overrides
 `CustomerAssortmentOverride` (§5.7) and its `data/extensions.ts` link; `resolveAssortmentScope` extended per §6.4 to union the grant and intersect the restriction, returning `sourceCustomerOverrideId`; the override's CRUD events and their invalidation duty (§10); the injected "Assortment" section on the customer detail page. Tracked as Phase 4 of the visibility spec, which owns the algebra, the cache rule and the tests.
@@ -1015,7 +1176,9 @@ Steps, in order:
 
 **Release status (2026-10-05).** Phases 1 and 2 shipped in #6709 (squashed into `2338e5ea96`), except Phase 2's `CustomerGroupTerms.assortment_scope` column (§5.3 status note), which ships with the storefront release along with the additive `customerIds` input (§6.0). Phases 3, 4 and 5 are not started.
 
-**Release 5 (2026-10-26).** Phases 3 and 4 are in eComm Release 5 (fork PR #16, `feat/release-5-conversion`): Phase 3 in wave 1, Phase 4 in wave 2, ahead of the cart approval gate and checkout B.4/B.5 (`ANALYSIS-2026-10-26-ecommerce-release-5-cross-spec.md`, final implementation order). Phase 5 is not in Release 5.
+**Release 5 (2026-10-26).** Phases 3 and 4 are in eComm Release 5 (fork PR #16, `feat/release-5-conversion`): Phase 3 in wave 1, Phase 4 in wave 2, ahead of the cart approval gate and checkout B.4/B.5 (`ANALYSIS-2026-10-26-ecommerce-release-5-cross-spec.md`, final implementation order). Phase 5 is not in Release 5. The first implementation (closed PR #8268) is re-landed as the steps CG1–CG8 above.
+
+**Follow-up after Release 5 (D-R5-CG4):** the staff approvals page and decide dialog (US-F1), the "no credit account" banner with its `missing` route and the account-form pre-fill (US-E2), the audit's "run now" `ProgressJob`, a batched RBAC check for approval recipients (#8461), and per-approver limits (§15.4).
 
 Phases 1 and 2 unblock the rest of the ecommerce suite. Phase 3 is required by checkout (spec 7); Phase 4 by the cart's approval gate and checkout B.5. Both may land in parallel with specs 3–5. Phase 5 depends only on Phase 2 and is deliberately sequenced after the visibility spec's own Phase 3 (the cart write-side enforcement), so a merchandising convenience does not ship ahead of that spec's Critical fix.
 
@@ -1041,15 +1204,17 @@ Phases 1 and 2 unblock the rest of the ecommerce suite. Phase 3 is required by c
 | Zod validation in `data/validators.ts` | All routes; types via `z.infer` |
 | No `any` | Service contract fully typed |
 | Optimistic locking | Platform-standard `updated_at` mechanism (§5.4, §5.6) — no `version` counter. `CustomerCreditAccount` uses `CrudForm`'s auto-derived header and returns `updatedAt`; reservations do not bump it. `CustomerCreditLedgerEntry` is append-only and exempt (it is not added to the editable-entities test list). `CustomerPurchaseApproval` decide routes use `enforceCommandOptimisticLock` as the UX layer, and the §6.6 conditional update as the guard |
-| Concurrency strategy | §6.3 — `PESSIMISTIC_WRITE` row lock on the credit account inside `withAtomicFlush(…, { transaction: true })`, joining checkout's transaction; the Release 4 promotions mechanism (D-R4-12). No `SERIALIZABLE`, no retry helper. Approvals: compare-and-set on `status = 'pending'` (§6.6) |
-| Commands and undo | `adjust` is an undoable command whose undo appends the inverse entry; reserve, release, settle and the order link are audited, non-undoable service operations; decisions are not undoable (§6.5, §6.6) |
-| Portal RBAC | Portal routes use `requireCustomerAuth` + `requireCustomerFeatures`; portal features granted through `defaultCustomerRoleFeatures` (§9.1) |
+| Concurrency strategy | §6.3 — `PESSIMISTIC_WRITE` row lock on the credit account inside `withAtomicFlush(…, { transaction: true })` on the service's own `em`; checkout reserves in its own step transaction (checkout §7.2), other callers join through `customerCreditServiceFactory(em)`; the Release 4 promotions mechanism (D-R4-12). No `SERIALIZABLE`, no retry helper. Events after the caller's commit. Order lifecycle: per-order advisory lock (§6.5). Approvals: compare-and-set on `status = 'pending'` with the database clock (§6.6) |
+| Money | `numeric` with `ExactDecimalType`; arithmetic through `@open-mercato/shared/lib/decimal`; 2 dp half-up at the service boundary; non-2-dp currencies refused (§5.5, D-R5-CG5) |
+| Commands and undo | `adjust` and `credit_account.update` are undoable commands with audit entries; the adjust undo appends the inverse entry. Reserve, release, settle and the order link are non-undoable service operations whose audit trail is the ledger row (D-R5-CG2); decisions are not undoable (§6.5, §6.6) |
+| Portal RBAC | Portal API routes authenticate the customer session and check portal features in the handler (`requireCustomerAuth` / `requireCustomerFeatures` are page metadata); portal features granted through `defaultCustomerRoleFeatures` (§9.1); portal broadcasts scoped by `recipientUserIds` (§10.1) |
+| Error reporting | Every catch that logs an error in subscribers, workers and scheduling also calls `reportError` (§11) |
 | Notifications | Types declared in `notifications.ts`, i18n under `customer_groups.notifications.*`; e-mail through `sendEmail` with a per-tenant switch (§10.2) |
 | Cross-module coupling | §7.3 — admin group picker ships as a `crud-form:<entityId>:fields` widget injected by `customer_groups`; `catalog`/`sales` gain no new `requires` entry |
-| Encryption | Free-text columns that can hold personal data are declared in `customer_groups/encryption.ts` and read through `findWithDecryption`: `CustomerCreditAccount.hold_reason`, `CustomerCreditLedgerEntry.note`, `CustomerPurchaseApproval.buyer_decision_note` and `merchant_decision_note` (G22). Monetary columns are commercially sensitive but not personal data and stay unencrypted, consistent with precedent (`sales`/`payment_gateways` encrypt blob/secret columns, not scalar monetary columns). Event payloads carry no notes or names (§10.1) |
+| Encryption | Free-text columns that can hold personal data are declared in `customer_groups/encryption.ts` and read through `findWithDecryption`: `CustomerCreditAccount.hold_reason`, `CustomerCreditLedgerEntry.note`, `CustomerPurchaseApproval.buyer_decision_note` and `merchant_decision_note` (G22). Each of the three maps ships with a `buildEncryptionMapBackfillSql` migration with an empty `down()` (§8.4), so tenants that existed before the upgrade are encrypted too. Monetary columns are commercially sensitive but not personal data and stay unencrypted, consistent with precedent (`sales`/`payment_gateways` encrypt blob/secret columns, not scalar monetary columns). Event payloads carry no notes or names (§10.1) |
 | Backward compatibility | `PricingContext.customerGroupId` deprecated, not removed; no FK constraint added; documented in `UPGRADE_NOTES.md`. Phases 3–4: new DI keys instead of growing `CustomerGroupsService`, frozen event and notification ids, ACL sync steps (§8.4) |
 | i18n | No hard-coded user-facing strings; `en.json` and `pl.json` |
-| Migrations | `yarn db:generate` per entity batch, snapshot reviewed |
+| Migrations | `yarn db:generate` per entity batch, snapshot reviewed; every schema migration has a real `down()`; encryption backfills have an empty `down()`; schedules on existing tenants through the `customer_groups.register-schedules` upgrade action (§8.4) |
 | Integration coverage | §13, shipping in the same change |
 
 ---
@@ -1097,6 +1262,7 @@ Operator sets, and support explains, the per-group buying terms.
   - AC: `approval_policy`, `allow_quote_requests`, `requires_po_number` and `terms_currency_code` offer Inherit / explicit value, like `allow_purchase_on_account`; Inherit shows the inherited value and its source.
   - AC: when `approval_required_above` is set on the tenant's default group, an inline warning states that guest carts above that amount, pay-link carts included, are refused at checkout (D-R5-12, D-R5-29).
   - AC: when a threshold or minimum order value resolves without a terms currency, an inline warning states that every cart will require approval and no minimum will be checked (D-R5-4).
+  - Release 5 scope (D-R5-CG4): the four new term fields and both warnings above ship in Release 5 (#8663).
   - AC: `assortment_scope` uses the same category/tag/exclude picker pattern as the channel-binding scope elsewhere in the app — do not invent a new picker.
 
 - **US-C2** — As a support agent, I want an "explain terms" panel on the customer detail page, so that when a buyer asks "why do I have net-30 instead of net-60" I can answer without guessing across four overlapping groups (R5).
@@ -1136,9 +1302,11 @@ Finance operator manages purchase-on-account exposure.
   - AC: the account sits on the company's detail page for a B2B buyer (credit belongs to the company, §6.5); a person page without its own account links to its company's.
   - AC: the panel states that payments are not settled automatically without an integration, and that an operator records a payment through "Adjust" (D-R5-2).
   - AC: `available < 0` (limit lowered below exposure) is shown explicitly, with the account refusing new on-account orders.
+  - AC: `available > credit_limit` (exposure below zero after an adjust, a settle or an undo) shows a warning that the customer holds prepaid credit (D-R5-CG3).
+  - AC: changing the limit or the hold is recorded in the audit log and can be undone (D-R5-CG6); turning the hold off clears the reason.
   - AC: a release entry shows the order it belongs to (`linked_order_id` of its reservation).
 
-- **US-E2** — As a finance operator, I want a banner listing customers allowed to buy on account who have no credit account, so that a B2B buyer is not refused at checkout only because nobody opened their account (D-R5-5).
+- **US-E2** — **Deferred to a follow-up (D-R5-CG4); not in Release 5.** As a finance operator, I want a banner listing customers allowed to buy on account who have no credit account, so that a B2B buyer is not refused at checkout only because nobody opened their account (D-R5-5).
   - AC: the banner shows only while `GET /api/customer_groups/customer-groups/credit-accounts/missing` reports a count > 0, with the count.
   - AC: each listed customer has a "Create account" action whose form is pre-filled from the group's `default_credit_limit` and `credit_currency_code`.
   - AC: an empty state ("Every customer allowed on account has an account") replaces the list when the count is zero.
@@ -1146,7 +1314,7 @@ Finance operator manages purchase-on-account exposure.
 ### Epic F — Purchase Approvals
 Approver/account manager reviews over-threshold purchase requests.
 
-- **US-F1** — As a merchant-side approver (staff), I want to see purchase approval requests and decide the merchant side, so that an over-threshold B2B order doesn't proceed without the sign-off the group's `approval_required_above` and `approval_policy` terms require.
+- **US-F1** — **Deferred to a follow-up (D-R5-CG4); not in Release 5.** In Release 5 merchant deciders use the staff approval API (§9). As a merchant-side approver (staff), I want to see purchase approval requests and decide the merchant side, so that an over-threshold B2B order doesn't proceed without the sign-off the group's `approval_required_above` and `approval_policy` terms require.
   - AC: the pending list shows customer, requester, subject type, snapshot amount and currency, the policy, both slots' state, and time remaining until `expires_at`.
   - AC: the decide action appears only when the merchant slot is `pending`; with policy `buyer` the row is read-only and says that the buyer's company decides.
   - AC: deciding opens a dialog with Approve/Reject and an optional note; Cmd/Ctrl+Enter submits, Escape cancels.
@@ -1158,7 +1326,8 @@ Approver/account manager reviews over-threshold purchase requests.
   - AC: `GET /api/customer_groups/portal/approvals` lists the company's requests, pending first; a buyer without the decide feature sees only their own.
   - AC: the decide route decides the buyer slot only; deciding one's own request answers `403 approval_self_decision_forbidden`.
   - AC: a request of another company answers `404`, never `403`.
-  - AC: the requester can withdraw a pending request; nobody else can.
+  - AC: the requester can withdraw a pending request; nobody else can (`404` when the request is not visible to the caller, `403` when it is visible).
+  - AC: a portal client following `approval.*` over SSE receives only its own company's requests (`recipientUserIds`, §10.1).
   - AC: buyer-side approvers receive an e-mail when a request needs them, and the requester when it is decided or expires, unless the tenant switched e-mail off (D-R5-6).
 
 The buyer's own story for a refused on-account order is checkout's **US-B3**. Since D-R5-20 it reads: the buyer over the limit is offered prepayment or, where `allow_quote_requests` allows it, `request_quote`.
@@ -1174,6 +1343,43 @@ The buyer's own story for a refused on-account order is checkout's **US-B3**. Si
 ---
 
 ## 18) Changelog
+
+### 2026-11-19 (Re-landing audit — remediation of `.ai/analysis/pre-implement-2026-08-14-customer-groups-and-b2b-terms-release-5.md`)
+Phases 3–4 revised against `main` after #7324 and the closed reference PR #8268 (`bdb747c36a`). Finding ids are the audit's.
+- **C1** — §5.3–§5.6: money columns are `numeric` with `ExactDecimalType`; arithmetic through `@open-mercato/shared/lib/decimal`; 2 dp half-up at the service boundary; validators take decimal strings. §6.0: shipped `number` terms compared with `compareDecimals`.
+- **C2** — §6, §6.3: `reserveCredit` runs as its own transaction (checkout §7.2 step 4); services bind to the `em` they are built with; new `customerCreditServiceFactory`; identity reads through `em.execute`; the "joins checkout's transaction" rationale and the "stock, then credit" rule removed; nested-transaction test kept as a guard; pool-size test added. Events after the caller's commit (`drainPendingEvents`).
+- **C3** — §10.1: required `recipientUserIds` on every `approval.*` payload, cap 100, sentinel when empty; §13 two-company SSE test; R12.
+- **C4** — §8.4, §16: three `buildEncryptionMapBackfillSql` migrations with an empty `down()`; §13 ciphertext test; R13.
+- **C5** — §6.5, §11: release on `sales.order.deleted`; reinstatement on a transition out of a cancelled status; refusal handling; advisory lock; `isCancelledOrderStatus` (§4.2 exception); §13 cases; R14.
+- **C6** — §10, §10.1: `credit.reserved`, `.released`, `.settled` declared and emitted, tested in §13; `credit_account.*` moved to "Later"; the §6.5 audit-log sentence replaced by the ledger-as-audit-trail rule.
+- **R4 / §9.2** — error shape `{ error: <translated message>, code }`; codes `invalid_amount`, `invalid_buyer`, `no_account` (422), `reservation_not_found`, `credit_currency_unsupported`, `approval_not_found`; deciders in the `approval_not_pending` body; duck-typed error guards (#8820).
+- **R6** — §9 portal routes authenticate in the handler; §4.2, §6.5 identity read wording.
+- **B3, B4** — §6, §6.0, §8.4: `organizationId` on `resolveTerms`, the `'base_currency'` sentinel, the UPGRADE entries listed.
+- **B5** — §6, §8.4: `customerCreditServiceFactory` and `customerPurchaseApprovalServiceFactory` declared.
+- **B7** — new §5.6a delivery ledger; no e-mail timestamp columns; real `down()` on schema migrations.
+- **B9** — §9: `GET …/approvals/:id` declared.
+- **§8.4 schedules** — `customer_groups.register-schedules` upgrade action and `seedDefaults`; R16. Second ACL sync noted as redundant since #5900.
+- **§6 service contract** — `getAccountExposure`, `getAccountExposures`, `adjustCredit`, `ApprovalWithdrawActor`; unknown-key results for link and settle; `sourceType` of `reserveCredit` limited to `checkout | order`; services resolve `customerGroupsService` from DI.
+- **§10.2** — `PLATFORM_PORTAL_BASE_URL` requirement (R15), pending re-check, delivery ledger, recipient cap; limit-exceeded notification links and audit-worker notifications documented; new `customer_groups.credit.reinstatement_refused` notification.
+- **Config keys** — `customer_groups.approval_expiry_days`, `customer_groups.approval_emails_enabled` documented in the user docs (§8.4).
+- **Repo rules** — commands for limit and hold changes (§5.4, §9); `reportError` in every catch (§11, §16); uuid-validated `ids` and `pageSize ≤ 100` (§9).
+- **Gaps** — cross-spec call shapes (§6, §7.4, §7.5); approvals require a company (`invalid_buyer`, §6.5); derived `expired` status with the database clock (§5.6, §6.6); withdraw `404`/`403` split (§9, §13); `ON CONFLICT` request creation (§6.6); positive-amount rule (§5.5); ISO uppercase `terms_currency_code` (§5.3).
+- **Spec vs. reference** — "spec should change" rows applied in §5.5 (adjust keys, `linked_order_id` write, index), §6 (`ApprovalActor` company re-read, no `expectedUpdatedAt`), §9 (no `[id]` segment on credit accounts, `updated_at` in list rows, `{ ok: true }`), §11 (audit per organization, cron, latest entry order); "reference must change" rows stated as rules where the spec defines them (SQL `SUM`, DI-resolved terms service, adjust atomicity, cap and clock, withdraw expiry guard, `cart_converted_as_quote`).
+- **§14** — Phase 3 split into CG1, CG2a, CG2b, CG3a, CG3b, CG4, CG5a, CG5b and Phase 4 into CG6, CG7, CG8, each with its gate; follow-up list.
+- **§7.3, §13, §17** — Release 5 UI scope per D-R5-CG4; US-E2 and US-F1 deferred.
+- **Nice-to-haves** — §9.1 notes `module` and `dependsOn`; `hold_reason` cleared when the hold is turned off; the audit's "run now" trigger moved to the follow-up.
+
+#### Owner decisions (2026-11-19)
+- **D-R5-CG1** — Release unsettled credit on `sales.order.deleted` and reinstate it under `reinstate:<reserveKey>` for the released amount; a refusal leaves the order live, calls `reportError` and notifies with the order link; status read by FK id through `isCancelledOrderStatus`; per-order advisory lock. C5 / O1. Owner, 2026-11-19.
+- **D-R5-CG2** — Declare and emit `customer_groups.credit.reserved`, `.released`, `.settled` with tenant/organization scope; defer `credit_account.put_on_hold` / `.released_from_hold`; the ledger, not the action log, is the audit trail of reserve/release/settle/link. C6 / O2. Owner, 2026-11-19.
+- **D-R5-CG3** — Exposure may go below zero after `adjust`, `settle` or undo; `available > credit_limit` means prepaid credit, and the admin UI warns. O3. Owner, 2026-11-19.
+- **D-R5-CG4** — Release 5 ships the terms-form fields and both warnings (#8663); the staff approvals page, the "no credit account" banner and the account-form pre-fill are deferred to a follow-up. O4. Owner, 2026-11-19.
+- **D-R5-CG5** — Credit amounts are always 2 dp in Release 5; an account in a currency whose `decimalPlaces` is not 2 is refused at create with `400 credit_currency_unsupported`. O5. Owner, 2026-11-19.
+- **D-R5-CG6** — Credit limit and hold changes are the audited, undoable command `customer_groups.credit_account.update`. O6. Owner, 2026-11-19.
+- **D-R5-CG7** — Credit reinstatement fires on any transition of an order out of a cancelled status (to `draft`, `sent`, `confirmed`, `in_fulfillment`, `fulfilled` or `on_hold`), with one state-based, idempotent handler on `sales.order.revived` and `sales.order.confirmed` (event per D-R5-CG9). C5 (promotions audit D4). Owner, 2026-11-19.
+- **D-R5-CG8** — `sales.order.cancelled`, `.confirmed` and `.deleted` become persistent emits in step SA2a, the prerequisite of CG5b; before SA2a, delivery to the order-lifecycle subscribers is best-effort and not redelivered. C5 (promotions audit D3). Owner, 2026-11-19.
+- **D-R5-CG9** — `sales.order.updated` is emitted nowhere, on `main` or in the reference. Step SA2a adds the persistent event `sales.order.revived`, emitted whenever an order leaves a cancelled status (undo of a cancellation, or a status change to any live status), payload `{ id, orderId, tenantId, organizationId, previousStatus, status }`. Credit reinstatement subscribes to it and to `sales.order.confirmed` with one state-based handler; no subscriber uses `sales.order.updated`. Owner, 2026-11-19.
+- **D-R5-CG10** — Names approved: the notification `customer_groups.credit.reinstatement_refused`, and moving `isCancelledOrderStatus` to `@open-mercato/shared` (re-exported from `sales/lib/orderCancellationGuard.ts`, a small `sales` change) so `customer_groups` and `promotions` never import `sales`. Owner, 2026-11-19.
 
 ### 2026-10-26 (Release 5 spec revision)
 Phases 3 (Credit) and 4 (Approvals) rewritten for eComm Release 5 from `ANALYSIS-2026-10-26-customer-groups-release-5.md`, the owner decisions in `ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md` and the cross-spec review `ANALYSIS-2026-10-26-ecommerce-release-5-cross-spec.md`.
