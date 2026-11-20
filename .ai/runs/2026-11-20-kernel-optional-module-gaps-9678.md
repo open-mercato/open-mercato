@@ -55,9 +55,9 @@ Phase 1 merges the existing community PRs. Phases 2–5 run as parallel child ta
 
 ### Phase 3: configs + docs
 
-- [ ] 3.1 Fix #9568 configs typecheck without customers
-- [ ] 3.2 Fix #9191 upgrade-action banner stuck without customers/attachments
-- [ ] 3.3 Fix #6278 upgrade notes for communication_channels
+- [x] 3.1 Fix #9568 configs typecheck without customers — 3423d39c13
+- [x] 3.2 Fix #9191 upgrade-action banner stuck without customers/attachments — 46dea9042f
+- [x] 3.3 Fix #6278 upgrade notes for communication_channels — 7206effd72, cfeae99b56
 
 ### Phase 4: workflows + messages
 
