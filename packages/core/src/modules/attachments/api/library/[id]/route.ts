@@ -23,6 +23,7 @@ import {
 } from '../../../lib/metadata'
 import type { StorageDriverFactory } from '../../../lib/drivers'
 import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../../../lib/storageReferences'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../../../lib/documentStructure/purge'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -285,11 +286,16 @@ async function deleteAttachment(req: NextRequest, ctx: RouteContext) {
     const driver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
       tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? auth.orgId!,
     })
+    const purgeScope = { tenantId: record.tenantId ?? null, organizationId: record.organizationId ?? null }
+    const purge = await purgeDocumentStructure(tx, { attachmentId: record.id, ...purgeScope }, { flush: false })
     tx.remove(record)
     await tx.flush()
-    return { record, driver, guard, releaseStorage: removal.releaseStorage }
+    return { record, driver, guard, releaseStorage: removal.releaseStorage, purgeScope, indexedSectionIds: purge.indexedSectionIds }
   })
   const { record } = outcome
+  if (outcome.indexedSectionIds.length > 0) {
+    await enqueuePurgedSectionSearchDelete(outcome.purgeScope, outcome.indexedSectionIds)
+  }
   if (outcome.releaseStorage) await outcome.driver.delete(record.partitionCode, record.storagePath)
   await outcome.guard.runAfterSuccess()
 

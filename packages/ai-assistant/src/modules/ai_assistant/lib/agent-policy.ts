@@ -59,8 +59,10 @@ export interface AgentPolicyCheckInput {
 /**
  * Restrictiveness ranking of `AiAgentMutationPolicy` (most restrictive first).
  * `read-only` blocks all mutation tools. `destructive-confirm-required` forces
- * confirmation for every write (including non-destructive ones). `confirm-required`
- * is the least restrictive policy — writes go through a single confirmation.
+ * confirmation only for destructive writes; non-destructive writes run directly
+ * on the in-process agent channel (on `mcp` / `tools-api` in approval mode every
+ * write is still queued). `confirm-required` gates every write through a single
+ * confirmation.
  *
  * This ordering is load-bearing for both the runtime's effective-policy
  * computation AND the route-layer escalation guard. Changing the order is a

@@ -26,6 +26,7 @@ export const ALLOWED_LOGINS: Set<string> = new Set([
   'zielivia',
   'andrzejewsky',
   'dominikpalatynski',
+  'kmrosiek',
 ])
 
 export interface CommitInfo {
