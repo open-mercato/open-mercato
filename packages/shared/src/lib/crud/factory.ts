@@ -1140,7 +1140,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (fields.length > 0) return false
       }
       return true
-    } catch {
+    } catch (error) {
+      logger.warn('Skipping CRUD list cache after encryption policy lookup failed', { err: error })
+      try {
+        getTelemetryRuntime()?.reportError(error, { module: 'crud', code: 'crud.list_cache_policy_failed' })
+      } catch (telemetryError) {
+        logger.warn('Failed to report CRUD list cache policy error', { err: telemetryError })
+      }
       return false
     }
   }

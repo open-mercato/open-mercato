@@ -26,6 +26,15 @@ let mockOrganizationScope = {
   tenantId: defaultTenantId,
 }
 
+const mockTelemetryReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual<typeof import('@open-mercato/shared/lib/telemetry/runtime')>('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockTelemetryReportError }),
+}))
+
+beforeEach(() => mockTelemetryReportError.mockReset())
+
 const em = {}
 const encryptedFieldNames = jest.fn<Promise<string[]>, [string, string | null | undefined, string | null, object]>(async () => [])
 let mockEncryptionServiceAvailable = true
@@ -270,7 +279,8 @@ describe('CRUD Factory — encrypted lists bypass the response cache', () => {
   })
 
   it('queries the database when encryption policy lookup fails', async () => {
-    encryptedFieldNames.mockRejectedValue(new Error('[internal] Policy unavailable'))
+    const error = new Error('[internal] Policy unavailable')
+    encryptedFieldNames.mockRejectedValue(error)
 
     const response = await route.GET(new Request(url))
 
@@ -278,6 +288,23 @@ describe('CRUD Factory — encrypted lists bypass the response cache', () => {
     expect(queryEngine.query).toHaveBeenCalledTimes(1)
     expect(cache.get).not.toHaveBeenCalled()
     expect(cache.set).not.toHaveBeenCalled()
+    expect(mockTelemetryReportError).toHaveBeenCalledWith(error, {
+      module: 'crud',
+      code: 'crud.list_cache_policy_failed',
+    })
+  })
+
+  it('preserves the uncached response when policy failure reporting throws', async () => {
+    encryptedFieldNames.mockRejectedValue(new Error('[internal] Policy unavailable'))
+    mockTelemetryReportError.mockImplementation(() => { throw new Error('[internal] Telemetry unavailable') })
+
+    const response = await route.GET(new Request(url))
+
+    expect(response.status).toBe(200)
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+    expect(mockTelemetryReportError).toHaveBeenCalledTimes(1)
   })
 
   it('queries the database when the encryption service is unavailable', async () => {
