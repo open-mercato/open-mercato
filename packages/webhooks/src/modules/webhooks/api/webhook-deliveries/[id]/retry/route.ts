@@ -1,5 +1,9 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { WebhookEntity } from '../../../../data/entities'
+import { resetWebhookDeliveryForRetry } from '../../../../lib/delivery'
 import { enqueueWebhookDelivery } from '../../../../lib/queue'
 import { isWebhookIntegrationEnabled } from '../../../../lib/integration-state'
 import { findScopedDelivery, json, resolveWebhookRequestScope, serializeDeliveryDetail } from '../../../helpers'
@@ -40,6 +44,8 @@ const retryResponseSchema = z.object({
 
 const errorSchema = z.object({ error: z.string() })
 
+const MAX_WEBHOOK_TIMEOUT_MS = 60_000
+
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   const scope = await resolveWebhookRequestScope(request)
   if (scope instanceof Response) return scope
@@ -60,10 +66,21 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     return json({ error: 'Custom Webhooks integration is disabled' }, { status: 409 })
   }
 
-  delivery.status = 'pending'
-  delivery.nextRetryAt = null
-  delivery.errorMessage = null
-  await em.flush()
+  const webhook = await findOneWithDecryption(
+    em,
+    WebhookEntity,
+    { id: delivery.webhookId, tenantId: delivery.tenantId, organizationId: delivery.organizationId },
+    {},
+    { tenantId: delivery.tenantId, organizationId: delivery.organizationId },
+  )
+  const reset = await resetWebhookDeliveryForRetry(em, delivery, webhook?.timeoutMs ?? MAX_WEBHOOK_TIMEOUT_MS)
+  if (!reset) {
+    const { translate } = await resolveTranslations()
+    return json(
+      { error: translate('webhooks.errors.deliveryInFlight', 'This delivery is currently being sent. Try again once the attempt finishes.') },
+      { status: 409 },
+    )
+  }
 
   await enqueueWebhookDelivery({
     deliveryId: delivery.id,
@@ -87,7 +104,7 @@ export const openApi: OpenApiRouteDoc = {
       pathParams: z.object({ id: z.string().uuid() }),
       responses: [{ status: 200, description: 'Delivery re-enqueued', schema: retryResponseSchema }],
       errors: [
-        { status: 409, description: 'Webhook integration disabled', schema: errorSchema },
+        { status: 409, description: 'Webhook integration disabled, or the delivery is currently being sent', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Delivery not found', schema: errorSchema },
       ],

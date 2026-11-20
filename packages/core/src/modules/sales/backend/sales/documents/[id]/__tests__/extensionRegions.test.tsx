@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import {
   registerCoreInjectionTables,
   registerCoreInjectionWidgets,
@@ -104,7 +104,9 @@ jest.mock('@open-mercato/core/modules/sales/components/documents/AddressesSectio
 jest.mock('@open-mercato/core/modules/sales/components/documents/ItemsSection', () => ({ SalesDocumentItemsSection: () => null }))
 jest.mock('@open-mercato/core/modules/sales/components/documents/PaymentsSection', () => ({ SalesDocumentPaymentsSection: () => null }))
 jest.mock('@open-mercato/core/modules/sales/components/documents/AdjustmentsSection', () => ({ SalesDocumentAdjustmentsSection: () => null }))
-jest.mock('@open-mercato/core/modules/sales/components/documents/ShipmentsSection', () => ({ SalesShipmentsSection: () => null }))
+jest.mock('@open-mercato/core/modules/sales/components/documents/ShipmentsSection', () => ({
+  SalesShipmentsSection: () => <div data-testid="shipments-section" />,
+}))
 jest.mock('@open-mercato/core/modules/sales/components/documents/ReturnsSection', () => ({ SalesReturnsSection: () => null }))
 jest.mock('@open-mercato/core/modules/sales/components/documents/DocumentTotals', () => ({ DocumentTotals: () => null }))
 
@@ -183,5 +185,49 @@ describe.each(['order', 'quote'] as const)('sales %s detail page extension mount
     await act(async () => {})
     expect(queryByTestId('document-header')).toBeNull()
     expect(queryByTestId('document-details')).toBeNull()
+  })
+})
+
+it('spaces the shipment section and injected shipping cards in the order tab', async () => {
+  const received = jest.fn()
+  registerCoreInjectionWidgets([{
+    moduleId: 'test_extensions',
+    key: 'test.shipping',
+    widgetId: 'test.shipping',
+    source: 'app',
+    loader: async () => ({
+      metadata: { id: 'test.shipping', title: 'Shipping' },
+      Widget: ({ context, data }: {
+        context: SalesDocumentExtensionContext<typeof mockDocument>
+        data?: typeof mockDocument
+      }) => {
+        received({ context, data })
+        return <div data-testid="shipping-widget" />
+      },
+    }),
+  }])
+  registerCoreInjectionTables([{
+    moduleId: 'test_extensions',
+    table: { 'detail:sales.order:shipping': { widgetId: 'test.shipping' } },
+  }])
+
+  const { findByRole, findByTestId, getByTestId } = render(
+    <SalesDocumentDetailPage params={{ id: mockDocument.id }} initialKind="order" />,
+  )
+  fireEvent.click(await findByRole('button', { name: 'Shipments' }))
+
+  const widget = await findByTestId('shipping-widget')
+  const shipments = getByTestId('shipments-section')
+  expect(shipments.parentElement).toBe(widget.parentElement)
+  expect(shipments.parentElement).toHaveClass('space-y-4')
+  expect(shipments.nextElementSibling).toBe(widget)
+  expect(received).toHaveBeenCalledWith({
+    context: expect.objectContaining({
+      kind: 'order',
+      documentId: mockDocument.id,
+      organizationId: mockDocument.organizationId,
+      tenantId: mockDocument.tenantId,
+    }),
+    data: mockDocument,
   })
 })
