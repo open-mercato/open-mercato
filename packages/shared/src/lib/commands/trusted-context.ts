@@ -69,6 +69,9 @@ export function buildTrustedCommandContext(input: TrustedCommandContextInput): T
   if (!tenantId) throw new Error('[internal] buildTrustedCommandContext requires tenantId')
   if (!organizationId) throw new Error('[internal] buildTrustedCommandContext requires organizationId')
   if (!reason) throw new Error('[internal] buildTrustedCommandContext requires reason')
+  if (actorType !== 'system' && actorType !== 'user') {
+    throw new Error('[internal] buildTrustedCommandContext requires actorType "system" or "user"')
+  }
   if (actorType === 'user' && !actorId) {
     throw new Error('[internal] buildTrustedCommandContext requires actorId when actorType is "user"')
   }

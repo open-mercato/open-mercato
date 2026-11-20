@@ -64,6 +64,20 @@ describe('buildTrustedCommandContext', () => {
     ).toThrow(/actorId/)
   })
 
+  it.each([undefined, '', 'admin', 'System', 'superadmin'])(
+    'rejects an unknown runtime actorType (%p) instead of minting a system context',
+    (actorType) => {
+      expect(() =>
+        buildTrustedCommandContext({
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          actorType: actorType as unknown as 'system',
+          reason: 'x',
+        }),
+      ).toThrow(/actorType/)
+    },
+  )
+
   it('throws when tenantId, organizationId or reason are missing', () => {
     expect(() =>
       buildTrustedCommandContext({
