@@ -32,6 +32,7 @@ import {
   persistCrudFormSectionSink,
   prepareCrudFormSectionSinks,
   reportCrudFormSectionSinkFailure,
+  selectCrudFormSectionHostDeleteSinks,
   type PreparedCrudFormSectionSinks,
 } from './extension-sinks'
 import { getCrudFormSectionManifest, type CrudFormSectionAcceptedPolicy } from './manifest'
@@ -464,18 +465,20 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
   const surface = checkPolicyIdentity(options, context, fingerprint, requestHeaders)
   const acceptedSinks = policy.sinks ?? []
   const sinkRuntimes = manifest.sinkRuntimes ?? new Map()
-  if (options.operation === 'delete' && acceptedSinks.length && !options.deleteMode) {
-    return rejectPolicy(route.address, 'extension_sink_delete_mode_missing')
-  }
-  const hardDeleteSinks = options.operation === 'delete' && options.deleteMode === 'hard'
-    ? acceptedSinks.flatMap(({ fact }) => {
-      const runtime = sinkRuntimes.get(fact.id)
-      if (!runtime || runtime.fact.roundTripId !== fact.roundTripId) {
+  let hardDeleteSinks: ReturnType<typeof selectCrudFormSectionHostDeleteSinks> = []
+  if (options.operation === 'delete' && surface.kind === 'parent-delete') {
+    const hostDeleteSinks = selectCrudFormSectionHostDeleteSinks(manifest, route.address.hostId, route.host.hostResourceKind)
+    if ((acceptedSinks.length || hostDeleteSinks.length) && !options.deleteMode) {
+      return rejectPolicy(route.address, 'extension_sink_delete_mode_missing')
+    }
+    if (options.deleteMode === 'hard' && hostDeleteSinks.length) {
+      const proof = policy.mutationProviders.find(({ mutationSurfaceId }) => mutationSurfaceId === surface.id)
+      if (surface.delegatedTarget.kind !== 'command' || proof?.extensionSinkSupport !== 'host-transaction') {
         return rejectPolicy(route.address, 'extension_sink_delete_unavailable')
       }
-      return runtime.onHostDeleted ? [runtime] : []
-    })
-    : []
+      hardDeleteSinks = hostDeleteSinks
+    }
+  }
   const splitPayload = (payload: PayloadRecord) => prepareCrudFormSectionSinks({
     payload, accepted: acceptedSinks, runtimes: sinkRuntimes,
     allowWrites: surface.kind === 'parent-submit', creating: options.operation === 'create',
@@ -666,15 +669,16 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
           return rejectPolicy(route.address, 'extension_sink_audit_unavailable')
         }
         const sinkContext = { hostResourceId: resourceId, em, scope, auth, container }
+        const mutationSource = { ...route.address, mutationSurfaceId: surface.id }
         for (const work of atomicSinks) {
           if (options.operation === 'delete') return rejectPolicy(route.address, 'extension_sink_delete_payload_invalid')
           const snapshot = await persistCrudFormSectionSink(work, sinkContext, options.operation)
-          appendCrudFormSectionSinkSnapshot(log, work.runtime, resourceId, snapshot)
+          appendCrudFormSectionSinkSnapshot(log, work.runtime, resourceId, snapshot, mutationSource)
         }
         for (const runtime of hardDeleteSinks) {
           await runtime.lockRow?.(sinkContext)
           const snapshot = await runtime.onHostDeleted!(sinkContext)
-          appendCrudFormSectionSinkSnapshot(log, runtime, resourceId, snapshot)
+          appendCrudFormSectionSinkSnapshot(log, runtime, resourceId, snapshot, mutationSource)
         }
         if (!log.contextJson || !await audit.updateTransactionalContext({
           id: log.id, tenantId: scope.tenantId, organizationId: scope.organizationId, context: log.contextJson,

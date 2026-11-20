@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { authorizeFeatures } from '../../../security/featurePolicy'
-import type { CrudFormSectionManifest } from './manifest'
+import type { CrudFormSectionAcceptedPolicy, CrudFormSectionManifest } from './manifest'
 import type { ResponseEnricher } from '../response-enricher'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -17,11 +17,12 @@ import { normalizeIsoToken } from '../optimistic-lock'
 import { assertOptimisticLock, enforceRecordGoneIsConflict } from '../optimistic-lock-command'
 import type { CrudFormSectionCapabilityEntry } from '../form-section-capabilities'
 import { compareSectionIds, crudFormSectionHostKey } from './composition'
-import { resourceIdSchema, symbolicIdSchema } from './protocol'
+import { resourceIdSchema, roundTripIdSchema, symbolicIdSchema } from './protocol'
 
 type Payload = Record<string, unknown>
 type HostAddress = Omit<CrudFormSectionAddress, 'sectionId'>
 type SinkMutationContext = Omit<Parameters<CrudFormSectionSink['persist']>[0], 'values' | 'hostOperation' | 'lockedRow'>
+type SinkMutationSource = HostAddress & { mutationSurfaceId: string }
 
 export type AcceptedCrudFormSectionSink = {
   fact: CrudFormExtensionSinkFact
@@ -137,6 +138,35 @@ export function crudFormSectionSinkAtomicities(
 
 function mismatch(): never {
   throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
+}
+
+function requireRegisteredSink(manifest: CrudFormSectionManifest, accepted: AcceptedCrudFormSectionSink): CrudFormSectionSink {
+  const { fact, capabilityId, hostDetailEntityId } = accepted
+  const runtime = manifest.sinkRuntimes?.get(fact.id)
+  if (!runtime || runtime.fact.roundTripId !== fact.roundTripId
+      || runtime.fact.ownerModuleId !== fact.ownerModuleId || runtime.fact.targetEntityId !== fact.targetEntityId
+      || crudFormSectionHostKey(runtime.fact) !== crudFormSectionHostKey(fact)
+      || runtime.capabilityId !== capabilityId || runtime.hostDetailEntityId !== hostDetailEntityId) return mismatch()
+  return runtime
+}
+
+export function selectCrudFormSectionHostDeleteSinks(
+  manifest: CrudFormSectionManifest,
+  hostId: string,
+  hostResourceKind: string,
+): CrudFormSectionSink[] {
+  const runtimes = [...(manifest.sinkRuntimes?.values() ?? [])].filter((runtime) =>
+    runtime.fact.hostId === hostId && runtime.hostDetailEntityId === hostResourceKind && !!runtime.onHostDeleted)
+    .sort((left, right) => compareSectionIds(left.fact.id, right.fact.id))
+  const seen = new Set<string>()
+  const selected: CrudFormSectionSink[] = []
+  for (const runtime of runtimes) {
+    const rowIdentity = JSON.stringify([runtime.fact.ownerModuleId, runtime.fact.targetEntityId])
+    if (seen.has(rowIdentity)) continue
+    seen.add(rowIdentity)
+    selected.push(runtime)
+  }
+  return selected
 }
 
 function leafEntries(record: Payload, allowed: ReadonlySet<string>, strict = true): Map<string, unknown> {
@@ -291,11 +321,22 @@ export async function persistCrudFormSectionSink(
   return runtime.persist({ ...context, hostOperation, values: work.values, lockedRow })
 }
 
+const hostAddressSchema = z.object({
+  hostId: symbolicIdSchema,
+  formVariant: symbolicIdSchema,
+  formOperation: z.enum(['create', 'update']),
+}).strict()
+
 const snapshotSchema = z.object({
   protocol: z.literal('crud-form-section-sink/v1'),
   sinkId: symbolicIdSchema,
-  roundTripId: z.string(),
+  roundTripId: roundTripIdSchema,
+  capabilityId: symbolicIdSchema,
+  address: hostAddressSchema,
+  source: hostAddressSchema.extend({ mutationSurfaceId: symbolicIdSchema }),
+  hostResourceKind: symbolicIdSchema,
   hostResourceId: resourceIdSchema,
+  targetEntityId: symbolicIdSchema,
   before: z.record(z.string(), z.unknown()).nullable(),
   after: z.record(z.string(), z.unknown()).nullable(),
 }).strict()
@@ -307,10 +348,22 @@ export function appendCrudFormSectionSinkSnapshot(
   runtime: CrudFormSectionSink,
   hostResourceId: string,
   snapshot: CrudFormSectionSinkSnapshot,
+  source: SinkMutationSource,
 ): void {
   if (!log?.id || log.resourceId !== hostResourceId || (log.undoToken && runtime.fact.undo !== 'snapshot')) return mismatch()
   const entry = snapshotSchema.safeParse({
-    ...snapshot, protocol: 'crud-form-section-sink/v1', sinkId: runtime.fact.id, roundTripId: runtime.fact.roundTripId, hostResourceId,
+    ...snapshot,
+    protocol: 'crud-form-section-sink/v1',
+    sinkId: runtime.fact.id,
+    roundTripId: runtime.fact.roundTripId,
+    capabilityId: runtime.capabilityId,
+    address: {
+      hostId: runtime.fact.hostId, formVariant: runtime.fact.formVariant, formOperation: runtime.fact.formOperation,
+    },
+    source,
+    hostResourceKind: runtime.hostDetailEntityId,
+    hostResourceId,
+    targetEntityId: runtime.fact.targetEntityId,
   })
   if (!entry.success) return mismatch()
   if (log.contextJson != null && !isRecord(log.contextJson)) return mismatch()
@@ -337,6 +390,7 @@ export function readCrudFormSectionSinkSnapshots(log: CommandUndoLogEntry): Arra
       if (!isRecord(entry) || entry.protocol !== 'crud-form-section-sink/v1') continue
       const parsed = snapshotSchema.safeParse(entry)
       if (!parsed.success || parsed.data.sinkId !== id || parsed.data.hostResourceId !== log.resourceId
+          || parsed.data.hostResourceKind !== log.resourceKind
           || !isSafeSegment(owner)) return mismatch()
       found.push({ owner, snapshot: parsed.data })
     }
@@ -344,18 +398,65 @@ export function readCrudFormSectionSinkSnapshots(log: CommandUndoLogEntry): Arra
   return found.sort((left, right) => compareSectionIds(right.snapshot.sinkId, left.snapshot.sinkId))
 }
 
-export async function restoreCrudFormSectionSinks(input: {
+type SinkUndo = { runtime: CrudFormSectionSink; snapshot: PersistedSnapshot }
+type SinkUndoRbac = {
+  userHasAllFeaturesWithEntityManager?(
+    em: EntityManager, userId: string, features: string[], scope: SinkMutationContext['scope'],
+  ): Promise<boolean>
+}
+
+function matchesSnapshotHost(policy: CrudFormSectionAcceptedPolicy | undefined, snapshot: PersistedSnapshot): boolean {
+  return policy?.hostResourceKind === snapshot.hostResourceKind && policy.surface.hostId === snapshot.address.hostId
+}
+
+export async function authorizeCrudFormSectionSinkUndo(input: {
   snapshots: ReturnType<typeof readCrudFormSectionSinkSnapshots>
-  runtimes: ReadonlyMap<string, CrudFormSectionSink>
+  manifest: CrudFormSectionManifest
+  commandId: string
   context: Omit<SinkMutationContext, 'hostResourceId'>
-}): Promise<void> {
-  if (!input.context.em.isInTransaction()) return mismatch()
-  for (const { owner, snapshot } of input.snapshots) {
-    const sink = input.runtimes.get(snapshot.sinkId)
-    if (!sink?.undo || sink.fact.undo !== 'snapshot' || sink.fact.ownerModuleId !== owner
-        || sink.fact.roundTripId !== snapshot.roundTripId) return mismatch()
-    await sink.undo({
-      ...input.context, hostResourceId: snapshot.hostResourceId,
+}): Promise<SinkUndo[]> {
+  const { context, manifest } = input
+  if (!context.em.isInTransaction()) return mismatch()
+  const features = new Set<string>()
+  const work = input.snapshots.map(({ owner, snapshot }) => {
+    const sinkKey = crudFormSectionHostKey(snapshot.address)
+    const sourceKey = crudFormSectionHostKey(snapshot.source)
+    const policy = manifest.policies.get(sinkKey)
+    const sourcePolicy = manifest.policies.get(sourceKey)
+    const source = sourcePolicy?.mutationSurfaces.find(({ id }) => id === snapshot.source.mutationSurfaceId)
+    const accepted = policy?.sinks?.find(({ fact, capabilityId }) => fact.id === snapshot.sinkId
+      && fact.ownerModuleId === owner && fact.roundTripId === snapshot.roundTripId
+      && fact.targetEntityId === snapshot.targetEntityId && capabilityId === snapshot.capabilityId)
+    if (!policy || !sourcePolicy || !matchesSnapshotHost(policy, snapshot) || !matchesSnapshotHost(sourcePolicy, snapshot)
+        || !accepted || !source || (source.kind !== 'parent-delete' && (source.kind !== 'parent-submit' || sourceKey !== sinkKey))
+        || source.delegatedTarget.kind !== 'command' || source.delegatedTarget.id !== input.commandId
+        || source.hostResourceKind !== snapshot.hostResourceKind || source.mutationResourceKind !== snapshot.hostResourceKind) {
+      return mismatch()
+    }
+    const runtime = requireRegisteredSink(manifest, accepted)
+    if (!runtime.undo || runtime.fact.undo !== 'snapshot'
+        || (source.kind === 'parent-delete' && !runtime.onHostDeleted)) return mismatch()
+    for (const feature of [...policy.requireFeatures, ...sourcePolicy.requireFeatures]) features.add(feature)
+    return { runtime, snapshot }
+  })
+  if (features.size) {
+    const rbac = context.container.hasRegistration('rbacService') ? context.container.resolve<SinkUndoRbac>('rbacService') : null
+    if (!await rbac?.userHasAllFeaturesWithEntityManager?.(context.em, context.auth.sub, [...features].sort(), context.scope)) {
+      return mismatch()
+    }
+  }
+  return work
+}
+
+export async function restoreCrudFormSectionSinks(
+  work: readonly SinkUndo[],
+  context: Omit<SinkMutationContext, 'hostResourceId'>,
+): Promise<void> {
+  if (!context.em.isInTransaction()) return mismatch()
+  for (const { runtime, snapshot } of work) {
+    if (!runtime.undo) return mismatch()
+    await runtime.undo({
+      ...context, hostResourceId: snapshot.hostResourceId,
       snapshot: { before: snapshot.before, after: snapshot.after },
     })
   }

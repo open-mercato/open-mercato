@@ -51,6 +51,7 @@ function addManifest(
   readLockedRecord?: CrudFormSectionHostProvider['readLockedRecord'],
   sink?: CrudFormSectionSink,
   pairedDelete?: CrudFormSectionMutationSurfaceFact,
+  additionalSinks: CrudFormSectionSink[] = [],
 ): void {
   if (readLockedRecord) registerMutationGuards([{ moduleId: 'example', guards: [{
     id: 'example.parent-domain', targetEntity: 'example.product', operations: ['update'],
@@ -142,7 +143,7 @@ function addManifest(
           allowAfterCommitSink: sink.fact.atomicity === 'after-commit',
         }] : [{ capabilityId: 'example.display-policy', protocol: 'crud-form-sections/v1', modes: ['display-only'] }],
       }],
-      sinks: sink ? [sink] : [],
+      sinks: [...(sink ? [sink] : []), ...additionalSinks],
       displayPolicies: [{
         ...address,
         capabilityId: 'example.display-policy',
@@ -219,6 +220,7 @@ function fixture(
   const rbac = {
     userHasAllFeatures: jest.fn(async () => true),
     getGrantedFeatures: jest.fn(async () => ['example.*']),
+    userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
   }
   container.register({ em: asValue({ fork: () => em }), rbacService: asValue(rbac) })
   const path = selected.kind === 'parent-submit' || selected.kind === 'parent-delete' ? '/api/example/products/product-1'
@@ -753,7 +755,19 @@ describe('scoped extension sinks', () => {
       persist, load, lockRow, ...(atomicity === 'host-transaction' ? { undo, onHostDeleted } : {}),
     })
     addManifest(true, parent, undefined, sink, atomicity === 'host-transaction' ? remove : undefined)
-    return { undo, persist, lockRow, load, onHostDeleted }
+    return { sink, undo, persist, lockRow, load, onHostDeleted }
+  }
+
+  function otherVariantSink(
+    base: CrudFormSectionSink, id: string, overrides: Partial<CrudFormSectionSink['fact']> = {},
+  ) {
+    const onHostDeleted = jest.fn(async () => ({ before: values, after: null }))
+    const sink: CrudFormSectionSink = {
+      ...base,
+      fact: { ...base.fact, id, roundTripId: `${id}@v1`, formVariant: 'older-form', ...overrides },
+      onHostDeleted,
+    }
+    return { sink, onHostDeleted }
   }
 
   function scopedFixture(body: unknown = extensionPayload) {
@@ -790,6 +804,7 @@ describe('scoped extension sinks', () => {
       resourceId: 'product-1', resourceKind: 'example.product', undoToken: 'undo-1',
       contextJson: { host: 'metadata' } as Record<string, unknown> }
     const markUndone = jest.fn(async () => { setup.events.push('mark-undone') })
+    const claimForUndo = jest.fn(async () => true)
     setup.container.register('actionLogService', asValue({
       log: jest.fn(async (_input: unknown, em: { isInTransaction(): boolean }) => {
         expect(em.isInTransaction()).toBe(true)
@@ -798,7 +813,7 @@ describe('scoped extension sinks', () => {
       }),
       updateTransactionalContext: auditUpdate,
       findByUndoToken: jest.fn(async () => logEntry),
-      claimForUndo: jest.fn(async () => true),
+      claimForUndo,
       markUndone,
     }))
     registerCommand<OfferCommandInput, Result>({
@@ -821,13 +836,13 @@ describe('scoped extension sinks', () => {
       id: 'example.sink-effects', targetCommand: selected.delegatedTarget.id,
       afterExecute: async () => { setup.events.push('after-execute'); return {} },
     }] }])
-    return { auditUpdate, logEntry, markUndone }
+    return { auditUpdate, logEntry, markUndone, claimForUndo }
   }
 
   it('commits the combined host and sink snapshot once and restores it inside scoped host undo', async () => {
     const { undo, persist } = installSink()
     const setup = scopedFixture()
-    const { auditUpdate, logEntry, markUndone } = installHost(setup)
+    const { auditUpdate, logEntry, markUndone, claimForUndo } = installHost(setup)
     const validateFields = jest.fn(async () => ({}))
     await expect(runCrudFormSectionMutation({
       ...setup.options, ...runThroughCommandBus(setup, parent, 'product-1'), validateFields,
@@ -851,6 +866,14 @@ describe('scoped extension sinks', () => {
       container: setup.container, auth, selectedOrganizationId: 'org', organizationIds: ['org'], organizationScope: null,
     }
     await expect(bus.undo('undo-1', { ...replayContext, auth: { ...auth, tenantId: 'different' } })).rejects.toMatchObject(expectedMismatch)
+    setup.rbac.userHasAllFeaturesWithEntityManager.mockResolvedValueOnce(false)
+    await expect(bus.undo('undo-1', replayContext)).rejects.toMatchObject(expectedMismatch)
+    expect(setup.rbac.userHasAllFeaturesWithEntityManager).toHaveBeenCalledWith(setup.em, auth.sub, [requiredFeature], {
+      tenantId: 'tenant', organizationId: 'org',
+    })
+    expect(claimForUndo).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+    expect(setup.events.slice(-2)).toEqual(['begin', 'rollback'])
     await expect(bus.undo('undo-1', { ...replayContext, selectedOrganizationId: null, organizationIds: null,
       organizationScope: { tenantId: 'tenant', selectedId: null, allowedIds: null, filterIds: null },
     })).resolves.toBeUndefined()
@@ -860,6 +883,27 @@ describe('scoped extension sinks', () => {
       snapshot: { before: { brand: 'OLD' }, after: values },
     }))
     expect(markUndone).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects sink undo before claiming when the accepted runtime revision or storage ownership changes', async () => {
+    const { sink, undo } = installSink()
+    const setup = scopedFixture()
+    const { claimForUndo } = installHost(setup)
+    await expect(runCrudFormSectionMutation({
+      ...setup.options, ...runThroughCommandBus(setup, parent, 'product-1'),
+    })).resolves.toEqual({ id: 'product-1' })
+    setup.container.register('em', asValue(setup.em))
+    const replayContext = {
+      container: setup.container, auth, selectedOrganizationId: 'org', organizationIds: ['org'], organizationScope: null,
+    }
+    const bus = new CommandBus()
+    for (const changedFact of [{ roundTripId: 'example.product-brand@v2' }, { targetEntityId: 'example.different-entity' }]) {
+      addManifest(true, parent, undefined, { ...sink, fact: { ...sink.fact, ...changedFact } }, remove)
+      await expect(bus.undo('undo-1', replayContext)).rejects.toMatchObject(expectedMismatch)
+    }
+    expect(claimForUndo).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+    expect(setup.events.slice(-4)).toEqual(['begin', 'rollback', 'begin', 'rollback'])
   })
 
   it('rolls the host write back and suppresses effects after a sink failure or own-version conflict', async () => {
@@ -911,6 +955,62 @@ describe('scoped extension sinks', () => {
       expect(onHostDeleted).not.toHaveBeenCalled()
       expect(auditUpdate).not.toHaveBeenCalled()
     }
+  })
+
+  it('runs applicable hard-delete sinks across registered variants and only once per storage row', async () => {
+    const { sink, onHostDeleted } = installSink()
+    const duplicate = otherVariantSink(sink, 'example.product-brand-z')
+    const historical = otherVariantSink(sink, 'example.product-history', {
+      formOperation: 'create', targetEntityId: 'example.product-history',
+    })
+    const unrelated = otherVariantSink(sink, 'example.product-unrelated', {
+      hostId: 'example.different-product', targetEntityId: 'example.elsewhere',
+    })
+    addManifest(true, parent, undefined, sink, remove, [duplicate.sink, historical.sink, unrelated.sink])
+    const setup = fixture(remove, 'product-1')
+    const { logEntry } = installHost(setup, remove)
+    await expect(runCrudFormSectionMutation({
+      ...setup.options, operation: 'delete', deleteMode: 'hard', ...runThroughCommandBus(setup, remove, 'product-1'),
+    })).resolves.toEqual({ id: 'product-1' })
+    expect(onHostDeleted).toHaveBeenCalledTimes(1)
+    expect(historical.onHostDeleted).toHaveBeenCalledWith(expect.objectContaining({
+      hostResourceId: 'product-1', em: setup.em, scope,
+    }))
+    expect(duplicate.onHostDeleted).not.toHaveBeenCalled()
+    expect(unrelated.onHostDeleted).not.toHaveBeenCalled()
+    expect(readCrudFormSectionSinkSnapshots(logEntry).map(({ snapshot }) => snapshot.sinkId))
+      .toEqual(['example.product-history', 'example.product-brand'])
+  })
+
+  it('rolls back host hard deletion when a historical variant sink fails', async () => {
+    const { sink, onHostDeleted } = installSink()
+    const historical = otherVariantSink(sink, 'example.product-history', { targetEntityId: 'example.product-history' })
+    historical.onHostDeleted.mockRejectedValueOnce(new Error('[internal] Historical cleanup failed'))
+    addManifest(true, parent, undefined, sink, remove, [historical.sink])
+    const setup = fixture(remove, 'product-1')
+    const { auditUpdate } = installHost(setup, remove)
+    await expect(runCrudFormSectionMutation({
+      ...setup.options, operation: 'delete', deleteMode: 'hard', ...runThroughCommandBus(setup, remove, 'product-1'),
+    })).rejects.toThrow('Historical cleanup failed')
+    expect(onHostDeleted).toHaveBeenCalledTimes(1)
+    expect(auditUpdate).not.toHaveBeenCalled()
+    expect(setup.events).toEqual(['begin', 'existing-hook', 'host-write', 'log', 'rollback'])
+  })
+
+  it('does not run host deletion sinks for a hard-delete section action on a child', async () => {
+    const { sink, onHostDeleted } = installSink()
+    const removeOffer: CrudFormSectionMutationSurfaceFact = {
+      ...surface,
+      requestOperation: 'delete',
+      guardedFacade: { ...surface.guardedFacade, method: 'DELETE' },
+    }
+    addManifest(true, removeOffer, undefined, undefined, undefined, [sink])
+    const setup = fixture(removeOffer, 'offer-1')
+    await expect(runCrudFormSectionMutation({
+      ...setup.options, operation: 'delete', deleteMode: 'hard',
+    })).resolves.toEqual({ id: 'offer-1' })
+    expect(onHostDeleted).not.toHaveBeenCalled()
+    expect(setup.events).toEqual(['begin', 'existing-hook', 'write', 'flush', 'commit'])
   })
 
   it('only enriches detail with declared fields for the authorized tenant, organization, and feature', async () => {

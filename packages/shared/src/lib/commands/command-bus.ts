@@ -34,7 +34,11 @@ import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
-import { readCrudFormSectionSinkSnapshots, restoreCrudFormSectionSinks } from '../crud/form-sections/extension-sinks'
+import {
+  authorizeCrudFormSectionSinkUndo,
+  readCrudFormSectionSinkSnapshots,
+  restoreCrudFormSectionSinks,
+} from '../crud/form-sections/extension-sinks'
 import { getCrudFormSectionManifest } from '../crud/form-sections/manifest'
 import { CrudHttpError } from '../crud/errors'
 import { getAmbientAuditCorrelation } from './auditCorrelationScope'
@@ -792,22 +796,17 @@ export class CommandBus {
         : await service.claimForUndo(log.id)
       if (!claimed) throw new Error('[internal] Undo token already consumed')
     }
-    const finishUndo = async (replayCtx: CommandRuntimeContext, replayEm?: EntityManager) => {
+    const finishUndo = async (
+      replayCtx: CommandRuntimeContext,
+      replayEm?: EntityManager,
+      sinkUndo?: Parameters<typeof restoreCrudFormSectionSinks>,
+    ) => {
       await handler.undo!({
         input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
         ctx: replayCtx,
         logEntry: log,
       })
-      if (sinkSnapshots.length && replayEm && sinkTenant && sinkAuth) {
-        await restoreCrudFormSectionSinks({
-          snapshots: sinkSnapshots,
-          runtimes: getCrudFormSectionManifest().sinkRuntimes ?? new Map(),
-          context: {
-            auth: sinkAuth, scope: { tenantId: sinkTenant, organizationId: sinkOrganization },
-            em: replayEm, container: replayCtx.container,
-          },
-        })
-      }
+      if (sinkUndo) await restoreCrudFormSectionSinks(...sinkUndo)
       const traceLog = this.buildUndoTraceLog(log, replayCtx)
       if (replayEm) {
         await service.markUndone(log.id, traceLog, replayEm)
@@ -848,8 +847,19 @@ export class CommandBus {
             logEntry: log,
           })
         }
+        let sinkUndo: Parameters<typeof restoreCrudFormSectionSinks> | undefined
+        if (sinkSnapshots.length && sinkTenant && sinkAuth) {
+          const context = {
+            auth: sinkAuth, scope: { tenantId: sinkTenant, organizationId: sinkOrganization },
+            em: replayEm, container: replayCtx.container,
+          }
+          const work = await authorizeCrudFormSectionSinkUndo({
+            snapshots: sinkSnapshots, context, commandId: log.commandId, manifest: getCrudFormSectionManifest(),
+          })
+          sinkUndo = [work, context]
+        }
         await claimUndo(replayEm)
-        await finishUndo(replayCtx, replayEm)
+        await finishUndo(replayCtx, replayEm, sinkUndo)
       }], {
         transaction: true,
         label: `${log.commandId}.undo`,

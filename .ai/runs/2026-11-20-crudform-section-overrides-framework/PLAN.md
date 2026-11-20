@@ -21,6 +21,7 @@ Status: in-progress
 | 2 | 2.5 | Compose ambient command lifecycle with the final-input transaction boundary | group:A | done | 744cddf999 |
 | 2 | 2.5-review-fix | Keep create-only entity writes and pending effects within the ambient lifecycle | inline | done | bf3c4b1d7a |
 | 2 | 2.6 | Add transactional sink discovery, lifecycles and read-back | group:A | done | this commit |
+| 2 | 2.6-review-fix | Reauthorize scoped sink undo and clean up registered host variants | inline | done | this commit |
 | 2 | 2.7 | Derive section hosts for qualifying CRUD routes | dispatch | todo | — |
 | 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | todo | — |
 | 3 | 3.1 | Introduce optional explicit CrudForm identity and composition props | dispatch | todo | — |
@@ -106,6 +107,10 @@ Ensure create-only custom entities reuse the outer transaction and attempt all c
 #### 2.6 Add transactional sink discovery, lifecycles and read-back
 
 Framework spec item 7b. Add sink and leaf-default discovery from `form-sections.ts`, `defineCrudFormSectionSink`, the `extensions.<moduleId>` façade namespace, façade-owned transactions passing `transactionalEm` plus an owned `transactionLifetime`, first implementing §9 normal command lifecycle composition and §6 final-input enforcement (prove sink rollback removes all data/audit changes and suppresses all success effects; prove commit effects exactly once and preserve legacy/replay contracts), after-commit sink callbacks with `extensionWarnings`, the auto-registered `_extensions` detail enricher, sink-version locking, and undo/delete hooks.
+
+#### 2.6-review-fix Reauthorize scoped sink undo and clean up registered host variants
+
+Bind historical undo to exact sink and source facts and grants. Limit lifecycle cleanup to parent hard deletion and include registered sibling variants.
 
 #### 2.7 Derive section hosts for qualifying CRUD routes
 
