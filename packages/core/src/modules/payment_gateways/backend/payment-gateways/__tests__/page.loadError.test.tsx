@@ -8,6 +8,7 @@ import PaymentGatewaysPage from '../page'
 
 const mockApiCall = jest.fn()
 const mockFlash = jest.fn()
+const mockCapture = jest.fn()
 const mockTranslate = (_key: string, fallback?: string) => fallback ?? _key
 
 const LOAD_ERROR = 'Failed to load payment transactions'
@@ -22,6 +23,7 @@ type TableProps = {
   onSortingChange?: (sorting: SortingState) => void
   pagination: { onPageChange: (page: number) => void }
   onFiltersApply: (filters: Record<string, string>) => void
+  onRowClick?: (row: Record<string, unknown>) => void
 }
 let mockTableProps: TableProps
 
@@ -50,6 +52,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     <div data-testid="transactions-table" data-loading={String(Boolean(props.isLoading))}>
       {props.error ? <div data-testid="table-error">{props.error}</div> : null}
       <div data-testid="row-count">{(props.data ?? []).length}</div>
+      <button onClick={() => props.data?.[0] && props.onRowClick?.(props.data[0])}>Select transaction</button>
       <button onClick={() => props.onSortingChange?.([{ id: 'amount', desc: false }])}>Sort amount</button>
       <button onClick={() => props.onSortingChange?.([{ id: 'amount', desc: true }])}>Reverse amount</button>
       <button onClick={() => props.onSortingChange?.([])}>Clear sort</button>
@@ -77,7 +80,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
-  apiCallOrThrow: jest.fn(),
+  apiCallOrThrow: (...args: unknown[]) => mockCapture(...args),
 }))
 
 async function waitForLoaded() {
@@ -152,5 +155,23 @@ describe('payment gateways transactions page load errors', () => {
     expect(mockTableProps.manualSorting).toBe(true)
     expect(mockTableProps.columns.filter((column) => column.enableSorting).map((column) => column.accessorKey))
       .toEqual(['providerKey', 'unifiedStatus', 'amount', 'updatedAt'])
+  })
+})
+
+
+describe('capture reconciliation feedback', () => {
+  it('shows an action-required outcome instead of ordinary capture success', async () => {
+    jest.clearAllMocks()
+    const transaction = { id: 'fixture', providerKey: 'mock', unifiedStatus: 'authorized', amount: '100', currencyCode: 'USD' }
+    mockApiCall.mockImplementation(async (url: string) => ({ ok: true, result: url.includes('/transactions/fixture')
+      ? { transaction, logs: [] } : { items: [transaction], total: 1, totalPages: 1 } }))
+    mockCapture.mockResolvedValue({ ok: true, result: { status: 'captured', capturedAmount: 100, reconciliation: { id: 'operation-fixture', requiredAtCompletion: true } } })
+    render(<PaymentGatewaysPage />)
+    await waitForLoaded()
+    fireEvent.click(screen.getByText('Select transaction'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Capture payment' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Capture payment' }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('payment_gateways.reconciliation.actionRequired', 'warning'))
+    expect(mockFlash).not.toHaveBeenCalledWith('Payment captured', 'success')
   })
 })

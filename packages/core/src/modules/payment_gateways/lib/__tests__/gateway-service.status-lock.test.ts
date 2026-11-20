@@ -33,6 +33,7 @@ type TransactionRow = {
   unifiedStatus: UnifiedPaymentStatus
   gatewayStatus: string | null
   amount: string
+  currencyCode: string
   capturedAmount: string
   gatewayMetadata: Record<string, unknown>
   gatewayRefundId: string | null
@@ -65,6 +66,7 @@ function makeRow(status: UnifiedPaymentStatus, capturedAmount = '0.0000'): Trans
     unifiedStatus: status,
     gatewayStatus: null,
     amount: '100.0000',
+    currencyCode: 'USD',
     capturedAmount,
     gatewayMetadata: {},
     gatewayRefundId: null,
@@ -360,13 +362,16 @@ describe('payment gateway service — status writers evaluate the locked committ
       const result = await harness.service.capturePayment('txn_1', undefined, scope, 'capture-after-cancel')
 
       expect(result.status).toBe('captured')
+      expect(result.reconciliation).toEqual({ id: 'operation_1', requiredAtCompletion: true })
       expect(emit).not.toHaveBeenCalled()
       expect(committed.unifiedStatus).toBe('cancelled')
       expect(committed.gatewayMetadata).toEqual({ captureResult: { captureMarker: true } })
       expect(committed.capturedAmount).toBe('100')
       expect(harness.adapter.capture).toHaveBeenCalledTimes(1)
       expect(Array.from(harness.operations.values())).toEqual([
-        expect.objectContaining({ operationId: 'capture-after-cancel', status: 'succeeded' }),
+        expect.objectContaining({ operationId: 'capture-after-cancel', status: 'succeeded', result: expect.objectContaining({
+          __paymentReconciliation: expect.objectContaining({ status: 'required', capturedAmountExact: '100', currencyCode: 'USD' }),
+        }) }),
       ])
       expect(harness.integrationLogService.write).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -20,6 +20,19 @@ function fixture() {
 }
 
 describe('payment operation completion commit boundary', () => {
+  it('commits the reconciliation obligation with the provider result and keeps the callback contract additive', async () => {
+    const { claim, tx, em } = fixture()
+    const result = { status: 'captured', capturedAmountExact: '10' }
+    const storedResult = { ...result, reconciliation: { id: claim.record.id, requiredAtCompletion: true }, __paymentReconciliation: { status: 'required' } }
+    await expect(completePaymentOperation(em as unknown as EntityManager, claim, result, async () => ({
+      statusChanged: false, settledStatus: 'cancelled', storedResult,
+    }))).resolves.toBe(false)
+    expect(tx.nativeUpdate).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ id: claim.record.id }), {
+      result: { ...storedResult, __settledTransactionStatus: 'cancelled' },
+    })
+    expect(claim.record.result).toEqual({ ...storedResult, __settledTransactionStatus: 'cancelled' })
+  })
+
   it('retains the settled status for replay and updates the caller claim only after commit', async () => {
     const { record, claim, tx, em } = fixture()
     const result = { status: 'captured', capturedAmountExact: '0.000000000000000001' }

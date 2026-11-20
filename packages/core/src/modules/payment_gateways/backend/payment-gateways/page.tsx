@@ -1,5 +1,7 @@
 "use client"
 import * as React from 'react'
+import Link from 'next/link'
+import type { CaptureResult } from '@open-mercato/shared/modules/payment_gateways/types'
 import { extensionPoints } from '@open-mercato/core/modules/payment_gateways/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -338,14 +340,16 @@ export default function PaymentTransactionsPage() {
   const handleCapturePayment = React.useCallback(async () => {
     if (!selectedId) return
     setIsCapturing(true)
+    let reconciliationRequired = false
     try {
       await runMutation({
         operation: async () => {
-          await apiCallOrThrow('/api/payment_gateways/capture', {
+          const completion = await apiCallOrThrow<CaptureResult>('/api/payment_gateways/capture', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ transactionId: selectedId }),
           })
+          reconciliationRequired = Boolean(completion.result?.reconciliation)
         },
         context: {
           entityType: 'payment_gateways:gateway_transaction',
@@ -357,7 +361,11 @@ export default function PaymentTransactionsPage() {
         loadRows(),
         loadDetail(selectedId),
       ])
-      flash(t('payment_gateways.transactions.success.capture', 'Payment captured'), 'success')
+      if (reconciliationRequired) {
+        flash(t('payment_gateways.reconciliation.actionRequired'), 'warning')
+      } else {
+        flash(t('payment_gateways.transactions.success.capture', 'Payment captured'), 'success')
+      }
     } catch (error) {
       const message = error instanceof Error && error.message
         ? error.message
@@ -481,6 +489,7 @@ export default function PaymentTransactionsPage() {
         description={t('payment_gateways.transactions.description', 'Track all payment-gateway transactions, inspect webhook activity, and review provider logs from one place.')}
       />
       <PageBody className="space-y-6">
+        <Link href="/backend/payment-gateways/reconciliations" className="text-sm underline">{t('payment_gateways.reconciliation.title')}</Link>
         <DataTable
           stickyActionsColumn
           title={t('payment_gateways.transactions.tableTitle', 'Transactions')}

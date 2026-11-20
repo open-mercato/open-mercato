@@ -5,6 +5,7 @@ import { decimalToNumber, decimalsEqual, resolveExactDecimal } from '@open-merca
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { GatewayPaymentOperation } from '../data/entities'
 import type { ManualGatewayAction } from './status-machine'
+import { RECONCILIATION_KEY } from './reconciliation'
 
 type Scope = { organizationId: string; tenantId: string }
 type OperationStatus = 'in_progress' | 'succeeded' | 'failed'
@@ -20,12 +21,13 @@ export type ClaimedPaymentOperation = {
 }
 
 export type PreparedPaymentOperation =
-  | { kind: 'completed'; result: Record<string, unknown>; settledStatus: string | null }
+  | { kind: 'completed'; result: Record<string, unknown>; settledStatus: string | null; recordId?: string }
   | { kind: 'claimed'; claim: ClaimedPaymentOperation }
 
 export type PaymentOperationSettlement = {
   statusChanged: boolean
   settledStatus: string
+  storedResult?: Record<string, unknown>
 }
 
 type PreparePaymentOperationInput = {
@@ -108,7 +110,8 @@ function claimFields(now: Date) {
 }
 
 function readStoredResult(stored: Record<string, unknown>) {
-  const { [SETTLED_STATUS_KEY]: settledStatus, ...result } = stored
+  const { [SETTLED_STATUS_KEY]: settledStatus, [RECONCILIATION_KEY]: reconciliation, ...result } = stored
+  void reconciliation
   return { result, settledStatus: typeof settledStatus === 'string' ? settledStatus : null }
 }
 
@@ -132,7 +135,7 @@ async function resolveExistingOperation(
     )
   }
   if (existing.status === 'succeeded' && existing.result) {
-    return { kind: 'completed', ...readStoredResult(existing.result) }
+    return { kind: 'completed', ...readStoredResult(existing.result), recordId: existing.id }
   }
 
   const now = new Date()
@@ -245,8 +248,9 @@ export async function completePaymentOperation<T extends Record<string, unknown>
       )
     }
     const settlement = await applyResult(tx)
-    if (settlement.settledStatus !== result.status) {
-      stored = { ...result, [SETTLED_STATUS_KEY]: settlement.settledStatus }
+    stored = settlement.storedResult ?? result
+    if (settlement.settledStatus !== result.status || settlement.storedResult) {
+      stored = { ...stored, ...(settlement.settledStatus !== result.status ? { [SETTLED_STATUS_KEY]: settlement.settledStatus } : {}) }
       await tx.nativeUpdate(
         GatewayPaymentOperation,
         { id: claim.record.id, status: 'succeeded', attemptToken: claim.attemptToken },
