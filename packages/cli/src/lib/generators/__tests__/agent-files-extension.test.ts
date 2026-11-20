@@ -660,6 +660,35 @@ describe('createAgentFilesExtension', () => {
     expect(manifest).toContain('export const fileAgentDescriptors: FileAgentDescriptor[] = []')
   })
 
+  it('emits a re-export of the committed manifest as a registry output in a monorepo', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const outputDir = path.join(repoRoot, 'apps', 'mercato', '.mercato', 'generated')
+
+    const extension = createAgentFilesExtension({
+      isMonorepo: () => true,
+      getRootDir: () => repoRoot,
+      getAppDir: () => path.join(repoRoot, 'apps', 'mercato'),
+      getOutputDir: () => outputDir,
+    })
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    const outputs = extension.generateOutput()
+
+    expect([...outputs.keys()]).toEqual(['file-agents.generated.ts'])
+    expect(outputs.get('file-agents.generated.ts')).toContain(
+      "export * from '@open-mercato/enterprise/modules/agent_orchestrator/generated/file-agents.generated'",
+    )
+    expect(fs.existsSync(path.join(outputDir, 'file-agents.generated.ts'))).toBe(false)
+    expect(
+      fs.existsSync(
+        path.join(
+          repoRoot,
+          'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts',
+        ),
+      ),
+    ).toBe(true)
+  })
+
   describe('standalone app layout', () => {
     /**
      * A scaffolded app has no `packages/` tree and no `docker/opencode/` before
@@ -746,6 +775,7 @@ describe('createAgentFilesExtension', () => {
       expect(fs.existsSync(manifestPath)).toBe(true)
       const manifest = fs.readFileSync(manifestPath, 'utf8')
       expect(manifest).toContain('id: "deals.health_check"')
+      expect(manifest).not.toContain('export * from')
       // Standalone layout: type imports must use the public package path — the
       // monorepo-relative `../lib/...` form does not resolve from `.mercato/generated/`.
       expect(manifest).toContain(

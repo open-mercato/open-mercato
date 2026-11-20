@@ -15,6 +15,7 @@ export class PasswordServiceError extends Error {
     message: string,
     public readonly statusCode: number,
     public readonly errors?: string[],
+    public readonly field?: 'currentPassword' | 'newPassword',
   ) {
     super(message)
     this.name = 'PasswordServiceError'
@@ -50,7 +51,7 @@ export class PasswordService {
     const passwordHasher = getPasswordHasher()
     const currentPasswordValid = await passwordHasher.verify(currentPassword, user.passwordHash)
     if (!currentPasswordValid) {
-      throw new PasswordServiceError('Current password is invalid', 401)
+      throw new PasswordServiceError('Current password is invalid', 400, undefined, 'currentPassword')
     }
 
     const policyValidation = this.validatePasswordPolicy(newPassword)
@@ -59,12 +60,13 @@ export class PasswordService {
         'Password does not meet the requirements',
         400,
         policyValidation.errors,
+        'newPassword',
       )
     }
 
     const sameAsCurrent = await passwordHasher.verify(newPassword, user.passwordHash)
     if (sameAsCurrent) {
-      throw new PasswordServiceError('New password must be different from current password', 400)
+      throw new PasswordServiceError('New password must be different from current password', 400, undefined, 'newPassword')
     }
 
     user.passwordHash = await passwordHasher.hash(newPassword)
