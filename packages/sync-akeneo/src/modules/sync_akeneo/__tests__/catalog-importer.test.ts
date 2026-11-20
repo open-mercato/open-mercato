@@ -240,7 +240,7 @@ describe('akeneo catalog importer option schemas', () => {
     }
 
     mockContainerResolve.mockImplementation((key: string) => {
-      if (key === 'em') return {}
+      if (key === 'em') return { getMetadata: () => ({ has: () => true }) }
       if (key === 'commandBus') return commandBus
       if (key === 'dataEngine') return {}
       if (key === 'externalIdMappingService') return externalIdMappingService
