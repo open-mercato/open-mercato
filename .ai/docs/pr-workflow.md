@@ -139,16 +139,23 @@ When QA passes, move it back and record approval (`gh pr edit <number> --remove-
 - `needs-human-qa` marks a PR that a human tester MUST test before merge: protected areas
   (migrations that rewrite or move data, money, widened permissions or cross-tenant access,
   architecture, backward-incompatible changes), the `security` category, and the human-only
-  policy in `.ai/agentic.config.json` (`automerge.humanOnlyLabels`, today `feature`, and
-  `automerge.humanOnlyAuthors`, the UX owner). `om-auto-merge-buddy` and `om-auto-review-pr`
-  apply it (`qaGateLabel`); anyone may add it by hand, and automation never removes a
-  human-applied one.
+  policy in `.ai/agentic.config.json` (`automerge.humanOnlyLabels`, today `feature` and
+  `security`, and `automerge.humanOnlyAuthors`, the UX owner). `om-auto-merge-buddy` and
+  `om-auto-review-pr` apply it (`qaGateLabel`); anyone may add it by hand, and automation never
+  removes a human-applied one. As a backstop the `QA ready label` workflow
+  (`.github/workflows/qa-ready-label.yml`) adds it to every open PR that carries `needs-qa`
+  without `skip-qa` and is labeled `security`, `feature` or `risk-high` or authored by the UX
+  owner, on every label change and every 30 minutes, so a protected PR keeps the human gate
+  even when nobody classified it by hand.
 - `ready-for-qa` means a human tester can start now: the PR carries `needs-human-qa`, has an
   approving review, green CI and no conflicts, and its current head has no human QA sign-off yet.
-  The `QA ready label` workflow (`.github/workflows/qa-ready-label.yml`) adds it on a schedule and
-  removes it on every push, so a verdict is never based on code that has since changed. Never set
-  it by hand. The daily QA queue is the filter
-  `is:pr is:open label:needs-human-qa label:ready-for-qa -label:qa-in-progress`.
+  The same workflow adds it on a schedule and removes it on every push, so a verdict is never
+  based on code that has since changed. Never set it by hand. The daily QA queue is the filter
+  `is:pr is:open label:needs-human-qa label:ready-for-qa -label:qa-in-progress`. It is a queue
+  hint only and never merge evidence: the merge tooling checks `qa-approved` and the `QA head:`
+  line against the current head itself. The workflow counts a sign-off only when the latest
+  `QA verdict:` comment comes from someone with triage or higher permission who is not the PR
+  author, says READY TO MERGE and pins the full 40-character current head SHA.
 - `qa-in-progress` is set by the QA reviewer who picks the PR up (together with assigning
   themselves) and removed when they post the verdict.
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, changes with no
@@ -193,6 +200,21 @@ to merge it); there is no longer a dedicated `merge-gate` CI workflow, so the ma
 responsible for upholding it (optionally via a branch-protection rule that requires the
 `qa-approved` label). `skip-qa` is the explicit opt-out: a PR with `skip-qa` does not require
 `qa-approved`. Never combine `skip-qa` with `needs-qa`, `needs-human-qa` or `qa-approved`.
+
+**Switching the gate from `needs-qa` to `needs-human-qa`.** No PR may lose the human gate in the
+switch. Before the change that sets `qaGateLabel` merges, every open PR that carries `needs-qa`
+without `skip-qa` and falls under the backstop rule above gets `needs-human-qa`, and a dry run of
+that rule must find nothing left to label:
+
+```bash
+for label in security feature risk-high; do
+  gh pr list --state open --limit 1000 --search "label:needs-qa label:$label -label:skip-qa -label:needs-human-qa" --json number --jq '.[].number'
+done
+gh pr list --state open --limit 1000 --search "label:needs-qa author:zielivia -label:skip-qa -label:needs-human-qa" --json number --jq '.[].number'
+```
+
+Run `gh pr edit <number> --add-label needs-human-qa` for each number, then rerun the dry run until
+it prints nothing. After the merge the workflow keeps the rule in force.
 
 **Self-QA exception:** the manual QA is normally performed by the dedicated QA reviewers. When
 they have no capacity to test in time, any engineer may self-QA instead — but only by

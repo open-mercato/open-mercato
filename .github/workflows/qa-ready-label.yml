@@ -2,17 +2,28 @@ name: QA ready label
 
 on:
   pull_request_target:
-    types: [synchronize, reopened, converted_to_draft, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, converted_to_draft, ready_for_review, labeled, unlabeled]
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
 
-# Keeps `ready-for-qa` current on pull requests that carry `needs-human-qa`
-# (see .ai/docs/pr-workflow.md). The label means a human tester can start now:
-# approving review, green CI, no conflicts, and no human QA sign-off pinned to
-# the current head yet. A push removes it at once, so a QA verdict is never
-# based on code that has since changed; the schedule adds it back once the new
-# head is approved and green again.
+# Keeps the human QA labels current (see .ai/docs/pr-workflow.md).
+#
+# 1. Classification backstop: an open PR that asks for QA (`needs-qa`, no
+#    `skip-qa`) and falls under the human-only policy (`security`, `feature`
+#    or `risk-high`, or authored by the UX owner) gets `needs-human-qa`, so a
+#    protected PR never loses the human QA gate because nobody classified it.
+#    This job only adds that label; it never removes it.
+# 2. `ready-for-qa` means a human tester can start now: approving review,
+#    green CI, no conflicts, and no human QA sign-off on the current head yet.
+#    A push removes it at once, so a QA verdict is never based on code that
+#    has since changed; the schedule adds it back once the new head is
+#    approved and green again. It is a queue hint only: merge tooling checks
+#    `qa-approved` and the `QA head:` line itself and never trusts this label.
+#
+# A sign-off counts only when the latest QA verdict comment on the PR comes
+# from someone with triage or higher permission who is not the PR author,
+# says READY TO MERGE, and pins the full 40-character current head SHA.
 #
 # pull_request_target runs in the base repository context so fork pull
 # requests can be relabeled. There is no checkout: no pull request head and no
@@ -31,19 +42,25 @@ jobs:
     if: github.event_name != 'pull_request_target' || github.event.action != 'labeled' || github.event.label.name != 'ready-for-qa'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      - name: Sync ready-for-qa
+      - name: Sync needs-human-qa and ready-for-qa
         uses: actions/github-script@v9
         with:
           script: |
             const GATE = 'needs-human-qa';
             const READY = 'ready-for-qa';
+            const AUTO_QA = 'needs-qa';
+            const OPT_OUT = 'skip-qa';
             const HOLDS = ['blocked', 'do-not-merge', 'qa-failed', 'skip-qa'];
+            const HUMAN_ONLY_LABELS = ['security', 'feature', 'risk-high'];
+            const HUMAN_ONLY_AUTHORS = ['zielivia'];
+            const SIGNOFF_ROLES = ['admin', 'maintain', 'write', 'triage'];
             const { owner, repo } = context.repo;
 
             const prQuery = `query($owner: String!, $repo: String!, $number: Int!) {
               repository(owner: $owner, name: $repo) {
                 pullRequest(number: $number) {
                   number state isDraft mergeable reviewDecision headRefOid
+                  author { login }
                   labels(first: 100) { nodes { name } }
                   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
                 }
@@ -55,20 +72,47 @@ jobs:
               return result.repository.pullRequest;
             }
 
+            function needsGate(pr, labels) {
+              if (pr.state !== 'OPEN') return false;
+              if (labels.includes(GATE) || labels.includes(OPT_OUT) || !labels.includes(AUTO_QA)) return false;
+              const author = pr.author?.login ?? '';
+              return HUMAN_ONLY_LABELS.some((label) => labels.includes(label)) || HUMAN_ONLY_AUTHORS.includes(author);
+            }
+
+            const roleCache = new Map();
+            async function canSignOff(login) {
+              if (!roleCache.has(login)) {
+                let role = 'none';
+                try {
+                  const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: login });
+                  role = data.role_name ?? data.permission ?? 'none';
+                } catch (error) {
+                  core.info(`permission lookup for ${login} failed: ${error.message}`);
+                }
+                roleCache.set(login, SIGNOFF_ROLES.includes(role));
+              }
+              return roleCache.get(login);
+            }
+
             async function signedOffOnHead(pr) {
               const comments = await github.paginate(github.rest.issues.listComments, {
                 owner, repo, issue_number: pr.number, per_page: 100,
               });
-              const pins = comments
-                .filter((comment) => comment.user?.type !== 'Bot')
-                .map((comment) => /QA head:\s*`?([0-9a-f]{7,40})/i.exec(comment.body ?? '')?.[1])
-                .filter(Boolean);
-              const latest = pins.at(-1)?.toLowerCase();
-              return Boolean(latest) && pr.headRefOid.toLowerCase().startsWith(latest);
+              const prAuthor = pr.author?.login ?? '';
+              for (const comment of comments.reverse()) {
+                const login = comment.user?.login ?? '';
+                if (!login || comment.user?.type === 'Bot' || login === prAuthor) continue;
+                const body = comment.body ?? '';
+                const verdict = /QA verdict:[^\n]*/i.exec(body)?.[0];
+                if (!verdict) continue;
+                if (!(await canSignOff(login))) continue;
+                const pinned = /QA head:\s*`?([0-9a-f]{40})\b/i.exec(body)?.[1]?.toLowerCase();
+                return /READY TO MERGE/i.test(verdict) && pinned === pr.headRefOid.toLowerCase();
+              }
+              return false;
             }
 
-            async function readiness(pr) {
-              const labels = pr.labels.nodes.map((label) => label.name);
+            async function readiness(pr, labels) {
               if (pr.state !== 'OPEN' || pr.isDraft) return 'not open or draft';
               if (!labels.includes(GATE)) return `no ${GATE}`;
               const hold = HOLDS.find((label) => labels.includes(label));
@@ -85,8 +129,14 @@ jobs:
 
             async function sync(number, { removeOnly = false } = {}) {
               const pr = await loadPr(number);
-              const has = pr.labels.nodes.some((label) => label.name === READY);
-              const reason = removeOnly ? 'new commits' : await readiness(pr);
+              const labels = pr.labels.nodes.map((label) => label.name);
+              if (needsGate(pr, labels)) {
+                await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [GATE] });
+                labels.push(GATE);
+                core.info(`#${number}: added ${GATE} (human-only policy)`);
+              }
+              const has = labels.includes(READY);
+              const reason = removeOnly ? 'new commits' : await readiness(pr, labels);
               if (reason && has) {
                 await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: READY });
                 core.info(`#${number}: removed ${READY} (${reason})`);
@@ -105,10 +155,16 @@ jobs:
               return;
             }
 
+            const queries = [
+              `label:"${GATE}"`,
+              `label:"${READY}"`,
+              ...HUMAN_ONLY_LABELS.map((label) => `label:"${AUTO_QA}" label:"${label}" -label:"${GATE}"`),
+              ...HUMAN_ONLY_AUTHORS.map((login) => `label:"${AUTO_QA}" author:${login} -label:"${GATE}"`),
+            ];
             const numbers = new Set();
-            for (const label of [GATE, READY]) {
+            for (const query of queries) {
               const items = await github.paginate(github.rest.search.issuesAndPullRequests, {
-                q: `repo:${owner}/${repo} is:pr is:open label:"${label}"`,
+                q: `repo:${owner}/${repo} is:pr is:open ${query}`,
                 per_page: 100,
               });
               for (const item of items) numbers.add(item.number);
