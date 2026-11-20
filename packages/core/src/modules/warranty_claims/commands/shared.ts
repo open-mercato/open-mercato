@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { FindOneOptions } from '@mikro-orm/core'
+import { LockMode, type FindOneOptions } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, assertFound } from '@open-mercato/shared/lib/crud/errors'
@@ -20,6 +20,7 @@ import type {
   WarrantyClaimEventVisibility,
 } from '../data/validators'
 import { computeHeaderRollups } from '../lib/stateMachine'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -48,6 +49,57 @@ export type AppendClaimEventInput = {
   payload?: Record<string, unknown> | null
   actorUserId?: string | null
   actorCustomerId?: string | null
+}
+
+export const WARRANTY_MONEY_FIELDS = [
+  'creditAmount',
+  'restockingFee',
+  'coreChargeAmount',
+  'coreCreditAmount',
+  'autoApproveMaxAmount',
+] as const
+
+/**
+ * Adds `<field>Exact` strings (raw request digits) next to the coerced money
+ * numbers, on the input and on each of its `lines`.
+ */
+export function withWarrantyExactAmounts<T>(parsed: T, raw: unknown): T {
+  if (!parsed || typeof parsed !== 'object') return parsed
+  const withExact = withExactAmounts(parsed as object, raw, WARRANTY_MONEY_FIELDS) as Record<string, unknown>
+  const lines = withExact.lines
+  if (Array.isArray(lines)) {
+    const rawLines = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).lines : undefined
+    withExact.lines = lines.map((line, index) =>
+      line && typeof line === 'object'
+        ? withExactAmounts(line as object, Array.isArray(rawLines) ? rawLines[index] : undefined, WARRANTY_MONEY_FIELDS)
+        : line,
+    )
+  }
+  return withExact as T
+}
+
+/**
+ * The input without the `<field>Exact` keys a route attached, so the strict
+ * command schemas accept it. `withWarrantyExactAmounts` still reads them from
+ * the original input.
+ */
+export function withoutWarrantyExactKeys(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+  const exactKeys = new Set(WARRANTY_MONEY_FIELDS.map((field) => `${field}Exact`))
+  const entries = Object.entries(raw as Record<string, unknown>)
+    .filter(([key]) => !exactKeys.has(key))
+    .map(([key, value]) => [key, key === 'lines' && Array.isArray(value) ? value.map(withoutWarrantyExactKeys) : value])
+  return Object.fromEntries(entries)
+}
+
+/** The exact money input for `field`: its `<field>Exact` string when present. */
+export function exactMoneyInput(
+  input: object,
+  field: (typeof WARRANTY_MONEY_FIELDS)[number],
+): number | string | null | undefined {
+  const values = input as Record<string, number | string | null | undefined>
+  const exact = values[`${field}Exact`]
+  return typeof exact === 'string' ? exact : values[field]
 }
 
 export async function enforceWarrantyClaimOptimisticLock(
@@ -100,6 +152,41 @@ export async function requireScopedClaim(
 ): Promise<WarrantyClaim> {
   const claim = await loadScopedClaim(em, id, scope, options)
   return assertFound(claim, notFoundMessage)
+}
+
+export async function assertUniqueClaimLineNumbers(lineNumbers: Iterable<number>): Promise<void> {
+  const usedNumbers = new Set<number>()
+  for (const lineNo of lineNumbers) {
+    if (usedNumbers.has(lineNo)) {
+      const { translate } = await resolveTranslations()
+      const code = 'warranty_claims.errors.duplicateLineNo'
+      throw new CrudHttpError(409, {
+        error: translate(code, 'Another line on this claim already uses that line number. Remove the line that uses this number, then retry.'),
+        code,
+      })
+    }
+    usedNumbers.add(lineNo)
+  }
+}
+
+export async function assertClaimLineNumberAvailable(
+  em: EntityManager,
+  claim: WarrantyClaim,
+  lineNo: number,
+  excludedLineId?: string,
+  allowCurrentNumber = false,
+): Promise<void> {
+  const scope = { tenantId: claim.tenantId, organizationId: claim.organizationId }
+  await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+  const siblings = await findWithDecryption(
+    em,
+    WarrantyClaimLine,
+    { claim: claim.id, lineNo, deletedAt: null, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )
+  if (allowCurrentNumber && siblings.some((line) => line.id === excludedLineId)) return
+  await assertUniqueClaimLineNumbers([lineNo, ...siblings.filter((line) => line.id !== excludedLineId).map((line) => line.lineNo)])
 }
 
 export function appendClaimEvent(
@@ -177,12 +264,12 @@ export async function reconcileVendorRecoverySourceClaim(
         scope,
       )
     : []
-  const recoveredTotal = computeHeaderRollups(childLines).totalApprovedAmount
+  const recoveredTotal = computeHeaderRollups(childLines).totalApprovedAmountExact
   await withAtomicFlush(
     em,
     [
       () => {
-        sourceClaim.totalRecoveredAmount = String(recoveredTotal)
+        sourceClaim.totalRecoveredAmount = recoveredTotal
         sourceClaim.updatedAt = new Date()
       },
     ],

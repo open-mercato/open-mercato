@@ -30,8 +30,7 @@ import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromePr
 import {
   DictionaryValue,
   createEmptyCustomerDictionaryMaps,
-  renderDictionaryColor,
-  renderDictionaryIcon,
+  dictionaryValueAppearance,
   type CustomerDictionaryKind,
   type CustomerDictionaryMap,
 } from '../../../lib/dictionaries'
@@ -58,6 +57,9 @@ import {
 } from '../../../components/detail/assignableStaff'
 import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 import { appendCustomerListSortParams } from '../listSorting'
+import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
+import { USER_TIMEZONE } from '../../../lib/localDay'
+import { formatInTimeZone } from 'date-fns-tz'
 
 type DictionaryOptionWithTone = AdvancedFilterOption & FilterOption
 
@@ -74,8 +76,9 @@ function makeCompaniesPresets(): FilterPreset[] {
       labelKey: 'customers.companies.presets.recentlyCreated',
       iconName: 'clock',
       build: ({ now }) => {
-        const cutoff = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: cutoff })
+        const dayBeforeWindow = new Date(`${formatInTimeZone(now, USER_TIMEZONE, 'yyyy-MM-dd')}T00:00:00.000Z`)
+        dayBeforeWindow.setUTCDate(dayBeforeWindow.getUTCDate() - 8)
+        return makeRuleTree({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow.toISOString().slice(0, 10) })
       },
     },
     {
@@ -103,6 +106,7 @@ type CompanyRow = {
   industry?: string | null
   sizeBucket?: string | null
   annualRevenue?: string | null
+  taxId?: string | null
   status?: string | null
   lifecycleStage?: string | null
   nextInteractionAt?: string | null
@@ -112,6 +116,7 @@ type CompanyRow = {
   organizationId?: string | null
   source?: string | null
   ownerUserId?: string | null
+  createdAt?: string | null
 } & Record<string, unknown>
 
 type CompaniesResponse = {
@@ -145,6 +150,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
   const websiteUrl = typeof item.website_url === 'string' ? item.website_url : null
   const industry = typeof item.industry === 'string' ? item.industry : null
   const sizeBucket = typeof item.size_bucket === 'string' ? item.size_bucket : null
+  const taxId = typeof item.tax_id === 'string' ? item.tax_id : null
   const annualRevenue =
     typeof item.annual_revenue === 'string'
       ? item.annual_revenue
@@ -159,6 +165,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
   const nextInteractionColor = typeof item.next_interaction_color === 'string' ? item.next_interaction_color : null
   const organizationId = typeof item.organization_id === 'string' ? item.organization_id : null
   const source = typeof item.source === 'string' ? item.source : null
+  const createdAt = typeof item.created_at === 'string' ? item.created_at : null
   const ownerUserId = typeof item.owner_user_id === 'string' ? item.owner_user_id : null
   const customFields: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(item)) {
@@ -179,6 +186,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
     industry,
     sizeBucket,
     annualRevenue,
+    taxId,
     status,
     lifecycleStage,
     nextInteractionAt,
@@ -188,6 +196,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
     organizationId,
     source,
     ownerUserId,
+    createdAt,
     ...customFields,
   }, item)
 }
@@ -323,9 +332,9 @@ export default function CustomersCompaniesPage() {
     }
   }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_company_profile],
-    { keyExtras: [scopeVersion, reloadToken] },
+    { keyExtras: [scopeVersion] },
   )
   const currentUserId = useCurrentUserId()
   const activeOrgId = useCurrentOrganization()?.id ?? null
@@ -364,7 +373,7 @@ export default function CustomersCompaniesPage() {
     params.set('pageSize', String(pageSize))
     appendCustomerListSortParams(params, sorting)
     if (search.trim()) params.set('search', search.trim())
-    const advancedParams = serializeTree(advancedFilterState)
+    const advancedParams = serializeTree(expandCreatedAtDayRules(advancedFilterState, USER_TIMEZONE))
     for (const [key, val] of Object.entries(advancedParams)) {
       params.set(key, val)
     }
@@ -442,8 +451,9 @@ export default function CustomersCompaniesPage() {
   }, [queryParams, reloadToken, scopeVersion, t])
 
   const handleRefresh = React.useCallback(() => {
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [])
+  }, [refetchCustomFieldDefs])
 
   const handleDelete = React.useCallback(async (company: CompanyRow) => {
     if (!company?.id) return
@@ -574,10 +584,7 @@ export default function CustomersCompaniesPage() {
         value={rawValue}
         map={dictionaryMaps[kind]}
         fallback={rawValue ? <span>{rawValue}</span> : noValue}
-        className="text-sm"
-        iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-        iconClassName="h-4 w-4"
-        colorClassName="h-3 w-3 rounded-full"
+        appearance={dictionaryValueAppearance(kind)}
       />
     )
 
@@ -687,25 +694,31 @@ export default function CustomersCompaniesPage() {
           row.original.nextInteractionAt
             ? (
               <div className="flex items-start gap-2 text-sm">
-                {row.original.nextInteractionIcon ? (
-                  <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card">
-                    {renderDictionaryIcon(row.original.nextInteractionIcon, 'h-4 w-4')}
-                  </span>
-                ) : null}
                 <div className="flex flex-col">
                   <span>{formatDate(row.original.nextInteractionAt, t('customers.companies.list.noValue'))}</span>
                   {row.original.nextInteractionName ? (
                     <span className="text-xs text-muted-foreground">{row.original.nextInteractionName}</span>
                   ) : null}
                 </div>
-                {row.original.nextInteractionColor ? (
-                  <span className="mt-1">
-                    {renderDictionaryColor(row.original.nextInteractionColor, 'h-3 w-3 rounded-full border border-border')}
-                  </span>
-                ) : null}
               </div>
             )
             : noValue,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('customers.companies.list.columns.createdAt', 'Created'),
+        meta: {
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
+          filterKey: 'created_at',
+          filterType: 'date' as const,
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
+          filterIconName: 'calendar',
+        },
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {formatDate(row.original.createdAt, t('customers.companies.list.noValue'))}
+          </span>
+        ),
       },
       {
         accessorKey: 'source',
@@ -743,6 +756,15 @@ export default function CustomersCompaniesPage() {
           filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.legalName || noValue,
+      },
+      {
+        accessorKey: 'taxId',
+        header: t('customers.companies.detail.fields.taxId', 'VAT ID'),
+        meta: {
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
+          maxWidth: '180px',
+        },
+        cell: ({ row }) => row.original.taxId || noValue,
       },
       {
         accessorKey: 'brandName',
@@ -970,7 +992,7 @@ export default function CustomersCompaniesPage() {
           )}
           virtualized
           pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage, pageSizeOptions: [10, 25, 50, 100], onPageSizeChange: handlePageSizeChange, cacheStatus }}
-          isLoading={isLoading}
+          isLoading={isLoading || customFieldDefsLoading}
         />
         <AdvancedFilterPanel
           fields={advancedFilterFields}

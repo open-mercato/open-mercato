@@ -1,3 +1,4 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -491,20 +492,11 @@ export async function GET(request: Request, context: { params?: Record<string, u
       })
     : null
 
+  let cachedBody: Record<string, unknown> | null = null
   if (detailCache && detailCacheKey) {
     try {
       const cached = await runWithCacheTenant(cacheTenantId, () => detailCache.get(detailCacheKey))
-      if (cached && typeof cached === 'object') {
-        const viewerInfo = await resolveViewer()
-        return NextResponse.json({
-          ...(cached as Record<string, unknown>),
-          viewer: {
-            userId: viewerUserId,
-            name: viewerInfo.name,
-            email: viewerInfo.email,
-          },
-        })
-      }
+      if (cached && typeof cached === 'object') cachedBody = cached as Record<string, unknown>
     } catch (err) {
       // A cache-backend read error must degrade to a fresh DB read, never a 500.
       debugCrudCache('get', {
@@ -514,6 +506,14 @@ export async function GET(request: Request, context: { params?: Record<string, u
       })
     }
   }
+  if (cachedBody) {
+    const viewerInfo = await resolveViewer()
+    return NextResponse.json(await enrichCustomerDetailResponse({
+      ...cachedBody,
+      viewer: { userId: viewerUserId, name: viewerInfo.name, email: viewerInfo.email },
+    }, 'deal', { auth, container, em, tenantId: cacheTenantId, organizationId: cacheOrganizationId }))
+  }
+
   // Issue #3175: the reads below only depend on the already-resolved deal +
   // organization scope + decryption scope, so they are grouped into Promise.all
   // batches instead of being awaited one after another. True dependencies stay
@@ -844,11 +844,13 @@ export async function GET(request: Request, context: { params?: Record<string, u
         id: stage.id,
         label: stage.label,
         order: stage.order,
+        defaultProbability: stage.defaultProbability ?? null,
         color: appearance?.color ?? null,
         icon: appearance?.icon ?? null,
       }
     }),
     pipelineName: pipeline?.name ?? null,
+    pipelineStageProbabilitiesEnabled: pipeline?.stageProbabilitiesEnabled === true,
     stageTransitions: stageTransitionPayload,
     owner: ownerPayload,
   }
@@ -872,7 +874,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     }
   }
 
-  return NextResponse.json({ ...cacheableBody, viewer })
+  return NextResponse.json(await enrichCustomerDetailResponse({ ...cacheableBody, viewer }, 'deal', { auth, container, em, tenantId: cacheTenantId, organizationId: cacheOrganizationId }))
 }
 
 const dealDetailQuerySchema = z.object({
@@ -883,6 +885,7 @@ const pipelineStageInfoSchema = z.object({
   id: z.string().uuid(),
   label: z.string(),
   order: z.number().int(),
+  defaultProbability: z.number().int().nullable().optional(),
   color: z.string().nullable(),
   icon: z.string().nullable(),
 })
@@ -941,6 +944,7 @@ const dealDetailResponseSchema = z.object({
     email: z.string().nullable(),
   }),
   pipelineStages: z.array(pipelineStageInfoSchema),
+  pipelineStageProbabilitiesEnabled: z.boolean(),
   stageTransitions: z.array(stageTransitionInfoSchema),
   owner: z.object({
     id: z.string().uuid(),

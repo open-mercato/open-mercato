@@ -17,6 +17,7 @@ import {
   ensureGatewayProviderConfigured,
   type PaymentGatewayDescriptorService,
 } from '../lib/gatewayProviderAvailability'
+import { ensurePayerFieldsCollected } from '../lib/payerFieldRequirements'
 import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
@@ -27,10 +28,10 @@ import {
   pickExplicitParsedOverrides,
   resolveLoadedCheckoutCustomFields,
   serializeTemplateOrLink,
-  toMoneyString,
   toTemplateOrLinkMutationInput,
   validateDescriptorCurrencies,
 } from '../lib/utils'
+import { roundCheckoutConfiguredAmounts, toStoredCheckoutAmounts } from '../lib/amountPrecision'
 import {
   captureLinkSnapshot,
   createLinkFromSnapshot,
@@ -101,6 +102,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     validateDescriptorCurrencies(sourceValues.gatewayProviderKey ?? null, deriveConfiguredCurrencies(sourceValues))
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(sourceValues.gatewayProviderKey ?? null, descriptorService, scope)
+    ensurePayerFieldsCollected(sourceValues)
     if (isCheckoutLinkPublic(sourceValues.status) && !sourceValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }
@@ -110,17 +112,15 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       sourceValues.slug ?? null,
       sourceValues.title ?? sourceValues.name,
     )
+    const roundedValues = await roundCheckoutConfiguredAmounts(ctx.container, scope, sourceValues)
     const link = em.create(CheckoutLink, {
-      ...sourceValues,
+      ...roundedValues,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       completionCount: 0,
       activeReservationCount: 0,
       isLocked: false,
-      fixedPriceAmount: toMoneyString(sourceValues.fixedPriceAmount),
-      fixedPriceOriginalAmount: toMoneyString(sourceValues.fixedPriceOriginalAmount),
-      customAmountMin: toMoneyString(sourceValues.customAmountMin),
-      customAmountMax: toMoneyString(sourceValues.customAmountMax),
+      ...toStoredCheckoutAmounts(roundedValues),
       slug,
       passwordHash: await hashCheckoutPassword(sourceValues.password),
     } as any)
@@ -302,6 +302,7 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     )
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(nextValues.gatewayProviderKey ?? null, descriptorService, scope)
+    ensurePayerFieldsCollected(nextValues)
     if (isCheckoutLinkPublic(nextValues.status) && !nextValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }
@@ -310,12 +311,11 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
       : link.slug
     const passwordHash = parsed.password !== undefined ? await hashCheckoutPassword(parsed.password) : link.passwordHash
     const previousStatus = link.status
+    const roundedValues = await roundCheckoutConfiguredAmounts(ctx.container, scope, nextValues)
     Object.assign(link, {
       ...parsed,
-      fixedPriceAmount: parsed.fixedPriceAmount !== undefined ? toMoneyString(parsed.fixedPriceAmount) : link.fixedPriceAmount,
-      fixedPriceOriginalAmount: parsed.fixedPriceOriginalAmount !== undefined ? toMoneyString(parsed.fixedPriceOriginalAmount) : link.fixedPriceOriginalAmount,
-      customAmountMin: parsed.customAmountMin !== undefined ? toMoneyString(parsed.customAmountMin) : link.customAmountMin,
-      customAmountMax: parsed.customAmountMax !== undefined ? toMoneyString(parsed.customAmountMax) : link.customAmountMax,
+      ...toStoredCheckoutAmounts(roundedValues),
+      priceListItems: roundedValues.priceListItems,
       slug,
       passwordHash,
     })
@@ -389,6 +389,12 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const link = await em.findOne(CheckoutLink, { id: before.id, ...scope, deletedAt: null })
     if (!link) return
+    if (link.isLocked) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(422, {
+        error: translate('checkout.errors.links.lockedEdit', 'This link has active transactions and cannot be edited'),
+      })
+    }
     restoreLinkFromSnapshot(link, before)
     link.slug = await resolveRestoredLinkSlug(em, before)
     await em.flush()

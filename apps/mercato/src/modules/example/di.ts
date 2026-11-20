@@ -17,6 +17,7 @@ import { mockShippingAdapter } from './lib/mock-shipping-adapter'
 import { exampleCurrencyRateProvider } from './lib/mock-currency-rate-provider'
 import { registerCurrencyRateProvider } from '@open-mercato/core/modules/currencies/services/providers/registry'
 import { createVisitBookingSerializingCommandBus } from './lib/visitBookingSerialization'
+import { syncQaCapacityProbeRegistration } from './lib/qaCapacityProbe'
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
   const data = payload?.data
@@ -81,6 +82,10 @@ export function register(container: AppContainer) {
       }
     },
   })
+  registerGatewayAdapter({
+    ...mockGatewayAdapter,
+    providerKey: 'mock_payer_required',
+  })
   registerWebhookHandler('mock', mockGatewayAdapter.verifyWebhook, {
     readSessionIdHint: readMockWebhookSessionId,
   })
@@ -88,6 +93,9 @@ export function register(container: AppContainer) {
     readSessionIdHint: readMockWebhookSessionId,
   })
   registerWebhookHandler('mock_processing', mockGatewayAdapter.verifyWebhook, {
+    readSessionIdHint: readMockWebhookSessionId,
+  })
+  registerWebhookHandler('mock_payer_required', mockGatewayAdapter.verifyWebhook, {
     readSessionIdHint: readMockWebhookSessionId,
   })
   registerPaymentGatewayDescriptor({
@@ -150,6 +158,16 @@ export function register(container: AppContainer) {
       presentation: 'either',
     },
   })
+  registerPaymentGatewayDescriptor({
+    providerKey: 'mock_payer_required',
+    label: 'Mock Gateway (payer email and name required)',
+    requiresPayerFields: ['email', 'name'],
+    sessionConfig: {
+      supportedCurrencies: '*',
+      supportedPaymentTypes: [{ value: 'mock', label: 'Mock payment' }],
+      presentation: 'either',
+    },
+  })
 
   // Register mock shipping adapter for carrier testing (no real credentials needed)
   registerShippingAdapter(mockShippingAdapter)
@@ -157,4 +175,6 @@ export function register(container: AppContainer) {
 
   // Register mock inbound webhook adapter for webhooks module integration tests
   registerWebhookEndpointAdapter(mockWebhookEndpointAdapter)
+
+  syncQaCapacityProbeRegistration()
 }

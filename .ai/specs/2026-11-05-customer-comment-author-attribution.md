@@ -1,0 +1,55 @@
+# Customer comment update attribution (#8759)
+
+Status: implemented candidate; named security exception approved; local validation and complex browser QA passed.
+
+## TLDR and Overview
+
+Preserve customer note authors during ordinary body editing. Only an authenticated non-API-key superadmin may explicitly change attribution. This is a focused correction to the existing update command, with no startup, configuration, architecture or database changes.
+
+## Problem Statement
+
+`PUT /api/customers/comments` dispatches `customers.comments.update`. Unlike creation, update accepted caller-selected attribution without checking actor privilege. Activity-management permission must continue to permit body editing without allowing impersonation.
+
+## Proposed Solution and Architecture
+
+Keep the existing API-to-command dispatch, tenant and organization guards, audit/indexing side effects and undo snapshots. Ignore author input for ordinary actors and API keys, including keys whose context has superadmin privileges. Omission always preserves the persisted author, including null and historical/offboarded users. Do not normalize omission to the editor.
+
+For non-key superadmins, an explicit UUID changes attribution and explicit null clears it. Validate a changed non-null target through the existing encrypted query helper, with a tenant and non-deleted predicate, and the comment scope for decryption, before modifying any scalar. A user with a different home organization in the same tenant remains a valid target, following the established customer user-reference rules. Resending the current author preserves historical attribution without requiring an active user.
+
+## Data Models and API Contracts
+
+No entity or response changes. PUT retains `{ ok: true }` and `customers.activities.manage`. The update validator additively accepts `authorUserId: null`; create validation is unchanged. Ordinary callers' author fields are ignored while authorized body edits succeed. An invalid newly assigned privileged author returns the existing localized user-not-found error with status 400. Target scope is the persisted comment scope, never a submitted scope.
+
+## Migration & Backward Compatibility
+
+The STABLE command/API author-update behavior is intentionally narrowed. Clients using ordinary users or API keys for reassignment must omit `authorUserId` for body edits and use an explicitly authorized non-key superadmin session for intentional corrections. Existing author data is not rewritten. Operators must review prior attribution against independent records; existing history cannot prove which attribution changes were legitimate.
+
+Keeping the old unauthorized assignment behind an alias, toggle or bridge would retain the vulnerability itself. Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, acknowledging waiver of deprecation steps 1–3 for PR #8782. The operator answered “Waiver: Approve as Piotr Karwatka” to the explicit waiver question; the approval is recorded in the PR conversation and dated `BACKWARD_COMPATIBILITY.md` ledger. The UPGRADE_NOTES entry supplies client/operator migration. Code review, validation and QA remain required; the waiver grants no merge or QA approval.
+
+## Implementation and Coverage
+
+1. Guard only the update author assignment and validate changed privileged targets before scalar mutation.
+2. Command regressions cover ordinary actors, API keys, key/superadmin contexts, omission, null authors, scoped privileged changes, invalid/deleted/foreign targets, tenant/org denial, snapshots and undo.
+3. Shared NotesSection editors leave recognized optimistic and record-lock conflicts to the existing translated banner, without repeating raw server codes inline; regression tests cover content and appearance editors.
+4. Route mapping regressions cover explicit/omitted/null author intent, unchanged permissions and response. Extend `TC-UNDO-001-comments.spec.ts` to exercise PUT plus list readback and undo/redo attribution using self-created person/comment fixtures and cleanup.
+
+## Risks & Impact Review
+
+- High: retaining the vulnerable path as a compatibility bridge permits continued impersonation; no bridge is proposed; the named human security exception covers this narrow change.
+- Medium: accidentally normalizing omitted author to editor corrupts attribution; explicit omission regressions cover ordinary, key and privileged contexts.
+- Medium: privileged cross-scope assignment links unrelated users; changed targets require active same-tenant users before writes.
+- Medium: historical attribution may already be unreliable; no speculative data repair is attempted. Operators review independently.
+
+## Final Compliance Report
+
+Focused customers command change plus NotesSection conflict feedback; no schema migration, dependency or discovery registration changes. Existing mutation lifecycle and undo stay intact. Piotr Karwatka approved the narrow compatibility waiver on 2026-11-12; validation and QA gates still apply. The full local unit gate passed all 51 workspace tasks; the 19 NotesSection tests, two comment HTTP integration cases and complex browser QA passed. Evidence is recorded in the PR. The candidate awaits merge/deployment; the spec remains outside implemented/.
+
+## Changelog
+
+- 2026-11-05: Documented guarded update semantics, migration, regressions and unresolved human compatibility gate.
+
+- 2026-11-12: Recorded Piotr Karwatka’s explicit waiver of deprecation steps 1–3; validation and QA remain separate gates.
+
+- 2026-11-12: Complex stale-write QA found duplicate raw conflict codes in NotesSection editors; suppress inline conflict codes while preserving the shared banner and ordinary validation errors.
+
+- 2026-11-12: Verified the full workspace unit gate, focused UI regressions, comment HTTP undo/redo cases, owned actor/tenant/API-key boundaries, and person/company/deal browser flows.

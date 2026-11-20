@@ -7,6 +7,7 @@ import { scimJson } from '../../../../../lib/scim-response'
 import { handleScimApiError } from '../../../../error-handler'
 
 export const metadata = { requireAuth: false }
+export { checkScimRateLimit as beforeAuth } from '../../../rate-limit'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -76,6 +77,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'User not found' },
+        { status: 429, description: 'SCIM request limit exceeded; retry after Retry-After seconds' },
+        { status: 503, description: 'Rate limiter unavailable' },
       ],
     },
     PATCH: {
@@ -87,6 +90,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid PatchOp' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'User not found' },
+        { status: 429, description: 'SCIM request limit exceeded; retry after Retry-After seconds' },
+        { status: 503, description: 'Rate limiter unavailable' },
       ],
     },
     DELETE: {
@@ -97,6 +102,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'User not found' },
+        { status: 429, description: 'SCIM request limit exceeded; retry after Retry-After seconds' },
+        { status: 503, description: 'Rate limiter unavailable' },
       ],
     },
   },

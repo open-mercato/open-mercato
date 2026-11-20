@@ -222,6 +222,16 @@ describe('the list', () => {
     expect(body.tasks).toEqual([])
   })
 
+  test('orders by createdAt then id so offset pages stay stable on equal timestamps', async () => {
+    await runList('?page=2')
+
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      UserTask,
+      expect.anything(),
+      expect.objectContaining({ orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
   test('caps the page size at 100 however large the request asks for', async () => {
     await runList('?pageSize=5000')
 
@@ -321,6 +331,25 @@ describe('completion', () => {
 
     expect((await runComplete()).status).toBe(404)
     expect(completeUserTask).not.toHaveBeenCalled()
+  })
+
+  test('a task whose run is closed collapses into the standard 404 refusal', async () => {
+    taskRow = null
+    const missing = await runComplete()
+    const missingBody = await missing.json()
+
+    taskRow = makeTask()
+    completeUserTask.mockRejectedValue(
+      Object.assign(new Error('Workflow is no longer active'), { code: 'WORKFLOW_NOT_ACTIVE' }),
+    )
+
+    const response = await runComplete({ formData: { confirmed: true } })
+
+    expect(completeUserTask).toHaveBeenCalledTimes(1)
+    expect(response.status).toBe(404)
+    expect(missing.status).toBe(404)
+    // Byte-identical to a nonexistent id: no code, no hint that the run ended.
+    expect(await response.json()).toEqual(missingBody)
   })
 
   test('a malformed body is a 400 before any lookup', async () => {

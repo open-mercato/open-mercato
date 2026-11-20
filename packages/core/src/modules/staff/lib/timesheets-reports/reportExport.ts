@@ -24,6 +24,8 @@ import {
   reportExportFormatIds,
   type ReportExportFormat,
 } from './reportExportFormats'
+import { decimalsEqual, padDecimalPlaces, parseDecimal, roundDecimal } from '@open-mercato/shared/lib/decimal'
+import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES } from '../time-tracking/cost'
 
 const logger = createLogger('staff').child({ component: 'timesheets-reports/reportExport' })
 
@@ -76,10 +78,14 @@ export type ReportExportInput = {
   issuedByLabel: string | null
   issuedAtLabel: string | null
   currencyCode: string | null
+  /** Omission preserves legacy visibility; the export route always supplies its permission decision. */
+  canSeeMoney?: boolean
   showRates: boolean
   groups: readonly ReportGroup[]
   rows: readonly ReportRow[]
-  totals: { billableMinutes: number; nonbillableMinutes: number; totalAmount: number }
+  totals: { billableMinutes: number; nonbillableMinutes: number; totalAmount: number; totalAmountExact?: string }
+  /** Decimals amounts print with (the report currency's); defaults to 2. */
+  amountDecimalPlaces?: number
   roundingLabel: string
   labels: ReportExportLabels
 }
@@ -90,10 +96,32 @@ export type SerializedReportExport = {
   filename: string
 }
 
-function formatAmount(value: number | null | undefined, currencyCode: string | null): string {
-  if (value === null || value === undefined) return '—'
-  const fixed = value.toFixed(2)
+/**
+ * `keepDecimals` prints a value with at least the currency decimals but never
+ * cuts it: a frozen amount, and any sum that contains one, is printed as billed
+ * (a legacy `1234.57` in a JPY report stays `1234.57`, matching the screen).
+ * Live amounts are already rounded to the currency decimals, so padding them
+ * prints exactly what rounding would.
+ */
+function formatAmount(
+  value: number | string | null | undefined,
+  currencyCode: string | null,
+  decimalPlaces: number = DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
+  keepDecimals = false,
+): string {
+  const fixed = formatFixedAmount(value, decimalPlaces, keepDecimals)
+  if (fixed === '') return '—'
   return currencyCode ? `${fixed} ${currencyCode}` : fixed
+}
+
+function formatFixedAmount(
+  value: number | string | null | undefined,
+  decimalPlaces: number,
+  keepDecimals = false,
+): string {
+  const parsed = parseDecimal(value)
+  if (!parsed) return ''
+  return keepDecimals ? padDecimalPlaces(parsed, decimalPlaces) : roundDecimal(parsed, decimalPlaces).toFixed(decimalPlaces)
 }
 
 const COLUMN_LABEL_X = 42
@@ -107,8 +135,10 @@ function pdfLinesForLine(
   depth: number,
   isNonBillable: boolean,
   showRates: boolean,
+  canSeeMoney: boolean,
   currencyCode: string | null,
   labels: ReportExportLabels,
+  decimalPlaces: number,
 ): PdfLine[] {
   const label = line.hasOverride ? `${line.label} (${labels.overrideBadge})` : line.label
   const cells = [
@@ -117,21 +147,23 @@ function pdfLinesForLine(
   ]
   if (showRates) {
     cells.push({
-      text: isNonBillable ? '—' : formatAmount(line.rate, null),
+      text: isNonBillable ? '—' : formatAmount(line.rateExact ?? line.rate, null, decimalPlaces, line.hasFrozen === true),
       x: COLUMN_RATE_X,
       align: 'right' as const,
     })
   }
-  cells.push({
-    text: isNonBillable ? '—' : formatAmount(line.amount, null),
-    x: COLUMN_AMOUNT_X,
-    align: 'right' as const,
-  })
+  if (canSeeMoney) {
+    cells.push({
+      text: isNonBillable ? '—' : formatAmount(line.amountExact ?? line.amount, null, decimalPlaces, true),
+      x: COLUMN_AMOUNT_X,
+      align: 'right' as const,
+    })
+  }
 
   return [
     { kind: 'cells', cells },
     ...line.children.flatMap((child) =>
-      pdfLinesForLine(child, depth + 1, isNonBillable, showRates, currencyCode, labels),
+      pdfLinesForLine(child, depth + 1, isNonBillable, showRates, canSeeMoney, currencyCode, labels, decimalPlaces),
     ),
   ]
 }
@@ -139,6 +171,9 @@ function pdfLinesForLine(
 /** The PDF mirrors the on-screen sheet, group for group and line for line. */
 export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
   const { labels } = input
+  const decimalPlaces = input.amountDecimalPlaces ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES
+  const canSeeMoney = input.canSeeMoney !== false
+  const showRates = input.showRates && canSeeMoney
   const lines: PdfLine[] = [
     {
       kind: 'cells',
@@ -180,18 +215,18 @@ export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
       cells: [
         { text: group.label, x: COLUMN_LABEL_X, bold: true },
         { text: formatReportMinutes(group.minutes), x: COLUMN_TIME_X, align: 'right', bold: true },
-        {
-          text: formatAmount(isNonBillable ? 0 : group.amount, input.currencyCode),
+        ...(canSeeMoney ? [{
+          text: formatAmount(isNonBillable ? 0 : (group.amountExact ?? group.amount), input.currencyCode, decimalPlaces, true),
           x: COLUMN_AMOUNT_X,
-          align: 'right',
+          align: 'right' as const,
           bold: true,
-        },
+        }] : []),
       ],
     })
-    if (input.showRates && !isNonBillable && group.rate !== null) {
+    if (showRates && !isNonBillable && group.rate !== null) {
       lines.push({
         kind: 'cells',
-        cells: [{ text: `${formatAmount(group.rate, input.currencyCode)}/h`, x: COLUMN_LABEL_X, muted: true, size: 8 }],
+        cells: [{ text: `${formatAmount(group.rateExact ?? group.rate, input.currencyCode, decimalPlaces)}/h`, x: COLUMN_LABEL_X, muted: true, size: 8 }],
       })
     }
 
@@ -199,34 +234,38 @@ export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
       { text: labels.line, x: COLUMN_LABEL_X, size: 8, muted: true },
       { text: labels.time, x: COLUMN_TIME_X, align: 'right' as const, size: 8, muted: true },
     ]
-    if (input.showRates) {
+    if (showRates) {
       header.push({ text: labels.rate, x: COLUMN_RATE_X, align: 'right' as const, size: 8, muted: true })
     }
-    header.push({ text: labels.amount, x: COLUMN_AMOUNT_X, align: 'right' as const, size: 8, muted: true })
+    if (canSeeMoney) {
+      header.push({ text: labels.amount, x: COLUMN_AMOUNT_X, align: 'right' as const, size: 8, muted: true })
+    }
     lines.push({ kind: 'cells', cells: header })
 
     for (const line of group.lines) {
       lines.push(
-        ...pdfLinesForLine(line, 0, isNonBillable, input.showRates, input.currencyCode, labels),
+        ...pdfLinesForLine(line, 0, isNonBillable, showRates, canSeeMoney, input.currencyCode, labels, decimalPlaces),
       )
     }
     lines.push({ kind: 'space', height: 8 }, { kind: 'rule' })
   }
 
-  lines.push(
-    {
+  if (canSeeMoney) {
+    lines.push({
       kind: 'cells',
       cells: [
         { text: labels.total, x: COLUMN_LABEL_X, bold: true, size: 11 },
         {
-          text: formatAmount(input.totals.totalAmount, input.currencyCode),
+          text: formatAmount(input.totals.totalAmountExact ?? input.totals.totalAmount, input.currencyCode, decimalPlaces, true),
           x: COLUMN_AMOUNT_X,
           align: 'right',
           bold: true,
           size: 11,
         },
       ],
-    },
+    })
+  }
+  lines.push(
     {
       kind: 'cells',
       cells: [
@@ -253,6 +292,9 @@ export function buildReportPdfLines(input: ReportExportInput): PdfLine[] {
  */
 export function buildReportTable(input: ReportExportInput): PreparedExport {
   const { labels } = input
+  const decimalPlaces = input.amountDecimalPlaces ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES
+  const canSeeMoney = input.canSeeMoney !== false
+  const showRates = input.showRates && canSeeMoney
   const columns = [
     { field: 'date', header: labels.date },
     { field: 'project', header: labels.project },
@@ -263,8 +305,8 @@ export function buildReportTable(input: ReportExportInput): PreparedExport {
     { field: 'roundedMinutes', header: labels.roundedMinutes },
     { field: 'hours', header: labels.time },
     { field: 'billable', header: labels.billable },
-    ...(input.showRates ? [{ field: 'rate', header: labels.rate }] : []),
-    { field: 'amount', header: labels.amount },
+    ...(showRates ? [{ field: 'rate', header: labels.rate }] : []),
+    ...(canSeeMoney ? [{ field: 'amount', header: labels.amount }] : []),
   ]
 
   const rows = input.rows.map((row) => {
@@ -278,13 +320,21 @@ export function buildReportTable(input: ReportExportInput): PreparedExport {
       roundedMinutes: row.minutes,
       hours: row.hours,
       billable: row.isBillable ? labels.yes : labels.no,
-      amount: row.amount === null ? '' : row.amount.toFixed(2),
     }
-    if (input.showRates) record.rate = row.rate === null ? '' : row.rate.toFixed(2)
+    if (canSeeMoney) record.amount = formatFixedAmount(row.amountExact ?? row.amount, decimalPlaces, row.isFrozen)
+    if (showRates) record.rate = formatFixedAmount(row.rateExact ?? row.rate, decimalPlaces, row.isFrozen)
     return record
   })
 
   return { columns, rows }
+}
+
+// A numeric cell keeps spreadsheet math working; one that a float cannot hold exactly is
+// written as text so the exported amount keeps every digit.
+function xlsxAmountCell(value: unknown): number | string {
+  if (typeof value !== 'string' || !parseDecimal(value)) return ''
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && decimalsEqual(numeric, value) ? numeric : value
 }
 
 function exportBaseName(input: ReportExportInput): string {
@@ -332,10 +382,7 @@ registerBuiltInReportExportFormat({
       ...table.rows.map((row) =>
         table.columns.map((column) => {
           const value = row[column.field]
-          if (column.field === 'rate' || column.field === 'amount') {
-            const parsed = typeof value === 'string' && value.length > 0 ? Number.parseFloat(value) : null
-            return parsed !== null && Number.isFinite(parsed) ? parsed : ''
-          }
+          if (column.field === 'rate' || column.field === 'amount') return xlsxAmountCell(value)
           return typeof value === 'number' ? value : value === null || value === undefined ? '' : String(value)
         }),
       ),

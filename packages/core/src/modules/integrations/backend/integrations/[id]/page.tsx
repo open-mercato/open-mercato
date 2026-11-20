@@ -57,8 +57,10 @@ import {
   buildIntegrationCredentialSavePayload,
   type SecretFieldsConfigured,
 } from '../credential-secret-fields'
+import { translateCredentialFields } from '../credential-translations'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 import { useIntegrationCredentialsFeatureAccess } from '../useIntegrationCredentialsFeatureAccess'
+import { OAuthGrantReauthBanner, resolveOAuthGrantReconnectHref } from '../../../components/OAuthGrantReauthBanner'
 
 type CredentialField = IntegrationCredentialField
 type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
@@ -105,6 +107,7 @@ type IntegrationDetail = {
     detailPage?: {
       widgetSpotId?: string
       hiddenTabs?: IntegrationDetailBuiltInTab[]
+      connectTabId?: string
     }
     credentials?: { fields: CredentialField[] }
   }
@@ -123,6 +126,7 @@ type IntegrationDetail = {
   credentialsUpdatedAt?: string | null
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationLogAnalytics
+  oauthGrant?: { status: 'active' | 'invalidated' | 'unavailable' } | null
 }
 
 type LogEntry = {
@@ -749,9 +753,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       })
 
       if (call.ok) {
-        setCredentialsFormKey((current) => current + 1)
+        await loadCredentials()
         flash(t('integrations.detail.credentials.saved'), 'success')
-        void loadCredentials()
         return
       }
 
@@ -838,8 +841,12 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const integration = detail?.integration ?? null
   const state = detail?.state ?? null
   const editableCredentialFields = React.useMemo(
-    () => (detail?.integration.credentials?.fields ?? detail?.bundle?.credentials?.fields ?? []).filter(isEditableCredentialField),
-    [detail?.bundle?.credentials?.fields, detail?.integration.credentials?.fields],
+    () => translateCredentialFields(
+      (detail?.integration.credentials?.fields ?? detail?.bundle?.credentials?.fields ?? []).filter(isEditableCredentialField),
+      detail?.integration.credentials?.fields ? detail.integration.id : detail?.bundle?.id ?? '',
+      t,
+    ),
+    [detail?.bundle, detail?.integration.credentials?.fields, detail?.integration.id, t],
   )
   const credentialFormFields = React.useMemo(
     () => buildCredentialFields(editableCredentialFields, secretFieldsConfigured, t),
@@ -1015,6 +1022,15 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ? 'border-status-success-border bg-status-success-bg text-status-success-text'
     : 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
 
+  const oauthGrantReconnectHref = resolvedIntegration
+    ? resolveOAuthGrantReconnectHref({
+      integrationId: resolvedIntegration.id,
+      connectTabId: resolvedIntegration.detailPage?.connectTabId,
+      visibleTabIds,
+      canManageCredentials,
+    })
+    : null
+
   const showCredentialActions = showCredentialsTab
     && activeTab === 'credentials'
     && credentialFormFields.length > 0
@@ -1105,15 +1121,23 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           }}
         />
 
+        <OAuthGrantReauthBanner
+          status={detail.oauthGrant?.status}
+          integrationTitle={resolvedIntegration.title}
+          reconnectHref={oauthGrantReconnectHref}
+          canManageCredentials={canManageCredentials}
+          isAccessLoading={isLoadingCredentialsAccess}
+        />
+
         <div className="space-y-2">
           {resolvedIntegration.description ? (
-            <p className="text-sm text-muted-foreground">{resolvedIntegration.description}</p>
+            <p className="text-sm text-muted-foreground">{t(`${resolvedIntegration.id}.description`, resolvedIntegration.description)}</p>
           ) : null}
           <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             {resolvedIntegration.category ? (
               <div className="flex items-center gap-2">
                 {CategoryIcon ? <CategoryIcon className="h-4 w-4" /> : null}
-                <span>{formatTypeLabel(resolvedIntegration.category)}</span>
+                <span>{t(`integrations.marketplace.categories.${resolvedIntegration.category}`, formatTypeLabel(resolvedIntegration.category))}</span>
               </div>
             ) : null}
             {resolvedIntegration.hub ? (
@@ -1121,7 +1145,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                 <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground/80">
                   {t('integrations.detail.hub.label', 'Hub')}
                 </span>
-                <span>{formatTypeLabel(resolvedIntegration.hub)}</span>
+                <span>{t(`integrations.hubs.${resolvedIntegration.hub}`, formatTypeLabel(resolvedIntegration.hub))}</span>
               </div>
             ) : null}
           </div>
