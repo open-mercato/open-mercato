@@ -350,6 +350,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
               originalChildIds,
               messages: {
                 orgIdRequired: t('directory.organizations.errors.orgIdRequired', 'Organization identifier is required'),
+                nameTooLong: t('directory.organizations.errors.nameTooLong', 'Name must contain at most 200 characters'),
               },
             })
           }}
@@ -390,6 +391,7 @@ export async function submitUpdateOrganization(options: {
   updateOrganization?: UpdateOrganizationRequest
   messages?: {
     orgIdRequired?: string
+    nameTooLong?: string
   }
 }): Promise<void> {
   const {
@@ -405,6 +407,11 @@ export async function submitUpdateOrganization(options: {
   if (!payloadId) {
     const message = messages?.orgIdRequired ?? 'Organization identifier is required'
     throw createCrudFormError(message, { id: message })
+  }
+
+  if (typeof values.name === 'string' && values.name.length > 200) {
+    const message = messages?.nameTooLong ?? '[internal] Organization name exceeds 200 characters'
+    throw createCrudFormError(message, { name: message })
   }
 
   const customFields = collectCustomFieldValues(values)

@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 import type React from 'react'
+import { QueryClient } from '@tanstack/react-query'
 import { screen, waitFor, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import DirectoryOrganizationsPage from '../page'
@@ -28,6 +29,8 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: (props: any) => (
     <div data-testid="data-table-mock">
       <div data-testid="data-table-title">{props.title}</div>
+      {props.error ? <div role="alert">{props.error}</div> : null}
+      {props.refreshButton ? <button onClick={props.refreshButton.onRefresh}>{props.refreshButton.label}</button> : null}
       <div data-testid="row-actions">
         {props.rowActions?.({
           id: 'org-1',
@@ -169,5 +172,18 @@ describe('DirectoryOrganizationsPage delete', () => {
     fireEvent.click(deleteButton)
 
     await waitFor(() => expect(flash).toHaveBeenCalledWith('boom', 'error'))
+  })
+
+  it('shows a list load error and retries the failed query without changing filters', async () => {
+    readApiResultOrThrow.mockRejectedValueOnce(new Error('Service unavailable'))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    renderWithProviders(<DirectoryOrganizationsPage />, { queryClient })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load organizations')
+    const failedUrl = readApiResultOrThrow.mock.calls[0][0]
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+    expect(readApiResultOrThrow.mock.calls[1][0]).toBe(failedUrl)
   })
 })

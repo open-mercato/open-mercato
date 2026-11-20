@@ -105,7 +105,7 @@ export default function DirectoryOrganizationsPage() {
     return params.toString()
   }, [page, status, search])
 
-  const { data, isLoading } = useQuery<OrganizationsResponse>({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery<OrganizationsResponse>({
     queryKey: ['directory-organizations', queryParams, scopeVersion],
     queryFn: async () => {
       return readApiResultOrThrow<OrganizationsResponse>(
@@ -295,6 +295,12 @@ export default function DirectoryOrganizationsPage() {
           )}
           pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
+          error={isError ? t('directory.organizations.list.error.load', 'Failed to load organizations') : null}
+          refreshButton={isError ? {
+            onRefresh: () => { void refetch() },
+            label: t('directory.organizations.list.actions.retry', 'Retry'),
+            isRefreshing: isFetching,
+          } : undefined}
         />
       </PageBody>
       {ConfirmDialogElement}
