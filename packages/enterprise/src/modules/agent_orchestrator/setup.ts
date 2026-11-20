@@ -1,44 +1,19 @@
-import { createHash } from 'node:crypto'
-import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import type { InitSetupContext, ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { seedAgentOrchestratorExamples } from './lib/seeds'
 import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
 import { seedDefaultAgentIcons } from './lib/settings/agentSettings'
 import { syncGroundingSets } from './lib/guardrails/syncGroundingSets'
+import { syncIntegritySets } from './lib/guardrails/integrity/integritySets'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
+import {
+  registerTraceContentRetentionSchedule,
+  stableScheduleUuid,
+  type SchedulerServiceLike,
+} from './lib/trace/contentRetentionSchedule'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'setup' })
-
-/** Mirrors the @open-mercato/scheduler ScheduleRegistration field names. */
-type SchedulerServiceLike = {
-  register: (registration: {
-    id: string
-    name: string
-    scopeType: 'system' | 'organization' | 'tenant'
-    organizationId?: string
-    tenantId?: string
-    scheduleType: 'cron' | 'interval'
-    scheduleValue: string
-    timezone?: string
-    targetType: 'queue' | 'command'
-    targetQueue?: string
-    targetPayload?: unknown
-    sourceType?: 'user' | 'module'
-    sourceModule?: string
-    isEnabled?: boolean
-    description?: string
-  }) => Promise<void>
-}
-
-/**
- * `scheduled_jobs.id` is a uuid column, so a module-owned schedule's stable
- * registration key must be hashed into a uuid — this keeps register() an
- * idempotent upsert across seedDefaults re-runs.
- */
-function stableScheduleUuid(stableKey: string): string {
-  const hex = createHash('sha256').update(stableKey).digest('hex')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
-}
 
 async function ensureMetricRollupSchedule(ctx: {
   container: import('awilix').AwilixContainer
@@ -71,6 +46,53 @@ async function ensureMetricRollupSchedule(ctx: {
   } catch (error) {
     logger.warn('failed to register metric-rollup schedule', {
       error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+async function ensureTraceContentRetentionSchedule(ctx: {
+  container: import('awilix').AwilixContainer
+  tenantId: string
+  organizationId: string
+}): Promise<void> {
+  try {
+    await registerTraceContentRetentionSchedule(ctx.container, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  } catch (error) {
+    logger.warn('failed to register trace-content-retention schedule', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+async function ensureAgentSchedules(ctx: {
+  container: import('awilix').AwilixContainer
+  tenantId: string
+  organizationId: string
+}): Promise<void> {
+  await ensureMetricRollupSchedule(ctx)
+  await ensureTraceContentRetentionSchedule(ctx)
+}
+
+export async function syncDeclaredAgentPrincipals(ctx: InitSetupContext): Promise<void> {
+  try {
+    const { ensureAgentsLoaded, listAgentEntries } = await import('./lib/sdk/defineAgent')
+    const { syncAgentPrincipals } = await import('./lib/identity/syncAgentPrincipals')
+    await ensureAgentsLoaded()
+    await syncAgentPrincipals(
+      ctx.container,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      { agents: listAgentEntries() },
+    )
+  } catch (error) {
+    logger.warn('failed to sync declared agent principals', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'agent_orchestrator',
+      code: 'agent_orchestrator.principal_sync_failed',
     })
   }
 }
@@ -175,14 +197,40 @@ export const setup: ModuleSetupConfig = {
       organizationId: ctx.organizationId,
     })
 
+    // Output-integrity sets (`i1-…` content hash of each agent's declared rules)
+    // live in the same table, append-only per version. Best-effort: agent loading
+    // must not abort tenant init; the native runner also syncs a set on first use.
+    try {
+      const { ensureAgentsLoaded, listAgentEntries } = await import('./lib/sdk/defineAgent')
+      await ensureAgentsLoaded()
+      await syncIntegritySets(
+        ctx.em,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        listAgentEntries(),
+      )
+    } catch (error) {
+      logger.warn('failed to sync integrity guardrail sets', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'agent_orchestrator',
+        code: 'agent_orchestrator.integrity_set_sync_failed',
+      })
+    }
+
+    await syncDeclaredAgentPrincipals(ctx)
+
     // F2: register the per-org metric-rollup interval job. Best-effort + guarded
     // — a deployment without the scheduler module is a safe no-op, and a
     // scheduler failure must not abort tenant init for every other module. The
     // schedule id is a deterministic uuid so re-runs upsert idempotently.
-    await ensureMetricRollupSchedule(ctx)
+    await ensureAgentSchedules(ctx)
   },
 
-  onOrganizationCreated: ensureMetricRollupSchedule,
+  onOrganizationCreated: async (ctx) => {
+    await syncDeclaredAgentPrincipals(ctx)
+    await ensureAgentSchedules(ctx)
+  },
 
   // Gated demo seed (skipped with --no-examples). Idempotent + tenant-scoped:
   // lands the demo workflow definition and 2 demo deals (via the audited
