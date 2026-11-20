@@ -10,7 +10,7 @@ const mappingsPath = '/api/customer_accounts/admin/domain-mappings'
 test.describe('TC-DOMAIN-9146: custom domain ownership instructions', () => {
   test.use({ locale: 'en-US' })
 
-  test('registers a domain, copies both TXT values and preserves the ownership deadline on reload', async ({ page, request }) => {
+  test('registers a domain, preserves ownership instructions and refuses stale removal', async ({ page, request }, testInfo) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = randomUUID().replaceAll('-', '')
     let organizationId: string | null = null
@@ -56,6 +56,28 @@ test.describe('TC-DOMAIN-9146: custom domain ownership instructions', () => {
       const refused = await apiRequest(request, 'POST', `${mappingsPath}/${mappingId}/health-check`, { token })
       expect(refused.status()).toBe(409)
       expect(await readJsonSafe<{ code: string }>(refused)).toMatchObject({ code: 'domain_mapping_not_verified' })
+
+      expect((await apiRequest(request, 'POST', `${mappingsPath}/${mappingId}/verify`, { token })).status()).toBe(200)
+      await page.reload()
+      await page.getByRole('button', { name: 'Remove Domain', exact: true }).click()
+      const confirmation = page.getByRole('alertdialog', { name: 'Remove custom domain?' })
+      await expect(confirmation).toBeVisible()
+      expect((await apiRequest(request, 'POST', `${mappingsPath}/${mappingId}/verify`, { token })).status()).toBe(200)
+      const newerResponse = await apiRequest(request, 'GET', `${mappingsPath}?organizationId=${organizationId}`, { token })
+      const newer = await readJsonSafe<{ domainMappings: Array<Record<string, unknown> & { id: string }> }>(newerResponse)
+      const saved = newer?.domainMappings.find((record) => record.id === mappingId)
+      expect(saved?.updatedAt).toEqual(expect.any(String))
+      const staleRemoval = page.waitForResponse((result) => result.request().method() === 'DELETE' && result.url().includes(mappingsPath))
+      await confirmation.getByRole('button', { name: 'Remove Domain', exact: true }).click()
+      const removalResponse = await staleRemoval
+      expect(removalResponse.request().headers()['x-om-ext-optimistic-lock-expected-updated-at']).toEqual(expect.any(String))
+      expect(removalResponse.status()).toBe(409)
+      expect(await removalResponse.json()).toMatchObject({ code: 'optimistic_lock_conflict' })
+      await expect(page.getByText('Record changed', { exact: true })).toBeVisible()
+      const preservedResponse = await apiRequest(request, 'GET', `${mappingsPath}?organizationId=${organizationId}`, { token })
+      const preserved = await readJsonSafe<{ domainMappings: Array<Record<string, unknown> & { id: string }> }>(preservedResponse)
+      expect(preserved?.domainMappings.find((record) => record.id === mappingId)).toEqual(saved)
+      await page.screenshot({ path: testInfo.outputPath('stale-domain-preserved.png'), fullPage: true })
     } finally {
       try {
         if (mappingId) {
