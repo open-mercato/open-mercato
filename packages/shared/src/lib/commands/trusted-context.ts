@@ -64,6 +64,34 @@ export type TrustedCommandContextResult = {
  */
 const TRUSTED_CONTEXT_MARKER = 'system:trusted-context'
 
+/**
+ * Builds a request-less `CommandRuntimeContext` slice plus matching audit metadata.
+ *
+ * **Trust boundary — this helper performs no authorization.** It loads no ACL, checks no
+ * feature, and validates only that the inputs are present and `actorType` is a known value. The
+ * returned context is trusted by the command bus as-is: a `'system'` context sets
+ * `systemActor: true`, which command handlers treat as a privileged bypass. Authorization is
+ * therefore the caller's job, and every caller MUST:
+ *
+ * - Derive `actorType`, `actorId`, `tenantId` and `organizationId` from trusted server-side
+ *   state only — a persisted record (the stored proposal author, the cart's stored buyer
+ *   identity, a queued job's payload written by the server), never from an HTTP request body,
+ *   query string, header or any other client-controlled value. An input that crossed a trust
+ *   boundary must be re-resolved from the database before it is passed here.
+ * - Use `actorType: 'system'` only for genuinely automated work with no end-user actor (a
+ *   sweeper, a recovery job). Never pick `'system'` to skip a permission check a user actor
+ *   would fail.
+ * - For `actorType: 'user'`, enforce the same RBAC the actor would face on the equivalent
+ *   request — confirm the user still exists, is active, belongs to `tenantId`/`organizationId`
+ *   (including organization-visibility restrictions), and holds the features the command
+ *   requires — before building the context. The returned `auth` carries no roles or features, so
+ *   downstream code cannot perform that check on the caller's behalf.
+ * - Keep `tenantId`/`organizationId` consistent with the records the command touches, so the
+ *   command never writes across a tenant or organization the actor is not scoped to.
+ *
+ * @throws when a required input is missing, `actorType` is not `'system'` or `'user'`, or
+ *   `actorId` is missing for a `'user'` actor.
+ */
 export function buildTrustedCommandContext(input: TrustedCommandContextInput): TrustedCommandContextResult {
   const { tenantId, organizationId, actorType, actorId, reason } = input
   if (!tenantId) throw new Error('[internal] buildTrustedCommandContext requires tenantId')
