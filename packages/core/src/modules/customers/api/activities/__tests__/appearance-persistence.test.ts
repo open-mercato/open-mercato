@@ -247,6 +247,56 @@ describe('activity writes reach canonical interaction persistence', () => {
     }
   })
 
+  describe.each(['POST', 'PUT'] as const)('%s process-timezone schedules', (method) => {
+    it.each([
+      { date: '2026-03-08', time: '01:30' },
+      { date: '2026-03-08', time: '02:30' },
+      { date: '2026-03-08', time: '03:30' },
+      { date: '2026-03-29', time: '02:30' },
+      { date: '2026-09-27', time: '02:30' },
+      { date: '2026-10-04', time: '02:15' },
+      { date: '2026-11-01', time: '01:30' },
+    ])('refuses wall-time normalization and preserves representable schedules: %j', async ({ date, time }) => {
+      const persistence = setupPersistence()
+      const before = persistence.read()
+      const expected = new Date(`${date}T${time}:00`)
+      const [year, month, day] = date.split('-').map(Number)
+      const [hour, minute] = time.split(':').map(Number)
+      const normalized = expected.getFullYear() !== year || expected.getMonth() !== month - 1
+        || expected.getDate() !== day || expected.getHours() !== hour || expected.getMinutes() !== minute
+      if (method === 'POST') {
+        persistence.execute.mockImplementationOnce(async (_commandId, options) => {
+          expect(interactionCreateSchema.parse(options.input).scheduledAt).toEqual(expected)
+          return { result: { interactionId: INTERACTION_ID }, logEntry: null }
+        })
+      }
+
+      const response = await (method === 'POST' ? POST : PUT)(new Request('http://localhost/api/customers/activities', {
+        method, headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...(method === 'POST' ? { entityId: ENTITY_ID, activityType: 'note' } : { id: INTERACTION_ID }), date, time }),
+      }))
+
+      if (normalized) {
+        expect(response.status).toBe(400)
+        expect(await response.json()).toMatchObject({ fieldErrors: { time: 'Enter a valid date and time' } })
+        expect(persistence.execute).not.toHaveBeenCalled()
+        expect(persistence.validateMutation).not.toHaveBeenCalled()
+        expect(persistence.em.flush).not.toHaveBeenCalled()
+        expect(persistence.dataEngine.setCustomFields).not.toHaveBeenCalled()
+        expect(persistence.afterMutationSuccess).not.toHaveBeenCalled()
+        expect(persistence.emitEvent).not.toHaveBeenCalled()
+        expect(findOneWithDecryption).not.toHaveBeenCalled()
+        expect(emitCrudSideEffects).not.toHaveBeenCalled()
+        expect(recomputeNextInteraction).not.toHaveBeenCalled()
+        expect(persistence.read()).toEqual(before)
+      } else {
+        expect(response.status).toBe(method === 'POST' ? 201 : 200)
+        expect(persistence.execute).toHaveBeenCalledTimes(1)
+        if (method === 'PUT') expect(persistence.read().scheduledAt).toEqual(expected)
+      }
+    })
+  })
+
   it.each([['00:00', new Date(2026, 10, 20)], ['23:59', new Date(2026, 10, 20, 23, 59)]] as const)('persists the valid clock boundary %s', async (time, expected) => {
     const persistence = setupPersistence()
     const response = await PUT(new Request('http://localhost/api/customers/activities', {
