@@ -500,6 +500,7 @@ describe('CRUD Factory', () => {
       const secureRoute = makeCrudRoute({
         metadata: { GET: { requireAuth: true } },
         orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
         list: {
           schema: querySchema.passthrough(),
           entityId: 'example.todo',
