@@ -1411,7 +1411,7 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>After the cutoff both buttons are disabled with "This meeting can no longer be changed online. Reply to the invite e-mail." Cancelled, expired and declined bookings show read-only with their badge and no buttons (not drawn).</span></div>
-    <div class="note"><b>2</b><span>The token is shown masked; an unknown or revoked token renders the same "isn't available" page as screen 8. Served with <code>Referrer-Policy: no-referrer</code>.</span></div>
+    <div class="note"><b>2</b><span>The token is shown masked; an unknown, revoked or anonymised link renders its own card, "This link isn't valid. Reply to the invite e-mail to change your meeting." (404 <code>booking_link_invalid</code>). Served with <code>Referrer-Policy: no-referrer</code>.</span></div>
     <div class="note"><b>3</b><span>While a reschedule waits for Anna's approval this card reads "Reschedule requested for {time}, waiting for confirmation" and Reschedule is disabled.</span></div>
   </div>
 </section>
