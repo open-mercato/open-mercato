@@ -24,6 +24,7 @@ stage, so narrow screens keep the quick stage change the header dropdown used to
 
 All of these stay for at least one minor release after 0.10.0 and are tracked in
 `.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
+
 ## Entity translation authorization and field registration (#9139)
 
 `GET /api/translations/:entityType/:entityId` now requires the target record's view
@@ -45,6 +46,7 @@ for values entered before the permission checks, including values on fields
 that are still valid. Remove or replace suspect content through authorized
 translation operations. Rows for unregistered or missing targets require
 operator cleanup. No schema migration is required.
+
 <a id="issue-9106"></a>
 
 ## Relation options and explicit global query scope (#9106)
@@ -243,6 +245,7 @@ configuration change, route, event or response-field migration is needed for thi
 fix. Restart application and worker processes together when deploying.
 
 [Specification and coverage](.ai/specs/2026-07-06-eudr-compliance-module.md#migration--backward-compatibility).
+
 ## Explicit deleted-row list access (#9154)
 
 `GET /api/entities/records` no longer honors `withDeleted=true`, including full

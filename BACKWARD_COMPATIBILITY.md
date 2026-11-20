@@ -721,6 +721,7 @@ organization scope, stored rows and internal query-engine options are unchanged.
 [specification](.ai/specs/2026-11-14-crud-soft-deleted-list-policy.md#migration--backward-compatibility).
 **Named human maintainer acknowledgment: pending.** Steps 1–3 are not treated as
 waived until a named human explicitly accepts this specific security exception.
+
 ## 2026-11-19 — Entity translation authorization (#9139)
 
 The STABLE entity translation route and localization resolver require target
@@ -729,6 +730,7 @@ unregistered translations would preserve the vulnerability. See
 [upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
 for client and operator migration guidance. The Emergency Security Exception
 requires named maintainer approval.
+
 ## #9106 2026-11-16
 
 STABLE labels disclose secrets; no bridge. [Migration](UPGRADE_NOTES.md#issue-9106); waiver pending.
