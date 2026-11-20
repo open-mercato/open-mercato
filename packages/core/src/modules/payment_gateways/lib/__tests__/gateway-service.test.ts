@@ -119,7 +119,8 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
     transactional: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(em)),
     fork: jest.fn((): unknown => em),
   }
-  const integrationCredentialsService = { resolve: jest.fn(async () => ({})) } as never
+  const credentialsResolve = jest.fn(async () => ({}))
+  const integrationCredentialsService = { resolve: credentialsResolve } as never
 
   findOneMock.mockImplementation(async (_em, entity, where) => {
     if ((entity as { name?: string }).name !== 'GatewayPaymentOperation') return transaction as never
@@ -132,7 +133,7 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
   })
 
   const service = createPaymentGatewayService({ em: em as never, integrationCredentialsService })
-  return { service, captureFn, refundFn, cancelFn, flush, em }
+  return { service, captureFn, refundFn, cancelFn, flush, em, credentialsResolve }
 }
 
 function deferred() {
@@ -1062,6 +1063,38 @@ describe('payment gateway service — cancel with captured funds', () => {
     await expect(service.cancelPayment(transaction.id, undefined, scope)).rejects.toMatchObject({
       status: 409,
       body: { code: 'payment_cancel_captured_funds' },
+    })
+
+    expect(cancelFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('authorized')
+    expect(transaction.capturedAmount).toBe(capturedAmount)
+  })
+
+  it.each([
+    { retry: false, capturedAmount: '25' },
+    { retry: true, capturedAmount: '25' },
+    { retry: false, capturedAmount: '0.000000000000000001' },
+    { retry: true, capturedAmount: '0.000000000000000001' },
+  ])('codes a reservation acquired during credential resolution: %j', async ({ retry, capturedAmount }) => {
+    const transaction = makeTransaction('authorized', '0')
+    const { service, cancelFn, credentialsResolve } = buildService(transaction, {})
+    const operationId = 'cancel-late-reservation'
+    if (retry) {
+      cancelFn.mockRejectedValueOnce(new Error('provider unavailable'))
+      await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toThrow('provider unavailable')
+      cancelFn.mockClear()
+    }
+    credentialsResolve.mockImplementationOnce(async () => {
+      transaction.capturedAmount = capturedAmount
+      return {}
+    })
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toMatchObject({
+      status: 409,
+      body: {
+        code: 'payment_cancel_captured_funds',
+        error: 'Cannot cancel a payment with captured funds or an outstanding capture reservation.',
+      },
     })
 
     expect(cancelFn).not.toHaveBeenCalled()
