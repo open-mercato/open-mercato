@@ -16,7 +16,6 @@ import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { resolveLocaleFromCandidates } from '@open-mercato/shared/lib/i18n/locale'
 import { getSupportedLocales, loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
-import english from '../i18n/en.json'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -150,7 +149,7 @@ export async function validateWorkflowStart(
           condition,
           null,
           locale,
-          t('workflows.errors.businessRulesModuleDisabled', english['workflows.errors.businessRulesModuleDisabled'], {
+          t('workflows.errors.businessRulesModuleDisabled', 'Business rules module is disabled: {ruleId}', {
             ruleId: condition.ruleId,
           }),
         ),
