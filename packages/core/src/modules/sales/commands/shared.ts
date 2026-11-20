@@ -19,7 +19,7 @@ export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@op
 export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 /** Resource kinds used by the document-aggregate optimistic-lock check. */
-export const SALES_RESOURCE_KIND_CREDIT_MEMO = 'sales.credit_memo'
+export const SALES_RESOURCE_KIND_CREDIT_MEMO = 'sales.credit.memo'
 export const SALES_RESOURCE_KIND_INVOICE = 'sales.invoice'
 export const SALES_RESOURCE_KIND_ORDER = 'sales.order'
 export const SALES_RESOURCE_KIND_QUOTE = 'sales.quote'

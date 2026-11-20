@@ -148,6 +148,26 @@ describe.each<Operation>(['update', 'delete'])('sales.credit_memos.%s optimistic
     expect(emitCrudSideEffects).not.toHaveBeenCalled()
   })
 
+  it('refuses the stale write when OM_OPTIMISTIC_LOCK allow-lists the credit memo route key', async () => {
+    const previous = process.env.OM_OPTIMISTIC_LOCK
+    process.env.OM_OPTIMISTIC_LOCK = 'sales.credit.memo'
+    try {
+      const { em, creditMemo, run } = setup(operation, VALIDATED_VERSION, true)
+
+      await expect(run()).rejects.toMatchObject({
+        status: 409,
+        body: { code: 'optimistic_lock_conflict', expectedUpdatedAt: VALIDATED_VERSION, currentUpdatedAt: EDITED_VERSION },
+      })
+
+      expectUnchanged(creditMemo)
+      expect(em.commit).not.toHaveBeenCalled()
+      expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    } finally {
+      if (previous === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+      else process.env.OM_OPTIMISTIC_LOCK = previous
+    }
+  })
+
   it.each([VALIDATED_VERSION, null])('writes the locked credit memo with expected version %s', async (expectedVersion) => {
     const { em, creditMemo, run } = setup(operation, expectedVersion)
 
