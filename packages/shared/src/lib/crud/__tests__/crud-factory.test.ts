@@ -2127,9 +2127,9 @@ describe('CRUD Factory', () => {
       writeGuard,
       update: {
         schema: guardedUpdateSchema,
-        applyToEntity: (e, input) => {
-          if (input.title !== undefined) (e as Rec).title = input.title
-          if (input.isDone !== undefined) (e as Rec).isDone = input.isDone
+        applyToEntity: (entity, input) => {
+          if (input.title !== undefined) (entity as Rec).title = input.title
+          if (input.isDone !== undefined) (entity as Rec).isDone = input.isDone
         },
       },
     })
@@ -2154,6 +2154,22 @@ describe('CRUD Factory', () => {
       expect(await res.json()).toMatchObject({ ignoredFields: [{ key: 'no_such_field', reason: 'unknown' }] })
       const saved = await em.getRepository(Todo).findOne({ id: todo.id, tenantId: defaultTenantId })
       expect(saved?.title).toBe('kept')
+    })
+
+    it('rejects destructive null aliases before the ORM write callback', async () => {
+      const updateSchema = z.object({ id: z.string(), priorityScore: z.coerce.number().optional() })
+      const applyToEntity = jest.fn()
+      const route = makeCrudRoute<never, z.infer<typeof updateSchema>>({
+        metadata: { PUT: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        update: { schema: updateSchema, applyToEntity },
+      })
+      const response = await put(route, { id: todo.id, priority_score: null })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ fields: ['priority_score'] })
+      expect(applyToEntity).not.toHaveBeenCalled()
+      expect(await em.getRepository(Todo).findOne({ id: todo.id, tenantId: defaultTenantId }))
+        .toMatchObject({ title: 'before' })
     })
 
     it('rejects an unknown key outright when the route opts into strictness', async () => {

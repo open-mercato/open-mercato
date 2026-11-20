@@ -186,10 +186,18 @@ before: 200, value_amount discarded
 after:  400, invalid_type
 ```
 
+Newly aliased nulls are also rejected with `400` when a field uses built-in
+coercion without an explicit nullable wrapper. Otherwise Zod can turn `null`
+into an epoch date, zero, false or a string before a command sees it. This safety
+check applies only to newly aliased fields; explicit nullable schemas preserve
+null clears, and disabling aliases preserves the existing validation path.
+
 That is the intended behaviour of this change, not an accident: the endpoint either
 applies the field or refuses it. It is recorded here so the trade-off is a decision
-rather than a surprise. A straight round-trip is unaffected, because the read side
-emits values the write schema accepts.
+rather than a surprise. Audited nullable consumers preserve round-trip nulls.
+When a consumer's coercive schema lacks nullability, a null alias is refused
+instead of changing stored data; that consumer must declare nullable fields
+before accepting explicit clears through aliases.
 
 **`ActivityUpdateInput` preserves source compatibility.** Its optional `entityId`
 field remains declared. The HTTP write guard rejects it as immutable before
@@ -273,6 +281,8 @@ given `.nullable()` for the same reason (TC-CRM-069).
   Remove new unchecked public/test inputs and add consuming API regressions.
   Preserve nullable catalog price validity dates and activity occurrence clears
   found while tracing the affected consumers.
+  Reject destructive built-in coercion of newly aliased nulls in the
+  shared guard, covering further consumers without editing their modules.
 
 - **2026-09-13** - Resolve upstream indexer-wrapper conflicts while retaining the
   command-response input. Persist phone writes through canonical interaction

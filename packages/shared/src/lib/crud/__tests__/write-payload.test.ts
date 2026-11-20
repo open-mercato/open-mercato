@@ -90,15 +90,50 @@ describe('guardWriteBody', () => {
   const schema = z.object({ id: z.string(), isDone: z.boolean().optional(), organizationId: z.string().optional() })
 
   it('reports a misspelled key when aliasing is switched off, rather than dropping it', () => {
-    const r = guardWriteBody(schema, { id: 'x', is_done: true }, { aliasSnakeCaseKeys: false })
-    expect(r.body).toEqual({ id: 'x', is_done: true })
-    expect(r.ignoredFields).toEqual([{ key: 'is_done', reason: 'misspelled' }])
+    const guarded = guardWriteBody(schema, { id: 'x', is_done: true }, { aliasSnakeCaseKeys: false })
+    expect(guarded.body).toEqual({ id: 'x', is_done: true })
+    expect(guarded.ignoredFields).toEqual([{ key: 'is_done', reason: 'misspelled' }])
   })
 
   it('applies it instead when aliasing is on, so misspelled never appears', () => {
-    const r = guardWriteBody(schema, { id: 'x', is_done: true }, undefined)
-    expect(r.body).toEqual({ id: 'x', isDone: true })
-    expect(r.ignoredFields).toEqual([])
+    const guarded = guardWriteBody(schema, { id: 'x', is_done: true }, undefined)
+    expect(guarded.body).toEqual({ id: 'x', isDone: true })
+    expect(guarded.ignoredFields).toEqual([])
+  })
+
+  it.each([
+    z.coerce.date().optional(),
+    z.coerce.number().min(0).optional(),
+    z.coerce.date().default(new Date('2026-01-01')),
+    z.coerce.date().transform((value) => value),
+    z.coerce.string().optional(),
+    z.coerce.boolean().optional(),
+  ])('rejects a null alias before built-in coercion can replace it', (fieldSchema) => {
+    const nullableConsumer = z.object({ expiresAt: fieldSchema }).superRefine(() => {})
+    expect(() => guardWriteBody(nullableConsumer, { expires_at: null }, undefined))
+      .toThrow(expect.objectContaining({ status: 400, body: { error: 'Invalid input', fields: ['expires_at'] } }))
+  })
+
+  it.each([z.coerce.date().nullable().optional(), z.coerce.number().nullable().optional()])(
+    'preserves null aliases when the consumer explicitly declares nullability', (fieldSchema) => {
+      const nullableConsumer = z.object({ expiresAt: fieldSchema })
+      const guarded = guardWriteBody(nullableConsumer, { expires_at: null }, undefined)
+      expect(nullableConsumer.parse(guarded.body)).toEqual({ expiresAt: null })
+    },
+  )
+
+  it('leaves the existing validation path unchanged when aliasing is disabled', () => {
+    const coerciveSchema = z.object({ expiresAt: z.coerce.date().optional() })
+    const guarded = guardWriteBody(coerciveSchema, { expires_at: null }, { aliasSnakeCaseKeys: false })
+    expect(guarded.body).toEqual({ expires_at: null })
+    expect(guarded.ignoredFields).toEqual([{ key: 'expires_at', reason: 'misspelled' }])
+  })
+
+  it('translates unsafe null-alias errors through the existing invalid-input key', () => {
+    const translate = jest.fn(() => 'Nieprawidłowe dane')
+    expect(() => guardWriteBody(z.object({ dueAt: z.coerce.date() }), { due_at: null }, { translate }))
+      .toThrow(expect.objectContaining({ body: { error: 'Nieprawidłowe dane', fields: ['due_at'] } }))
+    expect(translate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
   })
 
   // Strictness must cover everything the payload will not apply. Checking only
@@ -118,13 +153,13 @@ describe('guardWriteBody', () => {
   // snake_case spelling a list emitted must not raise the ambiguity 400, and must
   // not be aliased into a way of steering scope.
   it('leaves tenant and organization scope keys alone in both spellings', () => {
-    const r = guardWriteBody(
+    const guarded = guardWriteBody(
       schema,
       { id: 'x', organizationId: 'org-a', organization_id: 'org-b', tenant_id: 't-1' },
       undefined
     )
-    expect(r.ignoredFields).toEqual([])
-    expect(r.body).toMatchObject({ organizationId: 'org-a', organization_id: 'org-b', tenant_id: 't-1' })
+    expect(guarded.ignoredFields).toEqual([])
+    expect(guarded.body).toMatchObject({ organizationId: 'org-a', organization_id: 'org-b', tenant_id: 't-1' })
   })
 })
 

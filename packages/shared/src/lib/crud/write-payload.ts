@@ -71,19 +71,39 @@ function readWrappedSchema(def: unknown): unknown {
   return wrapper.schema ?? wrapper.innerType ?? wrapper.in ?? null
 }
 
-export function collectWritableKeys(schema: z.ZodTypeAny): Set<string> | null {
+function collectWriteFieldSchemas(schema: z.ZodTypeAny): Record<string, unknown> | null {
   let current: unknown = schema
   for (let depth = 0; depth < 10; depth += 1) {
     if (!current || typeof current !== 'object') return null
     const node = current as SchemaInspectionNode
     if (!node._def) return null
     const shape = readSchemaShape(node)
-    if (shape) return new Set(Object.keys(shape))
+    if (shape) return shape
     const inner = readWrappedSchema(node._def)
     if (!inner) return null
     current = inner
   }
   return null
+}
+
+export function collectWritableKeys(schema: z.ZodTypeAny): Set<string> | null {
+  const shape = collectWriteFieldSchemas(schema)
+  return shape ? new Set(Object.keys(shape)) : null
+}
+
+function requiresNonNullCoercion(schema: unknown): boolean {
+  let current = schema
+  for (let depth = 0; depth < 10; depth += 1) {
+    if (!current || typeof current !== 'object') return false
+    const node = current as SchemaInspectionNode
+    if (!node._def || typeof node._def !== 'object') return false
+    const definition = node._def as Record<string, unknown>
+    const typeName = definition.typeName ?? definition.type
+    if (typeName === 'ZodNullable' || typeName === 'nullable') return false
+    if (definition.coerce === true) return true
+    current = readWrappedSchema(definition)
+  }
+  return false
 }
 
 /**
@@ -362,6 +382,17 @@ export function guardWriteBody(
   }
 
   const aliasing = config?.aliasSnakeCaseKeys !== false
+  if (aliasing && inspection.aliased.length > 0) {
+    const shape = collectWriteFieldSchemas(schema)
+    const unsafeNullAliases = inspection.aliased.filter(({ to }) =>
+      inspection.payload[to] === null && requiresNonNullCoercion(shape?.[to]))
+    if (unsafeNullAliases.length > 0) {
+      throw new CrudHttpError(400, {
+        error: config?.translate?.('errors.invalid_input', 'Invalid input') ?? 'Invalid input',
+        fields: unsafeNullAliases.map(({ from }) => from),
+      })
+    }
+  }
   const misspelled: UnwritableKey[] = aliasing
     ? []
     : inspection.aliased.map((entry) => ({ key: entry.from, reason: 'misspelled' as const }))
