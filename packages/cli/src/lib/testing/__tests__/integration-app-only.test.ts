@@ -173,6 +173,12 @@ describe('mercato test:integration --app-only', () => {
     })
   })
 
+  describe('listAppOwnedIntegrationSpecCandidates without a config report', () => {
+    it('returns null so the empty-suite decision waits for the runtime', async () => {
+      await expect(listAppOwnedIntegrationSpecCandidates(async () => null)).resolves.toBeNull()
+    })
+  })
+
   describe('resolveAppOnlySuiteRun', () => {
     const listSpecsNeedingBaseUrl = jest.fn(async (environment: NodeJS.ProcessEnv) =>
       environment.BASE_URL ? [APP_SPEC] : [],
@@ -198,6 +204,24 @@ describe('mercato test:integration --app-only', () => {
 
     it('returns null when the runtime environment still skips every app spec', async () => {
       await expect(resolveAppOnlySuiteRun([APP_SPEC], { commandEnvironment: {} }, listSpecsNeedingBaseUrl)).resolves.toBeNull()
+    })
+
+    it('lists only the preflight spec files so excluded specs are never imported', async () => {
+      const listSpecs = jest.fn(async () => [APP_SPEC])
+      await resolveAppOnlySuiteRun([APP_SPEC], { commandEnvironment: {} }, listSpecs)
+      expect(listSpecs.mock.calls[0][1]).toEqual(buildAppOnlyPlaywrightFileFilters([APP_SPEC]))
+    })
+
+    it('resolves app-owned specs from the runtime list when the config reported no selection', async () => {
+      const listSpecs = jest.fn(async () => [PLATFORM_SPEC, APP_SPEC, SECOND_APP_SPEC])
+      const run = await resolveAppOnlySuiteRun(null, { commandEnvironment: {} }, listSpecs, 'admin')
+      expect(listSpecs.mock.calls[0][1]).toEqual([])
+      expect(run?.fileFilters).toEqual(buildAppOnlyPlaywrightFileFilters([SECOND_APP_SPEC]))
+    })
+
+    it('returns null when the runtime list has no app-owned spec and the config reported no selection', async () => {
+      const listSpecs = jest.fn(async () => [PLATFORM_SPEC])
+      await expect(resolveAppOnlySuiteRun(null, { commandEnvironment: {} }, listSpecs)).resolves.toBeNull()
     })
 
     it('keeps only the preflight specs that Playwright selects', async () => {
@@ -243,6 +267,17 @@ describe('mercato test:integration --app-only', () => {
       expect(runSuite).toHaveBeenCalledTimes(1)
       expect(runSuite.mock.calls[0][1]).toMatchObject({ appOnly: true, appOnlySpecPaths: [APP_SPEC] })
       expect(stop).toHaveBeenCalledTimes(1)
+    })
+
+    it('defers the empty-suite decision to the runtime when the config reports no selection', async () => {
+      const { runSuite } = createRunSuiteMock()
+      const discoverSpecs = jest.fn(async () => null)
+
+      await runIntegrationTestsInEphemeralEnvironment(['--app-only'], { discoverSpecs, runSuiteWithRecovery: runSuite })
+
+      expect(logSpy).not.toHaveBeenCalledWith(NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE)
+      expect(runSuite).toHaveBeenCalledTimes(1)
+      expect(runSuite.mock.calls[0][1]).toMatchObject({ appOnly: true, appOnlySpecPaths: null })
     })
 
     it('keeps the default run unchanged without the flag', async () => {

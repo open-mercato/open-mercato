@@ -9,10 +9,13 @@ import {
 } from '../integration'
 import type { PlaywrightListTarget } from '../integration'
 
-const RUNTIME_ONLY_SPEC = 'src/modules/orders/__integration__/TC-APP-001.spec.ts'
+const RUNTIME_REGISTERED_SPEC = 'src/modules/orders/__integration__/TC-APP-001.spec.ts'
+const RUNTIME_IMPORTED_SPEC = 'src/modules/orders/__integration__/TC-APP-002.spec.ts'
 const CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
+const CUSTOM_CONFIG_PATH = '.ai/qa/tests/custom.config.ts'
 const REPOSITORY_NODE_MODULES = path.resolve(path.dirname(require.resolve('@playwright/test/package.json')), '..', '..')
 const DISCOVERY_MODULE_PATH = path.resolve(__dirname, '..', 'integration-discovery.ts')
+const RUNTIME_BASE_URL = 'http://127.0.0.1:5001'
 
 function withoutJestEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(environment).filter(([key]) => !key.startsWith('JEST_')))
@@ -48,12 +51,33 @@ function createStandaloneProject(): string {
   )
   writeProjectFile(
     projectRoot,
-    RUNTIME_ONLY_SPEC,
+    CUSTOM_CONFIG_PATH,
+    [
+      "import { defineConfig } from '@playwright/test'",
+      "import path from 'node:path'",
+      "const projectRoot = path.resolve(__dirname, '..', '..', '..')",
+      "export default defineConfig({ testDir: path.join(projectRoot, 'src'), testMatch: ['**/__integration__/*.spec.ts'] })",
+      '',
+    ].join('\n'),
+  )
+  writeProjectFile(
+    projectRoot,
+    RUNTIME_REGISTERED_SPEC,
     [
       "import { test } from '@playwright/test'",
       'if (process.env.BASE_URL) {',
-      "  test('runs only once the runtime supplies BASE_URL', async () => {})",
+      "  test('registers only once the runtime supplies BASE_URL', async () => {})",
       '}',
+      '',
+    ].join('\n'),
+  )
+  writeProjectFile(
+    projectRoot,
+    RUNTIME_IMPORTED_SPEC,
+    [
+      "import { test } from '@playwright/test'",
+      "if (!process.env.BASE_URL) throw new Error('BASE_URL is required while this spec module loads')",
+      "test('imports only once the runtime supplies BASE_URL', async () => {})",
       '',
     ].join('\n'),
   )
@@ -64,8 +88,8 @@ describe('test:integration --app-only against a real Playwright config', () => {
   const originalBaseUrl = process.env.BASE_URL
   let projectRoot: string
   let target: PlaywrightListTarget
-  const listRegisteredTests = (environment: NodeJS.ProcessEnv) =>
-    listPlaywrightSelectedSpecPaths(withoutJestEnvironment(environment), target)
+  const listRegisteredTests = (environment: NodeJS.ProcessEnv, fileFilters: readonly string[]) =>
+    listPlaywrightSelectedSpecPaths(withoutJestEnvironment(environment), fileFilters, target)
   const listConfigSelection = (environment: NodeJS.ProcessEnv) =>
     listPlaywrightConfigSelectedSpecPaths(withoutJestEnvironment(environment), target)
 
@@ -84,22 +108,36 @@ describe('test:integration --app-only against a real Playwright config', () => {
     rmSync(projectRoot, { recursive: true, force: true })
   })
 
-  it('registers no test for the lone spec before the runtime supplies BASE_URL', async () => {
-    await expect(listRegisteredTests({ ...process.env })).resolves.toEqual([])
+  it('cannot import the specs before the runtime supplies BASE_URL', async () => {
+    await expect(listRegisteredTests({ ...process.env }, [])).rejects.toThrow('BASE_URL is required')
   }, 60_000)
 
-  it('keeps the lone runtime-dependent spec as an early-exit candidate from the config file selection', async () => {
+  it('resolves both runtime-dependent specs from the config file selection without importing them', async () => {
     const candidates = await listAppOwnedIntegrationSpecCandidates(listConfigSelection)
-    expect(candidates).toEqual([{ path: RUNTIME_ONLY_SPEC }])
+    expect(candidates).toEqual([{ path: RUNTIME_REGISTERED_SPEC }, { path: RUNTIME_IMPORTED_SPEC }])
   }, 60_000)
 
-  it('collects the spec once the runtime environment supplies BASE_URL', async () => {
+  it('collects both specs once the runtime environment supplies BASE_URL', async () => {
     const run = await resolveAppOnlySuiteRun(
-      [RUNTIME_ONLY_SPEC],
-      { commandEnvironment: { ...process.env, BASE_URL: 'http://127.0.0.1:5001' } },
+      [RUNTIME_REGISTERED_SPEC, RUNTIME_IMPORTED_SPEC],
+      { commandEnvironment: { ...process.env, BASE_URL: RUNTIME_BASE_URL } },
       listRegisteredTests,
     )
-    expect(run?.fileFilters).toHaveLength(1)
-    expect(run?.commandEnvironment.BASE_URL).toBe('http://127.0.0.1:5001')
+    expect(run?.fileFilters).toHaveLength(2)
+    expect(run?.commandEnvironment.BASE_URL).toBe(RUNTIME_BASE_URL)
+  }, 60_000)
+
+  it('reports no selection for a custom config that does not use discovery, deferring to the runtime list', async () => {
+    const customTarget = { projectRoot, configPath: CUSTOM_CONFIG_PATH }
+    await expect(
+      listPlaywrightConfigSelectedSpecPaths(withoutJestEnvironment({ ...process.env }), customTarget),
+    ).resolves.toBeNull()
+    const run = await resolveAppOnlySuiteRun(
+      null,
+      { commandEnvironment: { ...process.env, BASE_URL: RUNTIME_BASE_URL } },
+      (environment, fileFilters) =>
+        listPlaywrightSelectedSpecPaths(withoutJestEnvironment(environment), fileFilters, customTarget),
+    )
+    expect(run?.fileFilters).toHaveLength(2)
   }, 60_000)
 })
