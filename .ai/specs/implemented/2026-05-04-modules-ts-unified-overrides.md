@@ -158,6 +158,7 @@ Each phase is a focused PR that:
 | 17 | DI bindings | `di` | container key | **YES** |
 | 18 | Encryption maps | `encryption.maps` | entity id | **YES** |
 | 19 | Sidebar nav ordering | `nav.groupOrder` | nav group id | **YES** |
+| 20 | CrudForm sections | `forms.sections` | `<hostId>/<formVariant>/<formOperation>/<sectionId>` | **YES** (composer and dispatcher) |
 
 Phase 1 is the AI domain (already shipped via spec [`2026-04-30-ai-overrides-and-module-disable.md`](2026-04-30-ai-overrides-and-module-disable.md), now folded under the unified umbrella through one rename — see "Migration & BC" below).
 
