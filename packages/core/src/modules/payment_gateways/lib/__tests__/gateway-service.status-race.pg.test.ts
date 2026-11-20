@@ -327,7 +327,7 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
       await poll
       const row = await readTransaction(txn.id)
       expect(row.unifiedStatus).toBe('captured')
-      expect(row.capturedAmount).toBe('100.0000')
+      expect(row.capturedAmount).toBe('100')
       expect(eventsFor(txn.id)).toEqual(['captured'])
     })
 
@@ -371,7 +371,7 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
       await manualCapture(txn)
       const row = await readTransaction(txn.id)
       expect(row.unifiedStatus).toBe('captured')
-      expect(row.capturedAmount).toBe('90.0000')
+      expect(row.capturedAmount).toBe('90')
       expect(eventsFor(txn.id)).toEqual(['captured'])
     })
 
@@ -386,7 +386,7 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
       await capture
       const row = await readTransaction(txn.id)
       expect(row.unifiedStatus).toBe('cancelled')
-      expect(row.capturedAmount).toBe('100.0000')
+      expect(row.capturedAmount).toBe('100')
       expect(row.gatewayMetadata).toEqual(expect.objectContaining({ cancelWebhookMarker: true }))
       expect(eventsFor(txn.id)).toEqual(['cancelled'])
       const operations = await orm.em.fork().find(GatewayPaymentOperation, { transactionId: txn.id })
@@ -412,7 +412,7 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
       expect(readSession(txn.providerSessionId).captureKeys).toHaveLength(1)
       const row = await readTransaction(txn.id)
       expect(row.unifiedStatus).toBe('cancelled')
-      expect(row.capturedAmount).toBe('100.0000')
+      expect(row.capturedAmount).toBe('100')
       expect(eventsFor(txn.id)).toEqual(['cancelled'])
       const operations = await readOperations(txn.id)
       expect(operations.map((operation) => [operation.operationId, operation.status, operation.attemptCount]))
@@ -428,9 +428,9 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
         .rejects.toThrow('simulated completion outage')
       const afterFailure = await readTransaction(txn.id)
       expect(afterFailure.unifiedStatus).toBe('authorized')
-      expect(afterFailure.capturedAmount).toBe('100.0000')
+      expect(afterFailure.capturedAmount).toBe('100')
       expect((await readOperations(txn.id)).map((operation) => [operation.status, operation.reservedAmount]))
-        .toEqual([['failed', '100.0000']])
+        .toEqual([['failed', '100']])
 
       const retried = await captureWithOperation(txn, 'capture-completion-retry')
       const replay = await captureWithOperation(txn, 'capture-completion-retry')
@@ -440,7 +440,7 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
       expect(new Set(session.captureKeys).size).toBe(1)
       const row = await readTransaction(txn.id)
       expect(row.unifiedStatus).toBe('captured')
-      expect(row.capturedAmount).toBe('100.0000')
+      expect(row.capturedAmount).toBe('100')
       expect(eventsFor(txn.id)).toEqual(['captured'])
       expect((await readOperations(txn.id)).map((operation) => [operation.status, operation.attemptCount]))
         .toEqual([['succeeded', 2]])
@@ -462,7 +462,7 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
       expect(new Set(session.captureKeys).size).toBe(1)
       const row = await readTransaction(txn.id)
       expect(row.unifiedStatus).toBe('cancelled')
-      expect(row.capturedAmount).toBe('100.0000')
+      expect(row.capturedAmount).toBe('100')
       expect(row.gatewayMetadata).toEqual(expect.objectContaining({ cancelWebhookMarker: true }))
       expect(eventsFor(txn.id)).toEqual(['cancelled'])
       expect((await readOperations(txn.id)).map((operation) => [operation.status, operation.attemptCount]))
@@ -573,7 +573,7 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
         problems.push(`metadata lost ${category.requiredMetadata}`)
         kinds.push('metadata lost update')
       }
-      if (['captured', 'refunded', 'partially_refunded'].includes(row.unifiedStatus) && row.capturedAmount !== '100.0000') {
+      if (['captured', 'refunded', 'partially_refunded'].includes(row.unifiedStatus) && row.capturedAmount !== '100') {
         problems.push(`capturedAmount ${row.capturedAmount}`)
         kinds.push('captured amount drift')
       }
