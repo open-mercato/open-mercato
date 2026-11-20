@@ -62,6 +62,8 @@ import type {
 } from './activity-queue-types'
 import type { TransitionExecutionResult } from './transition-handler'
 
+import { assertTrustedEventTriggerIdentity } from './event-trigger-identity'
+
 const logger = createLogger('workflows')
 
 // ============================================================================
@@ -407,6 +409,8 @@ export async function executeWorkflow(
           { instanceId, status: instance.status }
         )
       }
+
+      assertTrustedEventTriggerIdentity(instance)
 
       const definition = await findDefinitionForInstance(trx, instance)
 

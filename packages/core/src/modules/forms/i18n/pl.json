@@ -185,6 +185,7 @@
   "forms.errors.invitation_revoked": "To zaproszenie zostało unieważnione.",
   "forms.errors.invitation_submitted": "To zaproszenie zostało już użyte do wysłania zgłoszenia.",
   "forms.errors.locales_empty": "Formularz musi obsługiwać co najmniej jeden język.",
+  "forms.errors.logo_storage_unavailable": "Magazyn logo jest niedostępny. Włącz moduł załączników, aby przesłać logo.",
   "forms.errors.no_op_publish": "Brak zmian do opublikowania — schemat odpowiada bieżącej opublikowanej wersji.",
   "forms.errors.not_found": "Nie znaleziono.",
   "forms.errors.organization_required": "Wymagany jest kontekst organizacji.",

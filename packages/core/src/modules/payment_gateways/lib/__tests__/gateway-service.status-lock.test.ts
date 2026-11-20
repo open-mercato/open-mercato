@@ -238,7 +238,7 @@ describe('payment gateway service — status writers evaluate the locked committ
       expect(emit.mock.calls[0][0]).toBe('payment_gateways.payment.captured')
       expect(emit.mock.calls[0][1]).toEqual(expect.objectContaining({ previousStatus: 'authorized' }))
       expect(committed.unifiedStatus).toBe('captured')
-      expect(committed.capturedAmount).toBe('100.0000')
+      expect(committed.capturedAmount).toBe('100')
       expect(committed.gatewayMetadata).toEqual({ statusResult: { pollMarker: true } })
       expect(harness.txFlush).toHaveBeenCalledTimes(1)
       expect(harness.callerEm.nativeUpdate).not.toHaveBeenCalled()
@@ -343,7 +343,7 @@ describe('payment gateway service — status writers evaluate the locked committ
       expect(result.status).toBe('captured')
       expect(emit).not.toHaveBeenCalled()
       expect(committed.unifiedStatus).toBe('captured')
-      expect(committed.capturedAmount).toBe('100.0000')
+      expect(committed.capturedAmount).toBe('100')
       expect(findCallsWith((options) => (
         options?.lockMode === LockMode.PESSIMISTIC_WRITE && options?.refresh === true
       ))).toHaveLength(1)
@@ -363,7 +363,7 @@ describe('payment gateway service — status writers evaluate the locked committ
       expect(emit).not.toHaveBeenCalled()
       expect(committed.unifiedStatus).toBe('cancelled')
       expect(committed.gatewayMetadata).toEqual({ captureResult: { captureMarker: true } })
-      expect(committed.capturedAmount).toBe('100.0000')
+      expect(committed.capturedAmount).toBe('100')
       expect(harness.adapter.capture).toHaveBeenCalledTimes(1)
       expect(Array.from(harness.operations.values())).toEqual([
         expect.objectContaining({ operationId: 'capture-after-cancel', status: 'succeeded' }),
