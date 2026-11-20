@@ -717,3 +717,17 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## 2026-11-19 — Entity translation authorization (#9139)
+
+The STABLE entity translation route and localization resolver require target
+permissions and registered text fields. Continuing to accept or render
+unregistered translations would preserve the vulnerability. See
+[upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
+for client and operator migration guidance. Piotr Karwatka (@pkarw) acknowledged
+the emergency waiver of steps 1–3 on 2026-11-20:
+[human approval](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
+
+## SSO authority (2026-11-15, #9014)
+
+STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
