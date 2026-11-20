@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -127,7 +128,7 @@ export default function CustomerGroupsPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)

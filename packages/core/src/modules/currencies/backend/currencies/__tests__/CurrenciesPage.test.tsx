@@ -12,6 +12,12 @@ const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 const mockRunMutation = jest.fn(({ operation }: { operation: () => unknown }) => operation())
 const mockRetryLastMutation = jest.fn()
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
 }))

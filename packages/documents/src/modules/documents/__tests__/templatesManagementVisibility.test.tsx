@@ -10,6 +10,12 @@ const surfaceRecordConflictMock = jest.fn()
 const mockDataTableProps = jest.fn()
 const translateMock = (key: string) => key
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: (props: unknown) => {
     mockDataTableProps(props)

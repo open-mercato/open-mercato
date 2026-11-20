@@ -39,6 +39,8 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 jest.mock('next/navigation', () => ({
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: routerPush, replace: jest.fn() }),
 }))
 

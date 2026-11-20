@@ -27,6 +27,14 @@ function splitOrClauses(filters: Record<string, unknown>): {
   return { directFilters, orClauses }
 }
 
+function combineAnd(left: Record<string, unknown>, right: Record<string, unknown>): Record<string, unknown> {
+  const combined: Record<string, unknown> = { ...left, ...right }
+  if (Array.isArray(left.$and) && Array.isArray(right.$and)) {
+    combined.$and = [...left.$and, ...right.$and]
+  }
+  return combined
+}
+
 /**
  * Parse advanced filter query params and merge with existing Where filters.
  * Call this in buildFilters callback to support advanced filter query params.
@@ -63,10 +71,7 @@ export function mergeAdvancedFilters(
     const combinedClauses: Record<string, unknown>[] = []
     for (const leftClause of existingOrClauses) {
       for (const rightClause of advancedClauses) {
-        combinedClauses.push({
-          ...leftClause,
-          ...rightClause,
-        })
+        combinedClauses.push(combineAnd(leftClause, rightClause))
       }
     }
 
@@ -79,7 +84,7 @@ export function mergeAdvancedFilters(
   }
 
   // AND logic: merge directly
-  return { ...existingFilters, ...advancedWhere }
+  return combineAnd(existingFilters, advancedWhere)
 }
 
 /**

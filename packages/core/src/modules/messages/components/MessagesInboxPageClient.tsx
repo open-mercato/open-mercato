@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -99,7 +100,7 @@ export function MessagesInboxPageClient() {
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [page, setPage] = React.useState(1)
   const pageSize = 20

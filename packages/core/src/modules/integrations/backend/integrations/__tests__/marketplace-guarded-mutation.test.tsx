@@ -9,6 +9,12 @@ const runMutationMock = jest.fn()
 const apiCallMock = jest.fn()
 const flashMock = jest.fn()
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('next/link', () => ({
   __esModule: true,
   default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,

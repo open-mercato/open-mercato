@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -57,7 +58,7 @@ export default function PricesDataTable({ productId }: { productId?: string } = 
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [canManage, setCanManage] = React.useState(false)
 
   React.useEffect(() => {

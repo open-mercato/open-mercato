@@ -588,3 +588,50 @@ describe('BasicQueryEngine — custom-field leaves inside an $or group (#5039)',
     expect(directFilter).toBe(true)
   })
 })
+
+describe('BasicQueryEngine — custom-field overlap as a per-record EXISTS (#7459)', () => {
+  const customFieldDb = () => createFakeKysely({
+    scheduled_jobs: [],
+    custom_field_defs: [
+      { key: 'labels', entity_id: 'scheduler:scheduled_job', is_active: true, tenant_id: null, kind: 'text' },
+    ],
+    custom_field_values: [],
+    'information_schema.columns': [
+      { table_name: 'scheduled_jobs', column_name: 'organization_id' },
+      { table_name: 'scheduled_jobs', column_name: 'tenant_id' },
+    ],
+  })
+
+  test('has_all_of on a multi custom field applies one EXISTS per value instead of AND-ing one joined row', async () => {
+    const fakeDb = customFieldDb()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id', 'cf:labels'],
+      omitAutomaticTenantOrgScope: true,
+      filters: { $and: [{ 'cf:labels': { $overlap: ['vip'] } }, { 'cf:labels': { $overlap: ['eu'] } }] },
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
+    expect(baseCall).toBeTruthy()
+    const existsEntries = baseCall._ops.wheres.filter((w: any) => Array.isArray(w) && w[0] === 'exists')
+    expect(existsEntries).toHaveLength(2)
+    for (const entry of existsEntries) {
+      expect(entry[1]._ops.table).toBe('custom_field_values')
+    }
+  })
+
+  test('an OR-grouped custom-field overlap compiles to an EXISTS leg', async () => {
+    const fakeDb = customFieldDb()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id', 'cf:labels'],
+      omitAutomaticTenantOrgScope: true,
+      filters: { $or: [{ 'cf:labels': { $overlap: ['vip'] } }, { 'cf:labels': { $eq: 'x' } }] },
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
+    const orEntry = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntry).toBeTruthy()
+    expect(orEntry[1].some((part: any) => part?.kind === 'exists')).toBe(true)
+  })
+})

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef, LegacyFeatures } from '@tanstack/react-table/legacy'
@@ -71,7 +72,7 @@ export default function StaffTeamMembersPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'displayName', desc: false }])
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})

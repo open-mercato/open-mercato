@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
@@ -60,7 +61,7 @@ export default function CheckoutPayLinksPage() {
   const t = useT()
   const [rows, setRows] = React.useState<LinkRow[]>([])
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)

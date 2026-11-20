@@ -87,6 +87,8 @@ jest.mock('next/link', () => ({
 }))
 
 jest.mock('next/navigation', () => ({
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
 }))
 

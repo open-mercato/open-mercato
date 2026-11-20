@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/directory/extension-points'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -44,7 +45,7 @@ export default function DirectoryTenantsPage() {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [canManage, setCanManage] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()

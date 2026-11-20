@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -43,7 +44,7 @@ export default function SsoConfigListPage() {
   const [data, setData] = React.useState<ListResponse>(fallback)
   const [isLoading, setIsLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const isSuperAdmin = !!data.isSuperAdmin

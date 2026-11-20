@@ -17,6 +17,8 @@ const mockApiCall = jest.fn()
 const mockReadApiResultOrThrow = jest.fn()
 
 jest.mock('next/navigation', () => ({
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }),
 }))
 

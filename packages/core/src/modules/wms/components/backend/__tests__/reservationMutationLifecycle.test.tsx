@@ -11,6 +11,12 @@ const mockInvalidateQueries = jest.fn()
 const mockTriggerEvent = jest.fn()
 const mockDispatchMutationError = jest.fn()
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
   useLocale: () => 'en',

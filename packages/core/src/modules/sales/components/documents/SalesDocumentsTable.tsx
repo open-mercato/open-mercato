@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -177,7 +178,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }])
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setLoading] = React.useState(false)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)

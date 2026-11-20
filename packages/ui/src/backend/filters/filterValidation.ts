@@ -31,7 +31,7 @@ function validateRule(rule: FilterRule): ValidationError | null {
     return null
   }
   if (MULTI_VALUE_OPS.has(op)) {
-    if (!Array.isArray(rule.value) || rule.value.length === 0) {
+    if (!Array.isArray(rule.value) || rule.value.every(isBlank)) {
       return { ruleId: rule.id, messageKey: 'ui.advancedFilter.error.missingValue', message: 'Pick at least one value' }
     }
     return null

@@ -7,6 +7,12 @@ import CategoriesDataTable from '../CategoriesDataTable'
 
 const mockUseQuery = jest.fn()
 const mockUseQueryClient = jest.fn()
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@tanstack/react-query', () => ({
   useQuery: (...args: any[]) => mockUseQuery(...args),
   useQueryClient: () => mockUseQueryClient(),

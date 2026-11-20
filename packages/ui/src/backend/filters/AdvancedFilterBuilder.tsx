@@ -32,6 +32,7 @@ import {
 } from '../../primitives/select'
 import { Popover, PopoverContent, PopoverTrigger } from '../../primitives/popover'
 import { Checkbox } from '../../primitives/checkbox'
+import { TagsInput } from '../inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   FilterFieldDef,
@@ -642,6 +643,17 @@ function ValueInput({
     )
   }
 
+  if (fieldType === 'tags' && getOperatorShape(rule.operator) === 'multi') {
+    return (
+      <MultiValueTagsInput
+        rule={rule}
+        fieldDef={fieldDef}
+        dispatch={dispatch}
+        errorClass={errorClass}
+      />
+    )
+  }
+
   // `Input` ships `w-full` by default — use `w-auto` so inputs don't stretch
   // inside the wrapping flex row. `between` needs a `[start, end]` pair, so it
   // gets its own component below.
@@ -700,6 +712,43 @@ function ValueInput({
       placeholder={t('ui.advancedFilter.textPlaceholder', 'Value...')}
       aria-label={t('ui.advancedFilter.textValue', 'Text value')}
     />
+  )
+}
+
+/**
+ * Free-form multi-value entry for `tags` fields (`has_any_of` / `has_all_of` /
+ * `has_none_of`). Stores the rule value as `string[]` so it satisfies the
+ * multi-value validation and compiles to array-aware operators. Static
+ * `options` and async `loadOptions` on the field feed the suggestions.
+ */
+function MultiValueTagsInput({
+  rule, fieldDef, dispatch, errorClass,
+}: {
+  rule: FilterRule
+  fieldDef: FilterFieldDef | undefined
+  dispatch: (a: TreeAction) => void
+  errorClass: string
+}) {
+  const selected = React.useMemo(
+    () => (Array.isArray(rule.value)
+      ? rule.value.map((entry) => String(entry)).filter((entry) => entry.trim().length > 0)
+      : []),
+    [rule.value],
+  )
+  const handleChange = React.useCallback(
+    (next: string[]) => dispatch({ type: 'updateRule', ruleId: rule.id, updates: { value: next } }),
+    [dispatch, rule.id],
+  )
+  return (
+    <div className={`min-w-48 max-w-sm flex-1 rounded ${errorClass}`} data-testid="tags-value-input">
+      <TagsInput
+        value={selected}
+        onChange={handleChange}
+        suggestions={fieldDef?.options}
+        loadSuggestions={fieldDef?.loadOptions}
+        selectedOptions={fieldDef?.options}
+      />
+    </div>
   )
 }
 

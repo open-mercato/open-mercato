@@ -14,6 +14,12 @@ const GROUP_ID = '0b1f6c1e-5f4b-4a8e-9a43-6f2b7f6a9d10'
 const SCOPE_MESSAGE = 'This group has members in organizations you cannot access, so you cannot delete it.'
 const GENERIC_MESSAGE = 'Could not delete the customer group'
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('next/link', () => ({ children, href }: { children: React.ReactNode; href: string }) => (
   <a href={href}>{children}</a>
 ))

@@ -37,6 +37,7 @@ const mockTranslate = (
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
 
 jest.mock('next/navigation', () => ({
+  usePathname: () => '/backend',
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }))

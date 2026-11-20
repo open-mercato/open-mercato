@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
@@ -137,8 +138,8 @@ function LogSparkline({ counts, className }: { counts: number[]; className?: str
 export default function IntegrationsMarketplacePage() {
   const [data, setData] = React.useState<ListResponse | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
-  const [searchInput, setSearchInput] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const [searchInput, setSearchInput] = useUrlSearchState()
+  const [debouncedSearch, setDebouncedSearch] = React.useState(() => searchInput.trim())
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [sortField, setSortField] = React.useState<'title' | 'category' | 'enabledAt' | 'healthStatus'>('title')
   const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>('asc')

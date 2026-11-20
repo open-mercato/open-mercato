@@ -18,6 +18,7 @@ import { ViewChip } from './views/ViewChip'
 import { NewViewForm } from './views/NewViewForm'
 import { ShareForm } from './views/ShareForm'
 import { type SidebarMode } from './views/types'
+import { buildCloneName, collectTakenCloneNames, findFreeCloneNumber } from './views/cloneName'
 import { ColumnChooserSection, type ColumnChooserField } from './columns/ColumnChooserPanel'
 
 export type { ColumnChooserField } from './columns/ColumnChooserPanel'
@@ -329,22 +330,15 @@ export function PerspectiveSidebar({
           .map((rp) => rp.roleId),
       ),
     )
-    const buildCloneName = (n: number) =>
-      n <= 1 ? `${originalName} (copy)` : `${originalName} (copy ${n})`
-    const existingNames = new Set(
-      perspectivesRef.current.map((item) => item.name.trim()),
-    )
-    let counter = 1
-    while (existingNames.has(buildCloneName(counter))) {
-      counter += 1
-    }
+    const takenNames = collectTakenCloneNames(perspectivesRef.current, rolePerspectives, sharedRoleIds)
+    let counter = findFreeCloneNumber(originalName, takenNames)
     const clonedSettings = structuredClone(p.settings)
     const MAX_ATTEMPTS = 50
     let lastErr: unknown = null
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       try {
         await onSave({
-          name: buildCloneName(counter),
+          name: buildCloneName(originalName, counter),
           isDefault: false,
           applyToRoles: sharedRoleIds,
           setRoleDefault: false,
@@ -364,7 +358,7 @@ export function PerspectiveSidebar({
           return
         }
         lastErr = err
-        counter += 1
+        counter = findFreeCloneNumber(originalName, takenNames, counter + 1)
       }
     }
     if (surfaceRecordConflict(lastErr, t)) return

@@ -12,6 +12,12 @@ if (typeof window !== 'undefined') {
 }
 
 // Mock Radix-based Radio primitives — keeps tests independent of Radix focus internals
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@open-mercato/ui/primitives/radio', () => {
   const React2 = require('react') as typeof import('react')
   return {

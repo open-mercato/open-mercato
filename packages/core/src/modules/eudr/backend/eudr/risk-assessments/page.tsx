@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
@@ -109,7 +110,7 @@ export default function EudrRiskAssessmentsPage() {
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'assessedAt', desc: true }])
   const [filters, setFilters] = React.useState<FilterValues>({})
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [loading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const mutationContextId = 'eudr-risk-assessments-list:delete'

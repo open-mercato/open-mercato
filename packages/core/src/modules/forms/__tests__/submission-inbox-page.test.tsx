@@ -7,6 +7,12 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 
 const apiCallMock = jest.fn()
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
 }))

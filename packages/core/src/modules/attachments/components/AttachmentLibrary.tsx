@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { SortingState } from '@tanstack/react-table'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -756,7 +757,7 @@ export function AttachmentLibrary() {
   const t = useT()
   const queryClient = useQueryClient()
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }])
   const [metadataDialogOpen, setMetadataDialogOpen] = React.useState(false)
