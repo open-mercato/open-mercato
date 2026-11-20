@@ -66,6 +66,13 @@ const mockQuery = jest.fn(async (entityId: string, options: QueryOptions) => {
   return { items, total: items.length }
 })
 const mockFind = jest.fn(async () => [])
+const mockPeriodQuery = {
+  selectFrom: jest.fn().mockReturnThis(),
+  select: jest.fn().mockReturnThis(),
+  distinct: jest.fn().mockReturnThis(),
+  where: jest.fn().mockReturnThis(),
+  execute: jest.fn(async () => []),
+}
 const mockStore = new Map<string, unknown>()
 const mockCache = {
   get: jest.fn(async (key: string) => mockStore.get(key) ?? null),
@@ -76,7 +83,7 @@ const mockCache = {
 const mockAccessLog = { log: jest.fn(async () => undefined) }
 const mockRbac = { getGrantedFeatures: jest.fn(async () => mockFeatures) }
 const mockServices: Record<string, unknown> = {
-  em: { find: mockFind },
+  em: { find: mockFind, getKysely: () => mockPeriodQuery },
   queryEngine: { query: mockQuery },
   cache: mockCache,
   accessLogService: mockAccessLog,
