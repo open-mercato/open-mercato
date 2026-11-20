@@ -53,3 +53,4 @@ Make the PR mergeable again: bring in current `main` and keep the #8638 exclusio
 ### Phase 3: Rebuild on main's shouldIndex gate
 
 - [x] 3.1 Merge main and express the deleted-parent exclusion through shouldIndex, dropping the PR's own indexer hook — 0d37c7c34b
+- [x] Post-review fix: resolve the profile parent via its row when the search record has no entity id — 1bc05ea024
