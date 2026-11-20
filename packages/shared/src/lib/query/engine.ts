@@ -23,6 +23,7 @@ import {
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
 import { buildContainmentPatterns } from '../search/containment'
+import { buildTokenContainmentPatterns, buildTokenContainmentPredicate } from '../search/tokenContainment'
 import { fieldNameCandidates } from './encrypted-sort'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
@@ -545,17 +546,22 @@ export class BasicQueryEngine implements QueryEngine {
     // the encryption service could not answer at all; keep the pre-existing rewrite-everything
     // behavior then, because guessing "plaintext" would turn encrypted-column search into an
     // ILIKE-on-ciphertext that matches nothing.
-    let encryptedLikeFields: Set<string> | null = null
+    //
+    // The map is resolved with the switch OFF too, into `knownEncryptedLikeFields` only: the token
+    // rewrite then stays in place for every column, but a column the map reports as plaintext gets
+    // the token match ANDed with a folded containment predicate (lib/search/tokenContainment), which
+    // removes the wrong-record results of #5803 without ever widening the token result. An
+    // unknown map (`null`) skips that narrowing, exactly like the reroute above.
+    let knownEncryptedLikeFields: Set<string> | null = null
     if (
       searchActive &&
-      searchConfig.useIlikeForNonEncryptedFields === true &&
       searchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
     ) {
       try {
         const service = this.getEncryptionService()
         const readEncryptedFieldNames = service?.getEncryptedFieldNames?.bind(service)
         if (readEncryptedFieldNames) {
-          encryptedLikeFields = await resolveEncryptedLikeFieldSet(
+          knownEncryptedLikeFields = await resolveEncryptedLikeFieldSet(
             () => readEncryptedFieldNames(
               String(entity),
               opts.tenantId ?? null,
@@ -569,10 +575,10 @@ export class BasicQueryEngine implements QueryEngine {
           // Encryption is on but the service is unreachable (a swallowed DI failure looks
           // exactly like "no service"): treat the map as UNKNOWN and keep the token rewrite,
           // rather than guessing "plaintext" and running ILIKE against ciphertext.
-          encryptedLikeFields = null
+          knownEncryptedLikeFields = null
         } else {
           // Encryption disabled: nothing is ciphertext at rest, exact ILIKE is always right.
-          encryptedLikeFields = new Set()
+          knownEncryptedLikeFields = new Set()
         }
       } catch (err) {
         // The fallback is safe (the old rewrite-everything behavior), but taking it silently
@@ -581,8 +587,16 @@ export class BasicQueryEngine implements QueryEngine {
           entity: String(entity),
           error: err instanceof Error ? err.message : String(err),
         })
-        encryptedLikeFields = null
+        knownEncryptedLikeFields = null
       }
+    }
+    const encryptedLikeFields: Set<string> | null = searchConfig.useIlikeForNonEncryptedFields === true
+      ? knownEncryptedLikeFields
+      : null
+    const resolvePlaintextNarrowingPatterns = (fieldName: string, value: string): string[] => {
+      if (searchConfig.useIlikeForNonEncryptedFields === true) return []
+      if (knownEncryptedLikeFields === null || isEncryptedLikeField(knownEncryptedLikeFields, fieldName)) return []
+      return buildTokenContainmentPatterns(value)
     }
     const ciphertextSearchWarnings: CiphertextSearchWarning[] = []
     if (searchFilters.length) {
@@ -693,7 +707,12 @@ export class BasicQueryEngine implements QueryEngine {
             tenantId: opts.tenantId ?? null,
             organizationScope: orgScope,
           })
-          if (result.applied) return result.builder
+          if (result.applied) {
+            const narrowing = resolvePlaintextNarrowingPatterns(fieldName, value)
+            return narrowing.length
+              ? result.builder.where(buildTokenContainmentPredicate(column, narrowing))
+              : result.builder
+          }
         } else {
           this.logSearchDebug('search:skip-empty-hashes', {
             entity: String(entity),
@@ -1888,12 +1907,16 @@ export class BasicQueryEngine implements QueryEngine {
         break
       }
       case 'in': {
+        // Empty list: `in ()` is invalid SQL (#7637); never-match, mirroring applyColumnOp (#7502).
         const vals = Array.isArray(value) ? value : [value]
+        if (vals.length === 0) return sql<boolean>`false`
         predicate = sql<boolean>`${caseExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
         break
       }
       case 'nin': {
+        // Empty list excludes nothing — the same always-match the projection shape's applyColumnOp yields.
         const vals = Array.isArray(value) ? value : [value]
+        if (vals.length === 0) return sql<boolean>`true`
         predicate = sql<boolean>`${caseExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
         break
       }
@@ -2119,6 +2142,11 @@ export class BasicQueryEngine implements QueryEngine {
       withDeleted: boolean
     }
   ): any {
+    // Empty in/nin lists would compile to invalid `in ()` SQL (#7637): never-match / always-match,
+    // mirroring the base-column guard in applyColumnOp (#7502).
+    if ((opts.op === 'in' || opts.op === 'nin') && (Array.isArray(opts.value) ? opts.value : [opts.value]).length === 0) {
+      return opts.op === 'in' ? sql<boolean>`false` : sql<boolean>`true`
+    }
     const alias = `ei_${this.searchAliasSeq++}`
     const engine = this
     return eb.exists((() => {

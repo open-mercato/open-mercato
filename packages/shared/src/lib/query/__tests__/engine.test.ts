@@ -1648,6 +1648,86 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
   })
 })
 
+describe('BasicQueryEngine plaintext token-search narrowing (#5803, flag off)', () => {
+  // With OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS off (the #5383 default) every column stays on
+  // the token path, but a column the encryption map reports as PLAINTEXT gets the token EXISTS ANDed
+  // with a folded per-word containment predicate, so `2026-08` can no longer match `2026-01`.
+  const { DummyDriver, Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler } = require('kysely')
+  const compiler = new Kysely({ dialect: {
+    createAdapter: () => new PostgresAdapter(), createDriver: () => new DummyDriver(),
+    createIntrospector: (db: unknown) => new PostgresIntrospector(db), createQueryCompiler: () => new PostgresQueryCompiler(),
+  } })
+
+  beforeEach(() => {
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+  })
+
+  const run = async (value: string, readEncryptedFieldNames: (...args: unknown[]) => Promise<string[]>) => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_entities', column_name: 'display_name' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: readEncryptedFieldNames }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: value } },
+      page: { page: 1, pageSize: 10 },
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    const wheres: any[] = baseCall._ops.wheres
+    const containment = wheres
+      .filter((w) => Array.isArray(w) && w.length === 1 && typeof w[0]?.compile === 'function')
+      .map((w) => w[0].compile(compiler))
+      .filter((compiled: { sql: string }) => compiled.sql.includes('normalize('))
+    return { applySearchTokensSpy, wheres, containment }
+  }
+
+  test('a plaintext column keeps the token EXISTS and ANDs the folded containment', async () => {
+    const { applySearchTokensSpy, wheres, containment } = await run('%2026-08%', async () => ['primary_email'])
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+    expect(wheres.some((w) => Array.isArray(w) && w[0] === 'exists')).toBe(true)
+    expect(containment).toHaveLength(1)
+    expect(containment[0].sql).toContain('normalize(("customer_entities"."display_name")::text, NFKD)')
+    expect(containment[0].sql).toMatch(/ ilike \$\d+$/)
+    expect(containment[0].parameters).toContain('%2026%08%')
+  })
+
+  test('multi-word terms stay word-order independent (TC-RESO-009)', async () => {
+    const { containment } = await run('%Warehouse 1757%', async () => [])
+    expect(containment).toHaveLength(1)
+    expect(containment[0].sql).toContain('ilike all (array[')
+    expect(containment[0].parameters).toEqual(expect.arrayContaining(['%warehouse%', '%1757%']))
+  })
+
+  test('an encrypted column keeps the token EXISTS alone', async () => {
+    const { applySearchTokensSpy, wheres, containment } = await run('%2026-08%', async () => ['displayName'])
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+    expect(wheres.some((w) => Array.isArray(w) && w[0] === 'exists')).toBe(true)
+    expect(containment).toHaveLength(0)
+    expect(wheres.some((w) => Array.isArray(w) && w[1] === 'ilike')).toBe(false)
+  })
+
+  test('an unreadable encryption map keeps the legacy token-only predicate', async () => {
+    const { applySearchTokensSpy, containment } = await run('%2026-08%', async (...args: unknown[]) => {
+      if ((args[3] as { ignoreRuntimeHealth?: boolean } | undefined)?.ignoreRuntimeHealth) throw new Error('kms down')
+      return []
+    })
+    expect(applySearchTokensSpy).toHaveBeenCalled()
+    expect(containment).toHaveLength(0)
+  })
+})
+
 describe('module-scoped column-existence cache (#5605)', () => {
   const columnProbes = (fakeDb: any) =>
     fakeDb._calls.filter((b: any) => b._ops.table === 'information_schema.columns')

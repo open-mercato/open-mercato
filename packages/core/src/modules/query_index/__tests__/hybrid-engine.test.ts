@@ -2357,20 +2357,17 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
 
   // The gate reads the map with `ignoreRuntimeHealth` -- a column holds ciphertext even while the
   // KMS is down -- and no other caller of `getEncryptedFieldNames` passes that option, so it is the
-  // signature that tells the gate's read apart from the decoration path's.
-  // Reading the encryption map is what SWITCHES the gate on: `searchRuntime.encryptedFields` is
-  // only populated from that read, and `buildBaseFilterExpression` sends everything through tokens
-  // while it stays nullish. Whether the read happens is therefore the query()-level signal that the
-  // per-column carve-out is active -- the routing it then drives is pinned by the
-  // `applyColumnFilter` suite above, which the fake builder cannot exercise because it never
-  // invokes Kysely's expression callbacks.
-  test('with the env var unset, query() never consults the map and every column stays on tokens', async () => {
+  // signature that tells the gate's read apart from the decoration path's. With the switch unset the
+  // map is still read, but only into `knownEncryptedFields`: `encryptedFields` stays null, so every
+  // column keeps the token rewrite and plaintext columns get the containment narrowing on top
+  // (pinned by the "plaintext narrowing" suite below).
+  test('with the env var unset, query() keeps every column on tokens but resolves the map for narrowing', async () => {
     const { engine, readEncryptedFieldNames } = buildEngine()
 
     await search(engine)
 
-    expect(readEncryptedFieldNames).not.toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), expect.anything(), { ignoreRuntimeHealth: true },
+    expect(readEncryptedFieldNames).toHaveBeenCalledWith(
+      'example:todo', 't1', null, { ignoreRuntimeHealth: true },
     )
   })
 

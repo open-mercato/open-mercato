@@ -61,6 +61,7 @@ import {
 } from '@open-mercato/shared/lib/search/availability'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { buildContainmentPatterns } from '@open-mercato/shared/lib/search/containment'
+import { buildTokenContainmentPatterns, buildTokenContainmentPredicate } from '@open-mercato/shared/lib/search/tokenContainment'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { warnOnCiphertextLikeFallback, type CiphertextSearchWarning } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import {
@@ -333,6 +334,14 @@ type SearchRuntime = {
    * ILIKE-on-ciphertext that matches nothing.
    */
   encryptedFields?: Set<string> | null
+  /**
+   * The same encrypted-field map, resolved whether or not OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+   * is on. With the switch off every column stays on the token path, but a column this map reports
+   * as plaintext gets the token match ANDed with a folded containment predicate
+   * (lib/search/tokenContainment) so the lossy token rewrite cannot return the wrong record (#5803).
+   * `null`/absent = unknown map: no narrowing, the legacy token-only behavior.
+   */
+  knownEncryptedFields?: Set<string> | null
   /** Per-`query()` alias minter for `search_tokens` subqueries (see #2738). */
   mintAlias: () => string
 }
@@ -743,11 +752,12 @@ export class HybridQueryEngine implements QueryEngine {
       const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
       if (
         searchRuntime.enabled &&
-        searchConfig.useIlikeForNonEncryptedFields === true &&
         sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
       ) {
-        // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false per #5383; set it
-        // to true to opt into the #5803 fix ahead of that follow-up).
+        // The reroute to ILIKE is gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default
+        // false per #5383; set it to true to opt into the full #5803 fix ahead of that follow-up).
+        // The map is resolved with the switch off too, into `knownEncryptedFields` only, so the
+        // default path can narrow plaintext-column token matches (see SearchRuntime).
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
         // `organizationId: null` is deliberate, not an omission: the service then unions in every
@@ -759,7 +769,7 @@ export class HybridQueryEngine implements QueryEngine {
           const encryptionService = this.getEncryptionService()
           const readEncryptedFieldNames = encryptionService?.getEncryptedFieldNames?.bind(encryptionService)
           if (readEncryptedFieldNames) {
-            searchRuntime.encryptedFields = await resolveEncryptedLikeFieldSet(
+            searchRuntime.knownEncryptedFields = await resolveEncryptedLikeFieldSet(
               () => readEncryptedFieldNames(
                 entity as EntityId,
                 opts.tenantId ?? null,
@@ -773,10 +783,10 @@ export class HybridQueryEngine implements QueryEngine {
             // Encryption is on but the service is unreachable (a swallowed DI failure looks
             // exactly like "no service"): treat the map as UNKNOWN and keep the token rewrite,
             // rather than guessing "plaintext" and running ILIKE against ciphertext.
-            searchRuntime.encryptedFields = null
+            searchRuntime.knownEncryptedFields = null
           } else {
             // Encryption disabled: nothing is ciphertext at rest, exact ILIKE is always right.
-            searchRuntime.encryptedFields = new Set()
+            searchRuntime.knownEncryptedFields = new Set()
           }
         } catch (err) {
           // The fallback is safe (the old rewrite-everything behavior), but taking it silently
@@ -785,8 +795,11 @@ export class HybridQueryEngine implements QueryEngine {
             entity: String(entity),
             error: err instanceof Error ? err.message : String(err),
           })
-          searchRuntime.encryptedFields = null
+          searchRuntime.knownEncryptedFields = null
         }
+        searchRuntime.encryptedFields = searchConfig.useIlikeForNonEncryptedFields === true
+          ? searchRuntime.knownEncryptedFields
+          : null
       }
       const ciphertextSearchWarnings: CiphertextSearchWarning[] = []
       if (searchFilters.length) {
@@ -1197,31 +1210,8 @@ export class HybridQueryEngine implements QueryEngine {
         return next
       }
 
-      const applyJoinFilterOpFn = (target: AnyBuilder, column: string, op: FilterOp, value?: unknown): AnyBuilder => {
-        switch (op) {
-          case 'eq':
-            return value === null
-              ? target.where(column, 'is', null)
-              : target.where(column, '=', value as any)
-          case 'ne':
-            return value === null
-              ? target.where(column, 'is not', null)
-              : target.where(column, '!=', value as any)
-          case 'gt': return target.where(column, '>', value as any)
-          case 'gte': return target.where(column, '>=', value as any)
-          case 'lt': return target.where(column, '<', value as any)
-          case 'lte': return target.where(column, '<=', value as any)
-          case 'in': return target.where(column, 'in', this.toArray(value))
-          case 'nin': return target.where(column, 'not in', this.toArray(value))
-          case 'like': return target.where(column, 'like', value as any)
-          case 'ilike': return target.where(column, 'ilike', value as any)
-          case 'not_ilike': return target.where(buildNotIlikePredicate(column, value))
-          case 'exists': return value ? target.where(column, 'is not', null) : target.where(column, 'is', null)
-          case 'overlap': return target.where(buildArrayColumnOverlapPredicate(column, value))
-          case 'noverlap': return target.where(buildArrayColumnNoOverlapPredicate(column, value))
-          default: return target
-        }
-      }
+      const applyJoinFilterOpFn = (target: AnyBuilder, column: string, op: FilterOp, value?: unknown): AnyBuilder =>
+        this.applyJoinColumnFilterOp(target, column, op, value)
 
       const applyJoinSearchFilterOp = async (
         target: AnyBuilder,
@@ -1963,6 +1953,7 @@ export class HybridQueryEngine implements QueryEngine {
           : sql<boolean>`not (${textExpr} = ${value} or ${arrContains(value)})`
       case 'in': {
         const values = this.toArray(value)
+        if (!values.length) return sql<boolean>`false`
         return eb.or(
           values.flatMap((val) => [
             sql<boolean>`${textExpr} = ${val}`,
@@ -2153,6 +2144,7 @@ export class HybridQueryEngine implements QueryEngine {
           : q.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
         const vals = this.toArray(value)
+        if (!vals.length) return q.where(sql<boolean>`false`)
         return q.where((eb: any) => eb.or(
           vals.flatMap((val) => [
             sql<boolean>`${textExpr} = ${val}`,
@@ -2173,7 +2165,9 @@ export class HybridQueryEngine implements QueryEngine {
         ))
       }
       case 'nin': {
+        // Empty list: `not in ()` is invalid SQL (#7637); exclude nothing, mirroring applyColumnFilter.
         const vals = this.toArray(value)
+        if (vals.length === 0) return q.where(sql<boolean>`true`)
         return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
       }
       case 'like':
@@ -2239,7 +2233,9 @@ export class HybridQueryEngine implements QueryEngine {
           ? q.where(sql<boolean>`${textExpr} is not null`)
           : q.where(sql<boolean>`${textExpr} <> ${value}`)
       case 'in': {
+        // Empty list: `in ()` is invalid SQL (#7637); never-match, mirroring applyColumnFilter (#7502).
         const vals = this.toArray(value)
+        if (vals.length === 0) return q.where(sql<boolean>`false`)
         return q.where(sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
       }
       case 'overlap':
@@ -2248,6 +2244,7 @@ export class HybridQueryEngine implements QueryEngine {
         return q.where(buildJsonbNoOverlapPredicate(`${alias}.doc`, key, value))
       case 'nin': {
         const vals = this.toArray(value)
+        if (vals.length === 0) return q.where(sql<boolean>`true`)
         return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
       }
       case 'like':
@@ -2300,13 +2297,14 @@ export class HybridQueryEngine implements QueryEngine {
       (searchRuntime.encryptedFields == null || isEncryptedLikeField(searchRuntime.encryptedFields, fieldName))
     ) {
       const tokens = tokenizeText(String(filter.value), searchRuntime.config)
+      const narrowing = this.resolvePlaintextNarrowingPatterns(filter.value, searchRuntime, fieldName)
       if (tokens.hashes.length) {
         const sources: SearchTokenSource[] = (searchRuntime.searchSources && searchRuntime.searchSources.length
           ? searchRuntime.searchSources
           : [{ entity: String(entity), recordIdColumn: 'b.id' }]
         ).filter((src) => src.recordIdColumn && src.entity)
         if (sources.length) {
-          return eb.or(
+          const tokenMatch = eb.or(
             sources.map((src) =>
               eb.exists(this.buildSearchTokensSub(eb, {
                 entity: src.entity,
@@ -2319,8 +2317,16 @@ export class HybridQueryEngine implements QueryEngine {
               })),
             ),
           )
+          // Narrow THIS leaf only, so an OR-across-fields search stays
+          // (tokens(f1) AND contains(f1)) OR (tokens(f2) AND contains(f2)).
+          return narrowing.length
+            ? eb.and([tokenMatch, buildTokenContainmentPredicate(qualify(baseField), narrowing)])
+            : tokenMatch
         }
       }
+      // A column KNOWN to be plaintext answers a term the token path could not serve with the
+      // containment alone, instead of a `true` that widens the whole disjunction (#5803).
+      if (narrowing.length) return buildTokenContainmentPredicate(qualify(baseField), narrowing)
       // Tokenizer produced no hashes (e.g. value too short) or no source is usable. For a
       // column KNOWN to be encrypted, `false` is the honest answer for an OR leaf -- `true`
       // would widen the whole disjunction to match everything, on exactly the columns ILIKE
@@ -2407,7 +2413,9 @@ export class HybridQueryEngine implements QueryEngine {
       case 'ilike': return sql<boolean>`${textExpr} ilike ${value}`
       case 'not_ilike': return buildNotIlikeJsonPredicate(this.jsonbSqlAlias(alias, key), value)
       case 'in': {
+        // Empty list: `in ()` is invalid SQL (#7637); never-match, mirroring buildColumnFilterExpression.
         const vals = this.toArray(value)
+        if (vals.length === 0) return sql<boolean>`false`
         return sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
       }
       case 'overlap':
@@ -2416,6 +2424,7 @@ export class HybridQueryEngine implements QueryEngine {
         return buildJsonbNoOverlapPredicate(`${alias}.doc`, key, value)
       case 'nin': {
         const vals = this.toArray(value)
+        if (vals.length === 0) return sql<boolean>`true`
         return sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
       }
       case 'exists':
@@ -3275,6 +3284,50 @@ export class HybridQueryEngine implements QueryEngine {
     logger.debug('Search debug event', { event, payload })
   }
 
+  private applyJoinColumnFilterOp(target: AnyBuilder, column: string, op: FilterOp, value?: unknown): AnyBuilder {
+    switch (op) {
+      case 'eq':
+        return value === null
+          ? target.where(column, 'is', null)
+          : target.where(column, '=', value as any)
+      case 'ne':
+        return value === null
+          ? target.where(column, 'is not', null)
+          : target.where(column, '!=', value as any)
+      case 'gt': return target.where(column, '>', value as any)
+      case 'gte': return target.where(column, '>=', value as any)
+      case 'lt': return target.where(column, '<', value as any)
+      case 'lte': return target.where(column, '<=', value as any)
+      case 'in': {
+        // Empty list: `in ()` is invalid SQL (#7637); never-match, mirroring applyColumnFilter (#7502).
+        const inValues = this.toArray(value)
+        return inValues.length === 0 ? target.where(sql<boolean>`false`) : target.where(column, 'in', inValues)
+      }
+      case 'nin': {
+        const ninValues = this.toArray(value)
+        return ninValues.length === 0 ? target.where(sql<boolean>`true`) : target.where(column, 'not in', ninValues)
+      }
+      case 'like': return target.where(column, 'like', value as any)
+      case 'ilike': return target.where(column, 'ilike', value as any)
+      case 'not_ilike': return target.where(buildNotIlikePredicate(column, value))
+      case 'exists': return value ? target.where(column, 'is not', null) : target.where(column, 'is', null)
+      case 'overlap': return target.where(buildArrayColumnOverlapPredicate(column, value))
+      case 'noverlap': return target.where(buildArrayColumnNoOverlapPredicate(column, value))
+      default: return target
+    }
+  }
+
+  /**
+   * Per-word folded containment patterns that narrow a token match on a column KNOWN to be
+   * plaintext while OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS is off (#5803). Empty = no
+   * narrowing: switch on (that path reroutes instead), unknown map, or an encrypted column.
+   */
+  private resolvePlaintextNarrowingPatterns(value: string, search: SearchRuntime | undefined, field: string): string[] {
+    if (!search || search.config.useIlikeForNonEncryptedFields === true) return []
+    if (search.knownEncryptedFields == null || isEncryptedLikeField(search.knownEncryptedFields, field)) return []
+    return buildTokenContainmentPatterns(value)
+  }
+
   private applyColumnFilter(
     q: AnyBuilder,
     column: string | RawBuilder<unknown>,
@@ -3292,6 +3345,7 @@ export class HybridQueryEngine implements QueryEngine {
     ) {
       const tokens = tokenizeText(String(filter.value), search.config)
       const hashes = tokens.hashes
+      const narrowing = this.resolvePlaintextNarrowingPatterns(filter.value, search, search.field)
       if (hashes.length) {
         const sources: SearchTokenSource[] = (search.searchSources && search.searchSources.length
           ? search.searchSources
@@ -3309,6 +3363,7 @@ export class HybridQueryEngine implements QueryEngine {
                 mintAlias: search.mintAlias,
               })))
           ))
+          if (narrowing.length) q = q.where(buildTokenContainmentPredicate(column, narrowing))
           this.logSearchDebug('search:filter', {
             entity: search.entity, field: search.field, tokens: tokens.tokens, hashes,
             applied: true, tenantId: search.tenantId ?? null,
@@ -3335,7 +3390,10 @@ export class HybridQueryEngine implements QueryEngine {
           return q.where(sql<boolean>`false`)
         }
       }
-      return q
+      // No token predicate was applied (term too short to tokenize, or no usable source). On a
+      // column KNOWN to be plaintext the containment alone still answers the term instead of
+      // dropping the predicate and returning every row (`?search=08`, #5803).
+      return narrowing.length ? q.where(buildTokenContainmentPredicate(column, narrowing)) : q
     }
     const col: any = column
     // A PLAINTEXT column the gate kept off the token path: AND one containment predicate per word,
