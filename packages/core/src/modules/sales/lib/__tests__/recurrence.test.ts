@@ -169,4 +169,13 @@ describe('recurrenceInputSchema', () => {
     expect(parsed.success).toBe(false)
     expect(parsed.error?.issues.map((issue) => issue.message)).toContain('sales.recurring.errors.invalidStartsOn')
   })
+
+  it('validates that a finite schedule has a representable closing boundary', () => {
+    const schedule = { frequency: 'monthly', startsOn: '9999-11-30', periodCount: 1 }
+    expect(recurrenceInputSchema.safeParse(schedule).success).toBe(true)
+    const parsed = recurrenceInputSchema.safeParse({ ...schedule, periodCount: 2 })
+    expect(parsed.error?.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ['periodCount'], message: 'sales.recurring.errors.endDateOutOfRange' }),
+    ]))
+  })
 })

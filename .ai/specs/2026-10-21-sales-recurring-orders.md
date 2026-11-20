@@ -108,7 +108,7 @@ Order lines and order-level adjustments describe **one period's charge**; the or
 ## 📝 Behaviour
 
 ### Creating
-- `sales.quotes.create/update` and `sales.orders.create/update` accept `recurrence: { frequency, startsOn, anchorDay?, periodCount? } | null` (`null` removes it before the first invoice). `periodCount ≥ 1` when present; `anchorDay` defaults to the day of `startsOn`. A recurring quote needs at least one line **when it is sent or converted**, not when created.
+- `sales.quotes.create/update` and `sales.orders.create/update` accept `recurrence: { frequency, startsOn, anchorDay?, periodCount? } | null` (`null` removes it before the first invoice). `periodCount ≥ 1` when present, and a finite schedule's closing boundary must be within the supported four-digit calendar range. `anchorDay` defaults to the day of `startsOn`. A recurring quote needs at least one line **when it is sent or converted**, not when created.
 - The order recurrence is written inside `sales.orders.create`'s own `withAtomicFlush` and, during conversion, on the caller-supplied EntityManager, so it commits with the order.
 - **Acceptance and conversion after the start date are refused** (`422 recurring_quote_started`): the public accept route, `convert_to_order` and any caller check `starts_on ≥ today` (R7). The quote page and the quote email show the schedule ("Monthly from 1 Oct 2026, 24 payments").
 - The order recurrence is `scheduled` until its first invoice, then `active`.

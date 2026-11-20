@@ -1410,6 +1410,7 @@
   "sales.quotes.send.title": "Send quote to customer",
   "sales.quotes.send.validForDays": "Valid for (days)",
   "sales.quotes.update": "Update sales quote",
+  "sales.recurring.errors.endDateOutOfRange": "Choose an earlier start date or fewer billing periods.",
   "sales.recurring.errors.invalid": "Check the recurring schedule.",
   "sales.recurring.errors.invalidAnchorDay": "The billing day must match the start date.",
   "sales.recurring.errors.invalidPeriodCount": "Enter a whole number of periods, at least 1.",

@@ -1410,6 +1410,7 @@
   "sales.quotes.send.title": "Enviar cotización al cliente",
   "sales.quotes.send.validForDays": "Válida por (días)",
   "sales.quotes.update": "Actualizar cotización",
+  "sales.recurring.errors.endDateOutOfRange": "Elige una fecha de inicio anterior o menos períodos de facturación.",
   "sales.recurring.errors.invalid": "Revisa el calendario recurrente.",
   "sales.recurring.errors.invalidAnchorDay": "El día de facturación debe coincidir con la fecha de inicio.",
   "sales.recurring.errors.invalidPeriodCount": "Introduce un número entero de periodos, como mínimo 1.",

@@ -1410,6 +1410,7 @@
   "sales.quotes.send.title": "고객에게 견적 전송",
   "sales.quotes.send.validForDays": "유효 기간(일)",
   "sales.quotes.update": "판매 견적 수정",
+  "sales.recurring.errors.endDateOutOfRange": "시작일을 앞당기거나 청구 기간 수를 줄이세요.",
   "sales.recurring.errors.invalid": "반복 일정을 확인하세요.",
   "sales.recurring.errors.invalidAnchorDay": "청구일은 시작일과 일치해야 합니다.",
   "sales.recurring.errors.invalidPeriodCount": "1 이상의 정수로 기간 수를 입력하세요.",

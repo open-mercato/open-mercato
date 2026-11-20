@@ -1410,6 +1410,7 @@
   "sales.quotes.send.title": "Angebot an Kunden senden",
   "sales.quotes.send.validForDays": "Gültig für (Tage)",
   "sales.quotes.update": "Angebot aktualisieren",
+  "sales.recurring.errors.endDateOutOfRange": "Wählen Sie ein früheres Startdatum oder weniger Abrechnungszeiträume.",
   "sales.recurring.errors.invalid": "Prüfen Sie den wiederkehrenden Zeitplan.",
   "sales.recurring.errors.invalidAnchorDay": "Der Abrechnungstag muss zum Startdatum passen.",
   "sales.recurring.errors.invalidPeriodCount": "Geben Sie eine ganze Zahl von Perioden ein, mindestens 1.",

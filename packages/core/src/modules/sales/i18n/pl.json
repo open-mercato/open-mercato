@@ -1410,6 +1410,7 @@
   "sales.quotes.send.title": "Wyślij ofertę do klienta",
   "sales.quotes.send.validForDays": "Ważne przez (dni)",
   "sales.quotes.update": "Aktualizuj ofertę",
+  "sales.recurring.errors.endDateOutOfRange": "Wybierz wcześniejszą datę rozpoczęcia lub mniej okresów rozliczeniowych.",
   "sales.recurring.errors.invalid": "Sprawdź harmonogram cykliczny.",
   "sales.recurring.errors.invalidAnchorDay": "Dzień rozliczenia musi odpowiadać dacie rozpoczęcia.",
   "sales.recurring.errors.invalidPeriodCount": "Podaj całkowitą liczbę okresów, co najmniej 1.",
