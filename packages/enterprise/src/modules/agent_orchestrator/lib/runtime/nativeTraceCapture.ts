@@ -236,7 +236,7 @@ function contentOutcomeFor(call: NativeModelCallRecord, captureLevel: RunManifes
 function buildCallMetadataAttributes(
   call: NativeModelCallRecord,
   captureLevel: RunManifestCaptureLevel,
-  fallbackUsage: { inputTokens?: number; outputTokens?: number } | null | undefined,
+  fallbackUsage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | null | undefined,
   ignoredSettings: readonly IgnorableCallSetting[],
 ): SpanAttributes {
   const attributes: SpanAttributes = {
@@ -252,11 +252,18 @@ function buildCallMetadataAttributes(
   const outputTokens = isFiniteNumber(call.usage.outputTokens) ? call.usage.outputTokens : fallbackUsage?.outputTokens
   assignNumber(attributes, GEN_AI_ATTRIBUTES.usageInputTokens, inputTokens)
   assignNumber(attributes, GEN_AI_ATTRIBUTES.usageOutputTokens, outputTokens)
-  assignNumber(attributes, GEN_AI_ATTRIBUTES.usageCacheReadInputTokens, call.usage.cachedInputTokens)
+  const cachedInputTokens = isFiniteNumber(call.usage.cachedInputTokens)
+    ? call.usage.cachedInputTokens
+    : fallbackUsage?.cachedInputTokens
+  assignNumber(attributes, GEN_AI_ATTRIBUTES.usageCacheReadInputTokens, cachedInputTokens)
   assignNumber(attributes, GEN_AI_ATTRIBUTES.usageReasoningOutputTokens, call.usage.reasoningTokens)
   if (call.finishReason) attributes[GEN_AI_ATTRIBUTES.responseFinishReasons] = [call.finishReason]
   assignNumber(attributes, OM_LLM_ATTRIBUTES.latencyMs, call.latencyMs)
-  const cost = computeCostMicros(call.responseModel ?? call.requestModel, { inputTokens, outputTokens })
+  const cost = computeCostMicros(
+    call.responseModel ?? call.requestModel,
+    { inputTokens, outputTokens },
+    cachedInputTokens,
+  )
   if (cost) {
     attributes[OM_LLM_ATTRIBUTES.costMicros] = cost.micros
     attributes[OM_LLM_ATTRIBUTES.costCurrency] = cost.currency
@@ -315,7 +322,7 @@ function buildLlmSpanAttributes(
   legacy: SpanAttributes | null,
   call: NativeModelCallRecord | null | undefined,
   captureLevel: RunManifestCaptureLevel,
-  fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null,
+  fallbackUsage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | null,
   ignoredSettings: readonly IgnorableCallSetting[] = [],
 ): SpanAttributes | null {
   if (captureLevel === 'off' || !call) return legacy

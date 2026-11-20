@@ -1670,6 +1670,24 @@ describe('native file agents (A-1)', () => {
     expect(completeRunMock).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the cached share of a recovered no-step structured-output failure on the run stamp', async () => {
+    const entry = registerStrictFileAgent('native.strict_file_agent_cached_recovery')
+    entry.defaultModel = 'claude-sonnet-4-5'
+    runAiAgentObjectMock.mockRejectedValue(
+      sdkError('AI_NoObjectGeneratedError', {
+        text: '{"kind":"research","data":{"summary":"ok"}}',
+        usage: { inputTokens: 1_000_000, outputTokens: 0, inputTokenDetails: { cacheReadTokens: 1_000_000 } },
+      }),
+    )
+
+    await makeService().run('native.strict_file_agent_cached_recovery', {}, runCtx)
+
+    const input = completeRunMock.mock.calls[0][2] as Record<string, unknown>
+    expect(input.inputTokens).toBe(1_000_000)
+    expect(input.cachedInputTokens).toBe(1_000_000)
+    expect(input.costMinor).toBe(30)
+  })
+
   it('fails an unusable answer as invalid output with a schema check, not as a crash (A-2)', async () => {
     registerStrictFileAgent('native.strict_file_agent_garbage')
     runAiAgentObjectMock.mockRejectedValue(sdkError('AI_NoObjectGeneratedError', { text: 'I could not decide.' }))

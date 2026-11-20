@@ -174,6 +174,26 @@ export function clampCachedInputTokens(
 }
 
 /**
+ * Unrounded cost in micros (`tokens x pricePer1M`) with the cached tier split
+ * out of the input. The single formula behind both the run total
+ * ({@link computeCostMinor}) and the per-call estimate ({@link computeCostMicros}),
+ * so a step and its run never price the same tokens differently.
+ */
+function estimateRawMicros(
+  price: ModelPrice,
+  inputTokens: number | null | undefined,
+  outputTokens: number | null | undefined,
+  cachedInputTokens: number | null | undefined,
+): number {
+  const inTok = inputTokens ?? 0
+  const outTok = outputTokens ?? 0
+  const cachedTok = Math.min(Math.max(cachedInputTokens ?? 0, 0), inTok)
+  const freshTok = inTok - cachedTok
+  const cachedRate = price.cachedInputPer1M ?? price.inputPer1M
+  return freshTok * price.inputPer1M + cachedTok * cachedRate + outTok * price.outputPer1M
+}
+
+/**
  * Estimated run cost in minor currency units (cents), or null when the model
  * is unknown/absent or no token counts exist. Formula per the data-honesty
  * spec, with the cached tier split out of the input:
@@ -196,14 +216,8 @@ export function computeCostMinor(
   if (inputTokens == null && outputTokens == null) return null
   const price = resolveModelPrice(model)
   if (!price) return null
-  const inTok = inputTokens ?? 0
-  const outTok = outputTokens ?? 0
-  const cachedTok = Math.min(Math.max(cachedInputTokens ?? 0, 0), inTok)
-  const freshTok = inTok - cachedTok
-  const cachedRate = price.cachedInputPer1M ?? price.inputPer1M
-  const costMinor = Math.round(
-    ((freshTok * price.inputPer1M + cachedTok * cachedRate + outTok * price.outputPer1M) / 1_000_000) * 100,
-  )
+  const rawMicros = estimateRawMicros(price, inputTokens, outputTokens, cachedInputTokens)
+  const costMinor = Math.round((rawMicros / 1_000_000) * 100)
   return { costMinor, currency: price.currency }
 }
 
@@ -212,16 +226,21 @@ export function computeCostMinor(
  * currency (1 unit = 1e-6 major units). With prices expressed per 1M tokens,
  * `tokens x pricePer1M` is already micros. `null` when the model has no price;
  * callers then record `om.cost.pricing_source = 'unknown'`.
+ *
+ * `cachedInputTokens` is the cached SUBSET of `usage.inputTokens`, priced at the
+ * cached-input rate exactly like {@link computeCostMinor}; absent means no
+ * cached share is known and every input token is priced at `inputPer1M`.
  */
 export function computeCostMicros(
   model: string | null | undefined,
   usage: { inputTokens?: number | null; outputTokens?: number | null },
+  cachedInputTokens?: number | null,
 ): { micros: number; currency: string; pricingSource: TablePricingSource } | null {
   if (!model) return null
   const resolved = resolveModelPriceWithSource(model)
   if (!resolved) return null
-  const inTok = usage.inputTokens ?? 0
-  const outTok = usage.outputTokens ?? 0
-  const micros = Math.round(inTok * resolved.price.inputPer1M + outTok * resolved.price.outputPer1M)
+  const micros = Math.round(
+    estimateRawMicros(resolved.price, usage.inputTokens, usage.outputTokens, cachedInputTokens),
+  )
   return { micros, currency: resolved.price.currency, pricingSource: resolved.source as TablePricingSource }
 }

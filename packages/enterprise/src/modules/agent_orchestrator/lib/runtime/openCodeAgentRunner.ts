@@ -423,19 +423,30 @@ export class OpenCodeAgentRunner {
         throw new OpenCodeRunFailedError(agentId, 'no outcome submitted')
       }
 
+      const usageStamp = buildUsageStamp()
       const integrity = entry.integrity?.length
-        ? await this.runIntegrityPipeline({ entry, ctx, commandCtx, runId, businessInput, capturedOutcome, capturedToolCalls })
+        ? await this.runIntegrityPipeline({
+            entry,
+            ctx,
+            commandCtx,
+            runId,
+            businessInput,
+            capturedOutcome,
+            capturedToolCalls,
+            usageStamp,
+          })
         : null
       integrityRawOutputKey = integrity?.rawOutputKey ?? null
       const outputGuardResults =
-        integrity?.guardResults ?? (await this.runOutputGuardrails({ entry, ctx, commandCtx, runId, capturedOutcome }))
+        integrity?.guardResults ??
+        (await this.runOutputGuardrails({ entry, ctx, commandCtx, runId, capturedOutcome, usageStamp }))
 
       // Defense in depth: re-validate the captured outcome against the schema
       // even though submit_outcome already validated it server-side.
       const parsed = entry.schema.safeParse(integrity ? integrity.finalOutput : capturedOutcome)
       if (!parsed.success) {
         const detail = parsed.error.message
-        await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...buildUsageStamp() })
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...usageStamp })
         throw new OpenCodeRunFailedError(agentId, `outcome failed re-validation: ${detail}`)
       }
 
@@ -448,7 +459,7 @@ export class OpenCodeAgentRunner {
         // Proposal runs surface the proposal's confidence on the run row;
         // researcher runs have no confidence semantics → null (renders `—`).
         confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
-        ...buildUsageStamp(),
+        ...usageStamp,
       })
 
       if (result.kind === 'proposal') {
@@ -596,8 +607,9 @@ export class OpenCodeAgentRunner {
     commandCtx: ReturnType<typeof buildCommandContext>
     runId: string
     capturedOutcome: unknown
+    usageStamp: RunUsageStamp
   }): Promise<GuardResults> {
-    const { entry, ctx, commandCtx, runId } = args
+    const { entry, ctx, commandCtx, runId, usageStamp } = args
     let verdict: Awaited<ReturnType<GuardrailService['checkOutput']>>
     let guardResults: GuardResults
     try {
@@ -618,13 +630,14 @@ export class OpenCodeAgentRunner {
       await failRun(this.commandBus, commandCtx, {
         runId,
         errorMessage: err instanceof Error ? err.message : String(err),
+        ...usageStamp,
       })
       throw err
     }
     if (verdict.result === 'block') {
       const parsed = entry.schema.safeParse(args.capturedOutcome)
       const detail = parsed.success ? 'guardrail block' : parsed.error.message
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...usageStamp })
       const blocked = verdict.blockedReason
       if (!blocked || blocked.kind === 'schema') {
         throw new OpenCodeRunFailedError(entry.id, `outcome failed re-validation: ${detail}`)
@@ -655,13 +668,14 @@ export class OpenCodeAgentRunner {
     businessInput: unknown
     capturedOutcome: unknown
     capturedToolCalls: readonly CapturedToolCall[]
+    usageStamp: RunUsageStamp
   }): Promise<{
     finalOutput: unknown
     guardResults: GuardResults
     rawOutputKey: string | null
     reviewRequest: OutputPipelineResult['reviewRequest']
   }> {
-    const { entry, ctx, commandCtx, runId } = args
+    const { entry, ctx, commandCtx, runId, usageStamp } = args
     const agentId = entry.id
     const integritySet = resolveIntegritySet(entry)
     if (integritySet) await ensureRunIntegritySetSynced(this.container, ctx, entry)
@@ -687,6 +701,7 @@ export class OpenCodeAgentRunner {
       await failRun(this.commandBus, commandCtx, {
         runId,
         errorMessage: err instanceof Error ? err.message : String(err),
+        ...usageStamp,
       })
       throw err
     }
@@ -710,7 +725,7 @@ export class OpenCodeAgentRunner {
       const blocked = verdict.blockedReason
       const parsed = entry.schema.safeParse(outcome.finalOutput)
       const detail = parsed.success ? 'guardrail block' : parsed.error.message
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...usageStamp })
       if (!blocked) throw new OpenCodeRunFailedError(agentId, `outcome failed re-validation: ${detail}`)
       const blockingCheck = verdict.checks.find((check) => check.result === 'block')
       throw new AgentGuardrailBlockedError(agentId, detail, {

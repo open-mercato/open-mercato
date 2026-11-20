@@ -123,10 +123,13 @@ function makeHarness() {
 
 type ToolPart = { callId: string; tool: string; input: unknown; output: unknown }
 
+type ReportedTokens = { input: number; output: number; cache?: { read?: number; write?: number } }
+
 function makeClient(
   container: { resolve: (name: string) => unknown },
   outcome: unknown,
   toolParts: ToolPart[] = [],
+  tokens: ReportedTokens | null = null,
 ): OpenCodeRunnerClient {
   const sessionId = 'ses_integrity_1'
   let emit: ((event: { type: string; properties: Record<string, unknown> }) => void) | null = null
@@ -137,6 +140,14 @@ function makeClient(
     async sendMessage(_sessionId, message) {
       const tokenMatch = /Session Authorization: (sess_[a-z0-9_]+)/i.exec(message)
       const sessionToken = tokenMatch ? tokenMatch[1] : ''
+      if (tokens) {
+        emit?.({
+          type: 'message.updated',
+          properties: {
+            info: { id: 'msg_1', sessionID: sessionId, role: 'assistant', modelID: 'claude-sonnet-4-5', tokens },
+          },
+        })
+      }
       for (const part of toolParts) {
         emit?.({
           type: 'message.part.updated',
@@ -182,6 +193,19 @@ function makeRunner(harness: ReturnType<typeof makeHarness>, client: OpenCodeRun
 type PersistedVerdict = {
   verdict: { result: string; checks: Array<{ kind: string; result: string; evidence?: Record<string, unknown> }> }
   phase: string
+}
+
+const MEASURED_TOKENS: ReportedTokens = { input: 300_000, output: 40_000, cache: { read: 700_000 } }
+const MEASURED_STAMP = {
+  inputTokens: 1_000_000,
+  cachedInputTokens: 700_000,
+  outputTokens: 40_000,
+  costMinor: 171,
+  currency: 'USD',
+}
+
+function failInput(harness: ReturnType<typeof makeHarness>): Record<string, unknown> | undefined {
+  return harness.calls.find((call) => call.id === 'agent_orchestrator.runs.fail')?.input
 }
 
 const savedIntegrityEnv = process.env.OM_AGENT_INTEGRITY
@@ -295,6 +319,45 @@ describe('OpenCodeAgentRunner output pipeline', () => {
     const persisted = persistVerdictMock.mock.calls[0][2] as PersistedVerdict
     expect(persisted.verdict.result).toBe('block')
     expect(emitRunReviewRequestedMock).not.toHaveBeenCalled()
+  })
+
+  it('stamps the measured session usage on a guardrail-blocked run and keeps the typed error', async () => {
+    const entry = registerOpenCodeAgent('opencode.integrity_block_usage_agent', [quoteRule('block')])
+    const harness = makeHarness()
+
+    const failure = makeRunner(harness, makeClient(harness.container, RAW_OUTCOME, [], MEASURED_TOKENS)).run(
+      entry,
+      { content: CONTENT },
+      runCtx,
+    )
+
+    await expect(failure).rejects.toBeInstanceOf(AgentGuardrailBlockedError)
+    await expect(failure).rejects.toMatchObject({ kind: 'evidence_quote', ruleId: 'quotes' })
+    expect(failInput(harness)).toMatchObject(MEASURED_STAMP)
+  })
+
+  it('stamps the measured session usage when the integrity pipeline throws', async () => {
+    const entry = registerOpenCodeAgent('opencode.integrity_throw_usage_agent', [quoteRule('drop')])
+    const harness = makeHarness()
+    syncIntegritySetsMock.mockResolvedValue(1)
+    const pipelineError = new Error('[internal] pipeline down')
+    const guardrailModule = jest.requireActual('../lib/guardrails/guardrailService') as {
+      GuardrailService: { prototype: { checkOutput: (...args: unknown[]) => unknown } }
+    }
+    const checkOutputSpy = jest
+      .spyOn(guardrailModule.GuardrailService.prototype, 'checkOutput')
+      .mockRejectedValue(pipelineError)
+    try {
+      const failure = makeRunner(harness, makeClient(harness.container, RAW_OUTCOME, [], MEASURED_TOKENS)).run(
+        entry,
+        { content: CONTENT },
+        runCtx,
+      )
+      await expect(failure).rejects.toBe(pipelineError)
+    } finally {
+      checkOutputSpy.mockRestore()
+    }
+    expect(failInput(harness)).toMatchObject(MEASURED_STAMP)
   })
 
   it('records a would-be block as a warning in shadow mode and keeps the raw outcome', async () => {
@@ -434,5 +497,48 @@ describe('OpenCodeAgentRunner output pipeline', () => {
 
     expect(harness.calls.some((call) => call.id === 'agent_orchestrator.runs.fail')).toBe(true)
     expect(harness.calls.some((call) => call.id === 'agent_orchestrator.runs.complete')).toBe(false)
+  })
+
+  it('stamps the measured session usage when persisting the base guardrail verdict throws', async () => {
+    const entry = registerOpenCodeAgent('opencode.no_integrity_persist_fail_usage_agent')
+    const harness = makeHarness()
+    const persistError = new Error('[internal] db down')
+    persistVerdictMock.mockRejectedValue(persistError)
+
+    await expect(
+      makeRunner(harness, makeClient(harness.container, RAW_OUTCOME, [], MEASURED_TOKENS)).run(
+        entry,
+        { content: CONTENT },
+        runCtx,
+      ),
+    ).rejects.toBe(persistError)
+
+    expect(failInput(harness)).toMatchObject(MEASURED_STAMP)
+    expect(harness.calls.some((call) => call.id === 'agent_orchestrator.runs.complete')).toBe(false)
+  })
+
+  it('stamps the measured session usage when the base output guardrails block', async () => {
+    const entry = registerOpenCodeAgent('opencode.no_integrity_block_usage_agent')
+    const harness = makeHarness()
+    const guardrailModule = jest.requireActual('../lib/guardrails/guardrailService') as {
+      GuardrailService: { prototype: { checkOutput: (...args: unknown[]) => unknown } }
+    }
+    const checkOutputSpy = jest.spyOn(guardrailModule.GuardrailService.prototype, 'checkOutput').mockResolvedValue({
+      result: 'block',
+      checks: [],
+      blockedReason: { phase: 'output', kind: 'tool_scope' },
+    })
+    try {
+      const failure = makeRunner(harness, makeClient(harness.container, RAW_OUTCOME, [], MEASURED_TOKENS)).run(
+        entry,
+        { content: CONTENT },
+        runCtx,
+      )
+      await expect(failure).rejects.toBeInstanceOf(AgentGuardrailBlockedError)
+      await expect(failure).rejects.toMatchObject({ kind: 'tool_scope', phase: 'output' })
+    } finally {
+      checkOutputSpy.mockRestore()
+    }
+    expect(failInput(harness)).toMatchObject(MEASURED_STAMP)
   })
 })

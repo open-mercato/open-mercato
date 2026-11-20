@@ -38,6 +38,8 @@ import {
 import { normalizeGenAiAttributes } from '../lib/trace/genAiAttributes'
 import { buildLlmRequestArtifact } from '../lib/trace/contentCapture'
 import { traceIngestSchema, type TraceSpanIngest } from '../data/validators'
+import { recordOpenCodeMessageUsage, totalOpenCodeUsage, type OpenCodeUsageSink } from '../lib/runtime/openCodeUsage'
+import { computeCostMinor } from '../lib/runtime/modelPricing'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 
 type SseEvent = { type: string; properties: Record<string, unknown> }
@@ -339,7 +341,7 @@ describe('OpenCode per-message llm spans', () => {
       provider: 'anthropic',
       requestModel: 'claude-sonnet-4-5',
       responseModel: 'claude-sonnet-4-5',
-      usage: { inputTokens: 1200, outputTokens: 80, reasoningTokens: 16, cachedInputTokens: 300 },
+      usage: { inputTokens: 1500, outputTokens: 96, reasoningTokens: 16, cachedInputTokens: 300 },
     })
     expect(messages[0].startedAt).toBe(new Date(1_761_600_000_000).toISOString())
     expect(messages[0].durationMs).toBe(2500)
@@ -349,8 +351,8 @@ describe('OpenCode per-message llm spans', () => {
       'gen_ai.provider.name': 'anthropic',
       'gen_ai.request.model': 'claude-sonnet-4-5',
       'gen_ai.response.model': 'claude-sonnet-4-5',
-      'gen_ai.usage.input_tokens': 1200,
-      'gen_ai.usage.output_tokens': 80,
+      'gen_ai.usage.input_tokens': 1500,
+      'gen_ai.usage.output_tokens': 96,
       'gen_ai.usage.reasoning.output_tokens': 16,
       'gen_ai.usage.cache_read.input_tokens': 300,
       'gen_ai.response.finish_reasons': ['tool-calls'],
@@ -466,6 +468,28 @@ describe('openCodeMessageTrace helpers', () => {
     const [message] = collector.assistantMessages()
     expect(message.usage).toEqual({ inputTokens: 12, outputTokens: 4 })
     expect(message.costUsd).toBeCloseTo(0.3)
+  })
+
+  it('prices an unreported-cost step with the cached tier, agreeing with the run total', () => {
+    const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 1_000_000, write: 0 } }
+    const info = { id: 'm1', role: 'assistant', modelID: 'claude-sonnet-4-5', providerID: 'anthropic', tokens }
+    const collector = createOpenCodeMessageCollector(() => 1_000)
+    collector.observe('message.updated', { info })
+    const [message] = collector.assistantMessages()
+    expect(message.usage).toEqual({ inputTokens: 1_000_000, outputTokens: 0, reasoningTokens: 0, cachedInputTokens: 1_000_000 })
+
+    const [span] = buildOpenCodeMessageSpans({ externalRunId: 'ses', messages: [message], request: null, includeResponses: false })
+    const attributes = buildIngestLlmMetadataAttributes(span.llm!)
+    expect(attributes['om.cost.pricing_source']).toBe('default')
+    const stepMicros = attributes['om.cost.micros'] as number
+    expect(stepMicros).toBe(300_000)
+
+    const sink: OpenCodeUsageSink = new Map()
+    recordOpenCodeMessageUsage(sink, info)
+    const run = totalOpenCodeUsage(sink)!
+    const runCost = computeCostMinor(run.modelId, run.inputTokens, run.outputTokens, run.cachedInputTokens)!
+    expect(runCost.costMinor).toBe(30)
+    expect(Math.abs(stepMicros / 10_000 - runCost.costMinor)).toBeLessThan(1)
   })
 
   it('redacts the session authorization line from the reconstructed request', () => {
