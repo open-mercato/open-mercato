@@ -1,4 +1,4 @@
-import { FlushMode } from '@mikro-orm/core'
+import { FlushMode, type EntityName, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
   CrudFormLeafDefaultProviderFact,
@@ -180,11 +180,15 @@ export function projectCrudFormLeafPaths(payload: Payload, paths: readonly strin
 function readOnlyFork(em: EntityManager): Parameters<CrudFormLeafDefaultProvider['resolve']>[0]['readEm'] {
   const fork = em.fork({ keepTransactionContext: true, flushMode: FlushMode.COMMIT, disableContextResolution: true })
   const reader: Parameters<CrudFormLeafDefaultProvider['resolve']>[0]['readEm'] = {
-    find(entityName, where) {
-      return fork.find(entityName, where, { disableIdentityMap: true, flushMode: FlushMode.COMMIT })
+    find<Entity extends object>(entityName: EntityName<Entity>, where: FilterQuery<NoInfer<Entity>>) {
+      return fork.find<Entity>(entityName, where as Parameters<typeof fork.find<Entity>>[1], {
+        disableIdentityMap: true, flushMode: FlushMode.COMMIT,
+      })
     },
-    findOne(entityName, where) {
-      return fork.findOne(entityName, where, { disableIdentityMap: true, flushMode: FlushMode.COMMIT })
+    findOne<Entity extends object>(entityName: EntityName<Entity>, where: FilterQuery<NoInfer<Entity>>) {
+      return fork.findOne<Entity>(entityName, where as Parameters<typeof fork.findOne<Entity>>[1], {
+        disableIdentityMap: true, flushMode: FlushMode.COMMIT,
+      })
     },
     count(entityName, where) {
       return fork.count(entityName, where, { flushMode: FlushMode.COMMIT })

@@ -586,6 +586,7 @@ function renderFactRegistry(modules: readonly ModuleSections[], compiled: Compil
       ? ["import { bindDerivedCrudRouteSectionHosts } from '@open-mercato/shared/lib/crud/form-sections/derived-route-host'"] : []),
     '',
     ...(hasGenericSinks ? [
+      "export { entities as crudFormSectionOrmEntities } from './entities.generated'",
       'const lookupCompiledOrmExports = (moduleId: string) => ormEntityExportNamespaces.find((entry) => entry.moduleId === moduleId)?.entities',
     ] : []),
     ...compiledDeclarations,

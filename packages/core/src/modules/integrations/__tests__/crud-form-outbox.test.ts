@@ -82,7 +82,7 @@ it('delivers each persisted failure effect using its stable scoped identity', as
   expect(emit).toHaveBeenCalledWith('example.brand_mirror.sync_failed',
     expect.objectContaining({ ...scope, failureReportId: reportId }), expect.objectContaining({ ...scope, persistent: true }))
   expect(createBatch).toHaveBeenCalledWith(expect.objectContaining({
-    groupKey: `crud_form_outbox_failure:${reportId}`, recipientUserIds: [actorId],
+    groupKey: `crud_form_outbox_failure:${reportId}`, recipientUserIds: [actorId], channels: ['in_app'],
   }), scope, { skipExistingGroup: true })
 })
 const makeJob = <Payload>(payload: Payload) => ({ id: 'test-job', payload, createdAt: new Date().toISOString() })

@@ -36,6 +36,7 @@ export function TodoShowcaseForm({ id }: { id?: string }) {
   const [item, setItem] = useState<Awaited<ReturnType<typeof readTodoShowcase>>>(null)
   const [loading, setLoading] = useState(Boolean(id))
   const [failed, setFailed] = useState(false)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     if (!id) return
@@ -50,7 +51,7 @@ export function TodoShowcaseForm({ id }: { id?: string }) {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [id])
+  }, [id, reload])
 
   if (loading) return <LoadingMessage label={t('example.todos.form.loading')} />
   if (failed) return <ErrorMessage label={t('example.todos.form.error.load')} />
@@ -80,7 +81,7 @@ export function TodoShowcaseForm({ id }: { id?: string }) {
         erpCostCenter: extensions?.erpCostCenter,
         showcaseSync: extensions?.__sync,
       }}
-      successRedirect={(_values, result) => result?.resourceId ? `${todoShowcaseHref}/${result.resourceId}` : '/backend/todos'}
+      successRedirect={id ? undefined : (_values, result) => result?.resourceId ? `${todoShowcaseHref}/${result.resourceId}` : '/backend/todos'}
       deleteRedirect="/backend/todos"
       onSubmit={async (_values, context) => {
         if (!context?.mutation || !context.sectionPayload) throw new Error('[internal] Todo showcase requires an accepted section mutation')
@@ -88,8 +89,15 @@ export function TodoShowcaseForm({ id }: { id?: string }) {
         const result = await context.mutation.write(todoShowcaseMutationEndpoint, id ? { ...payload, id } : payload)
         if (!result.ok) await raiseCrudError(result.response)
         const parsed = responseSchema.safeParse(result.result)
-        if (parsed.success && parsed.data.extensionWarnings?.length) flash(t('example.todoShowcase.warnings.observer'), 'warning')
-        flash(t(id ? 'example.todos.form.flash.saved' : 'example.todos.form.flash.created'), 'success')
+        if (parsed.success && parsed.data.extensionWarnings?.length) {
+          flash(t('example.todoShowcase.warnings.observer'), 'warning')
+        } else {
+          flash(t(id ? 'example.todos.form.flash.saved' : 'example.todos.form.flash.created'), 'success')
+        }
+        if (id) {
+          setLoading(true)
+          setReload((previous) => previous + 1)
+        }
         return { resourceId: id ?? parsed.data?.id }
       }}
       onDelete={id ? async (context) => {

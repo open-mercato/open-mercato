@@ -7,6 +7,7 @@ import type { CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudF
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readTodoShowcase, showcaseSinks, todoShowcaseHostId, todoShowcaseMutationEndpoint } from '../lib/todoShowcaseClient'
 
@@ -36,7 +37,7 @@ export function TodoShowcaseSync({ values, runSectionMutation }: CrudFormGroupCo
   const sink = showcaseSinks().find(({ kind }) => kind === 'external')
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <p className="text-sm text-muted-foreground" role="status">{t(`example.todoShowcase.sync.${status}`)}</p>
+      <Badge variant={status === 'failed' ? 'error' : status === 'synced' ? 'success' : 'info'} role="status">{t(`example.todoShowcase.sync.${status}`)}</Badge>
       {status === 'failed' && sink && runSectionMutation ? (
         <Button type="button" variant="outline" size="sm" disabled={retrying} onClick={async () => {
           setRetrying(true)

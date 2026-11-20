@@ -17,7 +17,7 @@ type ErpRecord = { revision: bigint; idempotencyKey: string; externalId?: string
 
 export function createExampleExternalErp(options: ExampleErpOptions = {}): ErpDelivery {
   const records = new Map<string, ErpRecord>()
-  const failedOnce = new Set<string>()
+  const retryFailures = new Map<string, number>()
   return {
     async validateExternal(input) {
       const { values, signal } = input
@@ -25,7 +25,7 @@ export function createExampleExternalErp(options: ExampleErpOptions = {}): ErpDe
       signal.throwIfAborted()
       if (values.erpSupplierRef === 'timeout') await wait(10_000, undefined, { signal })
       if (values.erpSupplierRef === 'invalid') {
-        return { fieldErrors: { 'extensions.example.erpSupplierRef': 'example.todoShowcase.errors.supplier' } }
+        return { fieldErrors: { 'extensions.example.erpSupplierRef': 'example.todo.erp.errors.supplier' } }
       }
     },
     async deliver(input) {
@@ -45,9 +45,13 @@ export function createExampleExternalErp(options: ExampleErpOptions = {}): ErpDe
           : { status: 'rejected' }
       }
       if (options.rejectDelivery?.(input)) return { status: 'rejected' }
-      if (values?.erpSupplierRef === 'retry' && !failedOnce.has(idempotencyKey)) {
-        failedOnce.add(idempotencyKey)
-        return { status: 'rejected' }
+      if (values?.erpSupplierRef === 'retry') {
+        const failures = retryFailures.get(idempotencyKey) ?? 0
+        if (failures < 3) {
+          retryFailures.set(idempotencyKey, failures + 1)
+          throw new Error('[internal] Offline ERP is temporarily unavailable')
+        }
+        retryFailures.delete(idempotencyKey)
       }
       const externalId = operation === 'delete' ? undefined : createHash('sha256').update(key).digest('hex')
       records.set(key, { revision: nextRevision, idempotencyKey, externalId })

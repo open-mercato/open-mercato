@@ -148,6 +148,43 @@ describe('loadBootstrapData — command interceptors reach worker/CLI bootstrap 
     expect(mockedLogger.error).not.toHaveBeenCalled()
   })
 
+  it('registers the same entity constructor exported with a worker sink', async () => {
+    const root = createAppRoot({
+      'entities.generated': {
+        ts: 'export const entities = []',
+        compiled: 'throw Error("workers must use the constructor bundled with the sink")',
+      },
+      'crud-form-section-facts.generated': {
+        ts: 'export const crudFormSectionServerModules = []; export const crudFormSectionOrmEntities = []',
+        compiled: `class OwnedMirror {}
+          module.exports = {
+            crudFormSectionOrmEntities: [OwnedMirror],
+            crudFormSectionServerModules: [{ moduleId: 'example', sections: { entity: OwnedMirror } }],
+          }`,
+      },
+    })
+
+    const data = await loadBootstrapData(root)
+    expect(data.entities).toHaveLength(1)
+    expect(data.crudFormSectionServerModules?.[0]?.sections).toMatchObject({ entity: data.entities[0] })
+    expect(mockedLogger.error).not.toHaveBeenCalled()
+  })
+
+  it('loads declared events for persistent failure reports', async () => {
+    const root = createAppRoot({
+      'events.generated': {
+        ts: 'export const eventModuleConfigs = []',
+        compiled: `module.exports = { eventModuleConfigs: [
+          { moduleId: 'example', events: [{ id: 'example.mirror.sync_failed' }] },
+        ] }`,
+      },
+    })
+
+    const data = await loadBootstrapData(root)
+    expect(data.eventModuleConfigs).toEqual([{ moduleId: 'example', events: [{ id: 'example.mirror.sync_failed' }] }])
+    expect(mockedLogger.error).not.toHaveBeenCalled()
+  })
+
   it('falls back to an empty array (not undefined) when the generated file is absent', async () => {
     const generatedDir = path.join(appRoot, '.mercato', 'generated')
     fs.rmSync(path.join(generatedDir, 'command-interceptors.generated.ts'))
@@ -158,6 +195,7 @@ describe('loadBootstrapData — command interceptors reach worker/CLI bootstrap 
     expect(data.commandInterceptorEntries).toEqual([])
     expect(data.commandLoaderEntries).toEqual([])
     expect(data.crudFormSectionServerModules).toEqual([])
+    expect(data.eventModuleConfigs).toBeUndefined()
     expect(mockedLogger.error).not.toHaveBeenCalled()
   })
 

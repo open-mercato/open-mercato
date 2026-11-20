@@ -54,3 +54,14 @@ it('offers injection points for scope-independent failures and stops cancelled p
   await expect(client.deliver({ ...input, revision: '1', idempotencyKey: 'test' })).resolves.toEqual({ status: 'rejected' })
   expect(validation).toHaveBeenCalledTimes(1)
 })
+
+it('exhausts three transient attempts and accepts a retry of the same fenced intent', async () => {
+  const client = createExampleExternalErp()
+  const delivery = { ...input, revision: '1', idempotencyKey: 'retry-intent', values: { erpSupplierRef: 'retry' } }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await expect(client.deliver(delivery)).rejects.toThrow('Offline ERP is temporarily unavailable')
+  }
+  const accepted = await client.deliver(delivery)
+  expect(accepted).toMatchObject({ status: 'applied' })
+  await expect(client.deliver(delivery)).resolves.toEqual({ ...accepted, status: 'identical' })
+})

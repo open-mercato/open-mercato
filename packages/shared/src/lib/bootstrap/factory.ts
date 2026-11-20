@@ -8,6 +8,7 @@ import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { registerEventModuleConfigs } from '../../modules/events'
 import { registerCodeWorkflowEntries } from '../../modules/workflows/code-registry'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
@@ -51,6 +52,7 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 
     // === 2. Modules registry (required by i18n, query engine, dashboards, CLI) ===
     registerModules(data.modules)
+    if (data.eventModuleConfigs) registerEventModuleConfigs(data.eventModuleConfigs)
     clearRegisteredIntegrations()
     for (const module of data.modules) {
       if (module.integrations?.length) {

@@ -8,6 +8,8 @@ import {
 import type { ModuleInjectionWidgetEntry } from '../../registry'
 
 const spot = 'crud-form:example.record:header'
+const root = 'crud-form:example.record'
+const fieldsSpot = 'crud-form:example.record:fields'
 const widgetId = 'example.widget'
 
 function entry(loader: ModuleInjectionWidgetEntry['loader'], key = 'example/widget', id = widgetId): ModuleInjectionWidgetEntry {
@@ -46,4 +48,27 @@ it('rejects unresolved slots and incompatible render/data widget kinds', async (
   bind([entry(async () => ({ metadata: { id: widgetId }, fields: [] }))])
   await expect(loadConfiguredFormWidgetsForSpot(spot, 'render')).rejects.toThrow(/invalid configured form widget kind/i)
   await expect(loadConfiguredFormWidgetsForSpot(spot, 'data')).resolves.toMatchObject([{ metadata: { id: widgetId } }])
+})
+
+it('tracks both kinds of host-wide wildcard widget only in their valid projections', async () => {
+  const render = entry(async () => ({ metadata: { id: widgetId, title: 'Widget' }, Widget: () => null }))
+  bind([render], 'crud-form:*')
+  await expect(loadConfiguredFormWidgetsForSpot(spot, 'render', root)).resolves.toMatchObject([{ metadata: { id: widgetId } }])
+  await expect(loadConfiguredFormWidgetsForSpot(fieldsSpot, 'data', root)).resolves.toEqual([])
+
+  bind([entry(async () => ({ metadata: { id: widgetId }, fields: [] }))], 'crud-form:*')
+  await expect(loadConfiguredFormWidgetsForSpot(root, 'render', root)).resolves.toEqual([])
+  await expect(loadConfiguredFormWidgetsForSpot(fieldsSpot, 'data', root)).resolves.toMatchObject([{ metadata: { id: widgetId } }])
+})
+
+it('rejects a typed mismatch even when a broader match has higher placement priority', async () => {
+  const render = entry(async () => ({ metadata: { id: widgetId, title: 'Widget' }, Widget: () => null }))
+  registerCoreInjectionWidgets([render])
+  registerCoreInjectionTables([{ moduleId: 'example', table: {
+    'crud-form:*': { widgetId, kind: 'stack', priority: 400 },
+    'crud-form:*:fields': widgetId,
+  } }], [render])
+  registerEnabledModuleIds(['example'])
+
+  await expect(loadConfiguredFormWidgetsForSpot(fieldsSpot, 'data', root)).rejects.toThrow(/invalid configured form widget kind/i)
 })

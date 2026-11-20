@@ -17,7 +17,11 @@ type ActiveTransactionLifetime = TransactionLifetime & {
   completionCallbacks: Set<(outcome: TransactionOutcome) => void | Promise<void>>
 }
 
-const activeTransactionLifetimes = new AsyncLocalStorage<Map<object, ActiveTransactionLifetime>>()
+const transactionStorageKey = Symbol.for('openMercato.command-transaction-lifetime')
+const registry = globalThis as typeof globalThis & {
+  [transactionStorageKey]?: AsyncLocalStorage<Map<object, ActiveTransactionLifetime>>
+}
+const activeTransactionLifetimes = (registry[transactionStorageKey] ??= new AsyncLocalStorage())
 
 export function beginTransactionLifetime(em: EntityManager): TransactionLifetime {
   const key = em as object

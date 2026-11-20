@@ -1,3 +1,4 @@
+import { captureShowcase, field, saveShowcase, test as configuredTest } from './todoShowcaseFixtures'
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
@@ -21,12 +22,16 @@ test('TC-EXAMPLE-FORM-002 creates a Todo with the server default hidden title', 
     const form = page.locator('form').filter({ has: page.locator('[data-crud-field-id="is_done"]') })
     await expect(form.locator('[data-crud-field-id="is_done"]')).toBeVisible()
     await expect(form.locator('[data-crud-field-id="title"]')).toHaveCount(0)
+    await captureShowcase(page, 'c2-configured-create')
     const mutation = page.waitForResponse((response) =>
       new URL(response.url()).pathname === policyApi && response.request().method() === 'POST')
     await form.locator('button[type="submit"]').first().click()
     const result = await mutation
-    expect(result.status(), await result.text()).toBe(201)
+    expect(result.status()).toBe(201)
     id = (await result.json()).id
+    await expect(page).toHaveURL(`${showcase}/${id}`)
+    await expect(field(page, 'is_done')).toBeVisible()
+    await captureShowcase(page, 'c2-created-todo-edit')
     const detail = await apiRequest(request, 'GET', `${todoApi}?id=${id}&pageSize=1`, { token })
     expect((await detail.json()).items[0]).toMatchObject({ id, title: 'Todo', is_done: false })
   } finally {
@@ -81,18 +86,46 @@ test.describe('TC-EXAMPLE-FORM-001 configured Todo update', () => {
   }
 })
 
-test('TC-EXAMPLE-FORM-012 keeps ordinary Todo forms outside configured section policies', async ({ page }) => {
+test('TC-EXAMPLE-FORM-012 keeps ordinary create and edit on the legacy Todo endpoint', async ({ page, request }) => {
   test.slow()
+  const token = await getAuthToken(request, 'admin')
   await login(page, 'admin')
   const policyCalls: string[] = []
+  let id: string | null = null
   page.on('request', (request) => {
     if (new URL(request.url()).pathname === '/api/extensions/crud-form-sections/resolve') policyCalls.push(request.url())
   })
-  await page.goto('/backend/todos/create')
-  await expect(page.locator('[data-crud-field-id="title"] input')).toBeVisible()
-  await expect(page.locator('[data-crud-field-id="cf_priority"] input').first()).toBeVisible()
-  await expect(page.locator('[data-crud-field-id="cf_season"], [data-crud-field-id="brand"], [data-crud-field-id="erpSupplierRef"]')).toHaveCount(0)
-  expect(policyCalls).toEqual([])
+  try {
+    await page.goto('/backend/todos/create')
+    const title = field(page, 'title').locator('input').first()
+    await expect(title).toBeVisible()
+    await expect(field(page, 'cf_priority').locator('input').first()).toBeVisible()
+    await expect(page.locator('[data-crud-field-id="cf_season"], [data-crud-field-id="brand"], [data-crud-field-id="erpSupplierRef"]')).toHaveCount(0)
+    await title.fill(`Legacy ${randomUUID()}`)
+    const severity = field(page, 'cf_severity').getByRole('combobox').first()
+    await expect(severity).toHaveText('Medium')
+    await captureShowcase(page, 'c12-ordinary-create')
+    const submit = () => title.locator('xpath=ancestor::form[1]').locator('button[type="submit"]').first().click()
+    const pendingCreate = page.waitForResponse((res) => new URL(res.url()).pathname === todoApi && res.request().method() === 'POST')
+    await submit()
+    const created = await pendingCreate
+    expect(created.status()).toBe(201)
+    id = (await created.json() as { id: string }).id
+    await page.goto(`/backend/todos/${id}/edit`)
+    await expect(title).toBeVisible()
+    await expect(page.locator('[data-crud-field-id="cf_season"], [data-crud-field-id="brand"], [data-crud-field-id="erpSupplierRef"]')).toHaveCount(0)
+    await captureShowcase(page, 'c12-ordinary-edit')
+    const changed = `Updated ${randomUUID()}`
+    await title.fill(changed)
+    const pendingUpdate = page.waitForResponse((res) => new URL(res.url()).pathname === todoApi && res.request().method() === 'PUT')
+    await submit()
+    expect((await pendingUpdate).status()).toBe(200)
+    const read = await apiRequest(request, 'GET', `${todoApi}?id=${id}&pageSize=1&sectionDetail=showcase`, { token })
+    expect((await read.json()).items[0]).toMatchObject({ id, title: changed })
+    expect(policyCalls).toEqual([])
+  } finally {
+    if (id) await deleteEntityIfExists(request, token, todoApi, id)
+  }
 })
 
 test('preserves Todo custom field snapshots through a legacy update, undo, redo and second undo', async ({ request }) => {
@@ -132,4 +165,31 @@ test('preserves Todo custom field snapshots through a legacy update, undo, redo 
   } finally {
     await deleteEntityIfExists(request, token, todoApi, id)
   }
+})
+
+
+configuredTest('TC-EXAMPLE-FORM-001 saves a visible field and shows a concurrent edit conflict', async ({ page, showcaseTodo }) => {
+  await showcaseTodo.open()
+  await expect(field(page, 'title')).toHaveCount(0)
+  await field(page, 'is_done').getByRole('checkbox').check()
+  expect((await saveShowcase(page)).status()).toBe(200)
+  await expect(field(page, 'is_done').getByRole('checkbox')).toBeChecked()
+  expect(await showcaseTodo.read()).toMatchObject({ title: showcaseTodo.title, notes: showcaseTodo.notes, is_done: true })
+  await captureShowcase(page, 'c1-preserved-hidden-title')
+
+  await page.reload({ waitUntil: 'commit' })
+  await expect(field(page, 'is_done').getByRole('checkbox')).toBeChecked()
+  const other = await page.context().newPage()
+  try {
+    await other.goto(`${showcase}/${showcaseTodo.id}`, { waitUntil: 'commit' })
+    await field(other, 'cf_priority').getByRole('textbox', { name: 'Priority level' }).fill('3')
+    expect((await saveShowcase(other)).status()).toBe(200)
+  } finally {
+    await other.close()
+  }
+  await field(page, 'cf_priority').getByRole('textbox', { name: 'Priority level' }).fill('4')
+  expect((await saveShowcase(page)).status()).toBe(409)
+  await expect(page.getByTestId('record-conflict-banner')).toBeVisible()
+  expect(await showcaseTodo.read()).toMatchObject({ title: showcaseTodo.title, notes: showcaseTodo.notes, is_done: true })
+  await captureShowcase(page, 'c1-edit-conflict')
 })

@@ -516,10 +516,24 @@ async function main(): Promise<void> {
       env: { ...integrationEnv, NODE_ENV: 'production' },
     })
     assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ ${label}`)) })
-    await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
+    const useSectionFixtures = process.env.OM_TEST_CRUD_FORM_POLICY_FIXTURES === '1'
+    await assertModulesUnregistered(appDir, [
+      'example', 'example_customers_sync', 'design_system', ...(useSectionFixtures ? ['form_policy_fixture'] : []),
+    ])
     console.log(green('✔ Runtime-disabled scaffold baseline contains no reference-module output'))
 
-    enableModuleEntry(modulesConfigPath(appDir), EXAMPLE_ACTIVATION_ENTRY)
+    if (useSectionFixtures) {
+      const fixtureModule = 'form_policy_fixture'
+      const fixtureRoot = path.join(ROOT, '.ai', 'qa', 'fixtures', 'crudform-section-policy', 'src', 'modules', fixtureModule)
+      const target = path.join(appDir, 'src', 'modules', fixtureModule)
+      if (fs.existsSync(target)) throw new Error('Section policy fixture already exists in scaffold')
+      fs.cpSync(fixtureRoot, target, { recursive: true, errorOnExist: true, force: false })
+      enableModuleEntry(modulesConfigPath(appDir), { id: fixtureModule, from: '@app' })
+    }
+    enableModuleEntry(modulesConfigPath(appDir), useSectionFixtures ? {
+      ...EXAMPLE_ACTIVATION_ENTRY,
+      additionalPropertiesSource: "overrides: { forms: { sections: { 'example.todo/showcase/update/observer': null } } },",
+    } : EXAMPLE_ACTIVATION_ENTRY)
     console.log(cyan('Building the explicitly activated example fixture in production mode'))
     runCommand('yarn', ['build'], {
       cwd: appDir,

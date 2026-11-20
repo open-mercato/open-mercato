@@ -76,7 +76,7 @@ export function createCrudFormSectionOutboxService(container: AwilixContainer): 
         }
         await container.resolve<NotificationService>('notificationService').createBatch({
           type: failureNotificationType, recipientUserIds: [actorId],
-          titleKey: `${failureNotificationType}.title`, severity: 'error', channels: ['database'],
+          titleKey: `${failureNotificationType}.title`, severity: 'error', channels: ['in_app'],
           groupKey: `crud_form_outbox_failure:${failure.reportId}`,
           sourceModule: identity.sinkId.split(/[.:]/)[0], sourceEntityType: resourceKind,
           sourceEntityId: identity.hostId,

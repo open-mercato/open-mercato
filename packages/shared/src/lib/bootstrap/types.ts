@@ -6,6 +6,7 @@ import type { Module, ModuleDashboardWidgetEntry, ModuleInjectionWidgetEntry } f
 import type { ModuleInjectionTable } from '../../modules/widgets/injection'
 import type { SearchModuleConfig } from '../../modules/search'
 import type { AnalyticsModuleConfig } from '../../modules/analytics'
+import type { EventModuleConfig } from '../../modules/events'
 import type { EntityClass, EntitySchema } from '@mikro-orm/core'
 
 export type OrmEntity = EntityClass<unknown> | EntitySchema<unknown>
@@ -59,6 +60,7 @@ export interface BootstrapData {
   injectionTables: InjectionTableEntry[]
   searchModuleConfigs: SearchModuleConfig[]
   analyticsModuleConfigs?: AnalyticsModuleConfig[]
+  eventModuleConfigs?: EventModuleConfig[]
   enricherEntries?: EnricherBootstrapEntry[]
   interceptorEntries?: InterceptorBootstrapEntry[]
   componentOverrideEntries?: ComponentOverrideBootstrapEntry[]

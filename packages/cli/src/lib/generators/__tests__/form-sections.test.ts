@@ -750,6 +750,14 @@ describe('compiled CrudForm extensions', () => {
     })
   })
 
+  it('rejects field patches against a section without a granular field contract', async () => {
+    host()
+    write('app/src/modules/extension/form-sections.ts', makeExtension(
+      "private: modify({ fields: { code: field.patch({ labelKey: 'extension.fields.code' }) } })",
+    ))
+    await expect(generate()).rejects.toThrow(/granular|component-only/i)
+  })
+
   it('rejects removal of a mandatory refinement and replacement with different ownership', async () => {
     host(true)
     write('app/src/modules/extension/form-sections.ts', makeExtension("details: modify({ fields: { description: field.remove() } })"))
@@ -810,11 +818,12 @@ describe('compiled CrudForm extensions', () => {
     expect(facts).toContain('"payloadPaths":["extensions.extension.erpSupplierRef","extensions.extension.erpCostCenter"]')
     expect(facts).toContain('"modes":["extension-sink"]')
     expect(facts).toContain('.options.store')
+    expect(facts).toContain("export { entities as crudFormSectionOrmEntities } from './entities.generated'")
     const dir = path.join(root, 'app/.mercato/generated')
     const browser = fs.readdirSync(dir).filter((file) => /^crud-form-section-extension-.*\.ts$/.test(file))
       .map((file) => fs.readFileSync(path.join(dir, file), 'utf8')).join('\n')
     expect(browser).toContain('extensions.extension.erpSupplierRef')
-    expect(browser).not.toMatch(/serverOnlyRule|integrationId|erp_link|deliver/)
+    expect(browser).not.toMatch(/serverOnlyRule|integrationId|erp_link|deliver|crudFormSectionOrmEntities/)
   })
 
   it('feeds compiled custom fields into all ordinary ce.ts seed registries and excludes masked fields', async () => {

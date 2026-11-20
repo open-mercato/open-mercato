@@ -6,3 +6,5 @@ export const entities: CustomEntitySpec[] = [{
   showInSidebar: false,
   fields: [{ key: 'region', kind: 'text', label: 'Region', formEditable: true }],
 }]
+
+export default entities

@@ -13,9 +13,9 @@ export async function checkCrudFormSectionDependencies<TValues, TPayload>({
   grantedFeatures: readonly string[] | undefined
 }): Promise<boolean> {
   const widgets = (await Promise.all(spots.flatMap((spot) => [
-    loadConfiguredFormWidgetsForSpot(spot, 'render'),
-    loadConfiguredFormWidgetsForSpot(extensionSpotChildId(spot, 'header'), 'render'),
-    loadConfiguredFormWidgetsForSpot(extensionSpotChildId(spot, 'fields'), 'data'),
+    loadConfiguredFormWidgetsForSpot(spot, 'render', spot),
+    loadConfiguredFormWidgetsForSpot(extensionSpotChildId(spot, 'header'), 'render', spot),
+    loadConfiguredFormWidgetsForSpot(extensionSpotChildId(spot, 'fields'), 'data', spot),
   ]))).flat()
   if (grantedFeatures === undefined && widgets.some(({ metadata }) => metadata.features?.length)) return false
   const activeWidgets = new Map(widgets.filter(({ metadata }) =>

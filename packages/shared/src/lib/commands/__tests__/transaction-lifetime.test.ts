@@ -21,6 +21,30 @@ function buildEntityManager(): EntityManager {
 }
 
 describe('transaction lifetime', () => {
+  it('shares the lifetime and completion callbacks across loaded module copies', async () => {
+    let secondRuntime!: typeof import('../transaction-lifetime')
+    jest.isolateModules(() => { secondRuntime = jest.requireActual('../transaction-lifetime') })
+    expect(secondRuntime.getTransactionLifetime).not.toBe(getTransactionLifetime)
+    const em = buildEntityManager()
+    const unrelatedEm = buildEntityManager()
+    const completed = jest.fn()
+
+    await withAtomicFlush(em, [async () => {
+      const lifetime = getTransactionLifetime(em)
+      expect(lifetime).not.toBeNull()
+      expect(secondRuntime.ownsTransactionLifetime(em, lifetime)).toBe(true)
+      expect(secondRuntime.ownsTransactionLifetime(unrelatedEm, lifetime)).toBe(false)
+      expect(secondRuntime.getTransactionLifetime(unrelatedEm)).toBeNull()
+      secondRuntime.onTransactionLifetimeComplete(em, completed)
+      expect(completed).not.toHaveBeenCalled()
+    }], { transaction: true })
+
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(completed).toHaveBeenCalledTimes(1)
+    expect(completed).toHaveBeenCalledWith('committed')
+    expect(secondRuntime.getTransactionLifetime(em)).toBeNull()
+  })
+
   it('isolates concurrent transactions that reuse an EntityManager test double', async () => {
     const em = buildEntityManager()
     const lifetimes: object[] = []

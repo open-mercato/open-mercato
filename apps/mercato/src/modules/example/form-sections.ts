@@ -14,7 +14,7 @@ const projected = z.strictObject({
   customFields: z.strictObject({
     priority: z.number().int().min(1).max(5).optional(),
     severity: z.enum(['low', 'medium', 'high']).optional(),
-    season: z.enum(['spring', 'summer', 'autumn', 'winter']).optional(),
+    season: z.enum(['spring', 'summer', 'autumn', 'winter']).nullable().optional(),
   }).optional(),
 })
 
@@ -36,7 +36,7 @@ export const crudFormSections = defineCrudFormSections({
   hostFacts: [
     {
       id: 'example.todo-showcase-create',
-      roundTripId: 'example.todo-showcase-create@v3',
+      roundTripId: 'example.todo-showcase-create@v4',
       hostResourceKind: 'example.todo',
       customFieldSeedEntities: { 'example.todo-showcase-fields': 'example:todo' },
       alternatives: [{
@@ -57,7 +57,7 @@ export const crudFormSections = defineCrudFormSections({
     },
     {
       id: 'example.todo-showcase-update',
-      roundTripId: 'example.todo-showcase-update@v3',
+      roundTripId: 'example.todo-showcase-update@v4',
       hostResourceKind: 'example.todo',
       customFieldSeedEntities: { 'example.todo-showcase-fields': 'example:todo' },
       alternatives: [{
@@ -110,8 +110,8 @@ export const crudFormSections = defineCrudFormSections({
     }),
   ],
   runtimes: [
-    { id: 'example.todo-showcase-create', roundTripId: 'example.todo-showcase-create@v3', load: lazyCrudFormSectionRuntime(() => import('./todo-showcase-create.client')) },
-    { id: 'example.todo-showcase-update', roundTripId: 'example.todo-showcase-update@v3', load: lazyCrudFormSectionRuntime(() => import('./todo-showcase-update.client')) },
+    { id: 'example.todo-showcase-create', roundTripId: 'example.todo-showcase-create@v4', load: lazyCrudFormSectionRuntime(() => import('./todo-showcase-create.client')) },
+    { id: 'example.todo-showcase-update', roundTripId: 'example.todo-showcase-update@v4', load: lazyCrudFormSectionRuntime(() => import('./todo-showcase-update.client')) },
   ],
 })
 

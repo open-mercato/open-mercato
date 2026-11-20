@@ -8,9 +8,10 @@ type Values = Record<string, unknown>
 const hostResourceId = 'fixture-record'
 
 export function FixtureForm({
-  scenario, onSubmit,
+  scenario, onSubmit, region,
 }: {
   scenario: 'showcase' | 'c3'
+  region?: string
   onSubmit?: CrudFormProps<Values>['onSubmit']
 }) {
   const t = useT()
@@ -32,7 +33,7 @@ export function FixtureForm({
       groups={crudFormSectionRuntime.sectionDescriptors.map(({ group }) => group)}
       sectionDescriptors={crudFormSectionRuntime.sectionDescriptors}
       sectionCustomFieldDefinitionSets={{ 'form_policy_fixture.region-v1': ['form_policy_fixture:record'] }}
-      initialValues={{ name: '', displayName: '', privateCode: 'fixture-only', cf_region: 'north' }}
+      initialValues={{ name: '', displayName: '', privateCode: 'fixture-only', cf_region: region ?? 'north' }}
       onSubmit={onSubmit}
     />
   )

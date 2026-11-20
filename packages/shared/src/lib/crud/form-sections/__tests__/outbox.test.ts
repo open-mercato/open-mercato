@@ -348,3 +348,35 @@ it('retains an unfinished report when a later intent succeeds', async () => {
   })
   expect(deliver).toHaveBeenCalledTimes(2)
 })
+
+it('keeps intervening edits pending when an old job returns and delivers only the latest payload', async () => {
+  const entered = barrier()
+  const release = barrier()
+  const deliveries: string[] = []
+  const deliver: CrudFormSectionOutboxDelivery<{ brand: string }>['deliver'] = async ({ revision }) => {
+    deliveries.push(revision)
+    if (revision === '1') {
+      entered.open()
+      await release.wait
+    }
+    return { status: 'applied', externalId: 'stable-external-id' }
+  }
+  const setup = fixture({ deliver })
+  await setup.writeWith(setup.sink, 'old')
+  const older = setup.deliver()
+  await entered.wait
+  try {
+    await setup.writeWith(setup.sink, 'intermediate')
+    await setup.writeWith(setup.sink, 'latest')
+  } finally {
+    release.open()
+  }
+  await older
+  expect(setup.read()).toMatchObject({ syncStatus: 'pending', deliveryRevision: '3', values: { brand: 'latest' } })
+  expect(setup.service.enqueue).toHaveBeenLastCalledWith(identity, undefined)
+  await setup.deliver()
+  await setup.deliver()
+  expect(deliveries).toEqual(['1', '3'])
+  expect(setup.read()).toMatchObject({ syncStatus: 'synced', deliveryRevision: '3', externalId: 'stable-external-id' })
+  expect(setup.service.recordMapping).toHaveBeenCalledTimes(1)
+})
