@@ -214,6 +214,22 @@ configuration change, route, event or response-field migration is needed for thi
 fix. Restart application and worker processes together when deploying.
 
 [Specification and coverage](.ai/specs/2026-07-06-eudr-compliance-module.md#migration--backward-compatibility).
+## Explicit deleted-row list access (#9154)
+
+`GET /api/entities/records` no longer honors `withDeleted=true`, including full
+exports. CRUD list routes honor the query only when their definition explicitly sets
+`list.allowWithDeleted: true`; declaring the query in a schema alone is insufficient.
+The generic records API previously published this parameter, so clients relying on
+its deleted-row results lose that behavior. This security exception is proposed and
+still requires a named human maintainer approval; it is not approved by automation.
+
+**Clients:** stop relying on the generic endpoint or an undeclared CRUD list to
+recover deleted data. Use a deliberately authorized recovery route whose owner has
+enabled `list.allowWithDeleted`; ordinary list/export requests continue to hide
+retracted notes and deleted contacts. **Operators/module owners:** audit recovery
+routes before rollout and add that opt-in only with the intended permission checks.
+No schema migration, environment change or data deletion is needed. Old list cache
+entries are bypassed by the new policy-specific keys and may expire normally.
 
 ## Production Compose tenant encryption key (#7231)
 

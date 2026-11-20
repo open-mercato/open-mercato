@@ -251,6 +251,8 @@ export type ListConfig<TList> = {
   buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
   transformItem?: (item: any) => any
   allowCsv?: boolean
+  /** Permit an explicit `withDeleted` query flag. Defaults to false. */
+  allowWithDeleted?: boolean
   // The function forms mirror `fields` above: a route whose export columns depend
   // on per-request state (for example custom-field definitions discovered in
   // `beforeList`) MUST resolve them from `ctx` rather than from module-level
@@ -1069,6 +1071,7 @@ function buildCrudCacheKey(
   request: Request,
   ctx: CrudCtx,
   enricherSignature = '',
+  allowWithDeleted = false,
 ): string {
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
@@ -1090,6 +1093,7 @@ function buildCrudCacheKey(
     // per actor (API key or user), never shared across identities.
     `user:${normalizeTagSegment((ctx.auth?.keyId ?? ctx.auth?.sub) ?? null)}`,
     `query:${serializeSearchParams(url.searchParams)}`,
+    `deletedPolicy:${allowWithDeleted ? 'allowed' : 'hidden'}`,
   ]
   // The cached list payload already embeds enricher output (enrichment runs before
   // the cache store), so the cache key MUST partition by the set of enrichers a
@@ -1700,6 +1704,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ...rawQueryParams,
         ...(interceptorRequest.query ?? {}),
       } as Record<string, unknown>
+      const withDeleted = opts.list.allowWithDeleted === true
+        && typeof queryParams.withDeleted === 'string'
+        && parseBooleanToken(queryParams.withDeleted) === true
       const parsedIds = parseIdsParam(queryParams.ids)
       const idsParamProvided = isIdsParamProvided(queryParams.ids)
 
@@ -1736,7 +1743,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : null
       const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
       const enricherCachePlan = cacheEnabled ? await resolveListCachePlan(ctx) : NO_ENRICHER_CACHE_PLAN
-      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature) : null
+      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature, opts.list.allowWithDeleted === true) : null
       let cacheStatus: 'hit' | 'miss' = 'miss'
       let cachedValue: CrudCacheStoredValue | null = null
 
@@ -1956,7 +1963,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           ? baseFilters
           : mergeAdvancedFilters(baseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
         const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds, { idsParamProvided })
-        const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
         if (
           ormCfg.orgField &&
@@ -2278,7 +2284,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           tenantId: !omitListScope && ormCfg.tenantField ? ctx.auth.tenantId : undefined,
           orgField: ormCfg.orgField,
           tenantField: ormCfg.tenantField,
-          softDeleteField: ormCfg.softDeleteField,
+          softDeleteField: withDeleted ? null : ormCfg.softDeleteField,
         }
       )
       let list = await repo.find(where)

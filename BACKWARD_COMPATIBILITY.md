@@ -706,3 +706,18 @@ No operator startup, configuration or data migration is required. See
 `.ai/specs/2026-11-07-crud-sort-map-boundary.md` and `UPGRADE_NOTES.md`.
 This entry requests the emergency security exception; a named human maintainer
 must acknowledge the waiver before merge. Automated review does not grant it.
+
+## Deleted-row list access (2026-11-20, #9154) — proposed exception
+
+**Surface:** STABLE API §7, the published `withDeleted` query on
+`GET /api/entities/records`, including exports, and raw CRUD list query behavior.
+The parameter itself lets ordinary viewers recover retracted notes and deleted PII
+without a route-owned opt-in. Retaining that behavior behind a compatibility flag
+would retain the disclosure, so the proposed exception removes only that path and
+keeps explicit, permission-checked route opt-ins available. Existing tenant and
+organization scope, stored rows and internal query-engine options are unchanged.
+
+**Migration:** [client/operator steps](UPGRADE_NOTES.md#explicit-deleted-row-list-access-9154);
+[specification](.ai/specs/2026-11-14-crud-soft-deleted-list-policy.md#migration--backward-compatibility).
+**Named human maintainer acknowledgment: pending.** Steps 1–3 are not treated as
+waived until a named human explicitly accepts this specific security exception.
