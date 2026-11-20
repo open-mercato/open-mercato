@@ -3039,14 +3039,12 @@ export async function resolveAppOnlySuiteRun(
   filter: string | null = null,
 ): Promise<AppOnlySuiteRun | null> {
   const commandEnvironment = buildAppOnlyEnvironment(environment.commandEnvironment)
-  const listed = await listSpecs(
-    commandEnvironment,
-    appOnlySpecPaths ? buildAppOnlyPlaywrightFileFilters(appOnlySpecPaths) : [],
-  )
+  const fileFilters = appOnlySpecPaths ? buildAppOnlyPlaywrightFileFilters(appOnlySpecPaths) : filter ? [filter] : []
+  const listed = await listSpecs(commandEnvironment, fileFilters)
   const runnable = new Set(listed)
   const selected = appOnlySpecPaths
     ? appOnlySpecPaths.filter((specPath) => runnable.has(specPath))
-    : resolveAppOwnedIntegrationSpecPaths(listed.map((specPath) => ({ path: specPath })), filter)
+    : resolveAppOwnedIntegrationSpecPaths(listed.map((specPath) => ({ path: specPath })), null)
   if (selected.length === 0) {
     return null
   }

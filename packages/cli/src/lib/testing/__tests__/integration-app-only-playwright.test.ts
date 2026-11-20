@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import os from 'node:os'
 import path from 'node:path'
 import {
+  buildAppOnlyPlaywrightFileFilters,
   listAppOwnedIntegrationSpecCandidates,
   listPlaywrightConfigSelectedSpecPaths,
   listPlaywrightSelectedSpecPaths,
@@ -13,6 +14,9 @@ const RUNTIME_REGISTERED_SPEC = 'src/modules/orders/__integration__/TC-APP-001.s
 const RUNTIME_IMPORTED_SPEC = 'src/modules/orders/__integration__/TC-APP-002.spec.ts'
 const CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const CUSTOM_CONFIG_PATH = '.ai/qa/tests/custom.config.ts'
+const CUSTOM_ROOT_CONFIG_PATH = '.ai/qa/tests/custom-smoke.config.ts'
+const SMOKE_SPEC = 'smoke/__integration__/TC-SMOKE-001.spec.ts'
+const SERVICE_SPEC = 'smoke/__integration__/TC-SERVICE-001.spec.ts'
 const REPOSITORY_NODE_MODULES = path.resolve(path.dirname(require.resolve('@playwright/test/package.json')), '..', '..')
 const DISCOVERY_MODULE_PATH = path.resolve(__dirname, '..', 'integration-discovery.ts')
 const RUNTIME_BASE_URL = 'http://127.0.0.1:5001'
@@ -57,6 +61,32 @@ function createStandaloneProject(): string {
       "import path from 'node:path'",
       "const projectRoot = path.resolve(__dirname, '..', '..', '..')",
       "export default defineConfig({ testDir: path.join(projectRoot, 'src'), testMatch: ['**/__integration__/*.spec.ts'] })",
+      '',
+    ].join('\n'),
+  )
+  writeProjectFile(
+    projectRoot,
+    CUSTOM_ROOT_CONFIG_PATH,
+    [
+      "import { defineConfig } from '@playwright/test'",
+      "import path from 'node:path'",
+      "const projectRoot = path.resolve(__dirname, '..', '..', '..')",
+      "export default defineConfig({ testDir: path.join(projectRoot, 'smoke'), testMatch: ['**/__integration__/*.spec.ts'] })",
+      '',
+    ].join('\n'),
+  )
+  writeProjectFile(
+    projectRoot,
+    SMOKE_SPEC,
+    ["import { test } from '@playwright/test'", "test('smoke passes', async () => {})", ''].join('\n'),
+  )
+  writeProjectFile(
+    projectRoot,
+    SERVICE_SPEC,
+    [
+      "import { test } from '@playwright/test'",
+      "throw new Error('a separate service is required while this spec module loads')",
+      "test('needs the separate service', async () => {})",
       '',
     ].join('\n'),
   )
@@ -139,5 +169,19 @@ describe('test:integration --app-only against a real Playwright config', () => {
         listPlaywrightSelectedSpecPaths(withoutJestEnvironment(environment), fileFilters, customTarget),
     )
     expect(run?.fileFilters).toHaveLength(2)
+  }, 60_000)
+
+  it('applies --filter before importing specs for a custom config without a discovery report', async () => {
+    const customTarget = { projectRoot, configPath: CUSTOM_ROOT_CONFIG_PATH }
+    const listCustom = (environment: NodeJS.ProcessEnv, fileFilters: readonly string[]) =>
+      listPlaywrightSelectedSpecPaths(withoutJestEnvironment(environment), fileFilters, customTarget)
+    await expect(listCustom({ ...process.env }, [])).rejects.toThrow('a separate service is required')
+    const run = await resolveAppOnlySuiteRun(
+      null,
+      { commandEnvironment: { ...process.env, BASE_URL: RUNTIME_BASE_URL } },
+      listCustom,
+      'TC-SMOKE',
+    )
+    expect(run?.fileFilters).toEqual(buildAppOnlyPlaywrightFileFilters([SMOKE_SPEC]))
   }, 60_000)
 })

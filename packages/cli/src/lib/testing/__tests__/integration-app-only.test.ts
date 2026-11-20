@@ -214,8 +214,15 @@ describe('mercato test:integration --app-only', () => {
 
     it('resolves app-owned specs from the runtime list when the config reported no selection', async () => {
       const listSpecs = jest.fn(async () => [PLATFORM_SPEC, APP_SPEC, SECOND_APP_SPEC])
-      const run = await resolveAppOnlySuiteRun(null, { commandEnvironment: {} }, listSpecs, 'admin')
+      const run = await resolveAppOnlySuiteRun(null, { commandEnvironment: {} }, listSpecs)
       expect(listSpecs.mock.calls[0][1]).toEqual([])
+      expect(run?.fileFilters).toEqual(buildAppOnlyPlaywrightFileFilters([APP_SPEC, SECOND_APP_SPEC]))
+    })
+
+    it('narrows the runtime collection with --filter when the config reported no selection', async () => {
+      const listSpecs = jest.fn(async () => [PLATFORM_SPEC, SECOND_APP_SPEC])
+      const run = await resolveAppOnlySuiteRun(null, { commandEnvironment: {} }, listSpecs, 'admin')
+      expect(listSpecs.mock.calls[0][1]).toEqual(['admin'])
       expect(run?.fileFilters).toEqual(buildAppOnlyPlaywrightFileFilters([SECOND_APP_SPEC]))
     })
 
