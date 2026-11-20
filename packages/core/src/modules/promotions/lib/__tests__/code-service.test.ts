@@ -946,6 +946,38 @@ describe('PromotionCodeService.releaseCode', () => {
 })
 
 describe('PromotionCodeService.revertCodeUse', () => {
+  it('frees the per-customer quota: after a revert the same customer can reserve and use a usagePerCustomer: 1 code again', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { code: 'ONEPERCUST', usage: 'multiple', usageAmount: 5, used: 0, usagePerCustomer: 1 })
+    seedReservation(tables, { codeId: code.id, cartId: 'cart-1', customerId: 'cust-1' })
+    const service = new PromotionCodeService(fakeContainer())
+    const typedEm = em as unknown as import('@mikro-orm/postgresql').EntityManager
+
+    await service.useCode(
+      typedEm,
+      { codeId: code.id, codeString: 'ONEPERCUST', cartId: 'cart-1', orderId: 'order-1', customerId: 'cust-1', type: 'static' },
+      SCOPE,
+    )
+    await expectCrudError(
+      service.reserveCode(typedEm, { codeString: 'ONEPERCUST', cartId: 'cart-2', customerId: 'cust-1' }, SCOPE),
+      422,
+      CODE_INVALID_REASON,
+    )
+
+    await service.revertCodeUse(typedEm, { orderId: 'order-1' }, SCOPE)
+
+    await service.reserveCode(typedEm, { codeString: 'ONEPERCUST', cartId: 'cart-2', customerId: 'cust-1' }, SCOPE)
+    const result = await service.useCode(
+      typedEm,
+      { codeId: code.id, codeString: 'ONEPERCUST', cartId: 'cart-2', orderId: 'order-2', customerId: 'cust-1', type: 'static' },
+      SCOPE,
+    )
+
+    expect(result).toEqual({ ok: true })
+    expect(code.used).toBe(1)
+    expect(tables.get(CodeUsage)).toHaveLength(2)
+  })
+
   it('rejects when neither cartId nor orderId is given', async () => {
     const { em } = createFakeEm()
     const service = new PromotionCodeService(fakeContainer())

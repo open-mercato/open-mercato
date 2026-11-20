@@ -129,7 +129,8 @@ function isCodeActiveForUse(resolved: ResolvedCode): boolean {
  * `CodeUsage` alone, which let two carts both pass the check and race to the single
  * remaining use. `excludeCartId` is the calling cart's own id: a cart re-reserving (or
  * using) a code it already holds a reservation for must not have that same reservation
- * count against itself.
+ * count against itself. A reverted `CodeUsage` (`revertedAt` set) frees its per-customer
+ * quota, just as `revertCodeUse` frees the global count (SPEC-055 §Code Lifecycle).
  */
 export async function countActiveCustomerUsage(
   em: EntityManager,
@@ -143,6 +144,7 @@ export async function countActiveCustomerUsage(
     customerId,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
+    revertedAt: null,
   })
   const reservationCount = await em.count(CodeReservation, {
     codeId,
