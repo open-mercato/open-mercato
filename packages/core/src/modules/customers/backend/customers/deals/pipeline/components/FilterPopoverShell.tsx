@@ -9,7 +9,7 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 type FilterPopoverShellProps = {
-  /** Title rendered in the header (e.g. "Filter · Status", "Sort by") */
+  /** Title rendered in the header (e.g. "Filter: Status", "Sort by") */
   title: React.ReactNode
   /** Optional icon rendered before the title (Sort by uses a tag icon per Figma) */
   leadingIcon?: React.ReactNode
