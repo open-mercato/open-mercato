@@ -10,10 +10,9 @@
 //      scripts/validate-skills-tiers.mjs) and links each selected skill into
 //      .agents/skills/<name> -> .ai/skills/<name>.
 //   2. External shared skills: installs the open-mercato/skills collection via
-//      `npx skills add` into the same .agents/skills/ directory, then runs
-//      `npx skills update` so a re-run always refreshes the already installed
-//      external skills to the latest published versions (the lockfile is
-//      gitignored, so `add` seeds and `update` keeps them current).
+//      a pinned `skills` CLI into the same .agents/skills/ directory.
+//      Re-runs install the same collection commit; upgrades require explicit
+//      CLI version or collection ref changes in tiers.json.
 //      The external source and skill list live under `external` in tiers.json.
 //      A folder under .ai/skills/ matching an external skill name is a
 //      repo-local override that the external skill reads in place; it is never
@@ -85,8 +84,7 @@ Options:
                       cursor). Defaults to \`agents.ignore\` in tiers.json; this
                       flag overrides it.
   --no-external       Skip the external-collection step for the external
-                      collection — \`npx skills add\` on first run and
-                      \`npx skills update\` on re-runs (also:
+                      collection at its pinned commit (also:
                       OM_SKIP_EXTERNAL_SKILLS=1). Use when offline.
   --list              Print the tier table, the external shared collection,
                       and the current install state, then exit.
@@ -395,10 +393,6 @@ export function createInstaller({
     }
   }
 
-  // Mix in the external shared collection (open-mercato/skills). The npx CLI
-  // copies each skill into .agents/skills/. This runs BEFORE the link layer is
-  // written: `skills update --project` owns .agents/skills/ and would otherwise
-  // prune entries it does not know about.
   function installExternal(manifest, linkAgents, noExternal) {
     const source = manifest.external?.source
     if (!source) return 'none'
@@ -406,7 +400,8 @@ export function createInstaller({
     const agentArgs = linkAgents.length > 0
       ? linkAgents.flatMap((agent) => ['--agent', agent])
       : ['--agent', 'universal']
-    const addResult = runNpx(['-y', 'skills', 'add', source, '--skill', '*', ...agentArgs, '-y'], repoRoot)
+    const pinnedSource = `https://github.com/${source}/tree/${manifest.external.ref}`
+    const addResult = runNpx(['-y', `skills@${manifest.external.cliVersion}`, 'add', pinnedSource, '--skill', '*', ...agentArgs, '-y'], repoRoot)
     if (addResult === null) {
       warn(`install-skills: warning: npx not found; skipping external skills from ${source}.`)
       return 'skipped (npx not found)'
@@ -416,18 +411,7 @@ export function createInstaller({
       warn('  local tier skills are installed. Re-run when online, or pass --no-external to silence this.')
       return 'FAILED'
     }
-    // `add` seeds the collection (and re-resolves on a fresh checkout), but on a
-    // clone that already has the skills a follow-up `update` guarantees they are
-    // bumped to the latest published versions — the point of a re-run. The
-    // lockfile is gitignored, so this is how contributors pick up new skills and
-    // fixes without a manual reinstall. Non-fatal when offline mid-run: the
-    // freshly added skills stay installed.
-    if (runNpx(['-y', 'skills', 'update', '--project', '-y'], repoRoot)) {
-      return `updated to latest from ${source}`
-    }
-    warn('install-skills: warning: could not update external skills to latest;')
-    warn('  the installed versions are kept. Re-run when online to refresh.')
-    return `installed from ${source}`
+    return `installed from ${source}@${manifest.external.ref}`
   }
 
   function run(args = [], env = process.env) {
