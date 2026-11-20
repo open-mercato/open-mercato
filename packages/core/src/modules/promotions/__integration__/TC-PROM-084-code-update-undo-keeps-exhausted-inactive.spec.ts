@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api';
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import { resolveIntegrationDatabaseUrl, withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
-import { expectOperation, skipIfUndoTestsDisabled, undoOk } from '@open-mercato/core/helpers/integration/undoHarness';
+import { expectOperation, skipIfUndoTestsDisabled, undoOk, redoOk } from '@open-mercato/core/helpers/integration/undoHarness';
 import {
   createCodeFixture,
   deleteCodeIfExists,
@@ -27,7 +27,7 @@ import { readCodeRow } from './helpers/db';
  * observed waiting behind that redemption before the reservation lock is released.
  */
 test.describe('TC-PROM-084: code update undo keeps a used-up code inactive', () => {
-  test('undo of a rename after the code was spent restores the name but leaves the code inactive', async ({ request }) => {
+  test('undo and redo of a full-form rename keep the spent code inactive', async ({ request }) => {
     skipIfUndoTestsDisabled();
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
@@ -47,7 +47,7 @@ test.describe('TC-PROM-084: code update undo keeps a used-up code inactive', () 
 
       const updateResponse = await apiRequest(request, 'PUT', CODES_PATH, {
         token,
-        data: { id: codeId, name: `${originalName} renamed` },
+        data: { id: codeId, name: `${originalName} renamed`, active: true },
       });
       expect(updateResponse.status(), 'PUT /api/promotions/codes should succeed').toBe(200);
       const updateOperation = expectOperation(updateResponse, 'promotions code update');
@@ -69,6 +69,14 @@ test.describe('TC-PROM-084: code update undo keeps a used-up code inactive', () 
       const item = detail?.items?.find((entry) => entry.id === codeId);
       expect(item?.name).toBe(originalName);
       expect(item?.active, 'a used-up single-use code must stay inactive after the undo').toBe(false);
+
+      await redoOk(request, token, updateOperation.logId, 'redo promotions code update');
+      const redoneResponse = await apiRequest(request, 'GET', codeDetailQueryPath(codeId), { token });
+      expect(redoneResponse.status()).toBe(200);
+      const redoneDetail = await readJsonSafe<{ items?: Array<{ id: string; name: string; active: boolean }> }>(redoneResponse);
+      const redoneItem = redoneDetail?.items?.find((entry) => entry.id === codeId);
+      expect(redoneItem?.name).toBe(`${originalName} renamed`);
+      expect(redoneItem?.active, 'redo must not reactivate a spent code').toBe(false);
 
       const finalRow = await readCodeRow(codeId);
       expect(finalRow?.used).toBe(1);

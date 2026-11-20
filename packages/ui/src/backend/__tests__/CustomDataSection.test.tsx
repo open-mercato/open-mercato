@@ -5,6 +5,14 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
+jest.mock('@open-mercato/core/modules/dictionaries/components/hooks/useDictionaryEntries', () => ({
+  ensureDictionaryEntries: async () => ({
+    map: {
+      alpha: { value: 'alpha', label: 'Alpha', color: '#16a34a', icon: 'lucide:check' },
+      beta: { value: 'beta', label: 'Beta', color: null, icon: null },
+    },
+  }),
+}))
 
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
@@ -237,6 +245,43 @@ describe('CustomDataSection relation display', () => {
     const notesContent = await screen.findByText('**Bold note**')
     expect(notesContent).toBeInTheDocument()
     expect(notesContent.className).toContain('text-sm')
+  })
+
+  it('renders dictionary values as quiet pills when multi-valued and as plain labels otherwise', async () => {
+    const fields: CrudField[] = [
+      { id: 'cf_segments', label: 'Segments', type: 'select', multiple: true },
+      { id: 'cf_tier', label: 'Tier', type: 'select' },
+    ]
+    const definitions: CustomFieldDefDto[] = [
+      { key: 'segments', kind: 'dictionary', label: 'Segments', dictionaryId: 'dictionary-1', multi: true },
+      { key: 'tier', kind: 'dictionary', label: 'Tier', dictionaryId: 'dictionary-1' },
+    ]
+
+    const { container } = renderWithProviders(
+      <CustomDataSection
+        entityIds={['customers:customer_company_profile']}
+        values={{ segments: ['alpha', 'beta'], tier: 'beta' }}
+        onSubmit={async () => {}}
+        title="Custom fields"
+        loadFields={async () => ({ fields, definitions })}
+        labels={{
+          loading: 'Loading custom data\u2026',
+          emptyValue: 'No value',
+          noFields: 'No fields',
+          saveShortcut: 'Save now',
+          edit: 'Edit',
+          cancel: 'Cancel',
+        }}
+      />,
+    )
+
+    const alphaPill = (await screen.findByText('Alpha')).closest('[data-slot="badge"]')
+    expect(alphaPill).toHaveAttribute('data-variant', 'secondary')
+    expect(alphaPill).not.toHaveClass('rounded-full', 'bg-card')
+    expect(container.querySelectorAll('[data-slot="badge"]')).toHaveLength(2)
+    expect(container.querySelector('span[style*="background-color"]')).toBeNull()
+    expect(container.querySelector('svg.lucide-check')).toBeNull()
+    expect(screen.getAllByText('Beta')).toHaveLength(2)
   })
 
   it('renders select values from bare custom-field response keys', async () => {
