@@ -81,7 +81,7 @@ function ExternalEmailsInput({ compose }: ComposeProps) {
 function SendSeparatelyField({ compose }: ComposeProps) {
   const id = 'messages-compose-send-separately'
   return (
-    <div className="space-y-2">
+    <div className="shrink-0 space-y-2">
       <Label htmlFor={id}>{compose.t('messages.compose.sendSeparately', 'Send separately')}</Label>
       <div className="flex h-9 items-center">
         <Switch
@@ -91,7 +91,7 @@ function SendSeparatelyField({ compose }: ComposeProps) {
           aria-describedby={`${id}-hint`}
         />
       </div>
-      <p id={`${id}-hint`} className="max-w-48 text-xs text-muted-foreground">
+      <p id={`${id}-hint`} className="whitespace-nowrap text-xs text-muted-foreground">
         {compose.t('messages.compose.sendSeparatelyHint', 'Each recipient gets a private copy.')}
       </p>
     </div>
@@ -304,8 +304,8 @@ function ComposeModeFields({ compose }: ComposeProps) {
         </div>
 
         {compose.senderOptions.length > 0 || compose.visibility === 'public' ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="min-w-0">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
+            <div className="min-w-0 flex-1">
               <SenderSelector compose={compose} />
             </div>
             {compose.visibility === 'public' ? <SendSeparatelyField compose={compose} /> : null}
