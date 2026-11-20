@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { ssoErrorResponse } from '../error-handler'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { HrdService } from '../../services/hrdService'
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
     const parsed = hrdRequestSchema.safeParse(body)
 
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+      return ssoErrorResponse('sso.errors.invalidRequest', 'Invalid request', 400)
     }
 
     const container = await createRequestContainer()
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
     })
   } catch (err) {
     logger.error('SSO HRD error', { err })
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return ssoErrorResponse('sso.errors.internal', 'Internal server error', 500)
   }
 }
 

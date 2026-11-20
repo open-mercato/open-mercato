@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoConfigService } from '../../../../services/ssoConfigService'
 import { ssoActivateSchema } from '../../../../data/validators'
 import { resolveSsoAdminContext } from '../../../admin-context'
-import { handleSsoAdminApiError } from '../../../error-handler'
+import { handleSsoAdminApiError, ssoErrorResponse } from '../../../error-handler'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -20,7 +20,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     const body = await req.json()
     const parsed = ssoActivateSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
+      return ssoErrorResponse('sso.errors.invalidRequest', 'Invalid request', 400)
     }
 
     const container = await createRequestContainer()
