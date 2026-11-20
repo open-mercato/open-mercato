@@ -340,6 +340,41 @@ Read at call time with positive-int validation and built-in fallback (pattern: `
 - **Mitigation**: inbound rows only for extra To/CC; no row for sender/own mailbox.
 - **Residual risk**: proportional to CC usage.
 
+#### Rolling back the channels migration drops separate-send links
+- **Scenario**: `Migration20261119130000_communication_channels.down()` must restore the original unique `(message_id)` index, which cannot hold while a message has one link per recipient.
+- **Severity**: Medium
+- **Affected area**: `message_channel_links` rows created by "send separately" through a mailbox
+- **Mitigation**: `down` deletes rows with `external_participant_id IS NOT NULL` before restoring the index; documented in the PR and `UPGRADE_NOTES.md`.
+- **Residual risk**: after a rollback, reply threading and CRM interactions for those separate sends are lost. Rollback is a last resort.
+
+#### Messages without an organization are not covered by the retry tick
+- **Scenario**: the retry tick runs one schedule per organization; a message with `organization_id IS NULL` whose delayed re-enqueue job is lost (restart) is never picked up again.
+- **Severity**: Low
+- **Affected area**: external delivery of organization-less messages
+- **Mitigation**: the worker's own delayed re-enqueue still retries them; only lost-job recovery is missing.
+- **Residual risk**: such participants stay `pending` until the next delivery attempt for that message.
+
+## Implementation decisions (2026-11-20)
+
+Decisions taken while implementing, with their reasons. They refine the design above; where they differ, this section wins.
+
+| Decision | Reason |
+|---|---|
+| A transient failure keeps the participant **`pending`** with `next_attempt_at`; it never goes back to a user-editable state | (Maintainer decision.) A "scheduled" state would let the user edit a message that is already partly delivered and would show an app-chosen send time as if the user picked it; per-recipient statuses would also lose track of who already received it |
+| One function (`settleExternalParticipants`) writes every outcome under a per-message advisory lock; only the write that moves the last participant out of `pending` emits `messages.message.delivery_finished` | Several links of one message can finish concurrently; the event and the failure notification must fire exactly once |
+| Both delivery paths **claim** participants (`next_attempt_at` lock) before sending; a job finding nothing due returns `not_due` and sends nothing | The retry tick and delayed re-enqueue can both enqueue the same delivery; claiming makes duplicate jobs harmless |
+| Retry timing comes from the command: provider `retryAt` → else the worker's short backoff (`transientRetryDelayMs`, first attempts on the mailbox path) → else `OM_EMAIL_DELIVERY_RETRY_DELAY_SECONDS`, capped by the window; `OUTBOUND_DELIVERY_MAX_ATTEMPTS` applies only to legacy links without participants | Two independent retry loops (worker attempts and `next_attempt_at`) fought each other; one source of truth avoids premature failure and double sends |
+| Retry-tick schedule is **module-owned** (`sourceType: 'module'`), not on the user-facing scheduler allowlist; registered in `seedDefaults`, `onOrganizationCreated` and an upgrade action | The scheduler dispatches module rows by queue ownership (`canDispatchScheduleQueueTarget`); allowlisting would let API users schedule the tick; `core` cannot depend on `@open-mercato/scheduler` |
+| Mailbox jobs from the retry tick go through the DI facade `communicationChannelsEnqueueOutboundDelivery` | `messages` must not import `communication_channels` (module decoupling test) |
+| `sendEmail()` reports per-address `transient`/`retryAt` through `EmailSendError` / `readEmailDeliveryErrorHints`; an error with no hint (custom transport) is treated as transient, bounded by the window | Lets the system path tell a 429 from a hard rejection without changing the transport contract; unknown errors must not fail recipients that could still succeed |
+| Partial rejections inside an accepted SMTP/IMAP send are always permanent (`failed`) | SMTP gives no per-address retry hint after `DATA`; resending to the accepted addresses would duplicate |
+| "Resend to failed" forces **send separately** when any failed address was BCC | A joint resend would expose the BCC addresses in the To header |
+| `messages.delivery_failed` notification is deduplicated per message (`groupKey`) and lists at most 10 addresses | Avoids notification floods on large sends; the full list is on the message |
+| Drafts store participants with `delivery_status = NULL`, flipped to `pending` on send | Prerequisite for scheduled send (a scheduled message is a draft) and keeps drafts out of retry/tick queries |
+| `sendAsUser` passes recipients through the command-level `externalParticipants` (max 500), not `externalEmails` (max 50) | Mailbox CC/BCC must keep their role, and a long CC list must not fail compose |
+| CRM thread inheritance ignores links with `external_participant_id` | A reply must not inherit every separately-addressed recipient's person record |
+| Test-seed adapter: `+reject@` ⇒ partial rejection, `+ratelimit@` ⇒ transient 429 (`retryAt` +120 s) | `OM_TEST_MODE` accepts every system-transport send, so integration tests exercise failures through the mailbox path |
+
 ## Final Compliance Report — 2026-11-19
 
 ### AGENTS.md Files Reviewed
