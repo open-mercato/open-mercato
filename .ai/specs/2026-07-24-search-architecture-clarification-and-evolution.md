@@ -14,7 +14,7 @@
 
 ## TLDR
 
-Open Mercato's search is repeatedly misunderstood — even prior agent sessions got core facts wrong — because the public documentation frames it as three interchangeable query-time "strategies," which hides the reality: there are **three physically independent stores** (`search_tokens` in Postgres, a Meilisearch fulltext index, and a vector store) fed by **separate population pipelines**, and **no single reindex command rebuilds all of them**. The worst trap is that the CLI command literally named `yarn mercato search reindex` **does not populate Meilisearch** — it rebuilds `search_tokens` + the `entity_indexes` projection and emits vector events only. The public docs page still calls the fulltext strategy `MeilisearchStrategy` (a name that exists in **zero** source files; the code renamed it to `FullTextSearchStrategy` with a pluggable driver over a year of drift), uses `knex` in a DI example the code writes with Kysely, and omits five of the six `OM_SEARCH_*` tuning knobs.
+Open Mercato's search is repeatedly misunderstood — even prior agent sessions got core facts wrong — because the public documentation frames it as three interchangeable query-time "strategies," which hides the reality: there are **three physically independent stores** (`search_tokens` in Postgres, a Meilisearch fulltext index, and a vector store) fed by **separate population pipelines**, and **no single reindex command rebuilds all of them**. The worst trap is that the CLI command literally named `yarn mercato search reindex` **does not populate Meilisearch** — it rebuilds `search_tokens` + the `entity_indexes` projection and emits vector events only. The public docs page still calls the fulltext strategy `MeilisearchStrategy` (a name that exists in **zero** source files; the code renamed it to `FullTextSearchStrategy` with a pluggable driver over a year of drift), uses `knex` in a DI example the code writes with Kysely, and omits five of the seven `OM_SEARCH_*` tuning knobs.
 
 This spec does two things:
 
@@ -192,7 +192,7 @@ Three broad directions were raised: **(1)** several search backends, **(2)** com
 
 Behavior-preserving. This is the "clear out confusion" deliverable and the prerequisite for everything else — you cannot safely evolve a system operators misunderstand.
 
-1. **Rewrite `apps/docs/docs/framework/database/hybrid-search.mdx`** — fix stale naming (`MeilisearchStrategy` → `FullTextSearchStrategy` / id `fulltext`, `skipMeilisearch` → `skipFulltext`, weight key `meilisearch` → `fulltext`, `knex`/`Knex` → Kysely via `em.getKysely()`); add the three sections from A.6; document all six `OM_SEARCH_*` vars.
+1. **Rewrite `apps/docs/docs/framework/database/hybrid-search.mdx`** — fix stale naming (`MeilisearchStrategy` → `FullTextSearchStrategy` / id `fulltext`, `skipMeilisearch` → `skipFulltext`, weight key `meilisearch` → `fulltext`, `knex`/`Knex` → Kysely via `em.getKysely()`); add the three sections from A.6; document all seven `OM_SEARCH_*` vars. Phase 0 acceptance checks the page against all seven keys in A.4: `OM_SEARCH_ENABLED`, `OM_SEARCH_MIN_LEN`, `OM_SEARCH_ENABLE_PARTIAL`, `OM_SEARCH_HASH_ALGO`, `OM_SEARCH_STORE_RAW_TOKENS`, `OM_SEARCH_FIELD_BLOCKLIST` and `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS`.
 2. **Fix CLI help** in `packages/search/src/modules/search/cli.ts` — the `help` line and `reindex-help` block must state that `search reindex` rebuilds `search_tokens` + `entity_indexes` and enqueues **vector** embeddings, and does **not** populate the fulltext/Meilisearch index (use `POST /api/search/reindex` for that). String-only change.
 3. **Add missing env rows** to `packages/search/AGENTS.md` and `packages/search/src/modules/search/README.md` (the five undocumented `OM_SEARCH_*` vars).
 4. **Boy-Scout** the stale `strategyWeights` example comment in `packages/shared/src/modules/search.ts:179` (`meilisearch` → `fulltext`).
@@ -343,6 +343,10 @@ writer inputs without external services.
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+### 2026-11-20
+
+- Aligned the Phase 0 documentation deliverable with the seven token-search environment variables.
 
 - Council round two fixes, pass four alignment (GPT-6.1 Sol workers): Corrected the A.3 global and general query API locators to `/api/search/search/global` and `/api/search/search`, matching the route files and tenant-settings/fulltext integration contracts; retained the CLI reindex versus fulltext API distinction.
 
