@@ -199,6 +199,45 @@ describe('POST /api/currencies/fetch-rates', () => {
     )
   })
 
+  it.each(['', null, false, 0])('keeps the legacy falsy date sentinel %p on the default fetch', async (date) => {
+    const now = new Date('2026-11-20T12:34:56.789Z')
+    jest.useFakeTimers({ now })
+    try {
+      const response = await POST(request({ date, providers: [] }) as never)
+      expect(response.status).toBe(200)
+      expect(fetchRatesForDate).toHaveBeenCalledWith(
+        now, { tenantId, organizationId: orgId }, { translate: expect.any(Function) },
+      )
+      expect(runAfterSuccess).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it.each(['', null, false, 0])('normalizes the legacy falsy date sentinel %p after a guard rewrite', async (date) => {
+    const now = new Date('2026-11-20T12:34:56.789Z')
+    jest.useFakeTimers({ now })
+    runRouteMutationGuards.mockResolvedValue({ ok: true, modifiedPayload: { date, providers: [] }, runAfterSuccess })
+    try {
+      const response = await POST(request({ date: '2026-08-24', providers: ['nbp_average'] }) as never)
+      expect(response.status).toBe(200)
+      expect(fetchRatesForDate).toHaveBeenCalledWith(
+        now, { tenantId, organizationId: orgId }, { translate: expect.any(Function) },
+      )
+      expect(runAfterSuccess).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('still rejects an invalid concrete date supplied by a mutation guard', async () => {
+    runRouteMutationGuards.mockResolvedValue({ ok: true, modifiedPayload: { date: 'not-a-date' }, runAfterSuccess })
+    const response = await POST(request({ date: '2026-08-24', providers: [] }) as never)
+    expect(response.status).toBe(400)
+    expect(fetchRatesForDate).not.toHaveBeenCalled()
+    expect(runAfterSuccess).not.toHaveBeenCalled()
+  })
+
   it('strips unknown request properties instead of rejecting them', async () => {
     const response = await POST(request({
       providers: ['nbp_average'],

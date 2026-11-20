@@ -31,6 +31,12 @@ const fetchRatesGuardedRequestSchema = fetchRatesRequestSchema.strip()
 
 type FetchRatesRequest = z.infer<typeof fetchRatesRequestSchema>
 
+function normalizeFetchDateSentinel(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const body = value as Record<string, unknown>
+  return Object.hasOwn(body, 'date') && !body.date ? { ...body, date: undefined } : body
+}
+
 export async function POST(req: NextRequest) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.orgId) {
@@ -49,7 +55,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return invalidRequest()
   }
-  const parsed = fetchRatesRequestSchema.safeParse(body)
+  const parsed = fetchRatesRequestSchema.safeParse(normalizeFetchDateSentinel(body))
   if (!parsed.success) {
     return invalidRequest()
   }
@@ -75,7 +81,7 @@ export async function POST(req: NextRequest) {
       return guardResult.response
     }
     const guardedInput = guardResult.modifiedPayload
-      ? fetchRatesGuardedRequestSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
+      ? fetchRatesGuardedRequestSchema.safeParse(normalizeFetchDateSentinel({ ...parsed.data, ...guardResult.modifiedPayload }))
       : { success: true as const, data: parsed.data }
     if (!guardedInput.success) {
       return invalidRequest()
