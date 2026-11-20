@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v2.3 — Release 5 spec revision 2026-10-26; Phases B.1–B.5 in eComm Release 5, B.6 out except the security minimum moved into B.1/B.3) |
+| **Status** | Specification (v2.3.1 — recovery never fresh-locks 2026-11-20; v2.3 Release 5 spec revision 2026-10-26; Phases B.1–B.5 in eComm Release 5, B.6 out except the security minimum moved into B.1/B.3) |
 | **Author** | Piotr Karwatka (v1), rescoped for the ecommerce suite (v2) |
 | **Created** | 2026-03-19 |
 | **Rescoped** | 2026-08-14 |
@@ -123,7 +123,7 @@ Phase A pay links keep their existing path end to end. They create a `CheckoutTr
 | → `cart` | DI `cartService`: `lock` (with `checkoutSessionId`, `lockTtlMs`, `purpose`, route context), `unlock`, `markConverted` (with `salesOrderId`/`salesQuoteId` and `lineMap`), the exact sales snapshot read (`SalesLineSnapshot[]` + adjustments, C7). Command `cart.approval.request` for `request-approval`. Commands `cart.create` and the line adds for link seeding (D-R5-19). |
 | → `availability` | `commandBus`: `availability.reserve`, `availability.release`, `availability.commit`, every input scoped by `{ tenantId, organizationId }` and keyed by `stock_reservation_key` |
 | → `customer_groups` | DI `customerGroupsService.resolveTerms` (terms incl. `approval_required_above`, `min_order_value`, `terms_currency_code`, `allow_purchase_on_account`, `allow_quote_requests`, `requires_po_number`). DI `customerCreditService`: `checkCredit`, `reserveCredit`, `releaseCredit`, `linkCreditReservationToOrder`. DI `customerPurchaseApprovalService`: `getApproval`, `getActiveApprovalForSubject` (read only; checkout creates no approval, D-R5-3). Subscribes to `customer_groups.approval.*` (§8.2). |
-| → `ecommerce` (SPEC-029) | DI `storeContextService.resolve(request, { fresh: true })` at the edge; `storeContextService.resolveForBuyer(...)` for pay-link buyer identity and recovery (D-R5-22) |
+| → `ecommerce` (SPEC-029) | DI `storeContextService.resolve(request, { fresh: true })` at the edge; `storeContextService.resolveForBuyer(...)` for pay-link buyer identity (D-R5-22); recovery never calls it (D-R5-SF4) |
 | → `promotions` | DI `promotionsService`: `evaluate` with delivery context (D-R5-17), `useCode`, `registerUsage` before payment (C5, D-R4-26), `revertCodeUse({ cartId })` in compensation before the order links the use. Reversal after cancellation is **promotions-owned**: a promotions subscriber on `sales.order.cancelled` runs `revertUsage({ orderId })` and `revertCodeUse({ orderId })` idempotently (SPEC-055 amendment, C5). `sales` never calls promotions. |
 | → `shipping_carriers` | DI `shippingCarrierService.calculateRates` (§5.3); selected method snapshotted onto the session |
 | → `payment_gateways` | `paymentGatewayService.createPaymentSession` and status read, the Phase A surface, unchanged |
@@ -383,7 +383,7 @@ The cart is locked **from submit until the outcome**, including payment, and nev
 **Lock input (cart contract, C1, C2, D-R5-23).** `cartService.lock({ cartId, tenantId, organizationId, checkoutSessionId, lockTtlMs?, purpose, routeContext? })`:
 - `checkoutSessionId` is the session id. A second `lock` with the **same** `checkoutSessionId` on a locked cart is an idempotent extend: it returns the cart and sets the new expiry, with no re-price and no visibility pass (X15). A different session gets `423 cart_locked`.
 - `purpose` is `'quote'` when `payment_method_code = 'request_quote'`, else `'order'`. `'quote'` skips the approval gate and `min_order_value`; the visibility pass, store/channel checks and re-price still run (D-R5-23).
-- `routeContext`: for a `storefront` cart checkout passes the buyer's request so the cart builds a fresh `ResolvedCartRouteContext` itself (C2); checkout imports nothing from `cart/lib`. A storefront cart without a context is refused by the cart with `400 assortment_scope_required_for_storefront_channel`; checkout never sends one without. For recovery (no request), the context is built from the cart's stored identity through `storeContextService.resolveForBuyer({ tenantId, organizationId, storeId: cart.storeId, customerUserId | customerId })` (D-R5-22).
+- `routeContext`: for a `storefront` cart checkout passes the buyer's request so the cart builds a fresh `ResolvedCartRouteContext` itself (C2); checkout imports nothing from `cart/lib`. A storefront cart without a context is refused by the cart with `400 assortment_scope_required_for_storefront_channel`; checkout never sends one without. Recovery (no request) never takes a fresh lock, so it never needs a context: it only extends a lock its session still holds (§12.1, D-R5-SF4).
 - `lockTtlMs`: the cart default (30 min) at step 1; at step 7 checkout extends to `payment_expires_at − now + 15 min`, within the cart's bound.
 
 **Unlock and convert.** `unlock` and `markConverted` carry `checkoutSessionId`; a mismatch is a uniform `404` (C1), so a stale session can never release or convert a cart another session holds.
@@ -756,7 +756,7 @@ All via the `queue` worker contract.
 
 ### 12.1 Recovery decision table (C24)
 
-Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, actor: { type: 'system' }, reason: 'checkout.recovery:' + sessionId })` with the session's own scope. Where it must re-lock, it builds the cart context through `resolveForBuyer` from the cart's stored identity (D-R5-22). Each probe reads by the attempt's key.
+Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, actor: { type: 'system' }, reason: 'checkout.recovery:' + sessionId })` with the session's own scope. Recovery never takes a fresh cart lock and never calls `resolveForBuyer` (D-R5-SF4, SPEC-029 §6.3). It only unlocks, extends or converts a cart this session still holds (cart §9.1). Each probe reads by the attempt's key.
 
 | `submit_progress` | Probe | Action |
 |---|---|---|
@@ -765,7 +765,7 @@ Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, acto
 | `stock_reserved` | Credit ledger by `credit_reservation_key` (on account) | Release credit if reserved; release stock; unlock; status `open` |
 | `credit_reserved` or crash in step 5 | Quote by `external_reference` | Quote absent → release credit, release stock, unlock, `open`. Quote present, not converted, order outcome → resume forward from 5b (idempotent). Quote outcome → resume 5b and the quote branch |
 | `document_created` | Hold status, credit entry `orderId`, promotion usage by `orderId` | Resume step 6 forward; each sub-step is idempotent under its key |
-| `finalized` | Gateway transaction by session | No intent → resume step 7 (extend lock, create intent). Intent exists → status `awaiting_payment` |
+| `finalized` | Gateway transaction by session; cart lock holder | No intent, cart still locked by this session → resume step 7 (extend lock, create intent). No intent, cart no longer locked by this session → compensate per §7.3 and fail with `submit_recovery_failed`; never re-lock (D-R5-SF4). Intent exists → status `awaiting_payment` |
 | any, attempt older than the payment TTL without an intent | — | Compensate per §7.3 and fail with `submit_recovery_failed` |
 
 A recovery that resumes forward never creates a second document: the quote lookup by `external_reference` and the `convert_to_order` check guarantee it (C3, D-R5-30).
@@ -869,7 +869,7 @@ All checkout changes are new or additive. The contract changes in other modules 
 | R11 | Cart unlocked mid-payment (C1) | **Critical** | The 30 min cart lock lapses during a slow payment; the buyer edits or re-buys the basket while the first order completes. | Lock extended to the payment expiry + 15 min under the same session id; `unlock`/`markConverted` require the session id; `expire-awaiting-payment` resolves first (§6) | Low |
 | R12 | Duplicate document after a crash (C3) | **Critical** | A crash after `sales.quotes.create` and before the session write; recovery creates a second quote and order. | `external_reference` lookup-before-create, indexed (D-R5-30); `convert_to_order` only if not converted | Low |
 | R13 | Codes reused or budgets overrun (C5) | **High** | A single-use code is never consumed, or a budget overrun is found after capture. | `useCode` + `registerUsage` before payment; abort with `409 promotion_unavailable`; promotions-owned reversal on cancellation | Low |
-| R14 | Visibility pass skipped at submit (C2) | **High** | A product that left the buyer's assortment is bought. | Storefront lock without a fresh context is refused by the cart; checkout always passes the request (or the `resolveForBuyer` context in recovery) | Low |
+| R14 | Visibility pass skipped at submit (C2) | **High** | A product that left the buyer's assortment is bought. | Storefront lock without a fresh context is refused by the cart; checkout always passes the request; recovery never fresh-locks (D-R5-SF4) | Low |
 | R15 | Phase A regression (C10) | **High** | Hard `requires` stop pay-link-only apps from booting. | No new `requires`; soft peers; non-regression boot test | Low |
 | R16 | Totals drift between cart, review and document (C7, D-R5-24) | Medium | The buyer accepts one amount and is invoiced another, or credit is reserved for a different amount. | One draft source (the cart's exact snapshot); post-create equality on goods and payable; `500 totals_mismatch` compensates and notifies ops | Low |
 | R17 | Session token replay by a third party | Medium | A leaked session token on an identified cart is replayed. | Binding to the customer session (§9.0); `404` on mismatch; token never in URLs or logs | Low (guest sessions remain token-only by design) |
@@ -1082,6 +1082,14 @@ Every refusal names what went wrong and what the buyer can do instead (§9.2).
 ---
 
 ## 21) Changelog
+
+### 2026-11-20 — v2.3.1 (recovery never fresh-locks)
+
+Applies SPEC-029 decision D-R5-SF4 (owner, 2026-11-19): no recovery path takes a fresh cart lock.
+
+- §3.3, §6 `routeContext`, §12.1 and R14: recovery no longer builds a cart context through `resolveForBuyer`. It only unlocks, extends or converts a cart its session still holds.
+- §12.1 `finalized` row: a cart whose lock lapsed is compensated per §7.3 and fails with `submit_recovery_failed` instead of being re-locked.
+- Supersedes the v2.3 line "recovery builds it through `resolveForBuyer` (D-R5-22, X15)".
 
 ### 2026-10-26 — v2.3 (Release 5 spec revision)
 

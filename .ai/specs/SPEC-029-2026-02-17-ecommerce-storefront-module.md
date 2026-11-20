@@ -455,7 +455,7 @@ The error carries the marker `Symbol.for('@open-mercato/ecommerce/StorefrontReso
 
 A `409 cart_buyer_unresolvable` blocks checkout for that cart until staff relink the buyer or the cart is recreated. That is deliberate: a fallback would price a relinked buyer under the old company's terms.
 
-The command context those callers run under comes from the shared `buildTrustedCommandContext` helper (X10, `@open-mercato/shared/lib/commands/trusted-context`); `resolveForBuyer` supplies only the buyer identity.
+The command context those callers run under comes from the shared `buildTrustedCommandContext` helper (X10, `@open-mercato/shared/lib/commands/trustedContext`); `resolveForBuyer` supplies only the buyer identity.
 
 ---
 
@@ -1025,7 +1025,7 @@ Resolves the seven Important findings of the pre-implementation audit of the Rel
 - §17 Phase 4: the dependants no longer include checkout recovery, and the gate is the `ecommerce` unit suite (I5, I6).
 - §18: "a new optional method".
 
-Not changed here: cart §9.1 and checkout §12.1 still describe a recovery re-lock through `resolveForBuyer`, and checkout §4.3 step 3 still passes the full identity to `cart.create` (N2). Those belong to the cart and checkout specs. `ecommerce`'s `requires` list (N3) is an implementation item.
+Aligned in the same change (review of PR #10000): cart §3.1a, §6a.4, §9.1, §14 and §15 (rev 10.1), checkout §3.3, §6, §12.1 and R14 (v2.3.1) and the suite roadmap no longer describe a recovery re-lock through `resolveForBuyer`. Recovery only extends a lock its session still holds; a lapsed lock is compensated, never re-locked (D-R5-SF4). Not changed here: checkout §4.3 step 3 still passes the full identity to `cart.create` (N2), which belongs to the checkout spec. `ecommerce`'s `requires` list (N3) is an implementation item.
 
 #### Owner decisions
 

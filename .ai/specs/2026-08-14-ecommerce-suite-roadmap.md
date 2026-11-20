@@ -331,11 +331,12 @@ The load-bearing member is the third one's `null`. In B2B the large majority of 
 
 **Rejected alternative.** Separate `/api/ecommerce/b2b/*` endpoints. Doubles the API surface and the test matrix for what is one resolver difference.
 
-**Consequence: one trusted in-process exception (added 2026-10-26, Release 5, D-R5-22).** "Resolved once, at the edge" assumes a request from the buyer. Four callers act for a buyer without one:
+**Consequence: one trusted in-process exception (added 2026-10-26, Release 5, D-R5-22).** "Resolved once, at the edge" assumes a request from the buyer. Three callers act for a buyer without one:
 - assisted-selling proposal authoring;
 - pay-link cart seeding;
-- trusted `api`/`agent` carts with a customer;
-- checkout recovery re-locking a cart.
+- trusted `api`/`agent` carts with a customer.
+
+Checkout recovery is not one of them: it never takes a fresh cart lock (SPEC-029 D-R5-SF4, 2026-11-19).
 
 They resolve the buyer through `storeContextService.resolveForBuyer({ tenantId, organizationId, storeId?, customerUserId?, customerId? })` (SPEC-029 §6.3). It is the same composition, with the identity taken from stored records. It is in-process only, never cached under the buyer's 60 s key, refuses a store outside the tenant and organization, and returns `assortmentScope` only when a store is given. No caller builds a buyer identity any other way. The command context these callers run under comes from one shared helper, `buildTrustedCommandContext` in `@open-mercato/shared/lib/commands/trustedContext` (cross-spec X10); its audit entries are marked system-initiated.
 
@@ -607,6 +608,9 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-11-20 (recovery is not a `resolveForBuyer` caller)
+- ADR consequence "one trusted in-process exception": checkout recovery removed from the callers, per SPEC-029 D-R5-SF4 (no recovery path takes a fresh cart lock).
 
 ### 2026-10-26 (Release 5 spec revision)
 - Applies the eComm Release 5 owner decisions (`analysis/ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md`) and the cross-spec review (`analysis/ANALYSIS-2026-10-26-ecommerce-release-5-cross-spec.md`). ADR-1, ADR-2, ADR-5, ADR-8, ADR-9 and ADR-11 are unchanged.
