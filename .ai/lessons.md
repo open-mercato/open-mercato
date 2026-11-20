@@ -1,6 +1,10 @@
 # Lessons
 
+<<<<<<< HEAD
 This catalog indexes 149 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+=======
+This catalog indexes 194 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+>>>>>>> b69e252f3f (fix(sso): enforce author privilege ceilings for SSO and SCIM (#10070))
 
 ## How to use this catalog
 
@@ -20,6 +24,14 @@ This catalog indexes 149 focused lessons. Route the task first, then read only r
 
 - [Enforce loopback for anonymous development services](lessons/enforce-loopback-for-anonymous-development-services.md) — area:architecture,testing; module:create_app,starter; topic:docker-compose,network-security,local-development,registry
 
+<<<<<<< HEAD
+=======
+- [Scoped option loaders must distinguish failure from empty results](lessons/scoped-option-loaders-must-distinguish-failure-from-empty.md) — area:backend-ui,testing; module:customer_accounts,ui; topic:error-states,data-scoping,ui-components
+
+- [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
+
+- [Carry authorized SSO role IDs through synchronization](lessons/carry-authorized-sso-role-ids-through-synchronization.md) — area:module-data,testing; module:sso,auth; topic:access-control,concurrency,role-mappings
+>>>>>>> b69e252f3f (fix(sso): enforce author privilege ceilings for SSO and SCIM (#10070))
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
 - [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 
