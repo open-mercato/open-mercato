@@ -382,7 +382,12 @@ export class HybridQueryEngine implements QueryEngine {
   private customFieldDefsCache = new Map<string, { expiresAt: number; value: CustomFieldDefRow[] }>()
   private customFieldKeysTtlMs: number
   private customFieldKindCache = new Map<string, { expiresAt: number; value: Map<string, string> }>()
-  private columnCache = new Map<string, boolean>()
+  private columnCache = createBoundedTtlMemo<{ present: boolean }>({
+    ttlEnv: 'OM_QUERY_COLUMN_EXISTS_CACHE_MS',
+    maxEntriesEnv: 'OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES',
+    defaultTtlMs: 300_000,
+    defaultMaxEntries: 10_000,
+  })
   private customEntityCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
   private sqlDebugEnabled: boolean | null = null
@@ -519,17 +524,12 @@ export class HybridQueryEngine implements QueryEngine {
       const searchConfig = resolveSearchConfig()
       const orgScope = this.resolveOrganizationScope(opts)
       const searchEnabled = await this.searchAvailability().staticEnabled()
-
       const baseExists = await profiler.measure('base_table_exists', () => this.tableExists(baseTable))
       if (!baseExists) {
         if (debugEnabled) this.debug('query:fallback:missing-base', { entity, baseTable })
         const fallbackResult = await this.queryFallback<T>(entity, opts)
         finishProfile({ result: 'fallback', reason: 'missing_base' })
         return await applyAfterExtensions(fallbackResult)
-      }
-
-      if (opts.omitAutomaticTenantOrgScope !== true && !await this.columnExists(baseTable, 'tenant_id') && !await this.columnExists(baseTable, 'organization_id')) {
-        throw new Error('[internal] QueryEngine: unscoped base table requires explicit scope opt-out')
       }
 
       if (opts.omitAutomaticTenantOrgScope === true) {
@@ -540,6 +540,10 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       const normalizedFilters = normalizeFilters(opts.filters)
+      if (!await this.columnExists(baseTable, 'tenant_id') && !await this.columnExists(baseTable, 'organization_id')) {
+        throw new Error('[internal] QueryEngine: unscoped base table requires explicit scope opt-out')
+      }
+
       const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:') || filter.field.startsWith('l10n:'))
       // `applySort` orders `cf:` sorts off the left-joined index doc, so a
       // sort-only custom-field query depends on the index just as much as a cf
@@ -1218,16 +1222,17 @@ export class HybridQueryEngine implements QueryEngine {
         filter: { column: string; op: FilterOp; value?: unknown },
         _qualified: string,
         join: ResolvedJoin,
-      ): Promise<boolean> => {
-        if (!searchEnabled || !join.entityId) return false
-        if (!['like', 'ilike'].includes(filter.op)) return false
-        if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return false
+      ): Promise<{ applied: boolean; builder: AnyBuilder }> => {
+        const unchanged = { applied: false, builder: target }
+        if (!searchEnabled || !join.entityId) return unchanged
+        if (!['like', 'ilike'].includes(filter.op)) return unchanged
+        if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return unchanged
 
         const searchAvailable = await this.searchAvailability().hasTokens(String(join.entityId), opts.tenantId ?? null, orgScope)
-        if (!searchAvailable) return false
+        if (!searchAvailable) return unchanged
 
         const tokens = tokenizeText(String(filter.value), searchConfig)
-        if (!tokens.hashes.length) return false
+        if (!tokens.hashes.length) return unchanged
 
         return this.applySearchTokens(target, {
           entity: String(join.entityId),
@@ -1245,10 +1250,7 @@ export class HybridQueryEngine implements QueryEngine {
         qualifyBase: qualify,
         applyAliasScope: (target, alias) => applyAliasScopes(target, alias),
         applyFilterOp: applyJoinFilterOpFn,
-        applyJoinFilterOp: async (target, filter, qualified, join) => {
-          const applied = await applyJoinSearchFilterOp(target, filter, qualified, join)
-          return { applied, builder: target }
-        },
+        applyJoinFilterOp: applyJoinSearchFilterOp,
         columnExists: (targetTable, column) => this.columnExists(targetTable, column),
       })
 
@@ -1270,10 +1272,7 @@ export class HybridQueryEngine implements QueryEngine {
           qualifyBase: (column) => qualify(column),
           applyAliasScope: async (target: any, alias: string) => applyAliasScopes(target as AnyBuilder, alias),
           applyFilterOp: (target, column, op, value) => applyJoinFilterOpFn(target as AnyBuilder, column, op, value),
-          applyJoinFilterOp: async (target, filter, qualified, join) => {
-            const applied = await applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join)
-            return { applied, builder: target }
-          },
+          applyJoinFilterOp: applyJoinSearchFilterOp,
           columnExists: (tbl, column) => this.columnExists(tbl, column),
         })
         return next
@@ -1368,10 +1367,7 @@ export class HybridQueryEngine implements QueryEngine {
           qualifyBase: (column) => qualify(column),
           applyAliasScope: async (target: any, alias: string) => applyAliasScopes(target as AnyBuilder, alias),
           applyFilterOp: (target, column, op, value) => applyJoinFilterOpFn(target as AnyBuilder, column, op, value),
-          applyJoinFilterOp: async (target, filter, qualified, join) => {
-            const applied = await applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join)
-            return { applied, builder: target }
-          },
+          applyJoinFilterOp: applyJoinSearchFilterOp,
           columnExists: (tbl, column) => this.columnExists(tbl, column),
         })
         return next
@@ -1773,15 +1769,6 @@ export class HybridQueryEngine implements QueryEngine {
     }
   }
 
-  /**
-   * Adds a WHERE EXISTS / OR WHERE EXISTS subquery that matches
-   * `search_tokens` for the supplied (entity, field) against the
-   * provided record id column.
-   *
-   * Returns true when the sub-query was applied (i.e. tokens were
-   * non-empty). Caller is responsible for the calling context
-   * (direct where vs. inside `eb.or([...])`).
-   */
   private applySearchTokens(
     q: AnyBuilder,
     opts: {
@@ -1791,62 +1778,26 @@ export class HybridQueryEngine implements QueryEngine {
       recordIdColumn: string
       tenantId?: string | null
       organizationScope?: { ids: string[]; includeNull: boolean } | null
-      combineWith?: 'and' | 'or'
       mintAlias: () => string
     }
-  ): boolean {
+  ): { applied: boolean; builder: AnyBuilder } {
     if (!opts.hashes.length) {
       this.logSearchDebug('search:skip-no-hashes', {
         entity: opts.entity, field: opts.field,
         tenantId: opts.tenantId ?? null, organizationScope: opts.organizationScope,
       })
-      return false
+      return { applied: false, builder: q }
     }
-    const alias = opts.mintAlias()
     this.logSearchDebug('search:apply-search-tokens', {
-      entity: opts.entity, field: opts.field, alias,
-      tokenCount: opts.hashes.length,
-      tenantId: opts.tenantId ?? null,
-      organizationScope: opts.organizationScope,
-      combineWith: opts.combineWith ?? 'and',
+      entity: opts.entity, field: opts.field, tokenCount: opts.hashes.length,
+      tenantId: opts.tenantId ?? null, organizationScope: opts.organizationScope,
     })
 
-    const engine = this
-    const buildSub = (eb: any) => {
-      let sub = eb
-        .selectFrom(`search_tokens as ${alias}`)
-        .select(sql<number>`1`.as('one'))
-        .where(`${alias}.entity_type`, '=', opts.entity)
-        .where(`${alias}.field`, '=', opts.field)
-        .where(sql<boolean>`${sql.ref(`${alias}.entity_id`)} = ${sql.ref(opts.recordIdColumn)}::text`)
-        .where(`${alias}.token_hash`, 'in', opts.hashes)
-        .groupBy([`${alias}.entity_id`, `${alias}.field`])
-        .having(sql<boolean>`count(distinct ${sql.ref(`${alias}.token_hash`)}) >= ${opts.hashes.length}`)
-      if (opts.tenantId !== undefined) {
-        sub = sub.where(sql<boolean>`${sql.ref(`${alias}.tenant_id`)} is not distinct from ${opts.tenantId ?? null}`)
-      }
-      if (opts.organizationScope) {
-        sub = engine.applyOrganizationScope(sub, `${alias}.organization_id`, opts.organizationScope)
-      }
-      return sub
+    return {
+      applied: true,
+      builder: q.where((expressionBuilder: ExpressionBuilder<Record<string, unknown>, string>) =>
+        expressionBuilder.exists(this.buildSearchTokensSub(expressionBuilder, opts))),
     }
-
-    if (opts.combineWith === 'or') {
-      // When called inside an .or([...]) array the caller supplied `eb`.
-      // `q` is the ExpressionBuilder callable (eb) itself in that case.
-      // We return the expression node rather than mutating q.
-      ;(q as any).__pendingOrExists = buildSub(q)
-      return true
-    }
-
-    // Default: append WHERE EXISTS (...) to the outer builder.
-    ;(q as any).__applied = true
-    const built = buildSub(q)
-    // If q is a Kysely builder (has .where), use eb => eb.exists(sub)
-    if (typeof q.where === 'function') {
-      ;(q as any) = q.where((eb: any) => eb.exists(built))
-    }
-    return true
   }
 
   /** SQL fragment for `cf:<key>` (or legacy bare key) as JSON across a single alias. */
@@ -3136,11 +3087,8 @@ export class HybridQueryEngine implements QueryEngine {
 
   private async columnExists(table: string, column: string): Promise<boolean> {
     const key = `${table}.${column}`
-    if (this.columnCache.has(key)) {
-      const cached = this.columnCache.get(key)
-      if (cached === true) return true
-      this.columnCache.delete(key)
-    }
+    const cached = this.columnCache.get(key)
+    if (cached) return cached.present
     const db = this.getDb() as any
     const exists = await db
       .selectFrom('information_schema.columns')
@@ -3150,8 +3098,7 @@ export class HybridQueryEngine implements QueryEngine {
       .where('column_name', '=', column)
       .executeTakeFirst()
     const present = !!exists
-    if (present) this.columnCache.set(key, true)
-    else this.columnCache.delete(key)
+    this.columnCache.set(key, { present })
     return present
   }
 

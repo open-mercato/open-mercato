@@ -22,6 +22,7 @@ const mockQE = {
 // Entity ids the fake ORM metadata knows about, keyed by the class name the
 // resolver derives from the id's entity segment.
 const registeredTables: Record<string, string> = {
+  CatalogProductVariant: 'catalog_product_variants',
   CustomerEntity: 'customer_entities', CustomerPersonProfile: 'customer_person_profiles', SalesOrder: 'sales_orders', User: 'users',
 }
 
@@ -56,7 +57,7 @@ jest.mock('@open-mercato/core/modules/entities/lib/entityClassification', () => 
   }),
 }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  getModules: () => [{ customEntities: [{ id: 'customers:customer_entity', labelField: 'title' }, { id: 'customers:customer_person_profile', labelField: 'displayName' }, { id: 'third_party:entry', labelField: 'externalReference' }] }],
+  getModules: () => [{ customEntities: [{ id: 'customers:customer_entity', labelField: 'title' }, { id: 'customers:customer_person_profile', labelField: 'displayName' }, { id: 'catalog:catalog_product_variant', labelField: 'sku' }, { id: 'third_party:entry', labelField: 'externalReference' }] }],
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 
@@ -93,6 +94,20 @@ describe('GET /api/entities/relations/options', () => {
         page: { page: 1, pageSize: 2 },
       }),
     )
+  })
+
+  it('allows a non-superadmin with catalog view authority to look up declared variants', async () => {
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false })
+
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=catalog:catalog_product_variant'))
+
+    expect(response.status).toBe(200)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['catalog.products.view'], { tenantId: 't1', organizationId: 'org' })
+    expect(mockQE.query).toHaveBeenCalledWith('catalog:catalog_product_variant', expect.objectContaining({
+      tenantId: 't1',
+      organizationId: 'org',
+      fields: ['id', 'sku'],
+    }))
   })
 
   it('uses the selected organization for target permissions and relation records', async () => {

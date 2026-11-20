@@ -4860,12 +4860,15 @@ const FieldControl = React.memo(function FieldControlImpl({
     : value == null
       ? ''
       : String(value)
+  const singleSelectOptions = hasLoader && optionLoadState !== 'ready'
+    ? builtin?.options ?? EMPTY_OPTIONS
+    : options
   const singleSelectOptionsKey = React.useMemo(
-    () => options.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
-    [options],
+    () => singleSelectOptions.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
+    [singleSelectOptions],
   )
   const singleSelectLabel = singleSelectValue
-    ? options.find((option) => option.value === singleSelectValue)?.label
+    ? singleSelectOptions.find((option) => option.value === singleSelectValue)?.label
     : undefined
 
   // Fields rendering a single focusable control get a real htmlFor/id pair;
@@ -5119,7 +5122,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             }
             setValue(field.id, next)
           }}
-          disabled={disabled || readOnly || (hasLoader && optionLoadState !== 'ready')}
+          disabled={disabled || readOnly || (hasLoader && optionLoadState !== 'ready' && singleSelectOptions.length === 0)}
         >
           <SelectTrigger id={controlId} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
@@ -5127,17 +5130,12 @@ const FieldControl = React.memo(function FieldControlImpl({
             </SelectValue>
           </SelectTrigger>
           <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[var(--radix-select-content-available-width)]">
-            {hasLoader && optionLoadState === 'ready' && options.length === 0 ? (
-              <div role="status" className="px-2 py-1 text-sm text-muted-foreground">
-                {t('ui.forms.select.noOptions')}
-              </div>
-            ) : null}
             {!field.required && value != null && value !== '' && (
               <SelectItem value={SELECT_CLEAR_SENTINEL}>
                 {t('ui.forms.select.clearOption', '— Clear —')}
               </SelectItem>
             )}
-            {options
+            {singleSelectOptions
               .filter((opt) => opt.value !== '')
               .map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>

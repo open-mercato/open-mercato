@@ -27,6 +27,12 @@ export const metadata = {
 
 const ALLOWED_ROUTE_CONTEXT_FIELDS = new Set(['kind', 'entity_id', 'product_id'])
 
+const DECLARED_RELATION_VIEW_FEATURES: ReadonlyMap<string, string> = new Map([
+  ['catalog:catalog_product_variant', 'catalog.products.view'],
+  ['catalog:catalog_product_price', 'catalog.products.view'],
+  ['example:todo', 'example.todos.view'],
+])
+
 const logger = createLogger('entities')
 
 export async function GET(req: Request) {
@@ -92,15 +98,22 @@ export async function GET(req: Request) {
     scope,
   ))) return forbidden()
 
+  const declaredViewFeature = classification.kind === 'system' && declared && !requirement
+    ? DECLARED_RELATION_VIEW_FEATURES.get(entityId)
+    : undefined
   try {
-    await assertEntityAclForRequest({
-      auth: scopedAuth,
-      entityId,
-      action: 'view',
-      isCustomEntity: classification.kind === 'custom',
-      isRestricted: classification.restricted || declared?.accessRestricted === true,
-      rbac,
-    })
+    if (declaredViewFeature) {
+      if (!await rbac.userHasAllFeatures(auth.sub, [declaredViewFeature], scope)) return forbidden()
+    } else {
+      await assertEntityAclForRequest({
+        auth: scopedAuth,
+        entityId,
+        action: 'view',
+        isCustomEntity: classification.kind === 'custom',
+        isRestricted: classification.restricted || declared?.accessRestricted === true,
+        rbac,
+      })
+    }
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     throw error

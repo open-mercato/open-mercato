@@ -12,6 +12,7 @@ These changes close row-level leaks and wrong results in the shared CRUD factory
 - **Sortable columns (#9548).** List routes whose `sortFieldMap` lacked keys the backend tables send (WMS, deals, staff, resources, planner, catalog products, company/person pickers) map them now, so those columns sort on the server again under the sort-map boundary (#3827).
 - **Empty `in` / `not in` (#7637).** Join-column, custom-field and index-doc filters with an empty list compile to never-match / match-all instead of invalid SQL.
 - **Search on plaintext columns (#5803).** With `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` off (default), a search-token match on a column the encryption map reports as plaintext must also contain each search word (case- and accent-folded), so `?search=2026-08` no longer returns `2026-01`. Encrypted columns are unchanged. The folding uses Postgres `normalize()`, which requires a UTF8 database (PostgreSQL 13+).
+
 ## `sync_akeneo` no longer requires `sales` (#9211)
 
 `sync_akeneo` now declares `requires: ['integrations', 'data_sync', 'catalog', 'progress']`.
@@ -75,7 +76,9 @@ operator cleanup. No schema migration is required.
 
 ## Relation options and explicit global query scope (#9106)
 
-Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized scoped custom labels and declared module labels remain available; metadata permission alone no longer grants system-record access.
+Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized callers can read scoped custom labels and declared module labels. Declared system targets without a mapped read feature require a superadmin.
+
+For stored relation fields, edit the field configuration and remove the `labelField` query parameter from the existing `optionsUrl` to use the target’s default label. Keep the other query parameters. If the field needs a specific label, use a label declared by the owning module or the custom entity definition.
 
 Module authors querying a table with neither `tenant_id` nor `organization_id` must explicitly use the existing trusted `omitAutomaticTenantOrgScope: true` option and enforce their own visibility filters. Never bind that option to a request parameter. Operators should review metadata-only roles that relied on excessive access and audit unintended secret or cross-tenant reads. No persisted data, migrations, startup options or configuration formats change. The security exception needs named human-maintainer acknowledgment before merge; automation does not supply it. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
 
