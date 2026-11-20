@@ -138,7 +138,7 @@ export function EntityFilterPopover({
   const headerTitle = title ?? translateWithFallback(
     t,
     'customers.deals.kanban.filter.title',
-    'Filter · {label}',
+    'Filter: {label}',
     { label },
   )
 

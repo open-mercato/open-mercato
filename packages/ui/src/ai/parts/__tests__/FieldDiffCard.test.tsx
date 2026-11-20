@@ -15,6 +15,76 @@ const dict = {
 }
 
 describe('FieldDiffCard', () => {
+  it.each([null, undefined, ''])('hides an empty dealId row beside a comment edit (before: %s)', (before) => {
+    renderWithProviders(
+      <FieldDiffCard fieldDiff={[
+        { field: 'dealId', before, after: '' },
+        { field: 'body', before: 'old', after: 'new 2' },
+      ]} />,
+      { dict },
+    )
+
+    expect(screen.queryByText('dealId')).not.toBeInTheDocument()
+    expect(screen.getByText('old')).toBeInTheDocument()
+    expect(screen.getByText('new 2')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-ai-field-diff-row]')).toHaveLength(1)
+  })
+
+  it('keeps additions, clears, false, zero and distinct values with the same display label', () => {
+    renderWithProviders(
+      <FieldDiffCard fieldDiff={[
+        { field: 'addition', before: null, after: 'New value' },
+        { field: 'clear', before: 'Old value', after: '' },
+        { field: 'enabled', before: null, after: false },
+        { field: 'count', before: '', after: 0 },
+        { field: 'stage', before: 'id-1', after: 'id-2', beforeDisplay: 'Same label', afterDisplay: 'Same label' },
+      ]} />,
+      { dict },
+    )
+
+    expect(document.querySelectorAll('[data-ai-field-diff-row]')).toHaveLength(5)
+    expect(screen.getByText('New value')).toBeInTheDocument()
+    expect(screen.getByText('Old value')).toBeInTheDocument()
+    expect(screen.getByText('false')).toBeInTheDocument()
+    expect(screen.getByText('0')).toBeInTheDocument()
+    expect(screen.getAllByText('Same label')).toHaveLength(2)
+  })
+
+  it('shows the empty state when all single-record rows are empty', () => {
+    renderWithProviders(
+      <FieldDiffCard fieldDiff={[{ field: 'dealId', before: '', after: null }]} />,
+      { dict },
+    )
+
+    expect(screen.getByText('No field changes for this record.')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('filters empty rows in batch previews and retains each record and its empty state', () => {
+    renderWithProviders(
+      <FieldDiffCard
+        fieldDiff={[{ field: 'ignoredFlatField', before: 'a', after: 'b' }]}
+        records={[
+          { recordId: 'comment-1', entityType: 'customers.comment', label: 'Comment 1', fieldDiff: [
+            { field: 'dealId', before: null, after: '' },
+            { field: 'body', before: 'old', after: 'new 2' },
+          ] },
+          { recordId: 'comment-2', entityType: 'customers.comment', label: 'Comment 2', fieldDiff: [
+            { field: 'dealId', before: '', after: undefined },
+          ] },
+        ]}
+      />,
+      { dict },
+    )
+
+    expect(screen.queryByText('dealId')).not.toBeInTheDocument()
+    expect(screen.queryByText('ignoredFlatField')).not.toBeInTheDocument()
+    expect(screen.getByText('new 2')).toBeInTheDocument()
+    expect(screen.getByText('Comment 2')).toBeInTheDocument()
+    expect(screen.getByText('No field changes for this record.')).toBeInTheDocument()
+    expect(document.querySelectorAll('[data-ai-field-diff-row]')).toHaveLength(1)
+  })
+
   it('renders before/after cells using semantic token classes', () => {
     renderWithProviders(
       <FieldDiffCard
