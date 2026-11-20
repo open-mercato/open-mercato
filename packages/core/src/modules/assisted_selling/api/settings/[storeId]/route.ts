@@ -115,10 +115,6 @@ async function respondWithError(err: unknown, fallbackKey: string, code: string)
   if (isCrudHttpError(err)) {
     return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
   }
-  const interceptorRejection = getCommandInterceptorHttpRejection(err)
-  if (interceptorRejection) {
-    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-  }
   if (err instanceof z.ZodError) {
     return NextResponse.json(
       { error: translate('assisted_selling.errors.invalidInput', 'Invalid input'), issues: err.issues },
@@ -196,6 +192,10 @@ export async function PUT(req: Request, routeCtx: RouteParams) {
       },
     })
   } catch (err) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return respondWithError(err, 'assisted_selling.errors.save_failed', 'assisted_selling.settings.put')
   }
 }
