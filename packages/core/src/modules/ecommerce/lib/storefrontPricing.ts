@@ -1,4 +1,13 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import {
+  addDecimals,
+  decimalToNumber,
+  divideDecimals,
+  multiplyDecimals,
+  parseDecimal,
+  roundDecimal,
+  type DecimalInput,
+} from '@open-mercato/shared/lib/decimal'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -127,11 +136,6 @@ function tryResolve<T>(container: StorefrontPricingContainer, name: string): T |
   }
 }
 
-function roundAmount(value: number): number {
-  const factor = 10 ** AMOUNT_PRECISION
-  return Math.round(value * factor) / factor
-}
-
 function parseAmount(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined || value === '') return null
   const numeric = typeof value === 'number' ? value : Number(value)
@@ -189,9 +193,10 @@ export function selectStorefrontTaxRate(
   return pick(active.filter((rate) => !rate.customerGroupId))
 }
 
-function deriveSide(other: number, ratePercent: number, target: EcommercePriceDisplayMode): number {
-  const factor = 1 + ratePercent / 100
-  return roundAmount(target === 'gross' ? other * factor : other / factor)
+function deriveSide(other: DecimalInput, ratePercent: DecimalInput, target: EcommercePriceDisplayMode): number {
+  const factor = addDecimals(1, divideDecimals(ratePercent, 100))
+  const derived = target === 'gross' ? multiplyDecimals(other, factor) : divideDecimals(other, factor)
+  return decimalToNumber(roundDecimal(derived, AMOUNT_PRECISION))
 }
 
 type AmountSource = {
@@ -211,9 +216,9 @@ type PageRuntime = {
 async function selectAmount(runtime: PageRuntime, source: AmountSource): Promise<number | null> {
   const wanted = parseAmount(runtime.taxMode === 'gross' ? source.gross : source.net)
   if (wanted !== null) return wanted
-  const other = parseAmount(runtime.taxMode === 'gross' ? source.net : source.gross)
+  const other = parseDecimal(runtime.taxMode === 'gross' ? source.net : source.gross)
   if (other === null) return null
-  const rowRate = parseAmount(source.rowTaxRate)
+  const rowRate = parseDecimal(source.rowTaxRate)
   const rate = rowRate ?? (await runtime.fallbackRate())
   if (rate === null) return null
   return deriveSide(other, rate, runtime.taxMode)
