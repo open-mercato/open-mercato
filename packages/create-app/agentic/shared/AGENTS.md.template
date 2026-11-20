@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}} — Standalone App Agent Rules
 
-Route first; skip unmatched context.
+Route first.
 
 ## Always
 
@@ -40,6 +40,8 @@ Route production deployment/go-live/security-readiness to `architecture` + `.ai/
 
 Select all matches on all axes.
 
+CrudForm section policy: `umes` → `extension-branches` → `form-sections.ts`. Hide/default/mask only: `umes`.
+
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
 `debugging` = reported bug/security/drift, not designed failure UI. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
@@ -64,11 +66,11 @@ Existing installed form/table fields, filters, row/bulk actions without app pers
 | `ai-workflow` | Agent/tool/MCP/orchestrator/durable workflow | `.ai/guides/ai-workflows.md` + facts; schedules/queues/workers/retries/progress alone are `module-data` |
 | `debugging` | Bug/security/drift/runtime inconsistency | `.ai/guides/testing-debugging.md` + affected areas |
 
-API/command/record/status/event/UI changes/guards = `umes`; app persistence = `module-data`; installed guard without app persistence = `umes` only, so do not load contracts; read-only behavior/auth/dependents/customization = `framework-context` (alone: no extensions guide; report `installed-version`). Facts do not. Providers are published, never `packages/*`.
+API/command/record/status/event/UI changes/guards = `umes`; app persistence = `module-data`; installed guard without app persistence = `umes` only, so do not load contracts; read-only behavior/auth/dependents/customization = `framework-context` (alone: no extensions guide; report `installed-version`). Providers are published, never `packages/*`.
 
 ### Axis 2 — Work Units
 
-Read matched skills before selection.
+Read matched skills.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
@@ -108,11 +110,9 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Load matched guides once; only needed references/facts.
-- Budget order: guide > skill > references; only subject-matched references.
+- Read matched guides once, then skills and relevant references/facts.
 - `spec-pr` reads template via spec-delivery.
-- Inspect app call sites before bounded `framework-context`.
-- Additive page/form/table/conflict UI skips it.
+- Inspect app call sites before bounded `framework-context`. Skip it for additive page/form/table/conflict UI.
 - Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
