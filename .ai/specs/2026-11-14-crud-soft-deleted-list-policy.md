@@ -20,6 +20,13 @@ No database or response-schema changes. No route, method, ACL, event, or depende
 
 The new optional property is additive. Existing route definitions compile unchanged and enforce the documented default-hidden policy. A route intentionally exposing deleted rows must set `list.allowWithDeleted: true`; its existing authentication and scope checks still apply. A query string alone, including a schema-declared parameter, cannot grant this capability. Operators need no environment, startup, or database changes. Old cache entries expire normally and are unreachable through the new policy-specific keys.
 
+The generic records API explicitly published `withDeleted`, so removing its effect
+changes a successful public request. A security exception is proposed in
+`BACKWARD_COMPATIBILITY.md`: retaining the old query behavior would retain ordinary
+viewers' access to retracted notes and deleted PII. Client/operator migration is in
+`UPGRADE_NOTES.md`. Named human maintainer acceptance and current-head personal QA
+remain required; an automatic review or risk override does not provide either.
+
 ## Risks & Impact Review
 
 Deleted-row recovery routes must explicitly opt in. Cache isolation prevents stale disclosure after rollout. Exports and fallback queries must follow the same policy as ordinary lists; handler-level regression tests cover each path. This change does not grant access to records outside the existing tenant or organization scope.
@@ -31,3 +38,5 @@ Deleted-row recovery routes must explicitly opt in. Cache isolation prevents sta
 ## Changelog
 
 - 2026-11-14: Implemented route-owned deletion visibility and regression coverage; deployment and required CI remain subject to PR gates.
+
+- 2026-11-20: Narrowed raw interceptor query tokens, supplied fixture indexers, and documented the proposed public-query security exception and pending human acceptance.

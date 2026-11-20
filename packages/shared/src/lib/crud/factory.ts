@@ -1695,7 +1695,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ...rawQueryParams,
         ...(interceptorRequest.query ?? {}),
       } as Record<string, unknown>
-      const withDeleted = opts.list.allowWithDeleted === true && parseBooleanToken(queryParams.withDeleted) === true
+      const withDeleted = opts.list.allowWithDeleted === true
+        && typeof queryParams.withDeleted === 'string'
+        && parseBooleanToken(queryParams.withDeleted) === true
       const parsedIds = parseIdsParam(queryParams.ids)
       const idsParamProvided = isIdsParamProvided(queryParams.ids)
 

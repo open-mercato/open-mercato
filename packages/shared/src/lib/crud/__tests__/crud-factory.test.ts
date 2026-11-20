@@ -334,6 +334,7 @@ describe('CRUD Factory', () => {
       return makeCrudRoute({
         metadata: { GET: { requireAuth: true } },
         orm: { entity: Todo, orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
         list: {
           schema: z.object({ withDeleted: z.string().optional() }),
           allowWithDeleted,
@@ -378,6 +379,38 @@ describe('CRUD Factory', () => {
       const response = await makeDeletedRoute(true).GET(new Request(`http://x/api/example/todos?withDeleted=${token}`))
       expect(response.status).toBe(200)
       expect((await response.json()).items).toEqual(expected ? [liveRow, deletedRow] : [liveRow])
+    })
+
+    it.each([true, 1, ['true'], { value: 'true' }, null])('ignores non-string withDeleted values supplied by an interceptor: %j', async (withDeleted) => {
+      registerApiInterceptors([{
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.rewrite-deletion-flag',
+          targetRoute: 'example/todos',
+          methods: ['GET'],
+          async before() {
+            return { ok: true, query: { withDeleted } }
+          },
+        }],
+      }])
+      const interceptedRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: z.object({ withDeleted: z.unknown().optional() }),
+          allowWithDeleted: true,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'deleted_at'],
+        },
+      })
+      queueDeletedRows()
+
+      const response = await interceptedRoute.GET(new Request('http://x/api/example/todos?withDeleted=true'))
+
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: false }))
     })
 
     it('keeps deleted rows hidden on an opted-in route when the flag is absent', async () => {
