@@ -10,6 +10,11 @@ earlier document, not part of this spec; PR #5972), [Posting Rules Engine](2026-
 (an independent downstream consumer of the same `ledger.journal_entry.posted`
 event this spec's depreciation postings emit — see Architecture → Events; PR #6015)
 
+> **Review status (2026-11-20).** This is a design-only revision.
+> Implementation still requires the accounting, financial and security
+> decisions and ledger prerequisites recorded below, plus independent
+> review and human QA where required.
+
 ## TLDR
 
 **Key Points:**
@@ -385,10 +390,10 @@ before computing `netBookValueAtDisposal`. The catch-up entries keep
 individually and cannot be rolled back by a later disposal failure), and
 the disposal posting itself is a separate transaction; the preflight is
 what prevents a missing account from being discovered only after real
-accrual entries have already committed. A non-lock catch-up failure stops
-disposal after the catch-up run; it never posts the disposal entry. Failure
-surfaces the disposal as not performed, with the already-posted catch-up
-accruals and failures reported in the response. A due entry whose covering
+accrual entries have already committed. A confirmed catch-up failure or
+an unresolved catch-up commit stops disposal before its final transaction.
+The response reports the disposal as not performed and preserves the known
+catch-up results (see API Contracts). A due entry whose covering
 `FiscalPeriod` is locked is skipped exactly as `accrueDepreciation` would
 skip it; `disposeAsset` then proceeds using whatever accrued total
 actually exists at that point (the same actual-not-planned basis as
@@ -404,10 +409,9 @@ routine data-entry error, not an edge case, and disposing a wrongly
 -accepted asset just to fix a typo would falsely record a real disposal
 event that never happened. `reopenFixedAsset` reverts `ACTIVE` → `DRAFT`,
 permitted only while **zero** `DepreciationScheduleEntry` rows for the
-asset have `accruedAt` set (i.e. nothing from its schedule has ever
-posted to `ledger`) and no `AssetImpairment` history exists for the asset,
-including fully reversed losses — the same "immutable once real history exists"
-boundary this spec uses everywhere else. It calls `ledger.
+asset have `accruedAt` set (any completed schedule period, including a
+zero-value completion, makes reopen ineligible) and no `AssetImpairment`
+history exists for the asset, including fully reversed losses. It calls `ledger.
 reverseJournalEntry` against the capitalization entry (never mutating or
 deleting it — the "reversal, not undo" posture #5663 established),
 deletes the still-unaccrued `DepreciationScheduleEntry` rows, and clears
@@ -1004,9 +1008,11 @@ market doesn't need.
   Design Decisions, Commands).
 - `DepreciationScheduleEntry` — `assetId` (FK-id to `FixedAsset`),
   `periodStartDate`, `periodEndDate`, `plannedAmount` (`numeric(19,4)`),
-  `accruedAt` (nullable — null until posted), `journalEntryReferenceId`
+  `accruedAt` (nullable — null until the row completes), `journalEntryReferenceId`
   (nullable FK-id to `ledger.JournalEntry.id`, set atomically with
-  `accruedAt`), tenant/org scoped. Generated in full by `acceptFixedAsset`;
+  `accruedAt` for a positive posting), tenant/org scoped. A completed
+  zero-value row has `accruedAt` set and a null journal reference.
+  Generated in full by `acceptFixedAsset`;
   rows with `accruedAt IS NULL` may be deleted and regenerated only while
   the asset is still `ACTIVE` and unposted (e.g. after a correction to a
   not-yet-effective schedule) — never after `accruedAt` is set, matching
@@ -1188,15 +1194,42 @@ An initial scan is only a candidate list. After acquiring the lock, re-read
 the tenant/org-scoped asset, status, version, schedule row and relevant
 history, totals, reversal cap, account and period state in the transaction
 that uses them. An entry already accrued, deleted by regeneration, or no
-longer eligible is skipped, not posted. Serialize the ledger post and local
+longer eligible is skipped without posting. Serialize the ledger post and local
 row/status changes in that same transaction; on failure roll both back.
 Optimistic headers are checked after lock acquisition and before any
 catch-up; disposal's own committed updates must not conflict with its own
 header. A disposal re-reads its status, accounts and disposal period before
 its final posting, because its preflight precedes separate committed transactions.
 Timeouts or an unknown commit outcome require reconciliation by reading
-persisted schedule/disposal and ledger references before retrying; never
-report an uncertain entry as definitely failed or blindly repost it.
+persisted schedule/disposal and ledger references before retrying. For a
+lost schedule-entry commit acknowledgement, stop processing that asset in
+this request. If the server can respond, report the entry as `unresolved`
+with its schedule ID and no journal ID. Keep the results of entries whose
+commits were acknowledged. An accrual batch may continue on other assets
+using a healthy connection. Disposal must return before computing final
+amounts, allocating an LT number or attempting the final transaction.
+
+Reconciliation on retry uses committed state from the primary under a
+fresh scoped asset lock, after the interrupted session has released its
+lock. As a write precondition, disposal verifies schedule/ledger consistency
+for the asset's scoped schedule, including rows outside the new catch-up
+date. Standalone accrual verifies the candidate before deciding whether to
+post. Reconcile the schedule row and ledger linkage together. For a positive row, a completed row with its
+matching scoped journal proves it has posted. For a zero row, a completed
+row with no journal proves it completed without posting. A still-pending
+row with no matching journal is eligible for normal processing once the
+earlier transaction has settled. Use the persisted reference for
+`ONE_TIME` rows and the scoped schedule-entry reference tuple to check
+the straight-line posting. A non-unique or unverified journal match
+fails reconciliation. A candidate removed while pending by a
+legitimate regeneration is no longer eligible. Under the shared transaction
+and completed-row immutability rules, a committed posting or completion
+cannot disappear through regeneration. Refuse further writes if the
+authoritative read or lock fails, the scope cannot be verified, or
+schedule and ledger evidence disagree. Never infer rollback from an
+unavailable, stale or empty read alone, or infer a particular attempt's
+outcome from an intervening writer's successful result. Recheck normal
+eligibility and all preflights before any fresh mutation.
 
 - `createAssetClass` / `updateAssetClass` — standard CRUD. Requires
   `fixed_assets.classes.manage`.
@@ -1292,26 +1325,28 @@ a validation failure returns the standard 400 shape (see API Contracts).
   single `assetId` to scope to one asset), finds every `ACTIVE`,
   non-`ONE_TIME` asset's `DepreciationScheduleEntry` rows with
   `accruedAt IS NULL` and `periodEndDate <= asOf`, in pages of 500 (see
-  Risk Register, "Unbounded accrual scan at scale"). **Each schedule entry is processed in its
-  own transaction** — one entry's failure never rolls back or blocks
-  already-processed entries earlier in the same run, and a run over many
-  assets is not one giant all-or-nothing transaction. For each entry:
-  checks the covering `FiscalPeriod.isLocked` *before* attempting to post
-  (resolves the prior open Design Decision — see above); if locked, the
-  entry is skipped and reported back as skipped, not failed. If unlocked,
-  calls `ledger.postJournalEntry` (type `NORMAL`, `referenceType:
-  'FixedAssetDepreciationScheduleEntry'`, `referenceId: entry.id`)
-  debiting `ledgerDepreciationExpenseAccountId` and crediting
-  `ledgerAccumulatedDepreciationAccountId` for `plannedAmount`, then sets
-  `accruedAt`/`journalEntryReferenceId` on the entry in the same
-  transaction as the post (idempotent: a retried call only ever selects
-  rows still matching `accruedAt IS NULL`, so a partial-failure retry
-  cannot double-post — see Risk Register). A `postJournalEntry` failure
-  for a reason other than a locked period (an unexpected validation
-  error) is caught per-entry and reported in a third bucket, `failed`,
-  rather than aborting the rest of the run (see API Contracts). If an
-  asset's last schedule entry is accrued, sets `FixedAsset.status =
-  'FULLY_DEPRECIATED'`. Requires `fixed_assets.depreciation.accrue`.
+  Risk Register, "Unbounded accrual scan at scale"). Process each entry
+  in its own transaction. Each earlier commit survives a later failure.
+  Recheck `FiscalPeriod.isLocked` under the period lock before either
+  kind of completion. A locked entry stays pending and is reported in
+  `skippedLockedPeriod`.
+  For a positive `plannedAmount`, call `ledger.postJournalEntry` (type
+  `NORMAL`, `referenceType: 'FixedAssetDepreciationScheduleEntry'`,
+  `referenceId: entry.id`) debiting `ledgerDepreciationExpenseAccountId`
+  and crediting `ledgerAccumulatedDepreciationAccountId` for that amount.
+  Store `accruedAt` and `journalEntryReferenceId` in that transaction. For an exactly zero
+  `plannedAmount`, set `accruedAt` in the same per-entry transaction and
+  leave `journalEntryReferenceId` null. Emit no journal or ledger-posted
+  event, and report this as `completedWithoutPosting`. The pinned ledger
+  requires a strictly positive debit or credit on each line
+  ([line constraint](https://github.com/open-mercato/open-mercato/blob/61bc044f43c7d8db963849fc16c1734a9795dacf/.ai/specs/2026-08-18-general-ledger-core-engine.md#L335-L344)).
+  A confirmed non-lock rollback goes in `failed`. An unacknowledged commit
+  goes in `unresolved` and interrupts processing for this asset (see
+  Financial-write serialization). Under the asset lock, set
+  `FixedAsset.status = 'FULLY_DEPRECIATED'` in the transaction that
+  completes the last pending row, including a zero row. Any pending row,
+  including a locked earlier row, keeps the asset `ACTIVE`. Requires
+  `fixed_assets.depreciation.accrue`.
 - `disposeAsset` — given `assetId`, `disposalDate`, `disposalType`, and
   (for `SALE`) `proceedsAmount`: rejects unless `status` is `ACTIVE` or
   `FULLY_DEPRECIATED` — the status-guard discipline the "Status
@@ -1336,11 +1371,12 @@ a validation failure returns the standard 400 shape (see API Contracts).
   **Posting-date preflight, also before any catch-up:** under the same
   exclusive `(tenantId, organizationId, assetId)` lock, re-read the
   authoritative committed history for this tenant/org/asset: the capitalization
-  journal entry from the **current successful acceptance**, every accrued
-  `DepreciationScheduleEntry` and every original or reversal
-  `AssetImpairment` row, including fully reversed impairments. Resolve
-  the schedule and impairment rows' `journalEntryReferenceId` values to the same tenant/org's committed
-  `ledger.JournalEntry` records and compare `disposalDate` with each
+  journal entry from the **current successful acceptance**, every
+  journal-linked `DepreciationScheduleEntry` and every original or reversal
+  `AssetImpairment` row, including fully reversed impairments. A completed
+  zero row has no journal date. Resolve journal references to the same
+  tenant/org's committed `ledger.JournalEntry` records and compare
+  `disposalDate` with each
   `JournalEntry.operationDate` (`journal_entries.operation_date`). Resolve the
   current acceptance's capitalization entry using its existing scoped ledger
   linkage (`type: 'NORMAL'`, `referenceType: 'FixedAsset'`,
@@ -1389,12 +1425,13 @@ a validation failure returns the standard 400 shape (see API Contracts).
   up to `disposalDate` (see Design Decisions, "always catches up
   due-but-unposted depreciation") — locked periods among the entries
   being caught up (as opposed to the disposal period itself, already
-  cleared above) are skipped and reported back to the caller in the
-  response (see API Contracts), not silently absorbed. If any catch-up
-  entry is in `failed`, stop without creating a disposal or posting its
-  ledger entry; return all three catch-up buckets. Computes
-  `accruedDepreciationTotal =
-  SUM(accrued DepreciationScheduleEntry.plannedAmount for this asset)`
+  cleared above) are skipped and reported back to the caller. If any
+  catch-up entry is in `failed` or `unresolved`, return the catch-up
+  summary without attempting final disposal. An unresolved commit also
+  ends any further catch-up for this request. Reconcile under the asset
+  lock before permitting a new attempt (see Financial-write serialization).
+  Computes `accruedDepreciationTotal =
+  SUM(journal-linked DepreciationScheduleEntry.plannedAmount for this asset)`
   (actual accrued total after the catch-up step, not the original planned
   schedule — see Design Decisions) and `netImpairmentTotal =
   SUM(AssetImpairment.lossAmount for this asset's original rows) -
@@ -1406,29 +1443,47 @@ a validation failure returns the standard 400 shape (see API Contracts).
   Design Decisions) isn't silently dropped from the disposal figures (see
   Risk Register, "Disposal net book value computed from the wrong basis").
   `netBookValueAtDisposal = baseAcquisitionValue - accruedDepreciationTotal -
-  netImpairmentTotal`. Posts one `ledger.postJournalEntry` (type
-  `NORMAL`, `referenceType: 'AssetDisposal'`, `referenceId` set after the
-  `AssetDisposal` row is allocated its `documentNumber`) debiting
-  `ledgerAccumulatedDepreciationAccountId` for `accruedDepreciationTotal`
-  **and, as a separate line, debiting**
-  `ledgerAccumulatedImpairmentAccountId` for `netImpairmentTotal` (two
-  lines, not one combined figure, since Design Decisions now keeps these
-  on two different accounts — `netImpairmentTotal` is skipped entirely,
-  posting no line for it, when it is exactly `0`, the common case of an
-  asset that was never impaired), crediting `ledgerAssetAccountId` for
-  the full `baseAcquisitionValue`, and booking `netBookValueAtDisposal` (net of
-  `proceedsAmount` for `SALE`) as a debit to
-  `FixedAssetSettings.otherOperatingExpenseAccountId` (loss) or a credit
-  to `otherOperatingIncomeAccountId` (gain) depending on sign — rejecting
-  if the relevant account is unset (see Design Decisions, Impairment,
-  which introduces these two settings fields); `SALE` additionally
-  debits `FixedAssetSettings.saleProceedsAccountId` for
-  `proceedsAmount`, rejecting if that account is unset (see Design
-  Decisions, Impairment, "Revised 2026-09-09 (cont.)" — the same guard posture as the
-  other two). Inserts the
-  `AssetDisposal` row (allocating `documentNumber` via the counter table)
-  and sets `FixedAsset.status = 'DISPOSED'`. Requires
-  `fixed_assets.disposals.manage`.
+  netImpairmentTotal`. Build the disposal journal with separate debits to
+  `ledgerAccumulatedDepreciationAccountId` and
+  `ledgerAccumulatedImpairmentAccountId` for their respective totals, a
+  credit to `ledgerAssetAccountId` for the full `baseAcquisitionValue`,
+  a gain/loss line (net book value less proceeds for `SALE`, debited to
+  `otherOperatingExpenseAccountId` for a loss or credited to
+  `otherOperatingIncomeAccountId` for a gain), and a `SALE` proceeds
+  debit to `saleProceedsAccountId`. Omit each line whose magnitude is exactly
+  zero, including either accumulated balance, a break-even gain/loss and a zero
+  proceeds debit if otherwise allowed by the input rules. The account
+  preflights still run. Zero-line omission changes no amount or sign.
+  Apply the ledger's existing line and balance validation to the remaining
+  journal and route a definite rejection through the final-post failure
+  contract. In the final transaction, insert the `AssetDisposal` row and
+  allocate its document number via the counter table, call
+  `ledger.postJournalEntry` with type `NORMAL`, `referenceType:
+  'AssetDisposal'` and the disposal row ID as `referenceId`, and set
+  `FixedAsset.status = 'DISPOSED'`. Requires `fixed_assets.disposals.manage`.
+- **Impairment posting dates.** Both impairment commands check chronology
+  under the common asset lock in the transaction that calculates carrying
+  value or the reversal cap, posts and regenerates the tail. For
+  `reverseImpairment`, first resolve the scoped original loss and its
+  journal. Refuse a `reversalDate` earlier than that journal's
+  `operationDate` with 409 `reversal_precedes_original_impairment`.
+  For both commands, reuse the authoritative scoped capitalization,
+  depreciation, loss and reversal date lookup described above. Refuse a
+  date earlier than any of those committed `operationDate` values with
+  409 `impairment_precedes_existing_posting`. This includes earlier
+  partial reversals of the same original and losses that are fully
+  reversed. A zero completion supplies no journal date. Propagate an
+  inconsistent capitalization lookup as `capitalization_history_inconsistent`.
+  If another required journal linkage cannot be verified, fail closed
+  with 409 `impairment_history_inconsistent`. These refusals expose no
+  journal IDs. A date equal to an applicable floor passes that check.
+  Run the checks before any new journal, history or schedule write. Use
+  booked rows and their amounts in the calculation and preserve completed
+  schedule rows. Never drop later postings from totals or rewrite them
+  to accept a backdate. A workflow to reconcile booked history or a rule
+  for choosing the basis and date of a due-but-unposted period earlier
+  than an impairment operation requires accounting approval before
+  implementing those cases.
 - `recognizeImpairment` — given `assetId`, `impairmentDate`,
   `triggerCategory`, `recoverableAmount`, and `reason`: rejects unless
   `FixedAsset.status` is `ACTIVE` or `FULLY_DEPRECIATED` — the same
@@ -1570,7 +1625,8 @@ scope is explicitly extended, which is a one-line change on that side
   mapped to `update`. URL: `/api/fixed_assets/assets/:id/dispose`.
 - `api/depreciation-schedule/route.ts` — read-only `makeCrudRoute` list
   (no `create`) over `DepreciationScheduleEntry`, filterable by `assetId`,
-  `accrued` (boolean — `accruedAt IS NULL`/`IS NOT NULL`). URL:
+  `accrued` (boolean, true when `accruedAt IS NOT NULL`, including
+  completion without posting). URL:
   `/api/fixed_assets/depreciation-schedule`.
 - `api/depreciation/accrue/route.ts` — custom write route → `accrueDepreciation`,
   mapped to `update`. URL: `/api/fixed_assets/depreciation/accrue`.
@@ -1670,7 +1726,7 @@ basis and current salvage estimate, initialized at acceptance; every derived fig
 reports (net book value, schedule totals, disposal gain/loss) uses them,
 not the transaction-currency inputs. `status` moves
 `DRAFT` → `ACTIVE` (via `acceptFixedAsset`) → `FULLY_DEPRECIATED` (via
-`accrueDepreciation`, automatic once the last schedule entry accrues) or
+`accrueDepreciation`, automatic when no pending schedule rows remain) or
 → `DISPOSED` (via `disposeAsset`, from either `ACTIVE` or
 `FULLY_DEPRECIATED`); `reopenFixedAsset` moves `ACTIVE` back to `DRAFT`,
 but only before any schedule entry has accrued and with no impairment
@@ -1679,10 +1735,13 @@ history (see Design Decisions).
 ### DepreciationScheduleEntry
 
 One row per depreciation period per asset, generated in full by
-`acceptFixedAsset` — never computed on read. `accruedAt`/
-`journalEntryReferenceId` are set together, atomically, by
-`accrueDepreciation` (or immediately by `acceptFixedAsset` itself for a
-`ONE_TIME` asset's single row). An unaccrued row (`accruedAt IS NULL`)
+`acceptFixedAsset` and persisted. A pending row has null `accruedAt` and
+`journalEntryReferenceId`. A positive posting sets both atomically
+(also at acceptance for the single `ONE_TIME` row). A due zero row in
+an unlocked period completes with `accruedAt` set and a null journal
+reference. Both forms of completion count for schedule status, reopen
+and regeneration guards. Only journal-linked rows contribute booked
+amounts and posting dates. An unaccrued row (`accruedAt IS NULL`)
 may be deleted and regenerated if the asset's schedule needs correction
 before that period is reached — three commands are sanctioned to do this
 after acceptance (see Design Decisions): `reviseDepreciationParameters`
@@ -1847,13 +1906,18 @@ Custom write route (`accrueDepreciation`), mapped to `update`.
   share the identical per-entry transaction, idempotent-selection and
   locked-period semantics — scoping only narrows the selection, it never
   changes how a single entry is posted or reported.
-- **Response 200**: `{ posted: { assetId, scheduleEntryId,
-  journalEntryReferenceId }[], skippedLockedPeriod: { assetId,
-  scheduleEntryId, periodId }[], failed: { assetId, scheduleEntryId,
-  error }[] }` — three lists, never a bare success boolean, so the caller
-  can act on partial completion (see UI/UX). `failed` covers a
-  `postJournalEntry` rejection for a reason other than a locked period;
-  it is expected to stay empty in normal operation.
+- **Response 200**: `AccrualResult` contains five disjoint arrays:
+  `posted: { assetId, scheduleEntryId, journalEntryReferenceId }[]`,
+  `completedWithoutPosting: { assetId, scheduleEntryId }[]`,
+  `skippedLockedPeriod: { assetId, scheduleEntryId, periodId }[]`,
+  `failed: { assetId, scheduleEntryId, error }[]`, and
+  `unresolved: { assetId, scheduleEntryId }[]`. Report only outcomes
+  observed by this request. `posted` and `completedWithoutPosting`
+  contain confirmed commits. `failed` covers confirmed rollbacks
+  other than locked periods. `unresolved` identifies missing commit
+  acknowledgements that require reconciliation. An unattempted row
+  belongs in none of the arrays. Emit sanitized errors and return only
+  identifiers from the authorized tenant/org scope.
 - **Response 400**: zod validation error.
 - **Response 403**: caller lacks `fixed_assets.depreciation.accrue`.
 
@@ -1872,26 +1936,31 @@ Custom write route (`disposeAsset`), mapped to `update`.
   of write `accept` already guards).
 - **Response 200**: `AssetDisposalDto` — `{ id, assetId, disposalDate,
   disposalType, proceedsAmount, netBookValueAtDisposal, documentNumber,
-  journalEntryReferenceId, catchUpAccrual: { posted: { scheduleEntryId,
-  journalEntryReferenceId }[], skippedLockedPeriod: { scheduleEntryId,
-  periodId }[] } }` — `catchUpAccrual` surfaces the pre-disposal accrual
-  step's own results (see Design Decisions) so a locked-period gap in the
-  final net book value is visible to the caller, not silently absorbed.
+  journalEntryReferenceId, catchUpAccrual }`. The catch-up summary uses
+  the five `AccrualResult` arrays without the redundant `assetId` on
+  their entries. Both `failed` and `unresolved` are empty on success.
 - **Response 400**: zod validation error.
-- **Response 422**: `{ code: 'disposal_catch_up_failed', disposalPerformed:
-  false, catchUpAccrual: { posted: { scheduleEntryId, journalEntryReferenceId
-  }[], skippedLockedPeriod: { scheduleEntryId, periodId }[], failed: {
-  scheduleEntryId, error }[] } }` when any catch-up entry fails. `posted`
-  contains only entries committed by this request. The disposal is not
-  attempted. A subsequent retry selects only still-unaccrued entries.
+- **Response 422**: `{ code: 'disposal_catch_up_failed',
+  disposalPerformed: false, catchUpAccrual }` for a confirmed catch-up
+  failure with no unresolved entries. Final disposal was never attempted.
+- **Response 409 (unresolved catch-up)**: `{ code:
+  'disposal_catch_up_outcome_unresolved', disposalPerformed: false,
+  catchUpAccrual }` if catch-up lost a commit acknowledgement. This
+  takes precedence over 422 if both arrays are nonempty. `unresolved`
+  names the affected schedule row with no journal ID. The other arrays
+  retain known results, including journal references for earlier confirmed
+  posts. The final disposal transaction never started. Before a fresh
+  submission can write, reconciliation must succeed under the scoped
+  asset lock as described in Commands.
 - **Response 500**: `{ code: 'disposal_post_failed', disposalPerformed:
-  false, catchUpAccrual: { posted, skippedLockedPeriod, failed: [] } }`
-  if the final disposal transaction definitively rolls back. A final
-  precondition rejection after catch-up uses 409 with its named code and
-  the same `disposalPerformed: false` and `catchUpAccrual` body. If commit
-  outcome is unknown or the response is lost, the client must refresh and
-  reconcile the asset, schedule and ledger before retrying; it must not
-  assert that disposal failed. Errors do not expose raw internal details.
+  false, catchUpAccrual }` if the final disposal transaction definitively
+  rolls back. A final precondition rejection after catch-up uses 409 with
+  its named code and the same `disposalPerformed: false` and summary.
+  These final-stage outcomes have empty `failed` and `unresolved` arrays.
+  An unacknowledged final commit or a lost disposal response cannot
+  establish `disposalPerformed: false`. The client must reconcile the
+  asset, disposal and ledger before retrying. Errors do not expose raw
+  internal details.
 - **Response 409**: `OptimisticLockConflictBody`; the asset's `status` is
   `DRAFT` or `DISPOSED` (distinct, named codes
   `cannot_dispose_inactive_asset` / `already_disposed` — a `DRAFT` asset
@@ -1911,7 +1980,8 @@ Custom write route (`disposeAsset`), mapped to `update`.
   step's own per-entry locked periods are reported in `catchUpAccrual`,
   not a 409. The posting-date refusal occurs before catch-up and returns
   `{ code: 'disposal_precedes_existing_posting', disposalPerformed: false,
-  catchUpAccrual: { posted: [], skippedLockedPeriod: [], failed: [] } }`;
+  catchUpAccrual: { posted: [], completedWithoutPosting: [],
+  skippedLockedPeriod: [], failed: [], unresolved: [] } }`;
   this request makes zero new catch-up or disposal writes and leaves all
   previously committed history intact.
   The capitalization-cardinality refusal has the same `disposalPerformed: false`
@@ -1945,8 +2015,10 @@ Custom write route (`recognizeImpairment`), mapped to `update`.
   which has no unaccrued schedule to protect).
 - **Response 409**: the asset's `status` is not `ACTIVE` or
   `FULLY_DEPRECIATED`, the `FiscalPeriod` covering `impairmentDate` is
-  locked, or either operating account is unset in `FixedAssetSettings`
-  (all distinct, named error codes — see Internationalization).
+  locked, either operating account is unset in `FixedAssetSettings`, or
+  the scoped chronology check returns `impairment_precedes_existing_posting`,
+  `capitalization_history_inconsistent` or `impairment_history_inconsistent`.
+  These chronology and history refusals occur before any writes.
 - **Response 403**: caller lacks `fixed_assets.impairment.manage`.
 
 ### `POST /api/fixed_assets/assets/:id/impairments/:impairmentId/reverse`
@@ -1968,8 +2040,12 @@ Custom write route (`reverseImpairment`), mapped to `update`.
 - **Response 404**: `impairmentId` does not reference an original
   impairment (`reversalOfImpairmentId: null`) on this asset.
 - **Response 409**: the asset's `status` is `DISPOSED`, or the
-  `FiscalPeriod` covering `reversalDate` is locked (distinct, named error
-  codes — see Internationalization).
+  `FiscalPeriod` covering `reversalDate` is locked, the reversal date
+  precedes the original loss (`reversal_precedes_original_impairment`),
+  or the common chronology check rejects
+  (`impairment_precedes_existing_posting`,
+  `capitalization_history_inconsistent` or `impairment_history_inconsistent`).
+  These chronology and history refusals occur before any writes.
 - **Response 403**: caller lacks `fixed_assets.impairment.manage`.
 
 `AssetClass`/`FixedAssetSettings` list/create/update, and the three
@@ -2012,6 +2088,8 @@ All user-facing strings resolve through `useT()` client-side /
   `.no_unaccrued_periods_to_revise`, `.revision_yields_negative_base`,
   `.operating_account_not_configured`, `.recoverable_amount_not_below_carrying_value`,
   `.reversal_exceeds_original_impairment`,
+  `.reversal_precedes_original_impairment`, `.impairment_precedes_existing_posting`,
+  `.impairment_history_inconsistent`, `.disposal_catch_up_outcome_unresolved`,
   `.cannot_impair_inactive_asset`, `.recoverable_amount_below_salvage_value`,
   `.cannot_reverse_impairment_disposed_asset`,
   `.cannot_dispose_inactive_asset`,
@@ -2021,7 +2099,10 @@ All user-facing strings resolve through `useT()` client-side /
   `.recognize_impairment_body`, `.reverse_impairment_body` (all
   interpolate the asset name).
 - Accrual result toast: `fixed_assets.accrue.result` (interpolates
-  posted/skipped/failed counts).
+  posted/completed-without-posting/skipped/failed/unresolved counts).
+- Schedule and reconciliation copy: `fixed_assets.schedule.completed_without_posting`,
+  `fixed_assets.accrue.outcome_unresolved`, and
+  `fixed_assets.dispose.outcome_unresolved` for a lost final response.
 - Disposal result copy: `fixed_assets.dispose.catch_up_warning`
   (interpolates the skipped-locked-period count from `catchUpAccrual`,
   shown only when non-zero).
@@ -2057,7 +2138,9 @@ All user-facing strings resolve through `useT()` client-side /
   label. Each action is `useGuardedMutation(...).runMutation(...)` behind
   `useConfirmDialog()` with `Cmd/Ctrl+Enter` to confirm and `Escape` to
   cancel, passing `retryLastMutation` in the injection context and
-  surfacing a 409 via `surfaceRecordConflict` — the same guarded-row-action
+  using `surfaceRecordConflict` for version conflicts. Show named business
+  refusals as localized errors and suppress retry of an unresolved mutation
+  until reconciliation — the same guarded-row-action
   pattern `ledger`'s `FiscalPeriod` lock/unlock action already uses, since
   none of these is a field-level `CrudForm` edit.
 - **Asset create/edit form** (`CrudForm`): acquisition fields (including
@@ -2077,15 +2160,14 @@ All user-facing strings resolve through `useT()` client-side /
   required, the offset account; on success shows an `<Alert
   variant="success">` summarizing whether the low-value threshold applied.
 - **Depreciation schedule view** (`depreciation-schedule/page.tsx`):
-  per-asset schedule as a `DataTable`, accrued rows showing a link to
-  their `JournalEntry` (via `referenceType`/`referenceId`), unaccrued
-  rows showing planned amount and period only. Toolbar "Accrue
-  depreciation" action opens a date picker, then reports results via
-  `flash('...', 'success')` when everything posted, `flash('...',
-  'warning')` when some entries were skipped for a locked period, and
-  `flash('...', 'error')` alongside an `<Alert variant="error">` result
-  detail when any entry lands in `failed` (see API Contracts) — each
-  naming its count.
+  per-asset schedule as a `DataTable`. Link posted rows to their
+  `JournalEntry`; label completed zero rows without a link. The "Accrue
+  depreciation" action opens a date picker and shows the five result
+  counts. Keep success feedback for a fully completed run, the
+  locked-period warning for skipped rows and the error alert for confirmed
+  failures. An unresolved outcome uses a localized warning and offers a
+  refresh of the scoped schedule and asset. Do not retry automatically or present a pending
+  result as a confirmed failure.
 - **Dispose dialog**: `disposalType` selector, conditional
   `proceedsAmount` field for `SALE`, a read-only computed net-book-value
   preview (net of any prior impairment — see Architecture → Commands)
@@ -2099,11 +2181,19 @@ All user-facing strings resolve through `useT()` client-side /
   the count so the accountant knows the booked net book value may not
   reflect a still-locked period's depreciation (`fixed_assets.dispose.
   catch_up_warning`).
-  On definite partial failure, show a localized error stating disposal did
-  not occur, with posted, skipped and failed entries and links to committed
-  journal entries; refresh the asset and schedule before retry. For an
-  unknown outcome or lost response, show an indeterminate state and require
-  reconciliation before retry rather than asserting success or failure.
+  On definite partial failure, show a localized error stating this request
+  did not dispose the asset. Show the known catch-up buckets and link only
+  confirmed journal IDs. For `disposal_catch_up_outcome_unresolved`, show a
+  localized warning that this request did not attempt disposal and that
+  the named catch-up row's outcome is unknown. Keep the confirmed results
+  visible, with links to confirmed journals and no link for the unresolved
+  row. Disable automatic and immediate retry. Require a scoped asset and
+  schedule refresh and explicit reconfirmation before fresh submission
+  with the current version. The server's locked reconciliation must
+  succeed before that submission can make writes. A refresh that cannot
+  establish the row's outcome leaves the warning active. For a lost
+  final disposal response, show that disposal itself may have committed and reconcile the asset, disposal and
+  ledger before allowing a new attempt.
 - **Recognize impairment dialog**: `impairmentDate`, `triggerCategory`
   selector, `recoverableAmount` field, required `reason`; shows a
   read-only current carrying value for reference and the resulting
@@ -2243,12 +2333,12 @@ All user-facing strings resolve through `useT()` client-side /
    `salvageValue` and `baseSalvageValue` update and both-currency revision audit — posts no journal entry (see Design Decisions).
 8. Implement `accrueDepreciation`: the due/unposted schedule-entry scan
    in pages of 500, the per-entry transaction boundary, the per-entry
-   `FiscalPeriod.isLocked` pre-check, the idempotent accrual posting, the
-   `failed` bucket for non-lock post failures, and the automatic
-   `FULLY_DEPRECIATED` transition.
-9. Implement `recognizeImpairment`/`reverseImpairment`: the
-   `accruedDepreciationTotal`/`netImpairmentTotal` aggregation shared with
-   `disposeAsset` (implement this helper once, reuse it in both), the
+   `FiscalPeriod.isLocked` pre-check, the positive and zero completion paths,
+   the five result buckets, the locked reconciliation of unresolved commits,
+   and the `FULLY_DEPRECIATED` transition when the last pending row completes.
+9. Implement `recognizeImpairment`/`reverseImpairment`: the locked
+   chronology checks before any write, the `accruedDepreciationTotal`/
+   `netImpairmentTotal` aggregation shared with `disposeAsset` (implement this helper once, reuse it in both), the
    `ACTIVE`/`FULLY_DEPRECIATED` status guard on recognition and the
    not-`DISPOSED` guard on reversal, the operating-account-unset
    rejection, the non-positive-loss and below-salvage-value rejections on
@@ -2265,12 +2355,13 @@ All user-facing strings resolve through `useT()` client-side /
 10. Implement `disposeAsset`: the pre-disposal catch-up accrual step, the
     net-book-value calculation from actual accrued depreciation **and**
     net impairment (post-catch-up), the `AssetDisposal` insert with
-    atomic `documentNumber` allocation, the gain/loss posting (including
-    the `SALE` proceeds line, and **two separate** derecognition debit
-    lines — `ledgerAccumulatedDepreciationAccountId` for
-    `accruedDepreciationTotal`, `ledgerAccumulatedImpairmentAccountId` for
-    `netImpairmentTotal`, the latter omitted when zero — see Design
-    Decisions), and the `DISPOSED` status transition.
+    atomic `documentNumber` allocation, and the gain/loss posting. Include
+    the `SALE` proceeds and separate derecognition debits for accumulated
+    depreciation and impairment as applicable. Omit all zero-valued lines.
+    Stop before final disposal when catch-up
+    fails or remains unresolved. Report committed catch-up results with
+    the appropriate error code and preserve the `DISPOSED` transition for
+    the successful final post.
 11. Implement `api/asset-classes/route.ts`, `api/settings/route.ts`,
     `api/assets/route.ts` + `[id]/accept/route.ts` +
     `[id]/reopen/route.ts` + `[id]/revise-depreciation/route.ts` +
@@ -2501,8 +2592,61 @@ All user-facing strings resolve through `useT()` client-side /
   Repeat after full impairment reversal; the history guard still applies.
   Inject a later catch-up failure after one committed entry and separately a
   final disposal-post failure: assert error body, committed references,
-  absence of disposal and safe retry. Exercise the partial-failure UI and
-  lost-response reconciliation state.
+  absence of disposal and safe retry. Exercise the partial-failure UI.
+- Integration and UI: impair an `ACTIVE` straight-line asset to its
+  base salvage floor. The existing loss entry posts in full and the
+  remaining schedule rows have zero planned amounts. Accrue on their due
+  dates. In open periods, assert `completedWithoutPosting`, non-null
+  `accruedAt`, a null journal reference and no ledger entry or ledger
+  event. A locked due row stays pending and keeps the asset `ACTIVE`
+  even when a later row completes. Unlock and complete the last pending
+  row, assert `FULLY_DEPRECIATED`, then retry and assert no further writes.
+  The UI shows the completed rows without journal links.
+- Integration: revise an unimpaired `ACTIVE` asset to exactly zero
+  remaining depreciable basis. Complete one due zero row while another
+  is pending, assert reopen refuses with `cannot_reopen_after_accrual`,
+  and verify a further revision preserves the completed row and
+  regenerates only the pending tail. Completing the rest (including
+  through disposal catch-up when due) never journals the zero amounts.
+- Integration: dispose a capitalized straight-line asset in an open
+  period before its first accrual is due. For a liquidation with
+  acquisition basis 1,000 and no impairment or prior depreciation, assert
+  a 1,000 asset credit and a 1,000 loss debit, with neither accumulated
+  balance line. For a sale with proceeds equal to net book value, assert
+  the proceeds debit and absence of a gain/loss line. Verify no journal
+  line has both sides zero and all remaining lines balance.
+- Integration and UI: with both periods open, a January reversal of a
+  February loss returns `reversal_precedes_original_impairment`. After
+  February depreciation, a January impairment or reversal (whose loss
+  was already booked in January) returns
+  `impairment_precedes_existing_posting`. Also exercise a reversal dated
+  before an existing partial reversal of that loss. Each refusal leaves
+  journal, impairment history, asset and schedule unchanged. Inject
+  misleading recording timestamps and cross-scope history to prove only
+  linked, scoped operation dates decide the guard. Confirm a date equal
+  to the applicable floor passes the chronology check with valid
+  remaining inputs and no earlier pending periods. Race a later accrual
+  that commits first against the earlier impairment and assert the
+  locked re-read refuses the impairment.
+- Integration and UI: acknowledge one catch-up commit, then drop the
+  next commit acknowledgement. Assert the unresolved 409, confirmed
+  journal reference for the first row, only the second row's schedule
+  ID in `unresolved`, and no LT counter allocation, disposal row,
+  disposal journal or `DISPOSED` transition. No later catch-up row is
+  attempted. Run both actual database outcomes. On a fresh scoped,
+  locked read, a committed row is skipped on retry and a confirmed
+  pending row with no journal can be attempted once. When the primary
+  read fails or the linkage is inconsistent, assert another submission
+  (including a different disposal date) cannot create a disposal.
+  Repeat with a zero completion and verify reconciliation needs no
+  journal for that row. Verify the same unresolved/confirmed reporting
+  in standalone accrual. In the dialog, show the known journal link
+  and the unresolved row without a link. Assert no automatic retry,
+  require refresh and explicit reconfirmation, and verify that the
+  server reconciles before further writes. Separately drop the final
+  disposal response after commit and verify the UI states disposal itself
+  may have committed,
+  reconciles to the existing disposal, and never creates a second LT.
 - Manual QA: the full lifecycle end-to-end (register → accept → accrue
   across a locked and unlocked period → dispose), once for a
   `STRAIGHT_LINE` asset and once for a `ONE_TIME` low-value asset, and
@@ -2615,7 +2759,7 @@ for its own manual `CLOSING`/`OPENING` entries.
   accuracy, balance sheet.
 - **Mitigation**: `disposeAsset` first runs its own catch-up accrual for
   this asset up to `disposalDate`, then sums `DepreciationScheduleEntry`
-  rows with `accruedAt IS NOT NULL` (`accruedDepreciationTotal`) **and**
+  journal-linked rows (`accruedDepreciationTotal`) **and**
   the asset's full `AssetImpairment` history (`netImpairmentTotal` —
   original losses minus reversals) for the net-book-value calculation,
   debiting `ledgerAccumulatedDepreciationAccountId` for
@@ -2984,6 +3128,24 @@ gates, not defects in this document.
   maintainer decision.
 
 ## Changelog
+
+### 2026-11-20 — schedule completion, posting dates and catch-up outcomes (PR #9786)
+
+- Address the three open findings in [review 5994229109](https://github.com/open-mercato/open-mercato/pull/9786#pullrequestreview-5994229109).
+  Define completion of a due zero row without a ledger entry, preserve
+  the completed-row and period guards, and omit exact zero disposal
+  lines under existing ledger validation.
+- Refuse impairment and reversal dates preceding committed scoped
+  postings, including reversal before the original loss, under the
+  same asset lock used for amounts and schedule changes.
+- Return confirmed catch-up results alongside an unresolved outcome.
+  Stop before final disposal and reconcile on authoritative state
+  before a fresh attempt. Add integration and UI acceptance scenarios.
+- The Article 30 decision, any retroactive reconciliation or treatment
+  of earlier due-but-unposted periods, caller-transaction and
+  event-commit support in ledger, financial and security acceptance,
+  human review and QA, and prerequisites #5663/#5962/#5972/#6015
+  remain gates. This change covers specification review only.
 
 ### 2026-11-20 — deterministic capitalization role (PR #9786)
 
