@@ -44,6 +44,7 @@ export const messageListItemSchema = z.object({
   hasAttachments: z.boolean(),
   attachmentCount: z.number(),
   recipientCount: z.number(),
+  recipientSummary: z.object({ labels: z.array(z.string()), total: z.number() }).nullable().optional(),
   hasActions: z.boolean(),
   actionTaken: z.string().nullable().optional(),
   sentAt: z.string().nullable().optional(),

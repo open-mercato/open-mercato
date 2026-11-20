@@ -51,6 +51,7 @@ type MessageListItem = {
   hasAttachments: boolean
   attachmentCount: number
   recipientCount?: number
+  recipientSummary?: { labels: string[]; total: number } | null
   hasActions: boolean
   actionTaken?: string | null
   sentAt?: string | null

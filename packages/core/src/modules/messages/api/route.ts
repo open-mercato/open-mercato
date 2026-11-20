@@ -16,6 +16,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
+import { buildRecipientSummaries } from '../lib/recipientSummary'
 import { composeMessageSchema, listMessagesSchema, type ComposeMessageInput, type ListMessagesInput } from '../data/validators'
 import {
   composeRequiresChannelTypeResolution,
@@ -398,6 +399,11 @@ export async function GET(req: Request) {
     return acc
   }, {})
 
+  const isAuthorFolder = input.folder === 'sent' || input.folder === 'drafts'
+  const recipientSummaryByMessage = isAuthorFolder
+    ? await buildRecipientSummaries(em, messageEntities, { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null })
+    : null
+
   const senderUserIds = Array.from(new Set(typedRows.map((row) => row.sender_user_id).filter(Boolean)))
   const senderUsers = senderUserIds.length > 0
     ? await findWithDecryption(
@@ -448,6 +454,7 @@ export async function GET(req: Request) {
           hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,
           attachmentCount: attachmentCountByMessage[message.id] || 0,
           recipientCount: recipientCountByMessage[message.id] || 0,
+          ...(recipientSummaryByMessage ? { recipientSummary: recipientSummaryByMessage.get(message.id) ?? null } : {}),
           hasActions:
             Boolean(actionData?.actions?.length)
             || Boolean(getMessageType(message.type)?.defaultActions?.length)
