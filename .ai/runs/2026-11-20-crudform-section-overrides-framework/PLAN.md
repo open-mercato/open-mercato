@@ -53,6 +53,7 @@ Status: in-progress
 | 6 | 6.4-packed-budget-fix | Account for the measured rendered scaffold context | self | done | this commit |
 | 6 | 6.2-custom-validation-fix | Preserve the complete submitted native field set for validation | self | done | this commit |
 | 6 | 6.4-release-config-fix | Accept canonical packed Yarn config and validate in production mode | self | done | this commit |
+| 6 | 6.4-release-foundation-fix | Keep OpenAPI temporary output outside protected dependencies and fix scaffold lint | self | done | this commit |
 | 6 | 6.5 | Record example, harness and integration evidence | dispatch | todo | — |
 
 ## Goal

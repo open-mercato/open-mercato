@@ -203,28 +203,32 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     expect(document.paths['/api/demo/policy']).toBeUndefined()
   })
 
-  it('bundles into a per-run file and leaves no bundle behind', async () => {
+  it('bundles from generated output and leaves the protected dependency cache untouched', async () => {
+    const dependency = path.join(tmpDir, 'node_modules', 'openapi-fixture')
+    touchFile(path.join(dependency, 'package.json'), '{"type":"module","exports":"./index.js"}')
+    touchFile(path.join(dependency, 'index.js'), "export const summary = 'package health'\n")
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'health', 'route.ts'),
       [
+        "import { summary } from 'openapi-fixture'",
         'export async function GET() { return new Response("pkg-health") }',
-        'export const openApi = {',
-        "  GET: { summary: 'package health' }",
-        '}',
+        'export const openApi = { GET: { summary } }',
         '',
       ].join('\n'),
     )
-    const cacheDir = path.join(tmpDir, 'node_modules', '.cache')
-    touchFile(path.join(cacheDir, '_openapi-bundle.mjs'), 'export {}\n')
+    const dependencyCache = path.join(tmpDir, 'node_modules', '.cache')
+    touchFile(dependencyCache, 'protected dependency cache')
+    const resolver = createMockResolver([{ id: 'demo', from: '@open-mercato/core' }])
 
-    const result = await generateOpenApi({ resolver: createMockResolver([{ id: 'demo', from: '@open-mercato/core' }]), quiet: true })
+    const result = await generateOpenApi({ resolver, quiet: true })
 
     expect(result.errors).toEqual([])
     const openApiDoc = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, 'output', 'generated', 'openapi.generated.json'), 'utf8'),
+      fs.readFileSync(path.join(resolver.getOutputDir(), 'openapi.generated.json'), 'utf8'),
     ) as { paths: Record<string, { get?: { summary?: string } }> }
     expect(openApiDoc.paths['/api/demo/health']?.get?.summary).toBe('package health')
-    expect(fs.readdirSync(cacheDir).filter((name) => name.startsWith('_openapi-bundle'))).toEqual([])
+    expect(fs.readFileSync(dependencyCache, 'utf8')).toBe('protected dependency cache')
+    expect(fs.readdirSync(resolver.getOutputDir()).filter((name) => name.startsWith('.openapi-'))).toEqual([])
   })
 
   it('skips route discovery and bundling when all tracked inputs are unchanged', async () => {
