@@ -5,6 +5,8 @@ import {
   assignEmployeeToProjectFixture,
   createTimeProjectFixture,
   deleteStaffEntityIfExists,
+  readTimesheetPreference,
+  setTimesheetPreference,
 } from '@open-mercato/core/helpers/integration/timesheetFixtures'
 import { createTestCustomer } from './fixtures'
 
@@ -105,8 +107,9 @@ async function saveNote(page: Page, note: string) {
  * expired and the page was reloaded. The TimerBar now writes without opening a
  * record-lock editing session, and Stop never depends on the note save.
  *
- * Self-contained: creates the project + assignment, stops and deletes the entry,
- * and restores the record-lock settings it set.
+ * Self-contained: creates the project + assignment, pins it as the employee's
+ * remembered project so the picker seeds it whatever was started last, stops and
+ * deletes the entry, and restores the preference and record-lock settings it set.
  */
 test.describe('TC-STAFF-051: Timer note edited in two windows with record locks on', () => {
   test.describe.configure({ timeout: 180_000 })
@@ -138,8 +141,13 @@ test.describe('TC-STAFF-051: Timer note edited in two windows with record locks 
     })
     await assignEmployeeToProjectFixture(request, adminToken, projectId, staffMemberId)
 
+    const previousPreference = await readTimesheetPreference(request, employeeToken)
+    const pinned = await setTimesheetPreference(request, employeeToken, projectId)
+    expect(pinned.ok(), `PUT my-preferences should succeed: ${pinned.status()}`).toBeTruthy()
+
     const cleanUp = async () => {
       await stopActiveEntries(request, employeeToken, staffMemberId, today).catch(() => {})
+      await setTimesheetPreference(request, employeeToken, previousPreference.lastProjectId).catch(() => {})
       const entry = await findProjectEntry(request, employeeToken, staffMemberId, today, projectId).catch(() => null)
       await deleteStaffEntityIfExists(request, adminToken, '/api/staff/timesheets/time-entries', entry?.id ?? null)
       await deleteStaffEntityIfExists(request, adminToken, '/api/staff/timesheets/time-projects', projectId)
@@ -154,8 +162,7 @@ test.describe('TC-STAFF-051: Timer note edited in two windows with record locks 
     await login(page, 'employee')
     await page.goto('/backend/staff/timesheets')
     await expect(page.getByPlaceholder('What are you working on?')).toBeVisible()
-    await page.getByRole('button', { name: /^Project$/ }).click()
-    await page.getByRole('button', { name: new RegExp(projectName) }).click()
+    await expect(page.getByRole('button', { name: new RegExp(projectName) })).toBeVisible()
     await page.getByRole('button', { name: /start timer/i }).click()
     await expect(page.getByRole('button', { name: /stop timer/i })).toBeVisible({ timeout: 30_000 })
   }

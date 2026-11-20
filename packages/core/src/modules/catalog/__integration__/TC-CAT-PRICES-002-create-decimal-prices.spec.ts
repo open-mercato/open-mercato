@@ -228,7 +228,7 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
     expect(netAmountsFor(prices, sale!.id)).toEqual([0]);
   });
 
-  test('keeps rejecting negative and malformed prices', async ({ page, request }) => {
+  test('rejects negative and malformed prices and keeps precise ones exact', async ({ page, request }) => {
     await openCreateForm(page, `QA Decimal Invalid ${uniqueStamp()}`);
     await openVariantsStep(page, [regular!]);
     const input = await priceInput(page, regular!, 0);
@@ -242,7 +242,7 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
         productPosts.push(outgoing.url());
       }
     });
-    for (const malformed of ['abc', '1.23456', '12,3,4']) {
+    for (const malformed of ['abc', '12,3,4']) {
       await input.fill(malformed);
       await page
         .locator('button[type="submit"]')
@@ -261,7 +261,7 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
       sku: `QA-DEC-INV-${Date.now()}`,
     });
     productIds.push(productId);
-    for (const unitPriceNet of [-1, 'abc', '1.23456']) {
+    for (const unitPriceNet of [-1, 'abc', '1,5']) {
       const response = await apiRequest(request, 'POST', PRICES_PATH, {
         token: token!,
         data: { productId, priceKindId: regular!.id, currencyCode: 'USD', unitPriceNet },
@@ -269,6 +269,14 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
       expect(response.status(), `price ${String(unitPriceNet)} should be rejected`).toBe(400);
     }
     expect(await listProductPrices(request, token!, productId)).toEqual([]);
+
+    const precise = await apiRequest(request, 'POST', PRICES_PATH, {
+      token: token!,
+      data: { productId, priceKindId: regular!.id, currencyCode: 'USD', unitPriceNet: '1.23456' },
+    });
+    expect(precise.status(), 'a price with more than 4 decimals is accepted').toBe(201);
+    const stored = await listProductPrices(request, token!, productId);
+    expect(stored.map((price) => price.unit_price_net), 'the entered price round-trips unchanged').toEqual(['1.23456']);
   });
 
   test('preserves Polish decimal-comma price magnitudes', async ({ page, request }) => {

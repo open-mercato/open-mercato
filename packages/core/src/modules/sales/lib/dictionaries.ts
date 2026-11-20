@@ -8,6 +8,7 @@ import {
 import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { buildRecordTag } from '@open-mercato/shared/lib/crud/cache'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export type SalesDictionaryKind =
   | 'order-status'
@@ -117,10 +118,14 @@ export async function ensureSalesDictionary(params: {
 export async function resolveDictionaryEntryValue(
   em: EntityManager,
   entryId: string | null | undefined,
-  scope: { tenantId: string }
+  scope: { tenantId: string; organizationId?: string }
 ): Promise<string | null> {
   if (!entryId) return null
-  const entry = await em.findOne(DictionaryEntry, { id: entryId, tenantId: scope.tenantId })
+  const entry = await findOneWithDecryption(em, DictionaryEntry, {
+    id: entryId,
+    tenantId: scope.tenantId,
+    ...(scope.organizationId !== undefined ? { organizationId: scope.organizationId } : {}),
+  }, {}, scope)
   return entry?.value?.trim() || null
 }
 

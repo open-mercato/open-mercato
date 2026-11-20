@@ -106,7 +106,7 @@ type VariantPriceRequest = {
   variantDraftId: string;
   priceKindId: string;
   currencyCode: string;
-  amount: number;
+  amount: string;
   displayMode: PriceKindSummary["displayMode"];
   taxRateId: string | null;
   taxRateValue: number | null;
@@ -643,7 +643,7 @@ export default function CreateCatalogProductPage() {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim();
                 if (!value) continue;
                 const amountValidation = validateCatalogPriceAmountInput(
-                  parseNumericInput(value),
+                  value.replace(",", "."),
                 );
                 if (!amountValidation.ok) {
                   throw createCrudFormError(
@@ -658,7 +658,7 @@ export default function CreateCatalogProductPage() {
                         ),
                   );
                 }
-                const numeric = amountValidation.numeric;
+                const exactAmount = amountValidation.exact;
                 const currencyCode =
                   typeof priceKind.currencyCode === "string" &&
                   priceKind.currencyCode.trim().length
@@ -677,7 +677,7 @@ export default function CreateCatalogProductPage() {
                   variantDraftId: variant.id,
                   priceKindId: priceKind.id,
                   currencyCode,
-                  amount: numeric,
+                  amount: exactAmount,
                   displayMode: priceKind.displayMode,
                   taxRateId: resolvedVariantTaxRateId ?? null,
                   taxRateValue: resolvedVariantTaxRate ?? null,
