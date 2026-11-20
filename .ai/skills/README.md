@@ -75,7 +75,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `analysis` | opt-in | 1 | Draft accessibility review (WCAG 2.2 AA). Opt-in. |
 | `migration` | opt-in | 5 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
-| external | always | 39 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
+| external | always | 39 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed using the exact `external.cliVersion` at the immutable `external.ref` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
 
@@ -94,7 +94,7 @@ The App Spec and gap-analysis skills also install from the external collection o
 Skills install into **one canonical directory** — `.agents/skills/`, the cross-agent path the `skills` CLI treats as canonical and most coding agents read directly. The install script does two things on every run:
 
 1. Reads `.ai/skills/tiers.json` and creates one symlink per selected local skill: `.agents/skills/<name> -> ../../.ai/skills/<name>`.
-2. Installs the external collection with `npx -y skills add open-mercato/skills --skill '*'` into the same `.agents/skills/` directory, then runs `npx -y skills update --project` so re-runs refresh the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current). This step needs network access; when it fails the script warns and continues with local skills only.
+2. Installs the external collection using `npx -y skills@<external.cliVersion> add https://github.com/<external.source>/tree/<external.ref> --skill '*'` into the same `.agents/skills/` directory. Both pins live in `tiers.json`; reruns use the same CLI version and collection commit. Upgrades require a reviewed change to those pins. The validator rejects missing pins, version ranges, tags and branch names before invoking `npx`. This step needs network access; when it fails the script warns and continues with local skills only.
 
 ```bash
 yarn install-skills                              # core tier + external collection (default)

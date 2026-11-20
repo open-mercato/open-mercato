@@ -137,12 +137,12 @@ export async function bootstrap(container: AwilixContainer) {
     // Support both QUEUE_STRATEGY and legacy EVENTS_STRATEGY env vars
     const strategyEnv = process.env.QUEUE_STRATEGY || process.env.EVENTS_STRATEGY
     const queueStrategy = strategyEnv === 'async' || strategyEnv === 'redis' ? 'async' : 'local'
-    eventBus = createEventBus({ resolve: container.resolve.bind(container) as any, queueStrategy })
+    eventBus = createEventBus({ resolve: container.resolve, queueStrategy })
   } catch (err: any) {
     // Fall back to local strategy to avoid breaking the app on misconfiguration
     logger.warn('Event bus initialization failed; falling back to local strategy', { err })
     try {
-      eventBus = createEventBus({ resolve: container.resolve.bind(container) as any, queueStrategy: 'local' })
+      eventBus = createEventBus({ resolve: container.resolve, queueStrategy: 'local' })
     } catch {
       // In extreme cases, provide a no-op bus to avoid crashes. It deliberately
       // omits `dispatchQueued` so the events worker fails its job loudly instead

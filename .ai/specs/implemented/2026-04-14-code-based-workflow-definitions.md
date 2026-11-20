@@ -260,16 +260,20 @@ registerCodeWorkflowDefinitions(codeWorkflowDefinitions)
 **GET /api/workflows/definitions** — the list endpoint merges two sources:
 
 ```
-1. Fetch all DB definitions for the tenant
-2. Fetch all code registry definitions
-3. For each code definition:
-   - If a DB row exists with code_workflow_id matching this workflowId → use DB row (derive source='code_override')
-   - Otherwise → include code definition (derive source='code')
-4. Include all DB rows with code_workflow_id=null as-is (derive source='user')
-5. Return merged list, sorted by workflowName
+1. Validate limit (integer 1–100) and offset (integer 0–100,000).
+2. Filter code registry definitions using the requested filters, excluding code IDs shadowed by matching DB rows.
+   One batched lookup selects distinct workflow IDs scoped to the registered IDs, regardless of saved version count.
+3. Count matching DB rows separately and add the unshadowed code count C for pagination.total.
+4. Fetch a DB window ordered by workflowName under PostgreSQL COLLATE "C", then id ASC, starting at max(0, offset - C), with limit + C rows.
+5. Merge that window with the code entries and sort names by UTF-8 bytes using Buffer.compare (DB before code for ties).
+6. Slice the requested page relative to the window start; an offset beyond total returns an empty page without fetching DB definitions.
 ```
 
-The list endpoint executes split `find` and `count` queries (rather than `findAndCount`) so that pagination metadata stays consistent when the merge layer drops shadowed code definitions. Tests under `__integration__/TC-WF-010.spec.ts` assert this contract.
+The list endpoint uses split `find` and `count` queries. At most `limit + C` full DB definitions are loaded and serialized, independent of offset. The registry is deployment-defined, not tenant-data-sized. Both sources now use the same UTF-8 byte ordering: PostgreSQL `COLLATE "C"` for the DB window and `Buffer.compare` for the merge. Case and accent positions can change from the former Node locale sort; this replaces the former mixed database/Node ordering so pagination is consistent across application locales. Equal DB names break ties by id, and DB rows precede equal-name code rows. Regression tests in `api/__tests__/pagination.route.test.ts` cover interleaving, ties, shadowing, empty pages and large offsets; `__integration__/TC-WF-010.spec.ts` covers the two-source contract. The self-contained `__integration__/TC-WF-074.spec.ts` covers pagination validation and boundary pages on definitions, instances, instance events and global events, plus mixed-case definitions across disjoint pages.
+
+### Migration & Backward Compatibility — pagination hardening (#7534)
+
+Definitions, instances, instance events and the global events list return 400 for malformed, fractional, negative or out-of-range pagination. Defaults remain 50, except instance events (100). Global events retains page/pageSize and checks its derived offset against 100,000. The global events list reports only reachable pages in totalPages, and definition, instance, and instance event lists report hasMore only when their next offset is reachable. All four endpoints keep their true totals. Existing task, work-inbox, portal-task, step, would-do and failure-queue routes retain their size clamps and malformed/negative fallback behavior, but reject normalized requested offsets above 100,000 with 400 before their list queries. The shared Work Inbox parser preserves the requested offset so both its GET list and POST claim-next callers validate the ceiling before provider reads or claims. Response fields, feature gates and tenant/organization filters are unchanged. Definitions now use locale-independent UTF-8 byte ordering, so uppercase names precede lowercase names and accented names follow ASCII; clients must use server-provided ordering rather than re-sorting individual pages with localeCompare. Callers must page with sizes at most 100 and narrow filters before reaching the offset ceiling; operators need no migration or configuration change. The Work Inbox provider merge still reads source prefixes; page-proportional provider pagination is tracked separately in [#8165](https://github.com/open-mercato/open-mercato/issues/8165). Excessive-offset errors on the seven fallback/clamping routes use the stable `WORKFLOW_LIST_OFFSET_EXCEEDED` string. The previously documented unbounded query values were supported inputs; their rejection is disclosed in the dated `BACKWARD_COMPATIBILITY.md` record under the Emergency Security Exception, whose named human maintainer acknowledgement remains required before merge.
 
 **Legacy seed alignment:** Pre-existing tenants seeded via `seedExampleWorkflows()` carried `workflowId`s that did not match the new code-defined IDs (`workflows.demo-checkout`, etc.). To prevent the merge layer from showing both the legacy seeded row AND the code definition as separate entries, a one-shot rename migration aligns the legacy IDs with their code counterparts (see Migration & Compatibility).
 
@@ -736,3 +740,12 @@ None.
 
 - Fixed issue #7183: the code-definition types in `@open-mercato/shared/modules/workflows` had fallen behind the engine's validators, so `defineWorkflow` needed casts for engine-supported definitions. `WorkflowStepType` gains `WAIT_FOR_CONDITION`, `IF_ELSE` and `SWITCH`, and `CodeStepDefinition['userTaskConfig']` gains every optional key `userTaskConfigSchema` accepts (`assignedToRoles`, `assigneeKind`, `formKey`, `allowedActions`, `instructions`, `entityBindings`, `priority`, `deadline`, `reminders`, `onBreach`, `decisions`, `editablePrefilled`). The change is additive: no existing member or key changes type (`formSchema` stays `Record<string, unknown>`), no new export is added, and nothing changes at runtime — the builder already passed `userTaskConfig` through untouched.
 - Because shared cannot import core, the types stay hand-mirrored and are guarded against drift from the core side: `data/code-definition-types.typecheck.tsx` (`tsc --noEmit`) asserts the step-type unions match and that every config the engine accepts, nested values included, is assignable to the code type; `lib/__tests__/code-definition-types-parity.test.ts` compares the schemas' runtime key sets and parses `defineWorkflow` output through `workflowStepSchema`. `packages/shared/src/modules/workflows/builder.typecheck.tsx` asserts each key and step type compiles in `defineWorkflow`. Not covered (outside #7183): later step-level keys (`errorDirective`, `milestone`) and transition keys (`condition`, `kind`).
+
+### 2026-10-28
+
+- Fixed #7534: bounded workflow list inputs and definitions DB materialization; added route-boundary and merged-page regression coverage. Documented bounds and consistent UTF-8 byte ordering.
+
+
+### 2026-10-29
+
+- Completed pagination review follow-up: documented all excessive-offset 400 responses, replaced internal error markers with a stable API error code, and recorded the formerly supported inputs plus the pending human security-exception acknowledgement.
