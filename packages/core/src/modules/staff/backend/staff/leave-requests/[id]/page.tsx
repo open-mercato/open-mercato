@@ -10,6 +10,7 @@ import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -27,6 +28,8 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [record, setRecord] = React.useState<NormalizedLeaveRequest | null>(null)
   const [decisionComment, setDecisionComment] = React.useState('')
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const reloadRecord = React.useCallback(() => setReloadToken((token) => token + 1), [])
 
   React.useEffect(() => {
     if (!id) {
@@ -77,7 +80,7 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
     }
     void load()
     return () => { cancelled = true }
-  }, [id, t])
+  }, [id, reloadToken, t])
 
   const status = record?.status ?? 'pending'
   const memberLabel = record?.member?.displayName ?? null
@@ -108,22 +111,33 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
   const handleDecision = React.useCallback(async (action: 'accept' | 'reject') => {
     if (!record?.id) return
     const endpoint = action === 'accept' ? '/api/staff/leave-requests/accept' : '/api/staff/leave-requests/reject'
-    await withScopedApiRequestHeaders(
-      buildOptimisticLockHeader(record.updatedAt),
-      () => apiCallOrThrow(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: record.id, decisionComment: decisionComment || null }),
-      }),
-    )
+    const fallbackError = action === 'accept'
+      ? t('staff.leaveRequests.errors.accept', 'Failed to approve leave request.')
+      : t('staff.leaveRequests.errors.reject', 'Failed to reject leave request.')
+    try {
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(record.updatedAt),
+        () => apiCallOrThrow(endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: record.id, decisionComment: decisionComment || null }),
+        }, { errorMessage: fallbackError }),
+      )
+    } catch (err) {
+      if (!surfaceRecordConflict(err, t, { onRefresh: reloadRecord })) {
+        flash(err instanceof Error && err.message ? err.message : fallbackError, 'error')
+      }
+      reloadRecord()
+      return
+    }
     flash(
       action === 'accept'
         ? t('staff.leaveRequests.messages.accepted', 'Leave request approved.')
         : t('staff.leaveRequests.messages.rejected', 'Leave request rejected.'),
       'success',
     )
-    router.refresh()
-  }, [decisionComment, record?.id, record?.updatedAt, router, t])
+    reloadRecord()
+  }, [decisionComment, record?.id, record?.updatedAt, reloadRecord, t])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `staff.leaveRequest` + id

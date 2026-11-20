@@ -185,7 +185,7 @@ const crud = makeCrudRoute<WebhookCreateInput, WebhookUpdateInput, z.infer<typeo
         }
       }
 
-      qb.orderBy({ createdAt: 'desc' })
+      qb.orderBy({ createdAt: 'desc', id: 'desc' })
       qb.limit(pageSize).offset((page - 1) * pageSize)
       const [items, total] = await qb.getResultAndCount()
 

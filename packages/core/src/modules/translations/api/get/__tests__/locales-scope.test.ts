@@ -22,6 +22,7 @@ jest.mock('@open-mercato/core/modules/translations/api/context', () => ({
   resolveTranslationsRouteContext: jest.fn(async () => context),
 }))
 
+import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
 import GET from '../locales'
 
 const makeRequest = () =>
@@ -65,5 +66,20 @@ describe('translations locales route scope', () => {
 
     expect(body.locales).toEqual(['en', 'fr'])
     expect(body.servable).not.toContain('fr')
+  })
+
+  it('returns the default locales when the configs module is disabled', async () => {
+    container.resolve.mockImplementationOnce((name: string) => {
+      throw new Error(`[internal] Could not resolve '${name}'`)
+    })
+
+    const response = await GET(makeRequest())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      locales: [...defaultLocales],
+      servable: ['en', 'pl', 'es', 'de', 'ko'],
+    })
+    expect(getValueMock).not.toHaveBeenCalled()
   })
 })

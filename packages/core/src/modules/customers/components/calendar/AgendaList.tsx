@@ -94,7 +94,7 @@ function AgendaDayHeader({ date, count }: { date: Date; count: number }) {
       <span className="text-sm font-semibold text-foreground">{groupLabelOf(locale, date)}</span>
       {todayMarker || tomorrowMarker ? (
         <span className={cn('text-xs font-medium', todayMarker ? 'text-foreground' : 'text-muted-foreground')}>
-          {`· ${todayMarker ? t('customers.calendar.agenda.today', 'Today') : t('customers.calendar.agenda.tomorrow', 'Tomorrow')}`}
+          {todayMarker ? t('customers.calendar.agenda.today', 'Today') : t('customers.calendar.agenda.tomorrow', 'Tomorrow')}
         </span>
       ) : null}
       <span aria-hidden="true" className="w-2.5 shrink-0" />
@@ -164,8 +164,9 @@ function AgendaRow({
         >
           {title}
         </span>
-        <span className="truncate text-xs text-muted-foreground">
-          {locationLabel ? `${typeLabel} · ${locationLabel}` : typeLabel}
+        <span className="flex min-w-0 gap-2 text-xs text-muted-foreground">
+          <span className="shrink-0">{typeLabel}</span>
+          {locationLabel ? <span className="truncate">{locationLabel}</span> : null}
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2">

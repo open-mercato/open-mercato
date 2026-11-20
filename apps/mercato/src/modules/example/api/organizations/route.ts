@@ -1,6 +1,6 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
-import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromCookies, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { E } from '@/.mercato/generated/entities.ids.generated'
 import { id, name } from '@/.mercato/generated/entities/organization'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
@@ -39,11 +39,13 @@ export const metadata = {
   }
 }
 
-export async function GET(request: Request) {
+// The dispatcher has already verified auth and passes it in `ctx`; fall back to the cookie only
+// when the handler is called directly (tests).
+export async function GET(request: Request, ctx?: { auth?: AuthContext | null }) {
   try {
     const container = await createRequestContainer()
     const queryEngine = container.resolve<QueryEngine>('queryEngine')
-    const auth = await getAuthFromCookies()
+    const auth = ctx?.auth ?? (await getAuthFromCookies())
 
     if (!auth?.tenantId) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
