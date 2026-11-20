@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -235,14 +235,21 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     // Validate currencies if changed
     const fromCode = parsed.fromCurrencyCode ?? record.fromCurrencyCode
     const toCode = parsed.toCurrencyCode ?? record.toCurrencyCode
+    const factsChanged = fromCode !== record.fromCurrencyCode
+      || toCode !== record.toCurrencyCode
+      || (parsed.rate !== undefined && !toDecimal(parsed.rate).eq(toDecimal(record.rate)))
+      || (parsed.date !== undefined && parsed.date.getTime() !== record.date.getTime())
+      || (parsed.source !== undefined && parsed.source !== record.source)
+      || (parsed.type !== undefined && parsed.type !== (record.type ?? null))
+    const detachPublication = record.externalReference != null && factsChanged
+    const source = detachPublication ? 'manual' : parsed.source ?? record.source
     if (parsed.fromCurrencyCode || parsed.toCurrencyCode) {
       await validateCurrenciesExist(em, fromCode, toCode, record.organizationId, record.tenantId)
     }
 
     // Check for duplicate if changing pair, date, or source
-    if (parsed.fromCurrencyCode || parsed.toCurrencyCode || parsed.date || parsed.source) {
+    if (parsed.fromCurrencyCode || parsed.toCurrencyCode || parsed.date || parsed.source || detachPublication) {
       const date = parsed.date ?? record.date
-      const source = parsed.source ?? record.source
       const existing = await em.findOne(ExchangeRate, {
         fromCurrencyCode: fromCode,
         toCurrencyCode: toCode,
@@ -258,13 +265,15 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       }
     }
 
-    const allChanges = buildChanges(record as unknown as Record<string, unknown>, parsed, [
+    const updated = detachPublication ? { ...parsed, source, externalReference: null } : parsed
+    const allChanges = buildChanges(record as unknown as Record<string, unknown>, updated, [
       'fromCurrencyCode',
       'toCurrencyCode',
       'rate',
       'date',
       'source',
       'type',
+      'externalReference',
       'metadata',
       'isActive',
     ])
@@ -276,9 +285,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       return { exchangeRateId: record.id }
     }
 
-    for (const [key, change] of Object.entries(changes)) {
-      ;(record as any)[key] = change.to
-    }
+    Object.assign(record, Object.fromEntries(Object.entries(changes).map(([key, change]) => [key, change.to])))
     record.updatedAt = new Date()
     
     // Validate final state after merging changes
@@ -332,8 +339,9 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     const before = payload?.before ?? null
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(ExchangeRate, { id: before.id })
+    const record = await em.findOne(ExchangeRate, buildCurrencyCommandWhere<ExchangeRate>(ctx, { id: before.id }))
     if (!record) return
+    ensureCurrencyCommandScope(ctx, record)
     Object.assign(record, {
       fromCurrencyCode: before.fromCurrencyCode,
       toCurrencyCode: before.toCurrencyCode,
@@ -347,6 +355,13 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       updatedAt: new Date(),
     })
     await em.flush()
+    await emitCrudUndoSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+      events: exchangeRateCrudEvents,
+    })
   },
 }
 

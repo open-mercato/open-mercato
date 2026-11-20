@@ -395,3 +395,22 @@ Both services are automatically registered in the DI container:
 const exchangeRateService = container.resolve<ExchangeRateService>('exchangeRateService')
 const rateFetchingService = container.resolve<RateFetchingService>('rateFetchingService')
 ```
+
+### Editing published rates
+
+`PUT /api/currencies/exchange-rates` delegates to `currencies.exchange_rates.update`.
+For a row with an `externalReference`, changing its rate, either currency, effective
+instant, source, or type converts the row to source `manual` and clears the reference.
+The edited row remains available as manual data; an explicit official-provider lookup
+cannot return it as a publication. The resulting manual pair/date/source key is checked
+for duplicates before the write, using the existing conflict response.
+
+Activation and metadata edits preserve publication provenance. Re-submitting the same
+facts also preserves it: rates are compared as exact decimals, dates as instants, and
+currency/source values after the existing input normalization. Audit snapshots retain
+both states. Scoped undo restores the original facts, source, and reference, and queues
+the update side effects after persistence.
+
+During the fetch-rates REST compatibility bridge, provider lists may contain repeated
+entries and more than twenty entries. Both the request and mutation-guard payload retain
+these shapes when forwarded to the fetching service.

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, it } from '@jest/globals'
+import { expect, it, jest } from '@jest/globals'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { Client } from 'pg'
@@ -8,6 +8,15 @@ import { Currency, ExchangeRate } from '../../data/entities'
 import { Migration20260826143024_currencies } from '../../migrations/Migration20260826143024_currencies'
 import { NBPAverageRateProvider } from '../providers/nbpAverage'
 import { RateFetchingService } from '../rateFetchingService'
+import { ExchangeRateService } from '../exchangeRateService'
+import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { ExchangeRateUpdateInput } from '../../data/validators'
+import '../../commands/exchange-rates'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
+}))
 
 const testWithPostgres = process.env.OM_CURRENCY_PG_INTEGRATION === '1' ? it : it.skip
 
@@ -125,6 +134,40 @@ testWithPostgres('persists NBP publications atomically and round-trips the prove
     expect(foreignRows).toHaveLength(2)
     expect(foreignRows.every((rate) => !inserted.some((original) => original.id === rate.id))).toBe(true)
     expect((await readRates(firstScope, firstDate)).map((rate) => rate.id).sort()).toEqual(inserted.map((rate) => rate.id).sort())
+
+    const updateCommand = commandRegistry.get<ExchangeRateUpdateInput, { exchangeRateId: string }>('currencies.exchange_rates.update')
+    if (!updateCommand) throw new Error('[internal] Exchange rate update command not registered')
+    const original = inserted.find((rate) => rate.fromCurrencyCode === 'USD')!
+    const markOrmEntityChange = jest.fn()
+    const commandContext = {
+      container: { resolve: (token: string) => token === 'em' ? activeOrm.em.fork() : { markOrmEntityChange } },
+      auth: { sub: randomUUID(), tenantId: firstScope.tenantId, orgId: firstScope.organizationId },
+    } as unknown as CommandRuntimeContext
+    const lookup = () => new ExchangeRateService(activeOrm.em.fork(), service).getRate({
+      fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', date: firstDate, scope: firstScope,
+      options: { provider: 'nbp_average', rateType: 'average', autoFetch: false, maxDaysBack: 0 },
+    })
+    await updateCommand.execute({ id: original.id, rate: '4.25000', date: new Date(firstDate), source: 'nbp_average', type: 'average' }, commandContext)
+    expect((await lookup()).rates[0]).toMatchObject({ source: 'nbp_average', externalReference: '001/A/NBP/2024', rate: '4.25' })
+    await updateCommand.execute({ id: original.id, isActive: false }, commandContext)
+    expect(await activeOrm.em.fork().findOneOrFail(ExchangeRate, { id: original.id })).toMatchObject({ source: 'nbp_average', externalReference: '001/A/NBP/2024', isActive: false })
+    await updateCommand.execute({ id: original.id, isActive: true }, commandContext)
+    const input = { id: original.id, rate: '4.25000000000000000000000000001' }
+    const prepared = await updateCommand.prepare!(input, commandContext)
+    const result = await updateCommand.execute(input, commandContext)
+    const after = await updateCommand.captureAfter!(input, result, commandContext)
+    const log = await updateCommand.buildLog!({ input, result, ctx: commandContext, snapshots: { before: prepared?.before, after } })
+    expect(await activeOrm.em.fork().findOneOrFail(ExchangeRate, { id: original.id })).toMatchObject({
+      rate: input.rate, source: 'manual', type: 'average', externalReference: null,
+      metadata: { note: 'preserve existing provider metadata' },
+    })
+    expect((await lookup()).rates).toEqual([])
+    expect((await readRates(secondScope, firstDate)).find((rate) => rate.fromCurrencyCode === 'USD')).toMatchObject({ rate: '4.25', externalReference: '001/A/NBP/2024' })
+    expect(log?.snapshotBefore).toMatchObject({ source: 'nbp_average', rate: '4.25', externalReference: '001/A/NBP/2024' })
+    expect(log?.snapshotAfter).toMatchObject({ source: 'manual', rate: input.rate, externalReference: null })
+    await updateCommand.undo!({ input, ctx: commandContext, logEntry: { commandPayload: log?.payload } })
+    expect((await lookup()).rates[0]).toMatchObject({ id: original.id, rate: '4.25', source: 'nbp_average', type: 'average', externalReference: '001/A/NBP/2024' })
+    expect(markOrmEntityChange).toHaveBeenCalledTimes(5)
 
     await admin.query('select set_config($1, $2, false)', ['search_path', schema])
     const retainedRowsQuery = "select to_jsonb(exchange_rates) - 'external_reference' as record from exchange_rates order by id"
