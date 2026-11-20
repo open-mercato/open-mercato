@@ -154,12 +154,13 @@ export async function syncEntityTags(
 }
 
 export async function loadEntityTagIds(em: EntityManager, entity: CustomerEntity): Promise<string[]> {
+  const scope = { tenantId: entity.tenantId, organizationId: entity.organizationId }
   const assignments = await findWithDecryption(
     em,
     CustomerTagAssignment,
-    { entity },
+    { entity, ...scope },
     { populate: ['tag'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   return assignments.map((assignment) =>
     typeof assignment.tag === 'string' ? assignment.tag : assignment.tag.id

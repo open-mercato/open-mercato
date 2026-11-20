@@ -118,7 +118,7 @@ async function enforcePrimaryAddress(
   addressId: string,
   scope: { tenantId: string; organizationId: string },
 ): Promise<DemotedPrimaryAddress[]> {
-  const otherPrimaries = { entity: entityId, id: { $ne: addressId }, isPrimary: true }
+  const otherPrimaries = { entity: entityId, id: { $ne: addressId }, isPrimary: true, ...scope }
   const siblings = await findWithDecryption(
     em,
     CustomerAddress,
@@ -163,7 +163,12 @@ async function restoreDemotedPrimaryAddresses(
 ): Promise<void> {
   const ids = readDemotedPrimaryAddressIds(demoted, scope.entityId)
   if (!ids.length) return
-  const primaryCount = await em.count(CustomerAddress, { entity: scope.entityId, isPrimary: true })
+  const primaryCount = await em.count(CustomerAddress, {
+    entity: scope.entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    isPrimary: true,
+  })
   if (primaryCount > 0) return
   await em.nativeUpdate(
     CustomerAddress,

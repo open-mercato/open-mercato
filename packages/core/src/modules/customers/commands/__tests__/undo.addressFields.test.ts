@@ -8,12 +8,17 @@ import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import {
+  CustomerActivity,
   CustomerAddress,
   CustomerCompanyProfile,
   CustomerComment,
+  CustomerDealCompanyLink,
+  CustomerDealPersonLink,
   CustomerInteraction,
   CustomerEntity,
   CustomerPersonProfile,
+  CustomerTagAssignment,
+  CustomerTodoLink,
 } from '../../data/entities'
 
 import { encryptWithAesGcm, decryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
@@ -262,6 +267,28 @@ describe.each<Kind>(['person', 'company'])('customers %s delete undo preserves a
     await expect(handler.prepare!({ body: { id: ENTITY_ID } }, context)).rejects.toMatchObject({ status: 403 })
 
     expect(decryptEntityPayload.mock.calls.some(([entityId]) => entityId !== 'customers:customer_entity')).toBe(false)
+  })
+
+  it('scopes snapshot child lookups by tenant and organization', async () => {
+    const { manager, state } = createManager(kind, true, true)
+    const commandId = `customers.${kind === 'person' ? 'people' : 'companies'}.delete`
+    const handler = commandRegistry.get(commandId) as CommandHandler
+    const scope = { organizationId: ORGANIZATION_ID, tenantId: TENANT_ID }
+
+    await handler.prepare!({ body: { id: ENTITY_ID } }, createContext(manager))
+
+    const profile = kind === 'person' ? CustomerPersonProfile : CustomerCompanyProfile
+    const options = kind === 'person' ? { populate: ['company'] } : undefined
+    expect(manager.findOne).toHaveBeenCalledWith(profile, { entity: state.entity, ...scope }, options)
+    for (const child of [CustomerAddress, CustomerComment, CustomerActivity, CustomerInteraction, CustomerTagAssignment, CustomerTodoLink]) {
+      expect(manager.find).toHaveBeenCalledWith(child, { entity: state.entity, ...scope }, expect.anything())
+    }
+    if (kind === 'company') {
+      expect(manager.find).toHaveBeenCalledWith(CustomerPersonProfile, { company: state.entity, ...scope }, expect.anything())
+      expect(manager.find).toHaveBeenCalledWith(CustomerDealCompanyLink, { company: state.entity, deal: scope }, expect.anything())
+    } else {
+      expect(manager.find).toHaveBeenCalledWith(CustomerDealPersonLink, { person: state.entity, deal: scope }, expect.anything())
+    }
   })
 
   it('restores plaintext addresses from an encrypted delete snapshot without an ORM subscriber (#2115)', async () => {

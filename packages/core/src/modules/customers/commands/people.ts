@@ -431,12 +431,13 @@ async function loadPersonSnapshot(
   if (!entity || entity.kind !== 'person') return null
   ensureTenantScope(ctx, entity.tenantId)
   ensureOrganizationScope(ctx, entity.organizationId)
+  const scope = { tenantId: entity.tenantId, organizationId: entity.organizationId }
   const profile = await findOneWithDecryption(
     em,
     CustomerPersonProfile,
-    { entity: entity },
+    { entity, ...scope },
     { populate: ['company'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   if (!profile) return null
   const companyLinks = await loadPersonCompanyLinks(em, entity)
@@ -444,38 +445,38 @@ async function loadPersonSnapshot(
   const addresses = await findWithDecryption(
     em,
     CustomerAddress,
-    { entity },
+    { entity, ...scope },
     { orderBy: { createdAt: 'asc' } },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   const comments = await findWithDecryption(
     em,
     CustomerComment,
-    { entity },
+    { entity, ...scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   const deals = await findWithDecryption(
     em,
     CustomerDealPersonLink,
-    { person: entity },
+    { person: entity, deal: scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   const activities = await findWithDecryption(
     em,
     CustomerActivity,
-    { entity },
+    { entity, ...scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
-  const todoLinks = await em.find(CustomerTodoLink, { entity }, { orderBy: { createdAt: 'asc' } })
+  const todoLinks = await em.find(CustomerTodoLink, { entity, ...scope }, { orderBy: { createdAt: 'asc' } })
   const interactions = await findWithDecryption(
     em,
     CustomerInteraction,
-    { entity },
+    { entity, ...scope },
     { orderBy: { createdAt: 'asc' } },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   const entityCustom = await loadCustomFieldSnapshot(em, {
     entityId: CUSTOMER_ENTITY_ID,

@@ -303,6 +303,27 @@ describe('customers.addresses undo restores the primary address the operation de
     expect(store.primaryIds()).toEqual([ADDRESS_A_ID])
   })
 
+  it('demotes only addresses in the same tenant and organization', async () => {
+    const store = makeStore([
+      { id: ADDRESS_A_ID, isPrimary: true },
+      { id: ADDRESS_C_ID, isPrimary: true, tenantId: OTHER_TENANT_ID },
+      { id: ADDRESS_D_ID, isPrimary: true, organizationId: OTHER_ORG_ID },
+    ])
+
+    const logEntry = await run('customers.addresses.create', createInput(), store)
+
+    expect(store.rows.get(ADDRESS_A_ID)?.isPrimary).toBe(false)
+    expect(store.rows.get(ADDRESS_B_ID)?.isPrimary).toBe(true)
+    expect(store.rows.get(ADDRESS_C_ID)?.isPrimary).toBe(true)
+    expect(store.rows.get(ADDRESS_D_ID)?.isPrimary).toBe(true)
+
+    await undo('customers.addresses.create', logEntry, store)
+
+    expect(store.rows.get(ADDRESS_A_ID)?.isPrimary).toBe(true)
+    expect(store.rows.get(ADDRESS_C_ID)?.isPrimary).toBe(true)
+    expect(store.rows.get(ADDRESS_D_ID)?.isPrimary).toBe(true)
+  })
+
   it('update undo makes the previously primary address primary again', async () => {
     const store = makeStore([
       { id: ADDRESS_A_ID, isPrimary: true },
