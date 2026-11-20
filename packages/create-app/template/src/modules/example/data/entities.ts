@@ -1,4 +1,5 @@
-import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy';
+import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { outboxColumns } from '@open-mercato/shared/lib/crud/form-sections/outbox-columns'
 
 @Entity({ tableName: 'example_items' })
 export class ExampleItem {
@@ -167,4 +168,48 @@ export class ExampleCustomerPriority {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'example_todo_brands' })
+@Unique({ properties: ['tenantId', 'organizationId', 'hostId'] })
+export class TodoBrand {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'host_id', type: 'uuid' })
+  hostId!: string
+
+  @Property({ type: 'text', nullable: true })
+  brand: string | null = null
+
+  @Property({ name: 'updated_at', type: Date })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'example_todo_erp_mirrors' })
+@Unique({ properties: ['tenantId', 'organizationId', 'hostId'] })
+export class TodoErpMirror extends outboxColumns {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'host_id', type: 'uuid' })
+  hostId!: string
+
+  @Property({ type: 'jsonb', nullable: true })
+  values: Record<string, unknown> | null = null
+
+  @Property({ name: 'updated_at', type: Date })
+  updatedAt: Date = new Date()
 }

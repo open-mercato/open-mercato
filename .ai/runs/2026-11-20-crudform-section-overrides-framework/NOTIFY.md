@@ -34,3 +34,9 @@
 - Verified the non-production framework fixture, revision checks, compatibility documentation, and gate steps 4.1–4.4.
 - Fixed explicit comparator audit findings and measured standalone context budgets. The final retry passed all 51 workspace tasks.
 - Configured flow evidence uses the test fixture with stubbed transport. The earlier real browser evidence covers the default Todo flow.
+
+## 2026-11-20T15:39:01Z — checkpoint 6
+
+- Verified Steps 5.1–5.6 and synced main into the feature branch.
+- Generator parity, backend rules and scoped storage, package tests, docs, and standalone budgets passed.
+- Three ordinary Todo tests passed in the isolated app. Two screenshots are on the PR. Step 6.1 started after the checkpoint app was built.

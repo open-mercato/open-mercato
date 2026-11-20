@@ -36,13 +36,13 @@ Status: in-progress
 | 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | done | 1b369c9d4f |
 | 4 | 4.4-review-fix | Preserve canonical order with explicit comparators | inline | done | 0183853f77 |
 | 4 | 4.4-budget-fix | Account for exact standalone context growth | dispatch | done | 6f500849aa |
-| 4 | 4.4 | Run and record the framework validation gates | dispatch | done | this commit |
-| 5 | 5.1 | Add the single-definition extension authoring API | dispatch | done | this commit |
-| 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | done | this commit |
-| 5 | 5.3 | Compile extension declarations into the framework registries and callbacks | dispatch | done | this commit |
-| 5 | 5.4 | Add custom-field, table and external store builders | dispatch | done | this commit |
-| 5 | 5.5 | Prove wrapper and hand-written fixture manifest parity | dispatch | done | this commit |
-| 5 | 5.6 | Document the wrapper and stable public imports | dispatch | done | this commit |
+| 4 | 4.4 | Run and record the framework validation gates | dispatch | done | 9b5f3a56f2 |
+| 5 | 5.1 | Add the single-definition extension authoring API | dispatch | done | 231f803e33 |
+| 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | done | 0ddc59aa2b |
+| 5 | 5.3 | Compile extension declarations into the framework registries and callbacks | dispatch | done | 476ac5f7b5 |
+| 5 | 5.4 | Add custom-field, table and external store builders | dispatch | done | e8a39710d7 |
+| 5 | 5.5 | Prove wrapper and hand-written fixture manifest parity | dispatch | done | 37868b3c34 |
+| 5 | 5.6 | Document the wrapper and stable public imports | dispatch | done | 40389cd644 |
 | 6 | 6.1 | Add the example Todo showcase and transaction ownership contract | dispatch | todo | — |
 | 6 | 6.2 | Cover all showcase cases in Playwright and generator tests | dispatch | todo | — |
 | 6 | 6.3 | Register example capabilities and verify template parity | dispatch | todo | — |
