@@ -12,6 +12,9 @@
   storefront assortment scope is not resolved and the operation is refused or
   runs without a buyer-scoped refresh, as each caller documents). **Callers**
   must check `service.resolveForBuyer` before invoking it.
+- **`StorefrontResolutionErrorCode`** (`packages/core/src/modules/ecommerce/lib/storeContext.ts`)
+  gains two members, `store_out_of_scope` and `buyer_out_of_scope`. Code with an
+  exhaustive `switch` over this union needs a case or a `default` branch for them.
 
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
