@@ -130,7 +130,7 @@ function createWarehouseStore(initial: WarehouseRecord[] = []) {
 
 function createCtx(em: ReturnType<typeof createWarehouseStore>['em']) {
   return {
-    auth: { tenantId: TENANT, orgId: ORG },
+    auth: { sub: '99999999-9999-4999-8999-999999999999', tenantId: TENANT, orgId: ORG },
     selectedOrganizationId: ORG,
     container: {
       resolve: (name: string) => {
@@ -144,6 +144,7 @@ function createCtx(em: ReturnType<typeof createWarehouseStore>['em']) {
             flushOrmEntityChanges: jest.fn().mockResolvedValue(undefined),
           }
         }
+        if (name === 'rbacService') return { userHasAllFeatures: async () => true }
         throw new Error(`unexpected resolve: ${name}`)
       },
     },

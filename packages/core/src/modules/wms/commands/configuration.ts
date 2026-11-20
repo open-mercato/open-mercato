@@ -30,6 +30,7 @@
 // =============================================================================
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { withRequiredFeatures } from './featureGuard'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   emitCrudSideEffects,
@@ -1988,18 +1989,18 @@ const deleteInventoryLotCommand: CommandHandler<{ id?: string }, { lotId: string
   },
 }
 
-registerCommand(createWarehouseCommand)
-registerCommand(updateWarehouseCommand)
-registerCommand(deleteWarehouseCommand)
-registerCommand(createWarehouseZoneCommand)
-registerCommand(updateWarehouseZoneCommand)
-registerCommand(deleteWarehouseZoneCommand)
-registerCommand(createWarehouseLocationCommand)
-registerCommand(updateWarehouseLocationCommand)
-registerCommand(deleteWarehouseLocationCommand)
-registerCommand(createProductInventoryProfileCommand)
-registerCommand(updateProductInventoryProfileCommand)
-registerCommand(deleteProductInventoryProfileCommand)
-registerCommand(createInventoryLotCommand)
-registerCommand(updateInventoryLotCommand)
-registerCommand(deleteInventoryLotCommand)
+registerCommand(withRequiredFeatures(createWarehouseCommand, [['wms.manage_warehouses']]))
+registerCommand(withRequiredFeatures(updateWarehouseCommand, [['wms.manage_warehouses']]))
+registerCommand(withRequiredFeatures(deleteWarehouseCommand, [['wms.manage_warehouses']]))
+registerCommand(withRequiredFeatures(createWarehouseZoneCommand, [['wms.manage_zones']]))
+registerCommand(withRequiredFeatures(updateWarehouseZoneCommand, [['wms.manage_zones']]))
+registerCommand(withRequiredFeatures(deleteWarehouseZoneCommand, [['wms.manage_zones']]))
+registerCommand(withRequiredFeatures(createWarehouseLocationCommand, [['wms.manage_locations']]))
+registerCommand(withRequiredFeatures(updateWarehouseLocationCommand, [['wms.manage_locations']]))
+registerCommand(withRequiredFeatures(deleteWarehouseLocationCommand, [['wms.manage_locations']]))
+registerCommand(withRequiredFeatures(createProductInventoryProfileCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(updateProductInventoryProfileCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(deleteProductInventoryProfileCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(createInventoryLotCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(updateInventoryLotCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(deleteInventoryLotCommand, [['wms.manage_inventory']]))
