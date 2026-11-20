@@ -169,8 +169,13 @@ test.describe('TC-WF-071: async-activity wait resolves from its own jobs', () =>
               trigger: 'auto',
               activities: [
                 asyncActivity('notify', 'EMIT_EVENT', {
-                  eventName: 'qa.workflows.tc_wf_071.notified',
-                  payload: { reference: '{{context.reference}}' },
+                  eventName: 'approval.requested',
+                  payload: {
+                    reference: '{{context.reference}}',
+                    tenantId: 'authored-tenant',
+                    organizationId: 'authored-org',
+                    organizationIds: ['authored-org'],
+                  },
                 }),
               ],
             },
@@ -208,7 +213,17 @@ test.describe('TC-WF-071: async-activity wait resolves from its own jobs', () =>
         { timeoutMs: 60_000 },
       )
       expect(finished?.status, 'the rerun resumes once its own job completes').toBe('COMPLETED')
-      expect(finished?.context?.notify_result).toBeTruthy()
+      const notifyResult = finished?.context?.notify_result as { payload?: Record<string, unknown> } | undefined
+      const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as {
+        tenantId: string
+        orgId: string
+      }
+      expect(notifyResult?.payload).toMatchObject({
+        reference: 'REF-071',
+        tenantId: claims.tenantId,
+        organizationId: claims.orgId,
+      })
+      expect(notifyResult?.payload).not.toHaveProperty('organizationIds')
 
       const completedEvents = await listWorkflowInstanceEvents(request, token, instanceId, { eventType: 'ACTIVITY_COMPLETED' })
       const rerunJobIds = completedEvents.map((event) => event.eventData?.jobId)

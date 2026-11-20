@@ -127,8 +127,8 @@ export default async function handle(
     event,
     payload,
     {
-      tenantId: options?.tenantId ?? null,
-      organizationId: options?.organizationId ?? null,
+      tenantId: options?.tenantId,
+      organizationId: options?.organizationId,
     },
     ctx.resolve,
   )

@@ -321,6 +321,7 @@ describe('Events Worker', () => {
     })
 
     it('should not trust payload scope when trusted scope is omitted', async () => {
+      let eventScope: unknown = null
       let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
       const bus = createBusWith([
         {
@@ -328,6 +329,7 @@ describe('Events Worker', () => {
           event: 'test.event',
           persistent: true,
           handler: (_p, ctx) => {
+            eventScope = ctx.eventScope
             capturedContext = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
           },
         },
@@ -339,6 +341,10 @@ describe('Events Worker', () => {
       )
 
       expect(capturedContext).toEqual({ tenantId: null, organizationId: null })
+      expect(eventScope).toBeUndefined()
+
+      await handle(createMockJob('test.event', {}, { tenantId: null }), createMockContext(bus))
+      expect(eventScope).toStrictEqual({ tenantId: null, organizationId: undefined })
     })
 
     it('should handle synchronous handlers', async () => {

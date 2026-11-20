@@ -525,6 +525,7 @@ export function ActivityConfigFields({ activityType, idPrefix, config, onChange,
       case 'eventName':
         return (
           <EventPatternInput
+            workflowEmittableOnly
             value={stringValue(rawValue)}
             onChange={(nextValue) => setField(spec, nextValue)}
             disabled={disabled}

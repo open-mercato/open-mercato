@@ -29,6 +29,8 @@ export type SubscriberContext = {
   tenantId?: string | null
   /** Trusted organization scope attached by the event emitter */
   organizationId?: string | null
+  /** Present when the emitter supplies tenant scope. An omitted organization can represent a tenant-wide job. */
+  eventScope?: Readonly<{ tenantId: string | null; organizationId?: string | null }>
 }
 
 /** Event handler function signature */

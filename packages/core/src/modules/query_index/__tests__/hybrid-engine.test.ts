@@ -587,7 +587,7 @@ describe('HybridQueryEngine', () => {
     expect(emitEvent).toHaveBeenCalledWith(
       'query_index.reindex',
       expect.objectContaining({ entityType: 'example:todo', tenantId: 't1', organizationId: 'org1', force: false }),
-      { persistent: true },
+      { persistent: true, tenantId: 't1', organizationId: 'org1' },
     )
     warnSpy.mockRestore()
   })

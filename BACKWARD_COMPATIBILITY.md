@@ -693,3 +693,14 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+### 2026-11-20 — Workflow event emission authority (#9134)
+
+`EMIT_EVENT` on stored workflow configurations now requires an opted-in event
+declaration and uses the instance's scope. This narrows the runtime behavior of a
+stable workflow configuration. Compatibility with arbitrary event names or authored
+scope would preserve the privilege bypass. The event declaration and subscriber
+context additions are optional. See the
+[emission scope spec](.ai/specs/2026-11-20-workflow-event-emission-scope.md#migration--backward-compatibility)
+and [upgrade notes](UPGRADE_NOTES.md#workflow-event-emission-requires-module-opt-in-9134)
+for workflow migration and queued job reconciliation.

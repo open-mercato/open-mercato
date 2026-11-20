@@ -5974,3 +5974,17 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+## Workflow event emission requires module opt-in (#9134)
+
+Review stored `EMIT_EVENT` activities before rollout. For a custom business signal,
+declare its exact event ID with `workflowEmittable: true` after checking that its
+subscribers accept tenant-authored data. Route privileged state changes through the
+owning module's authorized operation. The instance supplies tenant and organization
+scope on every workflow emission.
+
+Upgrade application and event worker processes together. Gateway status and index
+jobs created before this change may lack trusted scope and will fail closed. Reconcile
+incomplete payment statuses from the gateway provider and resubmit necessary index
+work through the index API or CLI. Custom server-side event producers for these jobs
+must pass trusted scope in emit options.
