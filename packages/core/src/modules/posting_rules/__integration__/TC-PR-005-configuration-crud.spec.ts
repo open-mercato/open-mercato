@@ -124,4 +124,69 @@ test.describe('TC-PR-005: posting_rules configuration CRUD', () => {
     expect(recreateRes.status(), 'the source account is free again after delete').toBe(201);
     current.ruleId = ((await recreateRes.json()) as { id: string }).id;
   });
+
+  test('a rule needs a zespół 4 source and a zespół 5 target (422), and nothing is written', async ({ request }) => {
+    let own: PostingRulesOrg | null = null;
+    try {
+      own = await createPostingRulesOrg(request, token, { label: 'TC-PR-005b', periodStart: '2035-02-01', periodEnd: '2035-02-28' });
+      const deleteRes = await apiRequest(request, 'DELETE', `${RULES}?id=${own.ruleId}`, { token, headers: own.headers });
+      expect(deleteRes.status(), 'DELETE the fixture rule should return 200').toBe(200);
+
+      const wrongSourceRes = await apiRequest(request, 'POST', RULES, {
+        token,
+        headers: own.headers,
+        data: { organizationId: own.organizationId, tenantId: own.tenantId, sourceAccountId: own.clearingAccountId, targetAccountId: own.targetAccountId },
+      });
+      expect(wrongSourceRes.status(), 'a source outside zespół 4 is a 422').toBe(422);
+      expect(((await wrongSourceRes.json()) as { error?: string }).error).toMatch(/class 4/i);
+
+      const wrongTargetRes = await apiRequest(request, 'POST', RULES, {
+        token,
+        headers: own.headers,
+        data: { organizationId: own.organizationId, tenantId: own.tenantId, sourceAccountId: own.sourceAccountId, targetAccountId: own.clearingAccountId },
+      });
+      expect(wrongTargetRes.status(), 'a target outside zespół 5 is a 422').toBe(422);
+      expect(((await wrongTargetRes.json()) as { error?: string }).error).toMatch(/class 5/i);
+
+      expect(await listIds(request, token, own, RULES), 'no rule was written').toEqual([]);
+    } finally {
+      await deletePostingRulesOrg(request, token, own);
+    }
+  });
+
+  test('GET /settings with "All organizations" selected is a 400', async ({ request }) => {
+    const current = org as PostingRulesOrg;
+    const res = await apiRequest(request, 'GET', '/api/posting_rules/settings', {
+      token,
+      headers: { Cookie: `om_selected_tenant=${encodeURIComponent(current.tenantId)}; om_selected_org=__all__` },
+    });
+    expect(res.status(), 'settings are one row per organization, so no organization is a 400').toBe(400);
+    expect(((await res.json()) as { error?: string }).error).toMatch(/organization/i);
+  });
+
+  test('a superadmin with "All organizations" lists every organization of the selected tenant, never another tenant', async ({ request }) => {
+    test.slow();
+    let sameTenant: PostingRulesOrg | null = null;
+    let otherTenant: PostingRulesOrg | null = null;
+    const current = org as PostingRulesOrg;
+    try {
+      sameTenant = await createPostingRulesOrg(request, token, { label: 'TC-PR-005c', tenantId: current.tenantId, periodStart: '2035-03-01', periodEnd: '2035-03-31' });
+      otherTenant = await createPostingRulesOrg(request, token, { label: 'TC-PR-005d', periodStart: '2035-03-01', periodEnd: '2035-03-31' });
+
+      const res = await apiRequest(request, 'GET', `${COST_CENTERS}?pageSize=100`, {
+        token,
+        headers: { Cookie: `om_selected_tenant=${encodeURIComponent(current.tenantId)}; om_selected_org=__all__` },
+      });
+      expect(res.status(), 'GET cost-centers with "All organizations" should return 200').toBe(200);
+      const items = ((await res.json()) as { items: Array<{ id: string; tenantId: string }> }).items;
+      const ids = items.map((item) => item.id);
+      expect(ids, 'the first organization of the tenant is listed').toContain(current.costCenterId);
+      expect(ids, 'the second organization of the tenant is listed').toContain(sameTenant.costCenterId);
+      expect(ids, 'another tenant is never listed').not.toContain(otherTenant.costCenterId);
+      expect(items.every((item) => item.tenantId === current.tenantId), 'every row belongs to the selected tenant').toBe(true);
+    } finally {
+      await deletePostingRulesOrg(request, token, sameTenant, { deleteTenant: false });
+      await deletePostingRulesOrg(request, token, otherTenant);
+    }
+  });
 });
