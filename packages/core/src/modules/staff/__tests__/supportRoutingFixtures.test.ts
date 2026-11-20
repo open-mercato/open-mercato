@@ -18,7 +18,7 @@ const ownedProjectId = 'owned-project'
 
 type Project = { id: string; name: string; project_type: string; customer_id: string | null }
 
-function setupRouting(existingProjects: Project[], options: { failCustomerClear?: boolean } = {}) {
+function setupRouting(existingProjects: Project[], options: { failCustomerClear?: boolean; omitTaskStatuses?: boolean } = {}) {
   let timeProjectId = 'original-fallback-project'
   const projects = new Map(existingProjects.map((project) => [project.id, { ...project }]))
   const events: string[] = []
@@ -46,7 +46,7 @@ function setupRouting(existingProjects: Project[], options: { failCustomerClear?
       const projectId = new URL(pathname, 'http://test.local').searchParams.get('timeProjectId')
       expect(projectId).toBe(ownedProjectId)
       expect(projects.has(ownedProjectId)).toBe(true)
-      body = { items: [
+      body = { items: options.omitTaskStatuses ? [] : [
         { id: 'owned-default', slug: 'todo', is_default: true, is_done: false },
         { id: 'owned-done', slug: 'done', is_default: false, is_done: true },
       ] }
@@ -129,6 +129,19 @@ it('cleans up its project and temporary customer when clearing the customer fail
     await cleanup.run()
   }
   expect(routing.currentProjectId()).toBe('original-fallback-project')
+  expect(routing.projects.size).toBe(0)
+  expect(routing.events).toEqual([`delete:${ownedProjectId}`])
+  expect(deleteEntityIfExists).toHaveBeenCalledWith(request, admin, '/api/customers/companies', 'owned-customer')
+})
+
+it('cleans up its project and temporary customer when no task statuses are seeded', async () => {
+  const routing = setupRouting([], { omitTaskStatuses: true })
+  const cleanup = new Cleanup()
+  try {
+    await expect(createCustomerFreeProject(request, admin, cleanup)).rejects.toThrow()
+  } finally {
+    await cleanup.run()
+  }
   expect(routing.projects.size).toBe(0)
   expect(routing.events).toEqual([`delete:${ownedProjectId}`])
   expect(deleteEntityIfExists).toHaveBeenCalledWith(request, admin, '/api/customers/companies', 'owned-customer')
