@@ -60,8 +60,7 @@ test.describe('TC-SSO-001: SSO Config CRUD', () => {
         data: { active: true },
       })
       expect(activateResponse.ok()).toBeFalsy()
-      // Service throws SsoConfigError(400) but OIDC discovery may also fail → accept 400 or 500
-      expect([400, 500]).toContain(activateResponse.status())
+      expect(activateResponse.status()).toBe(400)
     } finally {
       await cleanup()
     }
