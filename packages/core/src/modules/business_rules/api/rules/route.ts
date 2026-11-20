@@ -289,7 +289,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const cache = resolveBusinessRuleDiscoveryCache(container.resolve.bind(container))
+  const cache = resolveBusinessRuleDiscoveryCache(container.resolve)
 
   let body: any
   try {
@@ -376,7 +376,7 @@ export async function PUT(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const cache = resolveBusinessRuleDiscoveryCache(container.resolve.bind(container))
+  const cache = resolveBusinessRuleDiscoveryCache(container.resolve)
 
   let body: any
   try {
@@ -483,7 +483,7 @@ export async function DELETE(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const cache = resolveBusinessRuleDiscoveryCache(container.resolve.bind(container))
+  const cache = resolveBusinessRuleDiscoveryCache(container.resolve)
 
   const rule = await em.findOne(BusinessRule, {
     id,
