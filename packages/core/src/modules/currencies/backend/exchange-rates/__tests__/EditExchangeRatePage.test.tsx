@@ -35,7 +35,7 @@ const savedRate = {
   fromCurrencyCode: 'USD',
   toCurrencyCode: 'PLN',
   rate: '3.9876543219',
-  date: '2026-11-19T10:30:00.000Z',
+  date: '2026-11-19T00:00:00.000Z',
   source: 'REL test',
   type: 'buy',
   isActive: true,
@@ -53,7 +53,14 @@ const dict = {
 }
 
 describe('saved exchange rate editing', () => {
+  const originalTZ = process.env.TZ
+
+  afterEach(() => {
+    process.env.TZ = originalTZ
+  })
+
   beforeEach(() => {
+    process.env.TZ = 'America/Los_Angeles'
     jest.clearAllMocks()
     jest.mocked(apiCall).mockImplementation(async (input) => ({
       ok: true,
