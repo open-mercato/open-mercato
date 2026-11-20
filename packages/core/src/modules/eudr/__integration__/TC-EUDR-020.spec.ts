@@ -16,13 +16,14 @@ import {
   undoByToken,
   undoOk,
 } from '@open-mercato/core/helpers/integration/undoHarness'
+import english from '../i18n/en.json' with { type: 'json' }
 
 export const integrationMeta = {
   dependsOnModules: ['eudr', 'audit_logs', 'customers'],
 }
 
 const CONFLICT_CODE = 'eudr.errors.undoConflict'
-const CONFLICT_MESSAGE = 'This record changed after the action you are undoing. Undo was refused.'
+const CONFLICT_MESSAGE = english[CONFLICT_CODE]
 const PASSWORD = 'StrongSecret123!'
 const STATEMENTS_PATH = '/api/eudr/statements'
 const PLOTS_PATH = '/api/eudr/plots'
