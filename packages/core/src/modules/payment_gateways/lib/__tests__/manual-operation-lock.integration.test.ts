@@ -13,7 +13,8 @@ import {
 import { GatewayPaymentOperation, GatewayTransaction } from '../../data/entities'
 import { createPaymentGatewayService } from '../gateway-service'
 
-const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
+const runPostgresRegression = process.env.OM_PG_INTEGRATION === '1' || process.env.CI === 'true'
+const describeWithPostgres = runPostgresRegression ? describe : describe.skip
 
 function deferred() {
   let resolve: () => void = () => {}

@@ -157,6 +157,12 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     return transaction
   }
 
+  async function withFreshCancelIdentityMap<TResult>(
+    run: (transactionEm: EntityManager) => Promise<TResult>,
+  ): Promise<TResult> {
+    return em.fork({ clear: true }).transactional(run)
+  }
+
   function readProviderSessionId(transaction: GatewayTransaction): string {
     if (typeof transaction.providerSessionId === 'string' && transaction.providerSessionId.trim().length > 0) {
       return transaction.providerSessionId
@@ -308,7 +314,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         return { result, statusChanged }
       }
       const { result, statusChanged } = input.action === 'cancel'
-        ? await em.fork().transactional(async (tx) => {
+        ? await withFreshCancelIdentityMap(async (tx) => {
           const current = await findTransactionOrThrow(input.transactionId, input.scope, tx, {
             lockMode: LockMode.PESSIMISTIC_WRITE,
           })
