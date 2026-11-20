@@ -48,8 +48,11 @@ test.describe('TC-PR-006: unconfigured posting rules banner', () => {
     expect(saveRes.status(), 'saving the clearing account should return 200').toBe(200);
 
     for (const path of PAGES) {
+      const settingsLoaded = page.waitForResponse(
+        (response) => response.url().includes('/api/posting_rules/settings') && response.request().method() === 'GET' && response.ok(),
+      );
       await page.goto(path, { waitUntil: 'domcontentloaded' });
-      await page.waitForLoadState('networkidle');
+      await settingsLoaded;
       await expect(page.getByText(BANNER_TITLE), `${path} hides the banner once configured`).toHaveCount(0);
     }
   });
