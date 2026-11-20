@@ -37,6 +37,50 @@ describe('FieldDefinitionsEditor', () => {
     expect(source).toMatch(/from ['"]\.\.\/\.\.\/primitives\/checkbox-field['"]/)
   })
 
+  it('renders injected actions for each field with the definition and row index', () => {
+    const definitions: FieldDefinition[] = [
+      { key: 'first_name', kind: 'text', configJson: { label: 'First name' } },
+      { key: 'last_name', kind: 'text', configJson: { label: 'Last name' } },
+    ]
+    const renderFieldActions = jest.fn((definition: FieldDefinition, index: number) => (
+      <span data-testid={`field-action-${index}`}>{definition.key}</span>
+    ))
+
+    renderWithProviders(
+      <FieldDefinitionsEditor
+        definitions={definitions}
+        onAddField={() => undefined}
+        onRemoveField={() => undefined}
+        onDefinitionChange={() => undefined}
+        renderFieldActions={renderFieldActions}
+      />,
+    )
+
+    expect(renderFieldActions).toHaveBeenCalledWith(definitions[0], 0)
+    expect(renderFieldActions).toHaveBeenCalledWith(definitions[1], 1)
+    expect(screen.getByTestId('field-action-0')).toHaveTextContent('first_name')
+    expect(screen.getByTestId('field-action-1')).toHaveTextContent('last_name')
+    expect(screen.queryByRole('button', { name: 'Translate field' })).toBeNull()
+  })
+
+  it('preserves the legacy translate callback when callers supply it', () => {
+    const definition: FieldDefinition = { key: 'first_name', kind: 'text' }
+    const onTranslate = jest.fn()
+
+    renderWithProviders(
+      <FieldDefinitionsEditor
+        definitions={[definition]}
+        onAddField={() => undefined}
+        onRemoveField={() => undefined}
+        onDefinitionChange={() => undefined}
+        onTranslate={onTranslate}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Translate field' }))
+    expect(onTranslate).toHaveBeenCalledWith(definition, 0)
+  })
+
   it('assigns a field to a fieldset without triggering a render-time parent update warning', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     const handleDefinitionChange = jest.fn()

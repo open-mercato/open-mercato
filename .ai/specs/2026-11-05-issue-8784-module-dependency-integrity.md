@@ -422,6 +422,19 @@ All changes are additive. Per `BACKWARD_COMPATIBILITY.md`:
 | 14. Generated file contracts (STABLE) | Module facts gain content: the `optionalRequires` fact (PR #6863), new `requires` values, the new configs route and page, the new hosts. | No export or shape change. |
 | 1, 5, 8, 9, 11, 12 | No change. | — |
 
+### Translate action hosts (#8803)
+
+The E3 fix adds these exact render-widget hosts. Existing hosts and the translations API remain unchanged:
+
+| Host | Mounted at | Context | Without `translations` |
+|---|---|---|---|
+| `dictionaries:entry:actions` | Each writable dictionary entry, between Edit and Delete | `{ dictionaryId: string, entry: DictionaryEntryRecord }` | No contributed Translate action; inherited read-only entries never mount the host. |
+| `entities:field-definition:actions` | Each field-definition card in the entity definitions editor (including the system-entity page that reuses it) | `{ entityId: string, definition: FieldDefinition }` | No contributed Translate action. |
+
+`translations.injection.dictionary-entry-translation` and `translations.injection.field-definition-translation` own the buttons and dialogs. Both require `translations.manage` and their host module. They reuse `TranslationManager`, preserving the dictionary entry UUID, the `${entityId}:${fieldKey}` custom-field record ID, the label/description/option translation keys, mutation guards and optimistic locking. `FieldDefinitionsEditorProps.renderFieldActions` is an optional generic renderer; the existing `onTranslate` callback remains supported unchanged.
+
+Regression coverage: dictionary and entity `8803-optional-translations` integration specs run without a translations module dependency and assert absent actions when its route is absent; `TC-TRANS-019` and `TC-TRANS-020` exercise the contributed actions and saved translations with the module enabled. Component tests cover real host mounts, custom-field option mapping and the legacy editor callback.
+
 **Behavior that can newly fail.** Declaring a missing hard dependency in a module's `requires` makes `yarn generate` reject an app that enabled that module without the dependency. Each such addition is listed in `UPGRADE_NOTES.md` with the module to enable, following the precedent of the Catalog change. A reference is declared hard only when the code cannot run without the peer.
 
 **Behavior that moves.** The resolution table moves the seeding of one dictionary from `sales` to `customers` and moves sales-specific dashboard widgets to `sales`. Widget ids, dictionary keys and stored data are unchanged. In an app with all modules enabled nothing visible changes.
@@ -662,3 +675,7 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 
 ### 2026-11-05 — Q10 decided
 - The maintainer confirmed the platform kernel (Q10) with the seed `auth`, `directory` and `api_keys`. No maintainer decision remains open, and the spec PR leaves draft.
+
+### 2026-11-15 — E3 / #8803
+- Moved dictionary-entry and field-definition translation controls into translations-owned widgets at the two documented additive hosts. Preserved the legacy shared-editor callback and translation record identities.
+- Added absent-module browser regression specs and enabled-module save coverage, plus focused host/component tests. Runtime browser validation remains dependent on a runnable test environment.
