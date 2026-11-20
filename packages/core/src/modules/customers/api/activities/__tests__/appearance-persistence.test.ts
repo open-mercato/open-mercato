@@ -227,6 +227,36 @@ describe('activity writes reach canonical interaction persistence', () => {
     }
   })
 
+  it.each(['POST', 'PUT'] as const)('rejects clock rollover before %s dispatch', async (method) => {
+    for (const time of ['24:00', '24:01', '25:00', '23:60']) {
+      const persistence = setupPersistence()
+      persistence.execute.mockResolvedValueOnce({ result: { interactionId: INTERACTION_ID }, logEntry: null })
+      const before = persistence.read()
+      const response = await (method === 'POST' ? POST : PUT)(new Request('http://localhost/api/customers/activities', {
+        method, headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...(method === 'POST' ? { entityId: ENTITY_ID, activityType: 'note' } : { id: INTERACTION_ID }), date: '2026-11-20', time }),
+      }))
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ fieldErrors: { time: 'Enter a valid date and time' } })
+      expect(persistence.execute).not.toHaveBeenCalled()
+      expect(persistence.validateMutation).not.toHaveBeenCalled()
+      expect(persistence.em.flush).not.toHaveBeenCalled()
+      expect(persistence.afterMutationSuccess).not.toHaveBeenCalled()
+      expect(persistence.emitEvent).not.toHaveBeenCalled()
+      expect(persistence.read()).toEqual(before)
+    }
+  })
+
+  it.each([['00:00', new Date(2026, 10, 20)], ['23:59', new Date(2026, 10, 20, 23, 59)]] as const)('persists the valid clock boundary %s', async (time, expected) => {
+    const persistence = setupPersistence()
+    const response = await PUT(new Request('http://localhost/api/customers/activities', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: INTERACTION_ID, date: '2026-11-20', time }),
+    }))
+    expect(response.status).toBe(200)
+    expect(persistence.read().scheduledAt).toEqual(expected)
+  })
+
   it.each([{}, { date: null }, { date: '2024-02-29' }, { date: '2024-02-29', time: '10:30' }])('retains supported create schedules through canonical parsing: %j', async (fields) => {
     const persistence = setupPersistence()
     persistence.execute.mockImplementationOnce(async (commandId, options) => {

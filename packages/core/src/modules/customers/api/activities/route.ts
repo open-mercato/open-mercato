@@ -21,7 +21,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { activityCreateSchema, activityUpdateSchema, interactionUpdateSchema } from '../../data/validators'
-import { calendarDayStartInstant } from '../../lib/calendar/timezone'
+import { calendarDayStartInstant, calendarWallTimeToInstant } from '../../lib/calendar/timezone'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import {
   mapInteractionRecordToActivitySummary,
@@ -81,11 +81,14 @@ function assertActivitySchedule(
       },
     })
   }
-  if (input.time && !interactionUpdateSchema.parse(input).scheduledAt) {
+  const invalidClock = Boolean(input.date && input.time && !calendarWallTimeToInstant(input.date, input.time, 'UTC'))
+  if (input.time && (invalidClock || !interactionUpdateSchema.parse(input).scheduledAt)) {
     throw new CrudHttpError(400, {
       error: translate('customers.errors.validationFailed', 'Validation failed'),
       fieldErrors: {
-        time: translate('customers.activities.errors.timeRequiresDate', 'Provide a valid date when changing the time.'),
+        time: invalidClock
+          ? translate('customers.people.detail.activities.invalidDate', 'Enter a valid date and time')
+          : translate('customers.activities.errors.timeRequiresDate', 'Provide a valid date when changing the time.'),
       },
     })
   }
