@@ -18,13 +18,15 @@ import { randomUUID } from 'node:crypto'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
 import { MarketingCampaignRun } from '../../data/entities'
-import { claimRun, createRun, type RunScope } from '../runs'
+import { applyTransition, claimRun, createRun, failRun, type RunScope } from '../runs'
 
 const PG_URL = process.env.OM_MARKETING_AUTOMATION_PG_URL ?? ''
 const maybe = PG_URL ? describe : describe.skip
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
+const OTHER_TENANT = '33333333-3333-4333-8333-333333333333'
+const OTHER_ORG = '44444444-4444-4444-8444-444444444444'
 
 maybe('run claim/create concurrency against PostgreSQL', () => {
   jest.setTimeout(60_000)
@@ -47,6 +49,136 @@ maybe('run claim/create concurrency against PostgreSQL', () => {
   })
 
   const scope: RunScope = { tenantId: TENANT, organizationId: ORG }
+  const otherScope: RunScope = { tenantId: OTHER_TENANT, organizationId: OTHER_ORG }
+
+  /**
+   * The boundary this risk-high module depends on, proven against a real row rather than a
+   * `fakeEm` that only records the arguments a WHERE clause was built with. Each assertion reads
+   * the row back through a FRESH fork rather than trusting the function's own return value,
+   * because `nativeUpdate` never touches the identity map and because the claim is specifically
+   * that the ROW is untouched, which the return value alone cannot prove.
+   */
+  it('leaves the row untouched when claimRun is called with another tenant or organization', async () => {
+    const em = orm.em.fork()
+    const run = em.create(MarketingCampaignRun, {
+      campaignId: randomUUID(),
+      organizationId: ORG,
+      tenantId: TENANT,
+      subjectEntityId: null,
+      triggerEventId: 'order.created',
+      context: {},
+      currentStepIndex: 0,
+      stepLog: [],
+      status: 'waiting',
+      resumeAt: new Date(Date.now() - 1000),
+      attempts: 0,
+    })
+    em.persist(run)
+    await em.flush()
+
+    const now = new Date()
+    const wrongTenant = await claimRun(orm.em.fork(), run.id, { tenantId: OTHER_TENANT, organizationId: ORG }, now)
+    const wrongOrg = await claimRun(orm.em.fork(), run.id, { tenantId: TENANT, organizationId: OTHER_ORG }, now)
+    expect(wrongTenant).toBeNull()
+    expect(wrongOrg).toBeNull()
+
+    const stillUnclaimed = await orm.em.fork().findOneOrFail(MarketingCampaignRun, { id: run.id })
+    expect(stillUnclaimed.status).toBe('waiting')
+    expect(stillUnclaimed.claimToken).toBeNull()
+
+    // The row is genuinely still claimable — the wrong-scope attempts did not consume it.
+    const correctScope = await claimRun(orm.em.fork(), run.id, scope, now)
+    expect(correctScope).not.toBeNull()
+  })
+
+  it('leaves the row untouched when applyTransition is called with another tenant or organization', async () => {
+    const em = orm.em.fork()
+    const run = em.create(MarketingCampaignRun, {
+      campaignId: randomUUID(),
+      organizationId: ORG,
+      tenantId: TENANT,
+      subjectEntityId: null,
+      triggerEventId: 'order.created',
+      context: {},
+      currentStepIndex: 0,
+      stepLog: [],
+      status: 'waiting',
+      resumeAt: new Date(Date.now() - 1000),
+      attempts: 0,
+    })
+    em.persist(run)
+    await em.flush()
+
+    const now = new Date()
+    const claimToken = await claimRun(orm.em.fork(), run.id, scope, now)
+    expect(claimToken).not.toBeNull()
+
+    const wrongScopeApplied = await applyTransition(
+      orm.em.fork(),
+      run.id,
+      otherScope,
+      claimToken as string,
+      { kind: 'completed', stepLog: [], context: {} },
+      now,
+    )
+    expect(wrongScopeApplied).toBe(false)
+
+    const stillClaimed = await orm.em.fork().findOneOrFail(MarketingCampaignRun, { id: run.id })
+    expect(stillClaimed.status).toBe('claimed')
+    expect(stillClaimed.claimToken).toBe(claimToken)
+    expect(stillClaimed.completedAt).toBeNull()
+
+    // The claim is genuinely still live — the wrong-scope attempt did not spend it.
+    const correctScopeApplied = await applyTransition(
+      orm.em.fork(),
+      run.id,
+      scope,
+      claimToken as string,
+      { kind: 'completed', stepLog: [], context: {} },
+      now,
+    )
+    expect(correctScopeApplied).toBe(true)
+  })
+
+  it('leaves the row untouched when failRun is called with another tenant or organization', async () => {
+    const em = orm.em.fork()
+    const run = em.create(MarketingCampaignRun, {
+      campaignId: randomUUID(),
+      organizationId: ORG,
+      tenantId: TENANT,
+      subjectEntityId: null,
+      triggerEventId: 'order.created',
+      context: {},
+      currentStepIndex: 0,
+      stepLog: [],
+      status: 'waiting',
+      resumeAt: new Date(Date.now() - 1000),
+      attempts: 0,
+    })
+    em.persist(run)
+    await em.flush()
+
+    const now = new Date()
+    const claimToken = await claimRun(orm.em.fork(), run.id, scope, now)
+    expect(claimToken).not.toBeNull()
+
+    // `failRun`'s own return value is not the thing under test here — only `MarketingCampaignRun`'s
+    // actual, persisted row says whether the wrong-scope write was ever applied.
+    await failRun(
+      orm.em.fork(),
+      run.id,
+      otherScope,
+      claimToken as string,
+      { attempts: 0, error: new Error('QA induced failure'), stepLog: [], resumeStepIndex: 0, context: {} },
+      now,
+    )
+
+    const stillClaimed = await orm.em.fork().findOneOrFail(MarketingCampaignRun, { id: run.id })
+    expect(stillClaimed.status).toBe('claimed')
+    expect(stillClaimed.claimToken).toBe(claimToken)
+    expect(stillClaimed.attempts).toBe(0)
+    expect(stillClaimed.lastError).toBeNull()
+  })
 
   it('lets exactly one of two concurrent claimers take the run', async () => {
     const em = orm.em.fork()

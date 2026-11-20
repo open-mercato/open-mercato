@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { Attachment as AttachmentEntity } from '@open-mercato/core/modules/attachments/data/entities'
 import type { SupportPortalScope } from './portalTickets'
@@ -25,6 +26,7 @@ export type PortalAttachmentsApi = {
   isMultipartRequestWithinUploadLimit: typeof import('@open-mercato/core/modules/attachments/lib/upload-limits').isMultipartRequestWithinUploadLimit
   resolveAttachmentMaxBytes: typeof import('@open-mercato/core/modules/attachments/lib/upload-limits').resolveAttachmentMaxBytes
   isScopedAttachmentUploadError: typeof import('@open-mercato/core/modules/attachments/lib/scoped-upload-service').isScopedAttachmentUploadError
+  removeAttachmentRecord: typeof import('@open-mercato/core/modules/attachments/lib/storageReferences').removeAttachmentRecord
 }
 
 export const portalSupportAttachmentItemSchema = z.object({
@@ -42,11 +44,14 @@ export type PortalSupportAttachmentItem = z.infer<typeof portalSupportAttachment
 
 /**
  * Staff keeps no static edge to the attachments module: it is loaded on demand and a
- * deployment without it reads as "attachments unavailable" (`null`).
+ * deployment without it reads as "attachments unavailable" (`null`). The attachments
+ * code always ships in `@open-mercato/core`, so availability is decided by whether the
+ * app registered the `attachments:attachment` entity, not by whether the import works.
  */
 export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi | null> {
+  if (!getEntityIds(false).attachments?.attachment) return null
   try {
-    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService] = await Promise.all([
+    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService, storageReferences] = await Promise.all([
       import('@open-mercato/core/modules/attachments/data/entities'),
       import('@open-mercato/core/modules/attachments/lib/drivers'),
       import('@open-mercato/core/modules/attachments/lib/access'),
@@ -56,6 +61,7 @@ export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi |
       import('@open-mercato/core/modules/attachments/lib/thumbnailCache'),
       import('@open-mercato/core/modules/attachments/lib/upload-limits'),
       import('@open-mercato/core/modules/attachments/lib/scoped-upload-service'),
+      import('@open-mercato/core/modules/attachments/lib/storageReferences'),
     ])
     return {
       Attachment: entities.Attachment,
@@ -70,6 +76,7 @@ export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi |
       isMultipartRequestWithinUploadLimit: limits.isMultipartRequestWithinUploadLimit,
       resolveAttachmentMaxBytes: limits.resolveAttachmentMaxBytes,
       isScopedAttachmentUploadError: uploadService.isScopedAttachmentUploadError,
+      removeAttachmentRecord: storageReferences.removeAttachmentRecord,
     }
   } catch (err) {
     logger.warn('staff portal support attachments module unavailable', { err })
