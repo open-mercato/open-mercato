@@ -4,13 +4,15 @@ import { CATALOG_PRODUCTS, SALES_ORDERS } from './external/tables.js'
 /**
  * Whether the modules this one USES but does not require are actually there.
  *
- * `index.ts` does NOT declare them yet, and that is deliberate. `sales` and `catalog` stay in `requires` —
- * a hard gate that fails `yarn generate` — until every reader degrades, because a module that announces an
- * optional dependency while half its queries still assume the tables exist turns a clear generator failure
- * into a 500 on the audience screen. That is strictly worse than the hard dependency it would replace.
- *
- * So this probe is the work that EARNS the declaration, one reader at a time. The remaining unguarded readers
- * are named in the module's commit history and the declaration moves when the list is empty.
+ * `index.ts` declares both `sales` and `catalog` as `optionalRequires`: used where present, degraded where
+ * not, rather than a hard `requires` that would fail `yarn generate` on a CRM-only installation that has
+ * every reason to want this module. That declaration is only honest because every current reader goes
+ * through this probe first — `lib/value-boundaries.ts`, `lib/recommendations.ts`, `lib/referrals.ts`,
+ * `lib/subject-document.ts`, `lib/audience/field-options.ts`, `lib/audience/set-resolver.ts` and
+ * `lib/analytics/split-results.ts` — so a module that announces the dependency optional while a query
+ * still assumed the table existed cannot ship silently; a reader added later must call
+ * `hasSales`/`hasCatalog` too, or it reintroduces exactly the "500 on the audience screen" this probe
+ * exists to prevent.
  *
  * Asked of the DATABASE rather than of the module registry, because the precondition is the table, not the
  * registration. `sales` enabled with its migrations unapplied is a real state — a half-finished install, a

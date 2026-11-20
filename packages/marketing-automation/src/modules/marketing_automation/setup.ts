@@ -61,6 +61,9 @@ async function ensureSchedules(ctx: {
       description: 'Resumes campaign runs whose wait elapsed but whose delayed job was lost.',
       scheduleValue: DUE_RUN_SCAN_INTERVAL,
       targetQueue: 'marketing-automation-resume',
+      // `workers/resume.ts` declares this queue with `schedulerSafe: true`, so
+      // `canDispatchScheduleQueueTarget` accepts it — the orphan-recovery scan actually runs.
+      isEnabled: true,
     },
     {
       key: `marketing_automation:sweep:${ctx.organizationId}`,
@@ -68,6 +71,11 @@ async function ensureSchedules(ctx: {
       description: 'Runs campaigns that start on a schedule: re-engagement and offer-expiry reminders.',
       scheduleValue: SWEEP_INTERVAL,
       targetQueue: 'marketing-automation-sweep',
+      // No worker in this module declares `marketing-automation-sweep` yet (unlike
+      // `marketing-automation-resume` above), so `canDispatchScheduleQueueTarget` would reject
+      // every tick. Registered disabled for visibility; flip to true in the phase that ships
+      // the sweep worker.
+      isEnabled: false,
     },
   ]
 
@@ -89,10 +97,7 @@ async function ensureSchedules(ctx: {
         targetPayload: { scope },
         sourceType: 'module',
         sourceModule: 'marketing_automation',
-        // No worker in this module declares `marketing-automation-resume`/`-sweep` yet, so
-        // `canDispatchScheduleQueueTarget` would reject every tick. Registered disabled for
-        // visibility; flip to true in the phase that ships the resume/sweep workers.
-        isEnabled: false,
+        isEnabled: schedule.isEnabled,
       })
     }
   } catch (error) {

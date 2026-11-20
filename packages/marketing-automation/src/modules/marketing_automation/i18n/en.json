@@ -753,6 +753,7 @@
   "marketing_automation.validation.loopRisk": "This campaign reacts to an event that its own steps can cause, which may make it run in a loop.",
   "marketing_automation.validation.noSteps": "Add at least one step, otherwise the campaign will do nothing.",
   "marketing_automation.validation.noTriggers": "Add at least one trigger, otherwise nothing will ever start this campaign.",
+  "marketing_automation.validation.scheduleOnlyUnsupported": "A schedule-only campaign cannot be enabled yet. Add a trigger that is not a schedule, such as an event.",
   "marketing_automation.validation.sendHourInQuietHours": "This send hour falls inside the campaign's own quiet hours, so the message could never go out at it.",
   "marketing_automation.validation.trailingWait": "The last step is a wait, which has nothing to wait for. Remove it or add a step after it.",
   "marketing_automation.validation.unavailableTrigger": "This trigger is not available in this installation.",

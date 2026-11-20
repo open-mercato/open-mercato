@@ -27,10 +27,9 @@
  * it because it buys an enforced audit; a second buys tidiness and pays in guards that cannot see what they
  * guard. The review asked for auditable coupling, not for fewer joins.
  *
- * `ModuleInfo.optionalRequires` now exists, so "sales and catalog are optional" is expressible — but this
- * module has not claimed it yet: the declaration is a promise every reader has to keep, and `lib/capabilities.ts`
- * is the probe that earns it one reader at a time. The remaining fix beyond that is a platform data contract,
- * which this file is the seam for.
+ * `index.ts` now declares `sales` and `catalog` through `ModuleInfo.optionalRequires` — the promise every
+ * reader has to keep so the declaration stays honest, with `lib/capabilities.ts` as the probe that earns it.
+ * The remaining fix beyond that is a platform data contract, which this file is the seam for.
  */
 
 /** `sales` — what somebody bought, when, for how much, and through which channel. */

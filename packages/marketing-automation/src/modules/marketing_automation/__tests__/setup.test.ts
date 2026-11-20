@@ -71,4 +71,26 @@ describe('marketing_automation setup: schedule registration', () => {
     await setup.seedDefaults!({ container, tenantId: 't1', organizationId: 'o1' } as never)
     expect(reportError).not.toHaveBeenCalled()
   })
+
+  /**
+   * `workers/resume.ts` declares `marketing-automation-resume` with `schedulerSafe: true`; no
+   * worker declares `marketing-automation-sweep` yet. Registering the due-run scan disabled
+   * alongside it made the orphan-recovery branch unreachable in production with no worker-side
+   * cause — this pins the two schedules to the state their worker readiness actually supports,
+   * so the next worker that ships flips exactly one flag rather than both silently staying off.
+   */
+  it('registers the due-run scan enabled (its worker exists) and the sweep disabled (its worker does not)', async () => {
+    const register = jest.fn().mockResolvedValue(undefined)
+    const container = {
+      hasRegistration: () => true,
+      resolve: () => ({ register }),
+    }
+
+    await setup.seedDefaults!({ container, tenantId: 't1', organizationId: 'o1' } as never)
+
+    expect(register).toHaveBeenCalledTimes(2)
+    const byQueue = new Map(register.mock.calls.map(([input]) => [input.targetQueue, input]))
+    expect(byQueue.get('marketing-automation-resume')).toMatchObject({ isEnabled: true })
+    expect(byQueue.get('marketing-automation-sweep')).toMatchObject({ isEnabled: false })
+  })
 })

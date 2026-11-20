@@ -753,6 +753,7 @@
   "marketing_automation.validation.loopRisk": "Diese Kampagne reagiert auf ein Ereignis, das ihre eigenen Schritte auslösen können – sie könnte in einer Schleife laufen.",
   "marketing_automation.validation.noSteps": "Fügen Sie mindestens einen Schritt hinzu, sonst tut die Kampagne nichts.",
   "marketing_automation.validation.noTriggers": "Fügen Sie mindestens einen Auslöser hinzu, sonst startet diese Kampagne nie.",
+  "marketing_automation.validation.scheduleOnlyUnsupported": "Eine nur zeitplangesteuerte Kampagne kann noch nicht aktiviert werden. Fügen Sie einen Auslöser hinzu, der kein Zeitplan ist, etwa ein Ereignis.",
   "marketing_automation.validation.sendHourInQuietHours": "Diese Sendestunde liegt innerhalb der Ruhezeiten der Kampagne selbst, die Nachricht könnte zu dieser Stunde also nie hinausgehen.",
   "marketing_automation.validation.trailingWait": "Der letzte Schritt ist eine Wartezeit, auf die nichts folgt. Entfernen Sie sie oder fügen Sie einen Schritt danach hinzu.",
   "marketing_automation.validation.unavailableTrigger": "Dieser Auslöser ist in dieser Installation nicht verfügbar.",

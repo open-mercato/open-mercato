@@ -94,6 +94,13 @@ export const VALIDATION_CODES = {
   noSteps: 'marketing_automation.validation.noSteps',
   noTriggers: 'marketing_automation.validation.noTriggers',
   invalidSchedule: 'marketing_automation.validation.invalidSchedule',
+  /**
+   * No worker executes `lib/sweep-sources.ts`'s `sweepSourceCatalog` yet, so a campaign whose
+   * only triggers are `kind: 'schedule'` would enable successfully and then never enrol anyone
+   * — the exact "looks saved and does nothing" failure this guard exists to prevent for
+   * no-steps/no-triggers. Remove once the sweep worker ships.
+   */
+  scheduleOnlyUnsupported: 'marketing_automation.validation.scheduleOnlyUnsupported',
   /** The payload itself did not parse — a client sending a shape this version does not accept. */
   invalidPayload: 'marketing_automation.validation.invalidPayload',
 } as const
@@ -1124,6 +1131,22 @@ const setCampaignEnabledCommand: CommandHandler<
       })
       if (triggerCount === 0) {
         throw invalidGraph(VALIDATION_CODES.noTriggers, 'A campaign cannot be enabled with no triggers')
+      }
+      // No worker executes the periodic sweep sources yet (`lib/sweep-sources.ts`'s
+      // `sweepSourceCatalog` has no production caller), so a campaign whose triggers are ALL
+      // `kind: 'schedule'` would enable looking exactly like a live campaign and never enrol
+      // anyone. An `event` trigger alongside a schedule one is fine — the event side still fires.
+      const eventTriggerCount = await em.count(MarketingCampaignTrigger, {
+        campaignId: campaign.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        kind: 'event',
+      })
+      if (eventTriggerCount === 0) {
+        throw invalidGraph(
+          VALIDATION_CODES.scheduleOnlyUnsupported,
+          'A schedule-only campaign cannot be enabled yet — the periodic sweep that would run it is not shipped',
+        )
       }
     }
 

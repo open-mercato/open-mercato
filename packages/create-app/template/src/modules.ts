@@ -84,7 +84,7 @@ export const enabledModules: ModuleEntry[] = [
   // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
   // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
   // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
-  // work, same as channel_discord's byte-budget call below.
+  // work, like the other opt-in modules below.
   // { id: 'customer_groups', from: '@open-mercato/core' },
   { id: 'perspectives', from: '@open-mercato/core' },
   { id: 'entities', from: '@open-mercato/core' },
@@ -200,16 +200,8 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'channel_apns', from: '@open-mercato/channel-apns' },
   { id: 'channel_expo', from: '@open-mercato/channel-expo' },
   { id: 'channel_fcm', from: '@open-mercato/channel-fcm' },
-  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
-  // but stays disabled by default. #4989 removed the hard overflow this used to
-  // cause (the generated root now sheds its module-fact index instead), but the
-  // headroom is still gone: enabling it puts the generated root at 12,275 of the
-  // 12,288-byte target, so the next module enabled after it drops the inline
-  // index to pointer form. Enabling is therefore a maintainer call about that
-  // budget, not a one-line edit — see
-  // packages/create-app/src/lib/agent-instruction-budget.test.ts
-  // ('one more template module still fits the root budget with its inline index
-  // intact'), and #4983 for the discussion.
+  // Optional Discord bot channel (SPEC 2026-06-19). To enable it, first run
+  // yarn add @open-mercato/channel-discord, then uncomment the registration.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'tillio', from: '@open-mercato/tillio' },
@@ -262,10 +254,12 @@ if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
 /**
  * Marketing automation: a trigger, an audience expression and an ordered list of steps.
  *
- * Opt-in, and deliberately so. It is a large optional vertical: 23 tables to migrate and six public
- * unauthenticated routes (tracking, unsubscribe, survey, inbound hooks) that a reference app has no reason to
- * serve unless somebody asked for them. Audience expressions reuse the `business_rules` condition evaluator,
- * sends go through the shared email transport, and tagging goes through the `customers` commands.
+ * Opt-in, and deliberately so. It is a large optional vertical: 23 tables to migrate and a dispatch
+ * engine whose send steps build tracking/unsubscribe links — but, as of this phase, no public
+ * unauthenticated routes yet serving what those links point at (tracking, unsubscribe, survey, inbound
+ * hooks); `OM_MARKETING_PUBLIC_ROUTES_READY` gates a real send until they land. Audience expressions
+ * reuse the `business_rules` condition evaluator, sends go through the shared email transport, and
+ * tagging goes through the `customers` commands.
  */
 if (parseBooleanWithDefault(process.env.OM_ENABLE_MARKETING_AUTOMATION, false)) {
   enabledModules.push({ id: 'marketing_automation', from: '@open-mercato/marketing-automation' })

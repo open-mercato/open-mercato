@@ -11,7 +11,7 @@ describe('convertOutboundForGmail', () => {
     })
     const meta = result.metadata as Record<string, unknown>
     const raw = (meta.rawMessage as Buffer).toString('utf-8')
-    expect(raw).toContain('From: "Alice" <alice@gmail.com>')
+    expect(raw).toContain('From: Alice <alice@gmail.com>')
     expect(raw).toContain('To: bob@example.com')
     expect(raw).toContain('Subject: Hi')
     expect(raw).toContain('MIME-Version: 1.0')

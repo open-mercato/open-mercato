@@ -753,6 +753,7 @@
   "marketing_automation.validation.loopRisk": "이 캠페인은 자신의 단계가 유발할 수 있는 이벤트에 반응하므로 반복 실행될 수 있습니다.",
   "marketing_automation.validation.noSteps": "단계를 최소 하나 추가하세요. 그렇지 않으면 캠페인이 아무 동작도 하지 않습니다.",
   "marketing_automation.validation.noTriggers": "트리거를 최소 하나 추가하세요. 그렇지 않으면 이 캠페인은 시작되지 않습니다.",
+  "marketing_automation.validation.scheduleOnlyUnsupported": "일정에만 의존하는 캠페인은 아직 활성화할 수 없습니다. 이벤트와 같이 일정이 아닌 트리거를 추가하세요.",
   "marketing_automation.validation.sendHourInQuietHours": "이 발송 시각은 해당 캠페인의 조용한 시간대 안에 있어서 메시지가 그 시각에는 결코 나갈 수 없습니다.",
   "marketing_automation.validation.trailingWait": "마지막 단계가 대기여서 기다릴 대상이 없습니다. 제거하거나 뒤에 단계를 추가하세요.",
   "marketing_automation.validation.unavailableTrigger": "이 트리거는 이 설치 환경에서 사용할 수 없습니다.",

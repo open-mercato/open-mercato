@@ -753,6 +753,7 @@
   "marketing_automation.validation.loopRisk": "Ta kampania reaguje na zdarzenie, które mogą wywołać jej własne kroki, więc może się zapętlić.",
   "marketing_automation.validation.noSteps": "Dodaj co najmniej jeden krok, inaczej kampania nic nie zrobi.",
   "marketing_automation.validation.noTriggers": "Dodaj co najmniej jeden wyzwalacz, inaczej nic nie uruchomi tej kampanii.",
+  "marketing_automation.validation.scheduleOnlyUnsupported": "Kampanii uruchamianej wyłącznie harmonogramem nie można jeszcze włączyć. Dodaj wyzwalacz, który nie jest harmonogramem, na przykład zdarzenie.",
   "marketing_automation.validation.sendHourInQuietHours": "Ta godzina wysyłki wypada w godzinach ciszy tej kampanii, więc wiadomość nigdy by o tej godzinie nie wyszła.",
   "marketing_automation.validation.trailingWait": "Ostatnim krokiem jest czekanie, po którym nic już nie następuje. Usuń je albo dodaj krok po nim.",
   "marketing_automation.validation.unavailableTrigger": "Ten wyzwalacz nie jest dostępny w tej instalacji.",

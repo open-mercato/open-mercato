@@ -152,6 +152,60 @@ describe('delete_campaign undo', () => {
   })
 })
 
+/**
+ * No worker executes `lib/sweep-sources.ts`'s `sweepSourceCatalog` yet, so a campaign whose
+ * triggers are ALL `kind: 'schedule'` would otherwise enable looking exactly like a live one and
+ * never enrol anyone — the same "looks saved and does nothing" failure the no-steps/no-triggers
+ * guards above already refuse.
+ */
+describe('set_campaign_enabled: schedule-only campaigns', () => {
+  it('refuses to enable a campaign whose only trigger is a schedule', async () => {
+    const { em, campaigns } = fakeEm()
+    const ctx = fakeCtx(em)
+    const campaign = em.create(MarketingCampaign, {
+      tenantId: 't1', organizationId: 'o1', name: 'Weekly digest', description: null,
+      isEnabled: false, definition: { version: 1, steps: [{ id: 's1', type: 'wait', params: { days: 1 } }] },
+      breakerResetAt: null, breakerTrippedAt: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    }) as Row
+    em.create(MarketingCampaignTrigger, {
+      campaignId: campaign.id, tenantId: 't1', organizationId: 'o1', kind: 'schedule', eventId: null,
+      scheduleValue: '0 9 * * 1', reentryAfterDays: null, sweepSource: 'birthdays', sweepParams: null,
+      lastSweptAt: null, createdAt: new Date(), updatedAt: new Date(),
+    })
+
+    await expect(
+      setCampaignEnabledCommand.execute({ id: campaign.id as string, isEnabled: true }, ctx),
+    ).rejects.toMatchObject({
+      status: 400,
+      body: { code: 'marketing_automation.validation.scheduleOnlyUnsupported' },
+    })
+    expect(campaigns.get(campaign.id as string)).toMatchObject({ isEnabled: false })
+  })
+
+  it('still allows enabling a campaign that has an event trigger alongside a schedule one', async () => {
+    const { em, campaigns } = fakeEm()
+    const ctx = fakeCtx(em)
+    const campaign = em.create(MarketingCampaign, {
+      tenantId: 't1', organizationId: 'o1', name: 'Digest plus trigger', description: null,
+      isEnabled: false, definition: { version: 1, steps: [{ id: 's1', type: 'wait', params: { days: 1 } }] },
+      breakerResetAt: null, breakerTrippedAt: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    }) as Row
+    em.create(MarketingCampaignTrigger, {
+      campaignId: campaign.id, tenantId: 't1', organizationId: 'o1', kind: 'schedule', eventId: null,
+      scheduleValue: '0 9 * * 1', reentryAfterDays: null, sweepSource: 'birthdays', sweepParams: null,
+      lastSweptAt: null, createdAt: new Date(), updatedAt: new Date(),
+    })
+    em.create(MarketingCampaignTrigger, {
+      campaignId: campaign.id, tenantId: 't1', organizationId: 'o1', kind: 'event', eventId: 'sales.order.created',
+      scheduleValue: null, reentryAfterDays: null, sweepSource: null, sweepParams: null, lastSweptAt: null,
+      createdAt: new Date(), updatedAt: new Date(),
+    })
+
+    const result = await setCampaignEnabledCommand.execute({ id: campaign.id as string, isEnabled: true }, ctx)
+    expect(campaigns.get(result.id)).toMatchObject({ isEnabled: true })
+  })
+})
+
 describe('set_campaign_enabled undo', () => {
   it('flips isEnabled and the breaker reset stamp back', async () => {
     const { em, campaigns } = fakeEm()

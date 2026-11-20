@@ -753,6 +753,7 @@
   "marketing_automation.validation.loopRisk": "Esta campaña reacciona a un evento que sus propios pasos pueden provocar, por lo que podría ejecutarse en bucle.",
   "marketing_automation.validation.noSteps": "Añade al menos un paso; de lo contrario la campaña no hará nada.",
   "marketing_automation.validation.noTriggers": "Añade al menos un disparador; de lo contrario nada iniciará esta campaña.",
+  "marketing_automation.validation.scheduleOnlyUnsupported": "Una campaña solo con horario todavía no se puede activar. Añade un disparador que no sea un horario, como un evento.",
   "marketing_automation.validation.sendHourInQuietHours": "Esta hora de envío cae dentro de las horas de silencio de la propia campaña, así que el mensaje nunca podría salir a esa hora.",
   "marketing_automation.validation.trailingWait": "El último paso es una espera que no tiene nada que esperar. Quítala o añade un paso después.",
   "marketing_automation.validation.unavailableTrigger": "Este disparador no está disponible en esta instalación.",
