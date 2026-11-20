@@ -330,6 +330,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
               'Cannot cancel a payment with captured funds or an outstanding capture reservation.',
             ))
           }
+          input.assertInitialAllowed?.(current)
           return invokeAndComplete(tx, current)
         })
         : await invokeAndComplete(em, transaction)

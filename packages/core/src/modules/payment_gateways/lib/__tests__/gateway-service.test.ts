@@ -1022,6 +1022,39 @@ describe('payment gateway service — cancel with captured funds', () => {
     expect(transaction.unifiedStatus).toBe('partially_captured')
   })
 
+  it.each([false, true])('refuses a status-only partial capture first observed under the cancel lock (retry: %s)', async (retry) => {
+    const transaction = makeTransaction('authorized', '0')
+    const { service, cancelFn } = buildService(transaction, {})
+    const operationId = 'cancel-late-partial'
+    if (retry) {
+      cancelFn.mockRejectedValueOnce(new Error('provider unavailable'))
+      await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toThrow('provider unavailable')
+      cancelFn.mockClear()
+    }
+    const originalFind = findOneMock.getMockImplementation()!
+    let lockedReads = 0
+    findOneMock.mockImplementation(async (...args) => {
+      if ((args[1] as { name?: string }).name === 'GatewayTransaction' && args[3]?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+        lockedReads += 1
+        transaction.unifiedStatus = 'partially_captured'
+        transaction.capturedAmount = '0'
+      }
+      return originalFind(...args)
+    })
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_cancel_captured_funds' },
+    })
+
+    expect(lockedReads).toBe(1)
+    expect(cancelFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('partially_captured')
+    expect(transaction.capturedAmount).toBe('0')
+    await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toMatchObject({ status: 409 })
+    expect(cancelFn).not.toHaveBeenCalled()
+  })
+
   it.each(['25.0000', '0.000000000000000001'])('refuses to cancel an authorized transaction holding %s in capture reservations', async (capturedAmount) => {
     const transaction = makeTransaction('authorized', capturedAmount)
     const { service, cancelFn } = buildService(transaction, {})

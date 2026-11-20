@@ -13,7 +13,8 @@ import {
 import { GatewayPaymentOperation, GatewayTransaction } from '../../data/entities'
 import { createPaymentGatewayService } from '../gateway-service'
 
-const runPostgresRegression = process.env.OM_PG_INTEGRATION === '1' || process.env.CI === 'true'
+const manualDatabaseUrl = process.env.OM_PAYMENT_GATEWAYS_MANUAL_DATABASE_URL
+const runPostgresRegression = Boolean(manualDatabaseUrl) || process.env.OM_PG_INTEGRATION === '1' || process.env.CI === 'true'
 const describeWithPostgres = runPostgresRegression ? describe : describe.skip
 
 function deferred() {
@@ -29,17 +30,25 @@ describeWithPostgres('manual cancel/capture exclusion against PostgreSQL (#8224)
   const providerKey = 'synthetic-cancel-capture'
 
   beforeAll(async () => {
-    const { GenericContainer, Wait } = await import('testcontainers')
-    postgres = await new GenericContainer('postgres:16-alpine')
-      .withEnvironment({ POSTGRES_DB: 'payments', POSTGRES_USER: 'payments', POSTGRES_PASSWORD: 'payments' })
-      .withExposedPorts(5432)
-      .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections', 2))
-      .start()
+    if (manualDatabaseUrl) {
+      if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(manualDatabaseUrl).hostname)) {
+        throw new Error('[internal] Manual payment regression requires an explicit loopback disposable database')
+      }
+    } else {
+      const { GenericContainer, Wait } = await import('testcontainers')
+      postgres = await new GenericContainer('postgres:16-alpine')
+        .withEnvironment({ POSTGRES_DB: 'payments', POSTGRES_USER: 'payments', POSTGRES_PASSWORD: 'payments' })
+        .withExposedPorts(5432)
+        .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections', 2))
+        .start()
+    }
     orm = await MikroORM.init({
       driver: PostgreSqlDriver,
       entities: [GatewayTransaction, GatewayPaymentOperation],
-      host: postgres.getHost(), port: postgres.getMappedPort(5432),
-      dbName: 'payments', user: 'payments', password: 'payments',
+      ...(manualDatabaseUrl ? { clientUrl: manualDatabaseUrl } : {
+        host: postgres!.getHost(), port: postgres!.getMappedPort(5432),
+        dbName: 'payments', user: 'payments', password: 'payments',
+      }),
       pool: { min: 1, max: 5 },
     })
     await orm.schema.create()
@@ -169,5 +178,45 @@ describeWithPostgres('manual cancel/capture exclusion against PostgreSQL (#8224)
     expect(cancel.mock.calls[0]).toEqual(cancel.mock.calls[1])
     const operation = await findOneWithDecryption(orm.em.fork(), GatewayPaymentOperation, { operationId: 'cancel-retry', ...scope }, undefined, scope)
     expect(operation).toMatchObject({ status: 'succeeded', attemptCount: 2 })
+  })
+
+  it.each([false, true])('refuses a status-only partial capture committed before the final cancel lock (retry: %s)', async (retry) => {
+    const { transaction, cancel, cancelService } = await fixture()
+    const operationId = 'cancel-late-status'
+    if (retry) {
+      cancel.mockRejectedValueOnce(new Error('synthetic provider failure'))
+      await expect(cancelService.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toThrow('synthetic provider failure')
+      cancel.mockClear()
+    }
+    const credentialsEntered = deferred()
+    const finishCredentials = deferred()
+    const service = createPaymentGatewayService({
+      em: orm.em.fork(),
+      integrationCredentialsService: { resolve: async () => {
+        credentialsEntered.resolve()
+        await finishCredentials.promise
+        return {}
+      } } as never,
+    })
+    const cancelling = service.cancelPayment(transaction.id, undefined, scope, operationId)
+    const outcome = cancelling.then((value) => ({ value }), (error: unknown) => ({ error }))
+    try {
+      await Promise.race([credentialsEntered.promise, outcome.then(() => {
+        throw new Error('[internal] Cancellation settled before the credential boundary')
+      })])
+      await orm.em.fork().nativeUpdate(GatewayTransaction, { id: transaction.id, ...scope }, { unifiedStatus: 'partially_captured' })
+    } finally {
+      finishCredentials.resolve()
+      await outcome
+    }
+
+    expect(await outcome).toMatchObject({ error: { status: 409, body: { code: 'payment_cancel_captured_funds' } } })
+    expect(cancel).not.toHaveBeenCalled()
+    const current = await findOneWithDecryption(orm.em.fork(), GatewayTransaction, { id: transaction.id, ...scope }, undefined, scope)
+    expect(current).toMatchObject({ unifiedStatus: 'partially_captured', capturedAmount: '0' })
+    const operation = await findOneWithDecryption(orm.em.fork(), GatewayPaymentOperation, { operationId, ...scope }, undefined, scope)
+    expect(operation).toMatchObject({ status: 'failed', attemptCount: retry ? 2 : 1 })
+    await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toMatchObject({ status: 409 })
+    expect(cancel).not.toHaveBeenCalled()
   })
 })
