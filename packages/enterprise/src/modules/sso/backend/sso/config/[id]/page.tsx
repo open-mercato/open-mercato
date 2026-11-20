@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -344,10 +345,6 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
             </div>
           )}
 
-          {activationError && !(showActivationBanner && !config.isActive) && (
-            <p role="alert" data-testid="sso-activation-error" className="text-sm text-destructive">{activationError}</p>
-          )}
-
           <FormHeader
             mode="detail"
             backHref="/backend/sso"
@@ -375,6 +372,18 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
               </div>
             }
           />
+
+          {activationError && !(showActivationBanner && !config.isActive) && (
+            <Alert
+              status="error"
+              data-testid="sso-activation-error"
+              dismissible
+              onDismiss={() => setActivationError(null)}
+              dismissAriaLabel={t('common.dismiss', 'Dismiss')}
+            >
+              {activationError}
+            </Alert>
+          )}
 
           {/* Tabs */}
           <div className="flex gap-1 border-b">
