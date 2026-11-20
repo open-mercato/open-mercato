@@ -13,6 +13,7 @@ import {
   undoOk,
 } from '@open-mercato/core/helpers/integration/undoHarness'
 import { Migration20261026180000_customers_address_contact_encryption } from '@open-mercato/core/modules/customers/migrations/Migration20261026180000_customers_address_contact_encryption'
+import { cleanupAddressPolicyFixture } from './helpers/addressPolicyCleanup'
 
 /**
  * TC-CRM-5232: address recipient name + phone (#5232, Phase 3 of
@@ -296,7 +297,7 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
     let companyId: string | null = null
     let addressId: string | null = null
     let createdOtherMap = false
-    let restoredOtherMapId: string | null = null
+    let restoredOtherMap: { id: string; deletedAt: string | Date } | null = null
     const startedAt = new Date()
     let backup: { id: string } | null = null
     let parentPolicies: Array<{ id: string; fields_json: unknown }> = []
@@ -350,7 +351,7 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
           createdOtherMap = true
         } else if (otherMap.rows[0].deleted_at !== null) {
           await client.query('update encryption_maps set deleted_at = null where id = $1', [otherMap.rows[0].id])
-          restoredOtherMapId = otherMap.rows[0].id
+          restoredOtherMap = { id: otherMap.rows[0].id, deletedAt: otherMap.rows[0].deleted_at }
         }
       })
 
@@ -419,30 +420,10 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
       })
       expect(rawLine, 'address_line1 is still encrypted at rest').not.toBe(`5 Legacy Cipher Rd ${stamp}`)
     } finally {
-      await deleteEntityIfExists(request, token, COMPANIES, companyId)
-      await withClient(async (client) => {
-        for (const parent of parentPolicies) {
-          await client.query('update encryption_maps set fields_json = $2::jsonb, updated_at = now() where id = $1', [parent.id, JSON.stringify(parent.fields_json)])
-        }
-        if (backup) {
-          await client.query('update encryption_maps set deleted_at = null where id = $1', [backup.id])
-        }
-        await client.query(
-          `delete from encryption_maps
-            where entity_id = $1 and tenant_id = $2 and organization_id = $3
-              and created_at >= $4 and ($5::uuid is null or id <> $5::uuid)`,
-          [addressEntity, tenantId, organizationId, startedAt, backup?.id ?? null],
-        )
-        if (createdOtherMap) {
-          await client.query(
-            `delete from encryption_maps
-              where entity_id = $1 and tenant_id = $2 and organization_id = $3 and created_at >= $4`,
-            [otherEntity, tenantId, organizationId, startedAt],
-          )
-        } else if (restoredOtherMapId) {
-          await client.query('update encryption_maps set deleted_at = now() where id = $1', [restoredOtherMapId])
-        }
-      })
+      await withClient((client) => cleanupAddressPolicyFixture(client, {
+        addressEntity, otherEntity, tenantId, organizationId, startedAt,
+        backupId: backup?.id ?? null, parentPolicies, createdOtherMap, restoredOtherMap,
+      }, () => deleteEntityIfExists(request, token, COMPANIES, companyId)))
     }
   })
 })
