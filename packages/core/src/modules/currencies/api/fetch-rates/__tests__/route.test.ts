@@ -102,11 +102,55 @@ describe('POST /api/currencies/fetch-rates', () => {
   })
 
   it('rejects malformed providers before creating a container or calling the service', async () => {
-    const response = await POST(request({ providers: ['nbp_average', 'nbp_average'] }) as never)
+    const response = await POST(request({ providers: [123] }) as never)
 
     expect(response.status).toBe(400)
     expect(container.resolve).not.toHaveBeenCalled()
     expect(fetchRatesForDate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['repeated providers', ['NBP', 'NBP']],
+    ['more than twenty providers', Array.from({ length: 21 }, (_, index) => `legacy-${index}`)],
+    ['an empty provider string', ['']],
+    ['a provider string longer than fifty characters', ['x'.repeat(51)]],
+    ['provider whitespace without normalization', [' NBP ']],
+  ])('accepts legacy %s through the actual handler', async (_label, providers) => {
+    const response = await POST(request({ providers }) as never)
+
+    expect(response.status).toBe(200)
+    expect(fetchRatesForDate).toHaveBeenCalledWith(
+      expect.any(Date),
+      { tenantId, organizationId: orgId },
+      { providers, translate: expect.any(Function) },
+    )
+    expect(runAfterSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts repeated and long provider lists supplied by a mutation guard', async () => {
+    const providers = Array.from({ length: 21 }, () => 'NBP')
+    runRouteMutationGuards.mockResolvedValue({ ok: true, modifiedPayload: { providers }, runAfterSuccess })
+
+    const response = await POST(request({ providers: ['NBP'] }) as never)
+
+    expect(response.status).toBe(200)
+    expect(fetchRatesForDate).toHaveBeenCalledWith(
+      expect.any(Date),
+      { tenantId, organizationId: orgId },
+      { providers, translate: expect.any(Function) },
+    )
+  })
+
+  it.each([[''], ['x'.repeat(51)], [' NBP ']])('preserves arbitrary provider strings supplied by a guard: %j', async (provider) => {
+    const providers = [provider]
+    runRouteMutationGuards.mockResolvedValue({ ok: true, modifiedPayload: { providers }, runAfterSuccess })
+    const response = await POST(request({ providers: ['NBP'] }) as never)
+    expect(response.status).toBe(200)
+    expect(fetchRatesForDate).toHaveBeenCalledWith(
+      expect.any(Date),
+      { tenantId, organizationId: orgId },
+      { providers, translate: expect.any(Function) },
+    )
   })
 
   it('forwards a selected NBP average provider through the guarded fetch', async () => {
