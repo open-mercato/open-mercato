@@ -641,53 +641,31 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
     async markAllAsRead(ctx) {
       const em = rootEm.fork()
-      const db = getDb(em)
-      const applyScope = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
-        let chain = q
-          .where('recipient_user_id' as any, '=', ctx.userId as any)
-          .where('tenant_id' as any, '=', ctx.tenantId)
-          .where('status' as any, '=', 'unread')
-          // Only in-app-visible rows count toward the badge (see getUnreadCount),
-          // so "mark all as read" must scope to the SAME set — otherwise it flips
-          // push/email-only rows the user never saw and SSE-broadcasts a read for
-          // notifications that were never in the bell, inflating the returned
-          // count past what the badge showed.
-          .where(inAppVisibleSql() as any)
-        const organizationScope = buildNotificationReadScopeSql(ctx)
-        if (organizationScope) {
-          chain = chain.where(organizationScope)
-        } else if (ctx.organizationId) {
-          chain = chain.where('organization_id' as any, '=', ctx.organizationId)
-        }
-        return chain
+      let update = getDb(em)
+        .updateTable('notifications')
+        .set({ status: 'read', read_at: sql`now()` })
+        .where('recipient_user_id', '=', ctx.userId)
+        .where('tenant_id', '=', ctx.tenantId)
+        .where('status', '=', 'unread')
+        .where(inAppVisibleSql())
+
+      const organizationScope = buildNotificationReadScopeSql(ctx)
+      if (organizationScope) {
+        update = update.where(organizationScope)
+      } else if (ctx.organizationId) {
+        update = update.where('organization_id', '=', ctx.organizationId)
       }
 
-      const targetRows = await applyScope(
-        db
-          .selectFrom('notifications' as any)
-          .select([
-            'id' as any,
-            'organization_id' as any,
-            'recipient_user_id' as any,
-          ]),
-      ).execute() as Array<{ id: string }>
-
-      if (!targetRows.length) {
-        return 0
-      }
-
-      const updateResult = await applyScope(
-        db.updateTable('notifications' as any).set({
-          status: 'read',
-          read_at: sql`now()`,
-        } as any) as any,
-      ).executeTakeFirst() as { numUpdatedRows?: bigint | number } | undefined
-      const result = Number(updateResult?.numUpdatedRows ?? targetRows.length)
+      // Use the rows this statement changed so concurrent requests do not emit duplicate events.
+      const updatedRows = await update.returning('id').execute() as Array<{ id: string }>
+      if (!updatedRows.length) return 0
 
       await invalidateNotificationCache(container, ctx, 'updated')
 
       const notifications = await findWithDecryption(em, Notification, {
-        id: { $in: targetRows.map((row) => row.id) },
+        id: { $in: updatedRows.map((row) => row.id) },
+        tenantId: ctx.tenantId,
+        recipientUserId: ctx.userId,
       }, undefined, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
@@ -708,7 +686,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         })
       }
 
-      return result
+      return updatedRows.length
     },
 
     async dismiss(notificationId, ctx) {

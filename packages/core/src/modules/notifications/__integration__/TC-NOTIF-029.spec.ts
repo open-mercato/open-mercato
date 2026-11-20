@@ -68,11 +68,11 @@ async function readUnreadCount(request: APIRequestContext, session: UserSession)
   return body?.unreadCount
 }
 
-test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications the bell shows', () => {
+test.describe('TC-NOTIF-029: mark all as read covers exactly the notifications the bell shows', () => {
   test('clears child-organization and tenant-wide notifications when a parent organization is selected', async ({ request }) => {
     const stamp = Date.now()
-    const type = `qa.notif.027.selected.${stamp}`
-    const email = `qa-notif-027-selected-${stamp}@acme.com`
+    const type = `qa.notif.029.selected.${stamp}`
+    const email = `qa-notif-029-selected-${stamp}@acme.com`
 
     let superadminToken: string | null = null
     let userToken: string | null = null
@@ -86,15 +86,15 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
       superadminToken = await getAuthToken(request, 'superadmin')
       const { tenantId } = getTokenScope(superadminToken)
       parentOrganizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-NOTIF-027 parent ${stamp}`,
+        name: `QA TC-NOTIF-029 parent ${stamp}`,
         tenantId,
       })
       childOrganizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-NOTIF-027 child ${stamp}`,
+        name: `QA TC-NOTIF-029 child ${stamp}`,
         tenantId,
         parentId: parentOrganizationId,
       })
-      roleId = await createRoleFixture(request, superadminToken, { name: `qa_notif_027_selected_${stamp}`, tenantId })
+      roleId = await createRoleFixture(request, superadminToken, { name: `qa_notif_029_selected_${stamp}`, tenantId })
       await setRoleAclFeatures(request, superadminToken, { roleId, features: ['notifications.view'], organizations: null })
       userId = await createUserFixture(request, superadminToken, {
         email,
@@ -105,12 +105,12 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
 
       notificationIds.push(await createNotificationInOrganization(request, superadminToken, childOrganizationId, {
         type,
-        title: 'TC-NOTIF-027 child organization notification',
+        title: 'TC-NOTIF-029 child organization notification',
         recipientUserId: userId,
       }))
       notificationIds.push(await createNotificationFixture(request, superadminToken, {
         type,
-        title: 'TC-NOTIF-027 tenant-wide notification',
+        title: 'TC-NOTIF-029 tenant-wide notification',
         recipientUserId: userId,
       }))
 
@@ -137,8 +137,8 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
 
   test('leaves notifications outside the visible organizations unread when no organization is selected', async ({ request }) => {
     const stamp = Date.now()
-    const type = `qa.notif.027.restricted.${stamp}`
-    const email = `qa-notif-027-restricted-${stamp}@acme.com`
+    const type = `qa.notif.029.restricted.${stamp}`
+    const email = `qa-notif-029-restricted-${stamp}@acme.com`
 
     let superadminToken: string | null = null
     let userToken: string | null = null
@@ -152,9 +152,9 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
     try {
       superadminToken = await getAuthToken(request, 'superadmin')
       const { tenantId } = getTokenScope(superadminToken)
-      homeOrganizationId = await createOrganizationFixture(request, superadminToken, { name: `QA TC-NOTIF-027 home ${stamp}`, tenantId })
-      visibleOrganizationId = await createOrganizationFixture(request, superadminToken, { name: `QA TC-NOTIF-027 visible ${stamp}`, tenantId })
-      roleId = await createRoleFixture(request, superadminToken, { name: `qa_notif_027_restricted_${stamp}`, tenantId })
+      homeOrganizationId = await createOrganizationFixture(request, superadminToken, { name: `QA TC-NOTIF-029 home ${stamp}`, tenantId })
+      visibleOrganizationId = await createOrganizationFixture(request, superadminToken, { name: `QA TC-NOTIF-029 visible ${stamp}`, tenantId })
+      roleId = await createRoleFixture(request, superadminToken, { name: `qa_notif_029_restricted_${stamp}`, tenantId })
       await setRoleAclFeatures(request, superadminToken, {
         roleId,
         features: ['notifications.view'],
@@ -169,12 +169,12 @@ test.describe('TC-NOTIF-027: mark all as read covers exactly the notifications t
 
       hiddenNotificationId = await createNotificationInOrganization(request, superadminToken, homeOrganizationId, {
         type,
-        title: 'TC-NOTIF-027 notification outside the visible organizations',
+        title: 'TC-NOTIF-029 notification outside the visible organizations',
         recipientUserId: userId,
       })
       tenantWideNotificationId = await createNotificationFixture(request, superadminToken, {
         type,
-        title: 'TC-NOTIF-027 tenant-wide notification',
+        title: 'TC-NOTIF-029 tenant-wide notification',
         recipientUserId: userId,
       })
 
