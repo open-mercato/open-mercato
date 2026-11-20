@@ -28,7 +28,7 @@ Status: design for review. ⚠ Q2, Q3 and Q9 need human confirmation before impl
 | Q6 | Control surface? | CLI only in v1. There is no HTTP endpoint or admin UI that turns the mode on or off. A public, read-only status endpoint is provided. | A remote kill switch is an attack surface. An HTTP toggle also cannot turn the mode off once the API itself returns 503. | reversible |
 | Q7 | Can admins get through during maintenance? | Opt-in Laravel-style bypass secret (`on --allow-bypass`). The token is printed once and only its hash is stored. Bypass is always refused while a key-rotation hold is active. | Operators need to smoke-test after a restore or migration. Rotation needs zero writers. | reversible |
 | Q8 | Partial modes (read-only API, announce-only banner)? | Deferred. v1 supports full maintenance only. | Smallest scope that meets the brief ("all API endpoints"). Read-only mode needs a per-route side-effect classification that does not exist today. | reversible |
-| Q9 | What does the gate do when the state store is unreachable? | Live traffic: keep the **last known** state (sticky). A missing state key while this process knows of an active epoch also counts as unreachable. A process that boots with no known state fails **open** and logs an error. Rotation and backup preflight: fail **closed**. Drained holds also require an expected-process inventory, so a replica that never heartbeats blocks the drain instead of escaping it. | A Redis outage should not take the whole storefront down. A sticky "on" protects windows that are already running. Fail-open at boot is a deliberate availability-over-integrity trade-off. The mandatory inventory closes this gap for rotation. | ⚠ NEEDS HUMAN CONFIRMATION — availability vs. integrity trade-off. |
+| Q9 | What does the gate do when the state store is unreachable? | Live traffic: keep the **last known** state (sticky). A missing state key while this process knows of an active epoch also counts as unreachable. A process that boots with no known state fails **open** and logs an error. Rotation and backup preflight: fail **closed**. Drained holds also require an expected-process inventory, so a replica that never heartbeats blocks the drain instead of escaping it. | A Redis outage should not take the whole storefront down. A sticky "on" protects windows that are already running. Fail-open at boot is a deliberate availability-over-integrity trade-off. Protected operations also require a deployment fence that excludes new writers during store loss. | ⚠ NEEDS HUMAN CONFIRMATION — availability vs. integrity trade-off. |
 | Q10 | Separate enable flag? | No separate flag. The module turns on with `OM_ENABLE_ENTERPRISE_MODULES`, like `record_locks` and `system_status_overlays`. | Rotation enforcement must not silently disappear because one extra flag was left off. With no window active, the gate is a cached in-memory read. | reversible |
 | Q11 | What state does rotation leave behind? | The mode stays **on** after rotation, whether it succeeds or fails. `--exit-maintenance` turns it off only after verified success. | Reopening writes on half-rotated data is the worst outcome. The operator verifies first. | reversible |
 
@@ -46,7 +46,7 @@ An enterprise `maintenance` module with five parts:
 2. **Gates.** The module registers a gate in the new OSS request-gate registry.
    - The API dispatcher calls it before route matching → JSON 503.
    - `proxy.ts` calls it for page requests → HTML 503 maintenance page.
-3. **Drain protocol.** Web processes, queue workers and the scheduler acknowledge each maintenance epoch and report in-flight work. "Drained" means every live process has acknowledged the current epoch and has nothing in flight.
+3. **Drain protocol.** Web processes, queue workers and the scheduler acknowledge the current gate revision and report in-flight work. A drained hold requires current evidence for every expected writer.
 4. **CLI.** `mercato maintenance on|off|status|drain`. Bootstrap-free: no database connection is needed.
 5. **Coordinator service.** `maintenanceCoordinator`, registered in DI. Key rotation (mandatory) and backups (optional) consume it to enter the mode, wait for the drain and hold the window for the duration of their operation.
 
@@ -119,7 +119,7 @@ Takeaway: the only Core changes are the request-gate call sites, a worker pre-cl
 |---|---|
 | `index.ts` | Metadata, `license: 'Proprietary'`. |
 | `di.ts` | Registers `maintenanceStateStore`, `maintenanceCoordinator`, the request gate, the worker gate and the process heartbeat. |
-| `lib/store/{redis,file}.ts` | State backends with compare-and-set on `epoch`. |
+| `lib/store/{redis,file}.ts` | State backends with compare-and-set on the state revision. |
 | `lib/gate.ts` | Decision logic, bypass verification, sticky last-known cache (TTL `OM_MAINTENANCE_POLL_MS`, default 2000). |
 | `lib/page/` | Built-in template, template loader, escaping renderer, locale strings. |
 | `lib/drain.ts` | Heartbeat writer, in-flight counter, drain evaluator. |
@@ -137,7 +137,10 @@ No database tables and no migrations. This is deliberate (Q4). State is versione
 type MaintenanceStateV1 = {
   version: 1
   active: boolean
-  epoch: number                       // incremented on every on/off; CAS key
+  epoch: number                       // incremented on every on/off
+  revision: number                    // CAS version, incremented on every state mutation
+  gateRevision: number                // incremented whenever admission policy changes or a drained hold is reserved
+  reopenBarrier: { operationId: string; generation: string | null } | null
   windowId: string | null             // uuid per activation
   startedAt: string | null
   startedBy: { source: 'cli' | 'coordinator' | 'env'; osUser?: string; host: string; operation?: string } | null
@@ -147,7 +150,7 @@ type MaintenanceStateV1 = {
   page: { title?: string; message?: string }  // per-window overrides, plain text, max 200 / 2000 chars
   bypass: { enabled: boolean; tokenSha256: string | null; expiresAt: string | null }
   expectedProcesses: { web: number; worker: number; scheduler: number } | null  // from --expect-processes or OM_MAINTENANCE_EXPECTED_PROCESSES
-  holds: Array<{ id: string; operation: string; pid: number; host: string; acquiredAt: string; heartbeatAt: string; forbidsBypass: boolean }>
+  hold: { id: string; operation: string; pid: number; host: string; heartbeatAt: string; forbidsBypass: boolean; gateRevision: number } | null
   history: Array<{ windowId: string; startedAt: string; endedAt: string; startedBy: string; operations: string[] }>  // last 50
 }
 
@@ -156,8 +159,9 @@ type MaintenanceProcessRecord = {
   kind: 'web' | 'worker' | 'scheduler'
   host: string
   pid: number
-  ackedEpoch: number
-  inflight: number                    // non-bypass gated requests or active jobs
+  ackedGateRevision: number
+  loadedGeneration: string | null
+  inflight: number                    // all admitted work, including bypass
   heartbeatAt: string                 // TTL = 3 × OM_MAINTENANCE_HEARTBEAT_MS (default 5000)
 }
 ```
@@ -165,7 +169,7 @@ type MaintenanceProcessRecord = {
 **Backends.** Selected by `OM_MAINTENANCE_STORE=auto|redis|file`.
 
 - `auto` uses Redis when the instance has a Redis connection configured for cache or queue, otherwise `file`.
-- **Redis keys:** `om:maintenance:state` and `om:maintenance:proc:<id>` (each with a TTL).
+- **Redis keys:** `om:maintenance:state` and `om:maintenance:proc:<id>` (only process records expire).
 - **File backend:** `OM_MAINTENANCE_STATE_DIR`, default `<app>/.mercato/maintenance/`. Writes are atomic (temp file + rename). Single host only. `status` warns if replicas are detected.
 - `OM_MAINTENANCE_FORCE=1` forces the mode on regardless of the store, for when the store itself is broken. `off` cannot override it, and `status` reports `source: env`.
 
@@ -209,9 +213,9 @@ Every gated request gets these headers: `Retry-After: <seconds>`, `Cache-Control
 - `on --allow-bypass [--bypass-ttl 2h]` prints the token once, separately from the path `/maintenance-bypass`. The token never appears in a query string, so it cannot leak into access logs or `Referer` headers.
 - `/maintenance-bypass` serves a plain HTML form (no script) that POSTs the token. The proxy validates it, sets the `om_maintenance_bypass` cookie (HttpOnly, Secure, SameSite=Lax, expires with the TTL), and redirects to `/backend`. Failed attempts are rate-limited.
 - API clients may send `X-Maintenance-Bypass: <token>` instead.
-- **Bypassed requests:** are logged and show the admin banner. They do not block the drain, except once a hold with `forbidsBypass` exists. From that point bypass requests already in flight are counted and must finish.
+- **Bypassed requests:** are logged and show the admin banner. Count them from admission through completion, including requests admitted before maintenance or before a restrictive hold. A snapshot taken while bypass can admit writes cannot establish quiescence.
 - **Bypass is rejected when:**
-  - any hold with `forbidsBypass: true` is active (all key-rotation holds);
+  - a reopen barrier is pending or a hold with `forbidsBypass: true` is reserved (all key-rotation holds);
   - the token has expired;
   - the window has changed, because the token is bound to `windowId`.
 
@@ -220,9 +224,9 @@ Every gated request gets these headers: `Retry-After: <seconds>`, `Cache-Control
 | Command | Behavior | Exit codes |
 |---|---|---|
 | `mercato maintenance on [--title] [--message] [--until <iso> \| --duration 45m] [--retry-after <s>] [--reason] [--allow-bypass [--bypass-ttl]] [--wait-drain [--drain-timeout 120s]] [--json]` | CAS-activates (or updates the page fields of an already-active window without a new epoch). Prints the window id and the bypass URL once. `--wait-drain` blocks until the drain completes or times out. | 0 ok · 3 drain timeout (mode stays on) · 4 store unreachable · 2 invalid args |
-| `mercato maintenance off [--force-release-stale-holds]` | Refuses while a live hold exists. Stale holds (no heartbeat for 3 × TTL) are released only with the flag. Refuses when `OM_MAINTENANCE_FORCE=1` is set. | 0 · 5 held · 4 |
+| `mercato maintenance off [--force-release-stale-holds]` | Refuses while a hold or reopen barrier exists. The flag starts stale-owner recovery and never clears an unresolved reopen barrier. Refuses when `OM_MAINTENANCE_FORCE=1` is set. | 0 · 5 held · 4 |
 | `mercato maintenance status [--json]` | State, source, holds, and a per-process ack/in-flight table with stale processes flagged. | 0 |
-| `mercato maintenance drain [--timeout 120s] [--expect-processes web=N,worker=M,scheduler=K] [--json]` | Waits for the drain on an active window. The report lists every process that has not acknowledged, and missing processes against the expected inventory. | 0 · 3 · 6 not active |
+| `mercato maintenance drain [--timeout 120s] [--expect-processes web=N,worker=M,scheduler=K] [--json]` | Waits for the drain on an active window. The report lists outstanding acknowledgments and missing processes. This standalone drain is observational and grants no exclusive hold. | 0 · 3 · 6 not active |
 
 `--json` output is a versioned object, `{ "version": 1, ... }`. Secrets never appear in output except the one-time bypass URL. `--json` puts that URL in a separate `bypassUrl` field so automation can redact it.
 
@@ -233,24 +237,25 @@ interface MaintenanceCoordinator {
   getState(): Promise<MaintenanceStateView>
   enter(input: { operation: string; reason?: string; page?: { title?: string; message?: string }; until?: string }): Promise<{ windowId: string; enteredByCaller: boolean }>
   acquireHold(input: { operation: string; forbidsBypass: boolean; requireDrained: boolean; drainTimeoutMs: number }): Promise<MaintenanceHold>
-  exit(input: { windowId: string; operation: string }): Promise<void>   // refuses if other holds are live
+  exit(input: { windowId: string; operation: string }): Promise<void>   // refuses while a hold or reopen barrier exists
 }
-interface MaintenanceHold { id: string; windowId: string; drainReport: DrainReport; release(): Promise<void> }
+interface MaintenanceHold { id: string; windowId: string; drainReport: DrainReport; assertLive(): Promise<void>; release(): Promise<void> }
 ```
 
-`acquireHold` throws typed errors: `MaintenanceNotActiveError`, `MaintenanceDrainTimeoutError` (carries the report), `MaintenanceStoreUnavailableError`, `MaintenanceInventoryMissingError`, `MaintenanceStoreNotDurableError`.
+`acquireHold` throws typed errors: `MaintenanceNotActiveError`, `MaintenanceDrainTimeoutError` (carries the report), `MaintenanceStoreUnavailableError`, `MaintenanceInventoryMissingError`, `MaintenanceStoreNotDurableError`, `MaintenanceOperationBusyError` and `MaintenanceWriterFenceUnavailableError`.
 
-**Hold ordering:**
+**Exclusive hold and drain**
 
-1. Write the hold (with `forbidsBypass` set) into the state document. New bypass requests are rejected from this moment.
-2. Run the drain check.
+1. Atomically reserve the single operation slot using the state revision. A competing acquisition returns `MaintenanceOperationBusyError` before any work, including while the first owner is draining. Bind the owner token to the window and use it for all heartbeat, release and recovery transitions. A failed acquisition releases only its own reservation by CAS. The window stays active.
+2. In the same reservation transaction, advance the gate revision and enforce the requested bypass policy. A quiesced backup, restore, or encryption operation must forbid bypass. Freeze admission of new writer instances for the duration of the hold, including replacements during store loss. Phase 0 must identify how the deployment enforces this fence. If it cannot be verified, the protected operation fails closed.
+3. Each process serializes admission and counter updates with adoption of the gate revision. It acknowledges the revision only after installing the policy and publishes the revision and counters together in an ordered heartbeat. Count requests and jobs from admission through final completion of write-capable work, including Server Actions, page rendering, and bypass requests. Where a runtime cannot observe completion, require verified shutdown and continued exclusion of that writer before granting the hold. Elapsed time, heartbeat expiry, and a route classification at the proxy are insufficient evidence.
+4. Require evidence for every writer in the deployment inventory and any additional discovered writer. Acknowledgments must match the reserved revision and report zero in-flight work. Missing, stale, or unaccounted writers block acquisition unless verified stopped and fenced. Fence external jobs and direct database writers operationally or refuse the protected operation. Retain the fences until the operation and any reopen barrier are cleared.
 
-**Drain conditions:**
+The owner heartbeats and calls `assertLive()` before every batch. The check verifies the window, ownership and gate revision against the authoritative store. Failure stops new batches. A stale heartbeat never transfers ownership or proves that a batch stopped. Recovery verifies that the old owner and its writes have stopped before releasing its reservation. After mutation began, recovery must also resolve any pending reopen barrier. Store loss blocks recovery and reopening until the operator re-establishes authoritative state and write exclusion.
 
-- `requireDrained` holds need an expected-process inventory. The drain fails when fewer processes than expected have acknowledged.
-- Page-side work that was already rendering when the epoch changed is not counted. The proxy cannot wrap renders. Instead, drained holds wait an extra fixed grace period, `OM_MAINTENANCE_PAGE_GRACE_MS` (default 30000), after the drain.
+**Reopening after policy retirement**
 
-Holds heartbeat from the holder process, and `release()` runs in a `finally` block. `MaintenanceHold.assertLive()` re-reads the state document and throws if the window, the epoch or the hold is gone. Long operations call it before every batch.
+Before the first retirement mutation, persist a reopen barrier in the authoritative store under the hold's owner token. A null generation means verification is pending. On verified success, record the resulting policy generation. Keep writes fenced while restarting all affected replicas as required by the encryption hardening runbook. Before allowing writes, verify that every expected writer is either fenced and stopped or is a replacement that acknowledges the recorded generation after loading its policy and key state. Replacement processes may start behind the fence solely for verification. If retirement fails, keep the barrier in place until runbook recovery verifies a consistent generation and the same restart check succeeds. Both `maintenance off` and `--exit-maintenance` enforce this barrier. Complete reopening with a CAS that checks the verified generation, unchanged writer inventory, and absence of a hold before deactivating the window and releasing the deployment fence. Releasing a hold or using the stale-owner recovery flag cannot clear it. Apply the same barrier to restores that can replace encryption policy or key state.
 
 ### Key rotation integration (mandatory)
 
@@ -273,7 +278,7 @@ Holds heartbeat from the holder process, and `release()` runs in a `finally` blo
 5. **If the store is not durable:** the command refuses (exit 4). For Redis this means neither AOF nor RDB persistence is enabled; the `file` backend counts as durable. Without durability, a Redis restart could silently reopen the window mid-rotation.
 6. **During rotation:** the command calls `hold.assertLive()` before every batch and aborts cleanly if the window was lost.
 7. **When the hold is acquired:** the existing `--confirm-offline-maintenance` requirement on `decrypt-database --deactivate-maps` still applies unchanged.
-8. **On finish:** the hold is released, success or failure. The mode **stays on** (Q11). `--exit-maintenance` exits only after the command reports verified success. Once the [key-rotation data verification](2026-11-06-cli-backup-restore.md) companion ships, its verifier must pass too.
+8. **On finish:** the hold is released, success or failure. The mode **stays on** (Q11). `--exit-maintenance` requires verified success and completion of any reopen barrier. Once the [key-rotation data verification](2026-11-06-cli-backup-restore.md) companion ships, its verifier must pass too.
 9. There is **no** flag that skips the maintenance requirement on Enterprise. `--acknowledge-unprotected-key-rotation` from the backup spec applies only when Enterprise protection is unavailable. It does not bypass this gate.
 
 **When it does not resolve (OSS, or enterprise modules disabled):** behavior is identical to today.
@@ -282,8 +287,8 @@ Holds heartbeat from the holder process, and `release()` runs in a `finally` blo
 
 These apply to the planned `backups` module ([CLI spec](2026-11-06-cli-backup-restore.md), [automated spec](2026-07-08-automated-database-backups.md)). Neither has shipped, so this spec defines the contract that `backups` consumes. The `backups` implementation PR adds the flags.
 
-- **`backups create --maintenance`:** enters the window (or joins an active one) and acquires a hold with `forbidsBypass: false, requireDrained: true`. The manifest records `maintenanceWindowId`, and the engine attempts `quiesced` consistency. Without the flag, behavior is unchanged. If a window is already active, the manifest still records its id.
-- **`backups restore --maintenance`:** holds the window across restore and verification, and across the operator's cutover to the restored database. The state lives outside the database, so the cutover does not erase it. A window entered by the command stays on unless `--exit-maintenance` is passed.
+- **`backups create --maintenance`:** enters the window (or joins an active one) and acquires a hold with `forbidsBypass: true, requireDrained: true`. The manifest records `maintenanceWindowId`, and the engine attempts `quiesced` consistency. Without the flag, behavior is unchanged. If a window is already active, the manifest still records its id.
+- **`backups restore --maintenance`:** holds the window across restore and verification, and across the operator's cutover to the restored database. Restore takes the exclusive drained hold with bypass disabled. The state lives outside the database, so the cutover does not erase it. A window entered by the command stays on unless `--exit-maintenance` is passed.
 - **Scheduled (automated) backups never enter maintenance.** They join a window only if it is already active.
 - **If the coordinator is absent** (maintenance module disabled), `--maintenance` fails with exit 2 and a clear message. It never silently runs unprotected.
 
@@ -325,9 +330,9 @@ Illustrative proposals, not accepted designs:
 
 | Scenario | Behavior |
 |---|---|
-| Two operators run `on`/`off` concurrently | CAS on `epoch`. The loser retries once against the fresh state, then reports the conflict. |
+| Two operators run `on`/`off` concurrently | CAS on the state revision. The loser retries once against the fresh state, then reports the conflict. |
 | `off` while rotation runs | Refused (exit 5) and the holder is listed. |
-| Rotation process killed | The hold heartbeat stops. The mode stays on. `off` needs `--force-release-stale-holds` after 3 × TTL. The operator investigates partial rotation per the hardening runbook. |
+| Rotation process killed | The hold heartbeat stops. The mode stays on. Stale-owner recovery requires proof the owner has stopped and resolution of any partial rotation under the hardening runbook. |
 | Replica never upgraded (no heartbeat) | The drain cannot see it. `status` and the drain report list the replicas that *are* known. The runbook requires checking the expected replica count. `--expect-processes web=N,worker=M` makes the drain fail unless that many are present. |
 | Long-running HTTP request in flight | It counts as in-flight until it completes. The drain waits up to the timeout, then exits 3 and names the process. |
 | Active queue job | The worker finishes its current job (BullMQ pause with `doNotWaitActive=false`), then acknowledges. Jobs are not killed. |
@@ -335,7 +340,7 @@ Illustrative proposals, not accepted designs:
 | Other CLI commands writing directly to the database during the window | Not blockable in-process. This is documented. Holder-aware commands (rotation, backups) are the only enforced writers. |
 | Redis restarts mid-window | A missing state key while a process knows of an active epoch is treated as unreachable, so gates stay on. `assertLive()` aborts rotation before the next batch. Rotation refuses to start on a non-durable Redis. |
 | Replica booted fail-open, never heartbeats | The expected-process inventory makes the drain fail (exit 3) and name the missing role. |
-| Request started with a bypass just before a rotation hold | The hold is written first, then the drain runs. In-flight bypass requests are counted and must finish. |
+| Request started with a bypass just before a rotation hold | The reservation advances the gate revision. Every writer must adopt it and report zero in-flight work, including earlier bypass requests. |
 | Clock skew between hosts | `until` and heartbeat staleness use the store's clock (Redis `TIME`, or the file-host clock), not the caller's. |
 | Bypass token leaked | Bound to the window, with a TTL. `on --rotate-bypass` reissues it. The token is only ever POSTed, never placed in a URL, so it does not appear in access logs. |
 | Custom template has a typo | Rejected at boot. The built-in page is served and an error is logged. A broken template can never produce a 200 or an empty response. |
@@ -347,7 +352,7 @@ Illustrative proposals, not accepted designs:
 | New OSS request-gate seam becomes a general-purpose hook misused for auth or business logic | Medium / platform contracts | Documented as availability gates only. They run before auth and receive no auth context. | Third parties may still register gates. That is an additive surface frozen once released. |
 | Enterprise rotation scripts break (they now need maintenance) | High / operators | `UPGRADE_NOTES.md` entry, a clear error message with the exact fix, and `--enter-maintenance` for one-line migration. The compatibility decision goes through `BACKWARD_COMPATIBILITY.md` (Q3 ⚠). | Unattended scripts fail closed until updated, which is intended. |
 | Fail-open at boot with the store down lets a fresh replica serve writes during a window | Medium / integrity | A fresh replica cannot acknowledge without the store, so rotation's drain never completes. Pages and API on that replica may still serve. | Accepted for non-rotation windows (Q9 ⚠). |
-| Gate latency on every request | Low / performance | In-process cache with a 2 s TTL. A store read happens at most once per poll interval per process. Zero cost when no gate is registered. | Up to `OM_MAINTENANCE_POLL_MS` lag before replicas start or stop gating. The drain protocol (epoch ack), not the lag, is the safety mechanism. |
+| Gate latency on every request | Low / performance | In-process cache with a 2 s TTL. A store read happens at most once per poll interval per process. Zero cost when no gate is registered. | Up to `OM_MAINTENANCE_POLL_MS` lag before replicas start or stop gating. The drain protocol (gate revision acknowledgments), not the lag, is the safety mechanism. |
 | Maintenance overlay hides unsaved work | Low / UX | The overlay explains the situation and only offers reload. Form state is not cleared by the overlay itself. | Unsaved edits made during the window are lost on reload, as today. |
 | Proxy cannot share the in-process registry | Medium / implementation | Phase 0 spike. Fallback: self-call of the status endpoint with a 2 s cache (existing pattern). | One extra internal request per 2 s per process. |
 
@@ -374,6 +379,7 @@ Illustrative proposals, not accepted designs:
 1. **Phase 0 — spikes and audit.**
    - Proxy/registry sharing in Next 16.
    - Exhaustive list of mutating encryption entry points.
+   - Verify completion coverage for page renders and Server Actions, or demonstrate a deployment shutdown and writer admission fence. Verify how restarted processes attest to the loaded policy generation.
    - BullMQ pause semantics per strategy (`local` and `async`).
 2. **Phase 1 — OSS seams.** Request-gate registry, dispatcher and proxy call sites, worker/scheduler gate hook, coordinator type. All no-op. Ships alone.
 3. **Phase 2 — Enterprise maintenance module.** Store, gate, page, CLI, status endpoint, bypass, drain, overlay widget. Usable as standalone maintenance mode.
@@ -402,7 +408,7 @@ Illustrative proposals, not accepted designs:
 3. Gate: decisions, `Retry-After` math, sticky cache, bypass verification. Unit tests.
 4. Page renderer, built-in template and template loader with escaping. Snapshot and XSS tests (`<script>` in `--message` must render inert).
 5. CLI `on/off/status/drain` with the exit-code matrix. Unit tests run against the file backend.
-6. Heartbeat and drain for web (in-flight counter in the gate wrapper), workers and scheduler. Tests cover the drain report and the stale and expected-process cases.
+6. Heartbeat and drain for web, workers and scheduler, including admission accounting, exclusive acquisition, stale-owner recovery and the deployment fence.
 7. `GET /api/maintenance/status` with `openApi`. Admin overlay and bypass banner widgets. i18n for all locales.
 8. Integration tests: see Coverage.
 
@@ -434,6 +440,10 @@ Illustrative proposals, not accepted designs:
 | M10 | `off` during a rotation hold | Exit 5 |
 | M12 | Drain with `--expect-processes` above the live count | Exit 3; missing role named |
 | M13 | Template with `javascript:` support URL or `<script>` | URL dropped / template rejected; built-in page served |
+| M14 | Hold a Server Action across maintenance activation and drain timeout | Rotation makes zero writes until the action completes or its writer is verified stopped and fenced |
+| M15 | Keep a replica on the bypass-enabled revision while acquiring a restrictive hold | Old acknowledgments cannot satisfy the hold. Bypass work must finish before the fresh acknowledgment reports zero |
+| M16 | Race two rotations, then race restore against rotation | Exactly one reservation succeeds. An expired heartbeat alone never lets another owner proceed |
+| M17 | Retire a policy and leave one replica on the old policy generation | Both exit paths refuse until verified restarts acknowledge the resulting generation. A failed operation leaves a pending barrier |
 | M11 | OSS build (enterprise disabled) | Dispatcher, proxy and rotation behave exactly as before |
 
 ## Final Compliance Report — 2026-11-13
@@ -469,7 +479,7 @@ Illustrative proposals, not accepted designs:
 
 ### Internal Consistency Check
 
-The CLI, the coordinator, the gate and the integrations all use the same `windowId`, `epoch` and hold model. Store unavailability is handled consistently: sticky last-known state for traffic, fail closed for operations. No stale references to unanswered questions remain.
+The CLI, the coordinator, the gate and the integrations all use the same `windowId`, `epoch` and hold model. Store unavailability is handled consistently: sticky last-known state for traffic, fail closed for operations. Q2, Q3 and Q9 remain open before implementation.
 
 ## Changelog
 
@@ -478,7 +488,7 @@ The CLI, the coordinator, the gate and the integrations all use the same `window
   - Redis-loss and unknown-replica drain gaps (mandatory inventory, durability check, `assertLive`);
   - hold-before-drain ordering for bypass;
   - gating of standalone `api/auth`;
-  - page-side in-flight grace period;
+  - page and Server Action completion accounting, with verified shutdown and writer fencing where completion is unobservable;
   - corrected the `--confirm-offline-maintenance` scope;
   - added `seed-encryption` to the audit;
   - script-free page for CSP;
