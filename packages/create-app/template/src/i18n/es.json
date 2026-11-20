@@ -560,6 +560,7 @@
   "startPage.guide.build": "Amplía tu instalación local",
   "startPage.guide.choose": "Elige un rol",
   "startPage.guide.chooseHint": "Elige un rol. El formulario de acceso se abrirá con el correo ya rellenado.",
+  "startPage.guide.chooseHintNoEmail": "Elige un rol abajo e inicia sesión con el correo electrónico de esa cuenta.",
   "startPage.guide.create": "Crear un espacio",
   "startPage.guide.dashboardStep": "En el panel, abre el menú y elige un módulo disponible para tu rol.",
   "startPage.guide.dismissHint": "Al desactivar esta opción se abrirá la aplicación o la página de acceso de inmediato.",

@@ -2,12 +2,6 @@
   "version": 1,
   "entries": [
     {
-      "file": "src/app/start/page.tsx",
-      "rule": "arbitrary-tailwind",
-      "match": "max-h-[200px]",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
       "file": "src/components/BackendHeaderChrome.tsx",
       "rule": "arbitrary-tailwind",
       "match": "w-[220px]",

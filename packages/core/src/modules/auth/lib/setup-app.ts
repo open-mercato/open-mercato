@@ -113,6 +113,20 @@ export function resolveDemoUserEmails(): DemoUserEmail[] {
   ]
 }
 
+/**
+ * Returns the built-in demo user emails, ignoring the OM_INIT_ADMIN_EMAIL /
+ * OM_INIT_EMPLOYEE_EMAIL overrides. These are fixed, non-sensitive values, so
+ * unauthenticated pages may render them; operator-configured addresses must
+ * never be exposed there.
+ */
+export function resolveBuiltInDemoUserEmails(): DemoUserEmail[] {
+  return [
+    { role: 'superadmin', email: DEMO_SUPERADMIN_EMAIL },
+    { role: 'admin', email: `admin@${DEFAULT_DERIVED_EMAIL_DOMAIN}` },
+    { role: 'employee', email: `employee@${DEFAULT_DERIVED_EMAIL_DOMAIN}` },
+  ]
+}
+
 export type SetupInitialTenantOptions = {
   orgName: string
   primaryUser: PrimaryUserInput

@@ -29,7 +29,7 @@ test.describe('TC-START-001: start page onboarding gate', () => {
       await expect(page.getByRole('heading', { level: 1, name: 'Getting started' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Create a workspace' })).toHaveAttribute('href', '/onboarding')
       await expect(page.getByRole('link', { name: 'Log in as Super Admin' })).toHaveCount(0)
-      await expect(page.getByRole('link', { name: 'Log in as Admin' })).toHaveAttribute('href', /^\/login\?role=admin&email=/)
+      await expect(page.getByRole('link', { name: 'Log in as Admin' })).toHaveAttribute('href', /^\/login\?role=admin(&email=|$)/)
       await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0)
       expect(await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,

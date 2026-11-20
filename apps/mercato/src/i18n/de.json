@@ -560,6 +560,7 @@
   "startPage.guide.build": "Lokale Installation erweitern",
   "startPage.guide.choose": "Rolle auswählen",
   "startPage.guide.chooseHint": "Wähle unten eine Rolle. Die E-Mail-Adresse ist im Anmeldeformular bereits eingetragen.",
+  "startPage.guide.chooseHintNoEmail": "Wähle unten eine Rolle und melde dich mit der E-Mail-Adresse dieses Kontos an.",
   "startPage.guide.create": "Arbeitsbereich erstellen",
   "startPage.guide.dashboardStep": "Öffne auf dem Dashboard das Menü und wähle ein Modul für deine Rolle.",
   "startPage.guide.dismissHint": "Beim Ausschalten öffnet sich sofort die App oder die Anmeldeseite.",

@@ -4,7 +4,7 @@ import {
   type StartPageDemoAccount,
   type StartPageSetupItem,
 } from '@/components/StartPageContent'
-import { resolveDemoUserEmails } from '@open-mercato/core/modules/auth/lib/setup-app'
+import { resolveBuiltInDemoUserEmails, resolveDemoUserEmails } from '@open-mercato/core/modules/auth/lib/setup-app'
 import type { Metadata } from 'next'
 import { resolveLocalizedAppMetadata } from '@/lib/metadata'
 import { cookies } from 'next/headers'
@@ -59,9 +59,13 @@ export default async function StartPage() {
     emailConfigured &&
     Boolean(process.env.APP_URL && process.env.APP_URL.trim())
 
+  // This page is public, so only the built-in demo addresses may reach the markup. An address
+  // configured through OM_INIT_ADMIN_EMAIL / OM_INIT_EMPLOYEE_EMAIL belongs to a real operator
+  // account: its role card links to the sign-in form without an email.
+  const builtInDemoEmails = new Set(resolveBuiltInDemoUserEmails().map((entry) => entry.email))
   const demoAccounts: StartPageDemoAccount[] = resolveDemoUserEmails().map((entry) => ({
     role: entry.role,
-    email: entry.email,
+    email: builtInDemoEmails.has(entry.email) ? entry.email : undefined,
   }))
 
   const auth = await getAuthFromCookies()

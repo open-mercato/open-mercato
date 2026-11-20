@@ -13,7 +13,7 @@ const MODULES_URL = 'https://modules.openmercato.com'
 const COMMUNITY_URL = 'https://discord.gg/f4qwPtJ3qA'
 const CONTACT_EMAIL = 'info@openmercato.com'
 const VIDEOS_URL = 'https://www.youtube.com/@openmercato'
-const heroLinkClass = 'inline-flex min-h-11 w-fit items-center gap-2 border border-white/40 bg-start-graphite px-5 py-2 text-sm font-medium text-white hover:underline focus-visible:outline-offset-4 dark:bg-white dark:text-start-night'
+const heroLinkClass = 'inline-flex min-h-11 w-fit items-center gap-2 border border-white/40 bg-start-action px-5 py-2 text-sm font-medium text-start-action-foreground hover:underline focus-visible:outline-offset-4'
 const DEMO_PASSWORD = 'secret'
 const AGENT_COMMAND = 'npx cezar-run'
 const NEW_MODULE_COMMAND = 'npx create-mercato-module init visits'
@@ -22,7 +22,7 @@ export type StartPageDemoRole = 'superadmin' | 'admin' | 'employee'
 
 export type StartPageDemoAccount = {
   role: StartPageDemoRole
-  email: string
+  email?: string
 }
 
 export type StartPageSetupItem = 'email' | 'ai'
@@ -113,7 +113,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 
   return (
     <IconButton
-      className="rounded-none bg-start-graphite text-white hover:bg-start-graphite hover:text-white dark:bg-white dark:text-start-night dark:inset-ring dark:inset-ring-start-control-border dark:hover:bg-white dark:hover:text-start-night hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+      className="rounded-none bg-start-action text-start-action-foreground inset-ring inset-ring-start-control-ring hover:bg-start-action hover:text-start-action-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
       variant="ghost"
       size="xs"
       onClick={handleCopy}
@@ -154,16 +154,21 @@ function ExternalLink({ href, children }: { href: string; children: ReactNode })
 }
 
 function demoLoginUrl(account: StartPageDemoAccount) {
+  if (!account.email) return `/login?role=${account.role}`
   return `/login?role=${account.role}&email=${encodeURIComponent(account.email)}`
 }
 
-function DemoGuide() {
+function DemoGuide({ emailPrefilled }: { emailPrefilled: boolean }) {
   const t = useT()
   return (
-    <section aria-labelledby="start-title" className="isolate grid items-center gap-4 lg:grid-cols-5 overflow-hidden bg-start-graphite p-5 text-white dark:border-x dark:border-b dark:border-foreground/20 dark:bg-background sm:gap-x-6 sm:p-8">
+    <section aria-labelledby="start-title" className="isolate grid items-center gap-4 lg:grid-cols-5 overflow-hidden border-x border-b border-start-panel-border bg-start-panel p-5 text-white sm:gap-x-6 sm:p-8">
       <h1 id="start-title" className="text-3xl font-medium tracking-tight lg:col-span-3 lg:self-end sm:text-4xl">{t('startPage.guide.begin', 'Getting started')}</h1>
       <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-white/90 marker:font-medium lg:col-span-3 lg:row-start-2 lg:self-start sm:text-base">
-        <li className="pl-1">{t('startPage.guide.chooseHint', 'Choose a role below. The sign-in form opens with the email already filled in.')}</li>
+        <li className="pl-1">
+          {emailPrefilled
+            ? t('startPage.guide.chooseHint', 'Choose a role below. The sign-in form opens with the email already filled in.')
+            : t('startPage.guide.chooseHintNoEmail', 'Choose a role below and sign in with the email of that account.')}
+        </li>
         <li className="pl-1">
           {t('startPage.guide.passwordStep', 'Sign in with the default demo password.')}
           {' '}<span className="inline-flex items-center gap-1 bg-white py-0.5 pl-3 pr-1 align-middle text-start-graphite">
@@ -189,14 +194,14 @@ function AccountCell({ account, disabled }: { account: StartPageDemoAccount; dis
     ? t('startPage.roles.superAdmin.disabledMessage', 'Not available on this instance. Install Open Mercato locally for full access.')
     : t(definition.descriptionKey, definition.descriptionFallback)
 
-  const layout = 'flex h-full min-w-0 flex-col items-start bg-foreground/7 p-5 dark:bg-muted lg:p-6'
+  const layout = 'flex h-full min-w-0 flex-col items-start bg-start-cell p-5 lg:p-6'
   const descriptionId = `start-role-${account.role}-description`
   const content = (
     <>
       <h3 className="text-xl font-medium leading-tight tracking-tight">{title}</h3>
       <p id={descriptionId} className="mt-2 grow text-sm leading-relaxed text-muted-foreground">{description}</p>
       {!disabled && (
-        <span aria-hidden="true" className="mt-5 inline-flex min-h-9 items-center gap-2 bg-start-graphite px-3 py-2 text-sm font-medium text-white dark:bg-white dark:text-start-night dark:group-hover:underline">
+        <span aria-hidden="true" className="mt-5 inline-flex min-h-9 items-center gap-2 bg-start-action px-3 py-2 text-sm font-medium text-start-action-foreground group-hover:underline">
           {t('startPage.accounts.login', 'Log in')}
           <ArrowRight className="size-4 motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5" />
         </span>
@@ -284,17 +289,17 @@ export function StartPageContent({
   }
 
   return (
-    <main className="start-page min-h-svh bg-foreground/25 dark:bg-start-night px-2 py-3 text-foreground sm:px-6 sm:py-10 lg:py-10">
+    <main className="start-page min-h-svh bg-start-page px-2 py-3 text-foreground sm:px-6 sm:py-10 lg:py-10">
       <div className="mx-auto max-w-6xl bg-background p-3 sm:p-7 lg:p-10">
         <div>
-          <header className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border border-foreground/20 bg-white px-4 py-2.5 dark:bg-muted">
+          <header className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border border-foreground/20 bg-start-surface px-4 py-2.5">
             <div className="flex items-center gap-2 text-lg font-medium tracking-tight">
               <Image src="/open-mercato.svg" alt="" width={28} height={28} priority />
               {t('app.page.title', 'Open Mercato')}
             </div>
             <nav aria-label={t('startPage.help.title', 'Help')} className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <ExternalLink href={VIDEOS_URL}>{t('startPage.help.videos', 'Video tutorials')}</ExternalLink>
-              <a href={DOCS_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 bg-start-graphite px-4 text-sm font-medium text-white dark:bg-white dark:text-start-night underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground">
+              <a href={DOCS_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 bg-start-action px-4 text-sm font-medium text-start-action-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground">
                 {t('startPage.help.documentation', 'Documentation')} <ArrowUpRight aria-hidden className="size-4" />
               </a>
             </nav>
@@ -302,9 +307,9 @@ export function StartPageContent({
 
           <div>
             {hasDemoLogin ? (
-              <DemoGuide />
+              <DemoGuide emailPrefilled={demoAccounts.every((account) => Boolean(account.email))} />
             ) : (
-              <section aria-labelledby="start-title" className="space-y-4 bg-start-graphite p-6 text-white dark:border-x dark:border-b dark:border-foreground/20 dark:bg-background sm:p-8">
+              <section aria-labelledby="start-title" className="space-y-4 border-x border-b border-start-panel-border bg-start-panel p-6 text-white sm:p-8">
                 <h1 id="start-title" className="text-balance text-3xl font-medium tracking-tight sm:text-4xl">{action.title}</h1>
                 <p role={databaseReachable ? undefined : 'alert'} className="max-w-prose leading-relaxed text-white/85">{action.description}</p>
                 <Link href={action.href} className={heroLinkClass}>
@@ -332,7 +337,7 @@ export function StartPageContent({
               <h2 className="text-lg font-medium tracking-tight">{action.title}</h2>
               <p className="text-sm leading-relaxed text-muted-foreground">{action.description}</p>
             </div>
-            <Link href={action.href} className="inline-flex min-h-10 items-center gap-2 bg-start-graphite px-4 text-sm font-medium text-white dark:bg-white dark:text-start-night">
+            <Link href={action.href} className="inline-flex min-h-10 items-center gap-2 bg-start-action px-4 text-sm font-medium text-start-action-foreground">
               {action.label} <ArrowRight aria-hidden className="size-4" />
             </Link>
           </section>
@@ -344,8 +349,8 @@ export function StartPageContent({
             <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t('startPage.guide.terminal', 'Working on the code? Run these commands in a terminal from your app folder.')}</p>
           </div>
           <div className="grid border-x border-b border-foreground/20 lg:grid-cols-12">
-            <div className="min-w-0 bg-start-graphite text-white dark:bg-start-night lg:col-span-7">
-              <div className="flex items-center gap-2 border-b border-white/20 px-5 py-3.5 font-mono text-xs dark:bg-muted sm:px-8">
+            <div className="min-w-0 bg-start-terminal text-white lg:col-span-7">
+              <div className="flex items-center gap-2 border-b border-white/20 bg-start-terminal-bar px-5 py-3.5 font-mono text-xs sm:px-8">
                 <SquareTerminal aria-hidden className="size-4" />
                 {t('startPage.guide.terminalLabel', 'Terminal')}
               </div>
@@ -365,7 +370,7 @@ export function StartPageContent({
                 <h3 className="text-lg font-medium leading-tight tracking-tight">{t('startPage.next.catalog.title', 'Add a ready-made module')}</h3>
                 <p className="text-sm leading-relaxed text-muted-foreground">{t('startPage.next.catalog.description', 'Find one in the catalog and run its install command.')}</p>
               </div>
-              <Image src="/start/catalog.svg" alt="" width={320} height={200} unoptimized className="my-auto h-auto w-full max-w-80 self-center justify-self-center sm:col-start-2 sm:row-span-2 sm:row-start-1 mix-blend-multiply dark:mix-blend-normal dark:grayscale dark:invert dark:contrast-75" />
+              <Image src="/start/catalog.svg" alt="" width={320} height={200} unoptimized className="my-auto h-auto w-full max-w-80 self-center justify-self-center start-illustration sm:col-start-2 sm:row-span-2 sm:row-start-1" />
               <ExternalLink href={MODULES_URL}>{t('startPage.next.catalog.link', 'Open the module catalog')}</ExternalLink>
             </article>
           </div>
@@ -403,7 +408,7 @@ export function StartPageContent({
           </section>
         ) : null}
 
-        <section aria-labelledby="start-support-title" className="grid items-center gap-4 border-x border-b border-foreground/20 bg-start-graphite p-5 text-white dark:bg-background sm:grid-cols-3 sm:gap-8 lg:px-8 lg:py-6">
+        <section aria-labelledby="start-support-title" className="grid items-center gap-4 border-x border-b border-foreground/20 bg-start-panel p-5 text-white sm:grid-cols-3 sm:gap-8 lg:px-8 lg:py-6">
           <div className="min-w-0 space-y-3 sm:col-span-2">
             <h2 id="start-support-title" className="text-2xl font-medium tracking-tight">{t('startPage.support.title', 'Need help?')}</h2>
             <p className="max-w-prose text-sm leading-relaxed text-white/85">
@@ -420,12 +425,14 @@ export function StartPageContent({
         </section>
 
         <footer className="flex flex-wrap items-start justify-between gap-4 border-x border-b border-foreground/20 p-5 lg:p-6">
-          <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1">
-            <Checkbox className="rounded-none data-[state=checked]:border-start-graphite data-[state=checked]:bg-start-graphite data-[state=checked]:text-white dark:data-[state=checked]:border-white dark:data-[state=checked]:bg-white dark:data-[state=checked]:text-start-night dark:inset-ring dark:inset-ring-start-control-border" id="show-start-page" checked={showStartPage} aria-describedby="start-preference-hint" onCheckedChange={handleCheckboxChange} />
-            <label htmlFor="show-start-page" className="cursor-pointer text-sm">
-              {t('startPage.showNextTime', 'Display this start page next time')}
-            </label>
-            <p id="start-preference-hint" className="col-start-2 text-xs text-muted-foreground">{t('startPage.guide.dismissHint', 'Turning this off opens the app or sign-in page immediately.')}</p>
+          <div className="flex items-start gap-3">
+            <Checkbox className="start-checkbox mt-0.5 rounded-none inset-ring inset-ring-start-control-ring" id="show-start-page" checked={showStartPage} aria-describedby="start-preference-hint" onCheckedChange={handleCheckboxChange} />
+            <div className="grid gap-1">
+              <label htmlFor="show-start-page" className="cursor-pointer text-sm">
+                {t('startPage.showNextTime', 'Display this start page next time')}
+              </label>
+              <p id="start-preference-hint" className="text-xs text-muted-foreground">{t('startPage.guide.dismissHint', 'Turning this off opens the app or sign-in page immediately.')}</p>
+            </div>
           </div>
         </footer>
       </div>

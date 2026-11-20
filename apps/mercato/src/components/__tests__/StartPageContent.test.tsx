@@ -52,6 +52,23 @@ describe('StartPageContent', () => {
     }
   })
 
+  it('links a role without an email when its address is not a built-in demo one', () => {
+    render(
+      <StartPageContent
+        showStartPage
+        demoAccounts={[
+          { role: 'superadmin', email: 'superadmin@acme.com' },
+          { role: 'admin' },
+          { role: 'employee', email: 'employee@acme.com' },
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: 'Log in as Admin' })).toHaveAttribute('href', '/login?role=admin')
+    expect(screen.getByText('Choose a role below and sign in with the email of that account.')).toBeInTheDocument()
+    expect(screen.queryByText(/already filled in/)).not.toBeInTheDocument()
+  })
+
   it('offers the app instead of demo accounts to a signed-in visitor', () => {
     render(<StartPageContent showStartPage signedIn demoAccounts={demoAccounts} />)
 

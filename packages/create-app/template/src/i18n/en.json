@@ -560,6 +560,7 @@
   "startPage.guide.build": "Extend your local installation",
   "startPage.guide.choose": "Choose a role",
   "startPage.guide.chooseHint": "Choose a role below. The sign-in form opens with the email already filled in.",
+  "startPage.guide.chooseHintNoEmail": "Choose a role below and sign in with the email of that account.",
   "startPage.guide.create": "Create a workspace",
   "startPage.guide.dashboardStep": "On the dashboard, use the menu to explore the modules available to your role.",
   "startPage.guide.dismissHint": "Turning this off opens the app or sign-in page immediately.",

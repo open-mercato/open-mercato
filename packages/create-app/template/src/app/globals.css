@@ -56,11 +56,51 @@ TODO: Fix that latter to have reference by the package names
 @theme {
   --color-start-graphite: #252723;
   --color-start-night: #101010;
-  --color-start-control-border: #909090;
+}
+
+@theme inline {
+  --color-start-page: var(--start-page);
+  --color-start-panel: var(--start-panel);
+  --color-start-panel-border: var(--start-panel-border);
+  --color-start-terminal: var(--start-terminal);
+  --color-start-terminal-bar: var(--start-terminal-bar);
+  --color-start-surface: var(--start-surface);
+  --color-start-cell: var(--start-cell);
+  --color-start-action: var(--start-action);
+  --color-start-action-foreground: var(--start-action-foreground);
+  --color-start-control-ring: var(--start-control-ring);
 }
 
 .start-page:not(.dark *) {
   --foreground: var(--color-start-graphite);
+}
+
+.start-page {
+  --start-page: color-mix(in oklab, var(--color-start-graphite) 25%, transparent);
+  --start-panel: var(--color-start-graphite);
+  --start-panel-border: transparent;
+  --start-terminal: var(--color-start-graphite);
+  --start-terminal-bar: transparent;
+  --start-surface: #ffffff;
+  --start-cell: color-mix(in oklab, var(--color-start-graphite) 7%, transparent);
+  --start-action: var(--color-start-graphite);
+  --start-action-foreground: #ffffff;
+  --start-control-ring: transparent;
+}
+
+.dark .start-page {
+  color-scheme: dark;
+  --background: #1b1b1b;
+  --start-page: var(--color-start-night);
+  --start-panel: var(--background);
+  --start-panel-border: color-mix(in oklab, var(--foreground) 20%, transparent);
+  --start-terminal: var(--color-start-night);
+  --start-terminal-bar: var(--muted);
+  --start-surface: var(--muted);
+  --start-cell: var(--muted);
+  --start-action: #ffffff;
+  --start-action-foreground: var(--color-start-night);
+  --start-control-ring: #909090;
 }
 
 .start-logo-grid {
@@ -80,9 +120,19 @@ TODO: Fix that latter to have reference by the package names
   opacity: 0.16;
 }
 
-.dark .start-page {
-  color-scheme: dark;
-  --background: #1b1b1b;
+.start-illustration {
+  mix-blend-mode: multiply;
+}
+
+.dark .start-illustration {
+  mix-blend-mode: normal;
+  filter: grayscale(1) invert(1) contrast(0.75);
+}
+
+.start-page .start-checkbox[data-state="checked"] {
+  border-color: var(--start-action);
+  background-color: var(--start-action);
+  color: var(--start-action-foreground);
 }
 
 @theme inline {

@@ -560,6 +560,7 @@
   "startPage.guide.build": "로컬 설치 확장하기",
   "startPage.guide.choose": "역할 선택",
   "startPage.guide.chooseHint": "아래에서 역할을 선택하세요. 로그인 화면에 이메일이 자동으로 입력됩니다.",
+  "startPage.guide.chooseHintNoEmail": "아래에서 역할을 선택하고 해당 계정의 이메일로 로그인하세요.",
   "startPage.guide.create": "워크스페이스 만들기",
   "startPage.guide.dashboardStep": "대시보드 메뉴에서 선택한 역할로 이용할 수 있는 모듈을 여세요.",
   "startPage.guide.dismissHint": "끄면 앱 또는 로그인 화면으로 바로 이동합니다.",

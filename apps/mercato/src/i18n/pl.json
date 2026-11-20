@@ -560,6 +560,7 @@
   "startPage.guide.build": "Rozbuduj lokalną instalację",
   "startPage.guide.choose": "Wybierz rolę",
   "startPage.guide.chooseHint": "Wybierz poniżej rolę. W formularzu logowania adres e-mail będzie już wpisany.",
+  "startPage.guide.chooseHintNoEmail": "Wybierz poniżej rolę i zaloguj się adresem e-mail tego konta.",
   "startPage.guide.create": "Utwórz przestrzeń",
   "startPage.guide.dashboardStep": "Na pulpicie otwórz menu i wybierz moduł dostępny dla Twojej roli.",
   "startPage.guide.dismissHint": "Po wyłączeniu od razu przejdziesz do aplikacji lub formularza logowania.",
