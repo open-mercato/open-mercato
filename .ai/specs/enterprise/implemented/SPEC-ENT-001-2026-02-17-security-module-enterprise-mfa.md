@@ -1916,7 +1916,8 @@ return 404. Clients should display these errors and allow retry or setup restart
 of treating them as unexpected server failures. Unknown failures retain the generic 500.
 No operator migration, schema, verifier, authentication or rate-limit changes are needed.
 Polish setup/login labels and the built-in TOTP page title use existing translation keys.
-Relative-time localization is tracked separately by #9956.
+Registration and last-used relative times on MFA method lists follow the UI locale via the
+existing `useDateFnsLocale` helper; no tenant date/time settings are involved.
 
 The emergency-bypass notification change (#5523) corrects shared enabled-module ownership
 for nested ACL wildcards such as `security.mfa.*`. Existing stored role and per-user grants
@@ -2166,3 +2167,6 @@ Recovery verification claims the matched code with a user- and tenant-scoped con
 Expected TOTP setup failures use the existing localized HTTP error path without changing
 verification or cleanup. Mocked unit tests cover invalid-code retry, missing/expired setup,
 unknown-error redaction, Polish labels and page title, and custom-provider label fallback.
+The errors are raised with the shared `badRequest`/`notFound` helpers, and PUT route→service→provider
+tests assert failed confirmations neither activate, flush nor emit enrollment. MFA method-list
+relative times are passed the active date-fns locale; `ui.table.registeredAt` is translated in de/es.
