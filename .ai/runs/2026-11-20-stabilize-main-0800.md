@@ -53,7 +53,7 @@ PR: #10073
 
 ### Phase 2: Correct and verify
 
-- [ ] 2.1 Correct demonstrated root causes with regression coverage; preserve behavior where no defect is established.
+- [x] 2.1 Correct demonstrated root causes with regression coverage; preserve behavior where no defect is established. — 47deb6e2d8
 - [ ] 2.2 Run the configured ordered validation gate and verify every applicable PR workflow, including 15 integration shards, on the exact head.
 
 ### Phase 3: Review and finalize
