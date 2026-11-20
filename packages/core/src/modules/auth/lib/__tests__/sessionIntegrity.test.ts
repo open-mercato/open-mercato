@@ -401,6 +401,23 @@ describe('isAuthContextValid', () => {
     expect(callOrder).toContain('roleAcl')
   })
 
+  it.each([true, false])('honors the injected SSO session eligibility result (%s)', async (eligible) => {
+    const user = { id: userId, tenantId, organizationId }
+    const session = {
+      ...validSession,
+      ssoProvenance: { configId: organizationId, configUpdatedAt: 1 },
+    }
+    mockFindOneByEntity({ session, user })
+    const isSessionEligible = jest.fn().mockResolvedValue(eligible)
+    const auth = { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }
+
+    const result = await resolveCanonicalStaffAuthContext(em, auth, () => ({ isSessionEligible }))
+
+    expect(result).toEqual(eligible ? { ...auth, isSuperAdmin: false } : null)
+    expect(isSessionEligible).toHaveBeenCalledWith(session, user)
+    await expect(resolveCanonicalStaffAuthContext(em, auth)).resolves.toBeNull()
+  })
+
   it('skips user integrity lookup for api key auth', async () => {
     await expect(
       isAuthContextValid(em, {
