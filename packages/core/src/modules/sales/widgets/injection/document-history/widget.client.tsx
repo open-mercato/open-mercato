@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Spinner } from "@open-mercato/ui/primitives/spinner"
-import { useT, type TranslateFn } from "@open-mercato/shared/lib/i18n/context"
+import { useLocale, useT, type TranslateFn } from "@open-mercato/shared/lib/i18n/context"
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall"
 import { formatRelativeTime, formatDateTime } from "@open-mercato/shared/lib/time"
 import { cn } from "@open-mercato/shared/lib/utils"
@@ -205,8 +205,9 @@ function TimelineItem({
   isLast: boolean
 }) {
   const t = useT()
+  const locale = useLocale()
   const KindIcon = KIND_ICONS[entry.kind]
-  const relativeTime = formatRelativeTime(entry.occurredAt)
+  const relativeTime = formatRelativeTime(entry.occurredAt, { locale, translate: t })
   const absoluteTime = formatDateTime(entry.occurredAt)
 
   const isStatusChange = entry.kind === 'status' && entry.metadata?.statusTo

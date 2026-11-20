@@ -29,11 +29,11 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
     const template = dictionary[key] ?? fallback ?? key
     return template.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match)
   }
-  return { useT: () => t }
+  return { useT: () => t, useLocale: () => mockLocale }
 })
 
 jest.mock('@open-mercato/shared/lib/time', () => ({
-  formatRelativeTime: () => 'just now',
+  ...jest.requireActual('@open-mercato/shared/lib/time'),
   formatDateTime: (iso: string) => iso,
 }))
 
@@ -99,6 +99,22 @@ beforeEach(() => {
 })
 
 describe('TimelineWidget', () => {
+  it('renders relative timestamps in the selected Polish locale', async () => {
+    mockLocale = 'pl'
+    mockApiCall.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: { items: url.includes('/api/sales/document-history') ? [{
+        ...entries[1],
+        occurredAt: new Date(Date.now() - 120_000).toISOString(),
+      }] : [] },
+    }))
+
+    render(<TimelineWidget context={baseContext} />)
+
+    expect(await screen.findByText('2 minuty temu')).toBeInTheDocument()
+    expect(screen.queryByText(/minutes ago/)).not.toBeInTheDocument()
+  })
+
   it.each(['order', 'quote'])('renders Polish %s totals once, including exact-only changes', async (kind) => {
     mockLocale = 'pl'
     const changedFields = [
