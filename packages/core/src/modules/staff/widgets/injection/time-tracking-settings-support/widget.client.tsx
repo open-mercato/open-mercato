@@ -669,7 +669,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
               <DictionaryTable
                 entries={categoryEntries}
                 loading={categoriesLoading}
-                canManage={canManageCategories}
+                canManage={canManageCategories && !categoriesLoading && Boolean(dictionaryId)}
                 onCreate={() => setCategoryDialog({ mode: 'create' })}
                 onEdit={(entry) => setCategoryDialog({ mode: 'edit', entry: categoryEntries.find((row) => row.id === entry.id) ?? entry })}
                 onDelete={(entry) => { void deleteCategory(categoryEntries.find((row) => row.id === entry.id) ?? entry) }}

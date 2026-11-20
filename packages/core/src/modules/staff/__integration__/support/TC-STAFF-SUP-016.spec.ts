@@ -37,6 +37,30 @@ async function confirmDestructive(page: Page) {
   await dialog.getByRole('button', { name: /^Delete$|^Confirm$/i }).click()
 }
 
+async function saveCategory(page: Page, method: 'POST' | 'PATCH', value: string, label: string) {
+  const dialog = page.getByRole('dialog')
+  let entriesPath: string | null = null
+  const [saved, refreshed] = await Promise.all([
+    page.waitForResponse((response) => {
+      const request = response.request()
+      const pathname = new URL(response.url()).pathname
+      if (request.method() !== method || !/^\/api\/dictionaries\/[^/]+\/entries(?:\/[^/]+)?$/.test(pathname)) return false
+      entriesPath = method === 'POST' ? pathname : pathname.slice(0, pathname.lastIndexOf('/'))
+      return true
+    }),
+    page.waitForResponse((response) => response.request().method() === 'GET'
+      && new URL(response.url()).pathname === entriesPath),
+    dialog.getByRole('button', { name: 'Save' }).click(),
+  ])
+  expect(saved.status(), await saved.text()).toBe(method === 'POST' ? 201 : 200)
+  const entry: { id: string; value: string; label: string } = await saved.json()
+  expect(entry).toMatchObject({ id: expect.any(String), value, label })
+  expect(refreshed.ok(), await refreshed.text()).toBeTruthy()
+  const entries: unknown = await refreshed.json()
+  expect(entries).toMatchObject({ items: expect.arrayContaining([expect.objectContaining({ id: entry.id, value, label })]) })
+  await expect(dialog).not.toBeVisible()
+}
+
 test.describe('TC-STAFF-SUP-016: Settings Support tab', () => {
   test('manages categories, routing, the fallback project and the reference prefix', async ({ page, request }) => {
     test.setTimeout(240_000)
@@ -76,14 +100,14 @@ test.describe('TC-STAFF-SUP-016: Settings Support tab', () => {
       const createDialog = page.getByRole('dialog')
       await createDialog.locator('[data-crud-field-id="value"] input').first().fill(categoryValue)
       await createDialog.locator('[data-crud-field-id="label"] input').first().fill(categoryLabel)
-      await createDialog.getByRole('button', { name: 'Save' }).click()
+      await saveCategory(page, 'POST', categoryValue, categoryLabel)
       await expect(page.getByRole('row').filter({ hasText: categoryLabel }).first()).toBeVisible({ timeout: 30_000 })
       await expect.poll(async () => (await findSupportCategoryEntry(request, admin, categoryValue))?.label).toBe(categoryLabel)
 
       await page.getByRole('row').filter({ hasText: categoryLabel }).first().click()
       const editDialog = page.getByRole('dialog')
       await editDialog.locator('[data-crud-field-id="label"] input').first().fill(renamedLabel)
-      await editDialog.getByRole('button', { name: 'Save' }).click()
+      await saveCategory(page, 'PATCH', categoryValue, renamedLabel)
       await expect(page.getByRole('row').filter({ hasText: renamedLabel }).first()).toBeVisible({ timeout: 30_000 })
       await expect.poll(async () => (await findSupportCategoryEntry(request, admin, categoryValue))?.label).toBe(renamedLabel)
 
