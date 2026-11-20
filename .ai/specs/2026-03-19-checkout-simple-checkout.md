@@ -384,7 +384,7 @@ The cart is locked **from submit until the outcome**, including payment, and nev
 - `checkoutSessionId` is the session id. A second `lock` with the **same** `checkoutSessionId` on a locked cart is an idempotent extend: it returns the cart and sets the new expiry, with no re-price and no visibility pass (X15). A different session gets `423 cart_locked`. Checkout makes every extend with `extendOnly: true`, so an extend of a lock that lapsed answers `409 cart_lock_lost` instead of taking a fresh lock (cart §9.1, D-R5-SF4).
 - `purpose` is `'quote'` when `payment_method_code = 'request_quote'`, else `'order'`. `'quote'` skips the approval gate and `min_order_value`; the visibility pass, store/channel checks and re-price still run (D-R5-23).
 - `routeContext`: for a `storefront` cart checkout passes the buyer's request so the cart builds a fresh `ResolvedCartRouteContext` itself (C2); checkout imports nothing from `cart/lib`. A storefront cart without a context is refused by the cart with `400 assortment_scope_required_for_storefront_channel`; checkout never sends one without. Recovery (no request) never takes a fresh lock, so it never needs a context: it only extends a lock its session still holds (§12.1, D-R5-SF4).
-- `lockTtlMs`: the cart default (30 min) at step 1; at step 7 checkout extends to `payment_expires_at − now + 15 min`, within the cart's bound.
+- `lockTtlMs`: the cart default (30 min) at step 1; at step 7 checkout extends to `payment_expires_at − now + 15 min`, within the cart's bound. The session enters `awaiting_payment` only after that extend succeeds. A `409 cart_lock_lost` there cancels or refunds the intent and cancels the order (§7.2).
 
 **Unlock and convert.** `unlock` and `markConverted` carry `checkoutSessionId`; a mismatch is a uniform `404` (C1), so a stale session can never release or convert a cart another session holds.
 
@@ -484,13 +484,16 @@ Each step is a separate transaction (every `commandBus.execute()` commits its ow
     d. progress = finalized
 
  7. IF gateway:
-       paymentGatewayService.createPaymentSession(...); CheckoutTransaction with session_id,
-       order_id; payment_intent_ref, payment_expires_at (provider expiry, default 60 min);
-       cartService.lock(same checkoutSessionId, extendOnly: true,
-                        lockTtlMs = payment_expires_at − now + 15 min)          (C1 extend)
-       status = awaiting_payment;
-       progress = payment_initiated; emit checkout.payment.initiated
+    a. paymentGatewayService.createPaymentSession(...); CheckoutTransaction with session_id,
+       order_id; payment_intent_ref, payment_expires_at (provider expiry, default 60 min)
        └─ intent creation fails → compensate (§7.3); ABORT 502 payment_unavailable
+    b. cartService.lock(same checkoutSessionId, extendOnly: true,
+                        lockTtlMs = payment_expires_at − now + 15 min)          (C1 extend)
+       └─ 409 cart_lock_lost (the lock lapsed during the gateway call, or was swept) →
+          lost-lock reconciliation (below); compensate (§7.3, cancel order);
+          ABORT 409 cart_lock_lost. The payment hand-off is never returned.
+    c. Only after 7b succeeded: status = awaiting_payment;
+       progress = payment_initiated; emit checkout.payment.initiated
     Payment result (webhook or polling, Phase A path):
        success → sales.orders.update(status confirmed)  → emits sales.order.confirmed (C17)
                  cartService.markConverted({ …, checkoutSessionId, salesOrderId,
@@ -503,6 +506,14 @@ Each step is a separate transaction (every `commandBus.execute()` commits its ow
        status = completed. The credit reservation stands until a payment is settled through
        /adjust or settleCredit (D-R5-2).
 ```
+
+**Lost lock after the intent (D-R5-SF4).** The intent exists, but the basket it was priced for is no longer held by this session, so checkout never publishes `awaiting_payment` and never returns the hand-off. A live-lock extension is the precondition of `awaiting_payment` on the submit path and in recovery (§12.1) alike. Reconciliation runs before the order is cancelled:
+1. `paymentGatewayService.getPaymentStatus(transactionId)` reads the provider state.
+2. `pending` → `cancelPayment` cancels the intent. `authorized` → `cancelPayment` voids the authorization. `captured` or `partially_captured` → `refundPayment` refunds the captured amount. Each of these paid states raises an operational notification, because a payment on an unpublished hand-off is unexpected. `cancelled`, `failed` and `expired` need no gateway call. `unknown` is retried as a failed compensation (below).
+3. The `CheckoutTransaction` records the outcome, and a `compensation` event names the intent.
+4. Compensation per §7.3 cancels the order. The cart is not unlocked: the session no longer holds it, so `unlock` answers `404` and that answer is expected, not a compensation failure.
+
+A cancel or refund that fails is a failed compensation (§7.3): a `failure` event, `checkout.compensation.failed`, an operational notification and a retry. A later `success` result (webhook or polling) for a transaction whose session is not `awaiting_payment` neither confirms the order nor calls `markConverted`. It refunds through `refundPayment` and raises the operational notification.
 
 **`lineMap` (C18).** `convert_to_order` copies each quote line's `metadata` onto its order line, so after conversion checkout reads the order's lines and builds `lineMap` from `metadata.cartLineId`. For the quote outcome it reads the quote's lines. No `sales` change is needed.
 
@@ -519,7 +530,7 @@ Reverse of acquisition, each action idempotent under the acquisition key and saf
 | 3 (stock shortfall) | `availability.release` (no-op if nothing held); unlock cart |
 | 4 (credit refused) | Release stock; unlock cart |
 | 5a/5b before conversion (quote created, totals mismatch or conversion failure) | Release credit (`releaseCredit({ scope, reserveIdempotencyKey, reason })`); release stock; unlock cart. The created quote is left in place as an ordinary, visible unconverted quote; checkout does not delete documents |
-| 5c–8 (order exists: totals mismatch after conversion, commit/link/code failure, intent failure, payment failure or expiry) | **Cancel the order** (`sales.orders.update` → `cancelled`, emitting `sales.order.cancelled`). That one event releases the order's stock hold (`wms`), the linked credit reservation (`customer_groups` subscriber, D-R5-2 via C6) and the promotion usage and code uses (`promotions` subscriber, C5). Checkout then calls `revertCodeUse({ cartId })` for code uses consumed before `registerUsage` linked them to the order, releases credit by key if step 6b did not run, releases stock by key if step 6a did not run, and unlocks the cart |
+| 5c–8 (order exists: totals mismatch after conversion, commit/link/code failure, intent failure, lock lost after the intent, payment failure or expiry) | **Cancel the order** (`sales.orders.update` → `cancelled`, emitting `sales.order.cancelled`). That one event releases the order's stock hold (`wms`), the linked credit reservation (`customer_groups` subscriber, D-R5-2 via C6) and the promotion usage and code uses (`promotions` subscriber, C5). Checkout then calls `revertCodeUse({ cartId })` for code uses consumed before `registerUsage` linked them to the order, releases credit by key if step 6b did not run, releases stock by key if step 6a did not run, and unlocks the cart. After `409 cart_lock_lost` the intent is reconciled first (§7.2, lost lock after the intent) and the unlock is skipped: the session no longer holds the cart |
 
 Every compensation writes a `CheckoutSessionEvent` of kind `compensation` and emits `checkout.compensation.executed`.
 
@@ -679,6 +690,7 @@ Every refusal body is `{ error: <code>, message, details? }`, with a translated 
 | `promotion_unavailable` | 409 | Submit | A code was refused or a budget is exhausted; the next lock re-prices without it |
 | `totals_mismatch` | 500 | Submit | Document totals differ from the cart or the payable; compensated; ops notified |
 | `payment_unavailable` | 502 | Submit | Gateway intent creation failed; compensated |
+| `cart_lock_lost` | 409 | Submit (passthrough from cart) | The cart lock lapsed before the step 7 extend; the intent is cancelled or refunded and the order cancelled; resubmit from the cart (§7.2) |
 | `submit_in_progress` | 409 | Submit, create | An attempt is in flight (§7.4) |
 | `approval_not_required` | 409 | Request-approval (passthrough from cart) | Below the threshold |
 | — | 404 | All `/current/*` | Unknown token, binding mismatch (§9.0) or scope mismatch; one body for all |
@@ -765,7 +777,7 @@ Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, acto
 | `stock_reserved` | Credit ledger by `credit_reservation_key` (on account) | Release credit if reserved; release stock; unlock; status `open` |
 | `credit_reserved` or crash in step 5 | Quote by `external_reference` | Quote absent → release credit, release stock, unlock, `open`. Quote present, not converted, order outcome → resume forward from 5b (idempotent). Quote outcome → resume 5b and the quote branch |
 | `document_created` | Hold status, credit entry `orderId`, promotion usage by `orderId` | Resume step 6 forward; each sub-step is idempotent under its key |
-| `finalized` | Gateway transaction by session | No intent → `cart.lock({ extendOnly: true })`, then resume step 7 (create intent). The extend answers `409 cart_lock_lost` (the lock lapsed or was swept) → compensate per §7.3 and fail with `submit_recovery_failed`; never re-lock (D-R5-SF4). Intent exists → status `awaiting_payment` |
+| `finalized` | Gateway transaction by session | No intent → `cart.lock({ extendOnly: true })`, then resume step 7 from 7a (create intent). Intent exists (crash between 7a and 7c) → resume from 7b: `cart.lock({ extendOnly: true, lockTtlMs })` to the intent's expiry, and only then status `awaiting_payment`. Either extend answering `409 cart_lock_lost` (the lock lapsed or was swept) → reconcile an existing intent (§7.2, lost lock after the intent), compensate per §7.3 and fail with `submit_recovery_failed`; never re-lock (D-R5-SF4) |
 | any, attempt older than the payment TTL without an intent | — | Compensate per §7.3 and fail with `submit_recovery_failed` |
 
 A recovery that resumes forward never creates a second document: the quote lookup by `external_reference` and the `convert_to_order` check guarantee it (C3, D-R5-30).
@@ -873,6 +885,7 @@ All checkout changes are new or additive. The contract changes in other modules 
 | R15 | Phase A regression (C10) | **High** | Hard `requires` stop pay-link-only apps from booting. | No new `requires`; soft peers; non-regression boot test | Low |
 | R16 | Totals drift between cart, review and document (C7, D-R5-24) | Medium | The buyer accepts one amount and is invoiced another, or credit is reserved for a different amount. | One draft source (the cart's exact snapshot); post-create equality on goods and payable; `500 totals_mismatch` compensates and notifies ops | Low |
 | R17 | Session token replay by a third party | Medium | A leaked session token on an identified cart is replayed. | Binding to the customer session (§9.0); `404` on mismatch; token never in URLs or logs | Low (guest sessions remain token-only by design) |
+| R18 | Lock lost between intent and extend (D-R5-SF4) | **High** | The lock lapses during the gateway call; the session publishes `awaiting_payment` on a released basket, the buyer pays, and `markConverted` refuses the conversion. | `awaiting_payment` only after a successful `extendOnly` extend; `409 cart_lock_lost` cancels, voids or refunds the intent and cancels the order; a late success on a non-`awaiting_payment` session refunds (§7.2, §12.1) | Low |
 
 ---
 
@@ -908,6 +921,11 @@ Integration tests are self-contained: each creates its tenant, store, products, 
 - Injected failure at each of steps 1, 2, 3, 4, 5a, 5b, 5c, 6a, 6b, 6c, 7 (intent) and payment failure: no stock held, no credit reserved, codes and usage reverted, the order (if any) cancelled, and the cart unlocked.
 - A process killed after each of steps 1–7 is reconciled by `recover-stuck-submits` per §12.1 **without a duplicate quote or order** (C3, C24).
 - **Lost lock at `finalized` (D-R5-SF4).** For a storefront cart and for a pay-link cart each: a session stuck at `finalized` with no intent whose cart lock lapsed, or was cleared by `release-stale-locks` before recovery ran, is compensated (order cancelled, stock and credit released) and fails with `submit_recovery_failed`; the cart is `active` and not re-locked, no re-price runs, and the storefront cart produces no `400 assortment_scope_required_for_storefront_channel`. With the lock still live, recovery extends it and creates the intent.
+- **Lost lock after the intent (D-R5-SF4).** For a storefront cart and for a pay-link cart each, the lock is forced to expire (and, in a second variant, swept by `release-stale-locks`) between `createPaymentSession` and the step 7b extend:
+  - On the submit path, submit answers `409 cart_lock_lost`, the session never enters `awaiting_payment`, and no hand-off is returned. The intent is cancelled through `cancelPayment`, the order is cancelled, stock, credit and code uses are released, and the cart is not re-locked.
+  - In recovery, a session crashed between 7a and 7c with the lock since lapsed is reconciled the same way and fails with `submit_recovery_failed`. With the lock still live, recovery extends it and only then sets `awaiting_payment`.
+  - A gateway stub reporting the intent authorized gets `cancelPayment`; one reporting it captured gets `refundPayment`. Both raise the operational notification.
+  - A `success` webhook delivered afterwards for that transaction neither confirms the order nor converts the cart. It refunds and raises the operational notification.
 - A failing compensation raises the notification and is retried (R9).
 - Credit released by `customer_groups` when the order is cancelled (C6).
 - Code reuse refused; code returned on payment failure; budget overrun aborts with `409 promotion_unavailable` before payment (C5).
@@ -1091,6 +1109,7 @@ Applies SPEC-029 decision D-R5-SF4 (owner, 2026-11-19): no recovery path takes a
 - §3.3, §6 `routeContext`, §12.1 and R14: recovery no longer builds a cart context through `resolveForBuyer`. It only unlocks, extends or converts a cart its session still holds.
 - §7.2 step 7 and §12.1: every extend uses cart's atomic `cart.lock({ extendOnly: true })` (cart rev 10.1 §9.1). The `finalized` row no longer probes the lock holder separately; `409 cart_lock_lost` from the extend routes to compensation per §7.3 and `submit_recovery_failed`, never a re-lock.
 - §16: lost-lock-at-`finalized` coverage for a storefront and a pay-link cart.
+- §6, §7.2 step 7, §7.3, §9 error codes, §12.1, R18: step 7 is split into intent (7a), extend (7b) and publish (7c). `awaiting_payment` is set only after a successful extend, on the submit path and in recovery. A `409 cart_lock_lost` after the intent reads the gateway status, then cancels, voids or refunds the intent before the order is cancelled. A late success on a session not in `awaiting_payment` refunds. §16 covers expiry and sweep between intent creation and the extend for both cart types and both paths.
 - Supersedes the v2.3 line "recovery builds it through `resolveForBuyer` (D-R5-22, X15)".
 
 ### 2026-10-26 — v2.3 (Release 5 spec revision)
