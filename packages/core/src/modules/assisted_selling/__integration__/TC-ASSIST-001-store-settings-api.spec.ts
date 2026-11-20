@@ -1,12 +1,21 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
+  apiRequestWithSelectedOrg,
+  createOrganizationFixture,
+  deleteOrganizationIfExists,
+} from '@open-mercato/core/helpers/integration/authFixtures';
+import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import {
+  STORES_PATH,
+  cleanupScopedActor,
   cleanupSecondTenantActor,
+  createScopedActor,
   createSecondTenantActor,
   createStoreFixture,
   deleteStoreIfExists,
   uniqueStamp,
+  type ScopedActor,
   type SecondTenantActor,
 } from '../../ecommerce/__integration__/helpers';
 
@@ -140,6 +149,87 @@ test.describe('TC-ASSIST-001: assisted selling store settings API', () => {
     } finally {
       await cleanupSecondTenantActor(request, superadminToken, actor);
       await deleteStoreIfExists(request, token, storeId);
+    }
+  });
+
+  test('another organization\'s store is 404 for an org-restricted actor, and a save lands under the store\'s organization', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin');
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const { tenantId, organizationId: homeOrganizationId } = getTokenContext(adminToken);
+    expectId(homeOrganizationId, 'admin token should carry a home organization');
+    const stamp = uniqueStamp();
+    let storeOrganizationId: string | null = null;
+    let storeId: string | null = null;
+    let homeActor: ScopedActor | null = null;
+    let storeOrgActor: ScopedActor | null = null;
+    try {
+      storeOrganizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-ASSIST-001 Store Org ${stamp}`,
+        tenantId,
+      });
+      const created = await apiRequestWithSelectedOrg(request, 'POST', STORES_PATH, {
+        token: adminToken,
+        selectedOrgId: storeOrganizationId,
+        data: {
+          code: `qa_assist_${stamp}`.replace(/-/g, '_'),
+          name: `QA ASSIST Store ${stamp}`,
+          slug: `qa-assist-${stamp}`,
+          status: 'active',
+          defaultLocale: 'en',
+          supportedLocales: ['en'],
+          defaultCurrencyCode: 'EUR',
+        },
+      });
+      expect(created.status(), `store create in the second organization should be 201 (${await created.text()})`).toBe(201);
+      storeId = expectId((await readJsonSafe<{ id?: string }>(created))?.id, 'store fixture should return an id');
+
+      homeActor = await createScopedActor(request, superadminToken, {
+        stamp,
+        tenantId,
+        organizationId: homeOrganizationId,
+        features: ['assisted_selling.*'],
+        label: 'assist-home',
+      });
+      const foreignRead = await apiRequest(request, 'GET', SETTINGS_PATH(storeId), { token: homeActor.token });
+      expect(foreignRead.status(), 'a home-org actor reading another organization\'s store must 404').toBe(404);
+      const foreignWrite = await apiRequest(request, 'PUT', SETTINGS_PATH(storeId), {
+        token: homeActor.token,
+        data: { mode: 'rep' },
+      });
+      expect(foreignWrite.status(), 'a home-org actor writing another organization\'s store must 404').toBe(404);
+
+      const saved = await apiRequest(request, 'PUT', SETTINGS_PATH(storeId), {
+        token: adminToken,
+        data: { mode: 'rep', idleCloseDays: 9 },
+      });
+      expect(saved.status(), 'admin with the home organization selected may save the store\'s settings').toBe(200);
+
+      storeOrgActor = await createScopedActor(request, superadminToken, {
+        stamp,
+        tenantId,
+        organizationId: storeOrganizationId,
+        features: ['assisted_selling.settings.manage'],
+        label: 'assist-store',
+      });
+      const ownRead = await apiRequestWithSelectedOrg(request, 'GET', SETTINGS_PATH(storeId), {
+        token: storeOrgActor.token,
+        selectedOrgId: storeOrganizationId,
+      });
+      expect(ownRead.status()).toBe(200);
+      expect(
+        (await readJsonSafe<SettingsBody>(ownRead))?.result,
+        'the row is owned by the store\'s organization, not the saving caller\'s selected one',
+      ).toMatchObject({ mode: 'rep', idleCloseDays: 9 });
+    } finally {
+      await cleanupScopedActor(request, superadminToken, storeOrgActor);
+      await cleanupScopedActor(request, superadminToken, homeActor);
+      if (storeId && storeOrganizationId) {
+        await apiRequestWithSelectedOrg(request, 'DELETE', `${STORES_PATH}?id=${encodeURIComponent(storeId)}`, {
+          token: adminToken,
+          selectedOrgId: storeOrganizationId,
+        }).catch(() => undefined);
+      }
+      await deleteOrganizationIfExists(request, superadminToken, storeOrganizationId);
     }
   });
 
