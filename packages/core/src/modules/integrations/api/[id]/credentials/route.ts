@@ -5,6 +5,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { emitIntegrationsEvent } from '../../../events'
 import { saveCredentialsSchema } from '../../../data/validators'
 import {
@@ -17,6 +19,7 @@ import { collectCredentialUrlValidationErrors } from '../../../lib/credentials-f
 import {
   maskSecretCredentials,
   mergeMaskedSecretCredentials,
+  MaskedSecretDestinationChangedError,
 } from '../../../lib/credentials-masking'
 import {
   resolveUserFeatures,
@@ -238,6 +241,15 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     )
     await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
+    if (error instanceof MaskedSecretDestinationChangedError) {
+      getTelemetryRuntime()?.reportError(error, { module: 'integrations', code: 'integrations.masked_secret_destination_changed' })
+      const { t } = await resolveTranslations()
+      const message = t('integrations.credentials.errors.destinationChanged')
+      return NextResponse.json({
+        error: message,
+        details: { fieldErrors: Object.fromEntries(error.fields.map((field) => [field, message])) },
+      }, { status: 422 })
+    }
     if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
     }

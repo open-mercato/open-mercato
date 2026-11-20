@@ -10,13 +10,13 @@ import { baseEmailCapabilities } from '@open-mercato/core/modules/communication_
  * Threading is supported natively via Gmail `threadId` plus RFC2822
  * In-Reply-To/References. Attachment ceiling matches the shared email baseline.
  *
- * `fileSharing: false` (R2-M4 / F11, 2026-05-26): the adapter's
- * `convertOutbound` does not yet stitch attachment URLs into the base64-encoded
- * RFC2822 body it sends via `users.messages.send`. Re-enable when the URL-fetch
- * + MIME stitching flow lands.
+ * `fileSharing: true`: `convertOutbound` stitches the attachment bytes the hub
+ * reads from the attachments module into the RFC2822 body, and messages above
+ * the simple-send size go through Gmail's media-upload endpoint.
  */
 export const gmailCapabilities: ChannelCapabilities = {
   ...baseEmailCapabilities,
+  fileSharing: true,
   // Gmail supports moving a message to Trash via the API.
   deleteMessage: true,
 }

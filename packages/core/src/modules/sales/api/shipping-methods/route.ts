@@ -5,6 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesShippingMethod } from '../../data/entities'
 import { shippingMethodCreateSchema, shippingMethodUpdateSchema } from '../../data/validators'
 import { buildAggregateSearchFilter, parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { withExactShippingMethodInput } from '../../lib/exactAmountFields'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/sales_shipping_method'
 import {
@@ -154,7 +155,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(shippingMethodCreateSchema, raw ?? {}, ctx, translate)
+        return withExactShippingMethodInput(parseScopedCommandInput(shippingMethodCreateSchema, raw ?? {}, ctx, translate), raw)
       },
       response: ({ result }) => ({ id: result?.shippingMethodId ?? result?.id ?? null }),
       status: 201,
@@ -164,7 +165,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(shippingMethodUpdateSchema, raw ?? {}, ctx, translate)
+        return withExactShippingMethodInput(parseScopedCommandInput(shippingMethodUpdateSchema, raw ?? {}, ctx, translate), raw)
       },
       response: () => ({ ok: true }),
     },

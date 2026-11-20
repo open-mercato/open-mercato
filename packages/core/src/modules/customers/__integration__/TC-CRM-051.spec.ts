@@ -63,8 +63,10 @@ test.describe('TC-CRM-051: Task type chip surfaces tasks in the Activity history
       // Open the Activity log tab (label "Activity log" — see CompanyDetailTabs.tsx).
       await page.getByRole('tab', { name: /Activity log/i }).click()
 
-      // The Task chip MUST render alongside Call/Email/Meeting/Note.
-      const taskChip = page.getByRole('button', { name: /^Task( \d+)?$/ })
+      // The Task chip MUST render alongside Call/Email/Meeting/Note. The shared
+      // activity layout (#7494) also renders a "Task" type chip in the composer
+      // above the history, so take the last match (the history filter chip).
+      const taskChip = page.getByRole('button', { name: /^Task( \d+)?$/ }).last()
       await expect(taskChip).toBeVisible({ timeout: 15_000 })
 
       // Selecting the Task filter narrows the API request and surfaces the task.

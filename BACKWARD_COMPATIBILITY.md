@@ -355,7 +355,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 |HTTP response shapes — deliberately **not** covered|17 routes call the bus where no `catch` can receive the rejection (tracked in [#5435](https://github.com/open-mercato/open-mercato/issues/5435)), and the two `eudr` batch routes (`plots/import`, `product-mappings/suggestions/apply`) keep their published `HTTP 200` + `failed[]` contract because every bus call there sits behind a per-item `catch`|✓ No change (both exemption lists are asserted in both directions by the static guard, so neither can rot silently)|
 |Database schema, event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Migration path for existing modules**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. First-party transports that call `commandBus.execute` inside their own `try/catch` **now do** honour the contract as of [#5181](https://github.com/open-mercato/open-mercato/pull/5181): every such route consults `getCommandInterceptorHttpRejection(err)` — directly, or through the module-level error mapper it already delegates to — immediately after its `isCrudHttpError` branch, or first in the `catch` where there is none, and the static coverage guard fails when a new bus-calling route ships without it. Third-party transports honour the same contract in the same two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.
+**Migration**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. First-party transports that call `commandBus.execute` inside their own `try/catch` **now do** honour the contract as of [#5181](https://github.com/open-mercato/open-mercato/pull/5181): every such route consults `getCommandInterceptorHttpRejection(err)` — directly, or through the module-level error mapper it already delegates to — immediately after its `isCrudHttpError` branch, or first in the `catch` where there is none, and the static coverage guard fails when a new bus-calling route ships without it. Third-party transports honour the same contract in the same two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.
 
 ---
 
@@ -373,7 +373,7 @@ to a handler but did not select its exact `before` interceptor.
 |Request cloning/reconstruction|Dispatcher identity survives `Request.clone()` and `new Request(request.url, request)`. Unknown, forged, or evicted internal continuity metadata fails closed; unbound direct handlers retain legacy URL-derived matching|✓ Behavior-preserving for valid dispatches; intentional security narrowing for forged metadata|
 |Handler ordering|Authorization and interceptor `before`/`after` positions are unchanged|✓ Behavior-preserving for normally spelled requests|
 
-**Migration path for existing modules**: none. Keep authored `targetRoute` values.
+**Migration**: none. Keep authored `targetRoute` values.
 Callers that dispatch through the framework catch-all receive canonical binding
 automatically; direct three-argument matcher consumers continue to work unchanged.
 Synthetic dispatchers should pass the exact request they invoke as argument four.
@@ -394,7 +394,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 |Command behaviour (`auth.users.delete`, `auth.users.create` undo)|The dependent-row cascade also clears `user_sidebar_preferences` and `sidebar_variants`. Those rows are not captured by `UserUndoSnapshot`, so undoing a user delete restores the user, roles, ACLs and custom fields but not the sidebar customisation. `user_consents` is deliberately left untouched|✓ Behaviour-preserving for every delete that succeeded before; deletes that previously failed with `500` now succeed|
 |Event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Migration path for existing modules**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
+**Migration**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
 
 ---
 
@@ -410,13 +410,13 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 |CLI behaviour (`mercato entities rotate-encryption-key`, `… backfill-system-encryption`)|A row whose ciphertext opens under neither `--old-key` nor the current tenant key is reported and skipped instead of rewritten; the backfill no longer passes already-encrypted columns to the encrypt path. Rows that rotated or backfilled successfully before are unaffected|✓ Behaviour-preserving for every row that succeeded before; a row that was previously corrupted is now skipped instead — `rotate-encryption-key --old-key` reports it in the run summary, while `backfill-system-encryption` and `rotate-encryption-key` without `--old-key` skip it silently (see UPGRADE_NOTES.md)|
 |DB schema, API routes, event IDs, ACL features, DI names|No change|✓ n/a|
 
-**Migration path for existing modules**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
+**Migration**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
 
 ---
 
 ## Module Registry Registration Listeners (2026-08-12)
 
-[`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
+[Registry listener spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -428,13 +428,13 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 **Contract commitments**: listeners are notified synchronously after `setGlobalModules()` (so `getModules()` is readable inside a listener) and only when the registered set actually changed, as decided by an immutable per-registration snapshot of module ids, top-level contract keys and array-valued contract elements. Accessor-declared contracts are never invoked by that snapshot and always count as changed. The contract is fail-soft on both paths: a synchronous throw and an asynchronous rejection are each observed and logged, and neither can fail `registerModules()`. Change detection MAY become more sensitive without a deprecation cycle (over-invalidation only drops a warm cache); it MUST NOT become less sensitive, since that direction serves a stale registry.
 
-**Migration path for existing modules**: no action required. Nothing subscribes unless a module opts in, and with no subscribers the notification iterates an empty set. Test suites that call `registerModules()` MUST clear `__openMercatoModulesRegistrySnapshot__` alongside the two pre-existing registry globals, because all three survive `jest.resetModules()`.
+**Migration**: no action required. Nothing subscribes unless a module opts in, and with no subscribers the notification iterates an empty set. Test suites that call `registerModules()` MUST clear `__openMercatoModulesRegistrySnapshot__` alongside the two pre-existing registry globals, because all three survive `jest.resetModules()`.
 
 ## Passkey MFA Verification Payload (2026-08-14)
 
 Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
 
-**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+**Classification.** This public `MfaProviderInterface.verifySchema` union shape was client-validatable and covered by an enterprise legacy-compatibility test. Its removal is a STABLE break authorized by the security exception.
 
 **Exception requirements, as met by this change:**
 
@@ -464,7 +464,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 ## Data Sync Start Control Applicability (2026-09-02)
 
-[`.ai/specs/2026-09-02-data-sync-adapter-start-controls.md`](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
+[Start-control spec](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -479,7 +479,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 ## Error Reporting Policy (2026-09-08)
 
-Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-error-reporting-policy.md). Every change is additive; no existing path emits less than it did before.
+Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Every change is additive; no existing path emits less than it did before.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -500,25 +500,21 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 ## Data Sync Retry, Resume and Run Again (2026-09-16)
 
-[`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
+[Retry/resume spec](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
 
-|Surface|Change|Classification|
-|---|---|---|
-|Type definitions (§2)|New exported types `ResumePoint` (a discriminated union of `none` / `noCommittedBatch` / `resumes`) and `ResumePointRun`|✓ ADDITIVE (new types, nothing renamed — same shape as the `StartControlMap` addition before it)|
-|Import paths (§4)|New module `data_sync/lib/resume-point.ts` exporting `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint`, `ResumePointRun`|✓ ADDITIVE (new path; nothing moved or re-exported)|
-|API route URLs (§7)|**No change.** `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` are untouched — no new request field, no new response field, no new status code and no new error code. The UI starts sending the already-accepted `fromBeginning: true` for the first time, and reads `cursor` / `initialCursor` / `batchesCompleted`, all of which `GET /api/data_sync/runs` and `GET /api/data_sync/runs/[id]` have returned since 2026-08-12|✓ n/a|
-|Database schema (§8)|No change. No entity, column, migration or `.snapshot-open-mercato.json` update; no new run status — the vestigial `paused` status is left exactly as it was|✓ n/a|
-|Auto-discovery, function signatures, event IDs, widget spot IDs, DI names, ACL features, notification IDs, CLI commands, generated files|No change|✓ n/a|
+ADDITIVE (§2/§4): `data_sync/lib/resume-point.ts` exports `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint` (`none` / `noCommittedBatch` / `resumes`) and `ResumePointRun`. Nothing is renamed, moved or re-exported. All other contract categories are unchanged, including database schema, snapshots and the vestigial `paused` status.
 
-**Contract commitments**: the retry endpoint deliberately does **not** enforce `supportsStartControl('fullSync', entityType)` before honouring `fromBeginning: true`. [§ Data Sync Start Control Applicability (2026-09-02)](#data-sync-start-control-applicability-2026-09-02) already commits that the declaration "governs what the dashboard **offers**, never what the run API **accepts**", and `fromBeginning: true` on `retry` requests the identical thing as `fullSync: true` on `run` — a `null` start cursor — so the two siblings MUST answer identically. An adapter-declared restriction hides the from-the-beginning action in the UI and nothing more; a scripted or API client keeps the documented escape hatch. Making either endpoint strict is a breaking change under §7 and needs the deprecation protocol, not a UI spec.
+API (§7): `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` retain their fields, statuses and errors. The UI now sends the already-supported `fromBeginning: true` and reads existing `cursor` / `initialCursor` / `batchesCompleted` fields, returned by list/detail GET routes since 2026-08-12.
 
-`ResumePoint` also has **no `fromBeginning` variant, by design**. `api/runs/[id]/retry.ts` resolves a resumable retry as `previous.cursor ?? resolveStartCursor(...)`, and `resolveStartCursor` reads the shared `sync_cursors` row — state the run row does not carry — so a run that committed no batch of its own may still resume at a cursor an earlier run wrote. `noCommittedBatch` therefore means only "this run committed nothing" and MUST NOT be widened by a caller into a positional claim about where a retry starts. A future additive `retryStartCursor` response field is the only way to close that gap; it is out of scope here.
+**Contract commitments:** `supportsStartControl('fullSync', entityType)` governs dashboard offers, never API acceptance ([existing contract](#data-sync-start-control-applicability-2026-09-02)). Retry's `fromBeginning: true` and run's `fullSync: true` both request a null start cursor and MUST behave identically. Adapter restrictions only hide the UI action; API clients retain the escape hatch. Tightening either endpoint requires §7 deprecation.
+
+`ResumePoint` deliberately has no `fromBeginning` variant: retry resolves `previous.cursor ?? resolveStartCursor(...)`, whose fallback reads shared `sync_cursors` state absent from the run row. Even a run without committed batches may resume from an earlier run's cursor. `noCommittedBatch` MUST mean only "this run committed nothing", never a retry position. Only a future additive `retryStartCursor` field could supply that position; it remains out of scope.
 
 **Migration path for existing adapters and clients**: none. The module is new, every endpoint is unchanged, and an adapter or API client that ignores all of this behaves exactly as before.
 
 ## Customers Quick-Create Injection Spot Bridge (2026-09-16)
 
-[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
+[Quick-create spec](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -537,7 +533,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 ## Atomic Auth Command Replay (2026-10-04)
 
-[`.ai/specs/2026-07-28-protected-roles-and-audit-seam.md`](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
+[Auth replay spec](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -550,7 +546,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 |Non-auth command replay|Handlers that omit `atomicReplay` retain the existing undo claim/release compensation and route-level redo finalization|✓ Behavior-preserving|
 |API routes, response schemas, database schema, event IDs, ACL feature IDs, DI names, CLI commands, generated files|No shape or identifier change|✓ n/a|
 
-**Migration path for existing modules**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; when authorization depends on mutable domain rows it may add `stabilizeReplay` to acquire its complete footprint before guards and interceptors. The command bus supplies and owns the transaction by default. A caller deliberately composing replay inside an already-active `ctx.transactionalEm` must open that outer transaction with `withAtomicFlush(..., { transaction: true })`, obtain its exact `TransactionLifetime` inside the phase, and pass it as `ctx.transactionLifetime`; otherwise replay fails before mutation. Commit-only hooks and redo-finalization reporting follow the true outer completion. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.
+**Migration**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; when authorization depends on mutable domain rows it may add `stabilizeReplay` to acquire its complete footprint before guards and interceptors. The command bus supplies and owns the transaction by default. A caller deliberately composing replay inside an already-active `ctx.transactionalEm` must open that outer transaction with `withAtomicFlush(..., { transaction: true })`, obtain its exact `TransactionLifetime` inside the phase, and pass it as `ctx.transactionLifetime`; otherwise replay fails before mutation. Commit-only hooks and redo-finalization reporting follow the true outer completion. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.
 
 ---
 
@@ -564,7 +560,30 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 |API routes (`PUT /api/directory/organizations`, `PUT /api/directory/organization-branding`)|Same URLs, request schema (`organizationUpdateSchema` already declares both fields optional) and response shapes|✓ No shape change|
 |Database schema, event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+**Migration**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+
+---
+
+## Arbitrary-Precision Money and FX Rates (2026-10-08)
+
+[`.ai/specs/2026-10-08-arbitrary-precision-money-and-fx.md`](.ai/specs/2026-10-08-arbitrary-precision-money-and-fx.md) makes money and exchange-rate columns unconstrained `numeric` and moves money math to exact decimals (`@open-mercato/shared/lib/decimal`). Every `number` amount kept in a public contract stays and is filled with a float copy of a new `<field>Exact` decimal string.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Database schema | About 100 money columns (sales, catalog, checkout, cart, promotions, customers, customer_groups, payment_gateways, staff, warranty_claims) plus `exchange_rates.rate` and `sales_orders.exchange_rate` widen from `numeric(p,s)` to `numeric`; new nullable `exchange_rates.metadata jsonb`. These properties use the new `ExactDecimalType` (`@open-mercato/shared/lib/db/exactDecimalType`) so changes beyond float precision are detected | ✓ ADDITIVE (widening; no table rewrite, existing values unchanged) |
+| Type definitions (`sales/lib/types.ts`, `sales/lib/providers/types.ts`, `TaxCalculationService`, `shared/modules/payment_gateways/types.ts`, staff `CostEntry`/`CostProject`/`TimeRateResolver` and report types, checkout payloads) | Optional `<field>Exact` string siblings next to every money `number`; `SalesCalculationContext.amountDecimalPlaces`; `TimeRateResolver` gains an optional `resolveExact(ctx): string \| null` (`resolve` still returns `number \| null`) and `TimeRateContext` keeps `entry.rateOverrideAmount` / `project.hourlyRate` as `number \| null` with optional `rateOverrideAmountExact` / `hourlyRateExact` siblings; staff `CostEntry.rateOverrideAmount` / `CostProject.hourlyRate` (inputs to `applicableRate` / `entryAmount`) also accept a decimal string; staff report types (`ReportLine`, `ReportGroup`, `ReportTotals`, `ResolvedEntryValues`) gain optional `*Exact` fields, with new `Exact*` types for the computed results | ✓ ADDITIVE (optional fields, optional `resolveExact`, input-only widening) |
+| Calculation hooks (`sales.line.calculate.*`, `sales.document.calculate.*`, registered calculators, shipping/payment providers, `sales.tax.calculate.*`) | Engine computes on the exact fields; when a hook changes only a float field, the matching `<field>Exact` is re-derived from it and rounded to the amount precision, so number-only hooks keep working; amounts are paired by line/adjustment `id`, then object identity, then position for id-less lists of equal length | ✓ Behaviour-preserving for fiat (4 decimal internal precision unchanged), except that negative halves now round away from zero |
+| Exported helpers | `toNumericString` (sales, catalog) accepts strings and never emits exponent notation; `resolveCatalogPriceAmount`, `toSubmittedAmount`, `validateExchangeRateForm` (`rate`), `buildExchangeRatePayload` (input), `AdjustmentSubmitPayload` / `AdjustmentRowData` and the pay page `formatAmount` prop keep their `number` contracts, with new `resolveCatalogPriceAmountExact`, `toSubmittedAmountExact`, optional `rateExact` / `metadata`, optional `amountNetExact` / `amountGrossExact` and an optional third `exact` argument; `ConvertedSums.totalExact` and the `exact` of a valid `CatalogPriceAmountValidationResult` are optional (`ExactConvertedSums` / `ExactCatalogPriceAmountValidationResult` guarantee them); new `withExactListAmounts` (shared), `exactAmountString`, `deriveExactLineNetFromGross`, `resolveOrderPaymentTotals`, `entryAmountExact`, `sumAmountsExact`, `applicableRateExact`, `resolveTimeRateExact`, `resolveOrderAmountDueExact`, `fromCentsExact`. Existing `CaptureAmounts`, `resolveCaptureAmounts`, `assertCaptureWithinRemaining`, `reserveCaptureAmount`, `settleCapturedAmount`, `releaseCaptureAmount`, `parseAmountUnits` and `formatAmountUnits` retain their fixed four-decimal bigint contracts as deprecated bridges until no earlier than 0.11.0. The gateway service uses separate `*Exact` helpers and `ExactCaptureAmounts` | ✓ ADDITIVE (legacy bridges retained) |
+| Zod validators | Parsed output types unchanged (amounts stay `number`), except the built-in provider settings schemas in `sales/lib/providers/defaultProviders.ts`, which now output decimal strings; commands read the exact digits from the raw request. Decimals with more than 1000 significant digits, more than 300 integer digits or an exponent beyond 1000 are rejected; exchange-rate `metadata` is limited to 16 KB. Payment gateway amounts and staff `rateOverrideAmount` additionally accept decimal strings; upper bounds that mirrored the old column precision (`catalog` 12/4 digits, staff 10/4 digits and `99_999_999`, customer group `numeric(16,2)`, warranty `999_999_999` on money fields, exchange rate 8 decimals) are removed. Payment gateway session/capture/refund routes now reject amounts with more decimals than the currency allows (400) | ✓ ADDITIVE (inputs widened); ⚠ currency precision errors return 400, while invalid gateway payloads (including oversized and positive-underflow amounts) return 422; these checks reject input that was accepted before |
+| API responses | Routes that return money as JSON numbers add `<field>Exact` strings (sales document lists, returns, payment order totals, gateway status/capture/refund, checkout templates/links/transactions, staff report sheet/preview totals, customer deal stats, summary and aggregate, customer group terms, warranty claim settings). Routes that return raw column strings keep them; new rows are stored without scale padding (`"40"` instead of `"40.0000"`), old rows keep their stored scale. Catalog history responses retain at least four decimal places and preserve any additional digits. OpenAPI money fields that really return strings are corrected from `number` to `string` | ✓ ADDITIVE; padding change is value-preserving |
+| Persisted payment operations | Capture and refund operations hash their amount as the JSON number the request carried before this change whenever the exact amount fits a number, so a retry recorded before the upgrade keeps its request hash, automatic operation id and provider idempotency key; only an amount with more digits than a number holds is hashed as its decimal string | ✓ Behaviour-preserving (replay compatible across the upgrade) |
+| Rounding | Division results round half-up to `max(4, currency.decimalPlaces)` in sales/catalog (fiat unchanged), to the currency's own decimals in staff (2 for fiat, unchanged), and FX math keeps 50 decimals; every division keeps at least 17 significant digits. Catalog prices keep the entered amount exact (only the derived side is rounded). Checkout link, template and transaction amounts round to the currency's own decimals (2 for fiat, as before) | ⚠ Intentional: exact values instead of float/2-decimal truncation |
+| Buyer pricing, cart, promotions | `ResolvedLinePrice` / `LinePriceTier` gain optional `amountNetExact` / `amountGrossExact`; `BuyerPricingContext` gains optional `currencyDecimalPlaces`; the cart next-tier view gains `unitAmountExact`. Promotion effect amounts keep their padded format; budget sums keep at least two decimals | ✓ ADDITIVE |
+| `currencies` | `decimalPlaces` cap raised from 8 to 50; new DI service `currencyPrecisionService`; exchange rates gain `metadata`; providers may return `metadata` (NBP stores its table number) | ✓ ADDITIVE |
+| UI | `CrudForm` gains builtin field type `'decimal'` (exact decimal string value); `formatCurrency` gains optional `decimalPlaces` and a `{ showAllDigits }` option, formats decimal strings exactly, rounds to the currency precision when it is known (fiat display unchanged) and shows every digit for codes without a known precision (e.g. ETH) | ✓ ADDITIVE for fiat; ⚠ amounts in non-ISO currencies now display all their digits |
+| Event IDs, ACL features, CLI commands, generated files | No change | ✓ n/a |
+
+**Migration path for existing modules**: none required. Code that only reads/writes the `number` fields keeps working with float precision; read or write the `<field>Exact` strings (and use `@open-mercato/shared/lib/decimal` for math) to support amounts beyond float precision. Clients comparing padded strings such as `"40.0000"` should compare numerically.
 
 ---
 
@@ -579,7 +598,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 |`auth.logout` event|Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none|✓ No ID or payload change|
 |Database schema, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Migration path for existing modules**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
+**Migration**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
 
 ## Discord AI Proposals (2026-10-13)
 
@@ -589,7 +608,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 ## OAuth2 Grant Lifecycle Core (2026-10-12)
 
-[`.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md`](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [`.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md`](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
+[OAuth2 core spec](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [OAuth2 app spec](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -609,7 +628,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 |Not contracts|The test-only route `POST /api/integrations/test-oauth-grants`, its helper `@open-mercato/core/helpers/integration/oauthGrantTestRoute`, the flag `OM_ENABLE_TEST_OAUTH_GRANTS` (apart from the testing contract above) and the `test_oauth_grant` integration (like `test-seed`)|n/a|
 |Event IDs, database schema, ACL features, notification types, AI agent and tool IDs, CLI commands|No change|✓ n/a|
 
-**Migration path for existing modules**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
+**Migration**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
 ---
 
@@ -631,9 +650,19 @@ STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them
 
 STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
 
+## Workflow List Pagination Bounds (2026-10-29, #7534)
+
+STABLE API (§7): supported `limit=101`/`offset=100001` now return 400. Unbounded reads/offsets amplify authenticated resource use; bridging retains it. Emergency Security Exception: named human maintainer approval required before merge; no automated waiver.
+
+Migration: clients page/filter and handle 400; operators deploy, no DB/config changes. [Details](UPGRADE_NOTES.md#workflow-list-pagination-bounds-7534); [spec](.ai/specs/implemented/2026-04-14-code-based-workflow-definitions.md).
+
 ## SCIM rate limiting (2026-10-27)
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
+
+## Encrypted search contexts (#7872)
+
+STABLE: encrypted custom fields are omitted; missing/failing resolver excludes all. A bridge preserves disclosure; human exception approval is pending. [Contract/migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
 
 ## Compose encryption (2026-11-01, #7231)
 
@@ -653,3 +682,20 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## 2026-11-07 — Private next-interaction subjects (#8888)
+
+Surface: stable customer projection response behavior. Private email subjects and
+unresolved historical linked names now become NULL in shared projections; response
+keys/types, scheduling, manual names and authorized interaction readers remain
+unchanged. Continuing to serve the private subject as a bridge retains the privacy
+bypass. Clients use unnamed-interaction fallbacks and authorized interaction reads.
+Operators apply the idempotent data repair, complete the declared query-index
+rebuilds and rebuild configured search providers before reopening affected reads.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES.
+Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
+2026-11-13: [human approval](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966).
+
+## Comment authors (2026-11-12, #8759)
+
+STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
