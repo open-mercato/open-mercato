@@ -263,7 +263,13 @@ function buildDocumentCreateReplay(
           && amounts.every((field) => inputLine[field] === undefined || decimalsEqual(resolveExactDecimal(exactInput[`${field}Exact`], inputLine[field]), line[field]));
       });
     }
-    if (candidates.length > 1) throw badRequest("[internal] sales document redo line correspondence is ambiguous");
+    if (candidates.length > 1) {
+      const snapshot = snapshotForReplay(candidates[0]);
+      if (!candidates.every((line) => isDeepStrictEqual(snapshotForReplay(line), snapshot))) {
+        throw badRequest("[internal] sales document redo line correspondence is ambiguous");
+      }
+      candidates.sort((left, right) => left.id.localeCompare(right.id));
+    }
     const position = candidates.length ? remaining.findIndex((line) => line.id === candidates[0].id) : -1;
     if (position < 0) throw badRequest("[internal] sales document redo line unavailable");
     const [line] = remaining.splice(position, 1);

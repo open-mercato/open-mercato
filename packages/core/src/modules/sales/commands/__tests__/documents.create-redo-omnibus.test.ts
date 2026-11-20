@@ -284,13 +284,51 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
     expect(JSON.parse(JSON.stringify((em.rows.get(lineEntity) ?? []).map(identity)))).toEqual(original)
   })
 
-  it('refuses an ambiguous legacy duplicate before creating a document or line', async () => {
+  it.each(['absent', 'null', 'mixed', 'frozen'] as const)('replays interchangeable legacy tied lines with %s frozen fields', async (mode) => {
+    const { bus, ctx, em, logs, service } = harness()
+    if (mode !== 'frozen') service.getConfig.mockResolvedValue(omnibusConfigSchema.parse({ enabled: false }))
+    const [block] = await service.resolveOmnibusBlocks()
+    service.resolveOmnibusBlocks.mockResolvedValue([block, block])
+    const duplicateNumbers = { ...input, lines: [input.lines[0], input.lines[0]].map((line) => ({ ...line, lineNumber: 2 })) }
+    const original = await bus.execute(commandId, { input: duplicateNumbers, ctx })
+    const originalIds = (em.rows.get(lineEntity) ?? []).map((line) => line.id).sort()
+    await bus.undo(logs[0].undoToken, ctx)
+    const payload = logs[0].commandPayload as { undo: { lineIds?: string[]; after: { lines: Row[] } } }
+    delete payload.undo.lineIds
+    for (const [index, line] of payload.undo.after.lines.entries()) {
+      for (const key of Object.keys(frozen)) {
+        if (mode === 'absent' || (mode === 'mixed' && index === 0)) delete line[key]
+        else if (mode !== 'frozen') line[key] = null
+      }
+    }
+    payload.undo.after.lines.reverse()
+    service.getConfig.mockClear()
+    service.resolveOmnibusBlocks.mockClear()
+    const redone = await bus.execute(commandId, { input: duplicateNumbers, ctx, redoLogEntry: logs[0] })
+    expect(redone.result).toEqual(original.result)
+    expect((em.rows.get(lineEntity) ?? []).map((line) => line.id)).toEqual(originalIds)
+    const expected = mode === 'frozen' ? frozen : Object.fromEntries(Object.keys(frozen).map((key) => [key, null]))
+    for (const line of em.rows.get(lineEntity) ?? []) expect(line).toMatchObject(expected)
+    expect(service.getConfig).not.toHaveBeenCalled()
+    expect(service.resolveOmnibusBlocks).not.toHaveBeenCalled()
+    await bus.undo(logs[1].undoToken, ctx)
+    expect(em.rows.get(lineEntity)).toEqual([])
+    expect(em.rows.get(documentEntity)).toEqual([])
+  })
+
+  it.each(Object.keys(frozen) as Array<keyof typeof frozen>)('refuses an ambiguous legacy duplicate with differing %s before creating a document or line', async (field) => {
     const { bus, ctx, em, logs, service, actionLogService } = harness()
+    const [block] = await service.resolveOmnibusBlocks()
+    service.resolveOmnibusBlocks.mockResolvedValue([block, block])
     const duplicateNumbers = { ...input, lines: [input.lines[0], input.lines[0]].map((line) => ({ ...line, lineNumber: 2 })) }
     await bus.execute(commandId, { input: duplicateNumbers, ctx })
     await bus.undo(logs[0].undoToken, ctx)
     const payload = logs[0].commandPayload as { undo: { lineIds?: string[]; after: { lines: Row[] } } }
     delete payload.undo.lineIds
+    payload.undo.after.lines[0][field] = {
+      omnibusReferenceNet: '1', omnibusReferenceGross: '2', omnibusPromotionAnchorAt: '2026-06-01T00:00:00.000Z',
+      omnibusApplicabilityReason: 'different', isPersonalized: false, personalizationReason: 'different',
+    }[field]
     payload.undo.after.lines.reverse()
     em.trace.length = 0
     service.getConfig.mockClear()
