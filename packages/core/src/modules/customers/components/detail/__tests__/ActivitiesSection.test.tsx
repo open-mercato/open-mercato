@@ -14,6 +14,12 @@ const scopedHeadersMock = jest.fn()
 const confirmMock = jest.fn(async () => true)
 const surfaceRecordConflictMock = jest.fn<boolean, unknown[]>(() => false)
 
+let mockCanDeleteActivity = true
+
+jest.mock('../hooks/useActivityDeleteAccess', () => ({
+  useActivityDeleteAccess: () => () => mockCanDeleteActivity,
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),

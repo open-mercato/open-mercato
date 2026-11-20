@@ -24,9 +24,10 @@ interface ActivityTimelineProps {
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
   onDelete?: (activity: InteractionSummary) => void | Promise<void>
+  canDelete?: (activity: InteractionSummary) => boolean
 }
 
-export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete, canDelete }: ActivityTimelineProps) {
   const t = useT()
 
   if (activities.length === 0) {
@@ -63,7 +64,7 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete }: A
               withBorder={index < activities.length - 1}
               onEdit={onEdit}
               onMarkDone={onMarkDone}
-              onDelete={onDelete}
+              onDelete={!canDelete || canDelete(activity) ? onDelete : undefined}
             />
           </React.Fragment>
         )
