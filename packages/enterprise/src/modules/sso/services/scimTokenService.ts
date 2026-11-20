@@ -4,7 +4,7 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import { readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { SCIM_ADMISSION_TTL_MS, scimAdmissionCacheKey, scimAdmissionTokenTag, scimAdmissionTokenKey, scimTokenLookupHash } from '../lib/scim-admission-cache'
-import { isBrandedSsoHttpError } from '../lib/errors'
+import { isBrandedSsoHttpError, type SsoErrorTranslation, type SsoErrorTranslationParams } from '../lib/errors'
 import type { RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager, LockMode } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
@@ -55,13 +55,13 @@ export class ScimTokenService {
     return this.em.transactional(async (txEm) => {
       const where: Record<string, unknown> = { id: ssoConfigId, deletedAt: null }
       if (!scope.isSuperAdmin) {
-        if (!scope.organizationId) throw new ScimTokenError('Organization context is required', 403)
+        if (!scope.organizationId) throw new ScimTokenError('Organization context is required', 403, { key: 'sso.errors.organizationRequired' })
         where.organizationId = scope.organizationId
       }
       const config = await txEm.findOne(SsoConfig, where, { refresh: true, lockMode: LockMode.PESSIMISTIC_WRITE })
-      if (!config) throw new ScimTokenError('SSO configuration not found', 404)
+      if (!config) throw new ScimTokenError('SSO configuration not found', 404, { key: 'sso.admin.error.notFound' })
       if (config.jitEnabled) {
-        throw new ScimTokenError('Cannot create SCIM tokens while JIT provisioning is enabled. Disable JIT first.', 409)
+        throw new ScimTokenError('Cannot create SCIM tokens while JIT provisioning is enabled. Disable JIT first.', 409, { key: 'sso.errors.scimBlockedByJit' })
       }
 
       await authorization.assertConfiguration(txEm, config, undefined, actorUserId, { scimActorIsRequester: true })
@@ -127,7 +127,7 @@ export class ScimTokenService {
             isActive: true,
             $or: [{ tokenLookupHash: null }, { tokenLookupHash }],
           }, { tokenLookupHash }).catch(() => {
-            const error = new ScimTokenError('[internal] SCIM token enrollment unavailable', 503)
+            const error = new ScimTokenError('[internal] SCIM token enrollment unavailable', 503, { key: 'sso.errors.scimEnrollmentUnavailable' })
             try {
               getTelemetryRuntime()?.reportError(error, { module: 'sso', code: 'sso.scim_enrollment_unavailable' })
             } catch {}
@@ -166,7 +166,7 @@ export class ScimTokenService {
     if (!scope.isSuperAdmin) where.organizationId = scope.organizationId
 
     const token = await this.em.findOne(ScimToken, where)
-    if (!token) throw new ScimTokenError('SCIM token not found', 404)
+    if (!token) throw new ScimTokenError('SCIM token not found', 404, { key: 'sso.errors.scimTokenNotFound' })
 
     token.isActive = false
     await this.em.flush()
@@ -207,12 +207,18 @@ const SCIM_TOKEN_ERROR_MARKER = Symbol.for('@open-mercato/sso/ScimTokenError')
 export class ScimTokenError extends Error {
   readonly [SCIM_TOKEN_ERROR_MARKER] = true
 
+  readonly translationKey?: string
+  readonly translationParams?: SsoErrorTranslationParams
+
   constructor(
     message: string,
     public readonly statusCode: number,
+    translation?: SsoErrorTranslation,
   ) {
     super(message)
     this.name = 'ScimTokenError'
+    this.translationKey = translation?.key
+    this.translationParams = translation?.params
   }
 }
 

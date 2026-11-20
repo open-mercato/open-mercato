@@ -25,13 +25,13 @@ describe('SSO admin typed errors thrown by another bundled module copy', () => {
   ])('maps a branded SsoConfigError for %s to its status', async (_case, message, statusCode) => {
     const error = foreignBrandedError('SsoConfigError', message, statusCode)
     expect(error).not.toBeInstanceOf(SsoConfigError)
-    const response = handleSsoAdminApiError(error, 'SSO config test')
+    const response = await handleSsoAdminApiError(error, 'SSO config test')
     expect(response.status).toBe(statusCode)
     await expect(response.json()).resolves.toEqual({ error: message })
   })
 
   it('maps an unbranded SsoConfigError copy by name and status', async () => {
-    const response = handleSsoAdminApiError(foreignNamedError('SsoConfigError', 'SSO configuration not found', 404), 'SSO config test')
+    const response = await handleSsoAdminApiError(foreignNamedError('SsoConfigError', 'SSO configuration not found', 404), 'SSO config test')
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({ error: 'SSO configuration not found' })
   })
@@ -42,7 +42,7 @@ describe('SSO admin typed errors thrown by another bundled module copy', () => {
     ['SsoAdminAuthError', 'Unauthorized', 401],
   ])('maps a foreign %s copy to its status', async (name, message, statusCode) => {
     for (const error of [foreignBrandedError(name, message, statusCode), foreignNamedError(name, message, statusCode)]) {
-      const response = handleSsoAdminApiError(error, 'SSO admin test')
+      const response = await handleSsoAdminApiError(error, 'SSO admin test')
       expect(response.status).toBe(statusCode)
       await expect(response.json()).resolves.toEqual({ error: message })
     }
@@ -52,7 +52,7 @@ describe('SSO admin typed errors thrown by another bundled module copy', () => {
     const lookAlike = foreignNamedError('SsoConfigError', 'leaky detail', 0)
     const unknown = new Error('database exploded')
     for (const error of [lookAlike, unknown]) {
-      const response = handleSsoAdminApiError(error, 'SSO admin test')
+      const response = await handleSsoAdminApiError(error, 'SSO admin test')
       expect(response.status).toBe(500)
       await expect(response.json()).resolves.toEqual({ error: 'Internal server error' })
     }

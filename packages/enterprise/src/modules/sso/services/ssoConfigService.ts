@@ -6,9 +6,9 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { SsoConfig, ScimToken } from '../data/entities'
 import type { SsoConfigAdminCreateInput, SsoConfigAdminUpdateInput, SsoConfigListQuery } from '../data/validators'
 import { emitSsoEvent } from '../events'
-import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit } from '../lib/domains'
+import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit, MAX_DOMAINS_PER_CONFIG, type DomainValidationResult } from '../lib/domains'
 import type { SsoProviderRegistry } from '../lib/registry'
-import { isBrandedSsoHttpError } from '../lib/errors'
+import { isBrandedSsoHttpError, type SsoErrorTranslation, type SsoErrorTranslationParams } from '../lib/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
@@ -69,7 +69,7 @@ export class SsoConfigService {
 
     if (!scope.isSuperAdmin) {
       if (!scope.organizationId) {
-        throw new SsoConfigError('Organization context is required', 403)
+        throw new SsoConfigError('Organization context is required', 403, { key: 'sso.errors.organizationRequired' })
       }
       where.organizationId = scope.organizationId
     } else {
@@ -102,7 +102,7 @@ export class SsoConfigService {
   async getById(scope: SsoAdminScope, id: string): Promise<SsoConfigPublic | null> {
     const where: FilterQuery<SsoConfig> = { id, deletedAt: null }
     if (!scope.isSuperAdmin) {
-      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403)
+      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403, { key: 'sso.errors.organizationRequired' })
       where.organizationId = scope.organizationId
     }
 
@@ -120,13 +120,13 @@ export class SsoConfigService {
         deletedAt: null,
       })
       if (existing) {
-        throw new SsoConfigError('An SSO configuration already exists for this organization', 409)
+        throw new SsoConfigError('An SSO configuration already exists for this organization', 409, { key: 'sso.admin.error.alreadyExists' })
       }
 
       const domains = uniqueDomains(input.allowedDomains)
       for (const domain of domains) {
         const result = validateDomain(domain)
-        if (!result.valid) throw new SsoConfigError(`Invalid domain "${domain}": ${result.error}`, 400)
+        if (!result.valid) throw invalidDomainError(domain, result)
       }
 
       await this.authorizeConfiguration(tx, {
@@ -182,7 +182,7 @@ export class SsoConfigService {
       } as SsoConfig, scope)
 
       if (input.jitEnabled === true && await tx.count(ScimToken, { ssoConfigId: id, isActive: true }) > 0) {
-        throw new SsoConfigError('Cannot enable JIT provisioning while SCIM directory sync is active. Revoke all SCIM tokens first.', 409)
+        throw new SsoConfigError('Cannot enable JIT provisioning while SCIM directory sync is active. Revoke all SCIM tokens first.', 409, { key: 'sso.errors.jitBlockedByScim' })
       }
 
       config.authorizationUserId = scope.actorUserId
@@ -222,7 +222,7 @@ export class SsoConfigService {
     const config = await this.resolveConfig(scope, id)
 
     if (config.isActive) {
-      throw new SsoConfigError('Cannot delete an active SSO configuration — deactivate it first', 400)
+      throw new SsoConfigError('Cannot delete an active SSO configuration — deactivate it first', 400, { key: 'sso.admin.error.deleteActive' })
     }
 
     config.deletedAt = new Date()
@@ -244,7 +244,7 @@ export class SsoConfigService {
       if (active) {
         await this.authorizeConfiguration(tx, config, scope)
         if (config.allowedDomains.length === 0) {
-          throw new SsoConfigError('Cannot activate SSO configuration with no allowed domains', 400)
+          throw new SsoConfigError('Cannot activate SSO configuration with no allowed domains', 400, { key: 'sso.admin.error.noDomainsForActivation' })
         }
 
         await this.lockActiveDomains(tx, config.allowedDomains)
@@ -252,7 +252,10 @@ export class SsoConfigService {
 
         const testResult = await this.testConnectionInternal(config)
         if (!testResult.ok) {
-          throw new SsoConfigError(`Cannot activate — discovery failed: ${testResult.error}`, 400)
+          throw new SsoConfigError(`Cannot activate — discovery failed: ${testResult.error}`, 400, {
+            key: 'sso.errors.activationDiscoveryFailed',
+            params: { error: testResult.error ?? '' },
+          })
         }
       }
 
@@ -287,7 +290,7 @@ export class SsoConfigService {
   async addDomain(scope: SsoAdminScope, id: string, domain: string): Promise<SsoConfigPublic> {
     const normalized = normalizeDomain(domain)
     const validation = validateDomain(normalized)
-    if (!validation.valid) throw new SsoConfigError(validation.error!, 400)
+    if (!validation.valid) throw invalidDomainError(normalized, validation)
 
     return this.em.transactional(async (txEm) => {
       const tx = txEm as EntityManager
@@ -301,7 +304,12 @@ export class SsoConfigService {
       }
 
       const limitCheck = checkDomainLimit(config.allowedDomains.length, 1)
-      if (!limitCheck.ok) throw new SsoConfigError(limitCheck.error!, 400)
+      if (!limitCheck.ok) {
+        throw new SsoConfigError(limitCheck.error!, 400, {
+          key: 'sso.admin.wizard.domain.limit',
+          params: { max: MAX_DOMAINS_PER_CONFIG },
+        })
+      }
 
       if (config.isActive) {
         await this.assertActiveDomainAvailability(tx, [...config.allowedDomains, normalized], config.id)
@@ -369,12 +377,12 @@ export class SsoConfigService {
   private async resolveConfig(scope: SsoAdminScope, id: string, em: EntityManager = this.em, lock = false): Promise<SsoConfig> {
     const where: FilterQuery<SsoConfig> = { id, deletedAt: null }
     if (!scope.isSuperAdmin) {
-      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403)
+      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403, { key: 'sso.errors.organizationRequired' })
       where.organizationId = scope.organizationId
     }
 
     const config = await em.findOne(SsoConfig, where, lock ? { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } : {})
-    if (!config) throw new SsoConfigError('SSO configuration not found', 404)
+    if (!config) throw new SsoConfigError('SSO configuration not found', 404, { key: 'sso.admin.error.notFound' })
 
     return config
   }
@@ -389,7 +397,13 @@ export class SsoConfigService {
 
   private async testConnectionInternal(config: SsoConfig): Promise<{ ok: boolean; error?: string }> {
     const provider = this.ssoProviderRegistry.resolve(config.protocol)
-    if (!provider) return { ok: false, error: `No provider for protocol: ${config.protocol}` }
+    if (!provider) {
+      const { translate } = await resolveTranslations()
+      return {
+        ok: false,
+        error: translate('sso.errors.providerUnavailable', `No provider for protocol: ${config.protocol}`, { protocol: config.protocol }),
+      }
+    }
 
     return provider.validateConfig(config)
   }
@@ -442,6 +456,7 @@ export class SsoConfigService {
       throw new SsoConfigError(
         `SSO domain "${conflictDomain}" is already claimed by another active SSO configuration`,
         409,
+        { key: 'sso.errors.domainClaimed', params: { domain: conflictDomain } },
       )
     }
   }
@@ -452,13 +467,26 @@ const SSO_CONFIG_ERROR_MARKER = Symbol.for('@open-mercato/sso/SsoConfigError')
 export class SsoConfigError extends Error {
   readonly [SSO_CONFIG_ERROR_MARKER] = true
 
+  readonly translationKey?: string
+  readonly translationParams?: SsoErrorTranslationParams
+
   constructor(
     message: string,
     public readonly statusCode: number,
+    translation?: SsoErrorTranslation,
   ) {
     super(message)
     this.name = 'SsoConfigError'
+    this.translationKey = translation?.key
+    this.translationParams = translation?.params
   }
+}
+
+function invalidDomainError(domain: string, result: DomainValidationResult): SsoConfigError {
+  return new SsoConfigError(`Invalid domain "${domain}": ${result.error}`, 400, {
+    key: result.errorKey ?? 'sso.errors.domain.invalidFormat',
+    params: { domain },
+  })
 }
 
 export function isSsoConfigError(error: unknown): error is SsoConfigError {

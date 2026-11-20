@@ -20,6 +20,7 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 /**
  * TC-SSO-UI-001: SSO config page surfaces authority-ceiling refusals
  * Source: QA evidence on PR #10070 (silent 403 on the SSO config page).
+ * Also covers D1: 404s on a config deleted elsewhere render in the user's locale.
  */
 
 const integrationDirectory = path.dirname(fileURLToPath(import.meta.url))
@@ -230,6 +231,49 @@ for (const locale of ['en', 'pl']) {
         await page.getByRole('button', { name: dict['sso.admin.action.activate'], exact: true }).click()
         expect((await refusedActivation).status()).toBe(403)
         await expect(page.getByTestId('sso-activation-error')).toHaveText(ceilingMessage)
+      })
+    })
+
+    test('shows the translated not-found error for domain and delete actions on a config deleted elsewhere', async ({ page, request }) => {
+      test.setTimeout(120_000)
+      const dict = loadDictionary(locale)
+      const notFoundMessage = dict['sso.admin.error.notFound']
+      expect(notFoundMessage).toBeTruthy()
+      await withCeilingFixture(request, async (fixture) => {
+        await signInAsManager(page, fixture, locale)
+        await openConfig(page, fixture, dict)
+        await page.getByRole('button', { name: dict['sso.admin.tab.domains'], exact: true }).click()
+        const existingDomain = (await page.locator('code').first().textContent())?.trim() ?? ''
+        expect(existingDomain).toBeTruthy()
+
+        const deletedElsewhere = await apiRequest(request, 'DELETE', `/api/sso/config/${fixture.configId}`, { token: fixture.adminToken })
+        expect(deletedElsewhere.status()).toBe(200)
+
+        await page.getByPlaceholder(dict['sso.admin.wizard.domains.placeholder']).fill(`added-${randomUUID().slice(0, 8)}.example.com`)
+        const refusedAdd = waitForConfigWrite(page, fixture, '/domains', 'POST')
+        await page.getByRole('button', { name: dict['common.add'], exact: true }).click()
+        const addResponse = await refusedAdd
+        expect(addResponse.status()).toBe(404)
+        expect((await addResponse.json()).error).toBe(notFoundMessage)
+        await expect(page.getByText(notFoundMessage).first()).toBeVisible()
+
+        const domainRow = page.locator('div', { has: page.getByText(existingDomain, { exact: true }) }).last()
+        const refusedRemove = waitForConfigWrite(page, fixture, '/domains', 'DELETE')
+        await domainRow.getByRole('button', { name: dict['common.remove'], exact: true }).click()
+        const removeResponse = await refusedRemove
+        expect(removeResponse.status()).toBe(404)
+        expect((await removeResponse.json()).error).toBe(notFoundMessage)
+
+        await page.getByRole('button', { name: dict['common.delete'], exact: true }).first().click()
+        const refusedDelete = waitForConfigWrite(page, fixture, '', 'DELETE')
+        await page.getByRole('alertdialog').getByRole('button', { name: dict['common.delete'], exact: true }).click()
+        const deleteResponse = await refusedDelete
+        expect(deleteResponse.status()).toBe(404)
+        expect((await deleteResponse.json()).error).toBe(notFoundMessage)
+        await expect(page.getByText(notFoundMessage).first()).toBeVisible()
+        if (locale !== 'en') {
+          await expect(page.getByText(loadDictionary('en')['sso.admin.error.notFound'])).toHaveCount(0)
+        }
       })
     })
   })

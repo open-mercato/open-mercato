@@ -1,13 +1,13 @@
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { SsoAdminScope } from '../services/ssoConfigService'
-import { isBrandedSsoHttpError } from '../lib/errors'
+import { isBrandedSsoHttpError, type SsoErrorTranslation, type SsoErrorTranslationParams } from '../lib/errors'
 
 export async function resolveSsoAdminContext(req: Request): Promise<{
   auth: Awaited<ReturnType<typeof getAuthFromRequest>>
   scope: SsoAdminScope
 }> {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) throw new SsoAdminAuthError('Unauthorized', 401)
+  if (!auth?.sub) throw new SsoAdminAuthError('Unauthorized', 401, { key: 'sso.errors.unauthorized' })
 
   const isSuperAdmin = !!(auth as Record<string, unknown>).isSuperAdmin
   const url = new URL(req.url)
@@ -32,12 +32,18 @@ const SSO_ADMIN_AUTH_ERROR_MARKER = Symbol.for('@open-mercato/sso/SsoAdminAuthEr
 export class SsoAdminAuthError extends Error {
   readonly [SSO_ADMIN_AUTH_ERROR_MARKER] = true
 
+  readonly translationKey?: string
+  readonly translationParams?: SsoErrorTranslationParams
+
   constructor(
     message: string,
     public readonly statusCode: number,
+    translation?: SsoErrorTranslation,
   ) {
     super(message)
     this.name = 'SsoAdminAuthError'
+    this.translationKey = translation?.key
+    this.translationParams = translation?.params
   }
 }
 

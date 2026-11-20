@@ -64,12 +64,12 @@ export class AccountLinkingService {
       }
 
       if (idpPayload.emailVerified !== true) {
-        throw new EmailNotVerifiedError('IdP did not verify the email claim — cannot link or provision account')
+        throw new EmailNotVerifiedError('[internal] IdP did not verify the email claim — cannot link or provision account')
       }
 
       const emailDomain = idpPayload.email.split('@')[1]?.toLowerCase()
       if (!emailDomain || !currentConfig.allowedDomains.some((domain) => domain.toLowerCase() === emailDomain)) {
-        throw new Error('Email domain is not in the allowed domains for this SSO configuration')
+        throw new Error('[internal] Email domain is not in the allowed domains for this SSO configuration')
       }
 
       const emailLinked = currentConfig.autoLinkByEmail
@@ -83,12 +83,12 @@ export class AccountLinkingService {
       if (currentConfig.jitEnabled) {
         const scimActive = await em.count(ScimToken, { ssoConfigId: currentConfig.id, isActive: true }) > 0
         if (scimActive) {
-          throw new Error('JIT provisioning is disabled because SCIM directory sync is active')
+          throw new Error('[internal] JIT provisioning is disabled because SCIM directory sync is active')
         }
         return this.jitProvision(em, currentConfig, idpPayload, resolvedTenantId, pendingEvents)
       }
 
-      throw new Error('No matching user found and JIT provisioning is disabled')
+      throw new Error('[internal] No matching user found and JIT provisioning is disabled')
     })
     for (const { eventId, ...payload } of pendingEvents) {
       void emitSsoEvent(eventId, payload).catch((eventError) => {
@@ -311,7 +311,7 @@ export class AccountLinkingService {
     if (!hasAnySsoRole) {
       throw new SsoRolesRevokedError(
         String(user.id),
-        'No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.',
+        '[internal] No roles could be resolved from IdP groups — login denied. Configure role mappings or ensure the IdP sends matching group claims.',
       )
     }
   }

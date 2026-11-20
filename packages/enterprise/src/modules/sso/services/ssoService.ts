@@ -53,10 +53,10 @@ export class SsoService {
       {},
       { tenantId: null },
     )
-    if (!config) throw new Error('SSO configuration not found or inactive')
+    if (!config) throw new Error('[internal] SSO configuration not found or inactive')
 
     const provider = this.ssoProviderRegistry.resolve(config.protocol)
-    if (!provider) throw new Error(`No provider registered for protocol: ${config.protocol}`)
+    if (!provider) throw new Error(`[internal] No provider registered for protocol: ${config.protocol}`)
 
     const clientSecret = await this.decryptClientSecret(config)
 
@@ -92,12 +92,12 @@ export class SsoService {
     organizationId: string
   }> {
     const flowState = decryptStateCookie(stateCookie)
-    if (!flowState) throw new Error('Invalid or expired SSO state')
+    if (!flowState) throw new Error('[internal] Invalid or expired SSO state')
 
     const receivedState = Buffer.from(callbackParams.state || '')
     const expectedState = Buffer.from(flowState.state)
     if (receivedState.length !== expectedState.length || !crypto.timingSafeEqual(receivedState, expectedState)) {
-      throw new Error('State mismatch — possible CSRF attack')
+      throw new Error('[internal] State mismatch — possible CSRF attack')
     }
 
     const config = await findOneWithDecryption(
@@ -107,10 +107,10 @@ export class SsoService {
       {},
       { tenantId: null },
     )
-    if (!config) throw new Error('SSO configuration no longer active')
+    if (!config) throw new Error('[internal] SSO configuration no longer active')
 
     const provider = this.ssoProviderRegistry.resolve(config.protocol)
-    if (!provider) throw new Error(`No provider for protocol: ${config.protocol}`)
+    if (!provider) throw new Error(`[internal] No provider for protocol: ${config.protocol}`)
 
     const clientSecret = await this.decryptClientSecret(config)
 

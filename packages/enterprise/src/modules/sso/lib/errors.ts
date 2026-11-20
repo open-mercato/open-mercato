@@ -69,3 +69,28 @@ export type SsoCallbackErrorCode = 'sso_email_not_verified' | 'sso_failed'
 export function resolveSsoCallbackErrorCode(err: unknown): SsoCallbackErrorCode {
   return isEmailNotVerifiedError(err) ? 'sso_email_not_verified' : 'sso_failed'
 }
+
+export type SsoErrorTranslationParams = Record<string, string | number>
+
+export interface SsoErrorTranslation {
+  key: string
+  params?: SsoErrorTranslationParams
+}
+
+/**
+ * Reads the translation descriptor carried by a typed SSO HTTP error. Duck-typed
+ * so an error thrown by another bundled module copy still resolves its key.
+ */
+export function readSsoErrorTranslation(err: unknown): SsoErrorTranslation | null {
+  if (!err || typeof err !== 'object') return null
+  const candidate = err as Record<string, unknown>
+  const key = candidate.translationKey
+  if (typeof key !== 'string' || !key) return null
+  const rawParams = candidate.translationParams
+  if (!rawParams || typeof rawParams !== 'object' || Array.isArray(rawParams)) return { key }
+  const params: SsoErrorTranslationParams = {}
+  for (const [name, value] of Object.entries(rawParams as Record<string, unknown>)) {
+    if (typeof value === 'string' || typeof value === 'number') params[name] = value
+  }
+  return { key, params }
+}

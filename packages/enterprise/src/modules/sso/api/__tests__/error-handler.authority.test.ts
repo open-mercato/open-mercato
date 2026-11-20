@@ -3,7 +3,7 @@ import { handleScimApiError, handleSsoAdminApiError } from '../error-handler'
 
 describe('SSO authority error responses', () => {
   it('returns a canonical authorization failure to config clients as 403', async () => {
-    const response = handleSsoAdminApiError(forbidden('Authorization denied'), 'Config test')
+    const response = await handleSsoAdminApiError(forbidden('Authorization denied'), 'Config test')
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({ error: 'Authorization denied' })
   })
