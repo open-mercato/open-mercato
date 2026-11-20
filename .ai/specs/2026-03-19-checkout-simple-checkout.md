@@ -126,7 +126,7 @@ Phase A pay links keep their existing path end to end. They create a `CheckoutTr
 | → `ecommerce` (SPEC-029) | DI `storeContextService.resolve(request, { fresh: true })` at the edge; `storeContextService.resolveForBuyer(...)` for pay-link buyer identity (D-R5-22); recovery never calls it (D-R5-SF4) |
 | → `promotions` | DI `promotionsService`: `evaluate` with delivery context (D-R5-17), `useCode`, `registerUsage` before payment (C5, D-R4-26), `revertCodeUse({ cartId })` in compensation before the order links the use. Reversal after cancellation is **promotions-owned**: a promotions subscriber on `sales.order.cancelled` runs `revertUsage({ orderId })` and `revertCodeUse({ orderId })` idempotently (SPEC-055 amendment, C5). `sales` never calls promotions. |
 | → `shipping_carriers` | DI `shippingCarrierService.calculateRates` (§5.3); selected method snapshotted onto the session |
-| → `payment_gateways` | `paymentGatewayService.createPaymentSession` and status read, the Phase A surface, unchanged |
+| → `payment_gateways` | `paymentGatewayService.createPaymentSession`, `getPaymentStatus`, and in lost-lock reconciliation `cancelPayment`/`refundPayment` with their existing optional `operationId` (§7.2). The existing surface, unchanged |
 | → `sales` | `commandBus`: `sales.quotes.create`, `sales.quotes.convert_to_order`, `sales.orders.update` (status `confirmed` at completion, `cancelled` in compensation). Lookup of a quote by `external_reference` (§7.2, D-R5-30). |
 | ← `sales` | UMES widget: "Created from checkout" badge when `metadata.sourceModule = 'checkout'` |
 | → `workflows` | **None in Release 5.** The four post-conversion definitions of §5.1 are B.6. Checkout emits its events (§10) either way, so a later definition subscribes without a checkout change. |
@@ -251,8 +251,11 @@ Currency rules from v1 are retained: one currency per link; mixed-currency templ
 | `session_id` | uuid, nullable | Null for Phase A pay links. Index `(tenant_id, session_id)` |
 | `quote_id` | uuid, nullable | New, additive. The real `CheckoutTransaction` entity has no such column today |
 | `order_id` | uuid, nullable | New, additive. Same as above |
+| `checkout_disposition` | text, nullable | New, additive. What checkout has decided for this intent: `setup \| published \| completed \| compensating \| compensated` (§7.2, payment result disposition). Null for Phase A rows |
 
-A session-backed gateway payment creates one `CheckoutTransaction` per attempt at §7.2 step 7, with `session_id`, `order_id` and `quote_id` set. Additive nullable columns only; Phase A rows keep all three null and Phase A behaviour is untouched.
+A session-backed gateway payment creates one `CheckoutTransaction` per attempt at §7.2 step 7, with `session_id`, `order_id` and `quote_id` set and `checkout_disposition = 'setup'`. Additive nullable columns only; Phase A rows keep all four null and Phase A behaviour is untouched.
+
+`checkout_disposition` changes only by a conditional update (`WHERE id = :transactionId AND checkout_disposition = :expected`), in the same database transaction as the matching session write. Exactly one caller wins each transition; the loser re-reads the row and follows the state the winner left. Allowed transitions: `setup → published` (7c), `setup → compensating` (lost lock or intent failure after creation), `published → completed` (paid), `published → compensating` (payment failure or expiry), `compensating → compensated` (reconciliation and §7.3 done). `completed` and `compensated` are terminal.
 
 ---
 
@@ -485,21 +488,28 @@ Each step is a separate transaction (every `commandBus.execute()` commits its ow
 
  7. IF gateway:
     a. paymentGatewayService.createPaymentSession(...); CheckoutTransaction with session_id,
-       order_id; payment_intent_ref, payment_expires_at (provider expiry, default 60 min)
+       order_id, checkout_disposition = setup; payment_intent_ref, payment_expires_at
+       (provider expiry, default 60 min)
        └─ intent creation fails → compensate (§7.3); ABORT 502 payment_unavailable
     b. cartService.lock(same checkoutSessionId, extendOnly: true,
                         lockTtlMs = payment_expires_at − now + 15 min)          (C1 extend)
        └─ 409 cart_lock_lost (the lock lapsed during the gateway call, or was swept) →
-          lost-lock reconciliation (below); compensate (§7.3, cancel order);
+          CAS disposition setup → compensating; lost-lock reconciliation (below);
+          compensate (§7.3, cancel order); disposition = compensated;
           ABORT 409 cart_lock_lost. The payment hand-off is never returned.
-    c. Only after 7b succeeded: status = awaiting_payment;
-       progress = payment_initiated; emit checkout.payment.initiated
-    Payment result (webhook or polling, Phase A path):
-       success → sales.orders.update(status confirmed)  → emits sales.order.confirmed (C17)
+    c. Only after 7b succeeded, in one transaction: CAS disposition setup → published;
+       status = awaiting_payment; progress = payment_initiated;
+       emit checkout.payment.initiated. Then read the gateway status once: a success
+       deferred while the disposition was setup (below) completes the session now
+    Payment result (webhook, polling or a job; Phase A path records the gateway status first):
+       dispatched on the transaction's checkout_disposition (below), never on session status
+       success with disposition published → CAS published → completed, then:
+                 sales.orders.update(status confirmed)  → emits sales.order.confirmed (C17)
                  cartService.markConverted({ …, checkoutSessionId, salesOrderId,
                    lineMap: [{ cartLineId, salesOrderLineId }] })     (C18, D-R5-16)
                  status = completed; emit checkout.payment.succeeded, checkout.session.completed
-       failure → compensate (§7.3); status = failed; emit checkout.payment.failed
+       failure with disposition published → CAS published → compensating; compensate (§7.3);
+                 disposition = compensated; status = failed; emit checkout.payment.failed
 
  8. IF on_account (no gateway):
        sales.orders.update(status confirmed); markConverted with salesOrderId + lineMap;
@@ -508,12 +518,25 @@ Each step is a separate transaction (every `commandBus.execute()` commits its ow
 ```
 
 **Lost lock after the intent (D-R5-SF4).** The intent exists, but the basket it was priced for is no longer held by this session, so checkout never publishes `awaiting_payment` and never returns the hand-off. A live-lock extension is the precondition of `awaiting_payment` on the submit path and in recovery (§12.1) alike. Reconciliation runs before the order is cancelled:
-1. `paymentGatewayService.getPaymentStatus(transactionId)` reads the provider state.
-2. `pending` → `cancelPayment` cancels the intent. `authorized` → `cancelPayment` voids the authorization. `captured` or `partially_captured` → `refundPayment` refunds the captured amount. Each of these paid states raises an operational notification, because a payment on an unpublished hand-off is unexpected. `cancelled`, `failed` and `expired` need no gateway call. `unknown` is retried as a failed compensation (below).
-3. The `CheckoutTransaction` records the outcome, and a `compensation` event names the intent.
-4. Compensation per §7.3 cancels the order. The cart is not unlocked: the session no longer holds it, so `unlock` answers `404` and that answer is expected, not a compensation failure.
+1. The conditional update `checkout_disposition setup → compensating` (§4.4) is written first. From then on this intent is durably marked for compensation, and a payment result for it can only be reconciled, never confirmed.
+2. `paymentGatewayService.getPaymentStatus(transactionId)` reads the provider state.
+3. `pending` → `cancelPayment` cancels the intent. `authorized` → `cancelPayment` voids the authorization. `captured` or `partially_captured` → `refundPayment` refunds the captured amount. Each of these paid states raises an operational notification, because a payment on an unpublished hand-off is unexpected. `cancelled`, `failed` and `expired` need no gateway call. `unknown` is retried as a failed compensation (below).
+4. Every gateway call passes a stable `operationId` derived from the intent: `'checkout:' + transactionId + ':cancel'` for `cancelPayment` and `'checkout:' + transactionId + ':refund'` for `refundPayment`. The same id is used by every reconciliation retry and by a late result for the same intent, so `payment_gateways`' operation idempotency turns a repeat into the recorded result instead of a second cancel or a second refund.
+5. The `CheckoutTransaction` records the outcome, and a `compensation` event names the intent.
+6. Compensation per §7.3 cancels the order, then `checkout_disposition compensating → compensated`. The cart is not unlocked: the session no longer holds it, so `unlock` answers `404` and that answer is expected, not a compensation failure.
 
-A cancel or refund that fails is a failed compensation (§7.3): a `failure` event, `checkout.compensation.failed`, an operational notification and a retry. A later `success` result (webhook or polling) for a transaction whose session is not `awaiting_payment` neither confirms the order nor calls `markConverted`. It refunds through `refundPayment` and raises the operational notification.
+A cancel or refund that fails is a failed compensation (§7.3): a `failure` event, `checkout.compensation.failed`, an operational notification and a retry. The disposition stays `compensating` until it succeeds.
+
+**Payment result disposition.** A payment result (webhook, polling, `expire-awaiting-payment` or recovery) is decided by the `checkout_disposition` of the transaction it names, read and changed under the §4.4 conditional update. It is never decided by the session status alone, because the session leaves `awaiting_payment` both when it completes and when it is compensated.
+
+| `checkout_disposition` | `success` result | `failure` or `expired` result |
+|---|---|---|
+| `setup` (7a done, 7b/7c unresolved: submit in flight, or crashed and awaiting recovery) | **Deferred.** No confirm, no conversion, no refund. The result is acknowledged to the gateway and only the gateway status is recorded on the transaction (Phase A path). Whichever step resolves the setup reads that status afterwards: 7c, after its CAS to `published`, completes the session; the lost-lock path, after its CAS to `compensating`, refunds | Deferred the same way; 7c or reconciliation reads it |
+| `published` (`awaiting_payment`) | CAS `published → completed`; confirm the order, `markConverted`, session `completed` (§7.2 step 7) | CAS `published → compensating`; compensate (§7.3); session `failed` |
+| `completed` | **Replay or concurrent poll.** Acknowledged, never refunded and never notified. If the session is not yet `completed` (a crash after the CAS), the idempotent completion steps are re-run | Not expected after a success; recorded on the transaction and raises the operational notification, with no automatic action |
+| `compensating` / `compensated` | Reconciled: `refundPayment` with the intent's stable refund `operationId` (above), and the operational notification. Never confirms the order and never calls `markConverted` | Acknowledged; nothing to reverse |
+
+Only the caller whose conditional update wins acts. A webhook and a poll delivering the same success race on `published → completed`; the loser reads `completed` and acknowledges. A late success and a reconciliation retry for a compensated intent both refund under the same `operationId`, so the buyer is refunded once.
 
 **`lineMap` (C18).** `convert_to_order` copies each quote line's `metadata` onto its order line, so after conversion checkout reads the order's lines and builds `lineMap` from `metadata.cartLineId`. For the quote outcome it reads the quote's lines. No `sales` change is needed.
 
@@ -764,7 +787,7 @@ All via the `queue` worker contract.
 | `expire-checkout-sessions` | every 5 min | Expire `open` and `awaiting_approval` sessions past TTL. Nothing is reserved in either state, so nothing is released; the cart's approval is kept (X6) |
 | `recover-stuck-submits` | every minute | Sessions in `submitting` with `submit_started_at` older than 120 s: §12.1 |
 | `retry-failed-compensations` | every 5 min | Re-run failed compensations with backoff; ops notification after 5 attempts |
-| `expire-awaiting-payment` | every 5 min | `awaiting_payment` past `payment_expires_at`: read the gateway status; paid → complete (§7.2 step 7 success); otherwise compensate (cancel the order) and fail with `payment_expired`. Runs before the extended cart lock can lapse (§6) |
+| `expire-awaiting-payment` | every 5 min | `awaiting_payment` past `payment_expires_at`: read the gateway status; paid → complete through the `published → completed` CAS (§7.2 step 7 success); otherwise `published → compensating`, compensate (cancel the order) and fail with `payment_expired`. A webhook that won the CAS first leaves the job nothing to do (§7.2, payment result disposition). Runs before the extended cart lock can lapse (§6) |
 
 ### 12.1 Recovery decision table (C24)
 
@@ -777,7 +800,7 @@ Recovery runs under `buildTrustedCommandContext({ tenantId, organizationId, acto
 | `stock_reserved` | Credit ledger by `credit_reservation_key` (on account) | Release credit if reserved; release stock; unlock; status `open` |
 | `credit_reserved` or crash in step 5 | Quote by `external_reference` | Quote absent → release credit, release stock, unlock, `open`. Quote present, not converted, order outcome → resume forward from 5b (idempotent). Quote outcome → resume 5b and the quote branch |
 | `document_created` | Hold status, credit entry `orderId`, promotion usage by `orderId` | Resume step 6 forward; each sub-step is idempotent under its key |
-| `finalized` | Gateway transaction by session | No intent → `cart.lock({ extendOnly: true })`, then resume step 7 from 7a (create intent). Intent exists (crash between 7a and 7c) → resume from 7b: `cart.lock({ extendOnly: true, lockTtlMs })` to the intent's expiry, and only then status `awaiting_payment`. Either extend answering `409 cart_lock_lost` (the lock lapsed or was swept) → reconcile an existing intent (§7.2, lost lock after the intent), compensate per §7.3 and fail with `submit_recovery_failed`; never re-lock (D-R5-SF4) |
+| `finalized` | Gateway transaction by session | No intent → `cart.lock({ extendOnly: true })`, then resume step 7 from 7a (create intent). Intent exists with `checkout_disposition = setup` (crash between 7a and 7c) → resume from 7b: `cart.lock({ extendOnly: true, lockTtlMs })` to the intent's expiry, and only then 7c (`setup → published`, status `awaiting_payment`, then the deferred-success read). Intent with `compensating` → resume reconciliation and §7.3. Either extend answering `409 cart_lock_lost` (the lock lapsed or was swept) → reconcile an existing intent (§7.2, lost lock after the intent), compensate per §7.3 and fail with `submit_recovery_failed`; never re-lock (D-R5-SF4) |
 | any, attempt older than the payment TTL without an intent | — | Compensate per §7.3 and fail with `submit_recovery_failed` |
 
 A recovery that resumes forward never creates a second document: the quote lookup by `external_reference` and the `convert_to_order` check guarantee it (C3, D-R5-30).
@@ -885,7 +908,8 @@ All checkout changes are new or additive. The contract changes in other modules 
 | R15 | Phase A regression (C10) | **High** | Hard `requires` stop pay-link-only apps from booting. | No new `requires`; soft peers; non-regression boot test | Low |
 | R16 | Totals drift between cart, review and document (C7, D-R5-24) | Medium | The buyer accepts one amount and is invoiced another, or credit is reserved for a different amount. | One draft source (the cart's exact snapshot); post-create equality on goods and payable; `500 totals_mismatch` compensates and notifies ops | Low |
 | R17 | Session token replay by a third party | Medium | A leaked session token on an identified cart is replayed. | Binding to the customer session (§9.0); `404` on mismatch; token never in URLs or logs | Low (guest sessions remain token-only by design) |
-| R18 | Lock lost between intent and extend (D-R5-SF4) | **High** | The lock lapses during the gateway call; the session publishes `awaiting_payment` on a released basket, the buyer pays, and `markConverted` refuses the conversion. | `awaiting_payment` only after a successful `extendOnly` extend; `409 cart_lock_lost` cancels, voids or refunds the intent and cancels the order; a late success on a non-`awaiting_payment` session refunds (§7.2, §12.1) | Low |
+| R18 | Lock lost between intent and extend (D-R5-SF4) | **High** | The lock lapses during the gateway call; the session publishes `awaiting_payment` on a released basket, the buyer pays, and `markConverted` refuses the conversion. | `awaiting_payment` only after a successful `extendOnly` extend; `409 cart_lock_lost` marks the intent `compensating`, cancels, voids or refunds it and cancels the order; a late success refunds only an intent durably marked for compensation (§7.2, §12.1) | Low |
+| R19 | Paid order refunded by a replayed or early payment result (D-R5-SF4) | **Critical** | A replayed success webhook or a concurrent poll arrives after normal completion, or a success arrives while submit is still between 7a and 7c, and a status-based rule sends it to the refund path. | Results are dispatched on the intent's `checkout_disposition` under a conditional update (§4.4, §7.2 payment result disposition): `completed` acknowledges, `setup` defers, only `compensating`/`compensated` refunds; refunds and cancels carry a stable per-intent `operationId` so retries and late results never double-refund | Low |
 
 ---
 
@@ -925,7 +949,12 @@ Integration tests are self-contained: each creates its tenant, store, products, 
   - On the submit path, submit answers `409 cart_lock_lost`, the session never enters `awaiting_payment`, and no hand-off is returned. The intent is cancelled through `cancelPayment`, the order is cancelled, stock, credit and code uses are released, and the cart is not re-locked.
   - In recovery, a session crashed between 7a and 7c with the lock since lapsed is reconciled the same way and fails with `submit_recovery_failed`. With the lock still live, recovery extends it and only then sets `awaiting_payment`.
   - A gateway stub reporting the intent authorized gets `cancelPayment`; one reporting it captured gets `refundPayment`. Both raise the operational notification.
-  - A `success` webhook delivered afterwards for that transaction neither confirms the order nor converts the cart. It refunds and raises the operational notification.
+  - A `success` webhook delivered afterwards for that transaction neither confirms the order nor converts the cart. The disposition is `compensating` or `compensated`, so it refunds with the intent's stable refund `operationId` and raises the operational notification.
+  - A reconciliation retry after a late success has already refunded issues no second refund: both calls carry `'checkout:' + transactionId + ':refund'`, and the gateway stub records one refund.
+- **Payment result disposition (R19).**
+  - Replay after normal completion: a session completes through a `success` webhook; the same webhook is delivered again and a poll reports success concurrently. Both are acknowledged, the order stays `confirmed`, the cart stays converted, and no `refundPayment`, `cancelPayment` or operational notification is issued.
+  - Concurrent first delivery: a webhook and a poll deliver the same success at once; exactly one wins `published → completed`, the order is confirmed once and `markConverted` runs once.
+  - Callback before publication: a gateway stub delivers `success` after 7a and before 7c. Nothing is confirmed, converted or refunded while the disposition is `setup`. When 7b succeeds, 7c publishes and then completes the session from the recorded status. When 7b answers `409 cart_lock_lost` instead, the intent is refunded once and the order cancelled. Both variants also run with the process killed before 7c, resolved by recovery.
 - A failing compensation raises the notification and is retried (R9).
 - Credit released by `customer_groups` when the order is cancelled (C6).
 - Code reuse refused; code returned on payment failure; budget overrun aborts with `409 promotion_unavailable` before payment (C5).
@@ -1110,6 +1139,7 @@ Applies SPEC-029 decision D-R5-SF4 (owner, 2026-11-19): no recovery path takes a
 - §7.2 step 7 and §12.1: every extend uses cart's atomic `cart.lock({ extendOnly: true })` (cart rev 10.1 §9.1). The `finalized` row no longer probes the lock holder separately; `409 cart_lock_lost` from the extend routes to compensation per §7.3 and `submit_recovery_failed`, never a re-lock.
 - §16: lost-lock-at-`finalized` coverage for a storefront and a pay-link cart.
 - §6, §7.2 step 7, §7.3, §9 error codes, §12.1, R18: step 7 is split into intent (7a), extend (7b) and publish (7c). `awaiting_payment` is set only after a successful extend, on the submit path and in recovery. A `409 cart_lock_lost` after the intent reads the gateway status, then cancels, voids or refunds the intent before the order is cancelled. A late success on a session not in `awaiting_payment` refunds. §16 covers expiry and sweep between intent creation and the extend for both cart types and both paths.
+- §4.4, §7.2, §12, §12.1, R18, R19, §16: payment results are decided by the intent's durable `CheckoutTransaction.checkout_disposition` (`setup | published | completed | compensating | compensated`), changed only by a conditional update in the same transaction as the session write — not by the session status. A success while `setup` is deferred and read back by 7c or reconciliation; a replayed success for a `completed` intent is acknowledged and never refunded; a success refunds only an intent marked `compensating` or `compensated`. Cancels and refunds pass a stable per-intent `operationId` (`checkout:<transactionId>:cancel|refund`) across reconciliation retries and late results. §16 adds a replay after normal completion, a concurrent first delivery and a callback before publication. Supersedes the line above that refunded any late success on a session not in `awaiting_payment`.
 - Supersedes the v2.3 line "recovery builds it through `resolveForBuyer` (D-R5-22, X15)".
 
 ### 2026-10-26 — v2.3 (Release 5 spec revision)
