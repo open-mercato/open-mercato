@@ -48,7 +48,7 @@ async function findActiveJob(
 
 export async function ensureReindexProgressJob(params: {
   em: EntityManager
-  progressService: ProgressService
+  progressService: ProgressService | null
   type: ReindexProgressType
   tenantId: string
   organizationId?: string | null
@@ -56,10 +56,12 @@ export async function ensureReindexProgressJob(params: {
   totalCount?: number | null
   description?: string | null
 }): Promise<string | null> {
+  const progressService = params.progressService
+  if (!progressService) return null
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
   if (current) {
     if (typeof params.totalCount === 'number') {
-      await params.progressService.updateProgress(
+      await progressService.updateProgress(
         current.id,
         { totalCount: params.totalCount },
         {
@@ -72,6 +74,58 @@ export async function ensureReindexProgressJob(params: {
     return current.id
   }
 
+  return createRunningJob({ ...params, progressService })
+}
+
+const MAX_SUPERSEDED_JOBS = 20
+
+/**
+ * Start a fresh progress job for a reindex run that has just acquired its lock.
+ *
+ * Holding the lock means no other run in this scope is alive, so any job still marked
+ * active belongs to a run whose lock went stale; it is failed instead of adopted, so its
+ * processed count cannot leak into the new run's totals. Call this before enqueueing
+ * batches: workers drop the lock when they find no active job. `supersededMessage` is
+ * stored as the failed job's error message, so pass it already translated.
+ */
+export async function startReindexProgressJob(params: {
+  em: EntityManager
+  progressService: ProgressService | null
+  type: ReindexProgressType
+  tenantId: string
+  organizationId?: string | null
+  userId?: string | null
+  description?: string | null
+  supersededMessage: string
+}): Promise<string | null> {
+  const progressService = params.progressService
+  if (!progressService) return null
+  for (let attempt = 0; attempt < MAX_SUPERSEDED_JOBS; attempt += 1) {
+    const orphan = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
+    if (!orphan) break
+    const settled = await progressService.failJob(
+      orphan.id,
+      { errorMessage: params.supersededMessage },
+      {
+        tenantId: params.tenantId,
+        organizationId: params.organizationId ?? null,
+        userId: params.userId ?? null,
+      },
+    )
+    if (settled.status === 'pending' || settled.status === 'running') break
+  }
+  return createRunningJob({ ...params, progressService })
+}
+
+async function createRunningJob(params: {
+  progressService: ProgressService
+  type: ReindexProgressType
+  tenantId: string
+  organizationId?: string | null
+  userId?: string | null
+  totalCount?: number | null
+  description?: string | null
+}): Promise<string> {
   const config = REINDEX_JOB_CONFIG[params.type]
   const created = await params.progressService.createJob(
     {
@@ -150,12 +204,13 @@ export async function hasActiveReindexProgress(params: {
 
 export async function completeReindexProgress(params: {
   em: EntityManager
-  progressService: ProgressService
+  progressService: ProgressService | null
   type: ReindexProgressType
   tenantId: string
   organizationId?: string | null
   resultSummary?: Record<string, unknown>
 }): Promise<void> {
+  if (!params.progressService) return
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
   if (!current) return
   await params.progressService.completeJob(
@@ -171,12 +226,13 @@ export async function completeReindexProgress(params: {
 
 export async function failReindexProgress(params: {
   em: EntityManager
-  progressService: ProgressService
+  progressService: ProgressService | null
   type: ReindexProgressType
   tenantId: string
   organizationId?: string | null
   errorMessage: string
 }): Promise<void> {
+  if (!params.progressService) return
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
   if (!current) return
   await params.progressService.failJob(
@@ -192,12 +248,13 @@ export async function failReindexProgress(params: {
 
 export async function cancelReindexProgress(params: {
   em: EntityManager
-  progressService: ProgressService
+  progressService: ProgressService | null
   type: ReindexProgressType
   tenantId: string
   organizationId?: string | null
   userId?: string | null
 }): Promise<void> {
+  if (!params.progressService) return
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
   if (!current) return
   await params.progressService.cancelJob(

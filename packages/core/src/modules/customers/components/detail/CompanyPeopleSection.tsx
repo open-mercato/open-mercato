@@ -489,10 +489,6 @@ export function CompanyPeopleSection({
         onLinkDialogOpenChange={setLinkDialogOpen}
         onLinkConfirm={handleLinkConfirm}
         sectionTitle={translate('customers.companies.detail.people.sectionTitle', 'People')}
-        sectionSubtitle={translate(
-          'customers.companies.detail.people.sectionSubtitle',
-          'Employees and decision makers on the client side',
-        )}
         searchPlaceholder={translate(
           'customers.companies.detail.people.searchPlaceholder',
           'Search by name, role, email...',

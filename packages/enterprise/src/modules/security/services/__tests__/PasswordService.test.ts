@@ -123,8 +123,9 @@ describe('PasswordService', () => {
 
     await expect(service.changePassword(user.id, 'WrongPass1!', 'StrongPass2!')).rejects.toMatchObject({
       name: 'PasswordServiceError',
-      statusCode: 401,
+      statusCode: 400,
       message: 'Current password is invalid',
+      field: 'currentPassword',
     })
   })
 
@@ -138,6 +139,7 @@ describe('PasswordService', () => {
       statusCode: 400,
       message: 'Password does not meet the requirements',
       errors: expect.arrayContaining(['minLength', 'digit', 'uppercase', 'special']),
+      field: 'newPassword',
     })
   })
 
@@ -151,6 +153,7 @@ describe('PasswordService', () => {
       name: 'PasswordServiceError',
       statusCode: 400,
       message: 'New password must be different from current password',
+      field: 'newPassword',
     })
   })
   test('revokes every other session and consumes all unused resets in the password transaction', async () => {
@@ -187,7 +190,7 @@ describe('PasswordService', () => {
     const user = createUser('hashed:CurrentPass1!')
     mockedFindOneWithDecryption.mockResolvedValueOnce(user as never)
 
-    await expect(service.changePassword(user.id, 'WrongPass1!', 'StrongPass2!', 'caller')).rejects.toMatchObject({ statusCode: 401 })
+    await expect(service.changePassword(user.id, 'WrongPass1!', 'StrongPass2!', 'caller')).rejects.toMatchObject({ statusCode: 400, field: 'currentPassword' })
 
     expect(emMock.nativeDelete).not.toHaveBeenCalled()
     expect(emMock.nativeUpdate).not.toHaveBeenCalled()

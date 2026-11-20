@@ -129,7 +129,7 @@ describeWithPostgres('PasswordService credential revocation against PostgreSQL (
 
     expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
     expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toEqual([
-      expect.objectContaining({ reason: expect.objectContaining({ statusCode: 401 }) }),
+      expect.objectContaining({ reason: expect.objectContaining({ statusCode: 400, field: 'currentPassword' }) }),
     ])
     expect(emitSecurityEvent).toHaveBeenCalledTimes(2)
   })

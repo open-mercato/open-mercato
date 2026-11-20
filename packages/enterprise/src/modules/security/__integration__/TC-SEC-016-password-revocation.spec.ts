@@ -52,7 +52,7 @@ test.describe('TC-SEC-016: Password change revokes other credentials (#9143)', (
         headers: { Authorization: `Bearer ${callerAuth}` },
         data: { currentPassword: 'WrongPass1!', newPassword },
       })
-      expect(rejected.status()).toBe(401)
+      expect(rejected.status()).toBe(400)
       expect((await (await request.post('/api/auth/reset/validate', { form: { token: resetToken } })).json()).valid).toBe(true)
       expect((await other.post('/api/auth/session/refresh', { data: { refreshToken: otherSession } })).status()).toBe(200)
 

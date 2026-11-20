@@ -1,3 +1,4 @@
+import { createModelReplaySession } from '../lib/eval/modelReplay'
 // Runtime-protection tests (performance hardening Phase 2): the in-process
 // wall-clock timeout and the top-level admission gate in AgentRuntimeService.
 // The model execution and the persistence/guardrail helpers are mocked so the
@@ -21,6 +22,8 @@ const failRunMock = jest.fn<Promise<void>, unknown[]>()
 const createProposalMock = jest.fn<Promise<void>, unknown[]>()
 jest.mock('../lib/runtime/persistence', () => ({
   buildCommandContext: () => ({}),
+  buildRunAuditCorrelation: jest.requireActual('../lib/runtime/persistence').buildRunAuditCorrelation,
+  withRunAuditCorrelation: jest.requireActual('../lib/runtime/persistence').withRunAuditCorrelation,
   resolveCallerAcl: async () => ({ features: [], isSuperAdmin: false }),
   createRun: (...args: unknown[]) => createRunMock(...args),
   completeRun: (...args: unknown[]) => completeRunMock(...args),
@@ -51,7 +54,7 @@ jest.mock('../lib/guardrails/syncGroundingSets', () => ({
 }))
 
 import { z } from 'zod'
-import { AgentRuntimeService, AgentRunTimeoutError } from '../lib/runtime/agentRuntime'
+import { AgentCallSettingsUnsupportedError, AgentRuntimeService, AgentRunTimeoutError } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { resetAgentAdmissionForTests, isAgentCapacityError } from '../lib/runtime/admission'
 
@@ -222,4 +225,54 @@ describe('admission gate in AgentRuntimeService.run', () => {
     const result = await service.run('protection.release_agent', {}, runCtx)
     expect(result.kind).toBe('research')
   })
+})
+
+describe('call-time model settings on the OpenCode runtime', () => {
+  function registerOpenCodeAgent(id: string): void {
+    if (getAgentEntry(id)) return
+    registerFileAgent({
+      id,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'artifact',
+      schema: z.object({ kind: z.literal('artifact') }),
+      tools: [],
+      skills: [],
+      subAgents: [],
+      label: 'OpenCode test agent',
+      description: 'An agent that stays on OpenCode.',
+      instructions: 'write a report',
+      runtime: 'opencode',
+      definitionSource: 'file',
+    })
+  }
+
+  it('refuses before writing a run row instead of dropping the settings', async () => {
+    registerOpenCodeAgent('protection.opencode_agent')
+    const service = makeService()
+
+    await expect(
+      service.run('protection.opencode_agent', {}, { ...runCtx, callSettings: { temperature: 0 } }),
+    ).rejects.toBeInstanceOf(AgentCallSettingsUnsupportedError)
+    expect(createRunMock).not.toHaveBeenCalled()
+    expect(runAiAgentObjectMock).not.toHaveBeenCalled()
+  })
+
+  it('still applies call settings to a native agent', async () => {
+    registerInProcessAgent('protection.native_settings_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+    const service = makeService()
+
+    await service.run('protection.native_settings_agent', {}, { ...runCtx, callSettings: { temperature: 0 } })
+
+    expect(runAiAgentObjectMock).toHaveBeenCalledWith(expect.objectContaining({ callSettings: { temperature: 0 } }))
+  })
+})
+
+it('A-3 rejects OpenCode before dispatch in offline model replay', async () => {
+  const native = registerInProcessAgent('protection.offline_opencode')
+  registerFileAgent({ ...native, id: 'protection.offline_opencode_bridge', runtime: 'opencode' })
+  const session = createModelReplaySession('replay')
+  await expect(session.run(() => makeService().run('protection.offline_opencode_bridge', {}, runCtx))).rejects.toThrow('model_replay_unsupported_runtime')
+  expect(createRunMock).not.toHaveBeenCalled()
+  expect(runAiAgentObjectMock).not.toHaveBeenCalled()
 })
