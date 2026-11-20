@@ -112,6 +112,7 @@ describeWithPostgres('sales snapshot SQL statement count', () => {
     const priceKindId = randomUUID()
     const promotionAt = new Date('2026-05-01T00:00:00.000Z')
     const referenceAt = new Date('2026-04-11T00:00:00.000Z')
+    const referenceGross = '100.1234567890123456789'
     const em = orm!.em.fork()
     const connection = em.getConnection()
     await connection.execute('insert into catalog_products (id, tenant_id, organization_id, title, created_at, updated_at) values (?, ?, ?, ?, now(), now())', [productId, tenantId, organizationId, 'Snapshot count'])
@@ -119,7 +120,7 @@ describeWithPostgres('sales snapshot SQL statement count', () => {
     const priceIds = Array.from({ length: 100 }, () => randomUUID())
     for (const priceId of priceIds) {
       await connection.execute('insert into catalog_product_variant_prices (id, tenant_id, organization_id, product_id, price_kind_id, currency_code, unit_price_gross, starts_at, created_at, updated_at) values (?, ?, ?, ?, ?, ?, 80, ?, now(), now())', [priceId, tenantId, organizationId, productId, priceKindId, 'EUR', promotionAt])
-      await connection.execute('insert into catalog_price_history_entries (id, tenant_id, organization_id, product_id, price_id, price_kind_id, price_kind_code, currency_code, unit_price_gross, recorded_at, change_type, source) values (?, ?, ?, ?, ?, ?, ?, ?, 100, ?, ?, ?)', [randomUUID(), tenantId, organizationId, productId, priceId, priceKindId, 'snapshot_count', 'EUR', referenceAt, 'create', 'system'])
+      await connection.execute('insert into catalog_price_history_entries (id, tenant_id, organization_id, product_id, price_id, price_kind_id, price_kind_code, currency_code, unit_price_gross, recorded_at, change_type, source) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [randomUUID(), tenantId, organizationId, productId, priceId, priceKindId, 'snapshot_count', 'EUR', referenceGross, referenceAt, 'create', 'system'])
       await connection.execute('insert into catalog_price_history_entries (id, tenant_id, organization_id, product_id, price_id, price_kind_id, price_kind_code, currency_code, unit_price_gross, starts_at, recorded_at, change_type, source) values (?, ?, ?, ?, ?, ?, ?, ?, 80, ?, ?, ?, ?)', [randomUUID(), tenantId, organizationId, productId, priceId, priceKindId, 'snapshot_count', 'EUR', promotionAt, promotionAt, 'update', 'system'])
     }
     const configRead = jest.fn().mockResolvedValue({ enabled: true, enabledCountryCodes: ['PL'], defaultPresentedPriceKindId: priceKindId })
@@ -136,7 +137,7 @@ describeWithPostgres('sales snapshot SQL statement count', () => {
     const batch = await measure(100)
     expect(single.reads).toBeGreaterThan(0)
     expect(batch.reads).toBe(single.reads)
-    expect(batch.lines.every(({ line }) => line.omnibusReferenceGross === '100.0000')).toBe(true)
+    expect(batch.lines.every(({ line }) => line.omnibusReferenceGross === referenceGross)).toBe(true)
     configRead.mockResolvedValue({ enabled: false })
     const disabled = await measure(100)
     expect(disabled.reads).toBe(0)

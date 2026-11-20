@@ -322,6 +322,16 @@ beforeEach(() => {
 })
 
 describe('catalogOmnibusService worked examples', () => {
+
+  it('preserves exact net and gross references in the resolved block', async () => {
+    const net = '81.1234567890123456789'
+    const gross = '100.1234567890123456789'
+    addRow({ gross, net, recordedAt: '2026-05-01T09:00:00.456Z', changeType: 'create' })
+    const promo = addRow({ gross: '80', net: '65', recordedAt: '2026-06-01T08:30:00.123Z', startsAt: '2026-06-01T00:00:00.000Z' })
+    const block = await buildService().resolveOmnibusBlock(em, ctx(), presentedFrom(promo))
+    expect(block).toMatchObject({ lowestPriceNet: net, lowestPriceGross: gross, previousPriceNet: net, previousPriceGross: gross })
+  })
+
   it('E1 — standard announced reduction references the price before the promotion', async () => {
     addRow({ gross: '100.00', net: '81.3008', recordedAt: '2026-05-01T09:00:00.456Z', changeType: 'create' })
     const promo = addRow({
@@ -962,6 +972,25 @@ describe('omnibus derogation helpers', () => {
   function row(id: string, recordedAt: string, gross: string | null, overrides: Partial<OmnibusHistoryRow> = {}): OmnibusHistoryRow {
     return { id, priceId: PRICE_ROW, changeType: 'update', recordedAt, unitPriceNet: gross, unitPriceGross: gross, ...overrides }
   }
+
+  it.each(['net', 'gross'] as const)('selects the exact minimum beyond four decimal places on %s', (axis) => {
+    const higher = row('higher', '2026-04-30T00:00:00.000Z', '80.00009')
+    const lower = row('lower', '2026-05-01T00:00:00.000Z', '80.00001')
+    const result = selectOmnibusCandidates({ baseline: higher, inWindow: [lower], presentedEntry: null, anchor: null, axis })
+    expect(result.lowestRow?.id).toBe('lower')
+  })
+
+  it.each(['net', 'gross'] as const)('rejects exact price increases throughout a progressive campaign on %s', (axis) => {
+    const baseline = row('baseline', '2026-04-30T00:00:00.000Z', '100.00001')
+    const evaluate = (first: string, second: string) => evaluateProgressiveCampaign({
+      baseline,
+      campaign: [row('first', '2026-05-01T00:00:00.000Z', first), row('second', '2026-05-02T00:00:00.000Z', second)],
+      axis, maxGapDays: 7,
+    })
+    expect(evaluate('100.00009', '90')).toBeNull()
+    expect(evaluate('90.00001', '90.00009')).toBeNull()
+    expect(evaluate('90.00009', '90.00001')).not.toBeNull()
+  })
 
   it('does not treat a single offer entry or a start above the baseline as progressive', () => {
     const baseline = row('baseline', '2026-04-01T00:00:00.000Z', '100.00')
