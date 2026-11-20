@@ -115,6 +115,8 @@ export function useRaisedExternalEmailBudget(limit = 1000): void {
     const token = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenScope(token)
     const previous = await withClient(async (client) => {
+      // The per-user hourly window (20 sends) is shared by every spec that sends as admin.
+      await client.query('delete from message_external_email_windows where tenant_id = $1', [tenantId])
       const existing = await client.query<{ value_json: unknown }>(
         'select value_json from module_configs where tenant_id = $1 and module_id = $2 and name = $3',
         [tenantId, 'messages', DAILY_LIMIT_NAME],
