@@ -21,6 +21,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
 import { activityCreateSchema, activityUpdateSchema, interactionUpdateSchema } from '../../data/validators'
+import { calendarDayStartInstant } from '../../lib/calendar/timezone'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import {
   mapInteractionRecordToActivitySummary,
@@ -67,6 +68,28 @@ const activityUpdateBodySchema = activityUpdateSchema.omit({
   organizationId: true,
   tenantId: true,
 }).passthrough()
+
+function assertActivitySchedule(
+  input: { id: string; date?: string | null; time?: string | null },
+  translate: (key: string, fallback?: string) => string,
+): void {
+  if (input.date !== undefined && input.date !== null && !calendarDayStartInstant(input.date, 'UTC')) {
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.validationFailed', 'Validation failed'),
+      fieldErrors: {
+        date: translate('customers.people.detail.activities.invalidDate', 'Enter a valid date and time'),
+      },
+    })
+  }
+  if (input.time && !interactionUpdateSchema.parse(input).scheduledAt) {
+    throw new CrudHttpError(400, {
+      error: translate('customers.errors.validationFailed', 'Validation failed'),
+      fieldErrors: {
+        time: translate('customers.activities.errors.timeRequiresDate', 'Provide a valid date when changing the time.'),
+      },
+    })
+  }
+}
 
 // This handler predates `makeCrudRoute`, so it does not inherit the factory's
 // write guard. It applies the same one directly.
@@ -581,6 +604,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     const body = await readJsonSafe<Record<string, unknown>>(request, {})
     const parsed = activityCreateBodySchema.parse(body)
+    const { translate } = await resolveTranslations()
+    assertActivitySchedule({ id: parsed.entityId, date: parsed.date, time: parsed.time }, translate)
     const guardUserId = resolveGuardUserId(auth)
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,
@@ -693,17 +718,7 @@ export async function PUT(request: Request): Promise<Response> {
       delete guardedBody[alias.from]
     }
     const parsed = activityUpdateBodySchema.parse(guardedBody)
-    if (parsed.time) {
-      const schedule = interactionUpdateSchema.parse({ id: parsed.id, date: parsed.date, time: parsed.time })
-      if (!schedule.scheduledAt) {
-        throw new CrudHttpError(400, {
-          error: translate('customers.errors.validationFailed', 'Validation failed'),
-          fieldErrors: {
-            time: translate('customers.activities.errors.timeRequiresDate', 'Provide a valid date when changing the time.'),
-          },
-        })
-      }
-    }
+    assertActivitySchedule({ id: parsed.id, date: parsed.date, time: parsed.time }, translate)
     const guardUserId = resolveGuardUserId(auth)
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,

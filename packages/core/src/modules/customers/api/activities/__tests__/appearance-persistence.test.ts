@@ -5,11 +5,12 @@ import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudMutationGuardValidateInput, CrudMutationGuardValidationResult } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../../../data/entities'
+import { interactionCreateSchema } from '../../../data/validators'
 import { calendarEventTypes } from '../../../calendar-event-types'
 import { resolveCustomersRequestContext } from '../../../lib/interactionRequestContext'
 import { recomputeNextInteraction } from '../../../lib/interactionProjection'
 import '../../../commands/interactions'
-import { PUT } from '../route'
+import { POST, PUT } from '../route'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/encryption/find'),
@@ -155,7 +156,6 @@ describe('activity writes reach canonical interaction persistence', () => {
   it.each([
     { time: '10:30' },
     { time: '10:30', date: null },
-    { time: '10:30', date: 'not-a-date' },
   ])('rejects a time without usable incoming date context before dispatch: %j', async (fields) => {
     const persistence = setupPersistence()
     const before = persistence.read()
@@ -181,6 +181,80 @@ describe('activity writes reach canonical interaction persistence', () => {
     expect(emitCrudSideEffects).not.toHaveBeenCalled()
     expect(recomputeNextInteraction).not.toHaveBeenCalled()
     expect(persistence.read()).toEqual(before)
+  })
+
+  it.each([
+    { time: '10:30' },
+    { time: '10:30', date: null },
+  ])('rejects an undated create time before dispatch: %j', async (fields) => {
+    const persistence = setupPersistence()
+    persistence.execute.mockResolvedValueOnce({ result: { interactionId: INTERACTION_ID }, logEntry: null })
+    const before = persistence.read()
+    const response = await POST(new Request('http://localhost/api/customers/activities', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entityId: ENTITY_ID, activityType: 'note', ...fields }),
+    }))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ fieldErrors: { time: 'Podaj prawidłową datę przy zmianie godziny.' } })
+    expect(response.headers.get('Deprecation')).toBe('true')
+    expect(persistence.execute).not.toHaveBeenCalled()
+    expect(persistence.validateMutation).not.toHaveBeenCalled()
+    expect(persistence.em.flush).not.toHaveBeenCalled()
+    expect(persistence.afterMutationSuccess).not.toHaveBeenCalled()
+    expect(persistence.emitEvent).not.toHaveBeenCalled()
+    expect(persistence.read()).toEqual(before)
+  })
+
+  it.each(['POST', 'PUT'] as const)('rejects invalid explicit calendar dates before %s dispatch', async (method) => {
+    for (const date of ['2026-02-30', '2025-02-29', '2026-04-31', '2026-13-01', '2026-00-10', '2026-01-00', 'not-a-date']) {
+      for (const time of [undefined, '10:30']) {
+        const persistence = setupPersistence()
+        persistence.execute.mockResolvedValueOnce({ result: { interactionId: INTERACTION_ID }, logEntry: null })
+        const before = persistence.read()
+        const response = await (method === 'POST' ? POST : PUT)(new Request('http://localhost/api/customers/activities', {
+          method, headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...(method === 'POST' ? { entityId: ENTITY_ID, activityType: 'note' } : { id: INTERACTION_ID }), date, time }),
+        }))
+        expect(response.status).toBe(400)
+        expect(await response.json()).toMatchObject({ fieldErrors: { date: 'Enter a valid date and time' } })
+        expect(persistence.execute).not.toHaveBeenCalled()
+        expect(persistence.validateMutation).not.toHaveBeenCalled()
+        expect(persistence.em.flush).not.toHaveBeenCalled()
+        expect(persistence.afterMutationSuccess).not.toHaveBeenCalled()
+        expect(persistence.emitEvent).not.toHaveBeenCalled()
+        expect(persistence.read()).toEqual(before)
+      }
+    }
+  })
+
+  it.each([{}, { date: null }, { date: '2024-02-29' }, { date: '2024-02-29', time: '10:30' }])('retains supported create schedules through canonical parsing: %j', async (fields) => {
+    const persistence = setupPersistence()
+    persistence.execute.mockImplementationOnce(async (commandId, options) => {
+      expect(commandId).toBe('customers.interactions.create')
+      const parsed = interactionCreateSchema.parse(options.input)
+      const supplied = fields as { date?: string | null; time?: string }
+      expect(parsed.scheduledAt ?? null).toEqual(supplied.date ? new Date(2024, 1, 29, supplied.time ? 10 : 0, supplied.time ? 30 : 0) : null)
+      return { result: { interactionId: INTERACTION_ID }, logEntry: null }
+    })
+    const response = await POST(new Request('http://localhost/api/customers/activities', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entityId: ENTITY_ID, activityType: 'note', ...fields }),
+    }))
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({ id: INTERACTION_ID })
+    expect(persistence.execute).toHaveBeenCalledTimes(1)
+    expect(persistence.validateMutation).toHaveBeenCalledWith(expect.objectContaining({ operation: 'create' }))
+    expect(persistence.afterMutationSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains leap-day updates through canonical persistence', async () => {
+    const persistence = setupPersistence()
+    const response = await PUT(new Request('http://localhost/api/customers/activities', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: INTERACTION_ID, date: '2024-02-29', time: '10:30' }),
+    }))
+    expect(response.status).toBe(200)
+    expect(persistence.read().scheduledAt).toEqual(new Date(2024, 1, 29, 10, 30))
   })
 
   it.each([
