@@ -128,6 +128,9 @@ export async function GET(req: Request) {
 
   const { id, page, pageSize, sortField, sortDir, sourceAccountId } = parsed.data
   let filter: Record<string, unknown> = { tenantId: auth.tenantId }
+  // Selected organization, not the user's home auth.orgId (same policy as the
+  // ledger GET routes). A superadmin with no organization selected lists every
+  // organization of their tenant, never another tenant's rows.
   if (organizationId) filter.organizationId = organizationId
   if (id) filter.id = id
   const rawIds = readQueryParamList(url.searchParams, 'ids')

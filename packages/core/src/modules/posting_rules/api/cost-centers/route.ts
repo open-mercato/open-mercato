@@ -135,6 +135,9 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId,
     deletedAt: null,
   }
+  // A superadmin with no organization selected lists every organization of
+  // their tenant (same policy as the ledger GET routes), never another
+  // tenant's rows.
   if (organizationId) filter.organizationId = organizationId
   if (id) filter.id = id
   const rawIds = readQueryParamList(url.searchParams, 'ids')

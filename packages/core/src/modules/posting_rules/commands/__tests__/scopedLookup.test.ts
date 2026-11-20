@@ -109,3 +109,28 @@ describe('posting_rules update/delete — out-of-scope record is 404, not 403', 
     expect(runCrudCommandWrite).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('resolveRecordScopeFilter — organization selection', () => {
+  const { resolveRecordScopeFilter } = jest.requireActual('../../lib/recordScope') as typeof import('../../lib/recordScope')
+  const base = { container: {}, organizationScope: null, request: undefined }
+
+  it('uses the selected organization', () => {
+    const ctx = { ...base, auth: { sub: 'u', tenantId: TENANT, orgId: ORG }, selectedOrganizationId: OTHER_ORG, organizationIds: [ORG, OTHER_ORG] }
+    expect(resolveRecordScopeFilter(ctx as never, {})).toEqual({ tenantId: TENANT, organizationId: OTHER_ORG })
+  })
+
+  it('filters a superadmin with no organization selected by tenant only, matching the tenant-wide list', () => {
+    const ctx = { ...base, auth: { sub: 'u', tenantId: TENANT, orgId: ORG, isSuperAdmin: true }, selectedOrganizationId: null, organizationIds: null }
+    expect(resolveRecordScopeFilter(ctx as never, {})).toEqual({ tenantId: TENANT })
+  })
+
+  it('limits another user with no organization selected to the organizations the request allows', () => {
+    const ctx = { ...base, auth: { sub: 'u', tenantId: TENANT, orgId: ORG }, selectedOrganizationId: null, organizationIds: [ORG, OTHER_ORG] }
+    expect(resolveRecordScopeFilter(ctx as never, {})).toEqual({ tenantId: TENANT, organizationId: { $in: [ORG, OTHER_ORG] } })
+  })
+
+  it('uses the input scope only for a caller without ctx.auth', () => {
+    const ctx = { ...base, auth: null, selectedOrganizationId: null, organizationIds: null }
+    expect(resolveRecordScopeFilter(ctx as never, { tenantId: TENANT, organizationId: ORG })).toEqual({ tenantId: TENANT, organizationId: ORG })
+  })
+})
