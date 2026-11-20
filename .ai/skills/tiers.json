@@ -3,6 +3,8 @@
   "default": ["core"],
   "external": {
     "source": "open-mercato/skills",
+    "ref": "bbdb742f17a5198a3615d99db9cf66390760c020",
+    "cliVersion": "1.9.0",
     "description": "Skills installed from the shared open-mercato/skills collection via `npx skills add` (see scripts/install-skills.mjs). A folder under .ai/skills/ matching one of these names is a repo-local override read by the external skill, never symlinked into the harness directories.",
     "skills": [
       "om-approve-merge-pr",
