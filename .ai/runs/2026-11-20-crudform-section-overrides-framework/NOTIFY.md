@@ -22,3 +22,9 @@
 - Verified local sinks, generated façades, and durable outbox delivery after independent review.
 - Backend checks and generation passed. The first UI type step passed focused compatibility tests.
 - Scoped review fixes and the first UI type step were prepared on disjoint files while local sources were available.
+
+## 2026-11-20T12:33:14Z — checkpoint 4
+
+- Verified section readiness, projections, per-request resource versions, and organization-switch recovery.
+- Synced main and preserved its CrudForm chrome update. Package and repository validation passed.
+- The two existing Todo browser tests passed with screenshots on the PR. The configured fixture implementation started on disjoint paths during the browser run.

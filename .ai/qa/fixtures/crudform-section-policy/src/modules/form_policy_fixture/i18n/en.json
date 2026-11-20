@@ -1,0 +1,7 @@
+{
+  "form_policy_fixture.display": "Section policy display fixture",
+  "form_policy_fixture.fields.name": "Name",
+  "form_policy_fixture.fields.replacement": "Replacement name",
+  "form_policy_fixture.fields.private": "Private code",
+  "form_policy_fixture.validation.name": "Name is required"
+}
