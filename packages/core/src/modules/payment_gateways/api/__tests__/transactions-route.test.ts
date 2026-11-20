@@ -92,4 +92,29 @@ describe('payment_gateways transactions list route', () => {
     expect(qb.orderBy).toHaveBeenCalledTimes(1)
     expect(qb.orderBy).toHaveBeenCalledWith({ createdAt: 'desc', id: 'desc' })
   })
+
+  it.each(['createdAt', 'updatedAt', 'unifiedStatus', 'amount', 'providerKey'])(
+    'sorts %s in either direction without changing scope or filters', async (sortField) => {
+      for (const sortDir of ['asc', 'desc']) {
+        const response = await GET(listRequest(`sortField=${sortField}&sortDir=${sortDir}&providerKey=mock&status=captured&page=2&pageSize=5`))
+
+        expect(response.status).toBe(200)
+        expect(qb.orderBy).toHaveBeenLastCalledWith({ [sortField]: sortDir, id: sortDir })
+        expect(qb.where).toHaveBeenLastCalledWith({ tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null })
+        expect(qb.andWhere).toHaveBeenCalledWith({ providerKey: 'mock' })
+        expect(qb.andWhere).toHaveBeenCalledWith({ unifiedStatus: 'captured' })
+        expect(qb.limit).toHaveBeenLastCalledWith(5)
+        expect(qb.offset).toHaveBeenLastCalledWith(5)
+      }
+    },
+  )
+
+  it.each(['sortField=clientSecret', 'sortField=amount%20desc', 'sortDir=sideways', 'sortField='])(
+    'rejects unsupported ordering before database access: %s', async (query) => {
+      const response = await GET(listRequest(query))
+
+      expect(response.status).toBe(400)
+      expect(mockResolve).not.toHaveBeenCalled()
+    },
+  )
 })
