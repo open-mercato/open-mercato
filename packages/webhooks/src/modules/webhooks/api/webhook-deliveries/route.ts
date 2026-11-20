@@ -85,7 +85,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof webhookDeliveryQuerySche
         qb.andWhere({ status: query.status })
       }
 
-      qb.orderBy({ createdAt: 'desc' })
+      qb.orderBy({ createdAt: 'desc', id: 'desc' })
       qb.limit(pageSize).offset((page - 1) * pageSize)
       const [items, total] = await qb.getResultAndCount()
       const webhookIds = Array.from(new Set(items.map((item) => item.webhookId)))

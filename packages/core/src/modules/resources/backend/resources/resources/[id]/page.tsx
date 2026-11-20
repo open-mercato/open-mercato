@@ -22,6 +22,7 @@ import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
 import { RESOURCES_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/resources/lib/resourceCustomFields'
+import { normalizeCapacityInput } from '@open-mercato/core/modules/resources/lib/capacityUnits'
 import type { AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { ResourcesResourceForm, useResourcesResourceFormConfig } from '@open-mercato/core/modules/resources/components/ResourceCrudForm'
@@ -334,7 +335,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
       ...rest,
       id: resourceId,
       resourceTypeId: values.resourceTypeId || null,
-      capacity: values.capacity ? Number(values.capacity) : null,
+      capacity: normalizeCapacityInput(values.capacity),
       capacityUnitValue: values.capacityUnitValue ? String(values.capacityUnitValue) : null,
       appearanceIcon: appearance.icon ?? null,
       appearanceColor: appearance.color ?? null,

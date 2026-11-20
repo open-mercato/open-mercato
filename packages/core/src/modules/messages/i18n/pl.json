@@ -116,6 +116,7 @@
   "messages.errors.conversationActionFailed": "Nie udało się zaktualizować konwersacji.",
   "messages.errors.conversationHasNoChannelThread": "Ta konwersacja nie ma wątku kanału, do którego można dostarczyć wiadomość",
   "messages.errors.deleteFailed": "Nie udało się usunąć wiadomości.",
+  "messages.errors.externalRecipientDailyLimit": "Osiągnięto dzienny limit zewnętrznych odbiorców. Spróbuj ponownie jutro.",
   "messages.errors.forwardPreviewFailed": "Nie udało się załadować podglądu przekazywanej wiadomości.",
   "messages.errors.invalidComposePayload": "Nieprawidłowe dane wiadomości",
   "messages.errors.invalidContext": "Brakuje kontekstu wiadomości.",
