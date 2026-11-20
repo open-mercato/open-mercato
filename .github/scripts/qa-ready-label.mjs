@@ -34,11 +34,11 @@ export async function signedOffOnHead(pr, comments, canSignOff) {
     const login = comment.user?.login ?? '';
     if (!login || comment.user?.type === 'Bot' || login.toLowerCase() === prAuthor) continue;
     const body = comment.body ?? '';
-    const verdict = /QA verdict:[^\n]*/i.exec(body)?.[0];
-    if (!verdict) continue;
+    const verdict = /^QA verdict:[ \t]*([^\r\n]*)/im.exec(body)?.[1].trim();
+    if (verdict === undefined) continue;
     if (!(await canSignOff(login))) continue;
-    const pinned = /QA head:\s*`?([0-9a-f]{40})\b/i.exec(body)?.[1]?.toLowerCase();
-    return /READY TO MERGE/i.test(verdict) && pinned === head;
+    const pinned = /^QA head:[ \t]*(?:`([0-9a-f]{40})`|([0-9a-f]{40}))[ \t]*\r?$/im.exec(body);
+    return verdict.toUpperCase() === 'READY TO MERGE' && (pinned?.[1] ?? pinned?.[2])?.toLowerCase() === head;
   }
   return false;
 }
@@ -66,6 +66,10 @@ export function scanQueries(policy = HUMAN_ONLY_POLICY) {
     ...policy.humanOnlyAuthors.map((login) => `label:"${AUTO_QA_LABEL}" author:${login} -label:"${HUMAN_QA_LABEL}"`),
   ];
 }
+
+const headQuery = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) { pullRequest(number: $number) { headRefOid } }
+}`;
 
 const prQuery = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -120,6 +124,14 @@ export async function run({ github, context, core, policy = HUMAN_ONLY_POLICY })
       core.info(`#${number}: removed ${ready} (${reason})`);
     } else if (!reason && !has) {
       await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: [ready] });
+      const current = await github.graphql(headQuery, { owner, repo, number });
+      if (current.repository.pullRequest.headRefOid !== pr.headRefOid) {
+        await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: ready }).catch((error) => {
+          if (error.status !== 404) throw error;
+        });
+        core.info(`#${number}: cleared ${ready} after the head changed`);
+        return;
+      }
       core.info(`#${number}: added ${ready}`);
     } else {
       core.info(`#${number}: unchanged (${reason ?? 'ready'})`);

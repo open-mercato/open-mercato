@@ -91,6 +91,9 @@ test('signedOffOnHead trusts only the latest verdict from a permitted non-author
   });
   assert.equal(await signedOffOnHead(makePr(), [verdict('qa', head)], allowed), true);
   assert.equal(await signedOffOnHead(makePr(), [verdict('qa', oldHead)], allowed), false);
+  assert.equal(await signedOffOnHead(makePr(), [verdict('qa', head, 'NOT READY TO MERGE')], allowed), false);
+  const quoted = { ...verdict('qa', head), body: `> QA verdict: READY TO MERGE\n> QA head: ${head}` };
+  assert.equal(await signedOffOnHead(makePr(), [quoted], allowed), false);
   assert.equal(await signedOffOnHead(makePr(), [verdict('dev', head)], allowed), false);
   assert.equal(await signedOffOnHead(makePr(), [verdict('outsider', head)], allowed), false);
   assert.equal(await signedOffOnHead(makePr(), [verdict('qa', head), verdict('qa', head, 'NO-GO')], allowed), false);
@@ -103,11 +106,13 @@ test('scanQueries covers every configured label and author', () => {
   assert.ok(queries.includes('label:"needs-qa" author:uxowner -label:"needs-human-qa"'));
 });
 
-const makeGithub = (pr) => {
+const makeGithub = (pr, currentHead = pr.headRefOid) => {
   const calls = [];
   return {
     calls,
-    graphql: async () => ({ repository: { pullRequest: pr } }),
+    graphql: async (query) => ({
+      repository: { pullRequest: query.includes('latestReviews') ? pr : { headRefOid: currentHead } },
+    }),
     paginate: async () => [],
     rest: {
       issues: {
@@ -145,4 +150,11 @@ test('a protected PR gets needs-human-qa and, when ready, ready-for-qa', async (
   const github = makeGithub(pr);
   await run({ github, context, core, policy });
   assert.deepEqual(github.calls, [['add', 'needs-human-qa'], ['add', 'ready-for-qa']]);
+});
+
+test('a scan clears readiness when a push lands between reading and adding the label', async () => {
+  const { pr, context } = prEvent('labeled', gated);
+  const github = makeGithub(pr, oldHead);
+  await run({ github, context, core, policy });
+  assert.deepEqual(github.calls, [['add', 'ready-for-qa'], ['remove', 'ready-for-qa']]);
 });
