@@ -2184,6 +2184,22 @@ SLA-breach route, a signal / timer / condition resume and an async resume. An au
 `errorDirective` or `errorHandler` takes the failure first, as for any other step failure; when the run
 fails or is parked for attention, `errorDetails.i18n` is written to the instance on every one of those paths.
 
+The two API routes that enter a step outside the executor apply the same contract:
+
+- `POST /api/workflows/instances/[id]/advance`: when the transition advanced into the step and the
+  step failed, the run fails, parks, or follows its authored error route / handler step. It is no longer
+  left `RUNNING` at a failed step. The response is unchanged when the run fails or parks (400
+  `Transition failed` with the localized `reason` and `details`). An authored recovery answers like a
+  successful advance (200). A pre-condition or activity refusal still leaves the run where it was.
+- `POST /api/workflows/instances/[id]/rerun-step`: a replayed step that fails again goes through the
+  failure contract instead of letting the executor take its outgoing route. When the run ends FAILED or
+  parked, the 200 response carries `execution: null`.
+
+Both are additive: `TransitionExecutionResult` gains the optional `stepExecutionFailed` flag (set only
+when the target step itself failed after the cursor moved), and `lib/workflow-executor.ts` exports
+`handleExecutedStepFailure` (previously the private async-resume helper). That helper now also carries
+the step's `details`, so the async resume keeps the localizable diagnostic as well.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:
