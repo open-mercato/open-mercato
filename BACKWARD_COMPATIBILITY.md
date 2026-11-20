@@ -694,43 +694,11 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
-# 2026-11-07 — CRUD sort-map boundary (#3827)
+## CRUD factory security exceptions (2026-11, #3827 #9154 #9139 #9106)
 
-Surface: query-engine CRUD list sorting (stable API behavior). When a route
-declares `sortFieldMap`, unmapped ordinary client selectors now fall back to its
-trusted default. Own aliases, trusted defaults/tiebreaks, dynamic custom fields
-and routes without maps retain their behavior. Retaining raw ordinary selectors
-for mapped routes would preserve the reported boundary bypass. Clients must use
-a declared alias; route authors can add aliases for intended sortable columns.
-No operator startup, configuration or data migration is required. See
-`.ai/specs/2026-11-07-crud-sort-map-boundary.md` and `UPGRADE_NOTES.md`.
-This entry requests the emergency security exception; a named human maintainer
-must acknowledge the waiver before merge. Automated review does not grant it.
+STABLE API behavior narrowed; a bridge would keep each leak. Named maintainer waiver pending for all four.
 
-## Deleted-row list access (2026-11-20, #9154) — proposed exception
-
-**Surface:** STABLE API §7, the published `withDeleted` query on
-`GET /api/entities/records`, including exports, and raw CRUD list query behavior.
-The parameter itself lets ordinary viewers recover retracted notes and deleted PII
-without a route-owned opt-in. Retaining that behavior behind a compatibility flag
-would retain the disclosure, so the proposed exception removes only that path and
-keeps explicit, permission-checked route opt-ins available. Existing tenant and
-organization scope, stored rows and internal query-engine options are unchanged.
-
-**Migration:** [client/operator steps](UPGRADE_NOTES.md#explicit-deleted-row-list-access-9154);
-[specification](.ai/specs/2026-11-14-crud-soft-deleted-list-policy.md#migration--backward-compatibility).
-**Named human maintainer acknowledgment: pending.** Steps 1–3 are not treated as
-waived until a named human explicitly accepts this specific security exception.
-
-## 2026-11-19 — Entity translation authorization (#9139)
-
-The STABLE entity translation route and localization resolver require target
-permissions and registered text fields. Continuing to accept or render
-unregistered translations would preserve the vulnerability. See
-[upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
-for client and operator migration guidance. The Emergency Security Exception
-requires named maintainer approval.
-
-## #9106 2026-11-16
-
-STABLE labels disclose secrets; no bridge. [Migration](UPGRADE_NOTES.md#issue-9106); waiver pending.
+- #3827: mapped `sortFieldMap` routes ignore unmapped sort selectors. [Spec](.ai/specs/2026-11-07-crud-sort-map-boundary.md).
+- #9154: `withDeleted` needs a route opt-in. [Migration](UPGRADE_NOTES.md#explicit-deleted-row-list-access-9154).
+- #9139: translations need target permissions and registered fields. [Migration](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139).
+- #9106: relation labels need target access; unscoped tables need explicit opt-in. [Migration](UPGRADE_NOTES.md#issue-9106).

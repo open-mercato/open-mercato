@@ -42,7 +42,7 @@ function advancedFilter(field: string, op: string, value?: string): URLSearchPar
   return query
 }
 
-test('TC-STAFF-056: advanced filters and full exports keep buildFilters row scope (#9016, #9896, #9015)', async ({ request }) => {
+test('TC-STAFF-057: advanced filters and full exports keep buildFilters row scope (#9016, #9896, #9015)', async ({ request }) => {
   const adminToken = await getAuthToken(request, 'admin')
   const { tenantId, organizationId } = getTokenContext(adminToken)
   const stamp = randomUUID().slice(0, 8)
@@ -61,8 +61,8 @@ test('TC-STAFF-056: advanced filters and full exports keep buildFilters row scop
   }
 
   try {
-    customer = await createTestCustomer(request, adminToken, { displayName: `QA056 customer ${stamp}` })
-    const absentMemberId = await createRecord(MEMBERS_PATH, { displayName: `QA056 colleague ${stamp}` })
+    customer = await createTestCustomer(request, adminToken, { displayName: `QA057 customer ${stamp}` })
+    const absentMemberId = await createRecord(MEMBERS_PATH, { displayName: `QA057 colleague ${stamp}` })
     const leaveId = await createRecord(LEAVE_PATH, {
       memberId: absentMemberId,
       startDate: new Date(Date.now() + 40 * 86_400_000).toISOString(),
@@ -70,32 +70,32 @@ test('TC-STAFF-056: advanced filters and full exports keep buildFilters row scop
       timezone: 'UTC',
     })
     const memberProjectId = await createRecord(PROJECTS_PATH, {
-      name: `QA056 member project ${stamp}`, code: `Q56-A-${stamp}`, customerId: customer.id, status: 'active',
+      name: `QA057 member project ${stamp}`, code: `Q57-A-${stamp}`, customerId: customer.id, status: 'active',
     })
     const foreignProjectId = await createRecord(PROJECTS_PATH, {
-      name: `QA056 foreign project ${stamp}`, code: `Q56-B-${stamp}`, customerId: customer.id, status: 'active',
+      name: `QA057 foreign project ${stamp}`, code: `Q57-B-${stamp}`, customerId: customer.id, status: 'active',
     })
 
     const tokens = await withCredentialIsolatedRequest(async (provisionRequest) => {
       const superadminToken = await getAuthToken(provisionRequest, 'superadmin')
       const emails: Record<'noStaff' | 'projectViewer', string> = {
-        noStaff: `qa-staff-056-none-${stamp}@example.com`,
-        projectViewer: `qa-staff-056-viewer-${stamp}@example.com`,
+        noStaff: `qa-staff-057-none-${stamp}@example.com`,
+        projectViewer: `qa-staff-057-viewer-${stamp}@example.com`,
       }
       const featuresFor: Record<'noStaff' | 'projectViewer', string[]> = {
         noStaff: ['customers.people.view'],
         projectViewer: ['staff.timesheets.projects.view'],
       }
       for (const access of ['noStaff', 'projectViewer'] as const) {
-        const roleId = await createRoleFixture(provisionRequest, superadminToken, { name: `qa-staff-056-${access}-${stamp}`, tenantId })
+        const roleId = await createRoleFixture(provisionRequest, superadminToken, { name: `qa-staff-057-${access}-${stamp}`, tenantId })
         roleIds.push(roleId)
         await setRoleAclFeatures(provisionRequest, superadminToken, { roleId, features: featuresFor[access], organizations: [organizationId] })
         const userId = await createUserFixture(provisionRequest, superadminToken, {
-          email: emails[access], password, organizationId, roles: [roleId], name: `QA056 ${access} ${stamp}`,
+          email: emails[access], password, organizationId, roles: [roleId], name: `QA057 ${access} ${stamp}`,
         })
         userIds.push(userId)
         if (access === 'projectViewer') {
-          const viewerMemberId = await createRecord(MEMBERS_PATH, { displayName: `QA056 viewer ${stamp}`, userId })
+          const viewerMemberId = await createRecord(MEMBERS_PATH, { displayName: `QA057 viewer ${stamp}`, userId })
           const assignment = await apiRequest(request, 'POST', `${PROJECTS_PATH}/${memberProjectId}/employees`, {
             token: adminToken,
             data: { staffMemberId: viewerMemberId, status: 'active', assignedStartDate: '2020-01-01' },
