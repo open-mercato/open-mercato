@@ -12,6 +12,18 @@
 
 **Action:** none required. If you relied on a submission having no attachments, filter out `kind: 'snapshot'`. If you consume `forms.invitation.sent` and want to tell the two paths apart, read `source` (absent on events emitted before this release).
 
+## `sync_akeneo` no longer requires `sales` (#9211)
+
+`sync_akeneo` now declares `requires: ['integrations', 'data_sync', 'catalog', 'progress']`.
+`sales` is an optional peer: with it disabled, product import still runs and skips
+channel-bound offers and prices, logging the `sync_akeneo.sales_channels_unavailable`
+warning. `progress`, which import jobs already used, is now an explicit requirement; it was
+previously enabled transitively through `sales` → `customers`. Apps that pass
+`yarn generate` today are not newly rejected, and no action is needed unless your app
+relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API, schema
+or configuration change. See
+[module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
