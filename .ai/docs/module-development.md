@@ -47,6 +47,8 @@
 3. Run `yarn generate` with the same enabled modules on server and browser. Review the compiled summary and commit `form-sections.revisions.json`. Resolve competing contributions with an exact `overrides.forms.sections` selector in `modules.ts`, or mask the address with `null`.
 4. Verify the configured form, its guarded write, and the behavior when its overrides are masked. Use `crudFormSections` with `defineCrudFormSections` for hand-written capabilities, custom host adapters, and independent mutation surfaces. Conventional single-resource CRUD factories can publish a `derivedHosts` entry with `defineCrudRouteSectionHost`.
 
+The [Todo showcase](../../apps/mercato/src/modules/example/form-sections.ts) demonstrates the supported operations. See the [required leaf coverage reference](../../apps/mercato/src/modules/example/references/crud-form-extensions/required-coverage.md) for blocked forms and the [typed configuration example](../../apps/mercato/src/modules/example/references/module-overrides.reference.ts) for masking one section.
+
 See the [wrapper and advanced recipes](../../apps/docs/docs/framework/admin-ui/crud-form.mdx#server-verified-section-policies), the [framework spec](../specs/2026-10-22-crudform-section-overrides-framework.md), and the [non-production parity fixture](../qa/fixtures/crudform-section-policy/README.md).
 
 ## Module Rules

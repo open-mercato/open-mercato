@@ -44,7 +44,7 @@ Select all matches on all axes.
 
 `debugging` = reported bug/security/drift, not designed failure UI. Custom fields/entities = `umes` + `module-data` + `om-data-model-design`; editable round trips add `backend-ui`, requested coverage adds `testing`. Never infer work from specs/PRs.
 
-Unified-override audits = `umes` only; add `architecture`/`framework-context` only for unresolved ownership or installed keys. Durable process/activity/user task = `module-data` + `ai-workflow`. Multi-stage waits/cancel/restart are durable; reminders and renewal/batch schedules are `module-data`.
+Unified overrides: audit = `umes`. Unknown ownership/keys add `architecture`/`framework-context`. Durable process/activity/user task = `module-data` + `ai-workflow`. Multi-stage waits/cancel/restart are durable. Reminders, renewals and batch schedules = `module-data`.
 
 `backend-ui`: replacing/wrapping, prop-transforming, menu-editing, or adding visible feedback adds `backend-ui`; merely hiding/toggling/rewiring installed UI does not.
 Staff UI preview/report/bulk = `backend-ui`.
@@ -68,13 +68,13 @@ API/command/record/status/event/UI changes/guards = `umes`; app persistence = `m
 
 ### Axis 2 — Work Units
 
-Open every matched work-unit skill before selection.
+Read matched skills before selection.
 
 | Route | Work unit | Skill/context |
 |---|---|---|
 | `architecture` | Find, scaffold a module starter, publish, or link an app module | `.ai/guides/module-tool.md`; find: `om-find-module`; new code loads `om-module-scaffold` |
 | `architecture` | Save this app as an app template, or create an app from one | `.ai/guides/template-tool.md` |
-| `architecture` | Explain/choose module, UMES, package, eject | architecture; `om-help` for an unresolved or comparative choice across these mechanisms |
+| `architecture` | Choose/explain module, UMES, package or eject | architecture + `om-help` for comparisons or unresolved choices |
 | `module-data` | Business slice or multi-seam domain/API/command fix | MUST load `om-module-scaffold` + its exact `.ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md` key, which resolves units inside the slice, not ownership — an ownership/capability outline adds `architecture` |
 | `spec-pr` | Spec/plan | Axis 3; phases+integration coverage (`integration-coverage`); no domain routes |
 | `architecture` | Upgrade audit or disable built-in | troubleshooter + framework context, or trim skill + exact `src/modules.ts`/`package.json` |
@@ -83,7 +83,7 @@ Open every matched work-unit skill before selection.
 | `module-data` | CRUD/API/command/OpenAPI/ACL/setup/mutation | `om-module-scaffold` + contracts |
 | `backend-ui` | Form/table/page/renderer/middleware/nav/i18n/UI states | `om-backend-ui-design` + backend UI |
 | `module-data` | Search/analytics/event/notification/message/worker/progress/cache/CLI | scaffold + contracts |
-| `umes` | Fields/extension entities/links/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions; choices load `mechanism-selector` + `extension-branches` |
+| `umes` | Fields/entity extensions/links/enrichers/injection/interceptors/guards/subscribers/DOM/widgets/toggles/overrides | `om-system-extension` + extensions. Choices: `mechanism-selector` + [`extension-branches`](.ai/skills/om-system-extension/references/extension-branches.md) |
 | `integration` | Provider/credentials/health/webhook/files/client/reconciliation/package | `om-integration-builder` + integrations |
 | `ai-workflow` | Agent/tool/MCP/OpenCode/Code Mode/orchestrator/AI file or content drafting/attachment/override | `om-create-ai-agent` + AI/workflows; MCP/OpenCode loads `surface-selector` + `ai_assistant` facts |
 | `ai-workflow` | Workflow/activity/user task/idempotency/output/progress | `om-build-workflow` + AI/workflows |
