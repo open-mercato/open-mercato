@@ -18,7 +18,9 @@ preserves existing distribution agreements, including the staff extraction descr
 
 ## TLDR
 Extract business domains using the existing module discovery convention, preserving module IDs,
-runtime behavior, database history and old imports. This PR changes only the design document.
+runtime behavior, database history and old imports. Extract Workflows with the other domains and
+make required providers install and activate automatically across the picker and installers.
+Specification II defines the module-by-module dependency audit. This PR changes only the design document.
 No source extraction, schema migration, release automation change or submodule pointer update
 is authorized by merging this specification.
 
@@ -77,7 +79,6 @@ These stay in `packages/core`. Do not move.
 * seeds – encrypted seed loader
 * translations – translatable field registry
 * widgets – injection / component replacement system
-* workflows – workflow engine runtime
 * data_sync – sync hub / adapter contract
 * design_system – gallery / DS metadata
 
@@ -130,8 +131,8 @@ platform abstraction (not extracted).
 
 * `portal` → `@open-mercato/portal`
   Depends on: core, @open-mercato/customer-accounts, feature_toggles
-  Consumers: warranty_claims (Phase 4). In-core `workflows` references portal, so it resolves
-  it via `tryResolve` (optional peer) and degrades gracefully when the package is absent.
+  Consumers: warranty_claims (Phase 4). Workflows portal tasks use Customer Accounts independently
+  of the Portal shell; see Specification II.
 
 * `inbox_ops` → `@open-mercato/inbox-ops`
   Depends on: core, customers, notifications, messages
@@ -148,12 +149,12 @@ platform abstraction (not extracted).
 ### Phase 3 – Commerce
 * `sales` → `@open-mercato/sales`
   Depends on: core, @open-mercato/catalog, @open-mercato/customers, @open-mercato/currencies,
-  dictionaries (in core), audit_logs, notifications, workflows
+  dictionaries (in core), audit_logs, notifications. Workflows is optional collaboration.
   Consumers: cart, promotions, warranty_claims, wms, invoices
 
 * `cart` → `@open-mercato/cart`
-  Depends on: core, @open-mercato/catalog, @open-mercato/currencies, @open-mercato/promotions,
-  @open-mercato/customers
+  Depends on: core, catalog, sales, customer_groups, promotions. Verify other providers in
+  Specification II.
   Consumers: ecommerce, checkout
 
 * `promotions` → `@open-mercato/promotions`
@@ -161,8 +162,8 @@ platform abstraction (not extracted).
   Consumers: cart, sales
 
 * `ecommerce` → `@open-mercato/ecommerce`
-  Depends on: core, @open-mercato/catalog, @open-mercato/sales, @open-mercato/cart,
-  @open-mercato/customers
+  Depends on: core, catalog, sales, customer_accounts, customer_groups. Verify additional
+  Customers and Availability use in Specification II.
   Consumers: apps
 
 * `shipping_carriers` → `@open-mercato/shipping-carriers`
@@ -178,12 +179,12 @@ platform abstraction (not extracted).
 
 ### Phase 4 – Operations
 * `wms` → `@open-mercato/wms`
-  Depends on: core, @open-mercato/catalog, @open-mercato/sales, @open-mercato/availability
+  Depends on: core, catalog, customers, sales, feature_toggles. Verify optional Availability.
   Consumers: sales, warranty_claims
 
 * `warranty_claims` → `@open-mercato/warranty-claims`
   Depends on: core, @open-mercato/customers, @open-mercato/sales, @open-mercato/catalog,
-  notifications, workflows
+  notifications. Confirm any Workflows requirement from supported claim paths.
   Consumers: portal
 
 * `eudr` → `@open-mercato/eudr`
@@ -191,11 +192,11 @@ platform abstraction (not extracted).
   Consumers: compliance
 
 * `business_rules` → `@open-mercato/business-rules`
-  Depends on: core, workflows
-  Consumers: sales, catalog, promotions
+  Depends on: core. Workflows consumes Business Rules.
+  Consumers: workflows
 
 * `planner` → `@open-mercato/planner`
-  Depends on: core, workflows, customers
+  Depends on: core. Verify any required CRM or automation path during Phase 0.
   Consumers: apps
 
 * `resources` → `@open-mercato/resources`
@@ -203,7 +204,7 @@ platform abstraction (not extracted).
   Consumers: apps
 
 * `staff` → `@open-mercato/staff` – already planned for extraction
-  Depends on: core, auth, directory
+  Depends on: core, planner, resources, dictionaries; verify other providers in Specification II.
   Consumers: apps
 
 * `devices` → `@open-mercato/devices`
@@ -215,8 +216,165 @@ platform abstraction (not extracted).
   Consumers: apps
 
 * `sync_excel` → `@open-mercato/sync-excel`
-  Depends on: core, attachments
-  Consumers: data_sync
+  Depends on: core, customers, data_sync, attachments
+  Consumers: apps using the Excel adapter
+
+* `workflows` → `@open-mercato/workflows`
+  Depends on: business_rules, customer_accounts and required host capabilities.
+  Consumers: agent_orchestrator; catalog, customers and sales collaborate through definitions
+  or widgets. See Specification II for the dependency and activation gates.
+
+## Specification II — Dependency isolation and installation
+
+### Evidence and classification
+
+The matrix covers every extraction target. It records candidate decisions against
+[the source reviewed for PR #9678](https://github.com/open-mercato/open-mercato/tree/64abf3138d09701be933aeecd130d9cc620084ad)
+and cross-checks the [ERP Map 0.9.0](https://erp-map.observer/module-map/0.9.0). ERP Map separates code
+findings, `requires` and npm declarations. Its release snapshot predates this branch, and its static
+classifications can mistake a widget or guarded call for a hard edge. The authenticated
+[MCP service](https://erp-map.observer/mcp) returned HTTP 401, so this audit used the public module pages.
+Cart, promotions and ecommerce had no public 0.9.0 module pages and were checked against the branch.
+For example, the map shows zero declared requirements for Workflows, while this branch already declares
+`business_rules`. Source and packed-app behavior decide discrepancies.
+
+Keep these layers separate for each directed edge:
+
+- **Required activation:** the module cannot preserve a supported capability without the provider.
+  Declare the provider in `metadata.requires` and publish the same edge in the release-versioned
+  installer input. If it remains a static import from another extracted package, also declare the
+  version-compatible npm runtime dependency. A DI or route-only requirement still needs activation
+  metadata and an installer mapping even when there is no import.
+- **Optional capability:** both modules work independently. Use a consumer-owned bridge behind an
+  explicit capability check, guarded DI or a host widget/registration contract. Prove that disabled
+  and physically absent providers both work, and that an enabled integration preserves behavior.
+  Never swallow a provider's operational or authorization errors as if it were absent.
+- **Collaboration:** typed events, injection spots or enrichers with no required response do not imply
+  package installation or activation. Move sample definitions and demo-only assets to their consumer
+  when they create a reverse edge. Keep existing IDs and externally observable behavior.
+- **Platform capability:** activate the actual provider module if it is required, even when its package
+  is already present. Use shared contracts and host DI for retained core capabilities. Verify each
+  currently undeclared service, route, table/entity reference, scheduled job, setup/upgrade hook,
+  widget, command, generated entry and package import before signing off the final closure. Use the same source revision for code, metadata and manifests.
+
+The required edges below are a starting floor for extracted-domain providers. Preserve existing
+`requires` until the replacement and absence proofs pass. Phase 0 must record exact code locations,
+inbound consumers, lifecycle (including upgrade/seed), package and activation edges, owning maintainer,
+and the absence test or required-provider proof for each retained edge in the dependency inventory.
+A missing or unresolved classification blocks the affected extraction. Check retained platform
+providers and external/provider/enterprise consumers too, including their transitive package closure.
+
+**Retained platform edges to clear:** `configs/lib/upgrade-actions.ts` loads Devices, Phone Calls,
+Customers, Ecommerce, Cart and Promotions through core paths. Attach each action to its enabled
+owner through the existing upgrade framework or an additive registration seam. Verify existing
+upgrade markers and retry semantics when enabled. Audit Auth and Forms → Customer Accounts,
+Entities → Currencies, Translations → Catalog/Customers/Resources and the shared UI NotesSection →
+Customers. For each, replace implementation ownership with a platform primitive, scoped capability
+or consumer contribution. A shared UI or bootstrap import must not indirectly load an absent domain.
+Prove the dependency graph with Checkout, providers and enterprise overlays present in the full
+app and physically absent in the kernel-only app.
+
+| Target | Required domain edges to preserve or explicitly resolve | Edges to remove or make optional, and evidence to check |
+|---|---|---|
+| availability | No confirmed domain prerequisite in the base module. Directory and event capabilities stay on the host. | Cart/ecommerce own stock-policy consumption. Integrate catalog/WMS by IDs, scoped reads or provider events. Prove availability alone and callers' existing behavior with and without policy. |
+| business_rules | No Workflows requirement once the example asset is owned locally. Keep platform auth/API key/directory/notification capabilities where used. | `cli.ts` reads `../workflows/examples/guard-rules-example.json`; move the fixture to its owning CLI package and preserve the command. Prove rules evaluate and CLI fixtures load without Workflows. |
+| cart | Keep declared catalog, sales, customer_groups and promotions for visibility, pricing and atomic repricing. | Audit `lib/visibility.ts`/repricing for ecommerce, availability and currency assumptions. Move storefront assortment integration to a provider if both storefront and non-storefront behavior pass. Checkout consumes Cart's lock commands, with no reverse dependency. |
+| catalog | Keep currencies and its declared platform providers. | Audit Sales imports used by pricing/admin UI and move sales-specific reads/UI into a Sales-owned integration or host extension. InboxOps, AI and code workflow contributions should be discovered only when their provider is enabled. Prove product/variant pricing works without Sales. |
+| communication_channels | Keep enabled integration registry, messaging, progress and notifications capabilities where delivery requires them. | Resolve message and directory data through scoped services. Scheduler and concrete channel adapter packages are opt-in unless a selected capability requires them. Adapters require the channel registry, with no reverse adapter edge. |
+| currencies | No confirmed domain prerequisite. Keep necessary host directory/event/messaging capabilities. | Provider owns FX precision and rate APIs. Consumers resolve by code/service and must not copy rate logic. Prove currency and rate APIs without catalog or sales. |
+| customer_accounts | Keep Customers while CRM lookup/linking in account code is required. Audit auth, directory and notification providers. | Optional CRM linking is possible only if customer provisioning and portal identity semantics hold without CRM. Remove retained Auth/Forms static backedges with host-owned contracts or account-owned extensions. |
+| customer_groups | Preserve membership and pricing contracts. Verify mandatory Customers/Catalog use before declaring either hard. | Catalog pricing-widget and CRM integrations should be consumer-owned where the group API works by IDs. Keep a declared requirement wherever a group write or validation cannot run independently. |
+| customers | Confirm currencies for CRM money fields, communication_channels for channel UI, and dashboards for registered dashboard consumers. Keep the declared dictionaries/feature_toggles/progress and other proven host requirements. | Isolate communication and dashboard UI contributions behind their existing extension points where possible. Preserve exact currency normalization through scoped provider access. Keep workflow examples, AI and inbox collaboration optional. |
+| dashboards | Keep host authorization, directory and widget storage capabilities; verify which commerce/CRM imports are needed by the base UI. | Catalog, Customers and Sales should own their metrics/widgets and register contributions into Dashboards. Remove mutual imports with those domains before claiming a dashboards-only install. |
+| devices | No confirmed domain prerequisite. Declare required Auth and verify Directory. | Phone and push provider glue belongs to the consumers. Move the device encryption upgrade hook behind enabled-module discovery with the same retry/completion semantics. |
+| ecommerce | Keep declared catalog, sales, customer_accounts and customer_groups. | Audit direct Customers and Availability reads and declare any mandatory service path. Remove any Ecommerce→Cart assumption from the original phase sketch unless a real mandatory path proves it. Cart→Ecommerce visibility and Ecommerce→Cart must not form a cycle. |
+| eudr | Verify Catalog/Sales document lookups and command guards in actual compliance paths. Declare providers where the action cannot work without them. | Keep product/order widgets optional where the compliance record works alone. Move command integration to the owning consumer with the same deny and rollback behavior. |
+| inbox_ops | Keep AI Assistant where extraction needs it; verify host messages, notifications and entity capabilities. | CRM/Sales/Catalog adapters, widgets and enrichers should be injection contributions or optional service lookups. Missing target disables that extraction action; intake and independent routing remain usable where supported. |
+| phone_calls | No current hard Customers/Devices declaration. Verify the base call log and assignment paths. | Keep Tillio and device/CRM links as consumer-owned integrations by ID when possible; move the phone-call encryption upgrade hook behind enabled-module discovery. |
+| planner | Keep proven dictionary, directory and entity capabilities. | Staff access resolver remains a soft-optional provider per the Staff decoupling spec. Separate CRM appointment UI and Workflows automation from base scheduling unless mandatory usage is proven. |
+| portal | Keep customer_accounts and platform feature_toggles. | Warranty and workflow task pages are consumer contributions. Portal startup and auth should work independently of those consumers. |
+| promotions | Keep Catalog, Currencies and Customer Groups where rule evaluation relies on product scope, amounts or group eligibility; prove whether Customers has any independent required path. | Cart/Sales consume promotion evaluation through provider contracts. Move optional channel/schedule glue without changing exact discount arithmetic. |
+| push_notifications | Keep Devices and Communication Channels plus declared Auth, Notifications and Integrations. | APNs/Expo/FCM are concrete adapter choices. Selecting Push must not select every adapter; selecting a provider must activate the capabilities it requires. |
+| resources | Keep Planner and needed host dictionaries/entities/auth/directory. | Evaluate moving the sales document integration out of the resource scheduler; keep Sales required if any supported resource action still needs synchronous access. |
+| sales | Keep declared Catalog, Customers and Dictionaries; classify currency and other platform services from the order/pricing paths. | Preserve transactional customer/catalog lookup, FX, locking and undo through scoped services. Sales contributes workflow definitions; order approval UI can collaborate with Workflows without a static reverse dependency. Audit dashboard/inbox/carrier integrations separately. |
+| shipping_carriers | Keep Integrations. | Sales/WMS shipment UI and events are collaboration when carrier registration and webhook handling work independently. Carriers own adapter packages; do not auto-install every provider. |
+| staff | Keep declared Planner, Resources and Dictionaries initially. Verify Customers/Dashboards and host capabilities from Staff's current source, including guarded account access. | Keep the official-modules agreement. Optional CRM dashboard, calendar and customer account bridges must not create a Planner→Staff hard edge. Independently prove packed Staff on its release channel. |
+| sync_excel | Keep Customers and Data Sync as declared for current import profiles; verify Integrations and Attachments. | A generic Excel adapter can become CRM-independent only after customer-specific mapping/setup is moved to a consumer with parity coverage. Data Sync remains usable without Excel or any other adapter. |
+| warranty_claims | Keep Customers, Customer Accounts and Portal for current claim/portal flows; classify Sales/Catalog from order lookups, registrations, returns, credits and replacements. Verify AI Assistant if the shipped intake path requires it. | Scheduler, inbox and carriers should collaborate optionally where claim handling still works. Preserve account scope, command compensation and portal ACL. Require Workflows only if a supported claim flow cannot operate without it. |
+| wms | Keep declared Catalog, Customers, Sales and feature_toggles for current warehouse and order flows. | Availability enrichers/stock policy are optional if warehouse movements and their invariants pass without it. Do not use eventual consistency to replace allocation locks. |
+| workflows | Keep Business Rules for transition evaluation, definition validation, editor controls and seeds. Keep Customer Accounts while portal task routes require its auth/RBAC and customer identity. Verify mandatory host Auth, API Keys, Directory, Entities, Notifications, Progress and Dictionaries by activity/route/worker. | Remove the static Sales UI edge and preserve approval behavior through a host extension or a Sales-owned widget keyed to the existing spot/event. Customers is workflow/spot collaboration. AI Assistant, Agent Orchestrator and Scheduler remain optional from Workflows; Agent Orchestrator must declare Workflows while it resolves or imports the engine unconditionally. |
+
+### Workflows package and isolation
+
+Move the runtime to `@open-mercato/workflows`, preserving `workflows` and the canonical
+`src/modules/workflows` layout. Move its migrations, snapshot, definitions/drafts, instances, events,
+task scope logic, notifications, queues/workers, schedules, CLI, ACL, widgets, routes and locale assets
+together. Preserve existing IDs, execution state transitions, idempotency, timer recovery,
+compensation and command actor/tenant/organization context. Keep code workflow declaration types on
+the existing shared contract. Do not duplicate the code registry or the evaluator.
+
+- Remove the static `registerCodeWorkflows` import and call from both app and create-app
+  `bootstrap-common.ts` through the generated/module registration path. With Workflows enabled the
+  registry must load all enabled contributors exactly once before execution. Without it, generic app
+  boot, generators, workers and CLI must succeed with the package physically absent. Contributing
+  Catalog, Customers and Sales `workflows.ts` files must rely on shared contracts and avoid loading
+  the engine during discovery.
+- Move the Sales-specific order-approval refresh out of the engine package without changing the
+  workflow/widget IDs, existing permission gates or refresh behavior. Keep portal task access
+  fail-closed and the same URLs. Replace direct CustomerUser ORM use with a scoped account service.
+  Reducing the Customer Accounts activation edge further would require moving portal route
+  registration behind an enabled integration with equivalent identity/ACL coverage.
+- Business Rules goes before Workflows after the sample asset backedge is gone. Customer Accounts
+  goes before Workflows while its portal dependency remains. Every importing consumer, including
+  Agent Orchestrator and example/harness fixtures, must switch to its canonical provider or shared
+  contract. Keep the enterprise release/entitlement boundary and prevent an engine→enterprise edge.
+- Compare generated registry cardinality and packed imports against the baseline. Rehearse an
+  existing paused timer, queued activity and pending portal task across upgrade and rollback.
+  Include definition editing/publishing, code registration, triggers, rule branching, compensation,
+  bulk replay with progress, order approval refresh, and portal task list/detail/complete with
+  two-scope denial in the API/UI evidence matrix.
+
+### One dependency plan across selectors and installers
+
+The in-repo interactive picker is `create-mercato-app` (`packages/create-app/src/index.ts` and
+`lib/catalog/{catalog-step,selection}.ts`). It resolves some catalog edges and saves a plan;
+it prints commands for the user to apply. The separate
+[`create-mercato-module install` source](https://github.com/open-mercato/create-mercato-module/tree/56a3a7df74b5eba8551c0bf071d6989889eb246d)
+prompts for a package/repository and reports missing requirements, but the warning is not
+a recursive installation. `yarn mercato module add` checks enablement. All three need compatible
+behavior before the extraction release.
+
+1. Generate a verified provider map for each supported release from the release manifests and module
+   metadata, keyed by canonical module ID, npm package/source, compatible version and dependencies.
+   Cover retained core providers, extracted workspace providers and the approved Staff channel.
+   Reconcile catalog data, packaged metadata and the starter presets against this map in CI. An old
+   `core:<id>` or qualified core import must never imply an extracted module is present. Resolve
+   legacy ID and origin-qualified entries using the same identity rules as runtime validation.
+2. Compute the recursive required closure from selected modules plus the app's actual enabled
+   origins and installed versions. Preserve explicit compatible providers, deduplicate shared
+   prerequisites, and order providers before consumers. Distinguish already enabled, package
+   missing and package present but disabled. Keep optional features unselected by default.
+   Detect cycles, incompatible versions, provider collisions, unavailable packages or prohibited
+   origins before any mutation. Show the full dependency chain and keep a blocked plan unusable.
+3. In the picker show requested and required selections, why each requirement is included, and
+   version/source. Removing the last requester removes an unrequested prerequisite; a still-needed
+   prerequisite cannot be unchecked separately. Use the same closure for `--modules`, all bundled
+   presets and installer preview. Preserve the scaffold's plan-first behavior. An approved install
+   must install compatible packages **and** enable each required module in `modules.ts`, once, in
+   dependency order. Verify the actual closure before generating registries. A rerun must reconcile
+   partial progress without clobbering user entries. Migrations remain a separate explicit action.
+4. Coordinate the external installer changes and verify the compatible released tool in a clean
+   app before release. Never add a limitation to the release notes in place of automatic required
+   dependency installation. Preserve the external tool's source trust, package quarantine,
+   confirmation and explicit non-interactive behavior. A required unapproved source blocks before
+   writes, with the dependency chain and the appropriate next action.
+5. Gate with clean empty/classic/CRM/WMS app tests; Workflows selection must include Business Rules
+   and the proven required closure without pulling in Sales, AI or Enterprise solely through
+   optional collaboration. Cover Cart's transitive commerce prerequisites, Staff's channel,
+   already-installed-but-disabled providers, a shared diamond, deselection, a cycle, same-ID
+   wrong-origin, version conflict, optional absence, package fetching failure/retry, and
+   deterministic parity across picker, flags, exported plan and applied install. Run generation,
+   build and startup in the packed app, and assert both package presence and exact activation.
 
 ## Architecture and Dependency Inventory
 
@@ -472,7 +630,8 @@ refactor without the preparatory checks.
       draft is not a module directory. `payment_gateways` stays in core.
 - [ ] Produce the dependency and public-surface manifests, discover entity/validator imports
       repository-wide (including enterprise overlays, providers, helpers, tests and templates),
-      and order extraction units by actual required edges, not the headings above.
+      and order extraction units by actual required edges, not the headings above. Close every
+      unresolved edge from Specification II and record its disposition and verification.
 - [ ] Replace prohibited entity/business-logic imports through sanctioned seams, preserving
       transaction and locking semantics. Run module-decoupling checks with optional peers absent.
 - [ ] Implement the approved thin-core seams and optional-peer facades before physical extraction.
@@ -496,7 +655,8 @@ module must later pass the same proof; the two examples do not waive that requir
 - [ ] Add compatibility bridges and migration documentation, verify their canonical identity,
       and update every in-tree consumer to the intended provider through real call sites.
 - [ ] Change app activation and create-app templates atomically, regenerate registries, and
-      verify both legacy and new activation separately with no duplicate registrations.
+      verify both legacy and new activation separately with no duplicate registrations. Update the
+      release provider map and verify picker/installer closure for this slice.
 - [ ] Move existing unit/integration suites and update Jest, TS, generator, coverage and standalone
       harness discovery paths. Tests must be found and run, not silently dropped after relocation.
 - [ ] Ship the extraction unit's API/UI/absence/upgrade integration tests in the same implementation PR.
@@ -517,6 +677,8 @@ module must later pass the same proof; the two examples do not waive that requir
       registry counts match the baseline, except explicitly removed domain entries in kernel mode.
 - [ ] `UPGRADE_NOTES.md` and app/template dependencies explain the mandatory installation migration;
       compatibility targets are available through the approved publishing process before rollout.
+- [ ] Ship and verify compatible selector/installer versions and the complete release provider map.
+      Selecting any extracted module installs and enables its required closure in a packed app.
 
 ### Rollout and Rollback
 
@@ -545,6 +707,7 @@ APIs and clean up in `finally`/teardown; no seeded/demo data or live providers a
 | Catalog/currencies/availability | Product and variant CRUD, pricing/currency reads, stock-policy lookup, product list/detail/edit, pricing without optional sales |
 | Customers/groups/accounts/portal/channels/inbox/calls | Company/person/deal CRUD, group membership, account authentication and portal authorization, conversation/message/call flows, corresponding admin and portal screens; device absence |
 | Sales/cart/promotions/ecommerce/carriers/dashboards | Quote/order lifecycle and undo, cart line pricing/promotion recalculation, checkout integration, carrier hooks, dashboard load and permissions; absent optional integrations |
+| Workflows | Definition editor and publish, existing instance/timer/queue continuity, Business Rules branching, task ACL/portal and approval widget, bulk replay, workflow code registration with engine on and physically absent |
 | WMS/claims/EUDR/rules/planner/resources/staff/devices/push/Excel | Stock movements, claim lifecycle, compliance actions/undo, rule evaluation, availability/scheduling and staff access, device delivery using fakes, import/export roundtrip; permission and peer-absence cases |
 
 Every extraction unit must also prove:
@@ -614,3 +777,10 @@ root `AGENTS.md`, `.ai/specs/AGENTS.md`, `packages/core/AGENTS.md`, `packages/cl
 * Specified optional compatibility peers, explicit legacy-app dependency migration and the
   prerequisite elimination of every domain-to-core edge; retained all public import bridges.
 * Distinguished full-workspace package typechecks from physically domain-free consumer proofs.
+
+### 2026-11-20 — Workflows and dependency-aware installation
+
+* Added Workflows to the extraction scope and recorded runtime, bootstrap, migration and optional
+  integration requirements.
+* Added the dependency audit for every extraction target and the release gates for recursive
+  package installation and module activation across the picker and installers.
