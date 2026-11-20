@@ -20,7 +20,7 @@ import { omnibusBlockSchema } from '../../../lib/omnibusTypes'
 import { resolveOmnibusPresentedEntries } from '../../../lib/omnibusPresentedEntry'
 import { resolvePriceHistoryOrganizationIds } from '../../../lib/priceHistoryQuery'
 import { resolvePriceVariantId, selectBestPrice, type PriceRow } from '../../../lib/pricing'
-import type { CatalogOmnibusService } from '../../../services/catalogOmnibusService'
+import { serializeCatalogOmnibusBlock, type CatalogOmnibusService } from '../../../services/catalogOmnibusService'
 
 const logger = createLogger('catalog')
 
@@ -162,7 +162,7 @@ export async function GET(req: Request) {
       presentedPrice ? presentedEntries.get(presentedPrice.id) ?? null : null,
       priceKind.isPromotion === true,
     )
-    return NextResponse.json(block)
+    return NextResponse.json(serializeCatalogOmnibusBlock(block))
   } catch (err) {
     logger.error('catalog.prices.omnibus-preview.GET Unexpected error', { err })
     getTelemetryRuntime()?.reportError(err, {

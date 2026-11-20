@@ -127,6 +127,18 @@ function formatReferenceAmount(value: string | null | undefined): string | null 
   return amount === null ? value ?? null : padDecimalPlaces(amount, 4)
 }
 
+export function serializeCatalogOmnibusBlock(block: OmnibusBlock | null): OmnibusBlock | null {
+  if (!block) return null
+  const fixedAmount = (value: string | null) => parseDecimal(value)?.toFixed(4) ?? value
+  return {
+    ...block,
+    lowestPriceNet: fixedAmount(block.lowestPriceNet),
+    lowestPriceGross: fixedAmount(block.lowestPriceGross),
+    previousPriceNet: fixedAmount(block.previousPriceNet),
+    previousPriceGross: fixedAmount(block.previousPriceGross),
+  }
+}
+
 function compareChronological(left: OmnibusHistoryRow, right: OmnibusHistoryRow): number {
   const delta = Date.parse(left.recordedAt) - Date.parse(right.recordedAt)
   if (delta !== 0) return delta
