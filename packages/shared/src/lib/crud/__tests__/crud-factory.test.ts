@@ -1250,6 +1250,31 @@ describe('CRUD Factory', () => {
     expect(lastQueryCall?.[1]?.filters).toEqual({ tenant_id: { $eq: '123e4567-e89b-12d3-a456-426614174000' } })
   })
 
+  it('GET applies row-level buildFilters on a full export for ordinary routes (#9015)', async () => {
+    const ownRowsOnly = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
+      created_by: { $eq: ctx.auth?.sub ?? null },
+    }))
+    const ownRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title', 'is_done'],
+        sortFieldMap: { id: 'id' },
+        buildFilters: ownRowsOnly,
+      },
+    })
+
+    const res = await ownRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full&title=ignored'))
+    expect(res.status).toBe(200)
+    expect(ownRowsOnly).toHaveBeenCalledTimes(1)
+    expect(ownRowsOnly.mock.calls[0]?.[0]).not.toHaveProperty('title')
+    const lastQueryCall = queryEngine.query.mock.calls.at(-1)
+    expect(lastQueryCall?.[1]?.filters).toEqual({ created_by: { $eq: expect.anything() } })
+  })
+
   describe('afterList hook ordering on the export paths', () => {
     // Issue #5969: both export branches used to call serializeExport() before awaiting
     // hooks.afterList, so a hook that patches values the base query cannot compute reached

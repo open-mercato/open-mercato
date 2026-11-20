@@ -370,6 +370,14 @@ const crud = makeCrudRoute({
       createdAt: F.created_at,
       updatedAt: F.updated_at,
       startDate: F.start_date,
+      projectType: F.project_type,
+    },
+    cacheScope: async (_query, ctx) => {
+      // The membership set and its assignment window are not in the request, so the
+      // resolved project ids partition the list cache (#7529).
+      const access = await resolveListProjectAccess(ctx)
+      if (access.canManageAll) return 'projects:all'
+      return `projects:${[...access.projectIds].sort().join(',') || 'none'}`
     },
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
