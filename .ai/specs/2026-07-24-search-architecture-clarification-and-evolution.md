@@ -294,6 +294,12 @@ Memoization is per engine instance; engines are constructed per request (`create
 
 ## Backward Compatibility
 
+### Vector result decryption (#5870)
+
+`VectorSearchStrategy` and the opt-in `VectorIndexService` share the existing tenant-scoped result decryption and JSON parse-back helper. Search DI supplies its existing tenant encryption service to the strategy. Result mapping decrypts titles, links and metadata before consuming them; decryption failures reject the search instead of returning ciphertext. Driver queries retain tenant, organization, entity and index-document filters.
+
+Migration & Backward Compatibility: `VectorStrategyConfig` adds only an optional `encryptionService` field. Existing constructor calls, plaintext drivers, APIs, schema, startup and operator configuration remain valid. No reindex or data migration is required. Regression coverage exercises encrypted strategy results, KMS failure, tenant/organization decryption scope, preserved query filters and DI wiring; existing vector-service security tests cover the shared consumer.
+
 - **Encrypted list-search correction**: the shared token-lookup export, direct route unions, search-source entries, and non-canonical event bridges are additive. Existing routes, event IDs, entity IDs, and raw `ILIKE` predicates remain available; token matches are unioned into the existing result set.
 - **Phase 0**: docs + one CLI help string (non-behavioral) + a stale code comment. No contract surface changes. `BACKWARD_COMPATIBILITY.md` unaffected.
 - **Phase 1**: strictly additive — new CLI flags/commands, a new orchestration service, a new admin action. The three existing reindex entry points and their feature IDs (`search.reindex`, `query_index.reindex`, `search.manage`) are preserved and delegated to. Any change to the bare `reindex` default must follow the deprecation protocol (help-text `@deprecated`, bridge ≥1 minor, `UPGRADE_NOTES.md`).
@@ -349,6 +355,8 @@ writer inputs without external services.
 - Aligned the Phase 0 documentation deliverable with the seven token-search environment variables.
 
 - Council round two fixes, pass four alignment (GPT-6.1 Sol workers): Corrected the A.3 global and general query API locators to `/api/search/search/global` and `/api/search/search`, matching the route files and tenant-settings/fulltext integration contracts; retained the CLI reindex versus fulltext API distinction.
+
+- **2026-11-19** — #5870: share vector-result decryption with the search strategy, preserving query filters and plaintext behavior while parsing encrypted links/payload and failing closed on decryption errors.
 
 - 2026-11-05 — Extended effective entity strategy enforcement to queued and synchronous reindex writes, module defaults, and disabled entities (#8773).
 
