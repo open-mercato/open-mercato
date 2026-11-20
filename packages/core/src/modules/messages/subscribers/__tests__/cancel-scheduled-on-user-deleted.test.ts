@@ -16,7 +16,7 @@ describe('messages:cancel-scheduled-on-user-deleted', () => {
 
   it('turns the deleted author\'s scheduled messages into drafts within the tenant', async () => {
     const { em, ctx } = createCtx()
-    await handler({ userId, tenantId }, ctx)
+    await handler({ id: userId, tenantId }, ctx)
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       Message,
       { senderUserId: userId, tenantId, status: 'scheduled', deletedAt: null },
@@ -26,7 +26,7 @@ describe('messages:cancel-scheduled-on-user-deleted', () => {
 
   it('does nothing without a tenant or user id', async () => {
     const { em, ctx } = createCtx()
-    await handler({ userId }, ctx)
+    await handler({ id: userId }, ctx)
     await handler({ tenantId }, ctx)
     expect(em.nativeUpdate).not.toHaveBeenCalled()
   })

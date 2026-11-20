@@ -41,7 +41,6 @@ test.describe('TC-API-MSG-030: edit, reschedule and cancel a scheduled message',
         body: 'Scheduled body',
         scheduledAt: scheduledAtInMinutes(30),
       })
-      await withClient((client) => client.query('update messages set sender_channel_id = $2 where id = $1', [messageId, senderChannelId]))
 
       const initial = await readDetail()
       expect(initial.status).toBe('scheduled')
@@ -53,6 +52,7 @@ test.describe('TC-API-MSG-030: edit, reschedule and cancel a scheduled message',
       expect(rescheduled.status()).toBe(200)
       expect((await readMessageScheduleRow(messageId))?.scheduled_at?.toISOString()).toBe(rescheduledAt)
 
+      await withClient((client) => client.query('update messages set sender_channel_id = $2 where id = $1', [messageId, senderChannelId]))
       const afterReschedule = await readDetail()
       const cancelled = await patch({ scheduledAt: null }, afterReschedule.updatedAt as string)
       expect(cancelled.status()).toBe(200)

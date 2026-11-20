@@ -158,7 +158,7 @@ describe('messages scheduled send commands', () => {
   })
 
   describe('compose with scheduledAt', () => {
-    it('stores a scheduled draft, emits messages.message.scheduled and neither sends nor indexes', async () => {
+    it('stores a scheduled draft, emits messages.message.scheduled, indexes it for the author and does not send', async () => {
       const em = createEm()
       const { ctx, eventBus } = createCtx(em)
       const scheduledAt = inMinutes(60)
@@ -184,7 +184,8 @@ describe('messages scheduled send commands', () => {
         recipientUserIds: [senderUserId],
         ...scope,
       })
-      expect(eventBus.emitEvent).not.toHaveBeenCalled()
+      expect(eventBus.emitEvent).toHaveBeenCalledTimes(1)
+      expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ entityType: 'messages:message' }), expect.anything())
     })
 
     it('rejects a schedule in the past at command validation', async () => {
@@ -242,7 +243,8 @@ describe('messages scheduled send commands', () => {
 
       expect(message).toMatchObject({ status: 'scheduled', isDraft: true, sentAt: null, scheduledAt, scheduledReleaseAttempts: 0 })
       expect(eventIds()).toEqual(['messages.message.scheduled'])
-      expect(eventBus.emitEvent).not.toHaveBeenCalled()
+      expect(eventBus.emitEvent).toHaveBeenCalledTimes(1)
+      expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ entityType: 'messages:message' }), expect.anything())
     })
 
     it('turns a scheduled message back into a plain draft on scheduledAt: null', async () => {

@@ -8,6 +8,7 @@ export const metadata = {
 }
 
 type AuthUserDeletedPayload = {
+  id?: string
   userId?: string
   tenantId?: string
 }
@@ -18,12 +19,13 @@ type SubscriberContext = {
 
 /** A deleted author's scheduled messages must not go out on their behalf: they return to drafts. */
 export default async function handler(payload: AuthUserDeletedPayload, ctx: SubscriberContext): Promise<void> {
-  if (typeof payload?.userId !== 'string' || !payload.userId) return
+  const userId = payload?.id ?? payload?.userId
+  if (typeof userId !== 'string' || !userId) return
   if (typeof payload.tenantId !== 'string' || !payload.tenantId) return
   const em = ctx.resolve<EntityManager>('em').fork()
   await em.nativeUpdate(
     Message,
-    { senderUserId: payload.userId, tenantId: payload.tenantId, status: 'scheduled', deletedAt: null },
+    { senderUserId: userId, tenantId: payload.tenantId, status: 'scheduled', deletedAt: null },
     { status: 'draft', scheduledAt: null },
   )
 }

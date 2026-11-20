@@ -537,13 +537,11 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       })
     }
 
-    if (!storesAsDraft) {
-      await emitMessageIndexUpsert(ctx.container, {
-        messageId,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-      })
-    }
+    await emitMessageIndexUpsert(ctx.container, {
+      messageId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
 
     return {
       id: messageId,
@@ -823,12 +821,13 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       await sendDraftThroughMailbox(ctx, em, message, senderChannelId, statusBeforeSend)
     }
 
+    await emitMessageIndexUpsert(ctx.container, {
+      messageId: message.id,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+
     if (isSending) {
-      await emitMessageIndexUpsert(ctx.container, {
-        messageId: message.id,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-      })
       const recipientUserIds = input.recipients
         ? input.recipients.map((r) => r.userId)
         : (preloadedRecipients ?? []).map((r) => r.recipientUserId)
