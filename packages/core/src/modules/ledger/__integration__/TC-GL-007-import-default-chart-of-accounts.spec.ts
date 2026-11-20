@@ -24,11 +24,13 @@ import {
 import { deleteGeneralEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
- * TC-GL-006: `POST /api/ledger/accounts/import-default-chart-of-accounts` —
- * 200 (happy path), 409 (non-empty chart of accounts), 403 (missing
- * `ledger.accounts.manage`) — plus the button's UI path (hidden for
- * view-only, table refresh on success, not offered once the chart has
- * accounts) and search over the imported accounts (PR #6439 review).
+ * TC-GL-007: `POST /api/ledger/accounts/import-default-chart-of-accounts` —
+ * 200 (happy path on a Directory-created organization, which also provisions
+ * the PL groups, OQ-R1), 409 (non-empty and types-only chart, R3), 403
+ * (missing `ledger.accounts.manage`), the undo-versus-post lock (OQ-R2) — plus the button's UI path (hidden for
+ * view-only and for a types-only chart, table refresh on success, not offered
+ * once the chart has accounts) and search over the imported accounts (PR
+ * #6439 review). Numbered 007: TC-GL-006 is the posting lock protocol spec.
  *
  * Added retroactively per PR #6137 review, M2 — the original spec/
  * implementation shipped with command-level unit tests only, no
@@ -103,16 +105,16 @@ async function findAccountIdByNumber(request: APIRequestContext, fx: ScopedFixtu
   return account!.id;
 }
 
-test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button UI path + search', () => {
+test.describe('TC-GL-007: import-default-chart-of-accounts 200/409/403, groups provisioning, undo lock, types-only chart, button UI path, search', () => {
   test('happy path on an organization created through Directory: provisions the PL groups and returns 200 with the full template row counts (OQ-R1)', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = randomUUID();
     let tenantId: string | null = null;
     let organizationId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-006a Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-007a Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-006a Organization ${stamp}`,
+        name: `QA TC-GL-007a Organization ${stamp}`,
         tenantId,
       });
       const headers = scopedHeaders({ tenantId, organizationId });
@@ -150,9 +152,9 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
     let tenantId: string | null = null;
     let organizationId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-006b Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-007b Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-006b Organization ${stamp}`,
+        name: `QA TC-GL-007b Organization ${stamp}`,
         tenantId,
       });
       const headers = scopedHeaders({ tenantId, organizationId });
@@ -196,9 +198,9 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
     let managerRoleId: string | null = null;
     let managerUserId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-006g Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-007g Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-006g Organization ${stamp}`,
+        name: `QA TC-GL-007g Organization ${stamp}`,
         tenantId,
       });
       const headers = scopedHeaders({ tenantId, organizationId });
@@ -208,7 +210,7 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
       await createAccountTypeFixture(
         request,
         superadminToken,
-        { organizationId, tenantId, number: randomNumber('qa-gl-006g-type'), name: 'QA types-only', normalBalance: 'DEBIT' },
+        { organizationId, tenantId, number: randomNumber('qa-gl-007g-type'), name: 'QA types-only', normalBalance: 'DEBIT' },
         { headers },
       );
 
@@ -217,9 +219,9 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
       const body = (await res.json()) as { error?: string };
       expect(body.error).toMatch(/non-empty chart of accounts/i);
 
-      const managerEmail = `qa-gl-006g-manage-${randomUUID().slice(0, 8)}@acme.com`;
+      const managerEmail = `qa-gl-007g-manage-${randomUUID().slice(0, 8)}@acme.com`;
       const managerPassword = 'Valid1!Pass';
-      managerRoleId = await createRoleFixture(request, superadminToken, { name: randomNumber('QA-GL-006g-manage'), tenantId });
+      managerRoleId = await createRoleFixture(request, superadminToken, { name: randomNumber('QA-GL-007g-manage'), tenantId });
       await setRoleAclFeatures(request, superadminToken, {
         roleId: managerRoleId,
         features: ['ledger.accounts.view', 'ledger.accounts.manage'],
@@ -252,9 +254,9 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
     let tenantId: string | null = null;
     let organizationId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-006e Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-007e Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-006e Organization ${stamp}`,
+        name: `QA TC-GL-007e Organization ${stamp}`,
         tenantId,
       });
       const headers = scopedHeaders({ tenantId, organizationId });
@@ -305,16 +307,16 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
     let currencyId: string | null = null;
     let headers: Record<string, string> = {};
     try {
-      tenantId = await createTenant(request, token, `QA TC-GL-006f Tenant ${stamp}`);
+      tenantId = await createTenant(request, token, `QA TC-GL-007f Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, token, {
-        name: `QA TC-GL-006f Organization ${stamp}`,
+        name: `QA TC-GL-007f Organization ${stamp}`,
         tenantId,
       });
       headers = scopedHeaders({ tenantId, organizationId });
       const fx: ScopedFixture = { token, tenantId, organizationId, headers };
       currencyId = await createCurrencyFixture(request, token, {
         code: generateUniqueCurrencyCode(),
-        name: 'QA TC-GL-006f Currency',
+        name: 'QA TC-GL-007f Currency',
         organizationId,
         tenantId,
         headers,
@@ -383,9 +385,9 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
     let roleId: string | null = null;
     let userId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-006c Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-007c Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-006c Organization ${stamp}`,
+        name: `QA TC-GL-007c Organization ${stamp}`,
         tenantId,
       });
 
@@ -426,9 +428,9 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
     let managerRoleId: string | null = null;
     let managerUserId: string | null = null;
     try {
-      tenantId = await createTenant(request, superadminToken, `QA TC-GL-006d Tenant ${stamp}`);
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-007d Tenant ${stamp}`);
       organizationId = await createOrganizationFixture(request, superadminToken, {
-        name: `QA TC-GL-006d Organization ${stamp}`,
+        name: `QA TC-GL-007d Organization ${stamp}`,
         tenantId,
       });
 

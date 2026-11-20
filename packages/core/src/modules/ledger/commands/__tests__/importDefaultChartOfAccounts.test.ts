@@ -48,6 +48,14 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+// The single-row update commands write through `runCrudCommandWrite`; run its
+// phases directly on the fake EM (same stub as `ledgerAccountTypes.test.ts`).
+jest.mock('@open-mercato/shared/lib/commands/runCrudCommandWrite', () => ({
+  runCrudCommandWrite: jest.fn(async ({ phases }: { phases: Array<() => unknown> }) => {
+    for (const phase of phases) await phase()
+  }),
+}))
+
 const ORG_A = '11111111-1111-4111-8111-111111111111'
 const ORG_B = '33333333-3333-4333-8333-333333333333'
 const TENANT = '22222222-2222-4222-8222-222222222222'
@@ -92,6 +100,18 @@ function loadImportCommandWithTemplate(template: unknown): ImportCommandHandler 
   jest.dontMock('../../lib/defaultChartOfAccounts')
   if (!handler) throw new Error('ledger.importDefaultChartOfAccounts was not registered')
   return handler as ImportCommandHandler
+}
+
+type UpdateHandler = { execute: (input: unknown, ctx: unknown) => Promise<Record<string, string>> }
+
+function loadRegisteredCommand(modulePath: string, commandId: string): UpdateHandler {
+  let handler: unknown
+  jest.isolateModules(() => {
+    require(modulePath)
+    handler = registerCommand.mock.calls.find(([candidate]) => candidate.id === commandId)?.[0]
+  })
+  if (!handler) throw new Error(`${commandId} was not registered`)
+  return handler as UpdateHandler
 }
 
 function seedAccountGroups(em: FakeEm, scope: { organizationId: string; tenantId: string }) {
@@ -494,7 +514,7 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     )
   })
 
-  it('imported rows are ordinary rows — no special "imported" marker field that could block future edits', async () => {
+  it('imported rows are ordinary rows: updateLedgerAccountType and updateLedgerAccount edit them like hand-made rows', async () => {
     const command = loadImportCommand()
     const em = buildFakeEm()
     seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })
@@ -502,18 +522,40 @@ describe('ledger.importDefaultChartOfAccounts', () => {
 
     await command.execute({ organizationId: ORG_A, tenantId: TENANT }, ctx)
 
-    const [typeRow] = em.tables.get('LedgerAccountType') ?? []
-    const [accountRow] = em.tables.get('LedgerAccount') ?? []
+    const typeRows = em.tables.get('LedgerAccountType') ?? []
+    const accountRows = em.tables.get('LedgerAccount') ?? []
     // Exactly the fields `createLedgerAccountType`/`createLedgerAccount`
-    // themselves would write — no extra "isImported"/"templateId"/
-    // "sourceTemplate" style field exists anywhere in this payload, so
-    // there is nothing for a future edit to be blocked by.
-    expect(Object.keys(typeRow).sort()).toEqual(
+    // themselves would write: no "isImported"/"templateId" style marker.
+    expect(Object.keys(typeRows[0]).sort()).toEqual(
       ['accountGroupId', 'createdAt', 'id', 'name', 'normalBalance', 'organizationId', 'number', 'tenantId', 'updatedAt'].sort(),
     )
-    expect(Object.keys(accountRow).sort()).toEqual(
+    expect(Object.keys(accountRows[0]).sort()).toEqual(
       ['accountTypeId', 'createdAt', 'description', 'id', 'organizationId', 'number', 'tenantId', 'updatedAt'].sort(),
     )
+
+    // The real single-row update commands accept imported rows.
+    const fixedAssets = typeRows.find((row) => row.number === '010')!
+    const buildings = accountRows.find((row) => row.number === '010-1')!
+    const updateType = loadRegisteredCommand('../ledgerAccountTypes', 'ledger.updateLedgerAccountType')
+    const updateAccount = loadRegisteredCommand('../ledgerAccounts', 'ledger.updateLedgerAccount')
+
+    await expect(updateType.execute({ id: fixedAssets.id, name: 'Środki trwałe (zmienione)' }, ctx)).resolves.toEqual({
+      ledgerAccountTypeId: fixedAssets.id,
+    })
+    expect(fixedAssets.name).toBe('Środki trwałe (zmienione)')
+
+    await expect(
+      updateAccount.execute({ id: buildings.id, number: '010-9', description: 'Budynki (zmienione)' }, ctx),
+    ).resolves.toEqual({ ledgerAccountId: buildings.id })
+    expect(buildings.number).toBe('010-9')
+    expect(buildings.description).toBe('Budynki (zmienione)')
+
+    // A type renumber cascades to the imported accounts exactly as it does for
+    // hand-made ones (`010` -> `011`, accounts `010-x` -> `011-x`).
+    await updateType.execute({ id: fixedAssets.id, number: '011' }, ctx)
+    expect(fixedAssets.number).toBe('011')
+    const renumbered = accountRows.filter((row) => row.accountTypeId === fixedAssets.id).map((row) => row.number).sort()
+    expect(renumbered).toEqual(['011-2', '011-3', '011-9'])
   })
 
   it('tenant/organization scoping: importing into one organization does not touch another organization\'s chart of accounts', async () => {
