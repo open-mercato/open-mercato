@@ -54,10 +54,16 @@ Classes taking part: every enabled class whose `subjectKinds` contains the subje
 1. Validate input (zod). If the lookup is non-empty, call `findSubjects(scope, lookup)` on every class that implements it; matches go to `related` in the result. They are not exported automatically — the admin runs a request per matched subject.
 2. Call `exportSubject(request)` on every taking-part class, in class-id order. A thrown error marks that class `failed`; the run continues and the result is `incomplete`.
 3. Write `subject.json`: request, scope, `generatedAt`, per class `{ classId, sections }`, `files` (`attachmentId`, `fileName`, `path`), `related`, `notCovered` (baseline tables), `coverLetter`.
-4. Copy every listed file into `<dir>/files/<attachmentId>-<fileName>` through the attachments seam (below). A file that cannot be read is listed with `error` and the run is `incomplete`.
+4. For CLI exports, copy every listed file through the attachments seam (below) using the shared [export destination rules](#export-destinations). An unreadable file or a rejected file destination is listed with `error` and the run is `incomplete`.
 5. Log one DSR entry (`privacy.subject.export`).
 
 `coverLetter` is the Art. 15(1)–(2) supplementary information as a field list. Filled by the run: (b) categories (class ids and section keys) and (d) retention, where the tenant has set a period for a class. Left for the controller, with the text kept in the deployment docs' DSR procedure: (a) purposes, (c) recipients, (d) retention criteria otherwise, (e) rights to rectification, erasure, restriction and objection, (f) complaint to a supervisory authority, (g) source, (h) automated decision-making, and Art. 15(2) transfer safeguards.
+
+### Export destinations
+
+Both CLI exports write into a fresh, private directory at the operator's `--out` path. The writer verifies the root and its destination path components, rejects symlinks and Windows junctions, and confirms each resolved destination is strictly inside its intended export subdirectory before writing. It creates output files exclusively and fails closed if it cannot guarantee containment or exclusive creation. An unsafe output root refuses the run before any export writes.
+
+Attachment paths are `files/<attachmentId>`, using the validated attachment UUID as the entire basename. Any original filename included in `subject.json` or the tenant manifest is display metadata only. An invalid UUID, a rejected destination, or an unreadable object gives that attachment a safe error code and makes the run `incomplete`.
 
 ### Erasure run
 
@@ -120,13 +126,15 @@ A daily system-scoped schedule (registered in `setup.ts` `seedDefaults`, pattern
 
 `mercato privacy export-tenant --tenant <id> [--organization <id>] --out <dir>` (CLI only). At the end of service the controller chooses return or deletion (Art. 28(3)(g)); this command is the return. It runs on a live or a soft-deleted tenant and writes nothing to the database.
 
-1. **Rows.** The same table inventory and rule resolver as tenant purge. For each table holding rows of the tenant, the MikroORM entity mapped to that table is read in keyset batches of 1000 through `findWithDecryption` with the tenant scope and written as `<dir>/tables/<table>.ndjson`. Children without `tenant_id` are read through the same parent rules. A table with no mapped entity is listed under `skipped`; it makes the run `incomplete` unless it is derived (the pgvector store) or exempt in its module's `privacy.ts`.
-2. **Left out.** Secrets and lookup keys never leave: every `hashField` of the encryption maps, and a fixed column list in `privacy/lib/tenantExport.ts` (`password_hash`, `token`, `token_hash`, `secret`, `client_secret`, `credentials`, `credentials_ref`, `integrity_hash`, `subject_salt`, `push_token`, …). Credential tables (`sessions`, `password_resets`, `customer_user_sessions`, `customer_user_password_resets`, `customer_user_email_verifications`, `integration_credentials`, `api_keys`, `user_mfa_methods`, `mfa_recovery_codes`) are left out whole. A unit test fails when a snapshot column whose name contains `password`, `token`, `secret`, `salt` or `credential` is neither on the list nor explicitly allowed.
-3. **Files.** For every `attachments` row of the tenant, the stored object is copied to `<dir>/files/<attachmentId>-<fileName>` through the storage driver. An unreadable object is listed with `error` and makes the run `incomplete`.
-4. **Manifest.** `<dir>/manifest.json`: tenant, `generatedAt`, per table the row count and left-out columns, left-out tables, `skipped` tables, file count and errors, `status: complete | incomplete`. Exit `0` complete, `2` incomplete.
+1. **Rows.** Use the tenant purge inventory and parent rules to resolve the selected tenant and optional organization scope. For each table eligible for export, read its mapped MikroORM entity through `findWithDecryption` in keyset batches of 1000. Write a fresh projection of the allowed fields to `<dir>/tables/<table>.ndjson`. Fields used for scoping or pagination follow the same rules as every other field. A table with no mapped entity or no valid field declaration is listed under `skipped` with its reason and makes the run `incomplete`. Derived and explicitly exempt tables remain listed omissions.
+2. **Fields.** Deny by default. The owning module explicitly declares the exportable mapped fields for each table through optional, additive metadata on its existing `privacy.ts` declaration. The exporter validates ownership and field names against the inventory and ORM mapping. New and undeclared fields stay out regardless of column name. Structured values require explicit leaf paths so new nested keys stay out too. An opaque payload stays out unless the owning module can declare a safe projection. Encryption-map `hashField` values, known credential fields and whole credential tables are always excluded, even if a declaration attempts to allow them. This includes session, reset and email-verification tables, `integration_credentials`, `api_keys`, `user_mfa_methods` and `mfa_recovery_codes`.
+3. **Files.** Read each in-scope attachment from the storage driver and write it using the [export destination rules](#export-destinations). Keep its UUID, relative path and, when allowed by the attachment field declaration, original display name in the manifest.
+4. **Manifest.** `<dir>/manifest.json` records the tenant, `generatedAt`, per-table row counts and names of omitted fields, omitted and skipped tables with reasons, per-attachment results, file count and errors, and `status: complete | incomplete`. Omitted field values never appear in the manifest, errors or logs. Exit `0` for complete, `2` for incomplete or `1` when an unsafe output root refuses the run.
 5. **Log.** One instance-level action-log entry, `privacy.tenant.export` (`tenantId` null, table counts, no values).
 
 Like tenant purge, this reads every module's tables, which the owner rule otherwise forbids. It is the second documented exception: an operator-run, read-only end-of-service duty for one departing tenant, through the ORM metadata and the decryption helpers. The operator hands the directory to the controller over an encrypted channel; the docs say so.
+
+The field declarations above supersede the tenant-export denylist recorded in the [scope analysis](../../analysis/ANALYSIS-2026-11-20-gdpr-scope-minimization.md).
 
 ### Tenant purge
 
@@ -156,7 +164,7 @@ This is the other deliberate exception to owner-only table access (tenant export
 | Files chosen by each handler's `filesToDelete`, not from every touched record | A touched record can be someone else's (an interaction the subject took part in) or legally retained (an invoice); only the owner knows which files go. |
 | Synchronous API; CLI for large subjects | Requests are rare; no job table or progress machinery is needed. |
 | A batch is a sequence of single-subject runs | Each subject keeps its own run id, retry and register entry; no new state is needed. |
-| Tenant export reads every table through ORM metadata | One departing tenant, read-only and operator-run; per-module tenant readers would add a seam to every module for a rare duty. |
+| Tenant export uses scoped ORM reads and module-owned field declarations | The runner handles decryption and serialization centrally. The owner decides which fields can leave. |
 
 ## Architecture
 
@@ -173,7 +181,7 @@ privacyService (privacy/lib/privacyService.ts, DI `privacyService`)
   ├─ event ──► privacy.subject.erased (persistent)
   ├─ batch erase ──► one erase run per listed subject
   ├─ retention worker ──► pruneExpired per class (moduleConfigService settings)
-  ├─ export-tenant ──► snapshot inventory · findWithDecryption · storage driver (read only)
+  ├─ export-tenant ──► snapshot inventory · field declarations · findWithDecryption · storage driver (read only)
   └─ purge-tenant ──► snapshot inventory · storage driver · searchService.purge
 ```
 
@@ -182,6 +190,7 @@ privacyService (privacy/lib/privacyService.ts, DI `privacyService`)
 | Need | Specified in |
 |---|---|
 | `privacy.ts` types, `Module.privacy` registry, root handlers for `auth:user`, `customers:person`, `customer_accounts:user` (incl. last-admin refusal), table inventory and baseline; a dry run's `touched` and `filesToDelete` list what a real run would change; refs carry `organizationId` | [contract](../../GDPR/2026-11-16-privacy-data-class-contract.md) |
+| Optional tenant-export field declarations on `PrivacyModuleDeclaration`, validated and collected through `Module.privacy` | [Tenant export](#tenant-export) |
 | Handlers for every other module, incl. `staff:team_member`; attachments seam `attachmentService.readByIds(scope, ids)` / `deleteByIds(scope, ids)` (today `readScoped`/`releaseScoped` need the owner record, organization and auth context, which the run does not hold); workflows `workflowPrivacyService.deleteTerminalInstance(scope, instanceId)` | [coverage](../../GDPR/2026-11-16-privacy-coverage.md) |
 | `actionLogService.stripForResources`, `stripped_at`; `audit_logs.action_log` class shell | [audit spec](../../GDPR/2026-11-16-audit-snapshot-redaction.md) |
 | Procedures: identity check, deadlines, cover-letter text, restore, legal hold, restriction | [deployment docs](../../GDPR/2026-11-16-gdpr-deployment-docs.md) |
@@ -243,6 +252,8 @@ mercato privacy purge-tenant --tenant <id> [--apply] [--out report.json]
 
 Additive: new module, routes, feature, event id, queue. No existing contract changes. `UPGRADE_NOTES.md`: "Enterprise `privacy` module: enable, grant `privacy.manage`, run `mercato privacy retention --register-schedule` once; retention is off until a tenant sets a period."
 
+The tenant-export metadata is optional on existing privacy declarations. Missing metadata leaves subject export, erasure and retention available. For tenant export, the manifest identifies in-scope tables that require a declaration before their rows can be included.
+
 ## Risks & Impact Review
 
 #### The wrong subject is erased
@@ -281,11 +292,18 @@ Additive: new module, routes, feature, event id, queue. No existing contract cha
 - **Residual risk**: The list is the controller's decision.
 
 #### A tenant export carries a secret
-- **Scenario**: A new module stores a credential in a column the deny-list does not name.
+- **Scenario**: A module adds a credential under an ordinary column name or within structured data.
 - **Severity**: High
 - **Affected area**: The export directory.
-- **Mitigation**: Encryption-map hash fields and a fixed column list are left out; credential tables are left out whole; a guard test fails on any unlisted column whose name suggests a secret.
-- **Residual risk**: A secret stored under an innocuous column name.
+- **Mitigation**: Project explicitly declared fields and structured leaf paths. Always exclude known credential fields, credential tables and lookup hashes. Test omission independently of field names.
+- **Residual risk**: A module author could misclassify an allowed field. Review declarations with the corresponding data model changes.
+
+#### An export writes outside its destination
+- **Scenario**: An attachment has a legacy display name or an output path contains a filesystem link.
+- **Severity**: High
+- **Affected area**: The operator's filesystem.
+- **Mitigation**: Use UUID-only attachment paths, a fresh private root, containment checks and exclusive file creation. Refuse linked or unsafe destinations.
+- **Residual risk**: The operator must keep the export directory private and use a filesystem that enforces the required write guarantees.
 
 #### Tenant purge hits the wrong tenant
 - **Scenario**: Operator passes a live tenant id.
@@ -306,7 +324,7 @@ Additive: new module, routes, feature, event id, queue. No existing contract cha
 ### Phase 1: Module and export
 1. Scaffold the module (files above), feature, i18n, registration in both `modules.ts`; `yarn generate`. Test: module loads, feature syncs.
 2. `privacyService.exportRequest`: class selection, `findSubjects`, `exportSubject`, `subject.json`, cover letter, `notCovered`, DSR entry. Unit tests with fake handlers (failed class → `incomplete`).
-3. File copy through the attachments seam; CLI `export`. Unit test: listed files land in `files/`.
+3. File copy through the attachments seam and shared destination rules. Unit-test that CLI `export` writes the listed files at their UUID paths.
 4. `POST /api/privacy/export` with zod + `openApi`. Integration TC-PRIVACY-001/002.
 
 ### Phase 2: Erasure
@@ -328,7 +346,7 @@ Additive: new module, routes, feature, event id, queue. No existing contract cha
 ### Phase 5: Tenant export and purge
 1. Table-rule resolver over the snapshot inventory; unit test that every table resolves.
 2. Files, search, rows, log; CLI `purge-tenant`. DB test TC-PRIVACY-011.
-3. Tenant export: decrypting reads per table, left-out columns and tables with their guard test, files, manifest, log; CLI `export-tenant`. DB test TC-PRIVACY-017.
+3. Tenant export reads and projects allowlisted fields, copies files using the shared destination rules, and writes the manifest and log. Unit-test default-deny projection, mandatory exclusions and missing declarations. Test destination containment and link rejection on supported platforms. Run TC-PRIVACY-017 against the CLI.
 
 
 ### Phase 6: Tandem closure
@@ -358,7 +376,7 @@ All tests create their own tenant data through API fixtures and clean up in `fin
 | TC-PRIVACY-014 | A fixture app module with an entity and no `privacy.ts` is enabled; export and erase reports list it under `notCovered` by module id, and the run status says the coverage is incomplete |
 | TC-PRIVACY-015 | A batch file with three subjects: a person without deals, a person with a sole-person deal, and the last holder of a protected role. The dry run lists each plan and the refusal; apply deletes the first person, anonymizes the second, leaves the third unchanged, exits 2, and writes one batch entry plus a start and end entry per erased subject; a re-run reports zero changes |
 | TC-PRIVACY-016 | **Column-level residue scan.** Runs after `TC-PRIVACY-013`'s erase apply, in a closure job whose environment starts with `TENANT_DATA_ENCRYPTION=no`, so every column is readable to SQL. The seeded names, emails and phones carry a per-run marker. Through `withClient` the test reads every table of the `public` schema and every `text`, `varchar` and `jsonb` column with `col::text ILIKE '%<marker>%'`. A hit fails the test unless its table is listed as `legal_retention` in the erase report (retained orders, invoices, consent proof) or is an age-bounded operational table named, with its window, in the retention spec. The failure message names each table and column. This catches a column a handler forgot, which the table-level coverage check cannot see |
-| TC-PRIVACY-017 | Tenant export of a fixture tenant with a person (encrypted email), an order, a form submission and an attachment: the person's email appears in plaintext in `customer_entities.ndjson`; no `password_hash`, `email_hash` or token column appears in any file; the attachment bytes match; no row of another tenant appears; the manifest lists the left-out tables and columns |
+| TC-PRIVACY-017 | Export a fixture tenant with a person, an order, a form submission and an attachment with a legacy display name. Check that the allowed encrypted email is decrypted, the attachment bytes match at its UUID path and a second tenant's rows and files stay out. Verify that known credential fields, lookup hashes, dummy credentials in unlisted ordinary-named fields and undeclared nested keys are absent from every export file. Withhold the declaration for one in-scope table and confirm no rows are written for it and the manifest reports it as skipped with exit 2. Exercise linked and pre-existing output destinations on supported platforms and verify files outside the export root stay unchanged. |
 
 ## Final Compliance Report — 2026-11-20
 
@@ -382,6 +400,9 @@ All tests create their own tenant data through API fixtures and clean up in `fin
 Compliant — ready for implementation once the OSS contract and root handlers land.
 
 ## Changelog
+### 2026-11-21
+- Hardened export destinations and specified default-deny tenant field projections and acceptance coverage.
+
 ### 2026-11-20
 - Rewritten to minimal GDPR scope.
 - Post-minimization review: batch erasure for periodic reviews, decrypted tenant export (Art. 28(3)(g)), erasure-register retention, and the column-level residue scan `TC-PRIVACY-016` in the closure gate.
