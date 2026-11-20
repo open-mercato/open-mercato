@@ -83,7 +83,7 @@ function SendSeparatelyField({ compose }: ComposeProps) {
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{compose.t('messages.compose.sendSeparately', 'Send separately')}</Label>
-      <div className="inline-flex h-9 items-center rounded-md border bg-background px-2">
+      <div className="flex h-9 items-center">
         <Switch
           id={id}
           checked={compose.sendSeparately}
