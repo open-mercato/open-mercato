@@ -31,7 +31,6 @@
   "attachments.library.actions.upload": "Prześlij",
   "attachments.library.confirm.delete": "Usunąć załącznik \"{{name}}\"? Tej operacji nie można cofnąć.",
   "attachments.library.delete": "Usuń załącznik",
-  "attachments.library.description": "Przeglądaj, taguj i zarządzaj wszystkimi plikami w tym obszarze roboczym.",
   "attachments.library.errors.delete": "Nie udało się usunąć załącznika.",
   "attachments.library.errors.load": "Nie udało się załadować załączników.",
   "attachments.library.errors.saveBlocked": "Zmiana załącznika została zablokowana przez walidację.",
