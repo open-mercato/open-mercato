@@ -1304,7 +1304,7 @@ test('reachability: every shipped declaring case reads its own capability set en
  * AND against the routing budgets that the same reads feed. Example sources carry no `/references/`
  * segment, so they count as INITIAL context — a growing example silently squeezes them otherwise.
  */
-test('reachability: every shipped declaring case can afford the entire surface it declares', async () => {
+test('reachability: every shipped declaring case can afford the entire surface it declares', async (context) => {
   const evaluator = await loadEvaluator()
   const root = stageExampleApp()
   try {
@@ -1312,6 +1312,10 @@ test('reachability: every shipped declaring case can afford the entire surface i
       const declaration = entry.context.exampleRoots[0]
       const files = evaluator.exampleReadAllowlist(entry, root)
       const bytes = files.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      if (entry.id === 'OMH-221') {
+        context.diagnostic(`${entry.id}: ${bytes} example bytes / ${declaration.maxBytes} root cap`)
+        assert.ok(declaration.maxBytes - bytes >= 164, `${entry.id}: ${bytes} example bytes need ${bytes + 164} with existing headroom`)
+      }
       assert.ok(files.length <= declaration.maxFiles, `${entry.id} declares ${files.length} files against maxFiles ${declaration.maxFiles}`)
       assert.ok(bytes <= declaration.maxBytes, `${entry.id} declares ${bytes} bytes against maxBytes ${declaration.maxBytes}`)
 

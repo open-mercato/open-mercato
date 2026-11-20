@@ -35,6 +35,7 @@ Status: in-progress
 | 4 | 4.2 | Verify discovery, resolution, mutations and no-policy compatibility | dispatch | done | this commit |
 | 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | done | this commit |
 | 4 | 4.4-review-fix | Preserve canonical order with explicit comparators | inline | done | this commit |
+| 4 | 4.4-budget-fix | Account for exact standalone context growth | dispatch | done | this commit |
 | 4 | 4.4 | Run and record the framework validation gates | dispatch | todo | — |
 | 5 | 5.1 | Add the single-definition extension authoring API | dispatch | todo | — |
 | 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | todo | — |
@@ -171,6 +172,10 @@ Framework spec item 14. Update `BACKWARD_COMPATIBILITY.md`, module-development/f
 #### 4.4-review-fix Preserve canonical order with explicit comparators
 
 Address the repository-wide sort audit with explicit UTF-16 ordering wherever the new framework serialized or compared sorted strings.
+
+#### 4.4-budget-fix Account for exact standalone context growth
+
+Treat the targeted standalone byte-cap failures as a compatibility regression. Preserve access rules, initial limits, and prior slack while accounting for the measured additions to each required file.
 
 #### 4.4 Run and record the framework validation gates
 
