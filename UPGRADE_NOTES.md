@@ -12,6 +12,12 @@
 
 **Action:** none required. If you relied on a submission having no attachments, filter out `kind: 'snapshot'`. If you consume `forms.invitation.sent` and want to tell the two paths apart, read `source` (absent on events emitted before this release).
 
+## Deal loss reasons seeded by customers (#8801)
+
+`customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
+
+`backfillDealLossReasonDictionary` and `BackfillDealLossReasonDictionaryResult` exported from `sales/lib/dictionaries` are deprecated (removal no earlier than 0.12.0); import them from `@open-mercato/core/modules/customers/lib/dealLossReasons`.
+
 ## Entity translation authorization and field registration (#9139)
 
 `GET /api/translations/:entityType/:entityId` now requires the target record's view
