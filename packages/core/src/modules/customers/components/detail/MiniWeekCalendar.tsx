@@ -240,6 +240,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
               variant="ghost"
               size="sm"
               key={day.toISOString()}
+              aria-pressed={isSelected}
               onClick={() => setSelectedDay(isSameDay(day, selectedDay ?? today) ? null : day)}
               className={cn(
                 'h-auto flex flex-col items-center border-r last:border-r-0 py-3 text-sm transition-colors cursor-pointer rounded-none',
