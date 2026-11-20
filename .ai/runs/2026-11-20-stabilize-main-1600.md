@@ -52,6 +52,8 @@ Newer main independently corrected the count in #10150 (`7d79c51b14`), so the su
 
 Local preparation is now available: immutable dependency install and build/generate/build passed. The host lacks native build tools; an isolated Node 24 Docker build produced the ignored SQLite binary and an in-memory SQLite probe passed. A long temporary directory exceeded the tsx IPC socket path limit; local validation uses `TMPDIR=/tmp`. i18n sync/usage and typechecking passed; the full unit run was intentionally stopped before app-building concurrently with the ephemeral harness, and must be completed later or proven by hosted checks. Do not claim the interrupted gate passed.
 
+The worker-disabled API run proved extraction, re-extraction, ACL/scope, purge, text-engine and panel tests pass, then reproduced a second race in `TC-ATT-STRUCT-006` twice: the second extracted section never acquires search tokens. The short-lived queue-drain child calls `process.exit(0)` after its worker returns, while the default query-index subscriber defers token work without awaiting it. Commit `d2b21f489e` sets the existing `OM_CACHE_SAFETY_ALWAYS_CONSISTENT=true` mode only in the child environment, making those derived writes part of the awaited worker lifecycle. The parent/app mode is preserved. Its regression fails before the change and passes after; combined focused coverage now passes 38 tests. No production subscriber or consistency defaults changed. The failed/interrupted API run is not claimed as passing; repeat the complete affected suite after this correction, including `TC-API-MSG-025` with its owning module selected.
+
 Claim run: `5032d9a6-7403-48b9-a8f0-93368de201fa`
 
 Engine: om-auto-create-pr (steps: 5, --loop: no)
@@ -67,7 +69,7 @@ PR: #10154
 
 ### Phase 2: Correct and verify
 
-- [x] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established. — 2fb9c77989, 787062c0e3
+- [x] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established. — 2fb9c77989, 787062c0e3, d2b21f489e
 - [ ] 2.2 Run configured validation and verify all applicable workflows, including 15 integration shards, on the exact PR head.
 
 ### Phase 3: Review and finalize
