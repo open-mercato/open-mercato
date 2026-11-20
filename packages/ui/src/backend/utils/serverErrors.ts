@@ -366,10 +366,12 @@ const ZOD_CODE_I18N_KEYS: Record<string, string> = {
   invalid_type: 'ui.forms.errors.invalidType',
 }
 
+const ZOD_DEFAULT_BOUND = String.raw`-?(?:\d+(?:\.\d+)?(?:e[+-]?\d+)?|Infinity)`
+const ZOD_DEFAULT_DATE = String.raw`(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{2} \d{4} \d{2}:\d{2}:\d{2} GMT[+-]\d{4} \([^()]+\)`
 const ZOD_DEFAULT_MESSAGE_PATTERNS: Record<string, RegExp> = {
-  too_big: /^(Too big(:|$)|(Number|BigInt) must be (exactly|less than)|(String|Array|Set) must contain (exactly|at most|under|less than) |Date must be (exactly|smaller than) )/,
-  too_small: /^(Too small(:|$)|(Number|BigInt) must be (exactly|greater than)|(String|Array|Set) must contain (exactly|at least|over|more than) |Date must be (exactly|greater than) )/,
-  invalid_type: /^(Invalid input(: expected |$)|Expected \S+, received \S+$|Required$)/,
+  too_big: new RegExp(`^(?:Too big: expected \\w+ to (?:be (?:<=?|exactly )(?:${ZOD_DEFAULT_BOUND}|${ZOD_DEFAULT_DATE})|have (?:<=?|exactly )${ZOD_DEFAULT_BOUND} (?:characters|bytes|items|entries|elements))|(?:Number|BigInt) must be (?:exactly|less than(?: or equal to)?) ${ZOD_DEFAULT_BOUND}|(?:String|Array) must contain (?:exactly|at most|under|less than) ${ZOD_DEFAULT_BOUND} (?:character|element)\\(s\\)|Date must be (?:exactly|smaller than(?: or equal to)?) ${ZOD_DEFAULT_DATE})$`),
+  too_small: new RegExp(`^(?:Too small: expected \\w+ to (?:be (?:>=?|exactly )(?:${ZOD_DEFAULT_BOUND}|${ZOD_DEFAULT_DATE})|have (?:>=?|exactly )${ZOD_DEFAULT_BOUND} (?:characters|bytes|items|entries|elements))|(?:Number|BigInt) must be (?:exactly equal to|greater than(?: or equal to)?) ${ZOD_DEFAULT_BOUND}|(?:String|Array) must contain (?:exactly|at least|over|more than) ${ZOD_DEFAULT_BOUND} (?:character|element)\\(s\\)|Date must be (?:exactly equal to|greater than(?: or equal to)?) ${ZOD_DEFAULT_DATE})$`),
+  invalid_type: /^(?:Invalid input: expected \S+, received \S+|Expected \S+, received \S+|Required)$/,
 }
 
 // Only Zod's own default wording is replaced by the code-based key; a validator

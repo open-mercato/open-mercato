@@ -1,3 +1,5 @@
+import { z as zodV3 } from 'zod/v3'
+import { z as zodV4 } from 'zod/v4'
 import {
   mapCrudServerErrorToFormErrors,
   normalizeCrudServerError,
@@ -224,6 +226,43 @@ describe('serverErrors helpers', () => {
     for (const [code, message] of defaults) {
       expect(resolveFieldIssueTranslation({ code, message }, message).key).not.toBe('')
     }
+  })
+
+  it('recognizes actual Zod v3 and v4 defaults across bounds and types', () => {
+    for (const zod of [zodV3, zodV4]) {
+      const cases = [
+        zod.string().max(1).safeParse('long'),
+        zod.string().min(4).safeParse('x'),
+        zod.number().max(-0.5).safeParse(1),
+        zod.number().min(1e21).safeParse(1),
+        zod.array(zod.string()).max(0).safeParse(['x']),
+        zod.array(zod.string()).min(1).safeParse([]),
+        zod.bigint().max(BigInt(1)).safeParse(BigInt(2)),
+        zod.bigint().min(BigInt(2)).safeParse(BigInt(1)),
+        zod.date().max(new Date('2020-01-01')).safeParse(new Date('2021-01-01')),
+        zod.date().min(new Date('2021-01-01')).safeParse(new Date('2020-01-01')),
+        zod.string().safeParse(1),
+        zod.number().safeParse(undefined),
+      ]
+      for (const result of cases) {
+        expect(result.success).toBe(false)
+        if (result.success) continue
+        for (const issue of result.error.issues) {
+          expect(resolveFieldIssueTranslation(issue, issue.message).key).not.toBe('')
+        }
+      }
+    }
+  })
+
+  it.each([
+    ['too_big', 'Too big: use a shorter person name'],
+    ['too_small', 'Too small: select at least one warehouse'],
+    ['invalid_type', 'Invalid input: expected a valid currency'],
+    ['too_big', 'Number must be less than or equal to 100 for this policy'],
+    ['too_small', 'Too small: expected string to have >=1 characters; enter a name'],
+    ['invalid_type', 'Invalid input: expected string, received undefined; enter a name'],
+  ])('preserves custom wording for %s even when it starts like a default', (code, message) => {
+    expect(resolveFieldIssueTranslation({ code, message }, message)).toEqual({ key: '', fallback: message })
   })
 
   it('resolveFieldIssueTranslation preserves explicit validator messages on known Zod codes', () => {

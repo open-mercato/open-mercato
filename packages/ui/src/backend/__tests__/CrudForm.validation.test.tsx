@@ -315,6 +315,11 @@ describe('CrudForm validation state', () => {
       expected: 'Value is too large for this policy.',
     },
     {
+      name: 'custom validator text with a default-message prefix',
+      message: 'Too big: use a shorter person name',
+      expected: 'Too big: use a shorter person name',
+    },
+    {
       name: 'custom validator text',
       message: 'Last name is far too long for our records',
       expected: 'Last name is far too long for our records',
