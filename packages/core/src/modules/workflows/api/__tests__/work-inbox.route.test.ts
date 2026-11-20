@@ -130,9 +130,9 @@ function runList(query = ''): Promise<Response> {
   return listWorkInboxRoute(new NextRequest(`http://localhost/api/workflows/work-inbox${query}`))
 }
 
-function runClaimNext(): Promise<Response> {
+function runClaimNext(query = ''): Promise<Response> {
   return claimNextRoute(
-    new NextRequest('http://localhost/api/workflows/work-inbox/next', { method: 'POST' }),
+    new NextRequest(`http://localhost/api/workflows/work-inbox/next${query}`, { method: 'POST' }),
   )
 }
 
@@ -235,6 +235,37 @@ describe('GET /api/workflows/work-inbox — filters and paging', () => {
     const body = await response.json()
 
     expect(body.pagination).toMatchObject({ limit: 50, offset: 0 })
+  })
+
+  test.each([100001, 100050, 999999999].flatMap((offset) => [
+    { offset, method: 'GET', run: runList },
+    { offset, method: 'POST', run: runClaimNext },
+  ]))('$method rejects offset $offset before reading a provider or claiming a task', async ({ offset, run }) => {
+    const providerList = jest.spyOn(userTaskWorkInboxSource, 'list')
+    try {
+      const response = await run(`?limit=10&offset=${offset}`)
+      expect(response.status).toBe(400)
+      expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
+      expect(providerList).not.toHaveBeenCalled()
+      expect(mockEm.findAndCount).not.toHaveBeenCalled()
+      expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+    } finally {
+      providerList.mockRestore()
+    }
+  })
+
+  test('accepts the maximum offset without changing the provider page', async () => {
+    const providerList = jest.spyOn(userTaskWorkInboxSource, 'list')
+    try {
+      const response = await runList('?limit=10&offset=100000')
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.pagination).toMatchObject({ limit: 10, offset: 100000, hasMore: false })
+      expect(providerList.mock.calls[0][0]).toMatchObject({ limit: 10, offset: 100000 })
+    } finally {
+      providerList.mockRestore()
+    }
   })
 
   test('carries the entity-type, role, priority and status filters into the query', async () => {
