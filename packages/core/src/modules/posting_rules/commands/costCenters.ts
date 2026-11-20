@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -11,6 +12,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { COST_CENTER_CODE_UNIQUE, withUniqueConflict } from '../lib/uniqueConflict'
 import { resolveRecordScopeFilter } from '../lib/recordScope'
+import { lockLiveCostCenter } from '../lib/costCenterLock'
 import { CostCenter } from '../data/entities'
 import {
   costCenterCreateSchema,
@@ -247,15 +249,6 @@ const deleteCostCenterCommand: CommandHandler<CostCenterDeleteInput, { costCente
       )
     }
 
-    if (await costCenterReferencedByRule(em, record.id, scope)) {
-      throw conflict(
-        translate(
-          'posting_rules.errors.costCenterStillInUseCannotDelete',
-          'This cost centre cannot be deleted because a default account posting rule still uses it.',
-        ),
-      )
-    }
-
     await runCrudCommandWrite({
       ctx,
       em,
@@ -269,7 +262,21 @@ const deleteCostCenterCommand: CommandHandler<CostCenterDeleteInput, { costCente
         identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
       }),
       phases: [
-        () => {
+        async () => {
+          // The reference check runs under a `for update` lock on the cost
+          // centre, inside the delete's transaction, so a concurrent rule
+          // create/update (which takes `for share` on the same row) cannot
+          // slip a reference in between the check and the delete.
+          const locked = await lockLiveCostCenter(em, record.id, scope, LockMode.PESSIMISTIC_WRITE)
+          if (!locked) throw notFound(translate('posting_rules.errors.costCenterNotFound', 'Cost centre not found.'))
+          if (await costCenterReferencedByRule(em, record.id, scope)) {
+            throw conflict(
+              translate(
+                'posting_rules.errors.costCenterStillInUseCannotDelete',
+                'This cost centre cannot be deleted because a default account posting rule still uses it.',
+              ),
+            )
+          }
           record.deletedAt = new Date()
           record.updatedAt = new Date()
           em.persist(record)

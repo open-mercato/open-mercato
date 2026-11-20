@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -10,10 +11,11 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { LedgerAccount } from '../../ledger/data/entities'
-import { CostCenter, DefaultAccountPostingRule } from '../data/entities'
+import { DefaultAccountPostingRule } from '../data/entities'
 import { isAccountInPolishGroup } from '../lib/reclassify'
 import { DEFAULT_ACCOUNT_POSTING_RULE_SOURCE_UNIQUE, withUniqueConflict } from '../lib/uniqueConflict'
 import { resolveRecordScopeFilter } from '../lib/recordScope'
+import { lockLiveCostCenter } from '../lib/costCenterLock'
 import {
   defaultAccountPostingRuleCreateSchema,
   defaultAccountPostingRuleUpdateSchema,
@@ -95,18 +97,20 @@ const SOURCE_NOT_ZESPOL_4_FALLBACK = 'The source account must be an account clas
 const TARGET_NOT_ZESPOL_5_KEY = 'posting_rules.errors.targetAccountNotClass5'
 const TARGET_NOT_ZESPOL_5_FALLBACK = 'The target account must be an account class 5 (costs by function) account.'
 
-async function requireExistingCostCenter(
+/**
+ * `defaultCostCenterId` must name a live cost centre of the caller's scope.
+ * Runs inside the rule write's transaction and holds a `for share` lock on the
+ * cost centre until commit, so a concurrent `deleteCostCenter` (which takes
+ * `for update` on the same row before its reference check) cannot delete it
+ * between this check and the rule insert/update — see `lib/costCenterLock.ts`.
+ */
+async function requireLiveCostCenterLocked(
   em: EntityManager,
   costCenterId: string,
   scope: Scope,
   translate: (key: string, fallback: string) => string,
 ): Promise<void> {
-  const costCenter = await em.findOne(CostCenter, {
-    id: costCenterId,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
+  const costCenter = await lockLiveCostCenter(em, costCenterId, scope, LockMode.PESSIMISTIC_READ)
   if (!costCenter) {
     throw conflict(translate('posting_rules.errors.defaultCostCenterNotFoundForOrg', 'The specified default cost centre does not exist for this organization.'))
   }
@@ -145,9 +149,6 @@ const createDefaultAccountPostingRuleCommand: CommandHandler<
     )
     await requireAccountInPolishGroup(em, parsed.sourceAccountId, scope, '4', translate, SOURCE_NOT_ZESPOL_4_KEY, SOURCE_NOT_ZESPOL_4_FALLBACK)
     await requireAccountInPolishGroup(em, parsed.targetAccountId, scope, '5', translate, TARGET_NOT_ZESPOL_5_KEY, TARGET_NOT_ZESPOL_5_FALLBACK)
-    if (parsed.defaultCostCenterId) {
-      await requireExistingCostCenter(em, parsed.defaultCostCenterId, scope, translate)
-    }
 
     let record!: DefaultAccountPostingRule
     await withUniqueConflict(
@@ -168,7 +169,10 @@ const createDefaultAccountPostingRuleCommand: CommandHandler<
             identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
           }),
           phases: [
-            () => {
+            async () => {
+              if (parsed.defaultCostCenterId) {
+                await requireLiveCostCenterLocked(em, parsed.defaultCostCenterId, scope, translate)
+              }
               const now = new Date()
               record = em.create(DefaultAccountPostingRule, {
                 id: randomUUID(),
@@ -224,9 +228,6 @@ const updateDefaultAccountPostingRuleCommand: CommandHandler<
       )
       await requireAccountInPolishGroup(em, parsed.targetAccountId, scope, '5', translate, TARGET_NOT_ZESPOL_5_KEY, TARGET_NOT_ZESPOL_5_FALLBACK)
     }
-    if (parsed.defaultCostCenterId !== undefined && parsed.defaultCostCenterId !== null) {
-      await requireExistingCostCenter(em, parsed.defaultCostCenterId, scope, translate)
-    }
 
     await runCrudCommandWrite({
       ctx,
@@ -242,7 +243,10 @@ const updateDefaultAccountPostingRuleCommand: CommandHandler<
         identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
       }),
       phases: [
-        () => {
+        async () => {
+          if (parsed.defaultCostCenterId) {
+            await requireLiveCostCenterLocked(em, parsed.defaultCostCenterId, scope, translate)
+          }
           if (parsed.targetAccountId !== undefined) record.targetAccountId = parsed.targetAccountId
           if (parsed.defaultCostCenterId !== undefined) record.defaultCostCenterId = parsed.defaultCostCenterId ?? null
           record.updatedAt = new Date()
