@@ -5,8 +5,9 @@
  * provider call to force an interleaving; the jittered cases repeat each pairing and fail on any
  * lost update (status, metadata) or duplicate / stale status event.
  *
- * Gated on OM_PAYMENT_GATEWAYS_RACE_DATABASE_URL — a throwaway database, since the suite drops
- * and recreates the payment gateway tables. Run it with, for example:
+ * OM_PG_INTEGRATION=1 provisions a disposable PostgreSQL container in the core CI job.
+ * Ordinary unit runs skip this suite. For a manual run, supply an empty throwaway loopback
+ * database named with a race/test segment via OM_PAYMENT_GATEWAYS_RACE_DATABASE_URL:
  *
  *   docker run -d --rm --name om-pgw-race -e POSTGRES_PASSWORD=race -e POSTGRES_USER=race \
  *     -e POSTGRES_DB=race -p 55473:5432 postgres:16-alpine
@@ -18,6 +19,7 @@ import 'reflect-metadata'
 import { randomUUID } from 'node:crypto'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
+import type { StartedTestContainer } from 'testcontainers'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { markQueueJobOrigin } from '@open-mercato/shared/lib/queue/dispatchOrigin'
 import {
@@ -35,14 +37,14 @@ import { createPaymentGatewayService } from '../gateway-service'
 import { processPaymentGatewayWebhookJob } from '../webhook-processor'
 import handleStatusPoll from '../../workers/status-poller'
 
-const DATABASE_URL = process.env.OM_PAYMENT_GATEWAYS_RACE_DATABASE_URL ?? ''
+const MANUAL_DATABASE_URL = process.env.OM_PAYMENT_GATEWAYS_RACE_DATABASE_URL ?? ''
 const ROUNDS = Number(process.env.OM_PAYMENT_GATEWAYS_RACE_ROUNDS ?? '50')
 const PARALLEL = Number(process.env.OM_PAYMENT_GATEWAYS_RACE_PARALLEL ?? '10')
 const POOL_MAX = Number(process.env.OM_PAYMENT_GATEWAYS_RACE_POOL_MAX ?? '10')
 const PROVIDER_KEY = 'race-provider'
 const TENANT_ID = '00000000-0000-4000-8000-0000000000aa'
 
-const describeWithDatabase = DATABASE_URL ? describe : describe.skip
+const describeWithDatabase = process.env.OM_PG_INTEGRATION === '1' || MANUAL_DATABASE_URL ? describe : describe.skip
 
 type ProviderSession = {
   pollStatus: UnifiedPaymentStatus
@@ -126,6 +128,22 @@ const integrationLogService = {
 }
 
 let orm: MikroORM
+let postgres: StartedTestContainer | undefined
+
+function validateManualDatabaseUrl(value: string): string {
+  const url = new URL(value)
+  const database = url.pathname.slice(1)
+  if (
+    !['postgres:', 'postgresql:'].includes(url.protocol)
+    || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+    || url.search
+    || !/^[a-z][a-z0-9_-]*$/i.test(database)
+    || !/(?:^|[_-])(?:race|test)(?:[_-]|$)/i.test(database)
+  ) {
+    throw new Error('[internal] race database must be an empty throwaway loopback PostgreSQL database with a race/test name and no URL query')
+  }
+  return value
+}
 
 function buildService(em: EntityManager) {
   return createPaymentGatewayService({
@@ -262,15 +280,28 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 describeWithDatabase('payment gateway status poll vs concurrent writers (real Postgres)', () => {
   beforeAll(async () => {
+    let clientUrl: string
+    if (MANUAL_DATABASE_URL) {
+      clientUrl = validateManualDatabaseUrl(MANUAL_DATABASE_URL)
+    } else {
+      const { GenericContainer, Wait } = await import('testcontainers')
+      postgres = await new GenericContainer('postgres:16-alpine')
+        .withEnvironment({ POSTGRES_DB: 'race', POSTGRES_USER: 'race', POSTGRES_PASSWORD: 'race' })
+        .withExposedPorts(5432)
+        .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections', 2))
+        .withStartupTimeout(60_000)
+        .start()
+      clientUrl = `postgresql://race:race@${postgres.getHost()}:${postgres.getMappedPort(5432)}/race`
+    }
     orm = await MikroORM.init({
-      clientUrl: DATABASE_URL,
+      clientUrl,
       entities: [GatewayTransaction, GatewayPaymentOperation, GatewaySessionInitialization, WebhookProcessedEvent],
       metadataProvider: ReflectMetadataProvider,
       allowGlobalContext: true,
       debug: false,
       pool: { min: 0, max: POOL_MAX },
     })
-    await orm.schema.refresh()
+    await orm.schema.create()
     registerGatewayAdapter(raceAdapter)
     setGlobalEventBus({
       emit: async (id: string, payload: unknown) => {
@@ -278,11 +309,15 @@ describeWithDatabase('payment gateway status poll vs concurrent writers (real Po
         if (transactionId) emitted.push({ id, transactionId })
       },
     })
-  }, 60_000)
+  }, 120_000)
 
   afterAll(async () => {
-    await orm?.close(true)
-  })
+    try {
+      await orm?.close(true)
+    } finally {
+      await postgres?.stop({ timeout: 10_000 })
+    }
+  }, 30_000)
 
   describe('deterministic interleavings', () => {
     it('poll that read authorized does not overwrite a partial refund committed by webhooks', async () => {
