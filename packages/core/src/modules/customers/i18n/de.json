@@ -34,6 +34,7 @@
   "customers.activities.errors.phoneInvalid": "Geben Sie eine gültige Telefonnummer mit Ländervorwahl ein (z. B. +49 30 1234567)",
   "customers.activities.errors.phoneRequired": "Telefonnummer ist für Anrufaktivitäten erforderlich",
   "customers.activities.errors.timeRequired": "Uhrzeit ist erforderlich",
+  "customers.activities.errors.timeRequiresDate": "Geben Sie beim Ändern der Uhrzeit ein gültiges Datum an.",
   "customers.activities.filters.clearAll": "Clear filters",
   "customers.activities.filters.dateRange": "Date range",
   "customers.activities.loadFailed": "Aktivitäten konnten nicht geladen werden.",

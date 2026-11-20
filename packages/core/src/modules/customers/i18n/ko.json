@@ -34,6 +34,7 @@
   "customers.activities.errors.phoneInvalid": "국가 코드를 포함한 유효한 전화번호를 입력하세요(예: +1 212 555 1234)",
   "customers.activities.errors.phoneRequired": "통화 활동에는 전화번호가 필요합니다",
   "customers.activities.errors.timeRequired": "시간은 필수입니다",
+  "customers.activities.errors.timeRequiresDate": "시간을 변경할 때 유효한 날짜를 입력하세요.",
   "customers.activities.filters.clearAll": "필터 지우기",
   "customers.activities.filters.dateRange": "날짜 범위",
   "customers.activities.loadFailed": "활동을 불러오지 못했습니다.",

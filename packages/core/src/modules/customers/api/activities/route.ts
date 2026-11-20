@@ -20,7 +20,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
-import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
+import { activityCreateSchema, activityUpdateSchema, interactionUpdateSchema } from '../../data/validators'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import {
   mapInteractionRecordToActivitySummary,
@@ -693,6 +693,17 @@ export async function PUT(request: Request): Promise<Response> {
       delete guardedBody[alias.from]
     }
     const parsed = activityUpdateBodySchema.parse(guardedBody)
+    if (parsed.time) {
+      const schedule = interactionUpdateSchema.parse({ id: parsed.id, date: parsed.date, time: parsed.time })
+      if (!schedule.scheduledAt) {
+        throw new CrudHttpError(400, {
+          error: translate('customers.errors.validationFailed', 'Validation failed'),
+          fieldErrors: {
+            time: translate('customers.activities.errors.timeRequiresDate', 'Provide a valid date when changing the time.'),
+          },
+        })
+      }
+    }
     const guardUserId = resolveGuardUserId(auth)
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,

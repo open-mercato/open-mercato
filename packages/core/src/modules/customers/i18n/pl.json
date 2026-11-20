@@ -34,6 +34,7 @@
   "customers.activities.errors.phoneInvalid": "Wprowadź prawidłowy numer telefonu z numerem kierunkowym kraju (np. +48 123 456 789)",
   "customers.activities.errors.phoneRequired": "Numer telefonu jest wymagany dla aktywności typu Połączenie",
   "customers.activities.errors.timeRequired": "Godzina jest wymagana",
+  "customers.activities.errors.timeRequiresDate": "Podaj prawidłową datę przy zmianie godziny.",
   "customers.activities.filters.clearAll": "Wyczyść filtry",
   "customers.activities.filters.dateRange": "Zakres dat",
   "customers.activities.loadFailed": "Nie udało się załadować aktywności.",
