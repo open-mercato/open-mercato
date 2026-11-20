@@ -127,6 +127,10 @@ mailbox therefore has one link (and one `communication_channels.message.sent` ev
 interaction) per recipient. Code that looks a link up by `message_id` alone and expects a single row
 should list the links or filter on `externalParticipantId: null` for the joint link.
 
+**Rollback:** the migration's `down` deletes every link with `external_participant_id IS NOT NULL`
+before restoring the single `(message_id)` unique constraint, so reply threading and CRM
+interactions of separate sends made after the upgrade are lost. Prefer rolling forward.
+
 `sendAsUser` / `POST /api/communication_channels/send-as-user` accept `sendSeparately?: boolean`
 (400 with `fieldErrors.cc` / `fieldErrors.bcc` when combined with copies for more than one "to"), and
 CC/BCC addressees now become message participants. Outbound delivery addresses the adapter from the
