@@ -10,7 +10,7 @@ The merged task reader includes native interactions, but its compatibility proje
 
 ## Proposed solution and architecture
 
-Keep the merged reader and its existing 403-only legacy fallback. Add optional `todoStatus` to canonical task projections and its OpenAPI response schema. The profile retains that value, falling back to the existing boolean when older servers or legacy providers omit it.
+Keep the merged reader and its existing 403-only legacy fallback. Suppress the shared access-denied notice for the merged read probe, since a legacy-only role can recover through the adapter. Add optional `todoStatus` to canonical task projections and its OpenAPI response schema. The profile retains that value, falling back to the existing boolean when older servers or legacy providers omit it.
 
 For a canonical-source task whose current status is neither planned nor done, use the existing dictionary-backed interaction editor and existing `PUT /api/customers/interactions` endpoint. Map only supplied title/body/schedule/priority/custom fields and retain the loaded optimistic-lock version. Omit custom values that are empty both before and after submission, using the existing customer custom-value emptiness semantics, so an untouched unchecked default is not materialized. Retain explicit clears of previously populated fields. Existing adapter and external-provider planned/done writes keep their existing endpoint and boolean payload. Existing server permissions, mutation guards, command effects and tenant/organization scope remain authoritative.
 
@@ -34,6 +34,8 @@ Existing clients ignore the optional field. New clients fall back to the boolean
 
 `TC-CRM-090-task-profile-navigation.spec.ts` creates its own person and native tasks. For canceled/in_progress/waiting with unified mode off: assert merged GET status, canceled checkbox state, title-only dialog save through canonical PUT, whole-record preservation apart from title/version, reload persistence and screenshot. Existing navigation/reload cases cover both interaction modes. Hook/component/mapper regressions cover exact status, endpoint selection, old boolean/provider behavior and version forwarding.
 
+The same spec uses tenant-bound actors to exercise both sets of endpoint permissions in compatibility and unified modes. It verifies that a legacy-only reader receives a real 403 from the merged endpoint, then sees the adapter task through the fallback on the compatibility profile. It also checks denial on both routes without either grant, allowed access with a wildcard grant, and sibling-organization isolation for reads and writes.
+
 ## Final compliance report
 
 Same customers module; additive response only; existing guards, scoped commands and version headers retained. No hand-edited generated output. Focused tests, generation, type checks and fresh hosted CI are recorded in the PR review; complex QA is a separate gate.
@@ -43,3 +45,5 @@ Same customers module; additive response only; existing guards, scoped commands 
 - 2026-11-14: Documented the compatibility-mode native status repair and exact regression coverage.
 
 - 2026-11-14: Production whole-record QA exposed untouched checkbox-default persistence; preserve absent/empty custom values while retaining intentional clears.
+
+- 2026-11-20: Added real dispatcher and browser coverage for the role-dependent task readers.
