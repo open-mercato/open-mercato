@@ -170,6 +170,14 @@ function createSearchServices(
         : entityConfig
     }),
   }))
+  // Resolve encryption service for decrypting presenter data
+  let encryptionService: TenantDataEncryptionService | null = null
+  try {
+    encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+  } catch {
+    // Encryption service not available, presenters won't be decrypted
+  }
+
   const strategies: SearchStrategy[] = []
 
   // Token strategy (always available unless explicitly skipped)
@@ -193,7 +201,7 @@ function createSearchServices(
       const primaryDriver = drivers?.[0]
 
       if (embeddingService && primaryDriver) {
-        strategies.push(new VectorSearchStrategy(embeddingService, primaryDriver))
+        strategies.push(new VectorSearchStrategy(embeddingService, primaryDriver, { encryptionService }))
       }
     } catch {
       // Vector module not available, skipping VectorSearchStrategy
@@ -266,14 +274,6 @@ function createSearchServices(
     queryEngine = container.resolve<QueryEngine>('queryEngine')
   } catch {
     // QueryEngine not available, reindex will be disabled
-  }
-
-  // Resolve encryption service for decrypting presenter data
-  let encryptionService: TenantDataEncryptionService | null = null
-  try {
-    encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
-  } catch {
-    // Encryption service not available, presenters won't be decrypted
   }
 
   // Create presenter enricher for database-based presenter resolution
