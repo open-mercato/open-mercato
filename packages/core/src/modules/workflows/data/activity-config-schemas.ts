@@ -147,6 +147,24 @@ export const agentReviewConfigSchema = z.object({
 })
 export type AgentReviewConfig = z.infer<typeof agentReviewConfigSchema>
 
+// Per-call model settings for an INVOKE_AGENT step. A local copy of the
+// ai-assistant HTTP contract (`aiAgentHttpCallSettingsSchema`): ai-assistant is
+// an optional peer of core, so the workflow schemas must not import it at load
+// time. `invoke-agent-call-settings-parity.test.ts` keeps the two in step.
+export const invokeAgentCallSettingsSchema = z
+  .object({
+    temperature: z.number().min(0).max(2).optional(),
+    topP: z.number().min(0).max(1).optional(),
+    topK: z.number().int().min(1).max(1000).optional(),
+    maxOutputTokens: z.number().int().min(1).max(32_768).optional(),
+    seed: z.number().int().optional(),
+    stopSequences: z.array(z.string().min(1).max(64)).max(4).optional(),
+    presencePenalty: z.number().min(-2).max(2).optional(),
+    frequencyPenalty: z.number().min(-2).max(2).optional(),
+  })
+  .strict()
+export type InvokeAgentCallSettings = z.infer<typeof invokeAgentCallSettingsSchema>
+
 // INVOKE_AGENT activity configuration — runs a callable agent (area 02a) and
 // dispositions any proposal. `onResult` is carried verbatim to the
 // agent_orchestrator disposition service.
@@ -186,6 +204,12 @@ export const invokeAgentConfigSchema = z.object({
   // `alwaysAsk` and a threshold can BOTH end in a human review, so the two
   // decisions are orthogonal.
   review: agentReviewConfigSchema.optional(),
+  // Optional per-call model settings (temperature, seed, maxOutputTokens, ...)
+  // merged over the agent's own modelSettings for this step's run only. Same
+  // strict, capped contract as the agent HTTP run doors; no providerOptions.
+  // Static numbers only: a `{{context.*}}` token interpolates to a string and
+  // fails validation, which fails the step.
+  callSettings: invokeAgentCallSettingsSchema.optional(),
 })
 export type InvokeAgentConfig = z.infer<typeof invokeAgentConfigSchema>
 

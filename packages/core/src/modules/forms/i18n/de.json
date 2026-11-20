@@ -185,6 +185,7 @@
   "forms.errors.invitation_revoked": "Diese Einladung wurde widerrufen.",
   "forms.errors.invitation_submitted": "Diese Einladung wurde bereits zum Einreichen verwendet.",
   "forms.errors.locales_empty": "Ein Formular muss mindestens eine Sprache unterstützen.",
+  "forms.errors.logo_storage_unavailable": "Der Logo-Speicher ist nicht verfügbar. Aktivieren Sie das Anhänge-Modul, um ein Logo hochzuladen.",
   "forms.errors.no_op_publish": "Keine Änderungen zum Veröffentlichen — das Schema entspricht der aktuell veröffentlichten Version.",
   "forms.errors.not_found": "Nicht gefunden.",
   "forms.errors.organization_required": "Ein Organisationskontext ist erforderlich.",

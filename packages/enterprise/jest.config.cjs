@@ -8,6 +8,7 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^@open-mercato/ai-assistant/(.*)$': '<rootDir>/../ai-assistant/src/$1',
     '^@open-mercato/enterprise/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
     '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',

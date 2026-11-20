@@ -30,6 +30,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { USER_TASK_INBOX_KIND } from '../../tasks/serialize'
 import { serializeWorkInboxRow } from '../../../lib/work-inbox/provider'
 import { parseWorkInboxQuery } from '../../../lib/work-inbox/query'
+import { WORKFLOW_LIST_MAX_OFFSET, WORKFLOW_LIST_OFFSET_ERROR } from '../../../data/pagination'
 import { toUserTaskWorkInboxRow } from '../../../lib/work-inbox/user-task-source'
 import type { WorkInboxService } from '../../../lib/work-inbox/service'
 import type { TaskHandlerService } from '../../../lib/task-handler'
@@ -84,6 +85,9 @@ export async function POST(request: NextRequest) {
 
     const roles = auth.roles ?? []
     const query = parseWorkInboxQuery(new URL(request.url).searchParams, new Date())
+    if (query.offset > WORKFLOW_LIST_MAX_OFFSET) {
+      return NextResponse.json({ error: WORKFLOW_LIST_OFFSET_ERROR }, { status: 400 })
+    }
     const workInboxService = container.resolve<WorkInboxService>('workInboxService')
 
     // The candidate list is a READ, so it is subject to the same §6.4 rule as
@@ -164,7 +168,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'The claimed item, or null when nothing was claimable', schema: workInboxClaimNextResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Missing tenant or organization context', schema: workflowErrorSchema },
+        { status: 400, description: 'Missing tenant or organization context, or requested offset exceeds the workflow list limit', schema: workflowErrorSchema },
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
       ],

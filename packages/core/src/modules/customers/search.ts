@@ -11,6 +11,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/interactionCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { defaultEncryptionMaps } from './encryption'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
@@ -429,7 +430,9 @@ function formatDealValue(record: Record<string, unknown>): string | undefined {
   const amount = record.value_amount ?? record.valueAmount
   if (!amount) return undefined
   const currency = record.value_currency ?? record.valueCurrency ?? ''
-  return currency ? `${amount} ${currency}` : String(amount)
+  const parsedAmount = parseDecimal(amount)
+  const amountText = parsedAmount ? decimalToString(parsedAmount) : String(amount)
+  return currency ? `${amountText} ${currency}` : amountText
 }
 
 function snippet(text: unknown, max = 140): string | undefined {
@@ -617,7 +620,7 @@ function resolvePersonPresenter(
   if (summary) subtitlePieces.push(summary)
   return {
     title: String(title),
-    subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
+    subtitle: subtitlePieces.length ? subtitlePieces.join(', ') : undefined,
     icon: 'user',
     badge: pickValue(entity, 'display_name', 'displayName')
       ? translate('customers.search.badge.person', 'Person')
@@ -671,7 +674,7 @@ function resolveCompanyPresenter(
   }
   return {
     title: String(title),
-    subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
+    subtitle: subtitlePieces.length ? subtitlePieces.join(', ') : undefined,
     icon: 'building',
     badge: pickValue(entity, 'display_name', 'displayName')
       ? translate('customers.search.badge.company', 'Company')
@@ -1000,7 +1003,7 @@ export const searchConfig: SearchModuleConfig = {
           text: lines,
           presenter: {
             title: String(record.title ?? t('customers.search.fallback.deal', 'Deal')),
-            subtitle: subtitleParts.join(' · ') || undefined,
+            subtitle: subtitleParts.join(', ') || undefined,
             icon: 'briefcase',
             badge: t('customers.search.badge.deal', 'Deal'),
           },
@@ -1028,7 +1031,7 @@ export const searchConfig: SearchModuleConfig = {
 
         return {
           title: title ?? t('customers.search.fallback.deal', 'Deal'),
-          subtitle: subtitleParts.length ? subtitleParts.join(' · ') : undefined,
+          subtitle: subtitleParts.length ? subtitleParts.join(', ') : undefined,
           icon: 'briefcase',
           badge: t('customers.search.badge.deal', 'Deal'),
         }
