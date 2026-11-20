@@ -57,6 +57,7 @@ Status: in-progress
 | 6 | 6.4-routing-fix | Give each Todo policy one canonical Example recipe | self | done | this commit |
 | 6 | 6.4-final-review-fix | Enforce runtime file ownership, isolate generated-test mode, and publish reference documentation | self | done | this commit |
 | 6 | 6.4-live-routing-fix | Clarify the existing-host, independent table, and ERP recipe tasks | self | done | this commit |
+| 6 | 6.2-bootstrap-test-fix | Verify the new section registry and four Example integrations at bootstrap | self | done | this commit |
 | 6 | 6.5 | Record example, harness and integration evidence | dispatch | todo | — |
 
 ## Goal

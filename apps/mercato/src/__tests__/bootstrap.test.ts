@@ -1,4 +1,5 @@
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
+import type { CrudFormSectionServerModule } from '@open-mercato/shared/modules/form-sections'
 
 const createBootstrapMock = jest.fn(() => jest.fn())
 const registerAppDictionaryLoaderMock = jest.fn()
@@ -52,11 +53,13 @@ function mockBootstrapDependencies({
   fullModules = [],
   appModules = [],
   bootstrapModules = [],
+  sectionModules = [],
   codeWorkflows = [],
 }: {
   fullModules?: object[]
   appModules?: object[]
   bootstrapModules?: object[]
+  sectionModules?: CrudFormSectionServerModule[]
   codeWorkflows?: CodeWorkflowDefinition[]
 } = {}) {
   jest.doMock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -66,6 +69,7 @@ function mockBootstrapDependencies({
   jest.doMock('@/.mercato/generated/modules.app.generated', () => ({ modules: appModules }))
   jest.doMock('@/.mercato/generated/modules.bootstrap.generated', () => ({ modules: bootstrapModules }), { virtual: true })
   jest.doMock('@/.mercato/generated/entities.generated', () => ({ entities: [] }))
+  jest.doMock('@/.mercato/generated/crud-form-section-facts.generated', () => ({ crudFormSectionServerModules: sectionModules }))
   jest.doMock('@/.mercato/generated/di.generated', () => ({ diRegistrars: [] }))
   jest.doMock('@/.mercato/generated/entities.ids.generated', () => ({ E: {} }))
   jest.doMock('@/.mercato/generated/entity-fields-registry', () => ({ entityFieldsRegistry: {} }))
@@ -126,13 +130,15 @@ describe('app bootstrap', () => {
     const fullModules = [{ id: 'full', backendRoutes: [{ pattern: '/backend/customers' }] }]
     const appModules = [{ id: 'app-only' }]
     const bootstrapModules = [{ id: 'bootstrap-only' }]
+    const sectionModules: CrudFormSectionServerModule[] = [{ moduleId: 'test-module', sections: {} }]
 
-    mockBootstrapDependencies({ fullModules, appModules, bootstrapModules })
+    mockBootstrapDependencies({ fullModules, appModules, bootstrapModules, sectionModules })
 
     await import('@/bootstrap')
 
     expect(createBootstrapMock).toHaveBeenCalledTimes(1)
     expect(createBootstrapMock.mock.calls[0][0].modules).toBe(bootstrapModules)
+    expect(createBootstrapMock.mock.calls[0][0].crudFormSectionServerModules).toBe(sectionModules)
     expect(createBootstrapMock.mock.calls[0][0].modules).not.toBe(fullModules)
     expect(createBootstrapMock.mock.calls[0][0].modules).not.toBe(appModules)
     expect(createBootstrapMock.mock.calls[0][1]).toEqual({
