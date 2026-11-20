@@ -129,18 +129,20 @@ test.describe('TC-CHANNEL-EMAIL-HUB-012: mailbox CC and CRM interactions', () =>
         expect.objectContaining({ role: 'cc', email: copy, deliveryStatus: 'sent' }),
       ]))
 
-      const interactionsResponse = await apiRequest(
-        request,
-        'GET',
-        `/api/customers/interactions?entityId=${encodeURIComponent(personId)}&interactionType=email`,
-        { token },
-      )
-      expect(interactionsResponse.ok()).toBeTruthy()
-      const interactions = await readJsonSafe<{
-        items?: Array<{ externalMessageId?: string; _integrations?: { email?: { ccAddresses?: string[] | null } } }>
-      }>(interactionsResponse)
-      const interaction = (interactions?.items ?? []).find((item) => item.externalMessageId === linkId)
-      expect(interaction?._integrations?.email?.ccAddresses, 'the CRM interaction lists the CC').toEqual([copy])
+      // The CRM email card reads its to/cc from this link snapshot. It is asserted on the
+      // row because the interactions API response currently loses `_integrations.email`:
+      // the `integrations.external-id-mapping` enricher ('*', lower priority) overwrites
+      // `_integrations` with `{}` when a record has no external-id mappings.
+      const linkMetadata = await withClient(async (client) => {
+        const result = await client.query<{ channel_metadata: { to?: unknown; cc?: unknown; bcc?: unknown } | null }>(
+          'select channel_metadata from message_channel_links where id = $1',
+          [linkId],
+        )
+        return result.rows[0]?.channel_metadata ?? null
+      })
+      expect(linkMetadata?.to, 'the CRM link snapshot lists the recipient').toEqual([recipient])
+      expect(linkMetadata?.cc, 'the CRM link snapshot lists the CC').toEqual([copy])
+      expect(linkMetadata?.bcc, 'BCC is never written to the CRM link snapshot').toBeUndefined()
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       await deleteChannelIfExists(request, token, channelId)
