@@ -77,7 +77,8 @@ for (const [file, count] of consumers) {
     container.register({ value: asValue('child') })
     try {
       for (const expression of resolverExpressions(file)) {
-        const resolve = vm.runInNewContext(`(${expression})`, { container, ctx: { container } })
+        const script = ts.transpileModule(`(${expression})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+        const resolve = vm.runInNewContext(script, { container, ctx: { container } })
         assert.equal(resolve('value'), 'child')
         assert.equal(resolve('service'), container.resolve('service'))
         assert.deepEqual(resolve('service'), { value: 'child' })
