@@ -61,8 +61,8 @@ Phase 1 merges the existing community PRs. Phases 2–5 run as parallel child ta
 
 ### Phase 4: workflows + messages
 
-- [ ] 4.1 Fix #9217 workflows without progress/api_keys/business_rules
-- [ ] 4.2 Fix #9201 messages without attachments/notifications
+- [x] 4.1 Fix #9217 workflows without progress/api_keys/business_rules — a2cc55b7ab (finding 8 deferred: needs maintainer decision)
+- [x] 4.2 Fix #9201 messages without attachments/notifications — 3cfc179067
 
 ### Phase 5: enterprise modules
 
