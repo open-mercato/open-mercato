@@ -54,6 +54,10 @@ Local preparation is now available: immutable dependency install and build/gener
 
 The worker-disabled API run proved extraction, re-extraction, ACL/scope, purge, text-engine and panel tests pass, then reproduced a second race in `TC-ATT-STRUCT-006` twice: the second extracted section never acquires search tokens. The short-lived queue-drain child calls `process.exit(0)` after its worker returns, while the default query-index subscriber defers token work without awaiting it. Commit `d2b21f489e` sets the existing `OM_CACHE_SAFETY_ALWAYS_CONSISTENT=true` mode only in the child environment, making those derived writes part of the awaited worker lifecycle. The parent/app mode is preserved. Its regression fails before the change and passes after; combined focused coverage now passes 38 tests. No production subscriber or consistency defaults changed. The failed/interrupted API run is not claimed as passing; repeat the complete affected suite after this correction, including `TC-API-MSG-025` with its owning module selected.
 
+The full configured local gate subsequently passed on `d88fe1dc4d` (unit retry after supplying task-local Info-ZIP; 51/51 unit tasks and app build passed). Extra root scripts passed 1,720 tests with seven intentional skips after supplying task-local Buildx. Hosted [full CI44775601694](https://github.com/open-mercato/open-mercato/actions/runs/44775601694) passed all 15 shards and coverage merge on that head. The worker-disabled suite passed eleven cases but still failed the final partition-toggle cleanup assertion in `TC-ATT-STRUCT-006` twice, so completion and automerge remained withheld.
+
+Queue debug logs and read-only inspection of the owned ephemeral database established the last cause: partition flags and extraction `searchIndexed` stats became false, but fourteen search projection rows remained because `query_index.delete_one` selected `deleted_at` from the hard-delete document-section table. PostgreSQL error `42703` rolled back the synchronous removal. Commit `1aa589d51b` changes both consistency-mode coverage probes to read the existing primary-key/scoped row without requiring that column; a present row lacking `deleted_at` stays live, a missing/soft-deleted row decrements base coverage. Tenant and organization predicates remain intact. Eight state/mode regressions cover this, with four failures on the original subscriber and all passing afterward; 37 combined query-index/queue/structure/purge regressions pass. No schema, API, public type or default changes. The existing consistency spec changelog records the correction. Rerun real toggle-off cleanup, the twelve affected cases and all current-head gates before completion.
+
 Claim run: `5032d9a6-7403-48b9-a8f0-93368de201fa`
 
 Engine: om-auto-create-pr (steps: 5, --loop: no)
@@ -69,7 +73,7 @@ PR: #10154
 
 ### Phase 2: Correct and verify
 
-- [x] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established. — 2fb9c77989, 787062c0e3, d2b21f489e
+- [x] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established. — 2fb9c77989, 787062c0e3, d2b21f489e, 1aa589d51b
 - [ ] 2.2 Run configured validation and verify all applicable workflows, including 15 integration shards, on the exact PR head.
 
 ### Phase 3: Review and finalize
