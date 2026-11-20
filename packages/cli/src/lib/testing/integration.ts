@@ -3046,6 +3046,9 @@ export async function resolveAppOnlySuiteRun(
     ? appOnlySpecPaths.filter((specPath) => runnable.has(specPath))
     : resolveAppOwnedIntegrationSpecPaths(listed.map((specPath) => ({ path: specPath })), null)
   if (selected.length === 0) {
+    if (!appOnlySpecPaths && filter) {
+      throw new Error(`No app-owned integration specs match filter "${filter}"`)
+    }
     return null
   }
   return { fileFilters: buildAppOnlyPlaywrightFileFilters(selected), commandEnvironment }

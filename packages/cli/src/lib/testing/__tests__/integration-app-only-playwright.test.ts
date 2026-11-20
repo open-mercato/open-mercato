@@ -15,6 +15,7 @@ const RUNTIME_IMPORTED_SPEC = 'src/modules/orders/__integration__/TC-APP-002.spe
 const CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const CUSTOM_CONFIG_PATH = '.ai/qa/tests/custom.config.ts'
 const CUSTOM_ROOT_CONFIG_PATH = '.ai/qa/tests/custom-smoke.config.ts'
+const CUSTOM_EMPTY_CONFIG_PATH = '.ai/qa/tests/custom-empty.config.ts'
 const SMOKE_SPEC = 'smoke/__integration__/TC-SMOKE-001.spec.ts'
 const SERVICE_SPEC = 'smoke/__integration__/TC-SERVICE-001.spec.ts'
 const REPOSITORY_NODE_MODULES = path.resolve(path.dirname(require.resolve('@playwright/test/package.json')), '..', '..')
@@ -75,6 +76,18 @@ function createStandaloneProject(): string {
       '',
     ].join('\n'),
   )
+  writeProjectFile(
+    projectRoot,
+    CUSTOM_EMPTY_CONFIG_PATH,
+    [
+      "import { defineConfig } from '@playwright/test'",
+      "import path from 'node:path'",
+      "const projectRoot = path.resolve(__dirname, '..', '..', '..')",
+      "export default defineConfig({ testDir: path.join(projectRoot, 'empty'), testMatch: ['**/__integration__/*.spec.ts'] })",
+      '',
+    ].join('\n'),
+  )
+  writeProjectFile(projectRoot, 'empty/README.md', 'No app specs yet.\n')
   writeProjectFile(
     projectRoot,
     SMOKE_SPEC,
@@ -183,5 +196,30 @@ describe('test:integration --app-only against a real Playwright config', () => {
       'TC-SMOKE',
     )
     expect(run?.fileFilters).toEqual(buildAppOnlyPlaywrightFileFilters([SMOKE_SPEC]))
+  }, 60_000)
+
+  it('fails a mistyped --filter for a custom config without a discovery report, still without importing other specs', async () => {
+    const customTarget = { projectRoot, configPath: CUSTOM_ROOT_CONFIG_PATH }
+    await expect(
+      resolveAppOnlySuiteRun(
+        null,
+        { commandEnvironment: { ...process.env, BASE_URL: RUNTIME_BASE_URL } },
+        (environment, fileFilters) =>
+          listPlaywrightSelectedSpecPaths(withoutJestEnvironment(environment), fileFilters, customTarget),
+        'TC-SMOKY',
+      ),
+    ).rejects.toThrow('No app-owned integration specs match filter "TC-SMOKY"')
+  }, 60_000)
+
+  it('treats an empty app suite under a custom config without a discovery report as nothing to run', async () => {
+    const customTarget = { projectRoot, configPath: CUSTOM_EMPTY_CONFIG_PATH }
+    await expect(
+      resolveAppOnlySuiteRun(
+        null,
+        { commandEnvironment: { ...process.env, BASE_URL: RUNTIME_BASE_URL } },
+        (environment, fileFilters) =>
+          listPlaywrightSelectedSpecPaths(withoutJestEnvironment(environment), fileFilters, customTarget),
+      ),
+    ).resolves.toBeNull()
   }, 60_000)
 })

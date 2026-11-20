@@ -226,6 +226,14 @@ describe('mercato test:integration --app-only', () => {
       expect(run?.fileFilters).toEqual(buildAppOnlyPlaywrightFileFilters([SECOND_APP_SPEC]))
     })
 
+    it('fails when --filter collects no spec and the config reported no selection', async () => {
+      const listSpecs = jest.fn(async () => [])
+      await expect(resolveAppOnlySuiteRun(null, { commandEnvironment: {} }, listSpecs, 'TC-SMOKY')).rejects.toThrow(
+        'No app-owned integration specs match filter "TC-SMOKY"',
+      )
+      expect(listSpecs.mock.calls[0][1]).toEqual(['TC-SMOKY'])
+    })
+
     it('returns null when the runtime list has no app-owned spec and the config reported no selection', async () => {
       const listSpecs = jest.fn(async () => [PLATFORM_SPEC])
       await expect(resolveAppOnlySuiteRun(null, { commandEnvironment: {} }, listSpecs)).resolves.toBeNull()
