@@ -507,6 +507,25 @@ describe('CrudForm section registry generation', () => {
     expect(generated('runtime')).toContain('load: () => import("../../src/modules/example/descriptor.client")')
   })
 
+  it.each(['authored', 'built mirror'])('rejects a %s runtime linked outside its module', async (location) => {
+    const source = 'package/src/modules/test'
+    const mirror = 'package/dist/modules/test'
+    const id = 'test.notes'
+    write(`${source}/form-sections.ts`, declaration(id))
+    write(`${mirror}/form-sections.js`, declaration(id))
+    write('disabled/descriptor.client.ts', runtime(id))
+    if (location === 'authored') {
+      fs.symlinkSync(path.join(root, 'disabled/descriptor.client.ts'), path.join(root, source, 'descriptor.client.ts'))
+      write(`${mirror}/descriptor.client.js`, runtime(id))
+    } else {
+      write(`${source}/descriptor.client.ts`, runtime(id))
+      fs.symlinkSync(path.join(root, 'disabled/descriptor.client.ts'), path.join(root, mirror, 'descriptor.client.js'))
+    }
+
+    await expect(generateModuleRegistryApp({ resolver: resolver([{ id: 'test' }], true), quiet: true }))
+      .rejects.toThrow(/runtime import .* escapes the owning module/)
+  })
+
   it('rejects descriptor ids repeated across enabled modules', async () => {
     for (const moduleId of ['alpha', 'beta']) {
       write(`app/src/modules/${moduleId}/form-sections.ts`, declaration('test.notes'))

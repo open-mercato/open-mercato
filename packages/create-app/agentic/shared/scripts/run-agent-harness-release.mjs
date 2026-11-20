@@ -1188,7 +1188,6 @@ export function createMinimalValidationEnvironment(tempRoot, pathValue = process
     XDG_CACHE_HOME: cache,
     XDG_DATA_HOME: path.join(home, '.local', 'share'),
     CI: '1',
-    NODE_ENV: 'production',
     NO_COLOR: '1',
     NEXT_TELEMETRY_DISABLED: '1',
     YARN_ENABLE_TELEMETRY: '0',
@@ -1264,6 +1263,7 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-harness-validation-'))
   const reportRoots = [...roots, tempRoot, fs.realpathSync(tempRoot)]
   const { env, toolReadRoots } = createMinimalValidationEnvironment(tempRoot, pathValue)
+  const validationEnv = { ...env, NODE_ENV: 'production' }
   const originalFingerprint = targetContentFingerprint(target)
   let workspace
   let dependencyRoot
@@ -1294,7 +1294,7 @@ export function runTargetValidationSteps({ steps, target, timeout, roots, yarnCo
           writableRoots: [workspace, tempRoot],
           readOnlyRoots,
           networkMode: 'none',
-          env,
+          env: validationEnv,
         })
         execution = execute(invocation.command, invocation.args, invocation.cwd, timeout, invocation.env)
       } catch (error) {

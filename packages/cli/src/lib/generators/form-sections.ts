@@ -101,11 +101,17 @@ function readRuntimePath(
     return invalid(`runtime import "${specifier}" must resolve to a .client file inside the owning module`)
   }
   const readRuntime = (declarationPath: string) => {
+    const owner = path.dirname(declarationPath)
     const runtimeFile = MODULE_CODE_EXTENSIONS
-      .map((extension) => path.join(path.dirname(declarationPath), `${relative}${extension}`))
+      .map((extension) => path.join(owner, `${relative}${extension}`))
       .find((candidate) => fs.existsSync(candidate))
     if (!runtimeFile) return invalid(`runtime import "${specifier}" is missing from the owning module`)
-    const source = ts.createSourceFile(runtimeFile, fs.readFileSync(runtimeFile, 'utf8'), ts.ScriptTarget.Latest, true)
+    const filename = fs.realpathSync(runtimeFile)
+    const fromOwner = path.relative(fs.realpathSync(owner), filename)
+    if (fromOwner === '..' || fromOwner.startsWith(`..${path.sep}`) || path.isAbsolute(fromOwner)) {
+      return invalid(`runtime import "${specifier}" escapes the owning module`)
+    }
+    const source = ts.createSourceFile(filename, fs.readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true)
     const runtime = exportedDeclaration(source, 'crudFormSectionRuntime')
     if (!runtime) return invalid(`runtime import "${specifier}" must export crudFormSectionRuntime`)
     const runtimeValue = unwrap(runtime)

@@ -813,6 +813,7 @@ process.exit(7)
   try {
     const minimal = release.createMinimalValidationEnvironment(environmentRoot)
     assert.equal(minimal.env.FAKE_PROVIDER_SECRET, undefined)
+    assert.equal(minimal.env.NODE_ENV, undefined)
     const [result] = release.runTargetValidationSteps({
       steps: [{ id: 'target-validation:OMH-002:lint', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn lint' }],
       target,
