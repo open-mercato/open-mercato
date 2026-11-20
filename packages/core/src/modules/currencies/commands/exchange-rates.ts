@@ -19,6 +19,7 @@ import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { buildCurrencyCommandWhere, ensureCurrencyCommandScope } from './scope'
 import { isDecimalInput, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { NBP_AVERAGE_PROVIDER_SOURCE } from '../services/providers/nbpAverage'
 
 const exchangeRateCrudEvents: CrudEventsConfig = {
   module: 'currencies',
@@ -112,6 +113,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
   async execute(input, ctx) {
     const parsed = exchangeRateCreateSchema.parse(input)
     ensureCurrencyCommandScope(ctx, parsed)
+    const source = parsed.source === NBP_AVERAGE_PROVIDER_SOURCE ? 'manual' : parsed.source
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -123,7 +125,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       fromCurrencyCode: parsed.fromCurrencyCode,
       toCurrencyCode: parsed.toCurrencyCode,
       date: parsed.date,
-      source: parsed.source,
+      source,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       deletedAt: null,
@@ -140,7 +142,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       toCurrencyCode: parsed.toCurrencyCode,
       rate: parsed.rate,
       date: parsed.date,
-      source: parsed.source,
+      source,
       type: parsed.type ?? null,
       externalReference: null,
       metadata: parsed.metadata ?? null,
@@ -242,7 +244,8 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       || (parsed.source !== undefined && parsed.source !== record.source)
       || (parsed.type !== undefined && parsed.type !== (record.type ?? null))
     const detachPublication = record.externalReference != null && factsChanged
-    const source = detachPublication ? 'manual' : parsed.source ?? record.source
+    const reservesProviderSource = parsed.source === NBP_AVERAGE_PROVIDER_SOURCE && parsed.source !== record.source
+    const source = detachPublication || reservesProviderSource ? 'manual' : parsed.source ?? record.source
     if (parsed.fromCurrencyCode || parsed.toCurrencyCode) {
       await validateCurrenciesExist(em, fromCode, toCode, record.organizationId, record.tenantId)
     }
@@ -265,7 +268,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       }
     }
 
-    const updated = detachPublication ? { ...parsed, source, externalReference: null } : parsed
+    const updated = { ...parsed, source, ...(detachPublication ? { externalReference: null } : {}) }
     const allChanges = buildChanges(record as unknown as Record<string, unknown>, updated, [
       'fromCurrencyCode',
       'toCurrencyCode',

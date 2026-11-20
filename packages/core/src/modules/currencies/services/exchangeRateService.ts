@@ -3,6 +3,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import { ExchangeRate } from '../data/entities'
 import { RateFetchingService } from './rateFetchingService'
 import type { RateType } from './providers/base'
+import { NBP_AVERAGE_PROVIDER_SOURCE } from './providers/nbpAverage'
 
 export interface RateSelectionOptions {
   maxDaysBack?: number
@@ -220,7 +221,10 @@ export class ExchangeRateService {
       if (explicitProviders.length > 0) where.source = { $nin: explicitProviders }
     }
     if (selection.rateType) where.type = selection.rateType
-    return this.em.find(ExchangeRate, where)
+    const rates = await this.em.find(ExchangeRate, where)
+    return selection.provider === NBP_AVERAGE_PROVIDER_SOURCE
+      ? rates.filter((rate) => typeof rate.externalReference === 'string' && rate.externalReference.trim().length > 0)
+      : rates
   }
 
   /**

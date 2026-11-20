@@ -2,7 +2,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { Currency, ExchangeRate } from '../../data/entities'
-import type { ExchangeRateUpdateInput } from '../../data/validators'
+import type { ExchangeRateCreateInput, ExchangeRateUpdateInput } from '../../data/validators'
 import { ExchangeRateService } from '../../services/exchangeRateService'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { NBPAverageRateProvider } from '../../services/providers/nbpAverage'
@@ -17,6 +17,7 @@ const scope = { tenantId: '11111111-1111-4111-8111-111111111111', organizationId
 const recordId = '33333333-3333-4333-8333-333333333333'
 const date = new Date('2024-01-15T00:00:00.000Z')
 type UpdateCommand = CommandHandler<ExchangeRateUpdateInput, { exchangeRateId: string }>
+type CreateCommand = CommandHandler<ExchangeRateCreateInput, { exchangeRateId: string }>
 
 function matches(record: ExchangeRate, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => {
@@ -39,6 +40,8 @@ function setup(overrides: Partial<ExchangeRate> = {}, duplicates: ExchangeRate[]
   const flush = jest.fn().mockResolvedValue(undefined)
   const em = {
     fork: jest.fn(), flush,
+    create: jest.fn((_entity: unknown, data: Partial<ExchangeRate>) => Object.assign(new ExchangeRate(), { id: '66666666-6666-4666-8666-666666666666', deletedAt: null }, data)),
+    persist: jest.fn((created: ExchangeRate) => records.push(created)),
     findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) =>
       entity === Currency ? { code: where.code } : records.find((item) => matches(item, where)) ?? null),
     find: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => records.filter((item) => matches(item, where))),
@@ -56,14 +59,72 @@ function setup(overrides: Partial<ExchangeRate> = {}, duplicates: ExchangeRate[]
     fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', date, scope,
     options: { provider: 'nbp_average', rateType: 'average', autoFetch: false, maxDaysBack: 0 },
   })
-  return { record, em, ctx, markOrmEntityChange, officialLookup }
+  return { record, records, em, ctx, markOrmEntityChange, officialLookup }
 }
 
 let command: UpdateCommand
+let createCommand: CreateCommand
 beforeAll(() => {
   require('../exchange-rates')
   command = registerCommand.mock.calls.find(([handler]) => handler.id === 'currencies.exchange_rates.update')?.[0] as UpdateCommand
   expect(command).toBeDefined()
+  createCommand = registerCommand.mock.calls.find(([handler]) => handler.id === 'currencies.exchange_rates.create')?.[0] as CreateCommand
+  expect(createCommand).toBeDefined()
+})
+
+it('normalizes manual create with the provider source before duplicate checks and audit capture', async () => {
+  const { records, em, ctx, markOrmEntityChange, officialLookup } = setup()
+  const official = records.pop()!
+  const input = { ...scope, fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', date, source: ' nbp_average ', type: 'average' as const, rate: '4.12345678901234567890123456788', externalReference: 'forged/A/NBP/2024' }
+  const result = await createCommand.execute(input, ctx)
+  const created = records.find((row) => row.source === 'manual')!
+  expect(created).toMatchObject({ rate: input.rate, source: 'manual', type: 'average', externalReference: null })
+  expect(em.findOne).toHaveBeenCalledWith(ExchangeRate, expect.objectContaining({ ...scope, source: 'manual' }))
+  expect((await officialLookup()).rates).toEqual([])
+  expect(em.flush).toHaveBeenCalledTimes(1)
+  expect(markOrmEntityChange).toHaveBeenCalledTimes(1)
+  const after = await createCommand.captureAfter!(input, result, ctx)
+  const log = await createCommand.buildLog!({ input, result, ctx, snapshots: { after } })
+  expect(log?.snapshotAfter).toMatchObject({ source: 'manual', externalReference: null, rate: input.rate })
+  records.push(official)
+  expect((await officialLookup()).rates).toEqual([official])
+})
+
+it('checks the normalized manual create key and emits nothing on conflict', async () => {
+  const { ctx, em, markOrmEntityChange } = setup({ source: 'manual', externalReference: null })
+  await expect(createCommand.execute({ ...scope, fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', date, source: 'nbp_average', type: 'average', rate: '9' }, ctx)).rejects.toMatchObject({ status: 409 })
+  expect(em.persist).not.toHaveBeenCalled()
+  expect(em.flush).not.toHaveBeenCalled()
+  expect(markOrmEntityChange).not.toHaveBeenCalled()
+})
+
+it.each(['manual', 'NBP', 'Raiffeisen Bank Polska', 'custom-provider'])('retains manual create source %s', async (source) => {
+  const { records, ctx } = setup()
+  records.length = 0
+  await createCommand.execute({ ...scope, fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', date, source, rate: '4.12345678901234567890123456789' }, ctx)
+  expect(records[0]).toMatchObject({ source, externalReference: null, rate: '4.12345678901234567890123456789' })
+})
+
+it.each(['manual', 'NBP', 'custom-provider'])('normalizes a source-changing update from %s without changing its amount', async (source) => {
+  const { record, ctx, officialLookup } = setup({ source, externalReference: null })
+  await command.execute({ id: recordId, source: ' nbp_average ', type: 'average' }, ctx)
+  expect(record).toMatchObject({ source: 'manual', rate: '4.12345678901234567890123456789', externalReference: null })
+  expect((await officialLookup()).rates).toEqual([])
+})
+
+it('checks the normalized manual key before a source-changing update', async () => {
+  const duplicate = setup({ id: '44444444-4444-4444-8444-444444444444', source: 'manual', externalReference: null }).record
+  const { record, ctx, em, markOrmEntityChange } = setup({ source: 'custom-provider', externalReference: null }, [duplicate])
+  await expect(command.execute({ id: recordId, source: 'nbp_average' }, ctx)).rejects.toMatchObject({ status: 409 })
+  expect(record.source).toBe('custom-provider')
+  expect(em.flush).not.toHaveBeenCalled()
+  expect(markOrmEntityChange).not.toHaveBeenCalled()
+})
+
+it.each(['NBP', 'custom-provider'])('retains a source-changing update to legacy source %s', async (source) => {
+  const { record, ctx } = setup({ source: 'manual', externalReference: null })
+  await command.execute({ id: recordId, source }, ctx)
+  expect(record).toMatchObject({ source, externalReference: null })
 })
 
 const factChanges: Array<[string, Partial<ExchangeRateUpdateInput>]> = [

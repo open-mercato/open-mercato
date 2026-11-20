@@ -180,13 +180,14 @@ Deferred and explicitly out of scope are a currency-conversion endpoint, tax/leg
 10. Day subtraction uses UTC calendar arithmetic. It must not use local-time `setDate`, which can cross DST boundaries inconsistently.
 11. A selected provider is used on every fallback auto-fetch attempt. The service never falls back from an explicitly selected provider to a different source.
 12. Batch `getRates()` passes the same normalized options to every pair and retains the current per-pair error capture in `RateResult.error`.
+13. Selecting `nbp_average` requires a nonblank `externalReference` on every returned row, including after auto-fetch and on fallback days. Stored rows without provenance are excluded; provider ingestion can repair them in place.
 
 ### FR-5 — REST, OpenAPI, and UI visibility
 
 1. `GET /api/currencies/exchange-rates` adds `average` to the `type` filter and serializes `externalReference: string | null` on every row.
 2. Its OpenAPI list-item schema includes `externalReference` and constrains `type` to `buy | sell | average | null`.
-3. Manual POST/PUT inputs allow `type: 'average'` but do not accept or mutate `externalReference`.
-4. `POST /api/currencies/fetch-rates` validates its body before constructing a date or calling the service. `providers` is an optional, unique array of 1–20 trimmed non-empty strings and may contain `nbp_average`; an invalid body returns `400` without I/O.
+3. Manual POST/PUT inputs allow `type: 'average'` but do not accept `externalReference`. Manual create normalizes the new provider-owned source `nbp_average` to `manual` before duplicate checks and storage; source-changing updates to it also normalize to `manual`. Existing official rows retain provenance on activation, metadata and same-value edits. Changes to published facts detach source/reference, and scoped undo restores them. Other legacy/arbitrary sources remain accepted with existing semantics.
+4. `POST /api/currencies/fetch-rates` validates its body before constructing a date or calling the service. `providers` remains an optional array of strings, including duplicate, empty and long entries and arrays, through the compatibility bridge; it may contain `nbp_average`. Invalid non-string entries or dates return `400` without I/O.
 5. Because this custom write route is touched, its metadata is converted to the required per-method form: `POST: { requireAuth: true, requireFeatures: ['currencies.fetch.manage'] }`, and it is wired through the canonical mutation-guard registry as an `update` action. It collects registered guards, appends the legacy bridge when present, passes `{ userFeatures }`, uses the guard-modified payload, returns the guard error response when blocked, and runs after-success callbacks after committed writes while logging callback failures. Authentication and authorization do not otherwise change.
 6. `providerSchema` and the fetching-configuration UI include `nbp_average` as a distinct provider. Existing stored configurations remain valid.
 7. The exchange-rate list adds a localized publication-reference column, renders `average` as a neutral/info semantic `Badge`, and adds `average` to the type filter.
@@ -475,13 +476,13 @@ Additive response property:
 
 Existing auth: `currencies.rates.manage`.
 
-The existing request is unchanged except `type` additionally accepts `average`. `externalReference` is not accepted. Unknown keys continue through existing route/command behavior; the command schema must not map this field to the entity.
+The existing request is unchanged except `type` additionally accepts `average`. `externalReference` is not accepted. The new `nbp_average` source is reserved for ingestion; manual requests using it remain accepted and store source `manual`. Unknown keys continue through existing route/command behavior; the command schema must not map this field to the entity.
 
 ### PUT /api/currencies/exchange-rates
 
 Existing auth: `currencies.rates.manage`.
 
-The existing request is unchanged except `type` additionally accepts `average`. Updating another field preserves the current `externalReference`; it is not an editable input.
+The existing request is unchanged except `type` additionally accepts `average`. A source-changing update to `nbp_average` is accepted and normalized to `manual`. Activation, metadata and same-value edits preserve an existing publication reference; changing a published fact detaches source/reference. Scoped undo restores the prior publication. The reference is not an editable input.
 
 ### POST /api/currencies/fetch-rates
 
@@ -565,7 +566,7 @@ The existing NBP card description explicitly names table C and buy/sell rates. N
 
 ### Create/edit form
 
-The type select gains Average through the shared form helper. `externalReference` is never editable and the shared payload builder omits it, so edits to other fields preserve provider provenance.
+The type select gains Average through the shared form helper. `externalReference` is never editable and the shared payload builder omits it. Activation, metadata and same-value edits preserve provenance; changing a published fact detaches it through the manual command.
 
 ## Configuration
 
@@ -591,6 +592,7 @@ The type select gains Average through the shared form helper. `externalReference
 | Existing TypeScript calls | Additive optional options/properties; no call-site change required. |
 | Existing provider implementations | `selectionMode` and `externalReference` are optional; omitted mode is `default`. |
 | Existing `NBP` source/config/data | Unchanged table-C semantics and source string. |
+| New `nbp_average` manual writes | Accepted and normalized to `manual` on create/source transition; no new rejection or narrowing of legacy source validators. Existing null/blank-reference rows remain stored but cannot satisfy official lookup; re-fetch obtains their authoritative publication. |
 | Existing unfiltered lookups | Continue to return default-provider and manual/historical rates; registered explicit sources are excluded. |
 | Existing default fetch | Continues to fetch default providers only; new provider does not add network traffic. |
 | REST responses | Additive nullable property and additive enum member. |
@@ -951,6 +953,7 @@ None identified. The provider-ingestion command exception is an existing interna
 
 ### Repair — 2026-11-20
 
+- Reserved the new NBP average source for ingestion on manual create/source transitions and required meaningful publication provenance for official lookup. Added command, lookup/fetch, native API and real-PostgreSQL regressions while preserving legacy sources and provider-list compatibility.
 - Reconciled NBP publication references with main's exact-rate precision and provider metadata changes.
 - Added deterministic real-PostgreSQL ingestion, failure/retry, idempotency, tenant/organization isolation, and existing-row migration round-trip coverage, discovered through `TC-CUR-020-nbp-persistence`.
 

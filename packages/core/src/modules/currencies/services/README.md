@@ -79,6 +79,13 @@ const result = await exchangeRateService.getRate({
 
 The returned row retains the official NBP publication number in its read-only
 `externalReference` field. Manual create and update payloads intentionally cannot set it.
+Manual create requests using `source: 'nbp_average'` are stored as `manual`; changing
+another source to `nbp_average` through a manual update also keeps the row manual.
+Other source strings, including legacy `NBP`, retain their existing behavior.
+An official lookup requires a nonblank publication reference, so stored rows without
+one do not prevent auto-fetch or fallback to a genuine publication. Re-fetching can
+repair such a row in place. Editing a published fact detaches its source and reference;
+activation, metadata and same-value edits preserve provenance, and undo restores it.
 
 ### Rate Types
 

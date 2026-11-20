@@ -11,7 +11,7 @@ import { RateFetchingService } from '../rateFetchingService'
 import { ExchangeRateService } from '../exchangeRateService'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { ExchangeRateUpdateInput } from '../../data/validators'
+import type { ExchangeRateCreateInput, ExchangeRateUpdateInput } from '../../data/validators'
 import '../../commands/exchange-rates'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -83,11 +83,51 @@ testWithPostgres('persists NBP publications atomically and round-trips the prove
     const firstDate = new Date('2024-01-15T00:00:00.000Z')
     const failedDate = new Date('2024-01-16T00:00:00.000Z')
     const fetchOptions = { providers: ['nbp_average'] }
+    const createCommand = commandRegistry.get<ExchangeRateCreateInput, { exchangeRateId: string }>('currencies.exchange_rates.create')
+    const updateCommand = commandRegistry.get<ExchangeRateUpdateInput, { exchangeRateId: string }>('currencies.exchange_rates.update')
+    if (!createCommand || !updateCommand) throw new Error('[internal] Exchange rate commands not registered')
+    const activeOrm = orm
+    const manualContext = {
+      container: { resolve: (token: string) => token === 'em' ? activeOrm.em.fork() : { markOrmEntityChange: jest.fn() } },
+      auth: { sub: randomUUID(), tenantId: firstScope.tenantId, orgId: firstScope.organizationId },
+    } as unknown as CommandRuntimeContext
+    const manualInput = {
+      ...firstScope, fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', date: firstDate,
+      source: 'nbp_average', type: 'average' as const, rate: '4.25000000000000000000000000001',
+    }
+    const manual = await createCommand.execute(manualInput, manualContext)
+    const readManual = () => activeOrm.em.fork().findOneOrFail(ExchangeRate, { id: manual.exchangeRateId, ...firstScope })
+    expect(await readManual()).toMatchObject({ source: 'manual', externalReference: null, rate: manualInput.rate })
+    await updateCommand.execute({ id: manual.exchangeRateId, source: 'legacy-source' }, manualContext)
+    expect(await readManual()).toMatchObject({ source: 'legacy-source', rate: manualInput.rate })
+    await updateCommand.execute({ id: manual.exchangeRateId, source: 'nbp_average' }, manualContext)
+    expect(await readManual()).toMatchObject({ source: 'manual', externalReference: null, rate: manualInput.rate })
+    expect((await new ExchangeRateService(activeOrm.em.fork(), service).getRate({
+      fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', date: firstDate, scope: firstScope,
+      options: { provider: 'nbp_average', rateType: 'average', autoFetch: false, maxDaysBack: 0 },
+    })).rates).toEqual([])
+    await updateCommand.execute({ id: manual.exchangeRateId, date: new Date('2024-01-14T00:00:00.000Z') }, manualContext)
+
+    const legacyManager = activeOrm.em.fork()
+    const legacy = legacyManager.create(ExchangeRate, {
+      ...manualInput, externalReference: null, isActive: true, createdAt: new Date(), updatedAt: new Date(),
+    })
+    legacyManager.persist(legacy)
+    await legacyManager.flush()
+    const officialSelection = { provider: 'nbp_average', rateType: 'average' as const, maxDaysBack: 0 }
+    const selectedLookup = (autoFetch: boolean) => new ExchangeRateService(activeOrm.em.fork(), service).getRate({
+      fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', date: firstDate, scope: firstScope,
+      options: { ...officialSelection, autoFetch },
+    })
+    expect((await selectedLookup(false)).rates).toEqual([])
+    const fetchSpy = jest.spyOn(service, 'fetchRatesForDate')
+    expect((await selectedLookup(true)).rates).toEqual([expect.objectContaining({ id: legacy.id, rate: '4.25', externalReference: '001/A/NBP/2024' })])
+    expect(fetchSpy).toHaveBeenCalledWith(firstDate, firstScope, fetchOptions)
+    expect(await readManual()).toMatchObject({ source: 'manual', externalReference: null, rate: manualInput.rate })
 
     const first = await service.fetchRatesForDate(firstDate, firstScope, fetchOptions)
     expect(first.totalFetched).toBe(2)
     expect(first.errors).toEqual([])
-    const activeOrm = orm
     const readRates = (scope: typeof firstScope, date: Date) => activeOrm.em.fork().find(ExchangeRate, { ...scope, date, source: 'nbp_average' })
     const inserted = await readRates(firstScope, firstDate)
     expect(inserted).toHaveLength(2)
@@ -99,7 +139,7 @@ testWithPostgres('persists NBP publications atomically and round-trips the prove
     expect(await readRates(foreignScope, firstDate)).toHaveLength(0)
 
     const metadataManager = orm.em.fork()
-    const annotatedRate = await metadataManager.findOneOrFail(ExchangeRate, { ...firstScope, fromCurrencyCode: 'USD' })
+    const annotatedRate = await metadataManager.findOneOrFail(ExchangeRate, { ...firstScope, fromCurrencyCode: 'USD', source: 'nbp_average' })
     annotatedRate.metadata = { note: 'preserve existing provider metadata' }
     await metadataManager.flush()
 
@@ -135,8 +175,6 @@ testWithPostgres('persists NBP publications atomically and round-trips the prove
     expect(foreignRows.every((rate) => !inserted.some((original) => original.id === rate.id))).toBe(true)
     expect((await readRates(firstScope, firstDate)).map((rate) => rate.id).sort()).toEqual(inserted.map((rate) => rate.id).sort())
 
-    const updateCommand = commandRegistry.get<ExchangeRateUpdateInput, { exchangeRateId: string }>('currencies.exchange_rates.update')
-    if (!updateCommand) throw new Error('[internal] Exchange rate update command not registered')
     const original = inserted.find((rate) => rate.fromCurrencyCode === 'USD')!
     const markOrmEntityChange = jest.fn()
     const commandContext = {
@@ -193,7 +231,7 @@ testWithPostgres('persists NBP publications atomically and round-trips the prove
     const restored = await admin.query<{ count: string; without_reference: string }>(
       'select count(*)::text as count, count(*) filter (where external_reference is null)::text as without_reference from exchange_rates',
     )
-    expect(restored.rows[0]).toEqual({ count: '8', without_reference: '8' })
+    expect(restored.rows[0]).toEqual({ count: '9', without_reference: '9' })
     expect((await admin.query(retainedRowsQuery)).rows).toEqual(beforeMigration.rows)
   } finally {
     globalThis.fetch = originalFetch
