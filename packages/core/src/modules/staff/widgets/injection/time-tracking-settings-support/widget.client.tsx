@@ -375,7 +375,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
         const entry = categoryDialog.entry
         const payload: Record<string, unknown> = {}
         if (values.value !== entry.value) payload.value = values.value
-        if (values.label !== entry.label) payload.label = values.label
+        if (values.value !== entry.value || values.label !== entry.label) payload.label = values.label
         if ((values.color ?? null) !== (entry.color ?? null)) payload.color = values.color ?? null
         if ((values.icon ?? null) !== (entry.icon ?? null)) payload.icon = values.icon ?? null
         await runMutation({

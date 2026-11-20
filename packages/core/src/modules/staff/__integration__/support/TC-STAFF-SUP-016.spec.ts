@@ -111,6 +111,17 @@ test.describe('TC-STAFF-SUP-016: Settings Support tab', () => {
       await expect(page.getByRole('row').filter({ hasText: renamedLabel }).first()).toBeVisible({ timeout: 30_000 })
       await expect.poll(async () => (await findSupportCategoryEntry(request, admin, categoryValue))?.label).toBe(renamedLabel)
 
+      const renamedValue = `${categoryValue}-renamed`
+      await page.getByRole('row').filter({ hasText: renamedLabel }).first().click()
+      await page.getByRole('dialog').locator('[data-crud-field-id="value"] input').first().fill(renamedValue)
+      cleanup.add(() => deleteSupportCategoryByValue(request, admin, renamedValue))
+      await saveCategory(page, 'PATCH', renamedValue, renamedLabel)
+      await expect.poll(async () => (await findSupportCategoryEntry(request, admin, renamedValue))?.label).toBe(renamedLabel)
+
+      await page.getByRole('row').filter({ hasText: renamedLabel }).first().click()
+      await page.getByRole('dialog').locator('[data-crud-field-id="value"] input').first().fill(categoryValue)
+      await saveCategory(page, 'PATCH', categoryValue, renamedLabel)
+
       await page.getByRole('button', { name: 'Add rule' }).click()
       const ruleDialog = page.getByRole('dialog')
       await ruleDialog.locator('#support-rule-category').click()

@@ -8,6 +8,8 @@ import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import SupportSettingsTab from '../widget.client'
+import type { DictionaryFormValues } from '@open-mercato/core/modules/dictionaries/components/DictionaryForm'
+import type { DictionaryTableEntry } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
 
 const FALLBACK_RULE = '55555555-5555-4555-8555-555555555551'
 const BILLING_RULE = '55555555-5555-4555-8555-555555555552'
@@ -80,12 +82,24 @@ jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryForm', () => ({
-  DictionaryForm: () => null,
+  DictionaryForm: ({ initialValues, onSubmit }: { initialValues: DictionaryFormValues; onSubmit: (values: DictionaryFormValues) => Promise<void> }) => (
+    <button onClick={() => { void onSubmit({ ...initialValues, value: 'renamed-category' }) }}>Save category value</button>
+  ),
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryTable', () => ({
-  DictionaryTable: ({ canManage, onCreate }: { canManage: boolean; onCreate: () => void }) => (
-    canManage ? <button onClick={onCreate}>Add category</button> : null
+  DictionaryTable: ({ entries, canManage, onCreate, onEdit }: {
+    entries: DictionaryTableEntry[]
+    canManage: boolean
+    onCreate: () => void
+    onEdit: (entry: DictionaryTableEntry) => void
+  }) => (
+    canManage ? (
+      <div>
+        <button onClick={onCreate}>Add category</button>
+        {entries[0] ? <button onClick={() => onEdit(entries[0])}>Edit category</button> : null}
+      </div>
+    ) : null
   ),
 }))
 
@@ -257,5 +271,32 @@ describe('support category readiness', () => {
     await act(async () => { resolveEntries({ items: [] }) })
     fireEvent.click(await screen.findByRole('button', { name: 'Add category' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+})
+
+
+describe('support category edits', () => {
+  it('preserves the existing label when only the category value changes', async () => {
+    mockGrantedFeatures = ['dictionaries.view', 'dictionaries.manage']
+    previews = [snapshot(null)]
+    mockReadApiResult.mockImplementation(async (url: unknown) => {
+      if (String(url) === '/api/dictionaries') return { items: [{ id: 'categories', key: 'staff.support_ticket_category' }] } as never
+      if (String(url) === '/api/dictionaries/categories/entries') return {
+        items: [{ id: 'category-1', value: 'original-category', label: 'Customer-facing category', color: null, icon: null, updatedAt: VERSION_X }],
+      } as never
+      return snapshot(null) as never
+    })
+    renderTab()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit category' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save category value' }))
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith(
+      '/api/dictionaries/categories/entries/category-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ value: 'renamed-category', label: 'Customer-facing category' }),
+      }),
+    ))
   })
 })
