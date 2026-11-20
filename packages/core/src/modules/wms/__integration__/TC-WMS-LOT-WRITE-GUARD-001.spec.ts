@@ -10,7 +10,7 @@ export const integrationMeta = { dependsOnModules: ['wms', 'catalog'] }
 type Lot = { id: string; manufactured_at: string | null; best_before_at: string | null; expires_at: string | null }
 
 test('lot create, update and fresh reads preserve nullable snake-case dates', async ({ request }) => {
-  const token = await getAuthToken(request, 'superadmin')
+  const token = await getAuthToken(request, 'admin')
   const stamp = randomUUID()
   let productId: string | null = null
   let lotId: string | null = null
