@@ -1,6 +1,8 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, EntityName, FilterQuery } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
+import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -38,6 +40,43 @@ export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 export type CustomerEntityScope = {
   tenantId: string
   organizationId: string
+}
+
+export function buildCustomerCommandLookup(where: Record<string, unknown>, ctx: CommandRuntimeContext) {
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
+  const organizationScope = ctx.organizationScope
+  const tenantId = ctx.auth ? (ctx.auth.tenantId ?? null) : (organizationScope?.tenantId ?? null)
+  if (ctx.auth && !isSuperAdmin && (!tenantId || (organizationScope && !organizationScope.tenantId))) {
+    throw forbidden()
+  }
+  let organizationIds: string[] | undefined
+  if (organizationScope) {
+    if (!isUnrestrictedOrganizationScope({ isSuperAdmin, allowedOrganizationIds: organizationScope.allowedIds })) {
+      organizationIds = organizationScope.allowedIds ?? []
+    }
+  } else if (!isSuperAdmin) {
+    const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId
+    if (organizationId) organizationIds = [organizationId]
+  }
+  return {
+    where: buildScopedWhere(where, {
+      tenantId: tenantId ?? undefined,
+      organizationIds,
+      softDeleteField: null,
+    }),
+    scope: { tenantId, organizationId: organizationIds?.length === 1 ? organizationIds[0] : null },
+  }
+}
+
+export function findScopedCustomerCommandRecord<Entity extends object, Hint extends string = never>(
+  em: EntityManager,
+  entity: EntityName<Entity>,
+  where: Record<string, unknown>,
+  options: Parameters<typeof findOneWithDecryption<Entity, Hint>>[3],
+  ctx: CommandRuntimeContext,
+): Promise<Entity | null> {
+  const lookup = buildCustomerCommandLookup(where, ctx)
+  return findOneWithDecryption<Entity, Hint>(em, entity, lookup.where as FilterQuery<Entity>, options, lookup.scope)
 }
 
 export async function requireCustomerEntity(

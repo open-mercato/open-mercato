@@ -5,6 +5,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import '@open-mercato/core/modules/customers/commands'
+import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import {
@@ -275,7 +276,10 @@ describe.each<Kind>(['person', 'company'])('customers %s delete undo preserves a
     const handler = commandRegistry.get(commandId) as CommandHandler
     const scope = { organizationId: ORGANIZATION_ID, tenantId: TENANT_ID }
 
-    await handler.prepare!({ body: { id: ENTITY_ID } }, createContext(manager))
+    const input = { body: { id: ENTITY_ID } }
+    const context = createContext(manager)
+    await handler.prepare!(input, context)
+    expect(manager.findOne).toHaveBeenCalledWith(CustomerEntity, { id: ENTITY_ID, deletedAt: null, ...scope }, undefined)
 
     const profile = kind === 'person' ? CustomerPersonProfile : CustomerCompanyProfile
     const options = kind === 'person' ? { populate: ['company'] } : undefined
@@ -289,6 +293,11 @@ describe.each<Kind>(['person', 'company'])('customers %s delete undo preserves a
     } else {
       expect(manager.find).toHaveBeenCalledWith(CustomerDealPersonLink, { person: state.entity, deal: scope }, expect.anything())
     }
+
+    await handler.execute(input, context)
+    expect(manager.findOne).toHaveBeenCalledWith(CustomerEntity, { id: ENTITY_ID, deletedAt: null, ...scope }, {
+      lockMode: LockMode.PESSIMISTIC_WRITE,
+    })
   })
 
   it('restores plaintext addresses from an encrypted delete snapshot without an ORM subscriber (#2115)', async () => {

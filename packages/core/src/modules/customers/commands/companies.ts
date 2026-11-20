@@ -47,6 +47,7 @@ import {
   type CompanyUpdateInput,
 } from '../data/validators'
 import {
+  findScopedCustomerCommandRecord,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -275,10 +276,7 @@ async function loadCompanySnapshot(
   ctx: CommandRuntimeContext,
   options: { includeInteractionRestoreDetails?: boolean } = {},
 ): Promise<CompanySnapshot | null> {
-  const entity = await findOneWithDecryption(em, CustomerEntity, { id, deletedAt: null }, undefined, {
-    tenantId: ctx.auth?.tenantId,
-    organizationId: ctx.selectedOrganizationId ?? undefined,
-  })
+  const entity = await findScopedCustomerCommandRecord(em, CustomerEntity, { id, deletedAt: null }, undefined, ctx)
   if (!entity || entity.kind !== 'company') return null
   ensureTenantScope(ctx, entity.tenantId)
   ensureOrganizationScope(ctx, entity.organizationId)
@@ -641,12 +639,9 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     const entityId = logEntry?.resourceId
     if (!entityId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await findOneWithDecryption(em, CustomerEntity, { id: entityId }, undefined, {
-      tenantId: ctx.auth?.tenantId,
-      organizationId: ctx.selectedOrganizationId ?? undefined,
-    })
+    const entity = await findScopedCustomerCommandRecord(em, CustomerEntity, { id: entityId }, undefined, ctx)
     if (!entity) return
-    const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity }, undefined, {
+    const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
       tenantId: entity.tenantId,
       organizationId: entity.organizationId,
     })
@@ -688,7 +683,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     let entity = await findOneWithDecryption(
       em,
       CustomerEntity,
-      { id: after.entity.id },
+      { id: after.entity.id, tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
       undefined,
       { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
     )
@@ -740,7 +735,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     let profile = await findOneWithDecryption(
       em,
       CustomerCompanyProfile,
-      { entity: restoredEntity },
+      { entity: restoredEntity, tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
       undefined,
       { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
     )
@@ -812,17 +807,17 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const { parsed: parsedInput, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await findOneWithDecryption(
+    const entity = await findScopedCustomerCommandRecord(
       em,
       CustomerEntity,
       { id: parsed.id, deletedAt: null },
       undefined,
-      { tenantId: ctx.auth?.tenantId, organizationId: ctx.selectedOrganizationId ?? undefined },
+      ctx,
     )
     const record = assertFound(entity, 'Company not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity: record }, undefined, {
+    const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, undefined, {
       tenantId: record.tenantId,
       organizationId: record.organizationId,
     })
@@ -935,7 +930,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await redactRestoredNextInteractionName(em, before.entity)
-    let entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id }, undefined, {
+    let entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
       tenantId: before.entity.tenantId,
       organizationId: before.entity.organizationId,
     })
@@ -986,7 +981,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     }
     await em.flush()
 
-    let profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity }, undefined, {
+    let profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
       tenantId: entity.tenantId,
       organizationId: entity.organizationId,
     })
@@ -1117,12 +1112,12 @@ const deleteCompanyCommand: CommandHandler<
         // person link, deal link, direct person, etc.) serializes behind
         // this transaction instead of racing the final delete with a 409
         // FOREIGN_KEY_VIOLATION. See issue #7613.
-        const entity = await findOneWithDecryption(
+        const entity = await findScopedCustomerCommandRecord(
           em,
           CustomerEntity,
           { id, deletedAt: null },
           { lockMode: LockMode.PESSIMISTIC_WRITE },
-          { tenantId: ctx.auth?.tenantId, organizationId: ctx.selectedOrganizationId ?? undefined },
+          ctx,
         )
         const record = assertFound(entity, 'Company not found')
         ensureTenantScope(ctx, record.tenantId)
@@ -1149,7 +1144,7 @@ const deleteCompanyCommand: CommandHandler<
           throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
         }
 
-        const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity: record }, undefined, {
+        const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, undefined, {
           tenantId: record.tenantId,
           organizationId: record.organizationId,
         })
@@ -1179,7 +1174,7 @@ const deleteCompanyCommand: CommandHandler<
         const txEntity = await findOneWithDecryption(
           em,
           CustomerEntity,
-          { id: record.id },
+          { id: record.id, tenantId: record.tenantId, organizationId: record.organizationId },
           undefined,
           { tenantId: record.tenantId, organizationId: record.organizationId },
         )
@@ -1299,7 +1294,7 @@ const deleteCompanyCommand: CommandHandler<
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       await redactRestoredNextInteractionName(em, before.entity)
-      let entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id }, undefined, {
+      let entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
         tenantId: before.entity.tenantId,
         organizationId: before.entity.organizationId,
       })
@@ -1347,7 +1342,7 @@ const deleteCompanyCommand: CommandHandler<
       entity.isActive = before.entity.isActive
       entity.deletedAt = null
 
-      let profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity }, undefined, {
+      let profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
         tenantId: entity.tenantId,
         organizationId: entity.organizationId,
       })

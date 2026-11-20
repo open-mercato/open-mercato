@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerComment } from '../data/entities'
 import { commentCreateSchema, commentUpdateSchema, type CommentCreateInput, type CommentUpdateInput } from '../data/validators'
 import {
+  findScopedCustomerCommandRecord,
   ensureOrganizationScope,
   ensureTenantScope,
   requireTimelineParentEntity,
@@ -56,12 +57,12 @@ type CommentUndoPayload = {
 }
 
 async function loadCommentSnapshot(em: EntityManager, id: string, ctx: CommandRuntimeContext): Promise<CommentSnapshot | null> {
-  const comment = await findOneWithDecryption(
+  const comment = await findScopedCustomerCommandRecord(
     em,
     CustomerComment,
-    { id },
+    { id, deletedAt: null },
     { populate: ['entity'] },
-    { tenantId: ctx.auth?.tenantId, organizationId: ctx.selectedOrganizationId ?? undefined },
+    ctx,
   )
   if (!comment) return null
   ensureTenantScope(ctx, comment.tenantId)
@@ -157,10 +158,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
     const commentId = logEntry?.resourceId ?? null
     if (!commentId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await findOneWithDecryption(em, CustomerComment, { id: commentId }, undefined, {
-      tenantId: ctx.auth?.tenantId,
-      organizationId: ctx.selectedOrganizationId ?? undefined,
-    })
+    const existing = await findScopedCustomerCommandRecord(em, CustomerComment, { id: commentId }, undefined, ctx)
     if (existing) {
       em.remove(existing)
       await em.flush()
@@ -174,7 +172,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       findOneWithDecryption(
         em,
         CustomerComment,
-        { id },
+        { id, tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         undefined,
         { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
       ),
@@ -207,10 +205,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
   async execute(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await findOneWithDecryption(em, CustomerComment, { id: parsed.id }, undefined, {
-      tenantId: ctx.auth?.tenantId,
-      organizationId: ctx.selectedOrganizationId ?? undefined,
-    })
+    const comment = await findScopedCustomerCommandRecord(em, CustomerComment, { id: parsed.id, deletedAt: null }, undefined, ctx)
     if (!comment) throw notFound('Comment not found')
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
@@ -298,7 +293,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let comment = await findOneWithDecryption(em, CustomerComment, { id: before.id }, undefined, {
+    let comment = await findOneWithDecryption(em, CustomerComment, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
       tenantId: before.tenantId,
       organizationId: before.organizationId,
     })
@@ -358,10 +353,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async execute(input, ctx) {
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const comment = await findOneWithDecryption(em, CustomerComment, { id }, undefined, {
-        tenantId: ctx.auth?.tenantId,
-        organizationId: ctx.selectedOrganizationId ?? undefined,
-      })
+      const comment = await findScopedCustomerCommandRecord(em, CustomerComment, { id, deletedAt: null }, undefined, ctx)
       if (!comment) throw notFound('Comment not found')
       ensureTenantScope(ctx, comment.tenantId)
       ensureOrganizationScope(ctx, comment.organizationId)
@@ -412,7 +404,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireTimelineParentEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId })
       const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
-      let comment = await findOneWithDecryption(em, CustomerComment, { id: before.id }, undefined, {
+      let comment = await findOneWithDecryption(em, CustomerComment, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
         tenantId: before.tenantId,
         organizationId: before.organizationId,
       })

@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerAddress } from '../data/entities'
 import { addressCreateSchema, addressUpdateSchema, type AddressCreateInput, type AddressUpdateInput } from '../data/validators'
 import {
+  findScopedCustomerCommandRecord,
   ensureOrganizationScope,
   ensureTenantScope,
   requireCustomerEntity,
@@ -75,12 +76,12 @@ type AddressCommandResult = {
 }
 
 async function loadAddressSnapshot(em: EntityManager, id: string, ctx: CommandRuntimeContext): Promise<AddressSnapshot | null> {
-  const address = await findOneWithDecryption(
+  const address = await findScopedCustomerCommandRecord(
     em,
     CustomerAddress,
     { id },
     { populate: ['entity'] },
-    { tenantId: ctx.auth?.tenantId, organizationId: ctx.selectedOrganizationId ?? undefined },
+    ctx,
   )
   if (!address) return null
   ensureTenantScope(ctx, address.tenantId)
@@ -278,10 +279,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
     const addressId = logEntry?.resourceId ?? null
     if (!addressId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await findOneWithDecryption(em, CustomerAddress, { id: addressId }, undefined, {
-      tenantId: ctx.auth?.tenantId,
-      organizationId: ctx.selectedOrganizationId ?? undefined,
-    })
+    const address = await findScopedCustomerCommandRecord(em, CustomerAddress, { id: addressId }, undefined, ctx)
     if (!address) return
     const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
     const heldPrimary = address.isPrimary === true
@@ -311,7 +309,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, AddressCommandRes
     let address = await findOneWithDecryption(
       em,
       CustomerAddress,
-      { id: after.id },
+      { id: after.id, tenantId: after.tenantId, organizationId: after.organizationId },
       undefined,
       { tenantId: after.tenantId, organizationId: after.organizationId },
     )
@@ -403,10 +401,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
   async execute(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await findOneWithDecryption(em, CustomerAddress, { id: parsed.id }, undefined, {
-      tenantId: ctx.auth?.tenantId,
-      organizationId: ctx.selectedOrganizationId ?? undefined,
-    })
+    const address = await findScopedCustomerCommandRecord(em, CustomerAddress, { id: parsed.id }, undefined, ctx)
     if (!address) throw notFound('Address not found')
     ensureTenantScope(ctx, address.tenantId)
     ensureOrganizationScope(ctx, address.organizationId)
@@ -524,7 +519,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let address = await findOneWithDecryption(em, CustomerAddress, { id: before.id }, undefined, {
+    let address = await findOneWithDecryption(em, CustomerAddress, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
       tenantId: before.tenantId,
       organizationId: before.organizationId,
     })
@@ -619,10 +614,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async execute(input, ctx) {
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const address = await findOneWithDecryption(em, CustomerAddress, { id }, undefined, {
-        tenantId: ctx.auth?.tenantId,
-        organizationId: ctx.selectedOrganizationId ?? undefined,
-      })
+      const address = await findScopedCustomerCommandRecord(em, CustomerAddress, { id }, undefined, ctx)
       if (!address) throw notFound('Address not found')
       ensureTenantScope(ctx, address.tenantId)
       ensureOrganizationScope(ctx, address.organizationId)
@@ -670,7 +662,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
-      let address = await findOneWithDecryption(em, CustomerAddress, { id: before.id }, undefined, {
+      let address = await findOneWithDecryption(em, CustomerAddress, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
         tenantId: before.tenantId,
         organizationId: before.organizationId,
       })
