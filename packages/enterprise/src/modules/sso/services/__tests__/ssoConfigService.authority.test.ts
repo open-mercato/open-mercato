@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import polish from '../../i18n/pl.json'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { getTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -11,6 +12,12 @@ import type { SsoAuthorizationService } from '../ssoAuthorizationService'
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({ getTelemetryRuntime: jest.fn() }))
 
 jest.mock('../../events', () => ({ emitSsoEvent: jest.fn().mockResolvedValue(undefined) }))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (key: keyof typeof polish, fallback: string) => polish[key] ?? fallback,
+  }),
+}))
 
 const scope: SsoAdminScope = {
   actorUserId: 'config-editor', isSuperAdmin: false, tenantId: 'tenant-1', organizationId: 'org-1',
@@ -52,6 +59,22 @@ describe('SSO configuration authority', () => {
   beforeEach(() => {
     jest.mocked(emitSsoEvent).mockClear()
     jest.mocked(getTelemetryRuntime).mockReset()
+  })
+
+  it('localizes the duplicate configuration conflict', async () => {
+    const { service } = fixture()
+    await expect(service.create(scope, createInput)).rejects.toMatchObject({
+      statusCode: 409,
+      message: polish['sso.admin.error.alreadyExists'],
+    })
+  })
+
+  it('localizes the missing configuration error for a write', async () => {
+    const { service } = fixture(false)
+    await expect(service.delete(scope, 'config-1')).rejects.toMatchObject({
+      statusCode: 404,
+      message: polish['sso.admin.error.notFound'],
+    })
   })
 
   it('keeps committed writes successful when event and telemetry reporting fail', async () => {
