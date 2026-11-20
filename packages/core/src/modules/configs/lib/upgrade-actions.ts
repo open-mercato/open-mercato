@@ -126,7 +126,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     // lives here, but customers code only loads when the action actually runs).
     run: async ({ em, tenantId, organizationId }) => {
       const [{ INTERACTION_STATUS_DEFAULTS }, { ensureDictionaryEntry }] = await Promise.all([
-        import('@open-mercato/core/modules/customers/cli'),
+        import('@open-mercato/core/modules/customers/lib/dictionaryDefaults'),
         import('@open-mercato/core/modules/customers/commands/shared'),
       ])
       for (const entry of INTERACTION_STATUS_DEFAULTS) {
