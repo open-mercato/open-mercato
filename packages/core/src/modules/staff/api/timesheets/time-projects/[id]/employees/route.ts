@@ -5,6 +5,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { staffTimeProjectMemberCrudEvents } from '../../../../../lib/crud'
 import { emitStaffEvent } from '../../../../../events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -22,7 +23,7 @@ import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, assertProjectAccess, typ
 import { readTimeTrackingSettings } from '../../../../../lib/time-tracking/settings'
 
 /**
- * Mirrors `NO_PROJECT_ACCESS_REASON` from `../../../route.ts` (the project-list
+ * Mirrors `NO_PROJECT_ACCESS_REASON` from `../../route.ts` (the project-list
  * route). Restated rather than imported so this route stays independent of a
  * sibling route module's internals; `__tests__/route.access.test.ts` pins the
  * literal to the same denial shape.
@@ -96,7 +97,9 @@ async function resolveAssignmentGraceDays(
     const configService = container.resolve('moduleConfigService') as ModuleConfigService
     const settings = await readTimeTrackingSettings(configService, { tenantId })
     return settings.access.assignmentGraceDays
-  } catch {
+  } catch (err) {
+    logger.warn('staff.timesheets.time-projects employees settings read failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.time_project_employees_settings_read_failed' })
     // Fail safe to the documented default rather than widening the window.
     return null
   }
@@ -124,6 +127,7 @@ async function loadProjectAccess(
     })
   } catch (err) {
     logger.error('staff.timesheets.time-projects employees access resolution failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.time_project_employees_access_resolution_failed' })
     return { ...DENIED_ACCESS }
   }
 }
@@ -177,6 +181,7 @@ async function resolveEmployeesAccessDenial(req: Request): Promise<Response | nu
   } catch (err) {
     // Fail closed: an access decision that could not be made is a denial.
     logger.error('staff.timesheets.time-projects employees denial probe failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.time_project_employees_denial_probe_failed' })
     return await buildAccessDenialResponse()
   }
 }
@@ -375,7 +380,7 @@ export const openApi = {
       ? {
           GET: {
             ...baseOpenApi.methods.GET,
-            description: `${baseOpenApi.methods.GET.description ?? ''} Requires active membership on the URL's project unless the caller holds staff.timesheets.projects.manage; a non-member or an unknown project id both answer 404 with reason=${NO_PROJECT_ACCESS_REASON}.`.trim(),
+            description: `${baseOpenApi.methods.GET.description ?? ''} Requires active membership on the URL's project unless the caller holds staff.timesheets.projects.manage; for a caller without that feature, a non-member or an unknown project id both answer 404 with reason=${NO_PROJECT_ACCESS_REASON}. A manager requesting an unknown project id gets 200 with an empty list.`.trim(),
             responses: [
               ...(baseOpenApi.methods.GET.responses ?? []),
               {

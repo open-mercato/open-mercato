@@ -110,6 +110,12 @@ jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
   },
 }))
 
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))
@@ -137,6 +143,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import { GET, NO_PROJECT_ACCESS_REASON } from '../route'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 
 const employeesRequest = (projectId: string, params: Record<string, string> = {}) => {
   const url = new URL(`http://localhost/api/staff/timesheets/time-projects/${projectId}/employees`)
@@ -163,6 +170,7 @@ describe('time-project employees route project access scoping (#8885)', () => {
   beforeEach(() => {
     container.resolve.mockClear()
     crudGet.mockClear()
+    mockReportError.mockClear()
     findWithDecryption.mockClear()
     findOneWithDecryption.mockClear()
     rbacThrows = false
@@ -269,6 +277,37 @@ describe('time-project employees route project access scoping (#8885)', () => {
       expect(response.status).toBe(404)
       expect(((await response.json()) as { reason?: string }).reason).toBe(NO_PROJECT_ACCESS_REASON)
       expect(crudGet).not.toHaveBeenCalled()
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '[internal] database unavailable' }),
+        { module: 'staff', code: 'staff.time_project_employees_access_resolution_failed' },
+      )
+    })
+
+    it('reports a denial-probe failure to telemetry while still answering the denial', async () => {
+      ;(getAuthFromRequest as jest.Mock).mockImplementationOnce(async () => {
+        throw new Error('[internal] auth backend unavailable')
+      })
+
+      const response = await GET(employeesRequest(memberProjectId))
+
+      expect(response.status).toBe(404)
+      expect(((await response.json()) as { reason?: string }).reason).toBe(NO_PROJECT_ACCESS_REASON)
+      expect(crudGet).not.toHaveBeenCalled()
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '[internal] auth backend unavailable' }),
+        { module: 'staff', code: 'staff.time_project_employees_denial_probe_failed' },
+      )
+    })
+
+    it('reports a settings read failure to telemetry and keeps the default grace window', async () => {
+      const response = await GET(employeesRequest(memberProjectId))
+
+      expect(response.status).toBe(200)
+      expect(crudGet).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '[internal] moduleConfigService not registered' }),
+        { module: 'staff', code: 'staff.time_project_employees_settings_read_failed' },
+      )
     })
 
     it('fails closed to membership scoping when the grant lookup throws', async () => {
