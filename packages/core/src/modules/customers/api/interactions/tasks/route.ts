@@ -34,9 +34,9 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.interactions.view'] },
 }
 
-// Per-source fetch cap used when a compatibility-mode search must merge legacy
-// todo links and canonical task rows in memory. Bounds memory on tenants with
-// large task history.
+// Per-source fetch cap used when compatibility mode must merge legacy todo
+// links and canonical task rows without DB-side union. Bounds memory on
+// tenants with large task history.
 const MERGED_TASK_FETCH_CAP = 2000
 
 export async function GET(request: Request): Promise<Response> {
