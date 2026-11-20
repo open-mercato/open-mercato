@@ -1,3 +1,4 @@
+import { resolveProgressService } from './lib/resolve-progress-service'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -16,7 +17,7 @@ type Cradle = {
   integrationCredentialsService: CredentialsService
   integrationLogService: IntegrationLogService
   integrationStateService: IntegrationStateService
-  progressService: ProgressService
+  progressService: ProgressService | null
   schedulerService?: {
     register: (registration: Record<string, unknown>) => Promise<void>
     unregister: (scheduleId: string) => Promise<void>
@@ -28,7 +29,9 @@ export function register(container: AppContainer) {
   container.register({
     externalIdMappingService: asFunction(({ em }: Cradle) => createExternalIdMappingService(em)).scoped().proxy(),
     dataSyncRunService: asFunction(({ em }: Cradle) => createSyncRunService(em)).scoped().proxy(),
-    dataSyncScheduleService: asFunction(({ em, schedulerService }: Cradle) => createSyncScheduleService(em, schedulerService)).scoped().proxy(),
+    dataSyncScheduleService: asFunction(({ em, schedulerService }: Cradle) => createSyncScheduleService(em, schedulerService))
+      .inject(scope => ({ schedulerService: scope.resolve('schedulerService', { allowUnregistered: true }) }))
+      .scoped().proxy(),
     dataSyncEngine: asFunction(({ em, dataSyncRunService, integrationCredentialsService, integrationLogService, integrationStateService, progressService }: Cradle & {
       dataSyncRunService: ReturnType<typeof createSyncRunService>
     }) => createSyncEngine({
@@ -38,7 +41,8 @@ export function register(container: AppContainer) {
       integrationLogService,
       integrationStateService,
       progressService,
-    })).scoped().proxy(),
+    })).inject(scope => ({ progressService: resolveProgressService(scope) }))
+      .scoped().proxy(),
 
     SyncRun: asValue(SyncRun),
     SyncCursor: asValue(SyncCursor),

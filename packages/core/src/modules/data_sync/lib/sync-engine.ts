@@ -100,7 +100,7 @@ type EngineDeps = {
   integrationCredentialsService: CredentialsService
   integrationLogService: IntegrationLogService
   integrationStateService?: IntegrationStateService
-  progressService: ProgressService
+  progressService: ProgressService | null
 }
 
 /** Repeated on every batch span so a rooted batch trace identifies its run on its own. */
@@ -220,8 +220,13 @@ export function createSyncEngine(deps: EngineDeps) {
     })
   }
 
+  async function isRunCancelled(run: SyncRun, scope: SyncScope): Promise<boolean> {
+    if (!progressService) return (await syncRunService.getRun(run.id, scope))?.status === 'cancelled'
+    return !!run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)
+  }
+
   async function updateProgress(progressJobId: string | null | undefined, processedCount: number, totalCount: number | null, scope: SyncScope): Promise<void> {
-    if (!progressJobId) return
+    if (!progressService || !progressJobId) return
 
     await progressService.updateProgress(
       progressJobId,
@@ -245,7 +250,7 @@ export function createSyncEngine(deps: EngineDeps) {
   // items, which adapters may explode several-per-source-record (Akeneo yields a product
   // plus its variants), so seeding from them would overshoot the total and pin the bar.
   async function seedProcessedCount(progressJobId: string | null | undefined, scope: SyncScope): Promise<number> {
-    if (!progressJobId) return 0
+    if (!progressService || !progressJobId) return 0
     const job = await progressService.getJob(progressJobId, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -255,7 +260,7 @@ export function createSyncEngine(deps: EngineDeps) {
   }
 
   function makeHeartbeatTick(progressJobId: string | null | undefined, scope: SyncScope): () => void {
-    const touchJobHeartbeat = progressService.touchJobHeartbeat?.bind(progressService)
+    const touchJobHeartbeat = progressService?.touchJobHeartbeat?.bind(progressService)
     if (!progressJobId || !touchJobHeartbeat) return () => {}
     let inFlight = false
     return () => {
@@ -285,7 +290,7 @@ export function createSyncEngine(deps: EngineDeps) {
   // Swallows its own errors because it runs on a timer, where an unhandled rejection is fatal,
   // and stops polling once it has aborted.
   function makeCancellationTick(progressJobId: string | null | undefined, scope: SyncScope, controller: AbortController): () => void {
-    if (!progressJobId) return () => {}
+    if (!progressService || !progressJobId) return () => {}
     let inFlight = false
     return () => {
       if (inFlight || controller.signal.aborted) return
@@ -479,7 +484,7 @@ export function createSyncEngine(deps: EngineDeps) {
       return
     }
 
-    if (run.progressJobId) {
+    if (progressService && run.progressJobId) {
       if (status === 'completed') {
         await progressService.completeJob(
           run.progressJobId,
@@ -652,7 +657,7 @@ export function createSyncEngine(deps: EngineDeps) {
         return
       }
       if (run.status === 'cancelled') {
-        if (run.progressJobId) {
+        if (progressService && run.progressJobId) {
           await progressService.markCancelled(run.progressJobId, {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
@@ -713,7 +718,7 @@ export function createSyncEngine(deps: EngineDeps) {
         },
       })
 
-      if (run.progressJobId) {
+      if (progressService && run.progressJobId) {
         await progressService.startJob(run.progressJobId, {
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
@@ -768,7 +773,7 @@ export function createSyncEngine(deps: EngineDeps) {
               'data_sync.batch_size': batch.items.length,
             })
 
-            if (cancellation.signal.aborted || (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId))) {
+            if (cancellation.signal.aborted || await isRunCancelled(run, scope)) {
               await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
               return 'stop'
             }
@@ -881,7 +886,7 @@ export function createSyncEngine(deps: EngineDeps) {
         return
       }
       if (run.status === 'cancelled') {
-        if (run.progressJobId) {
+        if (progressService && run.progressJobId) {
           await progressService.markCancelled(run.progressJobId, {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
@@ -942,7 +947,7 @@ export function createSyncEngine(deps: EngineDeps) {
         },
       })
 
-      if (run.progressJobId) {
+      if (progressService && run.progressJobId) {
         await progressService.startJob(run.progressJobId, {
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
@@ -996,7 +1001,7 @@ export function createSyncEngine(deps: EngineDeps) {
               'data_sync.batch_size': batch.results.length,
             })
 
-            if (cancellation.signal.aborted || (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId))) {
+            if (cancellation.signal.aborted || await isRunCancelled(run, scope)) {
               await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
               return 'stop'
             }
