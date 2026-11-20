@@ -57,6 +57,7 @@ const TARGET_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PARENT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const CHILD_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const NEW_ORG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+const ROOT_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
 type TestOrganization = Organization & {
   tenant: { id: string }
@@ -1103,6 +1104,93 @@ describe('directory organization command tenant ownership', () => {
     expect(harness.createOrmEntity).not.toHaveBeenCalled()
     expect(emitCrudSideEffects).not.toHaveBeenCalled()
     expect(harness.logs).toHaveLength(0)
+  })
+
+  it('rechecks the new update parent when it leaves the actor’s scope while waiting for the lock', async () => {
+    const root = makeOrganization(ROOT_ID, ACTOR_TENANT_ID, { descendantIds: [PARENT_ID] })
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([root, parent, target])
+    const targetBefore = { ...target }
+    const parentBefore = { ...parent }
+    const ctx = makeContext(harness, {
+      allowedIds: [ROOT_ID, PARENT_ID, TARGET_ID],
+      aclOrganizations: [ROOT_ID, TARGET_ID],
+    })
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      root.descendantIds = []
+      return []
+    })
+
+    await expect(new CommandBus().execute('directory.organizations.update', {
+      input: { id: TARGET_ID, name: 'Denied', parentId: PARENT_ID }, ctx,
+    })).rejects.toMatchObject({ status: 404 })
+    expect(lockOrganizationHierarchyForTenant).toHaveBeenCalled()
+    expect(target).toEqual(targetBefore)
+    expect(parent).toEqual(parentBefore)
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(harness.dataEngine.setCustomFields).not.toHaveBeenCalled()
+    expect(rebuildHierarchyForTenant).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(harness.logs).toHaveLength(0)
+  })
+
+  it('rechecks the delete reparent destination when it leaves the actor’s scope while waiting for the lock', async () => {
+    const root = makeOrganization(ROOT_ID, ACTOR_TENANT_ID, { descendantIds: [PARENT_ID] })
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID, { childIds: [TARGET_ID] })
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, {
+      parentId: PARENT_ID, childIds: [CHILD_ID], descendantIds: [CHILD_ID],
+    })
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: TARGET_ID })
+    const harness = makeHarness([root, parent, target, child])
+    const ctx = makeContext(harness, {
+      allowedIds: [ROOT_ID, PARENT_ID, TARGET_ID, CHILD_ID],
+      aclOrganizations: [ROOT_ID, TARGET_ID],
+    })
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      root.descendantIds = []
+      return []
+    })
+
+    await expect(new CommandBus().execute('directory.organizations.delete', {
+      input: { body: { id: TARGET_ID }, query: {} }, ctx,
+    })).rejects.toMatchObject({ status: 404 })
+    expect(lockOrganizationHierarchyForTenant).toHaveBeenCalled()
+    expect(target.deletedAt).toBeNull()
+    expect(target.parentId).toBe(PARENT_ID)
+    expect(child.parentId).toBe(TARGET_ID)
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(rebuildHierarchyForTenant).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(harness.logs).toHaveLength(0)
+  })
+
+  it('rechecks the update undo target when it leaves the actor’s scope while waiting for the lock', async () => {
+    const root = makeOrganization(ROOT_ID, ACTOR_TENANT_ID, { descendantIds: [TARGET_ID] })
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([root, target])
+    const ctx = makeContext(harness, { allowedIds: [ROOT_ID, TARGET_ID], aclOrganizations: [ROOT_ID] })
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.update', {
+      input: { id: TARGET_ID, name: 'Renamed' }, ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    const before = { ...target }
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      root.descendantIds = []
+      return []
+    })
+    harness.updateOrmEntity.mockClear()
+    jest.mocked(rebuildHierarchyForTenant).mockClear()
+    jest.mocked(emitCrudSideEffects).mockClear()
+
+    await expect(bus.undo(String(logEntry.undoToken), ctx)).rejects.toMatchObject({ status: 404 })
+    expect(target).toEqual(before)
+    expect(target.name).toBe('Renamed')
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(rebuildHierarchyForTenant).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
   })
 
   it.each([
