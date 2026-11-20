@@ -14,6 +14,7 @@ import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import { redactActionLogEntries } from '@open-mercato/core/modules/audit_logs/lib/actionLogRedaction'
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { getEnrichersForEntity } from '@open-mercato/shared/lib/crud/enricher-registry'
 
@@ -248,13 +249,26 @@ export async function GET(req: Request) {
   }
 
   const { translate } = await resolveTranslations()
+
+  // Redaction is a generic extension point an optional module (e.g. `customers`)
+  // registers into (#8887, #8978) — this route never statically imports or names
+  // that module (see `packages/core/AGENTS.md` § Cross-Module Coupling and
+  // `audit_logs/lib/actionLogRedaction.ts`).
+  const redactedItems = await redactActionLogEntries(
+    container,
+    em,
+    { tenantId: auth.tenantId ?? '', organizationId: organizationId ?? null },
+    auth.sub,
+    list.items,
+  )
+
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: list.items.map((entry: any) => entry.actorUserId).filter((value: any): value is string => !!value),
-    tenantIds: list.items.map((entry: any) => entry.tenantId).filter((value: any): value is string => !!value),
-    organizationIds: list.items.map((entry: any) => entry.organizationId).filter((value: any): value is string => !!value),
+    userIds: redactedItems.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
+    tenantIds: redactedItems.map((entry) => entry.tenantId).filter((value): value is string => !!value),
+    organizationIds: redactedItems.map((entry) => entry.organizationId).filter((value): value is string => !!value),
   }, { translate })
 
-  const items = list.items.map((entry: any) => ({
+  const items = redactedItems.map((entry) => ({
     id: entry.id,
     commandId: entry.commandId,
     actionLabel: entry.actionLabel,
