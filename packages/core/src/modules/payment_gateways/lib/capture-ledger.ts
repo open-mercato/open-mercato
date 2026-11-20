@@ -242,6 +242,7 @@ export async function reserveCaptureAmountExact(em: EntityManager, input: {
         tenantId: input.scope.tenantId,
         deletedAt: null,
         capturedAmount: previousCapturedAmount,
+        unifiedStatus: input.transaction.unifiedStatus,
       },
       { capturedAmount: nextCapturedAmount, updatedAt: new Date() },
     )
