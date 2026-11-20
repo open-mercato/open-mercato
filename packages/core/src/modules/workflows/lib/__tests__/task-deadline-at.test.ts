@@ -283,6 +283,30 @@ describe('USER_TASK creation with deadlineAt', () => {
     expect(result.details).toMatchObject({ deadlineAt: '{{context.dueAt}}', resolved: 'Invalid Date' })
   })
 
+  test.each([
+    ['an object with a non-callable toString', { toString: 'invalid' }, '[object]'],
+    ['an object with a throwing toString', { toString: () => { throw new Error('boom') } }, '[object]'],
+    ['an array', ['2026-10-20'], '[array]'],
+    ['a number', 42, '42'],
+    ['a boolean', true, 'true'],
+  ])('%s keeps the INVALID_USER_TASK_DEADLINE diagnostic', async (_label, dueAt, rendered) => {
+    const { result, task } = await runUserTask({ deadlineAt: '{{context.dueAt}}' }, { dueAt })
+
+    expect(result.status).toBe('FAILED')
+    expect(result.error).toContain(`resolved to "${rendered}"`)
+    expect(result.details).toEqual({
+      stepId: 'sign-deed',
+      deadlineAt: '{{context.dueAt}}',
+      resolved: rendered,
+      i18n: {
+        key: 'workflows.validation.taskDeadline.invalidResolvedAt',
+        params: { authored: '{{context.dueAt}}', resolved: rendered },
+      },
+    })
+    expect(task).toBeUndefined()
+    expect(scheduleMock).not.toHaveBeenCalled()
+  })
+
   test('a long resolved value is truncated in the step error', async () => {
     const { result } = await runUserTask({ deadlineAt: '{{context.dueAt}}' }, { dueAt: 'x'.repeat(500) })
 

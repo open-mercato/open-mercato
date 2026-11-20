@@ -841,6 +841,27 @@ async function handleAutomatedStep(
 }
 
 /**
+ * Render a rejected `deadlineAt` value for the step error without ever invoking
+ * a context-supplied `toString`/`valueOf`: a single interpolation token keeps
+ * raw JSON values, and `String({ toString: 'x' })` throws, which would replace
+ * the `INVALID_USER_TASK_DEADLINE` diagnostic with a generic failure.
+ */
+export function formatResolvedDeadlineValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (value instanceof Date) {
+    const time = Date.prototype.getTime.call(value)
+    return Number.isNaN(time) ? 'Invalid Date' : Date.prototype.toISOString.call(value)
+  }
+  if (Array.isArray(value)) return '[array]'
+  if (typeof value === 'object') return '[object]'
+  if (typeof value === 'function') return '[function]'
+  if (typeof value === 'symbol') return '[symbol]'
+  return String(value)
+}
+
+/**
  * Resolve a user task's deadline — an authored duration anchored to now, or an
  * absolute `deadlineAt` already resolved against the run context.
  *
@@ -850,7 +871,7 @@ async function handleAutomatedStep(
 function resolveUserTaskDeadline(stepId: string, deadline: ResolvedTaskDeadline): Date {
   if (deadline.kind === 'at') {
     if (deadline.dueDate) return deadline.dueDate
-    const rendered = String(deadline.resolved)
+    const rendered = formatResolvedDeadlineValue(deadline.resolved)
     const resolved = rendered.length > 64 ? `${rendered.slice(0, 64)}…` : rendered
     const { key, fallback } = TASK_DEADLINE_MESSAGES.invalidResolvedAt
     const params = { authored: deadline.authored, resolved }

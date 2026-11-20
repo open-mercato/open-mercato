@@ -160,7 +160,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     await em.flush()
 
     const { executeStep } = await import('../../../../lib/step-handler')
-    await executeStep(
+    const stepResult = await executeStep(
       em,
       instance,
       parsed.data.stepId,
@@ -168,9 +168,30 @@ export async function POST(request: NextRequest, context: RouteContext) {
       container
     )
 
+    // The replayed step can fail again (e.g. a USER_TASK whose deadline still
+    // does not resolve). Without the failure contract the executor would take
+    // the failed step's outgoing route as if it had succeeded, so a failed
+    // human step would be skipped instead of failing, parking or routing.
+    const continueExecution =
+      stepResult.status === 'FAILED'
+        ? (
+            await workflowExecutor.handleExecutedStepFailure(em, container, instance, {
+              failedStepId: parsed.data.stepId,
+              fromStepId: null,
+              error: stepResult.error,
+              details: stepResult.details,
+              userId: auth.sub,
+              definition,
+              source: 'rerunStep',
+            })
+          ).continueExecution
+        : true
+
     // Drive the run forward from the replayed step, exactly as any other
     // advance would.
-    const execution = await workflowExecutor.executeWorkflow(em, container, instance.id)
+    const execution = continueExecution
+      ? await workflowExecutor.executeWorkflow(em, container, instance.id)
+      : null
     await em.refresh(instance)
 
     return NextResponse.json({

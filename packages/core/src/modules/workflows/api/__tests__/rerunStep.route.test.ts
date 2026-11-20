@@ -35,15 +35,17 @@ jest.mock('../../lib/event-logger', () => {
   }
 })
 
-const executeStep = jest.fn(async () => ({ status: 'COMPLETED' }))
+const executeStep = jest.fn<Promise<Record<string, unknown>>, unknown[]>(async () => ({ status: 'COMPLETED' }))
 jest.mock('../../lib/step-handler', () => ({
   executeStep: (...args: unknown[]) => executeStep(...(args as [])),
 }))
 
 class WorkflowExecutionError extends Error {}
 const executeWorkflow = jest.fn(async () => ({ status: 'RUNNING' }))
+const handleExecutedStepFailure = jest.fn()
 jest.mock('../../lib/workflow-executor', () => ({
   executeWorkflow: (...args: unknown[]) => executeWorkflow(...(args as [])),
+  handleExecutedStepFailure: (...args: unknown[]) => handleExecutedStepFailure(...(args as [])),
   WorkflowExecutionError,
 }))
 
@@ -283,5 +285,43 @@ describe('POST /api/workflows/instances/[id]/rerun-step', () => {
         organizationId: orgId,
       })
     )
+  })
+
+  test('a replayed step that succeeds never applies the failure contract', async () => {
+    await rerunStep(makeRequest({ stepId: 'charge' }), routeContext)
+    expect(handleExecutedStepFailure).not.toHaveBeenCalled()
+  })
+
+  test('a replayed step that fails again goes through the failure contract instead of being skipped', async () => {
+    const details = { stepId: 'charge', i18n: { key: 'workflows.some.key', params: {} } }
+    executeStep.mockResolvedValueOnce({ status: 'FAILED', error: 'still broken', details })
+    handleExecutedStepFailure.mockResolvedValueOnce({ continueExecution: false })
+
+    const response = await rerunStep(makeRequest({ stepId: 'charge' }), routeContext)
+
+    expect(response.status).toBe(200)
+    expect(handleExecutedStepFailure).toHaveBeenCalledWith(
+      mockEm,
+      expect.anything(),
+      instance,
+      expect.objectContaining({
+        failedStepId: 'charge',
+        error: 'still broken',
+        details,
+        userId,
+        source: 'rerunStep',
+      })
+    )
+    expect(executeWorkflow).not.toHaveBeenCalled()
+    expect((await response.json()).data.execution).toBeNull()
+  })
+
+  test('an authored recovery of the replayed step drives the run onward', async () => {
+    executeStep.mockResolvedValueOnce({ status: 'FAILED', error: 'still broken' })
+    handleExecutedStepFailure.mockResolvedValueOnce({ continueExecution: true })
+
+    await rerunStep(makeRequest({ stepId: 'charge' }), routeContext)
+
+    expect(executeWorkflow).toHaveBeenCalled()
   })
 })

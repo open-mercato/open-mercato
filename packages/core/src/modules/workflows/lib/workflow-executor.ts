@@ -1925,10 +1925,11 @@ export async function resumeWorkflowAfterActivities(
     )
 
     if (stepResult.status === 'FAILED') {
-      return await handleResumedStepFailure(trx, container, instance, {
+      return await handleExecutedStepFailure(trx, container, instance, {
         failedStepId: pendingTransition.toStepId,
         fromStepId: resumedFromStepId,
         error: stepResult.error,
+        details: stepResult.details,
         userId: resumeUserId,
         definition,
       })
@@ -1947,12 +1948,14 @@ export async function resumeWorkflowAfterActivities(
 }
 
 /**
- * The async resume re-enters the pending step OUTSIDE `executeTransition`, so
- * the step-failure handling the transition handler applies to a FAILED step
- * has to be applied here: `continueWithFallback` advances with the fallback in
- * context, every other directive goes through `handleTransitionFailure`.
+ * A step entered OUTSIDE `executeTransition` (the async resume, a rerun from
+ * step) gets none of the step-failure handling the transition handler applies
+ * to a FAILED step, so it has to be applied here: `continueWithFallback`
+ * advances with the fallback in context, every other directive goes through
+ * `handleTransitionFailure`. The step's `details` travel with the failure so the
+ * run keeps its localizable diagnostic.
  */
-async function handleResumedStepFailure(
+export async function handleExecutedStepFailure(
   em: EntityManager,
   container: AwilixContainer,
   instance: WorkflowInstance,
@@ -1960,11 +1963,14 @@ async function handleResumedStepFailure(
     failedStepId: string
     fromStepId: string | null
     error?: string
+    details?: unknown
     userId?: string
     definition: WorkflowDefinition
+    source?: string
   }
 ): Promise<{ continueExecution: boolean }> {
   const error = failure.error || 'Step execution failed'
+  const source = failure.source ?? 'asyncResume'
   const handling = resolveStepFailureHandling(failure.definition.definition, failure.failedStepId)
 
   if (handling.kind === 'continue') {
@@ -1974,7 +1980,7 @@ async function handleResumedStepFailure(
       eventData: {
         stepId: failure.failedStepId,
         directive: 'continueWithFallback',
-        source: 'asyncResume',
+        source,
         error,
         hasFallbackValue: handling.fallbackValue !== undefined,
       },
@@ -1997,12 +2003,16 @@ async function handleResumedStepFailure(
     em,
     container,
     instance,
-    { error, ...buildFailureRouting(handling, failure.failedStepId) },
+    {
+      error,
+      ...(failure.details !== undefined ? { details: failure.details } : {}),
+      ...buildFailureRouting(handling, failure.failedStepId),
+    },
     {
       evalContext: { workflowContext: instance.context || {}, userId: failure.userId },
       fromStepId: failure.fromStepId,
       toStepId: failure.failedStepId,
-      source: 'asyncResume',
+      source,
     }
   )
   return {

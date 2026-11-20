@@ -420,8 +420,39 @@ describe('error routing — transition handler', () => {
       { workflowContext: {} }
     )
 
-    expect(result).toEqual({ success: false, error: 'boom' })
+    expect(result).toEqual({ success: false, error: 'boom', stepExecutionFailed: true })
     expect(createdEventTypes(mockEm)).not.toContain('ERROR_DIRECTIVE_APPLIED')
+  })
+
+  test('only a failure of the step the cursor advanced into is flagged as an executed-step failure', async () => {
+    const instance = makeInstance({ currentStepId: 'start' })
+    mockEm.findOne.mockResolvedValue(makeDefinition({
+      steps: baseSteps,
+      transitions: [{ transitionId: 't_start_risky', fromStepId: 'start', toStepId: 'risky', trigger: 'auto' }],
+    }))
+    ;(stepHandler.executeStep as jest.Mock).mockResolvedValue({ status: 'FAILED', error: 'boom' })
+
+    const stepFailure = await transitionHandler.executeTransition(
+      mockEm,
+      mockContainer,
+      instance,
+      'start',
+      'risky',
+      { workflowContext: {} }
+    )
+    expect(stepFailure.stepExecutionFailed).toBe(true)
+    expect(instance.currentStepId).toBe('risky')
+
+    const refused = await transitionHandler.executeTransition(
+      mockEm,
+      mockContainer,
+      makeInstance({ currentStepId: 'start' }),
+      'start',
+      'nowhere',
+      { workflowContext: {} }
+    )
+    expect(refused.success).toBe(false)
+    expect(refused).not.toHaveProperty('stepExecutionFailed')
   })
 })
 

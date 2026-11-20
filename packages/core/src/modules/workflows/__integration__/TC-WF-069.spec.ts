@@ -31,6 +31,10 @@ import {
  * - PUT  /api/workflows/definitions/[id]   (authoring the absolute deadline on update)
  * - GET  /api/workflows/definitions[/id]   (the published response contract)
  * - POST /api/workflows/instances          (the deadline resolves at task creation)
+ * - POST /api/workflows/instances/[id]/advance (a manual advance into a bad deadline
+ *   applies the failure contract: FAILED, or the authored error route)
+ * - POST /api/workflows/instances/[id]/rerun-step (a replay that fails again is
+ *   not skipped past the USER_TASK)
  * - GET  /api/workflows/tasks              (the task's `dueDate`)
  * - GET  /api/workflows/instances/[id]     (the fail-closed verdict)
  * - GET  /api/workflows/instances/[id]/steps and /events
@@ -76,6 +80,23 @@ function buildAbsoluteDeadlineDefinition(stamp: string, suffix: string, deadline
       reminders: [{ offset: 'P1D' }],
     },
   })
+}
+
+function buildManualAdvanceDeadlineDefinition(
+  stamp: string,
+  suffix: string,
+  options: { withErrorRoute: boolean },
+) {
+  const base = buildAbsoluteDeadlineDefinition(stamp, `advance-${suffix}`, { deadlineAt: DEADLINE_TEMPLATE })
+  const steps = [...base.definition.steps, { stepId: 'recovered', stepName: 'Recovered', stepType: 'END' }]
+  const transitions = [
+    { transitionId: 'start-to-review', fromStepId: 'start', toStepId: 'review', trigger: 'manual' },
+    { transitionId: 'review-to-end', fromStepId: 'review', toStepId: 'end', trigger: 'auto' },
+    ...(options.withErrorRoute
+      ? [{ transitionId: 'review-error', fromStepId: 'review', toStepId: 'recovered', trigger: 'auto', kind: 'error' }]
+      : [{ transitionId: 'review-to-recovered', fromStepId: 'review', toStepId: 'recovered', trigger: 'manual' }]),
+  ]
+  return { ...base, definition: { ...base.definition, steps, transitions } }
 }
 
 async function startAndReadDueDate(
@@ -316,6 +337,149 @@ test.describe('TC-WF-069: absolute user-task deadline (deadlineAt) from the run 
       expect(listed, 'the list returns the authored definition').toBeTruthy()
       expect(reviewConfig(listed ?? {})).toMatchObject({ deadlineAt: absoluteDate })
     } finally {
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('a manual advance into an invalid deadline fails the run instead of stranding it', async ({ request }) => {
+    test.setTimeout(90_000)
+
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      const definition = buildManualAdvanceDeadlineDefinition(stamp, 'terminal', { withErrorRoute: false })
+      definitionId = await createWorkflowDefinitionFixture(request, token, definition)
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId: definition.workflowId,
+        initialContext: { stamp, dueDate: 'soon' },
+      })
+      await pollWorkflowInstance(request, token, instanceId, (instance) => instance.currentStepId === 'start')
+
+      const advanced = await apiRequest(request, 'POST', `/api/workflows/instances/${instanceId}/advance`, {
+        token,
+        data: { toStepId: 'review' },
+      })
+      const advancedBody = await readJsonSafe<{ error?: string; reason?: string; details?: Record<string, unknown> }>(
+        advanced,
+      )
+      expect(advanced.status(), `the advance keeps its 400 contract (got ${JSON.stringify(advancedBody)})`).toBe(400)
+      expect(advancedBody?.error).toBe('Transition failed')
+      expect(advancedBody?.reason ?? '').toContain(INVALID_DEADLINE_AT_MESSAGE)
+      expect(advancedBody?.details).toMatchObject({ stepId: 'review', deadlineAt: DEADLINE_TEMPLATE, resolved: 'soon' })
+
+      const failed = await pollWorkflowInstance(
+        request,
+        token,
+        instanceId,
+        (instance) => instance.status === 'FAILED' || instance.status === 'COMPLETED',
+        { timeoutMs: 15_000, onTimeout: 'returnLast' },
+      )
+      expect(failed?.status, 'the run is FAILED, not left RUNNING at the failed step').toBe('FAILED')
+      const failedBody = failed as { errorMessage?: string | null } | null
+      expect(failedBody?.errorMessage ?? '').toContain(INVALID_DEADLINE_AT_MESSAGE)
+      expect(await listWorkflowInstanceTasks(request, token, instanceId)).toHaveLength(0)
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('a manual advance into an invalid deadline follows the authored error route', async ({ request }) => {
+    test.setTimeout(90_000)
+
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      const definition = buildManualAdvanceDeadlineDefinition(stamp, 'recover', { withErrorRoute: true })
+      definitionId = await createWorkflowDefinitionFixture(request, token, definition)
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId: definition.workflowId,
+        initialContext: { stamp, dueDate: 'soon' },
+      })
+      await pollWorkflowInstance(request, token, instanceId, (instance) => instance.currentStepId === 'start')
+
+      const advanced = await apiRequest(request, 'POST', `/api/workflows/instances/${instanceId}/advance`, {
+        token,
+        data: { toStepId: 'review' },
+      })
+      const advancedBody = await readJsonSafe<{ data?: { instance?: { status?: string; currentStepId?: string } } }>(
+        advanced,
+      )
+      expect(advanced.status(), `the authored recovery is a successful advance (got ${JSON.stringify(advancedBody)})`).toBe(200)
+
+      const recovered = await pollWorkflowInstance(
+        request,
+        token,
+        instanceId,
+        (instance) => instance.status === 'FAILED' || instance.status === 'COMPLETED',
+        { timeoutMs: 15_000, onTimeout: 'returnLast' },
+      )
+      expect(recovered?.status, 'the error route carried the run to its recovery END').toBe('COMPLETED')
+      expect(recovered?.currentStepId).toBe('recovered')
+
+      const routed = await listWorkflowInstanceEvents(request, token, instanceId, { eventType: 'ERROR_ROUTED' })
+      expect(
+        routed.some((event) => event.eventData?.failedStepId === 'review'),
+        'an ERROR_ROUTED event names the failed deadline step',
+      ).toBe(true)
+      expect(await listWorkflowInstanceTasks(request, token, instanceId)).toHaveLength(0)
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
+      await deleteWorkflowDefinitionIfExists(request, token, definitionId)
+    }
+  })
+
+  test('a rerun of a still-invalid deadline fails again instead of skipping the task', async ({ request }) => {
+    test.setTimeout(90_000)
+
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomInt(1_000_000)}`
+    let definitionId: string | null = null
+    let instanceId: string | null = null
+
+    try {
+      const definition = buildAbsoluteDeadlineDefinition(stamp, 'rerun', { deadlineAt: DEADLINE_TEMPLATE })
+      definitionId = await createWorkflowDefinitionFixture(request, token, definition)
+      instanceId = await startWorkflowInstanceFixture(request, token, {
+        workflowId: definition.workflowId,
+        initialContext: { stamp, dueDate: 'soon' },
+      })
+      const isSettled = (instance: { status?: string }) =>
+        instance.status === 'FAILED' || instance.status === 'COMPLETED'
+      const first = await pollWorkflowInstance(request, token, instanceId, isSettled, { timeoutMs: 15_000 })
+      expect(first?.status).toBe('FAILED')
+
+      const rerun = await apiRequest(request, 'POST', `/api/workflows/instances/${instanceId}/rerun-step`, {
+        token,
+        data: { stepId: 'review' },
+      })
+      expect(rerun.status(), `rerun-step accepts the FAILED run (got ${rerun.status()})`).toBe(200)
+      const rerunSettled = await pollWorkflowInstance(request, token, instanceId, isSettled, { timeoutMs: 15_000 })
+      expect(rerunSettled?.status, 'the failed USER_TASK is not skipped on to END').toBe('FAILED')
+      expect(rerunSettled?.currentStepId).toBe('review')
+      const rerunFailure = rerunSettled as { errorDetails?: Record<string, unknown> | null } | null
+      expect(rerunFailure?.errorDetails?.i18n, 'the rerun keeps the localizable diagnostic').toEqual({
+        key: 'workflows.validation.taskDeadline.invalidResolvedAt',
+        params: { authored: DEADLINE_TEMPLATE, resolved: 'soon' },
+      })
+      expect(await listWorkflowInstanceTasks(request, token, instanceId)).toHaveLength(0)
+
+      const dueDate = isoDateInDays(5)
+      const fixed = await apiRequest(request, 'POST', `/api/workflows/instances/${instanceId}/rerun-step`, {
+        token,
+        data: { stepId: 'review', contextPatch: { dueDate } },
+      })
+      expect(fixed.status()).toBe(200)
+      const task = await findInstanceUserTask(request, token, instanceId, { statuses: ['PENDING'] })
+      expect(task?.dueDate, 'a corrected context raises the task with its deadline').toBe(`${dueDate}T23:59:59.999Z`)
+    } finally {
+      await cancelWorkflowInstanceIfExists(request, token, instanceId)
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
     }
   })
