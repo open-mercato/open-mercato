@@ -4,12 +4,13 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { DomainMappingService, DomainMappingUnavailableError, DomainMappingHealthCheckConflict } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DomainMappingService, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -52,7 +53,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     updated = await service.healthCheck(id)
   } catch (err) {
-    if (err instanceof DomainMappingHealthCheckConflict) {
+    if (isCrudHttpError(err) && err.status === 409 && err.body.code === 'domain_mapping_not_verified') {
       const { translate } = await resolveTranslations()
       return NextResponse.json({
         ok: false,

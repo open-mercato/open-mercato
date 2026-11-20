@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   DomainMapping,
@@ -43,8 +44,6 @@ export class DomainMappingOrgScopeError extends Error {
 export class DomainMappingRegistrationConflict extends Error {}
 
 export class DomainMappingUnavailableError extends Error {}
-
-export class DomainMappingHealthCheckConflict extends Error {}
 
 const DOMAIN_ROUTING_TAG = 'domain_routing'
 const RESOLVE_KEY_PREFIX = 'domain_routing:resolve:txt-v1'
@@ -409,6 +408,7 @@ export class DomainMappingService {
         status: 'pending',
         tlsRetryCount: 0,
         createdAt: now,
+        updatedAt: now,
       })
       tx.persist(mapping)
       return mapping
@@ -560,7 +560,10 @@ export class DomainMappingService {
     if (!mapping) throw new DomainMappingUnavailableError('[internal] Domain mapping is unavailable')
     if (mapping.status === 'active') return mapping
     if (mapping.status !== 'verified' && mapping.status !== 'tls_failed') {
-      throw new DomainMappingHealthCheckConflict(`[internal] Domain mapping cannot run health check from status ${mapping.status}`)
+      throw new CrudHttpError(409, {
+        error: `[internal] Domain mapping cannot run health check from status ${mapping.status}`,
+        code: 'domain_mapping_not_verified',
+      })
     }
 
     let lastReason: string | null = null

@@ -30,9 +30,10 @@ test.describe('TC-DOMAIN-9146: custom domain ownership instructions', () => {
       const response = await registration
       expect(response.status()).toBe(201)
       const body = await response.json() as {
-        domainMapping: { id: string; ownershipRecord: { name: string; value: string }; verificationExpiresAt: string }
+        domainMapping: { id: string; updatedAt: string; ownershipRecord: { name: string; value: string }; verificationExpiresAt: string }
       }
       mappingId = body.domainMapping.id
+      expect(body.domainMapping.updatedAt).toEqual(expect.any(String))
       const { ownershipRecord, verificationExpiresAt } = body.domainMapping
       expect(ownershipRecord.name).toBe(`_om-verify.${hostname}`)
       expect(ownershipRecord.value).toBe(`open-mercato-verification=${mappingId}`)

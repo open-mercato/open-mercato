@@ -114,8 +114,8 @@ describeWithPostgres('custom domain lifecycle on PostgreSQL', () => {
 
   it('preserves the complete newer DNS record when a second manager submits stale removal', async () => {
     const mapping = await new DomainMappingService(database()).register({ ...scope, hostname: 'stale-remove.example.test' })
-    const previousUpdatedAt = new Date('2026-11-20T00:00:00.000Z')
-    await database().nativeUpdate(DomainMapping, { id: mapping.id }, { updatedAt: previousUpdatedAt })
+    expect(mapping.updatedAt).toBeInstanceOf(Date)
+    const previousUpdatedAt = mapping.updatedAt!
     const expectedUpdatedAt = previousUpdatedAt.toISOString()
     const currentUpdatedAt = new Date(previousUpdatedAt.getTime() + 1000)
     await database().nativeUpdate(DomainMapping, { id: mapping.id }, {

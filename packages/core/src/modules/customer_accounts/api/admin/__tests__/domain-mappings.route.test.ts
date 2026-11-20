@@ -2,7 +2,6 @@ import { GET, POST, DELETE } from '../domain-mappings'
 import { POST as verify } from '../domain-mappings/[id]/verify'
 import { POST as healthCheck } from '../domain-mappings/[id]/health-check'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { DomainMappingHealthCheckConflict } from '../../../services/domainMappingService'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (key: string) => key }),
@@ -54,7 +53,6 @@ jest.mock('@open-mercato/core/modules/customer_accounts/services/domainMappingSe
   DomainMappingOrgScopeError: class extends Error {},
   DomainMappingRegistrationConflict: class extends Error {},
   DomainMappingUnavailableError: class extends Error {},
-  DomainMappingHealthCheckConflict: class extends Error {},
 }))
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -305,7 +303,11 @@ describe('domain action lifecycle refusals', () => {
   })
 
   it('returns a documented conflict when the domain is not ready for a TLS check', async () => {
-    mockService.healthCheck.mockRejectedValueOnce(new DomainMappingHealthCheckConflict('[internal] Pending mapping'))
+    mockService.healthCheck.mockRejectedValueOnce(Object.assign(new Error('[internal] Pending mapping'), {
+      [Symbol.for('@open-mercato/CrudHttpError')]: true,
+      status: 409,
+      body: { error: '[internal] Pending mapping', code: 'domain_mapping_not_verified' },
+    }))
     mockGuard.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true })
 
     const response = await healthCheck(new Request(`${baseUrl}/${mappingId}/health-check`, { method: 'POST' }), {

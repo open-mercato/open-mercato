@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
-import { DomainMappingService, DomainMappingOrgScopeError, DomainMappingRegistrationConflict, DomainMappingUnavailableError, DomainMappingHealthCheckConflict } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DomainMappingService, DomainMappingOrgScopeError, DomainMappingRegistrationConflict, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import { emitCustomerAccountsEvent } from '../../events'
 import {
   DomainMapping,
@@ -275,6 +275,7 @@ describe('DomainMappingService.register', () => {
 
     expect(result.hostname).toBe('shop.example.com')
     expect(result.status).toBe('pending')
+    expect(result.updatedAt).toBeInstanceOf(Date)
     expect(result.tenantId).toBe(TENANT_A)
     expect(result.organizationId).toBe(ORG_A)
     expect(result.tlsRetryCount).toBe(0)
@@ -696,7 +697,7 @@ describe('DomainMappingService.healthCheck', () => {
 
     const result = service.healthCheck(row.id)
     await expect(result).rejects.toThrow(/cannot run health check from status pending/)
-    await expect(result).rejects.toBeInstanceOf(DomainMappingHealthCheckConflict)
+    await expect(result).rejects.toMatchObject({ status: 409, body: { code: 'domain_mapping_not_verified' } })
   })
 
   it('rejects health check from dns_failed status', async () => {
@@ -706,7 +707,7 @@ describe('DomainMappingService.healthCheck', () => {
 
     const result = service.healthCheck(row.id)
     await expect(result).rejects.toThrow(/cannot run health check from status dns_failed/)
-    await expect(result).rejects.toBeInstanceOf(DomainMappingHealthCheckConflict)
+    await expect(result).rejects.toMatchObject({ status: 409, body: { code: 'domain_mapping_not_verified' } })
   })
 
   it('allows retry from tls_failed back to active when probe finally succeeds', async () => {
