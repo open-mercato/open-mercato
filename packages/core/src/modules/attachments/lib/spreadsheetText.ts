@@ -9,7 +9,7 @@ import {
   resolveSpreadsheetMaxUncompressedBytes,
   resolveSpreadsheetMaxWaitQueue,
 } from './ocrLimits'
-import { readXlsxSheetNames, SPREADSHEET_ENCRYPTED, SPREADSHEET_ENTRY_TOO_LARGE } from './xlsxSheetNames'
+import { assertXlsxArchiveWithinLimit, readXlsxSheetNames, SPREADSHEET_ENCRYPTED, SPREADSHEET_ENTRY_TOO_LARGE } from './xlsxSheetNames'
 
 const logger = createLogger('attachments').child({ component: 'spreadsheet-text' })
 
@@ -155,8 +155,9 @@ async function appendSheet(
 async function readSpreadsheetText(filePath: string, limits: SpreadsheetTextLimits): Promise<string | null> {
   const state: ExtractionState = { lines: [], textLength: 0, scannedCells: 0 }
   try {
-    const { streamXlsxRows } = await import('hucre/xlsx')
     const data = await fs.readFile(filePath)
+    await assertXlsxArchiveWithinLimit(data, limits.maxUncompressedBytes)
+    const { streamXlsxRows } = await import('hucre/xlsx')
     const sheetNames = readXlsxSheetNames(data, limits.maxUncompressedBytes)
     let truncatedBy: SpreadsheetCap | null = sheetNames.length > limits.maxSheets ? 'sheets' : null
     const sheetCount = Math.min(sheetNames.length, limits.maxSheets)

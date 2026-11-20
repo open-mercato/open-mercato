@@ -102,7 +102,7 @@ function cellImageWorkbookEntries(): ArchiveEntryInput[] {
       name: 'xl/_rels/cellimages.xml.rels',
       content: `<Relationships xmlns="${relationshipsNamespace}"><Relationship Id="rId1" Type="${officeRelationships}/image" Target="media/image1.png"/></Relationships>`,
     },
-    { name: 'xl/media/image1.png', content: Buffer.alloc(0), compression: 'corrupt' },
+    { name: 'xl/media/image1.png', content: Buffer.from('not an image or XML'), compression: 'deflate' },
   ]
 }
 
@@ -230,7 +230,7 @@ describe('extractSpreadsheetText', () => {
     )
   })
 
-  it('keeps text already read when a later sheet exceeds the decompression cap', async () => {
+  it('rejects the entire archive before extracting text when a later sheet exceeds the byte budget', async () => {
     const filePath = await writeWorkbook(
       'partial.xlsx',
       [
@@ -240,7 +240,7 @@ describe('extractSpreadsheetText', () => {
       { inlineStrings: true },
     )
 
-    await expect(extract(filePath, { maxUncompressedBytes: 4_096 })).resolves.toBe(['## Mały', 'a'].join('\n'))
+    await expect(extract(filePath, { maxUncompressedBytes: 4_096 })).resolves.toBeNull()
     expect(mockReportError).toHaveBeenCalledTimes(1)
     expect(mockReportError).toHaveBeenCalledWith(
       expect.anything(),
@@ -248,7 +248,7 @@ describe('extractSpreadsheetText', () => {
     )
   })
 
-  it('truncates a worksheet that streams past the entry cap, then reads the next sheet without reporting an error', async () => {
+  it('rejects oversized worksheet XML before streaming rows from any sheet', async () => {
     const rows = Array.from({ length: 20_000 }, (_, index) => [`wiersz ${index}`, index])
     const filePath = await writeWorkbook(
       'long-sheet.xlsx',
@@ -261,18 +261,32 @@ describe('extractSpreadsheetText', () => {
 
     const result = await extract(filePath, { maxUncompressedBytes: 256 * 1024 })
 
-    expect(result?.startsWith(['## Długi', 'wiersz 0\t0', 'wiersz 1\t1'].join('\n'))).toBe(true)
-    expect(result).not.toContain('wiersz 19999')
-    expect(result?.endsWith(['## Krótki', 'koniec'].join('\n'))).toBe(true)
-    expect(mockReportError).not.toHaveBeenCalled()
+    expect(result).toBeNull()
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ code: 'attachments.spreadsheet_entry_too_large' }),
+    )
   })
 
-  it('never decompresses parts beyond the workbook, its worksheets, shared strings and styles', async () => {
+  it('does not parse auxiliary image parts after validating their ZIP byte budget', async () => {
     const filePath = join(tmpdir(), `${Date.now()}-${Math.random().toString(36).slice(2)}-cell-images.xlsx`)
     await fs.writeFile(filePath, buildArchive(cellImageWorkbookEntries()))
 
     await expect(extract(filePath)).resolves.toBe(['## Arkusz', 'tekst'].join('\n'))
     expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  it('skips extraction when an auxiliary ZIP payload cannot be validated', async () => {
+    const entries = cellImageWorkbookEntries()
+    entries[entries.length - 1] = { name: 'xl/media/image1.png', content: Buffer.alloc(0), compression: 'corrupt' }
+    const filePath = join(tmpdir(), `${Date.now()}-${Math.random().toString(36).slice(2)}-corrupt-image.xlsx`)
+    await fs.writeFile(filePath, buildArchive(entries))
+
+    await expect(extract(filePath)).resolves.toBeNull()
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.anything(), expect.objectContaining({ code: 'attachments.spreadsheet_extraction_failed' }),
+    )
   })
 
   it('labels each sheet with its own name when a sheet entry has no relationship id', async () => {
