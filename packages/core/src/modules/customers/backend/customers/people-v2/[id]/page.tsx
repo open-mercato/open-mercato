@@ -689,7 +689,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                         entityId={E.customers.customer_entity}
                         recordId={personId}
                         title={t('customers.people.detail.tabs.files', 'Files')}
-                        description={t('customers.people.detail.files.subtitle', 'Upload and manage files linked to this person.')}
                       />
                     )
                   }

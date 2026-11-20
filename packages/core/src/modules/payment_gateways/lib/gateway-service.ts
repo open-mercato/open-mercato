@@ -20,6 +20,7 @@ import type { CredentialsService } from '../../integrations/lib/credentials-serv
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { transactionNotFound } from './transaction-not-found'
 import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
 import { canApplyManualAction, isValidTransition, resolveImpliedCaptureStatus, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
@@ -154,9 +155,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     )
     if (!transaction) {
       const translate = await resolveConflictTranslator()
-      throw new CrudHttpError(404, {
-        error: translate('payment_gateways.errors.transactionNotFound', 'Transaction not found'),
-      })
+      throw transactionNotFound(translate('payment_gateways.errors.transactionNotFound', 'Transaction not found'))
     }
     return transaction
   }
@@ -325,10 +324,13 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           assertManualActionAllowed(input.action, current)
           if (toDecimal(current.capturedAmount ?? '0').gt(0)) {
             const translate = await resolvePaymentGatewayTranslator()
-            throw conflict(translate(
-              'payment_gateways.errors.cancelCaptureConflict',
-              'Cannot cancel a payment with captured funds or an outstanding capture reservation.',
-            ))
+            throw new CrudHttpError(409, {
+              code: 'payment_cancel_captured_funds',
+              error: translate(
+                'payment_gateways.errors.cancelCaptureConflict',
+                'Cannot cancel a payment with captured funds or an outstanding capture reservation.',
+              ),
+            })
           }
           input.assertInitialAllowed?.(current)
           return invokeAndComplete(tx, current)

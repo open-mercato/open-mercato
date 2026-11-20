@@ -180,7 +180,14 @@ describeWithPostgres('manual cancel/capture exclusion against PostgreSQL (#8224)
     expect(operation).toMatchObject({ status: 'succeeded', attemptCount: 2 })
   })
 
-  it.each([false, true])('refuses a status-only partial capture committed before the final cancel lock (retry: %s)', async (retry) => {
+  it.each([
+    { retry: false, status: 'partially_captured', capturedAmount: '0' },
+    { retry: true, status: 'partially_captured', capturedAmount: '0' },
+    { retry: false, status: 'authorized', capturedAmount: '25' },
+    { retry: true, status: 'authorized', capturedAmount: '25' },
+    { retry: false, status: 'authorized', capturedAmount: '0.000000000000000001' },
+    { retry: true, status: 'authorized', capturedAmount: '0.000000000000000001' },
+  ])('refuses captured funds committed before the final cancel lock: %j', async ({ retry, status, capturedAmount }) => {
     const { transaction, cancel, cancelService } = await fixture()
     const operationId = 'cancel-late-status'
     if (retry) {
@@ -204,16 +211,19 @@ describeWithPostgres('manual cancel/capture exclusion against PostgreSQL (#8224)
       await Promise.race([credentialsEntered.promise, outcome.then(() => {
         throw new Error('[internal] Cancellation settled before the credential boundary')
       })])
-      await orm.em.fork().nativeUpdate(GatewayTransaction, { id: transaction.id, ...scope }, { unifiedStatus: 'partially_captured' })
+      await orm.em.fork().nativeUpdate(GatewayTransaction, { id: transaction.id, ...scope }, { unifiedStatus: status, capturedAmount })
     } finally {
       finishCredentials.resolve()
       await outcome
     }
 
     expect(await outcome).toMatchObject({ error: { status: 409, body: { code: 'payment_cancel_captured_funds' } } })
+    if (capturedAmount !== '0') {
+      expect(await outcome).toMatchObject({ error: { body: { error: 'Cannot cancel a payment with captured funds or an outstanding capture reservation.' } } })
+    }
     expect(cancel).not.toHaveBeenCalled()
     const current = await findOneWithDecryption(orm.em.fork(), GatewayTransaction, { id: transaction.id, ...scope }, undefined, scope)
-    expect(current).toMatchObject({ unifiedStatus: 'partially_captured', capturedAmount: '0' })
+    expect(current).toMatchObject({ unifiedStatus: status, capturedAmount })
     const operation = await findOneWithDecryption(orm.em.fork(), GatewayPaymentOperation, { operationId, ...scope }, undefined, scope)
     expect(operation).toMatchObject({ status: 'failed', attemptCount: retry ? 2 : 1 })
     await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toMatchObject({ status: 409 })
