@@ -511,7 +511,7 @@ test.describe('TC-GL-007: import-default-chart-of-accounts 200/409/403, groups p
       await expect(importButton).toBeVisible({ timeout: 10_000 });
       await importButton.click();
 
-      const dialog = page.getByRole('dialog', { name: /import the default chart of accounts/i });
+      const dialog = page.getByRole('alertdialog', { name: /import the default chart of accounts/i });
       await expect(dialog).toBeVisible({ timeout: 5_000 });
       await dialog.getByRole('button', { name: /^confirm$/i }).click();
 
