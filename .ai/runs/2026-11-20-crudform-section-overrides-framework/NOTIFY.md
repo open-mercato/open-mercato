@@ -28,3 +28,9 @@
 - Verified section readiness, projections, per-request resource versions, and organization-switch recovery.
 - Synced main and preserved its CrudForm chrome update. Package and repository validation passed.
 - The two existing Todo browser tests passed with screenshots on the PR. The configured fixture implementation started on disjoint paths during the browser run.
+
+## 2026-11-20T13:57:38Z — checkpoint 5
+
+- Verified the non-production framework fixture, revision checks, compatibility documentation, and gate steps 4.1–4.4.
+- Fixed explicit comparator audit findings and measured standalone context budgets. The final retry passed all 51 workspace tasks.
+- Configured flow evidence uses the test fixture with stubbed transport. The earlier real browser evidence covers the default Todo flow.

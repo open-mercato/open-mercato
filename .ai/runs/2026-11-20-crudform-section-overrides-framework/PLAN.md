@@ -31,12 +31,12 @@ Status: in-progress
 | 3 | 3.3 | Validate and project section fields and payload leaves | dispatch | done | 136886649f |
 | 3 | 3.4 | Bind submit, delete and action clients to their own resource versions | dispatch | done | b851023362 |
 | 3 | 3.2-review-fix | Fence form readiness by organization and isolate group preferences | dispatch | done | 9df7e6ab6d |
-| 4 | 4.1 | Build the non-production framework fixture | dispatch | done | this commit |
-| 4 | 4.2 | Verify discovery, resolution, mutations and no-policy compatibility | dispatch | done | this commit |
-| 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | done | this commit |
-| 4 | 4.4-review-fix | Preserve canonical order with explicit comparators | inline | done | this commit |
-| 4 | 4.4-budget-fix | Account for exact standalone context growth | dispatch | done | this commit |
-| 4 | 4.4 | Run and record the framework validation gates | dispatch | todo | — |
+| 4 | 4.1 | Build the non-production framework fixture | dispatch | done | ca63726325 |
+| 4 | 4.2 | Verify discovery, resolution, mutations and no-policy compatibility | dispatch | done | b6a4dda37e |
+| 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | done | 1b369c9d4f |
+| 4 | 4.4-review-fix | Preserve canonical order with explicit comparators | inline | done | 0183853f77 |
+| 4 | 4.4-budget-fix | Account for exact standalone context growth | dispatch | done | 6f500849aa |
+| 4 | 4.4 | Run and record the framework validation gates | dispatch | done | this commit |
 | 5 | 5.1 | Add the single-definition extension authoring API | dispatch | todo | — |
 | 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | todo | — |
 | 5 | 5.3 | Compile extension declarations into the framework registries and callbacks | dispatch | todo | — |
