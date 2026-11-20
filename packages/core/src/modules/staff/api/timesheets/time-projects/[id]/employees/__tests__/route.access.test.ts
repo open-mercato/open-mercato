@@ -317,6 +317,10 @@ describe('time-project employees route project access scoping (#8885)', () => {
 
       expect(response.status).toBe(200)
       expect(crudGet).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: '[internal] rbacService unavailable' }),
+        { module: 'staff', code: 'staff.feature_access_rbac_unavailable' },
+      )
     })
 
     it('leaves an unauthenticated request to the crud handler to reject', async () => {
