@@ -113,23 +113,3 @@ export const updatePostingRulesSettingsSchema = z.object({
   unallocatedCostAccountId: idSchema('unallocatedCostAccountId').nullable().optional(),
 })
 export type UpdatePostingRulesSettingsInput = z.infer<typeof updatePostingRulesSettingsSchema>
-
-export const reconcileCostRingSchema = z.object({
-  organizationId: idSchema('organizationId'),
-  tenantId: idSchema('tenantId'),
-  // Optional — omitted means "every fiscal period", matching
-  // `findUnreclassifiedEntries`'s own unbounded absence-based scan (see
-  // the spec's Design Decisions, "A repair mechanism").
-  periodId: idSchema('periodId').nullable().optional(),
-})
-export type ReconcileCostRingInput = z.infer<typeof reconcileCostRingSchema>
-
-// `posting_rules.lockFiscalPeriod` — this module's own guarded period
-// close, distinct from `ledger.lockFiscalPeriod`. Same input shape as the
-// underlying `ledger` command it delegates to on success.
-export const postingRulesLockFiscalPeriodSchema = z.object({
-  organizationId: idSchema('organizationId'),
-  tenantId: idSchema('tenantId'),
-  periodId: idSchema('periodId'),
-})
-export type PostingRulesLockFiscalPeriodInput = z.infer<typeof postingRulesLockFiscalPeriodSchema>

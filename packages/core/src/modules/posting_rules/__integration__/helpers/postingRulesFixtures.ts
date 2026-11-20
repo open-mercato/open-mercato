@@ -9,7 +9,6 @@ import {
   generateUniqueCurrencyCode,
 } from '@open-mercato/core/helpers/integration/currenciesFixtures';
 import { createAccountFixture, createFiscalPeriodFixture, seedAccountGroupInDb } from '@open-mercato/core/helpers/integration/ledgerFixtures';
-import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
 
 /**
  * Shared fixtures for the posting_rules integration specs (TC-PR-002+).
@@ -19,8 +18,6 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
  * through the real routes, seeding only the account groups (no create
  * route) directly.
  */
-
-export const RECLASSIFICATION_REFERENCE_TYPE = 'PostingRulesEngineReclassification';
 
 export const randomSlug = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`;
 
@@ -143,27 +140,4 @@ export async function deletePostingRulesOrg(
   if (options.deleteTenant !== false) {
     await deleteGeneralEntityIfExists(request, token, '/api/directory/tenants', org.tenantId);
   }
-}
-
-export async function getJournalEntryLines(
-  entryId: string,
-): Promise<Array<{ id: string; accountId: string; debit: string; credit: string }>> {
-  return withClient(async (client) => {
-    const result = await client.query(
-      `select id, account_id as "accountId", debit, credit from journal_entry_lines where journal_entry_id = $1`,
-      [entryId],
-    );
-    return result.rows as Array<{ id: string; accountId: string; debit: string; credit: string }>;
-  });
-}
-
-/** Reclassification entries keyed on any of `sourceLineIds`. */
-export async function countReclassificationsOf(sourceLineIds: string[]): Promise<number> {
-  return withClient(async (client) => {
-    const result = await client.query(
-      `select count(*)::int as count from journal_entries where reference_type = $1 and reference_id = any($2::uuid[])`,
-      [RECLASSIFICATION_REFERENCE_TYPE, sourceLineIds],
-    );
-    return (result.rows[0] as { count: number }).count;
-  });
 }

@@ -17,8 +17,6 @@ export const setup: ModuleSetupConfig = {
     admin: [
       'posting_rules.cost_centers.manage',
       'posting_rules.settings.manage',
-      'posting_rules.periods.manage',
-      'posting_rules.reconcile.run',
     ],
   },
 }

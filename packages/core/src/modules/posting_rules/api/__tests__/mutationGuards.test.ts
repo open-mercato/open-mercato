@@ -1,5 +1,5 @@
 /** @jest-environment node */
-// The two custom write routes (PATCH /settings, POST /reconcile) run the
+// The custom write route PATCH /settings runs the
 // shared mutation-guard registry before calling their command (see
 // packages/core/AGENTS.md → API Routes). The registry guards here are real
 // `MutationGuard`s run by the real `runMutationGuards`; only the guard store,
@@ -10,7 +10,6 @@ const ORG = '11111111-1111-4111-8111-111111111111'
 const TENANT = '22222222-2222-4222-8222-222222222222'
 const ACCOUNT = '33333333-3333-4333-8333-333333333333'
 const OTHER_ACCOUNT = '55555555-5555-4555-8555-555555555555'
-const PERIOD = '44444444-4444-4444-8444-444444444444'
 
 const mockGuards: MutationGuard[] = []
 const mockExecute = jest.fn()
@@ -40,7 +39,6 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { PATCH as patchSettings } from '../settings/route'
-import { POST as postReconcile } from '../reconcile/route'
 
 function blockingGuard(resourceKind: string): MutationGuard {
   return {
@@ -67,7 +65,6 @@ const jsonRequest = (url: string, method: string, body: unknown) =>
   new Request(url, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
 const settingsRequest = (body: unknown) => jsonRequest('http://localhost/api/posting_rules/settings', 'PATCH', body)
-const reconcileRequest = (body: unknown) => jsonRequest('http://localhost/api/posting_rules/reconcile', 'POST', body)
 
 describe('posting_rules custom write routes — mutation guards', () => {
   beforeEach(() => {
@@ -133,39 +130,6 @@ describe('posting_rules custom write routes — mutation guards', () => {
       const response = await patchSettings(settingsRequest({ clearingAccountId: ACCOUNT }))
 
       expect(response.status).toBe(200)
-      expect(afterSuccess).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  describe('POST /api/posting_rules/reconcile', () => {
-    it('returns the blocking guard\'s status and body and does not run the sweep', async () => {
-      const guard = blockingGuard('posting_rules.reconcile_run')
-      mockGuards.push(guard)
-
-      const response = await postReconcile(reconcileRequest({ periodId: PERIOD }))
-
-      expect(response.status).toBe(423)
-      await expect(response.json()).resolves.toEqual({ error: 'Locked by test guard' })
-      expect(mockExecute).not.toHaveBeenCalled()
-      expect(guard.validate).toHaveBeenCalledWith(expect.objectContaining({
-        resourceKind: 'posting_rules.reconcile_run',
-        resourceId: `${ORG}:${TENANT}`,
-        operation: 'update',
-        requestMethod: 'POST',
-        mutationPayload: { periodId: PERIOD },
-      }))
-    })
-
-    it('runs the sweep and then afterSuccess when the guard passes', async () => {
-      const { guard, afterSuccess } = passingGuard('posting_rules.reconcile_run')
-      mockGuards.push(guard)
-
-      const response = await postReconcile(reconcileRequest({ periodId: PERIOD }))
-
-      expect(response.status).toBe(200)
-      expect(mockExecute).toHaveBeenCalledWith('posting_rules.reconcileCostRing', expect.objectContaining({
-        input: { organizationId: ORG, tenantId: TENANT, periodId: PERIOD },
-      }))
       expect(afterSuccess).toHaveBeenCalledTimes(1)
     })
   })

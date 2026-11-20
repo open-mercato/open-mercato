@@ -8,12 +8,9 @@ import {
   deleteUserIfExists,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures';
-import { seedJournalEntryInDb } from '@open-mercato/core/helpers/integration/ledgerFixtures';
 import {
-  countReclassificationsOf,
   createPostingRulesOrg,
   deletePostingRulesOrg,
-  getJournalEntryLines,
   randomSlug,
   type PostingRulesOrg,
 } from './helpers/postingRulesFixtures';
@@ -21,14 +18,13 @@ import {
 /**
  * TC-PR-003: tenant/organization isolation (spec, Testing Strategy:
  * "`CostCenter`/`DefaultAccountPostingRule`/`PostingRulesSettings` reads and
- * writes never cross tenant/organization boundaries", and Risks, "the
- * subscriber/sweeper always operate within the source entry's own
- * tenant/organization"). Organization A owns a cost centre, a rule, settings
- * and an unreclassified zespół 4 line. Two non-superadmin users with every
- * posting_rules feature try to read and change A's data: one in another
- * tenant (B), one in another organization of A's own tenant (A2, role limited
- * to A2). Neither may see or change anything of A's, and neither one's
- * reconcile sweep may touch A's line.
+ * writes never cross tenant/organization boundaries"). Organization A owns a
+ * cost centre, a rule and settings. Two non-superadmin users with every
+ * posting_rules configuration feature try to read and change A's data: one in
+ * another tenant (B), one in another organization of A's own tenant (A2, role
+ * limited to A2). Neither may see or change anything of A's. The engine's
+ * isolation (the reconcile sweep never touching A's lines) ships with the
+ * engine (PR-B).
  */
 
 type Actor = { label: string; token: string; org: PostingRulesOrg };
@@ -75,18 +71,6 @@ test.describe('TC-PR-003: posting_rules tenant and organization isolation', () =
       orgB = await createPostingRulesOrg(request, superadminToken, { label: 'TC-PR-003 B', periodStart: '2034-05-01', periodEnd: '2034-05-31' });
       const owner = orgA;
 
-      const entryId = await seedJournalEntryInDb({
-        organizationId: owner.organizationId,
-        tenantId: owner.tenantId,
-        currencyId: owner.currencyId,
-        operationDate: '2034-05-10',
-        lines: [
-          { accountId: owner.sourceAccountId, debit: '75.0000', credit: '0' },
-          { accountId: owner.balancingAccountId, debit: '0', credit: '75.0000' },
-        ],
-      });
-      const sourceLineId = (await getJournalEntryLines(entryId)).find((line) => line.accountId === owner.sourceAccountId)?.id as string;
-
       const actors: Actor[] = [
         { label: 'other tenant', token: await createActor(request, superadminToken, orgB, cleanup), org: orgB },
         { label: 'other organization, same tenant', token: await createActor(request, superadminToken, orgA2, cleanup), org: orgA2 },
@@ -123,12 +107,6 @@ test.describe('TC-PR-003: posting_rules tenant and organization isolation', () =
           data: { organizationId: actor.org.organizationId, tenantId: actor.org.tenantId, sourceAccountId: owner.sourceAccountId, targetAccountId: actor.org.targetAccountId },
         });
         expect(foreignRuleRes.status(), says('A\'s account cannot be the source of the actor\'s rule')).toBe(409);
-
-        const reconcileRes = await apiRequest(request, 'POST', '/api/posting_rules/reconcile', { token: actor.token, data: {} });
-        expect(reconcileRes.status(), says('own reconcile')).toBe(200);
-        const reconcile = ((await reconcileRes.json()) as { result: { entriesInspected: number; linesReclassified: number } }).result;
-        expect(reconcile.entriesInspected, says('own reconcile sees none of A\'s entries')).toBe(0);
-        expect(await countReclassificationsOf([sourceLineId]), says('A\'s line is untouched')).toBe(0);
       }
 
       const ownerCostCenter = await readAsOwner(request, superadminToken, owner, '/api/posting_rules/cost-centers', owner.costCenterId);
@@ -138,10 +116,6 @@ test.describe('TC-PR-003: posting_rules tenant and organization isolation', () =
       const ownerSettingsRes = await apiRequest(request, 'GET', '/api/posting_rules/settings', { token: superadminToken, headers: owner.headers });
       expect(((await ownerSettingsRes.json()) as { result: { clearingAccountId: string } }).result.clearingAccountId).toBe(owner.clearingAccountId);
 
-      const ownerReconcileRes = await apiRequest(request, 'POST', '/api/posting_rules/reconcile', { token: superadminToken, headers: owner.headers, data: {} });
-      expect(ownerReconcileRes.status()).toBe(200);
-      expect(((await ownerReconcileRes.json()) as { result: { linesReclassified: number } }).result.linesReclassified, 'A\'s own sweep reclassifies its line').toBe(1);
-      expect(await countReclassificationsOf([sourceLineId])).toBe(1);
     } finally {
       for (const userId of cleanup.users) await deleteUserIfExists(request, superadminToken, userId);
       for (const roleId of cleanup.roles) await deleteRoleIfExists(request, superadminToken, roleId);
