@@ -55,13 +55,14 @@ afterEach(() => {
 })
 
 describe('resolveQueryIndexSourceMetadata', () => {
-  it('uses registered metadata and mapped scope columns', async () => {
+  it('uses registered metadata and mapped scope and soft-delete columns', async () => {
     const metadata = createMetadata({
       className: 'CustomerPerson',
       tableName: 'customer_people',
       organizationColumn: 'org_scope',
       tenantColumn: 'tenant_scope',
     })
+    metadata.properties.deletedAt = { fieldNames: ['archived_at'] }
     const { em, select } = createEm(metadata, { org_scope: 'org-1', tenant_scope: 'tenant-1' })
     const source = resolveQueryIndexSourceMetadata(em, 'customers:customer_person')
 
@@ -69,6 +70,7 @@ describe('resolveQueryIndexSourceMetadata', () => {
       table: 'customer_people',
       organizationColumn: 'org_scope',
       tenantColumn: 'tenant_scope',
+      deletedAtColumn: 'archived_at',
     })
     await expect(loadQueryIndexRowScope(em, source, 'record-1')).resolves.toEqual({
       kind: 'row',
