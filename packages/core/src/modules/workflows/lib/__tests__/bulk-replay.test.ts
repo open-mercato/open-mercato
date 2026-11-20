@@ -238,4 +238,42 @@ describe('runBulkReplay', () => {
     expect(summary.failedCount).toBe(1)
     expect(harness.progressService.completeJob).toHaveBeenCalled()
   })
+
+  test('replays without progress tracking when the progress module is disabled (#9217)', async () => {
+    const harness = makeHarness([makeInstance('a', 'FAILED')])
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return harness.em
+        throw new Error(`Could not resolve '${name}'`)
+      },
+    }
+
+    const summary = await runBulkReplay({
+      container: container as never,
+      progressJobId: 'job-1',
+      action: 'retry',
+      ids: ['a'],
+      scope: SCOPE,
+    })
+
+    expect(summary.affectedCount).toBe(1)
+    expect(executeWorkflow).toHaveBeenCalledTimes(1)
+  })
+
+  test('skips progress calls for a job queued without a progress job id', async () => {
+    const harness = makeHarness([makeInstance('a', 'FAILED')])
+
+    const summary = await runBulkReplay({
+      container: harness.container as never,
+      progressJobId: null,
+      action: 'retry',
+      ids: ['a'],
+      scope: SCOPE,
+    })
+
+    expect(summary.affectedCount).toBe(1)
+    expect(harness.progressService.startJob).not.toHaveBeenCalled()
+    expect(harness.progressService.updateProgress).not.toHaveBeenCalled()
+    expect(harness.progressService.completeJob).not.toHaveBeenCalled()
+  })
 })

@@ -10,6 +10,7 @@ import { EntityManager } from '@mikro-orm/core'
 import { WorkflowDefinition } from '../data/entities'
 import * as ruleEngine from '../../business_rules/lib/rule-engine'
 import { findWorkflowDefinition } from './find-definition'
+import { isBusinessRulesModuleEnabled } from './optional-modules'
 import type { StartPreCondition } from '../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -127,6 +128,19 @@ export async function validateWorkflowStart(
     return {
       canStart: true,
       errors: [],
+      validatedRules: [],
+    }
+  }
+
+  if (!isBusinessRulesModuleEnabled()) {
+    const required = preConditions.filter((condition) => condition.required)
+    return {
+      canStart: required.length === 0,
+      errors: required.map((condition) => ({
+        ruleId: condition.ruleId,
+        message: getLocalizedMessage(condition, null, locale, `Business rules module is disabled: ${condition.ruleId}`),
+        code: 'RULE_ENGINE_UNAVAILABLE',
+      })),
       validatedRules: [],
     }
   }

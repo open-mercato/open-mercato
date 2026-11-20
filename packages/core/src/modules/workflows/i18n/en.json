@@ -648,6 +648,7 @@
   "workflows.endpointPicker.placeholder": "/api/customers/people",
   "workflows.endpointPicker.searchPlaceholder": "Search endpoints…",
   "workflows.endpointPicker.untagged": "Other",
+  "workflows.errors.callApi.apiKeysModuleDisabled": "CALL_API needs the api_keys module to authenticate internal calls",
   "workflows.errors.callApi.appUrlNotHttp": "CALL_API requires an http(s) APP_URL, got: {appUrl}",
   "workflows.errors.callApi.endpointCredentials": "SSRF Prevention: CALL_API endpoint must not contain credentials",
   "workflows.errors.callApi.noLocationHeader": "(no Location header)",
