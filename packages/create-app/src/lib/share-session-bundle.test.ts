@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const standaloneSkillDirectory = fileURLToPath(
   new URL('../../agentic/shared/ai/skills/om-share-this-session/', import.meta.url),
@@ -74,11 +74,18 @@ function runPreparer(fixture: ReturnType<typeof createFixture>, extraArguments: 
 
 function createFakeCodex(root: string): string {
   const binDirectory = path.join(root, 'bin')
-  const executablePath = path.join(binDirectory, 'codex')
+  const executablePath = path.join(binDirectory, process.platform === 'win32' ? 'fake-codex.mjs' : 'codex')
   fs.mkdirSync(binDirectory)
+  if (process.platform === 'win32') {
+    fs.writeFileSync(path.join(binDirectory, 'codex.cmd'), `@"${process.execPath}" "%~dp0fake-codex.mjs" %*\r\n`)
+  }
   fs.writeFileSync(
     executablePath,
     `#!/usr/bin/env node
+if (process.env.FAKE_CODEX_MODE === 'linger') {
+  process.getBuiltinModule('node:fs').writeFileSync(process.env.FAKE_CODEX_PID_FILE, String(process.pid))
+  setInterval(() => {}, 1000)
+}
 let input = ''
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (chunk) => {
@@ -125,23 +132,45 @@ process.stdin.on('data', (chunk) => {
   return binDirectory
 }
 
-function runCodexExporter(root: string, mode = 'success') {
+function runCodexExporter(root: string, mode = 'success', searchPath?: string) {
   const threadId = '123e4567-e89b-42d3-a456-426614174000'
   const outputPath = path.join(root, 'native-codex-session.json')
+  const pidFile = path.join(root, 'fake-codex.pid')
   const binDirectory = createFakeCodex(root)
   const result = spawnSync(
     process.execPath,
     [codexExporter, '--thread-id', threadId, '--out', outputPath],
     {
+      cwd: root,
       encoding: 'utf8',
+      timeout: 20_000,
       env: {
         ...process.env,
-        PATH: `${binDirectory}${path.delimiter}${process.env.PATH ?? ''}`,
+        PATH: searchPath ?? `${binDirectory}${path.delimiter}${process.env.PATH ?? ''}`,
         FAKE_CODEX_MODE: mode,
+        FAKE_CODEX_PID_FILE: pidFile,
       },
     },
   )
-  return { result, outputPath, threadId }
+  return { result, outputPath, threadId, pidFile }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+async function waitForProcessExit(pid: number, timeoutMilliseconds: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMilliseconds
+  while (isProcessRunning(pid)) {
+    if (Date.now() > deadline) return false
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+  }
+  return true
 }
 
 test('Codex session exporter reads the requested native thread through app-server', () => {
@@ -162,7 +191,9 @@ test('Codex session exporter reads the requested native thread through app-serve
       'agentMessage',
       'agentMessage',
     ])
-    assert.equal(fs.statSync(outputPath).mode & 0o077, 0, 'native export must be owner-readable only')
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(outputPath).mode & 0o077, 0, 'native export must be owner-readable only')
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
@@ -178,6 +209,167 @@ test('Codex session exporter rejects a mismatched thread without leaving output'
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('Codex session exporter stops an app-server that keeps running after its input closes', async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-codex-export-')))
+  let serverPid = 0
+  try {
+    const { result, outputPath, pidFile } = runCodexExporter(root, 'linger')
+    serverPid = Number(fs.readFileSync(pidFile, 'utf8'))
+    assert.equal(result.error, undefined, 'the exporter must exit without being killed')
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(fs.existsSync(outputPath), true)
+    assert.equal(await waitForProcessExit(serverPid, 2_000), true, 'the app-server must not outlive the exporter')
+  } finally {
+    if (serverPid && isProcessRunning(serverPid)) process.kill(serverPid)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Codex session exporter reports a start failure when codex is not installed', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-codex-export-')))
+  try {
+    const emptyDirectory = path.join(root, 'empty-bin')
+    fs.mkdirSync(emptyDirectory)
+    const searchPath = process.platform === 'win32'
+      ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
+      : emptyDirectory
+    const { result, outputPath } = runCodexExporter(root, 'success', searchPath)
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /Could not start the Codex app-server\./)
+    assert.equal(fs.existsSync(outputPath), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+type SpawnCall = { command: string; args?: unknown; options?: unknown }
+type SpawnFunction = (command: string, ...rest: unknown[]) => unknown
+type FakeChildProcess = {
+  exitCode: number | null
+  killed: boolean
+  pid?: number
+  killCalls: number
+  kill: () => void
+  on: (event: string, handler: () => void) => FakeChildProcess
+}
+type CodexExporterModule = {
+  startAppServer: (options?: {
+    platform?: NodeJS.Platform
+    spawn?: SpawnFunction
+    spawnSync?: (command: string, args: string[], options: Record<string, unknown>) => { status: number | null }
+  }) => unknown
+  stopAppServer: (server: FakeChildProcess, options?: { platform?: NodeJS.Platform; spawn?: SpawnFunction }) => void
+}
+
+let codexExporterModulePromise: Promise<CodexExporterModule> | undefined
+
+function loadCodexExporterModule(): Promise<CodexExporterModule> {
+  codexExporterModulePromise ??= import(pathToFileURL(codexExporter).href) as Promise<CodexExporterModule>
+  return codexExporterModulePromise
+}
+
+function createRecordingSpawn(returnValue: unknown): { calls: SpawnCall[]; spawn: SpawnFunction } {
+  const calls: SpawnCall[] = []
+  const spawn: SpawnFunction = (command, args, options) => {
+    calls.push({ command, args, options })
+    return returnValue
+  }
+  return { calls, spawn }
+}
+
+function createFakeChildProcess(pid?: number): FakeChildProcess {
+  const child: FakeChildProcess = {
+    exitCode: null,
+    killed: false,
+    pid,
+    killCalls: 0,
+    kill() {
+      child.killCalls += 1
+      child.killed = true
+    },
+    on() {
+      return child
+    },
+  }
+  return child
+}
+
+test('Codex app-server start on Windows fails when where.exe cannot find codex', async () => {
+  const { startAppServer } = await loadCodexExporterModule()
+  const { calls, spawn } = createRecordingSpawn({})
+  const whereCalls: SpawnCall[] = []
+  assert.throws(
+    () =>
+      startAppServer({
+        platform: 'win32',
+        spawn,
+        spawnSync: (command, args, options) => {
+          whereCalls.push({ command, args, options })
+          return { status: 1 }
+        },
+      }),
+    /Could not start the Codex app-server\./,
+  )
+  assert.deepEqual(calls, [])
+  assert.deepEqual(whereCalls, [
+    { command: 'where.exe', args: ['codex'], options: { stdio: 'ignore', windowsHide: true } },
+  ])
+})
+
+test('Codex app-server start on Windows spawns codex through the shell', async () => {
+  const { startAppServer } = await loadCodexExporterModule()
+  const child = createFakeChildProcess()
+  const { calls, spawn } = createRecordingSpawn(child)
+  const started = startAppServer({ platform: 'win32', spawn, spawnSync: () => ({ status: 0 }) })
+  assert.equal(started, child)
+  assert.deepEqual(calls, [
+    {
+      command: 'codex app-server --stdio',
+      args: { stdio: ['pipe', 'pipe', 'ignore'], shell: true, windowsHide: true },
+      options: undefined,
+    },
+  ])
+})
+
+test('Codex app-server stop on Windows kills the process tree and falls back when taskkill fails to start', async () => {
+  const { stopAppServer } = await loadCodexExporterModule()
+  const server = createFakeChildProcess(4321)
+  const taskkill = createFakeChildProcess()
+  let errorHandler: (() => void) | undefined
+  taskkill.on = (event, handler) => {
+    if (event === 'error') errorHandler = handler
+    return taskkill
+  }
+  const { calls, spawn } = createRecordingSpawn(taskkill)
+  stopAppServer(server, { platform: 'win32', spawn })
+  assert.deepEqual(calls, [
+    { command: 'taskkill', args: ['/pid', '4321', '/T', '/F'], options: { stdio: 'ignore', windowsHide: true } },
+  ])
+  assert.equal(server.killCalls, 0)
+  errorHandler?.()
+  assert.equal(server.killCalls, 1)
+})
+
+test('Codex app-server start and stop keep the POSIX behavior', async () => {
+  const { startAppServer, stopAppServer } = await loadCodexExporterModule()
+  const child = createFakeChildProcess()
+  const { calls, spawn } = createRecordingSpawn(child)
+  const started = startAppServer({
+    platform: 'linux',
+    spawn,
+    spawnSync: () => {
+      throw new Error('where.exe must not run on POSIX')
+    },
+  })
+  assert.equal(started, child)
+  assert.deepEqual(calls, [
+    { command: 'codex', args: ['app-server', '--stdio'], options: { stdio: ['pipe', 'pipe', 'ignore'] } },
+  ])
+  stopAppServer(child, { platform: 'linux', spawn })
+  assert.equal(child.killCalls, 1)
+  assert.equal(calls.length, 1)
 })
 
 test('session-share preparer preserves turns, sanitizes content, and creates a valid generated-files ZIP', () => {
