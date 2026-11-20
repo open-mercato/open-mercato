@@ -1,9 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { sql, type Kysely } from 'kysely'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CustomerInteraction,
   CustomerTodoLink,
@@ -181,20 +181,15 @@ export function normalizeTodoSearch(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function compareTodoRowsNewestFirst(
-  left: { id: string; createdAt: string },
-  right: { id: string; createdAt: string },
-): number {
-  const leftTime = new Date(left.createdAt).getTime()
-  const rightTime = new Date(right.createdAt).getTime()
-  if (leftTime === rightTime) {
-    return right.id.localeCompare(left.id)
-  }
-  return rightTime - leftTime
-}
-
 export function sortTodoRows(rows: CustomerTodoRow[]): CustomerTodoRow[] {
-  return [...rows].sort(compareTodoRowsNewestFirst)
+  return [...rows].sort((left, right) => {
+    const leftTime = new Date(left.createdAt).getTime()
+    const rightTime = new Date(right.createdAt).getTime()
+    if (leftTime === rightTime) {
+      return right.id.localeCompare(left.id)
+    }
+    return rightTime - leftTime
+  })
 }
 
 export function filterTodoRows(rows: CustomerTodoRow[], search: string | null): CustomerTodoRow[] {
@@ -615,20 +610,60 @@ export async function listCanonicalTodoRows(
   }
 }
 
-type TodoHead = { id: string; createdAt: string; legacy: boolean }
-
-function mergeTodoHeads(left: TodoHead[], right: TodoHead[]): TodoHead[] {
-  const merged: TodoHead[] = []
-  let leftIndex = 0
-  let rightIndex = 0
-  while (leftIndex < left.length && rightIndex < right.length) {
-    if (compareTodoRowsNewestFirst(left[leftIndex], right[rightIndex]) <= 0) {
-      merged.push(left[leftIndex++])
-    } else {
-      merged.push(right[rightIndex++])
-    }
+type MergedTodoPageDb = {
+  customer_todo_links: {
+    id: string
+    tenant_id: string
+    organization_id: string
+    entity_id: string
+    todo_id: string
+    created_at: Date
   }
-  return [...merged, ...left.slice(leftIndex), ...right.slice(rightIndex)]
+  customer_interactions: {
+    id: string
+    tenant_id: string
+    organization_id: string
+    entity_id: string | null
+    interaction_type: string
+    created_at: Date
+    deleted_at: Date | null
+  }
+}
+
+function buildMergedTodoHeadsQuery(
+  db: Kysely<MergedTodoPageDb>,
+  tenantId: string,
+  organizationIds: string[],
+  entityId: string | undefined,
+) {
+  const legacy = db
+    .selectFrom('customer_todo_links as link')
+    .select(['link.id as id', 'link.created_at as created_at', sql<boolean>`true`.as('legacy')])
+    .where('link.tenant_id', '=', tenantId)
+    .$if(organizationIds.length > 0, (query) => query.where('link.organization_id', 'in', organizationIds))
+    .$if(Boolean(entityId), (query) => query.where('link.entity_id', '=', entityId as string))
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom('customer_interactions as bridged')
+            .select('bridged.id')
+            .whereRef('bridged.id', '=', 'link.todo_id')
+            .where('bridged.tenant_id', '=', tenantId)
+            .where('bridged.interaction_type', '=', 'task')
+            .$if(organizationIds.length > 0, (query) => query.where('bridged.organization_id', 'in', organizationIds))
+            .$if(Boolean(entityId), (query) => query.where('bridged.entity_id', '=', entityId as string)),
+        ),
+      ),
+    )
+  const canonical = db
+    .selectFrom('customer_interactions as task')
+    .select(['task.id as id', 'task.created_at as created_at', sql<boolean>`false`.as('legacy')])
+    .where('task.tenant_id', '=', tenantId)
+    .where('task.interaction_type', '=', 'task')
+    .where('task.deleted_at', 'is', null)
+    .$if(organizationIds.length > 0, (query) => query.where('task.organization_id', 'in', organizationIds))
+    .$if(Boolean(entityId), (query) => query.where('task.entity_id', '=', entityId as string))
+  return legacy.unionAll(canonical)
 }
 
 export async function listMergedTodoPage(
@@ -643,62 +678,25 @@ export async function listMergedTodoPage(
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options.isUnrestricted)) {
     return { items: [], total: 0 }
   }
-  const scope: Record<string, unknown> = { tenantId: auth.tenantId }
-  if (organizationIds && organizationIds.length > 0) {
-    scope.organizationId = { $in: organizationIds }
-  }
-  if (options.entityId) {
-    scope.entity = options.entityId
-  }
-  const taskScope = { ...scope, interactionType: 'task' }
-  const legacyWhere = {
-    ...scope,
-    todoId: { $nin: em.createQueryBuilder(CustomerInteraction).select('id').where(taskScope) },
-  }
-  const canonicalWhere = { ...taskScope, deletedAt: null }
-  const [legacyTotal, canonicalTotal] = await Promise.all([
-    em.count(CustomerTodoLink, legacyWhere),
-    em.count(CustomerInteraction, canonicalWhere),
-  ])
-  const total = legacyTotal + canonicalTotal
+  const db = em.getKysely<MergedTodoPageDb>()
+  const heads = buildMergedTodoHeadsQuery(db, auth.tenantId, organizationIds ?? [], options.entityId)
+  const counted = await db
+    .selectFrom(heads.as('heads'))
+    .select((builder) => builder.fn.countAll<string | number>().as('total'))
+    .executeTakeFirst()
+  const total = Number(counted?.total ?? 0)
   const start = (options.page - 1) * options.pageSize
   if (start >= total) {
     return { items: [], total }
   }
-  const window = options.page * options.pageSize
-  const decryptionScope = { tenantId: auth.tenantId, organizationId: selectedOrganizationId }
-  const headOptions = {
-    fields: ['id', 'createdAt'] as const,
-    orderBy: { createdAt: 'desc', id: 'desc' } as const,
-    disableIdentityMap: true,
-  }
-  const [legacyHeads, canonicalHeads] = await Promise.all([
-    legacyTotal > 0
-      ? findWithDecryption(
-          em,
-          CustomerTodoLink,
-          legacyWhere,
-          { ...headOptions, limit: Math.min(window, legacyTotal) },
-          decryptionScope,
-        )
-      : Promise.resolve([]),
-    canonicalTotal > 0
-      ? findWithDecryption(
-          em,
-          CustomerInteraction,
-          canonicalWhere,
-          { ...headOptions, limit: Math.min(window, canonicalTotal) },
-          decryptionScope,
-        )
-      : Promise.resolve([]),
-  ])
-  const toHead = (legacy: boolean) => (head: { id: string; createdAt: Date }): TodoHead => ({
-    id: head.id,
-    createdAt: head.createdAt.toISOString(),
-    legacy,
-  })
-  const pageHeads = mergeTodoHeads(legacyHeads.map(toHead(true)), canonicalHeads.map(toHead(false)))
-    .slice(start, start + options.pageSize)
+  const pageHeads = await db
+    .selectFrom(heads.as('heads'))
+    .select(['heads.id', 'heads.legacy'])
+    .orderBy('heads.created_at', 'desc')
+    .orderBy('heads.id', 'desc')
+    .limit(options.pageSize)
+    .offset(start)
+    .execute()
   const pageLegacyIds = pageHeads.filter((head) => head.legacy).map((head) => head.id)
   const pageCanonicalIds = pageHeads.filter((head) => !head.legacy).map((head) => head.id)
   const [legacyRows, canonicalRows] = await Promise.all([

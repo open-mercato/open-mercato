@@ -1,19 +1,28 @@
 /** @jest-environment node */
 
+import { createRecordingKysely, isCountQuery } from '../../../../lib/__tests__/recordingKysely'
 import { GET } from '../route'
 
 const TENANT_ID = '123e4567-e89b-41d3-a456-426614174010'
 const ORG_1 = '123e4567-e89b-41d3-a456-426614174001'
+const LEGACY_HEAD_ID = '123e4567-e89b-41d3-a456-426614174020'
+const CANONICAL_HEAD_ID = '123e4567-e89b-41d3-a456-426614174021'
+
+const mockKysely = createRecordingKysely((query) =>
+  isCountQuery(query)
+    ? [{ total: '2' }]
+    : [
+        { id: CANONICAL_HEAD_ID, legacy: false },
+        { id: LEGACY_HEAD_ID, legacy: true },
+      ],
+)
 
 const mockEm = {
   find: jest.fn(),
   findOne: jest.fn(),
   findAndCount: jest.fn(),
   count: jest.fn(),
-  createQueryBuilder: jest.fn(() => {
-    const subquery = { select: () => subquery, where: () => subquery }
-    return subquery
-  }),
+  getKysely: () => mockKysely.db,
 }
 
 const mockContainer = {
@@ -109,21 +118,27 @@ function expectNoQueries() {
   expect(mockEm.find).not.toHaveBeenCalled()
   expect(mockEm.findAndCount).not.toHaveBeenCalled()
   expect(mockEm.count).not.toHaveBeenCalled()
+  expect(mockKysely.queries).toHaveLength(0)
 }
 
 function expectTenantWideQueries() {
-  const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls, ...mockEm.count.mock.calls]
+  const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls]
   expect(calls.length).toBeGreaterThan(0)
   for (const call of calls) {
     const where = call[1] as Record<string, unknown>
     expect(where.tenantId).toBe(TENANT_ID)
     expect(where.organizationId).toBeUndefined()
   }
+  for (const query of mockKysely.queries) {
+    expect(query.sql).not.toContain('organization_id')
+    expect(query.parameters).toContain(TENANT_ID)
+  }
 }
 
 describe('interactions/tasks GET organization scoping', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockKysely.queries.length = 0
     setFlags()
     mockEm.find.mockImplementation(async () => [])
     mockEm.findAndCount.mockImplementation(async () => [[], 0])
@@ -243,10 +258,15 @@ describe('interactions/tasks GET organization scoping', () => {
     )
     expect(res.status).toBe(200)
 
-    const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls, ...mockEm.count.mock.calls]
+    const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls]
     expect(calls.length).toBeGreaterThan(0)
     for (const call of calls) {
       expect((call[1] as Record<string, unknown>).organizationId).toEqual({ $in: [ORG_1] })
+    }
+    expect(mockKysely.queries.length).toBeGreaterThan(0)
+    for (const query of mockKysely.queries) {
+      expect(query.sql.match(/"organization_id" in \(\$\d+\)/g)).toHaveLength(3)
+      expect(query.parameters.filter((value) => value === ORG_1)).toHaveLength(3)
     }
   })
 })

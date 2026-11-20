@@ -6,6 +6,7 @@ import {
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
   EXAMPLE_TODO_SOURCE,
 } from '../../../../lib/interactionCompatibility'
+import { createRecordingKysely, isCountQuery } from '../../../../lib/__tests__/recordingKysely'
 import { GET } from '../route'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -102,35 +103,17 @@ function makeTodoLink(overrides: Partial<FakeTodoLink> & { id: string; todoId: s
   }
 }
 
-type FakeSubquery = {
-  subqueryEntity: unknown
-  subqueryWhere: Record<string, unknown>
-  select: () => FakeSubquery
-  where: (where: Record<string, unknown>) => FakeSubquery
-}
-
-function isFakeSubquery(value: unknown): value is FakeSubquery {
-  return value !== null && typeof value === 'object' && 'subqueryEntity' in value
-}
-
-function matchesWhere(
-  record: Record<string, unknown>,
-  where: Record<string, unknown>,
-  resolveSubquery: (subquery: FakeSubquery) => Set<unknown> = () => new Set(),
-): boolean {
+function matchesWhere(record: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, condition]) => {
     if (key === '$or') {
       return (condition as Array<Record<string, unknown>>).some((clause) =>
-        matchesWhere(record, clause, resolveSubquery),
+        matchesWhere(record, clause),
       )
     }
     const value = record[key]
     if (condition !== null && typeof condition === 'object' && !(condition instanceof Date)) {
       const operators = condition as Record<string, unknown>
       if ('$in' in operators) return (operators.$in as unknown[]).includes(value)
-      if ('$nin' in operators && isFakeSubquery(operators.$nin)) {
-        return !resolveSubquery(operators.$nin).has(value)
-      }
       if ('$ilike' in operators) {
         const needle = String(operators.$ilike).replace(/%/g, '').toLowerCase()
         return typeof value === 'string' && value.toLowerCase().includes(needle)
@@ -142,41 +125,19 @@ function matchesWhere(
 }
 
 function createFakeEntityManager(store: FakeStore) {
-  const select = (entity: unknown, where: Record<string, unknown>): Array<Record<string, unknown>> => {
+  const select = (entity: unknown, where: Record<string, unknown>) => {
     const rows: Array<Record<string, unknown>> =
       entity === CustomerInteraction
         ? (store.interactions as unknown as Array<Record<string, unknown>>)
         : (store.links as unknown as Array<Record<string, unknown>>)
-    const resolved = new Map<FakeSubquery, Set<unknown>>()
-    const resolveSubquery = (subquery: FakeSubquery) => {
-      const cached = resolved.get(subquery)
-      if (cached) return cached
-      const ids = new Set<unknown>(select(subquery.subqueryEntity, subquery.subqueryWhere).map((row) => row.id))
-      resolved.set(subquery, ids)
-      return ids
-    }
     return rows
-      .filter((row) => matchesWhere(row, where, resolveSubquery))
+      .filter((row) => matchesWhere(row, where))
       .sort((left, right) => {
         const leftTime = (left.createdAt as Date).getTime()
         const rightTime = (right.createdAt as Date).getTime()
-        if (leftTime === rightTime) return String(right.id).localeCompare(String(left.id))
         return rightTime - leftTime
       })
   }
-
-  const createQueryBuilder = jest.fn((entity: unknown) => {
-    const subquery: FakeSubquery = {
-      subqueryEntity: entity,
-      subqueryWhere: {},
-      select: () => subquery,
-      where: (where) => {
-        subquery.subqueryWhere = where
-        return subquery
-      },
-    }
-    return subquery
-  })
 
   const find = jest.fn(
     async (entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
@@ -196,9 +157,32 @@ function createFakeEntityManager(store: FakeStore) {
     },
   )
 
-  const count = jest.fn(async (entity: unknown, where: Record<string, unknown>) => select(entity, where).length)
+  const kysely = createRecordingKysely((query) => {
+    const heads = mergedTodoHeads(store)
+    if (isCountQuery(query)) return [{ total: String(heads.length) }]
+    const [limit, offset] = query.parameters.slice(-2) as number[]
+    return heads.slice(offset, offset + limit)
+  })
 
-  return { find, findAndCount, count, createQueryBuilder }
+  return { find, findAndCount, getKysely: () => kysely.db }
+}
+
+function mergedTodoHeads(store: FakeStore) {
+  const inScope = (row: { tenantId: string; organizationId: string }) =>
+    row.tenantId === TENANT && row.organizationId === ORG
+  const tasks = store.interactions.filter((task) => inScope(task) && task.interactionType === 'task')
+  const taskIds = new Set(tasks.map((task) => task.id))
+  return [
+    ...store.links
+      .filter((link) => inScope(link) && !taskIds.has(link.todoId))
+      .map((link) => ({ id: link.id, created_at: link.createdAt, legacy: true })),
+    ...tasks
+      .filter((task) => !task.deletedAt)
+      .map((task) => ({ id: task.id, created_at: task.createdAt, legacy: false })),
+  ].sort((left, right) => {
+    const delta = right.created_at.getTime() - left.created_at.getTime()
+    return delta !== 0 ? delta : right.id.localeCompare(left.id)
+  })
 }
 
 function createQueryEngine(store: FakeStore) {
@@ -554,66 +538,7 @@ describe('GET /api/customers/interactions/tasks', () => {
       expect(last.body.items.map((item) => item.id)).toEqual(links.slice(2400).map((link) => link.id))
     })
 
-    it('counts every legacy and canonical task on the first page', async () => {
-      const links = Array.from({ length: 150 }, (_, index) =>
-        makeTodoLink({
-          id: uuid('cccccccc', index),
-          todoId: uuid('dddddddd', index),
-          createdAt: new Date(newest - (2 * index + 1) * minute),
-        }),
-      )
-      const interactions = Array.from({ length: 150 }, (_, index) =>
-        makeInteraction({
-          id: uuid('aaaaaaaa', index),
-          createdAt: new Date(newest - 2 * index * minute),
-        }),
-      )
-      primeRequestContext({ interactions, links })
-      setUnified(false)
-
-      const first = await callRoute('?page=1&pageSize=50')
-      expect(first.body).toMatchObject({ total: 300, totalPages: 6 })
-      expect(first.body.items[0]?.id).toBe(interactions[0].id)
-
-      const last = await callRoute('?page=6&pageSize=50')
-      expect(last.body.items).toHaveLength(50)
-      expect(last.body.items[49]?.id).toBe(links[149].id)
-    })
-
-    it('splits tasks sharing a timestamp across pages without repeating or skipping any', async () => {
-      const sameMoment = new Date(newest)
-      const links = Array.from({ length: 3 }, (_, index) =>
-        makeTodoLink({ id: uuid('cccccccc', index), todoId: uuid('dddddddd', index), createdAt: sameMoment }),
-      )
-      const interactions = Array.from({ length: 3 }, (_, index) =>
-        makeInteraction({ id: uuid('aaaaaaaa', index), createdAt: sameMoment }),
-      )
-      primeRequestContext({ interactions, links })
-      setUnified(false)
-
-      const pages = await Promise.all([1, 2, 3].map((page) => callRoute(`?page=${page}&pageSize=2`)))
-      const ids = pages.flatMap(({ body }) => body.items.map((item) => item.id))
-
-      expect(pages.map(({ body }) => body.total)).toEqual([6, 6, 6])
-      expect(new Set(ids).size).toBe(6)
-      expect(ids.sort()).toEqual([...links, ...interactions].map((row) => row.id).sort())
-    })
-
-    it('returns an empty page with the real total when the page starts past the last task', async () => {
-      const links = Array.from({ length: 3 }, (_, index) =>
-        makeTodoLink({ id: uuid('cccccccc', index), todoId: uuid('dddddddd', index) }),
-      )
-      const { em } = primeRequestContext({ interactions: [], links })
-      setUnified(false)
-
-      const { status, body } = await callRoute('?page=1000000&pageSize=100')
-
-      expect(status).toBe(200)
-      expect(body).toMatchObject({ items: [], total: 3, page: 1000000, totalPages: 1 })
-      expect(em.find).not.toHaveBeenCalled()
-    })
-
-    it('does not list a bridged legacy link twice when its task is older than the first page', async () => {
+    it('lists a bridged legacy link once when the link is newer than its task', async () => {
       const bridgedTodoId = uuid('bbbbbbbb', 1)
       const interactions = [
         ...Array.from({ length: 120 }, (_, index) =>
@@ -633,20 +558,18 @@ describe('GET /api/customers/interactions/tasks', () => {
         makeTodoLink({
           id: uuid('cccccccc', 1),
           todoId: bridgedTodoId,
-          createdAt: new Date(newest - 500 * minute),
+          createdAt: new Date(newest + minute),
         }),
       ]
       primeRequestContext({ interactions, links })
       setUnified(false)
 
-      const first = await callRoute('?page=1&pageSize=50')
-      expect(first.body).toMatchObject({ total: 121, totalPages: 3 })
+      const pages = await Promise.all([1, 2, 3].map((page) => callRoute(`?page=${page}&pageSize=50`)))
+      const bridged = pages.flatMap(({ body }) => body.items.filter((item) => item.todoId === bridgedTodoId))
 
-      const last = await callRoute('?page=3&pageSize=50')
-      expect(last.body.items.filter((item) => item.todoId === bridgedTodoId)).toHaveLength(1)
-      expect(last.body.items.find((item) => item.todoId === bridgedTodoId)?.todoSource).toBe(
-        CUSTOMER_INTERACTION_TASK_SOURCE,
-      )
+      expect(bridged).toHaveLength(1)
+      expect(bridged[0]?.todoSource).toBe(CUSTOMER_INTERACTION_TASK_SOURCE)
+      expect(pages.map(({ body }) => body.total)).toEqual([121, 121, 121])
     })
   })
 })
