@@ -1,7 +1,19 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('currencies').child({ component: 'base-currency-service' })
+
+const BASE_CURRENCY_SQL =
+  'SELECT organization_id, code FROM currencies WHERE tenant_id = ? AND organization_id = ANY(?::uuid[]) AND is_base = true AND deleted_at IS NULL'
+
+function executeLookup(em: EntityManager, params: string[]): Promise<unknown> {
+  const sqlEm = em as Partial<Pick<SqlEntityManager, 'execute'>>
+  if (typeof sqlEm.execute !== 'function') {
+    throw new Error('[internal] BaseCurrencyService needs a SQL EntityManager')
+  }
+  return sqlEm.execute(BASE_CURRENCY_SQL, params)
+}
 
 export type BaseCurrencyResolution =
   | { status: 'resolved'; code: string }
@@ -21,12 +33,12 @@ export class BaseCurrencyService {
     const organizationIds = [...new Set(scope.organizationIds)]
     if (organizationIds.length === 0) return { status: 'ambiguous' }
 
+    const params = [scope.tenantId, `{${organizationIds.join(',')}}`]
     let rows: Array<Record<string, unknown>>
     try {
-      const result = await this.em.execute(
-        'SELECT organization_id, code FROM currencies WHERE tenant_id = ? AND organization_id = ANY(?::uuid[]) AND is_base = true AND deleted_at IS NULL',
-        [scope.tenantId, `{${organizationIds.join(',')}}`],
-      )
+      const result = this.em.getTransactionContext()
+        ? await this.em.transactional((tem) => executeLookup(tem, params), { clear: true })
+        : await executeLookup(this.em, params)
       rows = (Array.isArray(result) ? result : []) as Array<Record<string, unknown>>
     } catch (err) {
       logger.warn('Base currency lookup unavailable', { err })

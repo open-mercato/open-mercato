@@ -13,10 +13,11 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Resolve the base currency on the caller's connection and add baseCurrencyServiceFactory | inline | done | 054beafa1f |
+| 1 | 1.2 | Review fix: run the lookup in a savepoint under a transaction, keep the core EntityManager constructor type, real-Postgres coverage | inline | done | (this commit) |
 
 ## Goal
 
-`BaseCurrencyService.resolveBaseCurrency` runs its query through `em.execute(...)`, so it uses the caller's transaction connection when one is ambient, and a new DI key `baseCurrencyServiceFactory` (`(em) => new BaseCurrencyService(em)`) lets an optional peer bind the service to its own transactional `EntityManager` without a static value import.
+`BaseCurrencyService.resolveBaseCurrency` runs its query through `em.execute(...)`, so it uses the transaction connection of the `em` it was given when that `em` carries a transaction (request `em` forks have `useContext=false`, so only `baseCurrencyServiceFactory(tem)` or `begin()` on the same instance shares it), and a new DI key `baseCurrencyServiceFactory` (`(em) => new BaseCurrencyService(em)`) lets an optional peer bind the service to its own transactional `EntityManager` without a static value import.
 
 ## Scope
 

@@ -14,11 +14,11 @@ describe('currencies DI registration', () => {
     const containerExecute = jest.fn(async () => [])
     const callerExecute = jest.fn(async () => [{ organization_id: 'org-1', code: 'PLN' }])
     const container = createContainer({ injectionMode: InjectionMode.PROXY }) as unknown as AppContainer
-    container.register({ em: { resolve: () => ({ execute: containerExecute }) } } as Parameters<AppContainer['register']>[0])
+    container.register({ em: { resolve: () => ({ execute: containerExecute, getTransactionContext: () => undefined }) } } as Parameters<AppContainer['register']>[0])
     register(container)
 
     const factory = container.resolve<BaseCurrencyServiceFactory>('baseCurrencyServiceFactory')
-    const service = factory({ execute: callerExecute } as unknown as EntityManager)
+    const service = factory({ execute: callerExecute, getTransactionContext: () => undefined } as unknown as EntityManager)
 
     expect(service).toBeInstanceOf(BaseCurrencyService)
     await expect(service.resolveBaseCurrency({ tenantId: 'tenant-1', organizationIds: ['org-1'] }))
