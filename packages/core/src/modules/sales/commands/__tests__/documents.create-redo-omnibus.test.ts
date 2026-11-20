@@ -82,7 +82,8 @@ function makeEm(): TestEm {
     rows, trace,
     fork: (): TestEm => em,
     create: (entity: unknown, data: Row) => ({
-      deletedAt: null, createdAt: new Date(), updatedAt: new Date(), ...data, id: data.id ?? randomUUID(),
+      deletedAt: null, createdAt: new Date(), updatedAt: new Date(), ...data,
+      id: data.id ?? (['SalesOrderLine', 'SalesQuoteLine'].includes(entityName(entity)) ? undefined : randomUUID()),
       __entity: entityName(entity),
     }),
     persist: (row: Row) => {
@@ -101,7 +102,10 @@ function makeEm(): TestEm {
     getReference: (_entity: unknown, id: string) => ({ id }),
     count: async () => 0,
     clear: () => undefined,
-    flush: async () => { trace.push('flush') },
+    flush: async () => {
+      for (const stored of rows.values()) for (const row of stored) row.id ??= randomUUID()
+      trace.push('flush')
+    },
     isInTransaction: () => inTransaction,
     begin: async () => { inTransaction = true; trace.push('begin') },
     commit: async () => { inTransaction = false; trace.push('commit') },
@@ -170,6 +174,9 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
     const original = await bus.execute(commandId, { input, ctx })
     const source = logs[0]
     const captured = JSON.parse(JSON.stringify(em.rows.get(lineEntity))) as Row[]
+    expect((source.commandPayload as { undo: { lineIds: string[] } }).undo.lineIds).toEqual(
+      input.lines.map((line) => captured.find((stored) => stored.name === line.name)?.id),
+    )
     expect(captured.find((line) => line.name === 'priced')).toMatchObject({ ...frozen, omnibusPromotionAnchorAt: frozen.omnibusPromotionAnchorAt.toISOString() })
     await bus.undo(source.undoToken, ctx)
     expect(em.rows.get(lineEntity)).toEqual([])

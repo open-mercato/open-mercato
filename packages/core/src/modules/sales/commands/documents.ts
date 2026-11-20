@@ -3788,12 +3788,12 @@ async function replaceQuoteLines(
   lineInputs: QuoteLineCreateInput[],
   omnibusService: CatalogOmnibusService | null = null,
   replay?: DocumentCreateReplay,
-): Promise<string[]> {
+): Promise<SalesQuoteLine[]> {
   if (replay && replay.lines.length !== calculation.lines.length) {
     throw badRequest("[internal] sales document redo line count mismatch");
   }
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
-  const lineIds: string[] = [];
+  const createdLines: SalesQuoteLine[] = [];
   const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3823,7 +3823,7 @@ async function replaceQuoteLines(
     });
     if (replay) Object.assign(lineEntity, replay.lines[index].snapshot);
     else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
-    lineIds.push(lineEntity.id);
+    createdLines.push(lineEntity);
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3845,7 +3845,7 @@ async function replaceQuoteLines(
       em: em.fork(), service: omnibusService, lines: snapshotLines, document: quote, documentKind: "quote",
     });
   }
-  return lineIds;
+  return createdLines;
 }
 
 async function replaceQuoteAdjustments(
@@ -3933,12 +3933,12 @@ async function replaceOrderLines(
   lineInputs: OrderLineCreateInput[],
   omnibusService: CatalogOmnibusService | null = null,
   replay?: DocumentCreateReplay,
-): Promise<string[]> {
+): Promise<SalesOrderLine[]> {
   if (replay && replay.lines.length !== calculation.lines.length) {
     throw badRequest("[internal] sales document redo line count mismatch");
   }
   await em.nativeDelete(SalesOrderLine, { order: order.id });
-  const lineIds: string[] = [];
+  const createdLines: SalesOrderLine[] = [];
   const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3972,7 +3972,7 @@ async function replaceOrderLines(
     });
     if (replay) Object.assign(lineEntity, replay.lines[index].snapshot);
     else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
-    lineIds.push(lineEntity.id);
+    createdLines.push(lineEntity);
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3994,7 +3994,7 @@ async function replaceOrderLines(
       em: em.fork(), service: omnibusService, lines: snapshotLines, document: order, documentKind: "order",
     });
   }
-  return lineIds;
+  return createdLines;
 }
 
 async function replaceOrderAdjustments(
@@ -5710,13 +5710,13 @@ const createQuoteCommand: CommandHandler<
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
-    let lineIds: string[] = [];
+    let createdLines: SalesQuoteLine[] = [];
     await withAtomicFlush(
       em,
       [
         async () => {
           em.persist(quote);
-          lineIds = await replaceQuoteLines(
+          createdLines = await replaceQuoteLines(
             em,
             quote,
             calculation,
@@ -5829,7 +5829,7 @@ const createQuoteCommand: CommandHandler<
     );
 
     const result = { quoteId: quote.id };
-    documentCreateLineIds.set(result, lineIds);
+    documentCreateLineIds.set(result, createdLines.map((line) => line.id));
     return result;
   },
   captureAfter: async (_input, result, ctx) => {
@@ -7167,13 +7167,13 @@ const createOrderCommand: CommandHandler<
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
-    let lineIds: string[] = [];
+    let createdLines: SalesOrderLine[] = [];
     await withAtomicFlush(
       em,
       [
         async () => {
           em.persist(order);
-          lineIds = await replaceOrderLines(
+          createdLines = await replaceOrderLines(
             em,
             order,
             calculation,
@@ -7303,7 +7303,7 @@ const createOrderCommand: CommandHandler<
           }
         : {}),
     };
-    documentCreateLineIds.set(result, lineIds);
+    documentCreateLineIds.set(result, createdLines.map((line) => line.id));
     return result;
   },
   captureAfter: async (_input, result, ctx) => {
