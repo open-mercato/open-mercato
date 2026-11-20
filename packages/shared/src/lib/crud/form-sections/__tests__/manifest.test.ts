@@ -1,6 +1,7 @@
 import type { CrudFormSectionMutationSurfaceFact, CrudFormSectionSurfaceAlternativeFact } from '../../../../modules/form-section-facts'
 import type { CrudFormSectionServerModule } from '../../../../modules/form-sections'
 import type { FormSectionOverridesMap } from '../../../../modules/overrides'
+import { registerMutationGuards } from '../../mutation-guard-store'
 import { InjectionPosition } from '../../../../modules/widgets/injection-position'
 import { crudFormSectionHostKey, computeCrudFormSectionClientFingerprint, canonicalSectionJson } from '../composition'
 import { buildCrudFormSectionManifest } from '../manifest'
@@ -133,6 +134,58 @@ describe('accepted CrudForm section manifest', () => {
       { ...surface, clientMutationSurfaces: [stale] }, inputs, placement,
     )).resolves.not.toBe(fingerprint)
     expect(Object.keys(manifest.ledger)).toEqual(['hosts', 'fingerprint'])
+  })
+
+  it('publishes empty submit only for a finite alternative and a matching provider for the exact parent surface', () => {
+    const submit: CrudFormSectionMutationSurfaceFact = {
+      id: 'example.todo.update', kind: 'parent-submit', requestOperation: 'update',
+      guardedFacade: { method: 'PUT', routePattern: '/example/todos/section-policy' },
+      delegatedTarget: { kind: 'command', id: 'example.todo.update' },
+      hostResourceKind: 'example.todo', mutationResourceKind: 'example.todo', optimisticLock: 'none',
+    }
+    const action: CrudFormSectionMutationSurfaceFact = { ...submit, id: 'example.todo.action', kind: 'section-action' }
+    const sections = modules[0].sections
+    function select({
+      authored, providerOptIn, includeAction = false, duplicate = false,
+    }: { authored?: boolean; providerOptIn: boolean; includeAction?: boolean; duplicate?: boolean }) {
+      const mutationSurfaces = includeAction ? [submit, action] : [submit]
+      const surface = {
+        ...composed, mutationSurfaceIds: mutationSurfaces.map(({ id }) => id), allowNoopSubmit: authored,
+      }
+      const fixture = { surface, mutationSurfaces }
+      const modes = ['domain-adapter'] as const
+      const requirement = { capabilityId, protocol: 'crud-form-sections/v1' as const, modes, mutationSurfaceIds: [submit.id] }
+      registerMutationGuards([{ moduleId: 'example', guards: [{
+        id: 'example.noop', targetEntity: 'example.todo', operations: ['update'], validate: async () => ({ ok: true }),
+        crudFormSectionCapabilities: [{
+          ...sections.displayPolicies![0], modes, mutationSurfaces: [submit], allowNoopSubmit: providerOptIn,
+        }],
+      }] }])
+      return buildCrudFormSectionManifest([{ ...modules[0], sections: {
+        ...sections, displayPolicies: [],
+        contributionFacts: [{ ...contribution, requiredCapabilities: [{ ...requirement, allowNoopSubmit: providerOptIn }] }],
+        hostFacts: [{ ...host, alternatives: [{ surface: plain }, fixture, ...(duplicate ? [fixture] : [])] }],
+        hostProviders: [{
+          ...sections.hostProviders![0], mutationProviders: mutationSurfaces.map((candidate) => ({
+            mutationSurfaceId: candidate.id, delegatedTarget: candidate.delegatedTarget,
+            finalInput: 'transactional-final-input/v1' as const,
+          })),
+        }],
+      } }], overrides).policies.get(key)
+    }
+
+    try {
+      expect(select({ authored: true, providerOptIn: true })?.surface.allowNoopSubmit).toBe(true)
+      const denied = select({ providerOptIn: false })
+      expect(denied).toBeDefined()
+      expect(denied?.surface.allowNoopSubmit).toBeUndefined()
+      expect(select({ authored: true, providerOptIn: false })).toBeUndefined()
+      expect(select({ providerOptIn: true })).toBeUndefined()
+      expect(select({ authored: true, providerOptIn: true, includeAction: true })).toBeUndefined()
+      expect(select({ authored: true, providerOptIn: true, duplicate: true })).toBeUndefined()
+    } finally {
+      registerMutationGuards([])
+    }
   })
 
   it('blocks unknown contribution IDs without losing the configured host', () => {

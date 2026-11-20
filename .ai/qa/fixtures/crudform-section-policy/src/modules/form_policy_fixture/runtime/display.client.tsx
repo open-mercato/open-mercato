@@ -10,7 +10,7 @@ function PolicyDisplay() {
 
 export const crudFormSectionRuntime = defineCrudFormSectionRuntime({
   id: 'form_policy_fixture.display', roundTripId: 'form_policy_fixture.display@v1',
-  group: { id: 'display', component: () => <PolicyDisplay /> },
+  group: { id: 'display', component: PolicyDisplay },
   ownedFieldPaths: [],
   validate: () => ({ success: true, data: null }),
   projectPayload: () => ({}),

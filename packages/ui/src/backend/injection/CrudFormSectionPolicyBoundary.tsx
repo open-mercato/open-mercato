@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, type ReactNode } from 'react'
+import { createElement, useEffect, useMemo, type ReactNode } from 'react'
 import type { CrudFormSectionConfiguredHostLedger } from '@open-mercato/shared/lib/crud/form-sections/composition'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -74,6 +74,14 @@ export function applyCrudFormSectionLayout<TValues, TPayload>(
   const groups = policy.descriptors.map(({ group }) => group)
   const referenced = new Set(groups.flatMap(({ fields }) => (fields ?? []).flatMap((field) => typeof field === 'string' ? [field] : [])))
   return { groups, fields: fields.filter(({ id }) => referenced.has(id)) }
+}
+
+export function renderCrudFormSectionGroupComponent(
+  Component: (props: CrudFormGroupComponentProps) => ReactNode,
+  isActiveSection: boolean | undefined,
+  props: CrudFormGroupComponentProps,
+): ReactNode {
+  return isActiveSection ? createElement(Component, props) : Component(props)
 }
 
 type SectionBodyProps = CrudFormGroupComponentProps & { children: ReactNode }

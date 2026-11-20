@@ -24,13 +24,16 @@ afterEach(() => {
   else process.env.NEXT_PUBLIC_OM_CUSTOM_FORM = original
 })
 
-it('accepts ungated and public-gated form section overrides', () => {
+it('honors both public branches and accepts ungated form section overrides', () => {
   expect(configure(`export const enabledModules = [${entry}]`).map(({ id }) => id)).toEqual(['example'])
-  process.env.NEXT_PUBLIC_OM_CUSTOM_FORM = 'yes'
-  expect(configure(`
+  const source = `
     export const enabledModules = [];
     if (process.env.NEXT_PUBLIC_OM_CUSTOM_FORM) enabledModules.push(${entry});
-  `).map(({ id }) => id)).toEqual(['example'])
+  `
+  delete process.env.NEXT_PUBLIC_OM_CUSTOM_FORM
+  expect(configure(source)).toEqual([])
+  process.env.NEXT_PUBLIC_OM_CUSTOM_FORM = 'yes'
+  expect(configure(source).map(({ id }) => id)).toEqual(['example'])
 })
 
 it.each([

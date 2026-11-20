@@ -3,6 +3,7 @@
 import { useCallback, useMemo } from 'react'
 import { z } from 'zod'
 import { parseCrudFormSectionClientMutationFacts } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
+import { hasCrudFormSectionWritableLeaves } from '@open-mercato/shared/lib/crud/form-sections/composition'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { buildCrudFormSectionPolicyHeaders, crudFormSectionPolicyHeaderNames } from '@open-mercato/shared/lib/crud/form-sections/policy-headers'
 import { resourceIdSchema } from '@open-mercato/shared/lib/crud/form-sections/protocol'
@@ -162,8 +163,9 @@ export function useCrudFormSectionMutation(
   readOnly: boolean,
 ) {
   const surfaces = policy?.surface.clientMutationSurfaces ?? []
-  const canSubmit = !policy || surfaces.filter(({ kind, requestOperation }) =>
-    kind === 'parent-submit' && requestOperation === policy.identity.formOperation).length === 1
+  const canSubmit = !policy || ((hasCrudFormSectionWritableLeaves(policy.surface) || policy.surface.allowNoopSubmit === true)
+    && surfaces.filter(({ kind, requestOperation }) =>
+      kind === 'parent-submit' && requestOperation === policy.identity.formOperation).length === 1)
   const canDelete = !policy || (policy.identity.formOperation === 'update' && surfaces.filter(({ kind, requestOperation }) =>
     kind === 'parent-delete' && requestOperation === 'delete').length === 1)
   const hasSectionActions = !readOnly && surfaces.some(({ kind }) => kind === 'section-action')

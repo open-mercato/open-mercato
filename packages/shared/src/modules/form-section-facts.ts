@@ -135,5 +135,6 @@ export type CrudFormSectionSurfaceAlternativeFact = {
   }[]
   mutationSurfaceIds: readonly string[]
   clientMutationSurfaces?: readonly CrudFormSectionClientMutationFact[]
+  allowNoopSubmit?: boolean
   dependencies: readonly CrudFormSectionDependencyFact[]
 }

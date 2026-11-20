@@ -94,7 +94,11 @@ describe('CrudForm section registry generation', () => {
     const fixtureSource = path.resolve(__dirname, '../../../../../../.ai/qa/fixtures/crudform-section-policy/src/modules/form_policy_fixture')
     const fixtureDestination = path.join(root, 'app/src/modules/form_policy_fixture')
     fs.cpSync(fixtureSource, fixtureDestination, { recursive: true })
-    await generateModuleRegistries({ resolver: resolver([{ id: 'form_policy_fixture', from: '@app' }]), quiet: true })
+    const generatedFixture = await generateModuleRegistries({
+      resolver: resolver([{ id: 'form_policy_fixture', from: '@app' }]), quiet: true,
+    })
+    expect(generatedFixture.flatMap(({ filesWritten }) => filesWritten).some((file) =>
+      file.endsWith('form-sections.runtime-revisions.json'))).toBe(false)
 
     const facts = generated('facts')
     const browser = generated('runtime')
@@ -133,6 +137,77 @@ describe('CrudForm section registry generation', () => {
     expect(browser).not.toMatch(/\/form-sections"|disabled/)
     const secondRun = await generateModuleRegistries({ resolver: fixture, quiet: true })
     expect(secondRun.flatMap((result) => result.filesWritten)).toEqual([])
+  })
+
+  it('records normalized runtime semantics and requires an advancing handwritten revision for each kind of drift', async () => {
+    const base = 'app/src/modules/test'
+    const descriptorId = 'test.notes'
+    const runtimeFile = `${base}/descriptor.client.tsx`
+    const declarationFile = `${base}/form-sections.ts`
+    const ledgerFile = path.join(root, base, 'form-sections.runtime-revisions.json')
+    const generate = (enabled = true) => generateModuleRegistryApp({
+      resolver: resolver(enabled ? [{ id: 'test', from: '@app' }] : []), quiet: true,
+    })
+    const baseline = `
+      import { normalize } from './helper'
+      export const crudFormSectionRuntime = {
+        id: 'test.notes', roundTripId: 'test.notes@v1',
+        group: { id: 'notes', component: ({ runSectionMutation }) => <p>Notes</p> },
+        ownedFieldPaths: ['note'],
+        ownedCustomFieldIds: ['extra'],
+        validate: () => normalize('raw'),
+        projectPayload: () => ({ note: true }),
+        requiredSectionIds: ['details'],
+        requiredDataContractIds: ['loader'],
+        providedDataContractIds: ['summary'],
+        mutationSurfaceIds: ['save'],
+        compositionValidator: () => ({ success: true }),
+      }
+    `
+    write(declarationFile, declaration(descriptorId))
+    write(runtimeFile, baseline)
+    write(`${base}/helper.ts`, 'export const normalize = (value) => value.trim()')
+    await generate()
+    const ledger = fs.readFileSync(ledgerFile, 'utf8')
+    expect(JSON.parse(ledger)).toMatchObject({ [descriptorId]: { roundTripId: 'test.notes@v1' } })
+
+    write(runtimeFile, baseline.replace("'notes', component", '"notes", /* documentation */ component')
+      .replace("['note']", "[ 'note', ]").replace('}\n    ', '};\n    '))
+    expect((await generate()).filesWritten).toEqual([])
+    for (const [before, after] of [
+      ['>Notes<', '>Notes and details<'],
+      ['>Notes<', '> Notes<'],
+      ["['note']", "['other']"],
+      ["['extra']", "['other']"],
+      ["normalize('raw')", "normalize('updated')"],
+      ['note: true', 'note: false'],
+      ["['details']", "['settings']"],
+      ["['loader']", "['reader']"],
+      ["['summary']", "['report']"],
+      ["['save']", "['archive']"],
+      ['success: true', 'success: false'],
+    ]) {
+      write(runtimeFile, baseline.replace(before, after))
+      await expect(generate()).rejects.toThrow(/semantic runtime drift.*requires advancing roundTripId/)
+      expect(fs.readFileSync(ledgerFile, 'utf8')).toBe(ledger)
+    }
+    write(runtimeFile, baseline)
+    write(declarationFile, declaration(descriptorId).replace('"operation":"add"', '"operation":"replace"'))
+    await expect(generate()).rejects.toThrow(/semantic runtime drift/)
+    write(declarationFile, declaration(descriptorId))
+    write(`${base}/helper.ts`, 'export const normalize = (value) => value.toUpperCase()')
+    await expect(generate()).rejects.toThrow(/semantic runtime drift/)
+    await generate(false)
+    expect(fs.readFileSync(ledgerFile, 'utf8')).toBe(ledger)
+    await expect(generate()).rejects.toThrow(/semantic runtime drift/)
+    write(declarationFile, declaration(descriptorId, { version: 2 }))
+    write(runtimeFile, baseline.replace('test.notes@v1', 'test.notes@v2'))
+    await generate()
+    expect(JSON.parse(fs.readFileSync(ledgerFile, 'utf8'))).toMatchObject({ [descriptorId]: { roundTripId: 'test.notes@v2' } })
+    expect((await generate()).filesWritten).toEqual([])
+    write(declarationFile, declaration(descriptorId))
+    write(runtimeFile, baseline)
+    await expect(generate()).rejects.toThrow(/requires advancing roundTripId beyond "test.notes@v2"/)
   })
 
   it('exposes only literal host surface facts to the browser registry', async () => {
@@ -219,6 +294,26 @@ describe('CrudForm section registry generation', () => {
     await generateModuleRegistryApp({ resolver: resolver([{ id: 'installed' }], true), quiet: true })
     expect(generated('facts')).toContain('"@open-mercato/core/modules/installed/form-sections"')
     expect(generated('runtime')).toContain('import("@open-mercato/core/modules/installed/descriptor.client")')
+    expect(fs.existsSync(path.join(root, base, 'form-sections.runtime-revisions.json'))).toBe(false)
+  })
+
+  it('tracks package source mirror semantics while retaining the compiled loader contract', async () => {
+    const source = 'package/src/modules/mirrored'
+    const compiled = 'package/dist/modules/mirrored'
+    const id = 'mirrored.notes'
+    const fixture = resolver([{ id: 'mirrored' }], true)
+    const generate = () => generateModuleRegistryApp({ resolver: fixture, quiet: true })
+    write(`${source}/form-sections.ts`, declaration(id))
+    write(`${source}/descriptor.client.tsx`, runtime(id))
+    write(`${compiled}/form-sections.js`, declaration(id))
+    write(`${compiled}/descriptor.client.js`, runtime(id))
+    await generate()
+
+    expect(fs.existsSync(path.join(root, source, 'form-sections.runtime-revisions.json'))).toBe(true)
+    expect(fs.existsSync(path.join(root, compiled, 'form-sections.runtime-revisions.json'))).toBe(false)
+    expect(generated('runtime')).toContain('import("@open-mercato/core/modules/mirrored/descriptor.client")')
+    write(`${compiled}/descriptor.client.js`, runtime(id, 2))
+    await expect(generate()).rejects.toThrow(/loader declares "mirrored.notes@v1"/)
   })
 
   it.each([

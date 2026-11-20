@@ -88,12 +88,19 @@ export function canonicalCrudFormSectionAlternative(
     ...(surface.clientMutationSurfaces?.length ? {
       clientMutationSurfaces: [...surface.clientMutationSurfaces].sort((a, b) => compareSectionIds(a.id, b.id)),
     } : {}),
+    ...(surface.allowNoopSubmit === true ? { allowNoopSubmit: true } : {}),
     dependencies: surface.dependencies.map((dependency) => ({
       consumerContributionId: dependency.consumerContributionId,
       requiredSectionIds: [...dependency.requiredSectionIds].sort(),
       requiredDataContractIds: [...dependency.requiredDataContractIds].sort(),
     })).sort((left, right) => compareSectionIds(left.consumerContributionId, right.consumerContributionId)),
   }
+}
+
+export function hasCrudFormSectionWritableLeaves({ ownershipFacts }: Pick<CrudFormSectionSurfaceAlternativeFact, 'ownershipFacts'>): boolean {
+  return ownershipFacts.some(({ payloadPaths, customFieldOwnership }) => payloadPaths.length > 0
+    || customFieldOwnership.mode === 'all'
+    || (customFieldOwnership.mode === 'ids' && customFieldOwnership.ids.length > 0))
 }
 
 export function applyCrudFormSectionPlacements(

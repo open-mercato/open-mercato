@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import ts from 'typescript-js'
 import { resolveModuleRequirement, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
@@ -8,6 +8,7 @@ import {
   derivedCrudFormSectionClientMutationFact, parseCrudFormSectionClientMutationFacts,
 } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
 import { writeGeneratedFile, type GeneratorResult } from '../utils'
+import { hashHandwrittenSectionRuntime, planHandwrittenSectionRevisionWrite } from './form-section-runtime-revisions'
 import {
   MODULE_CODE_EXTENSIONS,
   resolveStandaloneSourceMirrorBase,
@@ -45,6 +46,7 @@ type ModuleSections = {
   clientHosts: readonly unknown[]
   contributedOverrides: unknown
   derivedRoutes: readonly DerivedRouteDeclaration[]
+  revisionWrite: ReturnType<typeof planHandwrittenSectionRevisionWrite>
 }
 
 type DerivedMethod = 'POST' | 'PUT' | 'DELETE'
@@ -167,9 +169,10 @@ function helperArgument(node: ts.Expression, name: string, invalid: (reason: str
 function readRuntimePath(
   initializer: ts.Expression | undefined,
   declaration: ResolvedFile,
+  declarationSourcePath: string,
   expected: { id: string; roundTripId: string },
   invalid: (reason: string) => never,
-): string {
+): { runtimePath: string; source: ts.SourceFile } {
   if (!initializer) return invalid('missing runtime loader')
   const arrow = unwrap(helperArgument(initializer, 'lazyCrudFormSectionRuntime', invalid))
   if (!ts.isArrowFunction(arrow) || arrow.parameters.length !== 0 || ts.isBlock(arrow.body)) {
@@ -185,23 +188,27 @@ function readRuntimePath(
   if (relative.startsWith('../') || !relative.endsWith('.client')) {
     return invalid(`runtime import "${specifier}" must resolve to a .client file inside the owning module`)
   }
-  const base = path.dirname(declaration.absolutePath)
-  const runtimeFile = MODULE_CODE_EXTENSIONS
-    .map((extension) => path.join(base, `${relative}${extension}`))
-    .find((candidate) => fs.existsSync(candidate))
-  if (!runtimeFile) return invalid(`runtime import "${specifier}" is missing from the owning module`)
-  const runtimeSource = ts.createSourceFile(runtimeFile, fs.readFileSync(runtimeFile, 'utf8'), ts.ScriptTarget.Latest, true)
-  const runtime = exportedDeclaration(runtimeSource, 'crudFormSectionRuntime')
-  if (!runtime) return invalid(`runtime import "${specifier}" must export crudFormSectionRuntime`)
-  const runtimeValue = unwrap(runtime)
-  const literal = ts.isCallExpression(runtimeValue)
-    ? helperArgument(runtimeValue, 'defineCrudFormSectionRuntime', invalid) : runtimeValue
-  const actual = readIdentity(fieldsOf(literal, invalid), invalid)
-  if (actual.id !== expected.id || actual.roundTripId !== expected.roundTripId) {
-    return invalid(`runtime import "${specifier}" exports "${actual.roundTripId}" but loader declares "${expected.roundTripId}"`)
+  const readRuntime = (declarationPath: string) => {
+    const runtimeFile = MODULE_CODE_EXTENSIONS
+      .map((extension) => path.join(path.dirname(declarationPath), `${relative}${extension}`))
+      .find((candidate) => fs.existsSync(candidate))
+    if (!runtimeFile) return invalid(`runtime import "${specifier}" is missing from the owning module`)
+    const source = ts.createSourceFile(runtimeFile, fs.readFileSync(runtimeFile, 'utf8'), ts.ScriptTarget.Latest, true)
+    const runtime = exportedDeclaration(source, 'crudFormSectionRuntime')
+    if (!runtime) return invalid(`runtime import "${specifier}" must export crudFormSectionRuntime`)
+    const runtimeValue = unwrap(runtime)
+    const literal = ts.isCallExpression(runtimeValue)
+      ? helperArgument(runtimeValue, 'defineCrudFormSectionRuntime', invalid) : runtimeValue
+    const actual = readIdentity(fieldsOf(literal, invalid), invalid)
+    if (actual.id !== expected.id || actual.roundTripId !== expected.roundTripId) {
+      return invalid(`runtime import "${specifier}" exports "${actual.roundTripId}" but loader declares "${expected.roundTripId}"`)
+    }
+    return source
   }
+  const source = readRuntime(declarationSourcePath)
+  if (declarationSourcePath !== declaration.absolutePath) readRuntime(declaration.absolutePath)
   const importBase = declaration.importPath.slice(0, declaration.importPath.lastIndexOf('/'))
-  return `${importBase}/${relative}`
+  return { runtimePath: `${importBase}/${relative}`, source }
 }
 
 function importedNamedBinding(source: ts.SourceFile, localName: string): { specifier: string; exported: string } | null {
@@ -346,7 +353,7 @@ function parseDerivedRoutes(
   })
 }
 
-function parseModuleSections(module: ModuleSource): ModuleSections | null {
+function parseModuleSections(module: ModuleSource, checkRevisions = false): ModuleSections | null {
   const declaration = module.resolve('form-sections.ts')
   if (!declaration) return null
   const mirror = declaration.fromApp ? null : resolveStandaloneSourceMirrorBase(module.roots.pkgBase)
@@ -369,12 +376,12 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
   const fields = fieldsOf(helperArgument(initializer, 'defineCrudFormSections', invalid), invalid)
 
   const derivedRoutes = parseDerivedRoutes(fields, module, declaration, source, invalid)
-  const runtimes = new Map<string, { roundTripId: string; runtimePath: string }>()
+  const runtimes = new Map<string, { roundTripId: string; runtimePath: string; source: ts.SourceFile }>()
   for (const runtime of arrayField(fields, 'runtimes', invalid)) {
     const properties = fieldsOf(runtime, invalid)
     const { id, roundTripId } = readIdentity(properties, invalid)
     if (runtimes.has(id)) invalid(`duplicate runtime loader id "${id}"`)
-    runtimes.set(id, { roundTripId, runtimePath: readRuntimePath(properties.get('load'), declaration, { id, roundTripId }, invalid) })
+    runtimes.set(id, { roundTripId, ...readRuntimePath(properties.get('load'), declaration, sourceFile, { id, roundTripId }, invalid) })
   }
 
   const leafDefaultProviderIds = arrayField(fields, 'leafDefaultProviders', invalid).map((entry) => {
@@ -429,6 +436,10 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
     return id
   }).sort(compareIds)
   const descriptors: Descriptor[] = []
+  const moduleBase = path.dirname(sourceFile)
+  const authoredSource = !moduleBase.split(path.sep).includes('node_modules')
+    && (declaration.fromApp || !moduleBase.split(path.sep).includes('dist'))
+  const revisions: Array<{ id: string; roundTripId: string; sourceHash: string }> = []
   const clientHosts: Array<{ id: string; roundTripId: string; hostResourceKind?: string; alternatives: unknown[] }> = []
   const factIds = new Set<string>()
   for (const [kind, field] of factFields) {
@@ -448,6 +459,7 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
           if (!fact || typeof fact !== 'object' || Array.isArray(fact)) return invalid('expected finite surface facts')
           const derived = derivedRoutes.find(({ hostDescriptorId }) => hostDescriptorId === id)
           if (Object.hasOwn(fact, 'clientMutationSurfaces')) return invalid('client mutation surface projection is generated')
+          if ('allowNoopSubmit' in fact && typeof fact.allowNoopSubmit !== 'boolean') return invalid('allowNoopSubmit must be a boolean')
           const authoredIds = (fact as { mutationSurfaceIds?: unknown }).mutationSurfaceIds
           if (!Array.isArray(authoredIds) || authoredIds.some((surfaceId) => typeof surfaceId !== 'string')) {
             return invalid('mutationSurfaceIds must be a literal ID array')
@@ -483,6 +495,9 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
         invalid(`fact and runtime roundTripId differ for "${id}"`)
       }
       descriptors.push({ id, roundTripId, kind, field, index, runtimePath: runtime.runtimePath })
+      if (checkRevisions && authoredSource) {
+        revisions.push({ id, roundTripId, sourceHash: hashHandwrittenSectionRuntime(runtime.source, fact, moduleBase) })
+      }
     }
   }
   for (const id of runtimes.keys()) {
@@ -498,6 +513,7 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
       : {},
     leafDefaultProviderIds,
     sinkIds,
+    revisionWrite: planHandwrittenSectionRevisionWrite(moduleBase, revisions, invalid),
     descriptors: descriptors.sort((left, right) => compareIds(left.id, right.id)),
   }
 }
@@ -598,7 +614,7 @@ export function writeCrudFormSectionRegistries(options: {
 }): void {
   const sections = new Map<string, ModuleSections>()
   for (const module of options.modules) {
-    const declaration = parseModuleSections(module)
+    const declaration = parseModuleSections(module, true)
     if (declaration) sections.set(module.modId, declaration)
   }
   const modules = orderedSectionModules(sections, options.identities, options.requiresByModule)
@@ -627,6 +643,17 @@ export function writeCrudFormSectionRegistries(options: {
     }
   }
 
+  for (const { revisionWrite } of modules) {
+    if (!revisionWrite) continue
+    const temporary = `${revisionWrite.filename}.${randomUUID()}.tmp`
+    try {
+      fs.writeFileSync(temporary, revisionWrite.content, { flag: 'wx' })
+      fs.renameSync(temporary, revisionWrite.filename)
+    } finally {
+      fs.rmSync(temporary, { force: true })
+    }
+    options.result.filesWritten.push(revisionWrite.filename)
+  }
   const outputs = [
     ['crud-form-section-facts', renderFactRegistry(modules)],
     ['crud-form-section-runtime', renderRuntimeRegistry(modules)],

@@ -153,6 +153,24 @@ it('uses the legacy form without a resolver subscription when its tuple is absen
   expect(apiCall).not.toHaveBeenCalled()
 })
 
+it('submits the same unlisted form with and without the configured-host ledger', async () => {
+  const sample = async (withLedger: boolean) => {
+    const onSubmit = jest.fn()
+    const view = form('actual-id', 'default', { onSubmit })
+    const { container, unmount } = render(withLedger
+      ? <CrudFormSectionLedgerProvider value={ledger}>{view}</CrudFormSectionLedgerProvider> : view, { wrapper: Providers })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Base name' }), { target: { value: 'unchanged legacy payload' } })
+    fireEvent.submit(container.querySelector('form')!)
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    const [submission] = onSubmit.mock.calls
+    unmount()
+    return submission
+  }
+  expect(await sample(true)).toEqual(await sample(false))
+  expect(mockSubscribe).not.toHaveBeenCalled()
+  expect(apiCall).not.toHaveBeenCalled()
+})
+
 it('hydrates a configured form through its loading state and renders only the accepted ordered groups', async () => {
   publishResponse()
   const view = <React.StrictMode>{configured()}</React.StrictMode>
@@ -291,12 +309,13 @@ const parentUpdate: CrudFormSectionClientMutationFact = {
 function publishWritePolicy(
   customRuntime: Runtime[], ownershipFacts: CrudFormSectionSurfaceAlternativeFact['ownershipFacts'],
   clientMutationSurfaces: CrudFormSectionClientMutationFact[] = [parentUpdate],
+  allowNoopSubmit?: boolean,
 ) {
   const fixture = registry()
   registerCrudFormSectionClientRegistry({
     ...fixture,
     hostFacts: fixture.hostFacts.map((fact) => ({ ...fact, alternatives: [selection, {
-      ...accepted, ownershipFacts, clientMutationSurfaces, mutationSurfaceIds: clientMutationSurfaces.map(({ id }) => id),
+      ...accepted, ownershipFacts, clientMutationSurfaces, allowNoopSubmit, mutationSurfaceIds: clientMutationSurfaces.map(({ id }) => id),
     }] })),
     runtimeEntries: fixture.runtimeEntries.map((entry) => {
       const replacement = customRuntime.find(({ id }) => id === entry.id)
@@ -323,6 +342,39 @@ function createWriteDescriptor(
     projectPayload: project,
   })
 }
+
+it('mounts hook-bearing section components independently as groups appear and disappear', async () => {
+  function Counter() {
+    const [count, setCount] = React.useState(0)
+    return <button type="button" onClick={() => setCount((current) => current + 1)}>Count {count}</button>
+  }
+  const extra = defineCrudFormSectionRuntime({
+    id: 'test.extra', roundTripId: 'test.extra@v1', group: { id: 'extra', component: Counter },
+    ownedFieldPaths: [],
+    validate: () => ({ success: true, data: null }),
+    projectPayload: () => ({}),
+  })
+  publishWritePolicy([extra], [], [])
+  const { rerender } = render(configured(), { wrapper: Providers })
+  fireEvent.click(await screen.findByRole('button', { name: 'Count 0' }))
+  await screen.findByRole('button', { name: 'Count 1' })
+  rerender(configured('actual-id', { hiddenGroupIds: ['extra'] }))
+  expect(screen.queryByRole('button', { name: 'Count 1' })).not.toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'Replacement name' })).toBeInTheDocument()
+  rerender(configured())
+  await screen.findByRole('button', { name: 'Count 0' })
+})
+
+it.each([false, true])('exposes and accepts empty parent submit only when explicitly allowed (%s)', async (allowNoopSubmit) => {
+  publishWritePolicy([], [], [parentUpdate], allowNoopSubmit)
+  const onSubmit = jest.fn()
+  const { container } = render(configured('actual-id', { onSubmit }), { wrapper: Providers })
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  expect(container.querySelector('button[type="submit"]') !== null).toBe(allowNoopSubmit)
+  await act(async () => { fireEvent.submit(container.querySelector('form')!) })
+  if (allowNoopSubmit) await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ sectionPayload: {} })))
+  else expect(onSubmit).not.toHaveBeenCalled()
+})
 
 it('submits only active values and an independent deep-merged section payload', async () => {
   const name = createWriteDescriptor('test.replacement', 'name', field('replacement', 'Replacement name'),
@@ -443,7 +495,7 @@ it('blocks composition from adding a path that bypassed section validation', asy
 
 it('keeps active field errors and does not render a hidden composition error', async () => {
   const onSubmit = jest.fn()
-  publishWritePolicy([], [])
+  publishWritePolicy([], [], [parentUpdate], true)
   const { container } = render(configured('actual-id', {
     onSubmit,
     compositionValidator: () => ({ success: false, fieldErrors: { replacement: 'test.active', private: 'test.hidden' } }),

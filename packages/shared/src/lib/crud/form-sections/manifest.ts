@@ -30,6 +30,7 @@ import {
   compareSectionIds,
   crudFormSectionClientFingerprintInput,
   crudFormSectionConfiguredHosts,
+  hasCrudFormSectionWritableLeaves,
   type CrudFormSectionConfiguredHostLedger,
 } from './composition'
 import { symbolicIdSchema } from './protocol'
@@ -274,9 +275,7 @@ export function buildCrudFormSectionManifest(
         resourceBindingIds: new Set(resourceBindings.map((binding) => binding.id)),
         providedDataContractIdsByCapability: new Map(Object.entries(providedDataContractIdsByCapability)),
         sinkAtomicityByCapability: effectiveSinkAtomicities,
-        hasActiveWritableLeaves: surface.ownershipFacts.some((entry) => entry.payloadPaths.length > 0
-          || entry.customFieldOwnership.mode === 'all'
-          || (entry.customFieldOwnership.mode === 'ids' && entry.customFieldOwnership.ids.length > 0)),
+        hasActiveWritableLeaves: hasCrudFormSectionWritableLeaves(surface),
         hasActiveIndependentActions: mutationSurfaces.some((candidate) => candidate.kind === 'section-action'),
       })
       if (!match.ok) {
@@ -306,9 +305,21 @@ export function buildCrudFormSectionManifest(
       fail('invalid_client_mutation_surface')
       continue
     }
-    const canonicalSurface = canonicalCrudFormSectionAlternative({ ...surface, clientMutationSurfaces })
     const capabilities = [...matchedCapabilities.values()]
       .sort((left, right) => compareSectionIds(left.fact.capabilityId, right.fact.capabilityId))
+    const parentSubmits = canonicalSurfaces.filter(({ kind, requestOperation }) =>
+      kind === 'parent-submit' && requestOperation === address.formOperation)
+    const allowNoopSubmit = parentSubmits.length === 1 && !hasCrudFormSectionWritableLeaves(surface)
+      && !canonicalSurfaces.some(({ kind }) => kind === 'section-action')
+      && capabilities.some(({ fact }) => fact.allowNoopSubmit
+        && fact.mutationSurfaces.some(({ id }) => id === parentSubmits[0].id)
+        && selectedContributions.some(({ requiredCapabilities }) => requiredCapabilities.some((requirement) =>
+          requirement.capabilityId === fact.capabilityId && requirement.allowNoopSubmit === true)))
+    if ((surface.allowNoopSubmit ?? false) !== allowNoopSubmit) {
+      fail('invalid_noop_submit')
+      continue
+    }
+    const canonicalSurface = canonicalCrudFormSectionAlternative({ ...surface, clientMutationSurfaces, allowNoopSubmit })
     const sinks = selectCrudFormSectionSinks({
       candidates: sinkRuntimes.values(), address, capabilities, hostResourceKind: resourceKind.data,
       ownedPaths: new Set(surface.ownershipFacts.flatMap(({ payloadPaths }) => payloadPaths)),

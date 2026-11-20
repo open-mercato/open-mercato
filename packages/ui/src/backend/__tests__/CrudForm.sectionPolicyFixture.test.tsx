@@ -8,11 +8,12 @@ import { deserialize, serialize } from 'node:v8'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { buildCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
 import { crudFormSectionHostKey } from '@open-mercato/shared/lib/crud/form-sections/composition'
-import { registerCrudFormSectionClientRegistry } from '@open-mercato/shared/lib/crud/form-sections/client-registry'
+import { getCrudFormSectionClientRegistryState, registerCrudFormSectionClientRegistry } from '@open-mercato/shared/lib/crud/form-sections/client-registry'
 import { encodeCurrentCrudFormSectionPolicyToken } from '@open-mercato/shared/lib/crud/form-sections/policy-token'
 import { resolveCrudFormSectionsRequestSchema } from '@open-mercato/shared/lib/crud/form-sections/protocol'
 import { projectCrudFormSectionClientMutationFact } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import { applyFormSectionOverrides, applyModuleOverridesFromEnabledModules, resetModuleContractOverridesForTests } from '@open-mercato/shared/modules/overrides'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import {
   registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds, setInjectionRegistryError,
@@ -21,6 +22,7 @@ import { crudFormSections } from '../../../../../.ai/qa/fixtures/crudform-sectio
 import { guards } from '../../../../../.ai/qa/fixtures/crudform-section-policy/src/modules/form_policy_fixture/data/guards'
 import { FixtureForm } from '../../../../../.ai/qa/fixtures/crudform-section-policy/src/modules/form_policy_fixture/runtime/FixtureForm.client'
 import dict from '../../../../../.ai/qa/fixtures/crudform-section-policy/src/modules/form_policy_fixture/i18n/en.json'
+import { selectCrudFormSectionComposition } from '../injection/crud-form-section-composition'
 import { CrudFormSectionLedgerProvider } from '../injection/crud-form-section-ledger'
 import { apiCall } from '../utils/apiCall'
 import { fetchCustomFieldFormStructure } from '../utils/customFieldForms'
@@ -45,7 +47,7 @@ function response(result: unknown): Awaited<ReturnType<typeof apiCall>> {
 
 function prepareFixture() {
   registerMutationGuards([{ moduleId, guards }])
-  const manifest = buildCrudFormSectionManifest([{ moduleId, sections: crudFormSections }], crudFormSections.contributedOverrides)
+  const manifest = buildCrudFormSectionManifest([{ moduleId, sections: crudFormSections }])
   registerCrudFormSectionClientRegistry({
     hostFacts: crudFormSections.hostFacts.map(({ id, roundTripId, hostResourceKind, alternatives }) => ({
       id, roundTripId, hostResourceKind,
@@ -109,7 +111,42 @@ beforeEach(() => {
   setInjectionRegistryError(null)
 })
 
-afterEach(() => registerMutationGuards([]))
+afterEach(() => {
+  registerMutationGuards([])
+  resetModuleContractOverridesForTests()
+})
+
+it('selects the same finite alternative on both sides after modules.ts and programmatic dispatch', () => {
+  const identity = {
+    hostId: 'form_policy_fixture.record', formVariant: 'showcase', formOperation: 'update', resourceId: 'fixture-record',
+  } as const
+  const display = 'form_policy_fixture.record/showcase/update/display'
+  const key = crudFormSectionHostKey(identity)
+  const entries = [{ id: moduleId, overrides: { forms: { sections: { [display]: null } } } }]
+
+  applyModuleOverridesFromEnabledModules(entries)
+  const rejected = prepareFixture()
+  resetModuleContractOverridesForTests()
+  applyModuleOverridesFromEnabledModules(entries, { domains: ['forms'] })
+  const registry = getCrudFormSectionClientRegistryState()
+  expect(registry.state).toBe('ready')
+  if (registry.state !== 'ready') throw new Error('[internal] Expected fixture registry')
+  expect(rejected.ledger.hosts).toContainEqual(expect.objectContaining({ hostId: identity.hostId }))
+  expect(rejected.policies.has(key)).toBe(false)
+  expect(selectCrudFormSectionComposition(registry.registry, identity)).toBeNull()
+
+  resetModuleContractOverridesForTests()
+  const programmatic = { [display]: crudFormSections.contributedOverrides[display]! }
+  applyModuleOverridesFromEnabledModules(entries)
+  applyFormSectionOverrides(programmatic)
+  const accepted = prepareFixture()
+  resetModuleContractOverridesForTests()
+  applyModuleOverridesFromEnabledModules(entries, { domains: ['forms'] })
+  applyFormSectionOverrides(programmatic)
+  const selection = selectCrudFormSectionComposition(registry.registry, identity)
+  expect(selection?.surface.id).toBeDefined()
+  expect(selection?.surface.id).toBe(accepted.policies.get(key)?.surface.id)
+})
 
 it('renders the fixture’s accepted add, hide and replace and projects a normalized submission', async () => {
   const manifest = prepareFixture()

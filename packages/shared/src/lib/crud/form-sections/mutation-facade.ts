@@ -26,7 +26,7 @@ import {
   OPTIMISTIC_LOCK_CONFLICT_ERROR,
   OPTIMISTIC_LOCK_HEADER_NAME,
 } from '../optimistic-lock-headers'
-import { crudFormSectionHostKey } from './composition'
+import { crudFormSectionHostKey, hasCrudFormSectionWritableLeaves } from './composition'
 import {
   appendCrudFormSectionSinkSnapshot,
   persistCrudFormSectionSink,
@@ -501,10 +501,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
     }
   }
   assertActivePayload(initial.hostPayload, context)
-  if (surface.kind === 'parent-submit' && !policy.surface.ownershipFacts.some(({ payloadPaths, customFieldOwnership }) =>
-    payloadPaths.length || customFieldOwnership.mode === 'all'
-      || (customFieldOwnership.mode === 'ids' && customFieldOwnership.ids.length),
-  ) && !policy.capabilities.some(({ fact }) => fact.allowNoopSubmit)) {
+  if (surface.kind === 'parent-submit' && !hasCrudFormSectionWritableLeaves(policy.surface) && !policy.surface.allowNoopSubmit) {
     return rejectPolicy(route.address, 'parent_submit_not_writable')
   }
   const requiredLeaves = policy.requiredLeaves.filter((leaf) => leaf.mutationSurfaceId === surface.id)

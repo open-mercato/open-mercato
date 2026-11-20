@@ -110,7 +110,7 @@ import { mergeInjectionEventParticipants } from './injection/injectionEventParti
 import { useRegisteredComponent } from './injection/useRegisteredComponent'
 import { selectCrudFormSectionLedgerHost, type CrudFormSectionIdentityProps } from './injection/crud-form-section-identity'
 import { useCrudFormSectionLedger } from './injection/crud-form-section-ledger'
-import { CrudFormSectionPolicyBoundary, CrudFormSectionPolicyError, CrudFormSectionBody, applyCrudFormSectionLayout } from './injection/CrudFormSectionPolicyBoundary'
+import { CrudFormSectionPolicyBoundary, CrudFormSectionPolicyError, CrudFormSectionBody, applyCrudFormSectionLayout, renderCrudFormSectionGroupComponent } from './injection/CrudFormSectionPolicyBoundary'
 import type { ResolvedCrudFormSectionPolicy } from './injection/useResolvedCrudFormSections'
 import { projectCrudFormSectionCustomFields, readCrudFormSectionCustomFieldValue, type CrudFormSectionCustomFieldDefinitionSets } from './injection/crud-form-section-custom-fields'
 import { projectCrudFormSectionSubmission } from './injection/crud-form-section-submission'
@@ -3989,7 +3989,7 @@ function CrudFormImpl<
           if (g.component) {
             customFieldsInnerNodes.push(
               <div key={`${g.id}-component`} className="rounded-lg border bg-card px-4 py-3">
-                {g.component({ values, setValue, errors, requiredFieldIds: widgetRequiredFieldIds,
+                {renderCrudFormSectionGroupComponent(g.component, activeSectionIds?.has(g.id), { values, setValue, errors, requiredFieldIds: widgetRequiredFieldIds,
                   ...(runSectionMutation ? { runSectionMutation } : {}),
                 })}
               </div>,
@@ -4033,7 +4033,7 @@ function CrudFormImpl<
           continue
         }
 
-        const componentNode = g.component ? g.component({
+        const componentNode = g.component ? renderCrudFormSectionGroupComponent(g.component, activeSectionIds?.has(g.id), {
           values,
           setValue,
           errors,
