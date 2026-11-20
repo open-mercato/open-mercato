@@ -99,6 +99,7 @@ test.describe('TC-CRM-8801: Mark a deal as lost with a loss reason', () => {
       await page.goto(`/backend/customers/deals/${dealId}`, { waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('heading', { name: dealTitle, exact: true })).toBeVisible({ timeout: 15000 });
 
+      await page.getByRole('button', { name: 'Close deal', exact: true }).click();
       await page.getByRole('button', { name: 'Lost', exact: true }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog.getByText('Mark deal as Lost?')).toBeVisible();
