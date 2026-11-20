@@ -1774,6 +1774,7 @@ function appendAttachmentSummary(
 function buildRuntimeMutationPolicySection(
   agent: { id: string; mutationPolicy?: string | null; allowedTools: string[] },
   mutationPolicyOverride: string | null,
+  channel: AiPendingActionChannel = 'agent',
 ): string | null {
   const effective = resolveEffectiveMutationPolicy(
     (agent.mutationPolicy ?? null) as never,
@@ -1807,7 +1808,7 @@ function buildRuntimeMutationPolicySection(
       blocked.push(toolName)
       continue
     }
-    if (effective === 'confirm-required') {
+    if (effective === 'confirm-required' || channel !== 'agent') {
       gated.push(toolName)
       continue
     }
@@ -1845,7 +1846,9 @@ function buildRuntimeMutationPolicySection(
       `Tools that REQUIRE APPROVAL under the effective policy: ${gated.join(', ')}.`,
     )
     lines.push(
-      'When you call any of these, the dispatcher returns an "awaiting confirmation" envelope and renders an inline approval card. Tell the operator the change is pending their confirmation; do NOT claim it has been applied.',
+      channel === 'agent'
+        ? 'When you call any of these, the dispatcher returns an "awaiting confirmation" envelope and renders an inline approval card. Tell the operator the change is pending their confirmation; do NOT claim it has been applied.'
+        : 'When you call any of these, the change is queued as a pending action and the dispatcher returns an "awaiting confirmation" envelope. It will NOT run until it is approved on the Pending AI actions page. Report it as pending approval; do NOT claim it has been applied.',
     )
   }
   if (conditional.length > 0) {
@@ -1877,8 +1880,9 @@ function appendRuntimeMutationPolicy(
   systemPrompt: string,
   agent: { id: string; mutationPolicy?: string | null; allowedTools: string[] },
   mutationPolicyOverride: string | null,
+  channel?: AiPendingActionChannel,
 ): string {
-  const block = buildRuntimeMutationPolicySection(agent, mutationPolicyOverride)
+  const block = buildRuntimeMutationPolicySection(agent, mutationPolicyOverride, channel)
   if (!block) return systemPrompt
   return `${systemPrompt}\n\n${block}`
 }
@@ -2646,6 +2650,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     appendRuntimeTaskPlanPrompt(appendAttachmentSummary(composedPrompt.prompt, resolvedAttachments), agent),
     agent,
     runMutationPolicyOverride,
+    input.channel,
   )
 
   const resolvedObjectModel = resolveAgentModel(

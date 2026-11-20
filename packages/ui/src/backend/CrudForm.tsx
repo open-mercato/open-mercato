@@ -340,7 +340,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   formId?: string
   customFieldsLoadingMessage?: string
   cancelHref?: string
-  successRedirect?: string
+  successRedirect?: string | ((values: TValues, result: void | CrudFormSubmitResult) => string | undefined)
   deleteRedirect?: string
   onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void | CrudFormSubmitResult> | void | CrudFormSubmitResult
   onSubmitSuccess?: (values: TValues, result: void | CrudFormSubmitResult) => Promise<void> | void
@@ -3385,7 +3385,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         logger.error('Error in onSubmitSuccess', { err })
         getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
       }
-      if (successRedirect) redirectNavigationStarted = await navigateWithGuard(successRedirect)
+      const successRedirectTarget = typeof successRedirect === 'function'
+        ? successRedirect(coreSubmitValues, submitResult)
+        : successRedirect
+      if (successRedirectTarget) redirectNavigationStarted = await navigateWithGuard(successRedirectTarget)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
       try {
@@ -3921,13 +3924,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           if (renderedSections.length) customFieldsInnerNodes.push(...renderedSections)
 
           if (collapsibleGroupsEnabled && g.title) {
-            const customFieldCount = customFieldLayout.reduce(
-              (sum, entity) => sum + entity.sections.reduce(
-                (sSum, section) => sSum + section.groups.reduce(
-                  (gSum, group) => gSum + group.fields.length, 0,
-                ), 0,
-              ), 0,
-            )
             const customFieldErrors = customFieldLayout.reduce(
               (sum, entity) => sum + entity.sections.reduce(
                 (sSum, section) => sSum + section.groups.reduce(
@@ -3946,7 +3942,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                 title={t(g.title, g.title)}
                 pageType={collapsiblePageType}
                 errorCount={customFieldErrors}
-                fieldCount={customFieldCount}
                 chevronPosition={collapsibleChevronPosition}
               >
                 <div className={densityStackMd}>
@@ -4006,7 +4001,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               title={t(g.title, g.title)}
               pageType={collapsiblePageType}
               errorCount={groupErrorCount}
-              fieldCount={groupFields.length}
               chevronPosition={collapsibleChevronPosition}
             >
               <div className={densityStackMd}>

@@ -189,10 +189,18 @@ function formatToolResult(result: unknown): string {
   }
 }
 
+interface ToolHandlerChannelContext {
+  channel: AiPendingActionChannel
+  mutationMode?: McpMutationMode
+  apiKeyId: string | null
+  correlationId: string | null
+}
+
 function buildToolHandlerContext(
   ctx: AiChatRequestContext,
   container?: AwilixContainer,
   tool?: AiToolDefinition,
+  channelContext?: ToolHandlerChannelContext,
 ): McpToolContext {
   return {
     tenantId: ctx.tenantId,
@@ -202,6 +210,14 @@ function buildToolHandlerContext(
     userFeatures: ctx.features,
     isSuperAdmin: ctx.isSuperAdmin,
     ...(tool ? { tool } : {}),
+    ...(channelContext
+      ? {
+          channel: channelContext.channel,
+          ...(channelContext.mutationMode ? { mutationMode: channelContext.mutationMode } : {}),
+          apiKeyId: channelContext.apiKeyId,
+          correlationId: channelContext.correlationId,
+        }
+      : {}),
   }
 }
 
@@ -292,9 +308,10 @@ function adaptToolToAiSdk(
   container: AwilixContainer | undefined,
   effectiveMutationPolicy: 'read-only' | 'confirm-required' | 'destructive-confirm-required' | undefined,
   toolCallTimings: Map<string, ToolCallTiming>,
+  channelContext?: ToolHandlerChannelContext,
 ): Tool<unknown, unknown> {
   const safeSchema = toSafeZodSchema(tool.inputSchema as ZodType)
-  const handlerContext = buildToolHandlerContext(ctx, container, tool)
+  const handlerContext = buildToolHandlerContext(ctx, container, tool, channelContext)
   const runToolCall = async (args: unknown, toolCallId: string | null): Promise<string> => {
     const replayDecision = resolveToolReplayDecision({
       toolName: tool.name,
@@ -313,8 +330,11 @@ function adaptToolToAiSdk(
     // Per-call gating decision. Under `destructive-confirm-required`,
     // tools with a predicate `isDestructive(args)` may flip per call —
     // e.g. comment delete gates while comment create runs direct.
+    // On `mcp` / `tools-api` a non-null `mutation` means approval mode,
+    // which never runs the handler directly, so every write is gated.
     const requiresApprovalNow = (() => {
       if (!mutation) return false
+      if (mutation.channel !== 'agent') return true
       if (effectiveMutationPolicy === 'confirm-required') return true
       if (effectiveMutationPolicy === 'destructive-confirm-required') {
         return resolveIsDestructive(mutation.tool.isDestructive, args)
@@ -535,6 +555,12 @@ export async function resolveAiAgentTools(
         input.container,
         effectiveMutationPolicy,
         toolCallTimings,
+        {
+          channel,
+          mutationMode: input.mutationMode,
+          apiKeyId: input.apiKeyId ?? null,
+          correlationId: input.correlationId ?? null,
+        },
       )
     } catch (error) {
       logger.error('Failed to adapt tool for agent', { toolName, agentId: agent.id, err: error })
