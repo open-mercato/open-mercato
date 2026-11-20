@@ -38,30 +38,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useTheme } from '../../theme'
 import { useContentSecurityPolicyNonce } from '../../theme/ContentSecurityPolicyProvider'
 
-const CODE_BLOCK_LANGUAGES: Record<string, string> = {
-  js: 'JavaScript',
-  jsx: 'JavaScript (React)',
-  ts: 'TypeScript',
-  tsx: 'TypeScript (React)',
-  json: 'JSON',
-  html: 'HTML',
-  css: 'CSS',
-  sql: 'SQL',
-  python: 'Python',
-  bash: 'Bash',
-  sh: 'Shell',
-  yaml: 'YAML',
-  markdown: 'Markdown',
-}
+import type { MarkdownFieldProps } from './MarkdownField'
+import { resolveMarkdownCodeBlockLanguages } from '../markdown/codeBlockLanguages'
 
-type MdxEditorImplProps = {
-  id?: string
-  ariaLabelledBy?: string
-  value?: string
-  onChange: (markdown: string) => void
-}
-
-export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange }: MdxEditorImplProps) {
+export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange, codeBlockLanguages }: MarkdownFieldProps) {
   const editorRef = React.useRef<MDXEditorMethods>(null)
   const [container, setContainer] = React.useState<HTMLDivElement | null>(null)
   const latestRef = React.useRef<string>(value)
@@ -140,10 +120,7 @@ export default function MdxEditorImpl({ id, ariaLabelledBy, value = '', onChange
           codeBlockPlugin({ defaultCodeBlockLanguage: '' }),
           codeMirrorPlugin({
             codeMirrorExtensions,
-            codeBlockLanguages: {
-              '': t('ui.forms.richtext.plainText', 'Plain text'),
-              ...CODE_BLOCK_LANGUAGES,
-            },
+            codeBlockLanguages: resolveMarkdownCodeBlockLanguages(t, codeBlockLanguages),
           }),
           markdownShortcutPlugin(),
           diffSourcePlugin({ viewMode: 'rich-text', codeMirrorExtensions }),
