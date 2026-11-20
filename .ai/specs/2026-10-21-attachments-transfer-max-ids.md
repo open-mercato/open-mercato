@@ -191,6 +191,10 @@ Implemented on top of #8571. Merge still needs the `security` label and the main
 
 ## Changelog
 
+### 2026-11-20
+
+- Merged `main` again. The `#7672` record in `BACKWARD_COMPATIBILITY.md` pushed the create-app harness case OMH-030 104 bytes over its context cap, so its `maxTotalContextBytes` moved from 135168 to 136192. OMH-022 fits the cap already on `main`, so the earlier OMH-022 change is no longer part of this PR.
+
 ### 2026-11-03
 
 - #8571 (the credited carry-forward of #7728) merged, so the dependency is met. `route.ts` and `openapi.ts` now read `ATTACHMENT_TRANSFER_MAX_IDS`; unit and integration tests derive their boundaries from it, and a unit test checks that the OpenAPI schema enforces the same limit. References to #7728 point at #8571.
