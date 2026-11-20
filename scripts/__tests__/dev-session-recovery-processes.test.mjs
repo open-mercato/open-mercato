@@ -30,6 +30,11 @@ async function createOrphanFixture(context, lateFork = false) {
   const workspaceRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-recovery-processes-')))
   const pidsPath = path.join(workspaceRoot, 'processes.json')
   const leafSource = "process.on('SIGTERM', () => {}); process.send('ready'); setInterval(() => {}, 1000)"
+  const publishPidsSource = `
+    const temporaryPath = ${JSON.stringify(pidsPath)} + '.' + process.pid + '.tmp'
+    fs.writeFileSync(temporaryPath, JSON.stringify(pids))
+    fs.renameSync(temporaryPath, ${JSON.stringify(pidsPath)})
+  `
   const wrapperSource = `
     const { spawn } = require('node:child_process')
     const fs = require('node:fs')
@@ -37,7 +42,7 @@ async function createOrphanFixture(context, lateFork = false) {
       const leaf = spawn(process.execPath, ['-e', ${JSON.stringify(leafSource)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })
       leaf.once('message', () => {
         const pids = { wrapper: process.pid, leaf: leaf.pid }
-        if (${lateFork}) fs.writeFileSync(${JSON.stringify(pidsPath)}, JSON.stringify(pids))
+        if (${lateFork}) { ${publishPidsSource} }
         else process.send(pids)
       })
     }
@@ -55,7 +60,7 @@ async function createOrphanFixture(context, lateFork = false) {
     const fs = require('node:fs')
     const wrapper = spawn(process.execPath, ['-e', ${JSON.stringify(wrapperSource)}], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] })
     wrapper.once('message', (pids) => {
-      fs.writeFileSync(${JSON.stringify(pidsPath)}, JSON.stringify(pids))
+      ${publishPidsSource}
       process.exit(0)
     })
   `

@@ -29,6 +29,23 @@ export type ReindexLockStatus = {
   totalCount?: number | null
 }
 
+export type ReindexLockCounts = {
+  processedCount: number
+  totalCount: number | null
+}
+
+type LockCountRow = {
+  processed_count?: number | string | null
+  total_count?: number | string | null
+}
+
+function toLockCounts(row: LockCountRow): ReindexLockCounts {
+  return {
+    processedCount: Number(row.processed_count ?? 0),
+    totalCount: row.total_count == null ? null : Number(row.total_count),
+  }
+}
+
 function buildScope(
   type: ReindexLockType,
   tenantId: string,
@@ -187,14 +204,14 @@ export async function updateReindexProgress(
   type: ReindexLockType,
   processedDelta: number,
   organizationId?: string | null,
-): Promise<void> {
+): Promise<ReindexLockCounts | null> {
   try {
     const scope = buildScope(type, tenantId, organizationId)
     const entityType = LOCK_ENTITY_TYPES[type]
     const delta = Math.max(0, processedDelta)
 
     // Try to update existing active job first
-    const result = await db
+    const rows = await db
       .updateTable('entity_index_jobs' as any)
       .set({
         processed_count: sql`coalesce(processed_count, 0) + ${delta}`,
@@ -204,16 +221,57 @@ export async function updateReindexProgress(
       .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
       .where(sql<boolean>`organization_id is not distinct from ${organizationId ?? null}`)
       .where('finished_at' as any, 'is', null)
-      .executeTakeFirst()
+      .returning(['processed_count' as any, 'total_count' as any])
+      .execute() as LockCountRow[]
 
-    // Kysely returns numUpdatedRows as bigint; coerce
-    const updated = Number(result?.numUpdatedRows ?? 0)
+    if (rows.length > 0) return toLockCounts(rows[0])
 
     // If no active lock exists, recreate it
-    if (updated === 0) {
-      await prepareJob(db, scope, 'reindexing')
-    }
+    await prepareJob(db, scope, 'reindexing')
+    return null
   } catch {
     // Ignore errors when updating progress
+    return null
   }
+}
+
+/**
+ * Record the number of records a queued reindex enqueued on its active lock and return
+ * the counts workers have already reported. Workers can finish batches before the
+ * enqueueing request knows the total, so the caller uses the returned counts to settle
+ * a run whose batches all drained first. Returns null when the lock is no longer active
+ * (for example cancelled).
+ */
+export async function setReindexLockTotal(
+  db: Kysely<any>,
+  tenantId: string,
+  type: ReindexLockType,
+  totalCount: number,
+  organizationId?: string | null,
+): Promise<ReindexLockCounts | null> {
+  try {
+    const rows = await db
+      .updateTable('entity_index_jobs' as any)
+      .set({
+        total_count: Math.max(0, totalCount),
+        heartbeat_at: sql`now()`,
+      } as any)
+      .where('entity_type' as any, '=', LOCK_ENTITY_TYPES[type])
+      .where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
+      .where(sql<boolean>`organization_id is not distinct from ${organizationId ?? null}`)
+      .where('finished_at' as any, 'is', null)
+      .returning(['processed_count' as any, 'total_count' as any])
+      .execute() as LockCountRow[]
+    return rows.length > 0 ? toLockCounts(rows[0]) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether the counts on a reindex lock show that every enqueued record was processed.
+ */
+export function isReindexLockDrained(counts: ReindexLockCounts | null | undefined): boolean {
+  if (!counts || counts.totalCount == null) return false
+  return counts.processedCount >= counts.totalCount
 }

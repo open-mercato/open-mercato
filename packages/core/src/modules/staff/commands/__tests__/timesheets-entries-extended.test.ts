@@ -513,6 +513,48 @@ describe('staff timesheets extended time-entry write path (T4.1)', () => {
   })
 
   describe('update', () => {
+    it.each([
+      { name: 'clears the dependent task when the project is explicitly cleared', input: { timeProjectId: null }, projectId: null, taskId: null },
+      { name: 'preserves the project and task when the project is omitted', input: { description: 'Updated note' }, projectId: PROJECT_ID, taskId: TASK_ID },
+      { name: 'accepts explicitly clearing both project and task', input: { timeProjectId: null, taskId: null }, projectId: null, taskId: null },
+    ])('$name', async ({ input, projectId, taskId }) => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ taskId: TASK_ID })
+      const world: World = {
+        projects: [projectRow()],
+        tasks: [{ id: TASK_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: PROJECT_ID, deletedAt: null }],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, ...input }, ctx)
+
+      expect(entry.timeProjectId).toBe(projectId)
+      expect(entry.taskId).toBe(taskId)
+      expect(em.flush).toHaveBeenCalled()
+    })
+
+    it('refuses an explicit project task alongside an explicitly cleared project before mutation', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ taskId: TASK_ID })
+      const world: World = {
+        projects: [projectRow()],
+        tasks: [{ id: TASK_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: PROJECT_ID, deletedAt: null }],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await expect(update.execute({ id: ENTRY_ID, timeProjectId: null, taskId: TASK_ID }, ctx))
+        .rejects.toMatchObject({ status: 422, body: { fieldErrors: { taskId: expect.any(String) } } })
+      expect(entry.timeProjectId).toBe(PROJECT_ID)
+      expect(entry.taskId).toBe(TASK_ID)
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+
     it('round-trips every new field onto the stored row', async () => {
       const { update, entities } = await loadCommands()
       const entry = entryRow()
@@ -674,6 +716,45 @@ describe('staff timesheets extended time-entry write path (T4.1)', () => {
       await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID.toUpperCase() }, ctx)
 
       expect(entry.taskId).toBe(TASK_ID)
+    })
+
+    it('accepts an explicit task with its project id written in upper case and keeps the project unchanged', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: HIDDEN_PROJECT_ID, taskId: null, rateCurrencyCode: 'PLN' })
+      const world: World = {
+        projects: [projectRow({ id: HIDDEN_PROJECT_ID, currencyCode: 'EUR' })],
+        tasks: [
+          { id: TASK_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: HIDDEN_PROJECT_ID, deletedAt: null },
+        ],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID.toUpperCase(), taskId: TASK_ID }, ctx)
+
+      expect(entry.taskId).toBe(TASK_ID)
+      expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
+      expect(entry.rateCurrencyCode).toBe('PLN')
+    })
+
+    it('stores the resolved project id when an entry moves to a project written in upper case', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: PROJECT_ID })
+      const world: World = {
+        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID, currencyCode: 'EUR' })],
+        tasks: [],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID.toUpperCase() }, ctx)
+
+      expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
+      expect(entry.rateCurrencyCode).toBe('EUR')
     })
 
     it('keeps the task and skips the task lookup when the project does not change', async () => {
