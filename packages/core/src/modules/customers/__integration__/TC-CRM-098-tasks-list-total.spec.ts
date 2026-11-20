@@ -22,7 +22,7 @@ type TaskListResponse = {
 }
 
 test.describe('TC-CRM-098: customer task list reports the real total in compatibility mode', () => {
-  test('every page agrees on the total and together they return each legacy and canonical task exactly once', async ({ request }) => {
+  test('every page agrees on the total and together they return each live legacy and canonical task exactly once', async ({ request }) => {
     const stamp = Date.now()
     let token: string | null = null
     let personId: string | null = null
@@ -40,7 +40,7 @@ test.describe('TC-CRM-098: customer task list reports the real total in compatib
       const person = await readJsonSafe<{ id?: string; entityId?: string }>(personResponse)
       personId = expectId(person?.id ?? person?.entityId, 'person id')
 
-      for (let index = 0; index < 5; index += 1) {
+      for (let index = 0; index < 6; index += 1) {
         const taskResponse = await apiRequest(request, 'POST', '/api/customers/interactions', {
           token,
           data: {
@@ -54,6 +54,8 @@ test.describe('TC-CRM-098: customer task list reports the real total in compatib
         const task = await readJsonSafe<{ id?: string }>(taskResponse)
         taskIds.push(expectId(task?.id, 'task id'))
       }
+      await deleteGeneralEntityIfExists(request, token, '/api/customers/interactions', taskIds[5])
+      const liveTaskIds = taskIds.slice(0, 5)
 
       const definition = buildInspectorUserTaskDefinitionPayload(stamp, {
         suffix: '-crm098',
@@ -95,7 +97,7 @@ test.describe('TC-CRM-098: customer task list reports the real total in compatib
       expect(listed.filter((item) => item.todoSource === 'workflows:user_task')).toHaveLength(1)
       expect(
         listed.filter((item) => taskIds.includes(item.todoId)).map((item) => item.todoId).sort(),
-      ).toEqual([...taskIds].sort())
+      ).toEqual([...liveTaskIds].sort())
     } finally {
       await cancelWorkflowInstanceIfExists(request, token, instanceId)
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)
