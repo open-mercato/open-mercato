@@ -774,12 +774,15 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
 
       const timelineRoute = '**/api/customers/deals/timeline?*';
       const { promise: resumeTimeline, resolve: releaseTimeline } = Promise.withResolvers<void>();
+      let timelineRequestHeld = false;
       await page.route(timelineRoute, async (route) => {
+        timelineRequestHeld = true;
         await resumeTimeline;
         await route.continue();
       });
       try {
         await switchOrganization(page, orgBName);
+        await expect.poll(() => timelineRequestHeld).toBe(true);
         await expect(page, 'the previous organization\'s deal param is dropped').not.toHaveURL(/[?&]deal=/, {
           timeout: 30_000,
         });
@@ -788,7 +791,6 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
         await expect(page.getByText(orgADealTitle), 'org A data stays hidden while org B is loading').toHaveCount(0);
       } finally {
         releaseTimeline();
-        await page.unroute(timelineRoute);
       }
       await expect(timelineCard(page, orgBDealId)).toBeVisible({ timeout: 30_000 });
     } finally {
