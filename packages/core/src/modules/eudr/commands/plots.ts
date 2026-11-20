@@ -34,6 +34,7 @@ import {
   type PlotUpdateInput,
 } from '../data/validators'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 import { POINT_MAX_AREA_HA, validatePlotGeometry } from '../lib/geometry'
 
 const PLOT_ENTITY_ID = 'eudr:eudr_plot'
@@ -440,6 +441,7 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
       const record = await lockForUndo(entityManager, EudrPlot, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.plotNotFound' })
       const before = structuredClone(await buildPlotSnapshot(entityManager, record))
+      await guardUpdateRedo(ctx, before)
 
       await runCrudCommandWrite({
         ctx,
@@ -481,11 +483,13 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
       })
 
       const result = { entityId: record.id, updatedAt: record.updatedAt }
-      const after = structuredClone(await buildPlotSnapshot(entityManager, record))
+      const persisted = (await lockForUndo(entityManager, EudrPlot, record)) ?? record
+      const after = structuredClone(await buildPlotSnapshot(entityManager, persisted))
       updatePlotSnapshots.set(result, { before, after })
       return result
     })
   },
+  redo: ({ input, ctx, logEntry }) => updatePlotCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result) => updatePlotSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {
     const lockedSnapshots = updatePlotSnapshots.get(result)

@@ -562,3 +562,111 @@ describe('search-pack tool surface', () => {
     }
   })
 })
+
+describe('search.* record citations', () => {
+  function makeUiPartsCtx(results: unknown[]) {
+    const { service } = makeSearchService(results)
+    const enqueue = jest.fn()
+    const ctx = { ...makeCtx(), uiParts: { enqueue } }
+    const lookup = permissiveLookup(['catalog:product'])
+    ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      throw new Error(`unexpected ${name}`)
+    })
+    return { ctx, enqueue }
+  }
+
+  it('hybrid_search emits record citations for returned hits and drops unsafe hrefs', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([
+      { entityId: 'catalog:product', recordId: 'rec-1', score: 1, source: 'fulltext', presenter: { title: 'Widget' }, url: '/backend/catalog/products/rec-1' },
+      { entityId: 'catalog:product', recordId: 'rec-2', score: 0.5, source: 'fulltext', url: 'javascript:alert(1)' },
+    ])
+    await findTool('search.hybrid_search').handler({ q: 'widget' }, ctx as any)
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith({
+      componentId: 'ai_assistant:citations',
+      payload: {
+        citations: [
+          { kind: 'record', ref: 'catalog:product:rec-1', label: 'Widget', href: '/backend/catalog/products/rec-1' },
+          { kind: 'record', ref: 'catalog:product:rec-2' },
+        ],
+      },
+    })
+  })
+
+  it('hybrid_search emits nothing when there are no hits', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([])
+    await findTool('search.hybrid_search').handler({ q: 'nothing' }, ctx as any)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('get_record_context cites only the matched record', async () => {
+    const { ctx, enqueue } = makeUiPartsCtx([
+      { entityId: 'catalog:product', recordId: 'rec-9', score: 0.4, source: 'fulltext' },
+      { entityId: 'catalog:product', recordId: 'rec-42', score: 1, source: 'fulltext', presenter: { title: 'Gadget' } },
+    ])
+    await findTool('search.get_record_context').handler({ entityId: 'catalog:product', recordId: 'rec-42' }, ctx as any)
+    expect(enqueue).toHaveBeenCalledWith({
+      componentId: 'ai_assistant:citations',
+      payload: { citations: [{ kind: 'record', ref: 'catalog:product:rec-42', label: 'Gadget' }] },
+    })
+  })
+})
+
+describe('search viewer for per-record visibility (PR #9648 B-8)', () => {
+  function resolverFor(service: unknown, lookup: unknown) {
+    return (name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      return undefined
+    }
+  }
+
+  it('search.hybrid_search passes the calling user as the viewer', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx()
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    expect(calls[0].options.viewer).toEqual({
+      auth: {
+        sub: 'user-1',
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        orgId: 'org-1',
+        features: ['search.view'],
+        isSuperAdmin: false,
+      },
+      container: ctx.container,
+    })
+  })
+
+  it('search.hybrid_search passes the viewer on the superadmin branch too', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx({ userFeatures: [], isSuperAdmin: true })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    expect((calls[0].options.viewer as { auth: Record<string, unknown> }).auth).toMatchObject({
+      sub: 'user-1',
+      isSuperAdmin: true,
+    })
+  })
+
+  it('runs an API-key caller as the key itself, with no user identity', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = { ...makeCtx(), apiKeyId: 'key-1' }
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    const auth = (calls[0].options.viewer as { auth: Record<string, unknown> }).auth
+    expect(auth).toMatchObject({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1' })
+    expect(auth).not.toHaveProperty('userId')
+  })
+
+  it('search.get_record_context passes the viewer', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx()
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup(['catalog:product'])))
+    await findTool('search.get_record_context').handler({ entityId: 'catalog:product', recordId: 'rec-1' }, ctx as any)
+    expect((calls[0].options.viewer as { auth: Record<string, unknown> }).auth).toMatchObject({ sub: 'user-1', tenantId: 'tenant-1' })
+  })
+})

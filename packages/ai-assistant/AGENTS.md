@@ -7,7 +7,7 @@
 - Treat the public AI assistant docs linked below as the source of truth when they disagree with this file.
 - Use `registerMcpTool`/`defineAiTool` with Zod schemas, `moduleId`, `requiredFeatures`, and serializable handler results.
 - Run `yarn generate` after adding or changing agents, tools, API discovery metadata, or tool packs.
-- Route model selection through `createModelFactory(container)` instead of ad hoc provider clients.
+- Route model selection through `createModelFactory(container)`; scoped overrides in `model-factory-context.ts` support eval replay before credentials. Recording can isolate tool inference; see `agent-eval-ci.mdx`.
 - Route mutation-capable AI tools through the mutation approval path before execution.
 - Bind MCP and session keys with `sessionUserId`; RBAC intersects their role grants with the owner's effective ACL. Unbound machine keys retain independent role grants.
 - In delegated-key tests, check organization isolation on business records. The UserAcl API clears an empty feature list; retain an unrelated feature when testing revocation.
@@ -60,8 +60,6 @@ If a section in this AGENTS.md disagrees with one of those public docs, treat th
 - Enable dynamic API discovery so the agent can call any endpoint without hardcoded tools
 - Build the Raycast-style Command Palette UI (Cmd+K) for user interaction
 
-Four core components to understand:
-
 1. **OpenCode Agent** — AI backend that processes natural language and executes tools
 2. **MCP HTTP Server** — Exposes tools to OpenCode via HTTP on port 3001
 3. **Code Mode Tools** — 2 meta-tools (`search` + `execute`) where the AI writes JavaScript that runs in a `node:vm` sandbox
@@ -71,10 +69,7 @@ Four core components to understand:
 
 ### Add a New Tool
 
-1. Import `registerMcpTool` from `@open-mercato/ai-assistant`
-2. Define the tool with name, description, input schema, required features, and handler
-3. Register it with a `moduleId`
-4. Restart the MCP server
+Define tools with `registerMcpTool` (name, description, schema, features, handler), register a `moduleId`, then restart MCP.
 
 ```typescript
 import { registerMcpTool } from '@open-mercato/ai-assistant'
@@ -213,9 +208,10 @@ async handler(args, ctx) {
 MUST rules for UI parts:
 
 - MUST use a namespaced component id (`<module>:<kind>`). Reserved ids (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) are FROZEN; never reuse.
-- MUST keep props serializable (no functions, no class instances, no circular refs — the SSE encoder drops them).
+- MUST keep props serializable (the SSE encoder drops functions, class instances, circular refs).
 - MUST gate any privileged action inside the part behind the same ACL features as the originating tool.
-- MUST keep prompt instructions in sync with the tool — without a prompt rule the model will paraphrase instead of emitting the part.
+- MUST keep prompt instructions in sync with the tool, or the model paraphrases instead of emitting the part.
+- Cite sources via `emitCitations(ctx, [...])`: validates, drops unsafe hrefs, dedupes, caps 20/call and 50/run (`citations.mdx`).
 
 Full reference: `apps/docs/docs/framework/ai-assistant/ui-parts.mdx`.
 
@@ -352,6 +348,7 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 | `OPENAI_API_KEY` | OpenAI | `gpt-5-mini` | `OPENAI_BASE_URL` |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-3-flash` | N/A (pass `baseUrlOverride` to `runAiAgentText` when using a Vertex AI proxy) |
 | `DEEPINFRA_API_KEY` | DeepInfra | `zai-org/GLM-5.1` | `DEEPINFRA_BASE_URL` |
+| `ATLASCLOUD_API_KEY` | Atlas Cloud | `qwen/qwen3.7-plus` | `ATLASCLOUD_BASE_URL` |
 | `GROQ_API_KEY` | Groq | `llama-3.3-70b-versatile` | `GROQ_BASE_URL` |
 | `TOGETHER_API_KEY` | Together AI | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | `TOGETHER_BASE_URL` |
 | `FIREWORKS_API_KEY` | Fireworks AI | `accounts/fireworks/models/llama-v3p3-70b-instruct` | `FIREWORKS_BASE_URL` |
@@ -361,7 +358,7 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 | `OPENROUTER_API_KEY` | OpenRouter | `meta-llama/llama-3.3-70b-instruct` | `OPENROUTER_BASE_URL` |
 | `LM_STUDIO_API_KEY` | LM Studio (local) | *(empty — auto-detects loaded model)* | `LM_STUDIO_BASE_URL` |
 
-At least one MUST be set or the runtime throws `AiModelFactoryError` with `code: 'no_provider_configured'` on first invocation. See `/framework/ai-assistant/overview` for the full matrix.
+At least one MUST be set, else the runtime throws `AiModelFactoryError` (`code: 'no_provider_configured'`) on first invocation. Full matrix: `/framework/ai-assistant/overview`.
 
 **baseURL override hierarchy** (highest to lowest priority for a given call):
 1. `baseUrlOverride` on `runAiAgentText` / `runAiAgentObject` — programmatic callers only (R6: no HTTP exposure before Phase 4a).
@@ -375,7 +372,7 @@ Process-wide defaults (Phase 0 of spec
 
 | Variable | Purpose |
 |----------|---------|
-| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Provider-only preferences can fall through when unconfigured; when paired with `OM_AI_MODEL`, the named provider must be configured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
+| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Provider-only preferences can fall through when unconfigured; when paired with `OM_AI_MODEL`, the named provider must be configured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `atlas-cloud`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
 | `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `OM_AI_<MODULE>_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. The legacy `OPENCODE_MODEL` env is read as a backward-compatibility fallback. |
 
 `OM_AI_*` are the canonical names; the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs stay bound to the OpenCode Code Mode stack and are also honored here as backward-compatibility fallbacks — see "Coexistence with OpenCode Code Mode" below.
@@ -391,7 +388,7 @@ Azure is a **native** Responses-API adapter, not an OpenAI-compatible preset: [`
 
 All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
-Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips every other source. When set, the settings UI is clipped to the allowed subset, the chat-UI `<ModelPicker>` only offers these values, the dispatcher rejects out-of-allowlist `?provider=` / `?model=` query params with typed 400 errors, and the model-factory swaps to a safe pair (emitting `console.warn` and an `allowlistFallback` field on the resolution) whenever an agent default, tenant override, or higher-priority source resolves to something blocked.
+Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips every other source. When set, the settings UI and chat-UI `<ModelPicker>` only offer the allowed values, the dispatcher rejects out-of-allowlist `?provider=`/`?model=` params with typed 400 errors, and the model-factory swaps to a safe pair (with `console.warn` and an `allowlistFallback` resolution field) whenever an agent default, tenant override, or higher-priority source is blocked.
 
 | Variable | Purpose |
 |----------|---------|
@@ -875,18 +872,29 @@ yarn mcp:serve
 | `ai_assistant.tools.list` | MUST require for listing available MCP tools |
 | `ai_assistant.mcp_servers.view` | MUST require for viewing external MCP server configs |
 | `ai_assistant.mcp_servers.manage` | MUST require for creating/editing/deleting MCP server configs |
+| `ai_assistant.pending_actions.approve` | Approve/reject MCP and `/tools/execute` pending actions of other users (Pending AI actions page); granted to `admin` |
 
 ## Workers
 
 | Worker | Queue | Purpose |
 |--------|-------|---------|
-| `workers/ai-pending-action-cleanup` | `ai-pending-action-cleanup` | Scans every tenant for expired pending mutation approvals (`status = 'pending'` AND `expires_at < now`) and flips them to `expired` via the state-machine guard, emitting `ai.action.expired` per row. Race-safe: rows that concurrently transitioned (e.g., a confirm beat us) throw `AiPendingActionStateError` from the repo and are skipped without emitting. Runs on a 5-minute system-scope interval (registered by `setup.ts`). Manually invoked via `yarn mercato ai_assistant run-pending-action-cleanup`. Concurrency: 1. |
+| `workers/ai-pending-action-cleanup` | `ai-pending-action-cleanup` | Flips expired pending approvals (`status = 'pending'`, `expires_at < now`) to `expired` via the state-machine guard, emitting `ai.action.expired`; rows that concurrently transitioned are skipped. 5-minute system interval (`setup.ts`). Manual: `yarn mercato ai_assistant run-pending-action-cleanup`. Concurrency 1. |
+| `workers/ai-agent-run-prune` | `ai-agent-run-prune` | Daily: deletes runs (with steps/tool calls) older than `AI_AGENT_RUNS_RETENTION_DAYS` (30) or soft-deleted. Manual: `yarn mercato ai_assistant run-agent-run-prune`. |
 
 ## Events
 
-Typed pending-action lifecycle events live in `src/modules/ai_assistant/events.ts` and are emitted via the shared `emitAiAssistantEvent` helper (`createModuleEvents`). The three ids are FROZEN per `BACKWARD_COMPATIBILITY.md` §5 and MUST NOT be renamed; payload fields are additive-only. `ai.action.confirmed` fires from `executePendingActionConfirm` with `{ pendingActionId, agentId, toolName, status, tenantId, organizationId, userId, resolvedByUserId, resolvedAt, executionResult, failedRecords? }`; `ai.action.cancelled` fires from `executePendingActionCancel` with the same shape plus an optional `reason`; `ai.action.expired` fires from the cancel helper's TTL short-circuit (and the Step 5.12 cleanup worker) with `resolvedByUserId: null` and additional `expiresAt` / `expiredAt` timestamps. All three use `category: 'system'` and `entity: 'ai_pending_action'`.
+Pending-action events (`events.ts`, `emitAiAssistantEvent`) are FROZEN per `BACKWARD_COMPATIBILITY.md` §5; payloads additive-only, `category: 'system'`, `entity: 'ai_pending_action'`. `ai.action.confirmed` (`executePendingActionConfirm`) carries `{ pendingActionId, agentId, toolName, status, tenantId, organizationId, userId, resolvedByUserId, resolvedAt, executionResult, failedRecords? }`; `ai.action.cancelled` (`executePendingActionCancel`) the same plus `reason?`; `ai.action.expired` (TTL short-circuit and cleanup worker) has `resolvedByUserId: null` plus `expiresAt` / `expiredAt`.
 
 `ai_assistant.moderation_flag.created` (`entity: 'ai_moderation_flag'`) fires best-effort from the input-moderation gate; payload carries flagged category names only, never prompt content.
+
+`ai_assistant.agent_run.completed` fires after a run record commits; payload carries ids only.
+
+## Run tracing
+
+Guide: `agents.mdx` → "Model call settings and run tracing". Envs: `OM_AI_RUN_TRACE_CAPTURE` (`full`/`metadata`/`off`), `OM_AI_RUN_TRACE_CAPTURE_PROMPT`, `OM_AI_RUN_TRACE_MAX_PAYLOAD_BYTES`.
+
+- The run recorder is best-effort and MUST NEVER throw into the turn.
+- Runners that persist their own trace MUST pass `trace: { persist: false }`.
 
 ## Input moderation & safety identifiers
 
@@ -1409,6 +1417,19 @@ if (tool.requiredFeatures?.length) {
 }
 ```
 
+### Exposure, List Filtering, Audit and Approval Mode
+
+Full reference: [`mcp.mdx`](../../apps/docs/docs/framework/ai-assistant/mcp.mdx) → "Exposure, audit and mutation modes".
+
+- MUST resolve exposure through `resolveMcpExposureConfig` (CLI flag > `OM_MCP_*` env > default) and filter with `isToolExposed` / `filterToolsForCaller` (`lib/mcp-exposure.ts`) in all three servers — never re-implement allow/deny or feature filtering inline.
+- `mcp:serve-http` registers per request only tools passing exposure + the list principal's ACL (session user from `x-om-session-token`, else the API key's ACL), so `tools/list` == callable set; per-call ACL still runs.
+- MUST audit every `tools/call` and `/tools/execute` via `recordMcpToolCall` (`lib/mcp-audit.ts`, `access_logs` kind `ai_assistant.mcp_tool_call`): best-effort, bounded, argument names only (never values), correlation id from `x-correlation-id` echoed as `_meta.correlationId`.
+- MUST pass `channel` + `mutationMode` to `executeTool` from MCP/tools-api callers. `deny` hides and refuses mutations (`MUTATION_REQUIRES_APPROVAL`); `approval` queues an `ai_pending_actions` row (`channel` `mcp`/`tools-api`) and never runs the handler. Raw-tool rows are re-checked at confirm (`tool_not_exposed`, `approver_features_denied`, `requester_revoked`, `requester_features_denied`) and executed as the approver. Chat rows stay owner-only; MCP rows are owner-or-approver (`ai_assistant.pending_actions.approve`).
+
+### Agent Tools
+
+Guide: `mcp.mdx` → "Agent tools". Publish agents only via `defineAgentTool` or `mcpTool`; resolve the `aiAgentRunDispatcher` DI key soft-optionally (`resolveAiAgentRunDispatcher`), never import its implementer; stay read-only on `mcp`/`tools-api` unless the mutation mode is `approval`.
+
 ### Return Standard Error Responses
 
 | Code | Message | When returned |
@@ -1508,23 +1529,7 @@ Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, whi
 
 ### 2026-05-13 - Remove dead `indexApiEndpoints` from MCP boot (#1876)
 
-**What changed**:
-- MCP HTTP / stdio / dev entry points no longer call `indexApiEndpoints(searchService)` at startup. The Code Mode rewrite (2026-02-22) deleted the only readers (`find_api` / `call_api` / `discover_schema`), so the call was indexing into fulltext + tokens + vector indexes that nothing queried. On large specs (≳200 ops + remote embedding latency) the search-service fan-out also burned an `OpenAI` embedding storm + pgvector load on every boot — Code Mode reads the OpenAPI document directly via `getRawOpenApiSpec()` / `loadRichOpenApiSpec()`, in-memory.
-- Deleted `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`, `lib/api-endpoint-index-config.ts` — all dead since the 2026-02-22 rewrite, kept only by the boot-time indexing call we removed.
-- Pruned `lib/api-endpoint-index.ts`: removed `indexApiEndpoints`, `searchEndpoints`, `searchEndpointsFallback`, `buildSearchableContent`, `lastIndexChecksum`, and the `API_ENDPOINT_ENTITY` deprecated alias. Kept `parseApiEndpoints` (private), `getApiEndpoints`, `getEndpointByOperationId`, `getRawOpenApiSpec`, `loadRichOpenApiSpec`, `setRawSpecCache`, `clearRawSpecCache`, `clearEndpointCache`, `simplifyRequestBodySchema` — those still serve Code Mode.
-
-**Files modified**:
-- `lib/http-server.ts`, `lib/mcp-server.ts`, `lib/mcp-dev-server.ts` — removed the `indexApiEndpoints` import + call
-- `lib/api-endpoint-index.ts` — pruned dead code
-
-**Files deleted**:
-- `lib/api-discovery-tools.ts`
-- `lib/entity-graph-tools.ts`
-- `lib/api-endpoint-index-config.ts`
-
-**Backward compatibility**: All removed symbols (`indexApiEndpoints`, `searchEndpoints`, `searchEndpointsFallback`, `endpointToIndexableRecord`, `API_ENDPOINT_ENTITY`, `API_ENDPOINT_SEARCH_CONFIG`, `apiEndpointEntityConfig`, `computeEndpointsChecksum`, `API_ENDPOINT_ENTITY_ID`, `GLOBAL_TENANT_ID` from `api-endpoint-index-config`) live inside the module's internal `lib/` path and are not part of the documented developer contract surface (see `BACKWARD_COMPATIBILITY.md`). They were already documented as legacy and unused.
-
-**Operator cleanup (optional)**: If a deployment previously booted MCP and accumulated rows in fulltext/vector/tokens under `entityId: 'ai_assistant:api_endpoint'` / `tenantId: '00000000-0000-0000-0000-000000000000'`, they are orphaned but inert — no live workflow reads them. Manual purge is purely cosmetic.
+MCP HTTP / stdio / dev servers no longer index API endpoints into search at startup (no reader since the Code Mode rewrite; it caused an embedding storm on large specs). Deleted `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`, `lib/api-endpoint-index-config.ts` and pruned `lib/api-endpoint-index.ts` to the Code Mode helpers listed under "Rules for the API Endpoint Index". Removed symbols were internal `lib/` paths, not contract surface. Orphaned `ai_assistant:api_endpoint` search rows are inert; purging them is optional.
 
 ### 2026-05-08 - Phase 5 opt-in ToolLoopAgent backend (spec 2026-04-28-ai-agents-agentic-loop-controls)
 
@@ -1585,14 +1590,6 @@ Replaced the Vercel AI SDK with OpenCode: the chat API routes to OpenCode, sessi
 ### 2026-01 - API Discovery Tools / Hybrid Tool Discovery (superseded)
 
 **Lesson learned:** Exposing hundreds of individual tools overwhelms the AI context — use meta-tools the agent can search. Superseded by Code Mode (2026-02-22); the tools and files these entries described (`api_discover`, `api_schema`, `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`) were deleted in #1876. See git history for the detail.
-
-### Previous Changes
-
-See git history for earlier changes including:
-- Zod 4 schema handling fixes
-- Debug panel addition
-- CLI tools fixes
-- Raycast-style command palette rewrite
 
 ---
 
@@ -1676,11 +1673,3 @@ For a live end-to-end walkthrough against a real LLM:
 6. Force a partial-success case (e.g., stale-version on one row) and confirm the result card renders the mixed outcome correctly.
 
 ---
-
-## Future Development
-
-Refer to git history and specs for planned features:
-- AI Agent Authorization & Impersonation
-- Actor + Subject model for audit trails
-- Permission tiers for rate limiting
-- Enhanced confirmation flow
