@@ -34,6 +34,7 @@ import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
+import { emitInstanceParkTransition } from './instance-lifecycle-events'
 
 export const CONDITION_STEP_TYPE = 'WAIT_FOR_CONDITION'
 
@@ -333,9 +334,11 @@ async function completeConditionWait(
   )
 
   if (autoTransitions.length === 0) {
+    const previousInstanceStatus = instance.status
     instance.status = 'RUNNING'
     instance.updatedAt = new Date()
     await em.flush()
+    await emitInstanceParkTransition(instance, previousInstanceStatus)
     return
   }
 
@@ -350,9 +353,11 @@ async function completeConditionWait(
   const firstValidTransition = validTransitions.find((candidate) => candidate.isValid)
 
   if (!firstValidTransition || !firstValidTransition.transition) {
+    const previousInstanceStatus = instance.status
     instance.status = 'RUNNING'
     instance.updatedAt = new Date()
     await em.flush()
+    await emitInstanceParkTransition(instance, previousInstanceStatus)
     return
   }
 

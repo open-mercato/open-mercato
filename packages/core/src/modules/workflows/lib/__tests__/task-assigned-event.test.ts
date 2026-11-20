@@ -3,6 +3,10 @@ import type { EntityManager } from '@mikro-orm/core'
 
 const mockEmit = jest.fn<(...args: unknown[]) => Promise<void>>()
 
+// Parking the instance on the task also publishes `workflows.instance.paused`.
+const taskAssignedCalls = () =>
+  (mockEmit.mock.calls as Array<[string, any]>).filter(([eventId]) => eventId === 'workflows.task.assigned')
+
 jest.mock('../../events', () => {
   const actual = jest.requireActual('../../events') as Record<string, unknown>
   return { ...actual, emitWorkflowsEvent: (...args: unknown[]) => mockEmit(...args) }
@@ -122,8 +126,9 @@ describe('workflows.task.assigned', () => {
       { id: 'task-1', taskName: 'Approve Invoice', assignedTo: 'user-1', assignedToRoles: null, dueDate }
     )
 
-    expect(mockEmit).toHaveBeenCalledTimes(1)
-    const [eventId, payload] = mockEmit.mock.calls[0] as [string, any]
+    const assigned = taskAssignedCalls()
+    expect(assigned).toHaveLength(1)
+    const [eventId, payload] = assigned[0]
     expect(eventId).toBe('workflows.task.assigned')
     expect(payload).toMatchObject({
       taskId: 'task-1',
@@ -149,7 +154,7 @@ describe('workflows.task.assigned', () => {
       }
     )
 
-    const [, payload] = mockEmit.mock.calls[0] as [string, any]
+    const [, payload] = taskAssignedCalls()[0]
     expect(payload.assignedUserId).toBeNull()
     expect(payload.assignedToRoles).toEqual(['Approver'])
   })

@@ -15,6 +15,7 @@ import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
 import { resolveCodeDefinitionForInstance } from './find-definition'
+import { emitInstanceParkTransition } from './instance-lifecycle-events'
 
 export interface FireTimerOptions {
   instanceId: string
@@ -197,8 +198,10 @@ export async function fireTimer(
   )
 
   if (autoTransitions.length === 0) {
+    const previousInstanceStatus = instance.status
     instance.status = 'RUNNING'
     await em.flush()
+    await emitInstanceParkTransition(instance, previousInstanceStatus)
     return
   }
 
@@ -217,8 +220,10 @@ export async function fireTimer(
   const firstValidTransition = validTransitions.find((t) => t.isValid)
 
   if (!firstValidTransition || !firstValidTransition.transition) {
+    const previousInstanceStatus = instance.status
     instance.status = 'RUNNING'
     await em.flush()
+    await emitInstanceParkTransition(instance, previousInstanceStatus)
     return
   }
 
@@ -226,8 +231,10 @@ export async function fireTimer(
   // `sendSignal` does. Without it the executor's defense-in-depth PAUSED check
   // stops the run at the very first step the timer traverses, so the instance
   // sits at that step (typically END) as PAUSED and never completes.
+  const previousInstanceStatus = instance.status
   instance.status = 'RUNNING'
   await em.flush()
+  await emitInstanceParkTransition(instance, previousInstanceStatus)
 
   const transitionResult = await transitionHandler.executeTransition(
     em,

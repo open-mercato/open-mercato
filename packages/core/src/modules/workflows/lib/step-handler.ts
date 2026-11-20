@@ -54,6 +54,7 @@ import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
 import type { WorkflowIoContract } from '../data/validators'
 import { safeGetNestedValue, safeSetNestedValue } from './safe-mapping-path'
+import { emitInstanceParkTransition } from './instance-lifecycle-events'
 
 const logger = createLogger('workflows')
 
@@ -727,6 +728,7 @@ async function handleAutomatedStep(
         tenantId: instance.tenantId,
         organizationId: instance.organizationId,
       })
+      const previousInstanceStatus = instance.status
       if (branch) {
         branch.status = 'PAUSED'
         branch.updatedAt = now
@@ -736,6 +738,7 @@ async function handleAutomatedStep(
         instance.updatedAt = now
       }
       await em.flush()
+      await emitInstanceParkTransition(instance, previousInstanceStatus)
       return {
         status: 'WAITING',
         waitReason: 'SIGNAL',
@@ -1016,6 +1019,7 @@ async function handleUserTaskStep(
       organizationId: instance.organizationId,
     })
 
+    const previousInstanceStatus = instance.status
     if (branch) {
       branch.status = 'PAUSED'
       branch.updatedAt = now
@@ -1024,6 +1028,7 @@ async function handleUserTaskStep(
       instance.updatedAt = now
     }
     await em.flush()
+    await emitInstanceParkTransition(instance, previousInstanceStatus)
 
     return {
       status: 'WAITING',
@@ -1108,6 +1113,7 @@ async function handleUserTaskStep(
 
   // Pause execution - waits for user task completion. For a branch, only the
   // branch pauses; sibling branches keep running.
+  const previousInstanceStatus = instance.status
   if (branch) {
     branch.status = 'PAUSED'
     branch.updatedAt = now
@@ -1116,6 +1122,7 @@ async function handleUserTaskStep(
     instance.updatedAt = now
   }
   await em.flush()
+  await emitInstanceParkTransition(instance, previousInstanceStatus)
 
   return {
     status: 'WAITING',
@@ -1303,10 +1310,12 @@ async function handleSubWorkflowStep(
         tenantId: instance.tenantId,
         organizationId: instance.organizationId,
       })
+      const previousInstanceStatus = instance.status
       instance.status = 'PAUSED'
       instance.pausedAt = now
       instance.updatedAt = now
       await em.flush()
+      await emitInstanceParkTransition(instance, previousInstanceStatus)
       return {
         status: 'WAITING',
         waitReason: 'SIGNAL',
@@ -1372,6 +1381,7 @@ async function handleWaitForSignalStep(
   })
 
   // Pause execution (branch-scoped when running inside a parallel branch)
+  const previousInstanceStatus = instance.status
   if (branch) {
     branch.status = 'PAUSED'
     branch.updatedAt = now
@@ -1381,6 +1391,7 @@ async function handleWaitForSignalStep(
     instance.updatedAt = now
   }
   await em.flush()
+  await emitInstanceParkTransition(instance, previousInstanceStatus)
 
   // Return WAITING status to halt executor
   return {
@@ -1483,6 +1494,7 @@ async function handleWaitForTimerStep(
     organizationId: instance.organizationId,
   })
 
+  const previousInstanceStatus = instance.status
   if (branch) {
     branch.status = 'PAUSED'
     branch.updatedAt = now
@@ -1492,6 +1504,7 @@ async function handleWaitForTimerStep(
     instance.updatedAt = now
   }
   await em.flush()
+  await emitInstanceParkTransition(instance, previousInstanceStatus)
 
   return {
     status: 'WAITING',
@@ -1624,6 +1637,7 @@ async function handleWaitForConditionStep(
     organizationId: instance.organizationId,
   })
 
+  const previousInstanceStatus = instance.status
   if (branch) {
     branch.status = 'PAUSED'
     branch.updatedAt = now
@@ -1633,6 +1647,7 @@ async function handleWaitForConditionStep(
     instance.updatedAt = now
   }
   await em.flush()
+  await emitInstanceParkTransition(instance, previousInstanceStatus)
 
   return {
     status: 'WAITING',

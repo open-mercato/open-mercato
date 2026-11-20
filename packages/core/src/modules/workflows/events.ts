@@ -29,10 +29,10 @@ const events = [
    * name and no run context. It is also already tenant + organization scoped by
    * the bridge, which refuses to deliver a payload with no `tenantId` at all.
    *
-   * `paused` and `resumed` are declared but have never had an emit site (see
-   * `InstanceLifecycleEventId` in `lib/workflow-executor.ts`); the flag is
-   * declared on them anyway so that whoever wires the emit does not have to
-   * revisit the contract.
+   * `paused` and `resumed` are published by `emitInstanceParkTransition`
+   * (`lib/instance-lifecycle-events.ts`) once per actual instance-level
+   * `→ PAUSED` / `PAUSED → RUNNING` transition; a branch park or a re-park of
+   * an already-parked instance publishes nothing.
    */
   { id: 'workflows.instance.started', label: 'Workflow Started', category: 'lifecycle', clientBroadcast: true },
   { id: 'workflows.instance.completed', label: 'Workflow Completed', category: 'lifecycle', clientBroadcast: true },

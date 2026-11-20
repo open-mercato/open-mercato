@@ -15,6 +15,7 @@ import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
 import { resolveCodeDefinitionForInstance } from './find-definition'
+import { emitInstanceParkTransition } from './instance-lifecycle-events'
 import {
   WORKFLOW_AGENT_OUTCOME_CONTEXT_KEY,
   buildAgentOutcomeContextEntry,
@@ -403,6 +404,10 @@ export async function sendSignal(
     await releaseSignalClaim(em, instance, claimedStepId, preClaimContext, preClaimUpdatedAt)
     throw error
   }
+
+  // The claim is the one PAUSED → RUNNING transition of this delivery; every
+  // `status = 'RUNNING'` below re-asserts a status the claim already wrote.
+  await emitInstanceParkTransition(instance, 'PAUSED')
 
   // Find active step instance and exit it
   const stepInstance = await findOneWithDecryption(

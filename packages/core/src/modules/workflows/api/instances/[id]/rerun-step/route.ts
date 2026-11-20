@@ -30,6 +30,7 @@ import * as workflowExecutor from '../../../../lib/workflow-executor'
 import { workflowInstanceResponseSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { emitInstanceParkTransition } from '../../../../lib/instance-lifecycle-events'
 
 const logger = createLogger('workflows')
 
@@ -152,12 +153,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
     instance.pendingTransition = null
     instance.currentStepId = parsed.data.stepId
+    const previousInstanceStatus = instance.status
     instance.status = 'RUNNING'
     instance.retryCount = (instance.retryCount || 0) + 1
     instance.errorMessage = null
     instance.errorDetails = null
     instance.updatedAt = now
     await em.flush()
+    await emitInstanceParkTransition(instance, previousInstanceStatus)
 
     const { executeStep } = await import('../../../../lib/step-handler')
     await executeStep(
