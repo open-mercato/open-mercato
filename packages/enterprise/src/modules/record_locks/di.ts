@@ -11,17 +11,6 @@ import { createRecordLockService } from './lib/recordLockService'
 import type { RecordLockService } from './lib/recordLockService'
 import { createRecordLockCrudMutationGuardService } from './lib/crudMutationGuardService'
 
-// The CLASSIC/proxy cradle getter throws for an unregistered key, so a plain
-// `cradle.x ?? null` never falls back when an optional peer module
-// (configs, audit_logs) is disabled.
-function readOptionalCradleValue<T>(read: () => T | null | undefined): T | null {
-  try {
-    return read() ?? null
-  } catch {
-    return null
-  }
-}
-
 export function register(container: AppContainer) {
   container.register({
     recordLockService: asFunction((cradle: {
@@ -32,11 +21,18 @@ export function register(container: AppContainer) {
     }) =>
       createRecordLockService({
         em: cradle.em,
-        moduleConfigService: readOptionalCradleValue(() => cradle.moduleConfigService),
-        actionLogService: readOptionalCradleValue(() => cradle.actionLogService),
+        moduleConfigService: cradle.moduleConfigService ?? null,
+        actionLogService: cradle.actionLogService ?? null,
         rbacService: cradle.rbacService ?? null,
       }),
-    ).scoped().proxy(),
+    ).scoped().proxy()
+      // The proxy cradle throws for an unregistered key, so the optional peers
+      // (configs, audit_logs) are injected with `allowUnregistered` instead; a
+      // registered peer whose factory throws still propagates.
+      .inject((scope) => ({
+        moduleConfigService: scope.resolve('moduleConfigService', { allowUnregistered: true }) ?? null,
+        actionLogService: scope.resolve('actionLogService', { allowUnregistered: true }) ?? null,
+      })),
     // CRUD guard decorator: chains the OSS `updated_at` floor first (built here
     // because this DI key overrides the platform default), then adds the
     // record_locks enrichment. record_locks can only ADD a 409, never skip the
