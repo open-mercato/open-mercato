@@ -45,26 +45,38 @@ export function buildChannelInboxPredicate(
 ): Expression<SqlBool> {
   const organizationId = scope.organizationId ?? null
 
-  const inboundLinkExists = eb.exists(
+  return eb.exists(
     eb
       .selectFrom('message_channel_links as mcl')
-      .select(sql<number>`1`.as('one'))
-      .whereRef('mcl.message_id', '=', 'm.id')
-      .where('mcl.direction', '=', 'inbound')
-      .where('mcl.tenant_id', '=', scope.tenantId),
-  )
-
-  const unassignedAccessibleThreadExists = eb.exists(
-    eb
-      .selectFrom('channel_thread_mappings as ctm')
+      .innerJoin('channel_thread_mappings as ctm', (join) => join
+        .onRef('ctm.external_conversation_id', '=', 'mcl.external_conversation_id')
+        .onRef('ctm.tenant_id', '=', 'mcl.tenant_id'))
+      .innerJoin('external_conversations as ec', (join) => join
+        .onRef('ec.id', '=', 'mcl.external_conversation_id')
+        .onRef('ec.channel_id', '=', 'ctm.channel_id')
+        .onRef('ec.tenant_id', '=', 'ctm.tenant_id'))
       .innerJoin('communication_channels as cc', 'cc.id', 'ctm.channel_id')
       .select(sql<number>`1`.as('one'))
+      .whereRef('mcl.message_id', '=', 'm.id')
       .whereRef('ctm.message_thread_id', '=', 'm.thread_id')
+      .where('mcl.direction', '=', 'inbound')
+      .where('mcl.tenant_id', '=', scope.tenantId)
       .where('ctm.tenant_id', '=', scope.tenantId)
+      .where('ec.tenant_id', '=', scope.tenantId)
+      .where((cond) =>
+        organizationId
+          ? cond('mcl.organization_id', '=', organizationId)
+          : cond('mcl.organization_id', 'is', null),
+      )
       .where((cond) =>
         organizationId
           ? cond('ctm.organization_id', '=', organizationId)
           : cond('ctm.organization_id', 'is', null),
+      )
+      .where((cond) =>
+        organizationId
+          ? cond('ec.organization_id', '=', organizationId)
+          : cond('ec.organization_id', 'is', null),
       )
       .where('ctm.assigned_user_id', 'is', null)
       .where('cc.tenant_id', '=', scope.tenantId)
@@ -80,8 +92,6 @@ export function buildChannelInboxPredicate(
           : cond('cc.user_id', 'is', null),
       ),
   )
-
-  return eb.and([inboundLinkExists, unassignedAccessibleThreadExists])
 }
 
 /** DI service type for cross-module callers (resolve `communicationChannelsBuildChannelInboxPredicate`). */
