@@ -1044,6 +1044,7 @@ function buildCrudCacheKey(
   request: Request,
   ctx: CrudCtx,
   enricherSignature = '',
+  localizesEntities = false,
 ): string {
   const url = new URL(request.url)
   const scopeIds = collectScopeOrganizationIds(ctx)
@@ -1076,6 +1077,7 @@ function buildCrudCacheKey(
   if (enricherSignature) {
     segments.push(`enrichers:${normalizeTagSegment(enricherSignature)}`)
   }
+  if (localizesEntities) segments.push('localization:registered-fields-v1')
   return segments.join('|')
 }
 
@@ -1711,7 +1713,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         : null
       const cache = cacheEnabled ? resolveCrudCache(ctx.container) : null
       const enricherCachePlan = cacheEnabled ? await resolveListCachePlan(ctx) : NO_ENRICHER_CACHE_PLAN
-      const cacheKey = cacheEnabled ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature) : null
+      const cacheKey = cacheEnabled
+        ? buildCrudCacheKey(resourceKind, request, ctx, enricherCachePlan.signature, Boolean(opts.list?.entityId))
+        : null
       let cacheStatus: 'hit' | 'miss' = 'miss'
       let cachedValue: CrudCacheStoredValue | null = null
 
