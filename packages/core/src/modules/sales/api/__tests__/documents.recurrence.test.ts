@@ -29,9 +29,17 @@ const orderRecurrence = {
   scheduleVersion: 2,
 }
 
-function buildCtx(rows: Record<string, unknown[]>) {
+function buildCtx(rows: Record<string, unknown[]>, periodOrderIds: string[] = []) {
   const calls: Array<{ entity: string; where: Record<string, unknown> }> = []
+  const periodQuery = {
+    selectFrom: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    distinct: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    execute: jest.fn().mockResolvedValue(periodOrderIds.map((orderId) => ({ order_id: orderId }))),
+  }
   const em = {
+    getKysely: () => periodQuery,
     find: (entity: { name?: string }, where: Record<string, unknown>) => {
       const name = entity?.name ?? ''
       calls.push({ entity: name, where })
@@ -40,6 +48,7 @@ function buildCtx(rows: Record<string, unknown[]>) {
   }
   return {
     calls,
+    periodQuery,
     ctx: {
       container: { resolve: (token: string) => (token === 'em' ? em : null) },
       auth: { tenantId: 'ten-1', orgId: 'org-1' },
@@ -50,10 +59,9 @@ function buildCtx(rows: Record<string, unknown[]>) {
 
 describe('attachRecurrences', () => {
   it('adds the order schedule with its derived fields and marks invoiced orders locked', async () => {
-    const { ctx, calls } = buildCtx({
+    const { ctx, calls, periodQuery } = buildCtx({
       SalesOrderRecurrence: [orderRecurrence, { ...orderRecurrence, orderId: 'order-2' }],
-      SalesRecurringPeriod: [{ id: 'period-1', order: { id: 'order-2' } }],
-    })
+    }, ['order-2'])
     const payload = { items: [{ id: 'order-1' }, { id: 'order-2' }, { id: 'order-3' }] as Array<Record<string, unknown>> }
 
     await attachRecurrences(payload, ctx as never, 'order')
@@ -71,17 +79,26 @@ describe('attachRecurrences', () => {
     })
     expect(payload.items[1].recurrence).toMatchObject({ locked: true })
     expect(payload.items[2].recurrence).toBeNull()
+    expect(periodQuery.selectFrom).toHaveBeenCalledWith('sales_recurring_periods')
+    expect(periodQuery.select).toHaveBeenCalledWith('order_id')
+    expect(periodQuery.distinct).toHaveBeenCalledTimes(1)
+    expect(periodQuery.where.mock.calls).toEqual([
+      ['order_id', 'in', ['order-1', 'order-2', 'order-3']],
+      ['tenant_id', '=', 'ten-1'],
+      ['organization_id', 'in', ['org-1']],
+    ])
     expect(calls.every((call) => call.where.tenantId === 'ten-1')).toBe(true)
     expect(calls.every((call) => JSON.stringify(call.where.organizationId) === JSON.stringify({ $in: ['org-1'] }))).toBe(true)
   })
 
   it('limits the lookup to every organization the list covers', async () => {
-    const { ctx, calls } = buildCtx({})
+    const { ctx, calls, periodQuery } = buildCtx({})
     const payload = { items: [{ id: 'order-1' }] as Array<Record<string, unknown>> }
 
     await attachRecurrences(payload, { ...ctx, organizationIds: ['org-1', null, 'org-2'] } as never, 'order')
 
-    expect(calls.map((call) => call.where.organizationId)).toEqual([{ $in: ['org-1', 'org-2'] }, { $in: ['org-1', 'org-2'] }])
+    expect(calls.map((call) => call.where.organizationId)).toEqual([{ $in: ['org-1', 'org-2'] }])
+    expect(periodQuery.where).toHaveBeenCalledWith('organization_id', 'in', ['org-1', 'org-2'])
   })
 
   it('adds the quote schedule with a calculated end date and no order-only state', async () => {
