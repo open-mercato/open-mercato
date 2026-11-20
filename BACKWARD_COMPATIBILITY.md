@@ -700,5 +700,6 @@ The STABLE entity translation route and localization resolver require target
 permissions and registered text fields. Continuing to accept or render
 unregistered translations would preserve the vulnerability. See
 [upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
-for client and operator migration guidance. The Emergency Security Exception
-requires named maintainer approval.
+for client and operator migration guidance. Piotr Karwatka (@pkarw) acknowledged
+the emergency waiver of steps 1–3 on 2026-11-20:
+[human approval](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
