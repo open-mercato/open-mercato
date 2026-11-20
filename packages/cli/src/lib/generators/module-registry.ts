@@ -1,3 +1,4 @@
+import { matchRoutePattern } from '@open-mercato/shared/modules/registry'
 import { sourceHasDefaultExport, sourceExportedHttpMethods } from './source-exports'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -3760,6 +3761,11 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     result,
     quiet,
   })
+  for (const { routePath } of derivedCrudRoutes) {
+    if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(routePath) || routePath.split('/').some((segment) => segment === '.' || segment === '..')) {
+      throw new Error(`[generate] Derived CrudForm route requires a literal API path without parameters: "${routePath}"`)
+    }
+  }
 
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
@@ -4337,7 +4343,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     entries: backendRouteManifestDecls,
   })
   for (const derived of derivedCrudRoutes) {
-    if (apiRouteMetadataEntries.filter(({ path: routePath }) => routePath === derived.routePath).length !== 1) {
+    if (apiRouteMetadataEntries.filter(({ path: routePath }) => matchRoutePattern(routePath, derived.routePath) !== undefined).length !== 1) {
       throw new Error(`[generate] Derived CrudForm route conflicts with an existing API route "${derived.routePath}"`)
     }
   }

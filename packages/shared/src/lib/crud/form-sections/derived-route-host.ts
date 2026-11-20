@@ -1,9 +1,12 @@
+import { isDeepStrictEqual } from 'node:util'
 import { LockMode, MetadataStorage } from '@mikro-orm/core'
+import { asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { getCommandInterceptorHttpRejection } from '../../commands/errors'
 import type { CommandRuntimeContext } from '../../commands/types'
 import { findOneWithDecryption } from '../../encryption/find'
+import { bindMatchedApiRoutePath } from '../../modules/api-route-identity'
 import { isRecord } from '../../utils'
 import { readBoundedRequestBytes, WebhookBodyTooLargeError } from '../../webhooks/body'
 import type { CrudFormRequiredLeafFact, CrudFormSectionCapabilityProviderFact, CrudFormSectionMutationSurfaceFact } from '../../../modules/form-section-facts'
@@ -37,7 +40,7 @@ export type CrudRouteSectionHostDeclaration = {
   authoritativeSchema: { id: string; schema?: z.ZodType; fixtures: readonly Payload[] }
   projectedSchema: z.ZodObject
   submit: OperationContract
-  delete?: OperationContract & { inputStyle?: 'body-query' | 'direct'; mode?: 'soft' | 'hard' }
+  delete?: OperationContract & { inputStyle?: 'body-query' | 'direct'; mode: 'soft' | 'hard' }
   expectedVersionField?: string
   idSchema?: z.ZodType<string>
   wireRequiredUpdatePaths?: readonly string[]
@@ -59,6 +62,8 @@ type DerivedHost = {
 const derivedHosts = new WeakMap<object, DerivedHost>()
 const proofVersion = 'transactional-final-input/v1'
 const pathAlias = /^[A-Za-z][A-Za-z0-9_]*$/
+const sectionPolicySuffix = '/section-policy'
+const staticRoutePattern = /^(?:\/[A-Za-z0-9_.-]+)+$/
 const requestIdSchema = z.object({ id: resourceIdSchema.optional() }).passthrough()
 const errorSchema = z.object({ error: z.string() })
 const optimisticConflictSchema = z.object({
@@ -107,6 +112,9 @@ export function defineCrudRouteSectionHost<const Host extends CrudRouteSectionHo
   if (![declaration.hostId, declaration.formVariant, declaration.hostDescriptorId, source.resourceKind]
       .every((id) => symbolicIdSchema.safeParse(id).success)) refuse('invalid host or resource identity')
   if (declaration.formOperation === 'create' && declaration.delete) refuse('create form cannot own a delete mutation')
+  if (declaration.delete && declaration.delete.mode !== 'soft' && declaration.delete.mode !== 'hard') {
+    refuse('delete requires an explicit delegated command’s soft or hard delete contract')
+  }
   if (!Number.isSafeInteger(declaration.maxBodyBytes) || declaration.maxBodyBytes < 1) refuse('declared body bound is invalid')
   if (declaration.expectedVersionField && (!pathAlias.test(declaration.expectedVersionField)
       || declaration.expectedVersionField === 'id')) refuse('invalid expected version field')
@@ -130,6 +138,12 @@ export function defineCrudRouteSectionHost<const Host extends CrudRouteSectionHo
     }
   }
 
+  if (declaration.delete) {
+    const features = (method: CrudSectionRouteMethod) => [...new Set(source.metadata[method]?.requireFeatures ?? [])].sort()
+    if (!isDeepStrictEqual(features('PUT'), features('DELETE'))) {
+      refuse('combined update and delete commands declare different required features')
+    }
+  }
   const updatedAtField = findUpdatedAt(source)
   if (updatedAtField && selected === 'update' && !declaration.expectedVersionField) {
     refuse('versioned update requires the command’s expected version field')
@@ -190,6 +204,23 @@ function hostSurfaces(host: DerivedHost, route: string): CrudFormSectionMutation
   ]
 }
 
+function assertStaticPolicyRoute(route: string): void {
+  if (!route.endsWith(sectionPolicySuffix) || !staticRoutePattern.test(route)
+      || route.split('/').some((segment) => segment === '.' || segment === '..')) {
+    refuse('derived façade requires a literal route path without parameters')
+  }
+}
+
+function supportsFacadeInterceptors(host: DerivedHost, route: string): boolean {
+  const originalPath = route.slice(0, -sectionPolicySuffix.length)
+  const operations = [host.declaration.formOperation, ...(host.declaration.delete ? ['delete' as const] : [])]
+  return !operations.some((operation) => host.source.hasFacadeOnlyInterceptors(operation, originalPath, route))
+}
+
+function rejectDerivedMutation(): never {
+  throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
+}
+
 type ScopedBinding = Parameters<CrudFormSectionHostProvider['authorizeHost']>[0]['scope']
 
 async function readBoundRecord(
@@ -221,7 +252,7 @@ function makeHostProvider(host: DerivedHost, route: string): CrudFormSectionHost
       ...(kind === 'parent-delete' && declaration.delete ? declaration.delete.proof : declaration.submit.proof),
     })),
     async authorizeHost({ container, scope, requestedHost }) {
-      if (requestedHost.hostResourceKind !== source.resourceKind) return null
+      if (requestedHost.hostResourceKind !== source.resourceKind || !supportsFacadeInterceptors(host, route)) return null
       if (!requestedHost.hostResourceId) return !source.orm.orgField || scope.organizationId ? requestedHost : null
       return await readBoundRecord(source, container.resolve<EntityManager>('em'), requestedHost.hostResourceId, scope)
         ? requestedHost : null
@@ -245,14 +276,18 @@ export function bindDerivedCrudRouteSectionHosts(
 ): CrudFormSectionsDeclaration {
   const hostFacts = new Map((sections.hostFacts ?? []).map((fact) => [fact.id, fact]))
   const hostProviders = [...sections.hostProviders ?? []]
-  const derivedRouteCapabilities: Array<{ fact: CrudFormSectionCapabilityProviderFact; features: readonly string[] }> = []
+  const derivedRouteCapabilities: Array<{
+    fact: CrudFormSectionCapabilityProviderFact
+    features: readonly string[]
+    ready(): boolean
+  }> = []
   for (const { declaration, route } of bindings) {
     const host = derivedHost(declaration)
     const fact = hostFacts.get(declaration.hostDescriptorId)
     if (!fact || fact.hostResourceKind !== host.source.resourceKind || hostProviders.some(({ hostDescriptorId }) => hostDescriptorId === fact.id)) {
       return refuse('missing matching host fact or competing host provider')
     }
-    if (!route.endsWith('/section-policy')) return refuse('invalid generated façade path')
+    assertStaticPolicyRoute(route)
     const surfaces = hostSurfaces(host, route)
     const alternatives = fact.alternatives ?? []
     if (!alternatives.length || alternatives.some(({ surface, mutationSurfaces }) => surface.hostId !== declaration.hostId
@@ -272,6 +307,7 @@ export function bindDerivedCrudRouteSectionHosts(
     hostProviders.push(provider)
     derivedRouteCapabilities.push({
       features: provider.requireFeatures,
+      ready: () => supportsFacadeInterceptors(host, route),
       fact: {
         capabilityId: `${fact.id}.derived-route`,
         protocol: 'crud-form-sections/v1',
@@ -430,7 +466,8 @@ async function handleDerivedMutation(
   headers.delete('content-length')
   headers.set('content-type', 'application/json')
   const optimisticHeader = headers.get(OPTIMISTIC_LOCK_HEADER_NAME)
-  const declaredVersion = optimisticHeader ? normalizeIsoToken(optimisticHeader) : null
+  const declaredVersion = surface.optimisticLock === 'target-required' && optimisticHeader && !optimisticHeader.includes(',')
+    ? normalizeIsoToken(optimisticHeader) : null
   const payload = { ...body }
   delete payload.id
   const facadeRequest = new Request(request.url, { method, headers, body: JSON.stringify(payload) })
@@ -442,6 +479,8 @@ async function handleDerivedMutation(
   }
   let commandContext = ctx
   let logEntry: unknown = null
+  let preparedCommand: Awaited<ReturnType<CrudRouteSectionSource['prepareCommand']>> | undefined
+  let dispatchedInput: Payload | undefined
   const action = source.actions[operation]!
   const submitSchema = operation === 'delete' ? declaration.delete?.schema : host.submitSchema
   const common: Omit<Extract<CrudFormSectionMutationFacadeOptions<Payload, unknown>, { operation: 'update' }>, 'operation'> = {
@@ -472,6 +511,7 @@ async function handleDerivedMutation(
       throw checked.error
     },
     projectFinalInput(input, context) {
+      if (!supportsFacadeInterceptors(host, route)) return null
       const projected = projectCommandInput(declaration, operation, input)
       if (!projected) return null
       return {
@@ -483,8 +523,20 @@ async function handleDerivedMutation(
         expectedUpdatedAt: projected.expectedUpdatedAt,
       }
     },
-    async execute({ payload: activePayload, context, commandContext: transaction, expectedUpdatedAt }) {
+    async preparePayload(activePayload, context) {
+      if (!supportsFacadeInterceptors(host, route) || !context.transactionalEm
+          || (operation === 'create' && optimisticHeader !== null)
+          || (surface.optimisticLock === 'target-required' && optimisticHeader === null)) return rejectDerivedMutation()
+      if (surface.optimisticLock === 'target-required' && declaredVersion === null) {
+        throw new CrudHttpError(400, { error: 'invalid_request' })
+      }
       const organizationId = context.scope.organizationId
+      const originalUrl = new URL(request.url)
+      originalUrl.pathname = originalUrl.pathname.replace(/\/section-policy\/?$/i, '')
+      const raw = toCommandInput(declaration, operation, activePayload, id, declaredVersion)
+      const originalBody = operation === 'delete' && declaration.delete?.inputStyle !== 'direct' ? raw.body : raw
+      const originalRequest = new Request(originalUrl, { method, headers: new Headers(headers), body: JSON.stringify(originalBody) })
+      if (!bindMatchedApiRoutePath(originalRequest, route.slice(0, -sectionPolicySuffix.length), {})) return rejectDerivedMutation()
       commandContext = {
         ...ctx,
         auth: { ...context.auth, orgId: organizationId },
@@ -495,10 +547,36 @@ async function handleDerivedMutation(
         } : null,
         request: facadeRequest,
       }
+      const normalizeContext = {
+        ...commandContext,
+        auth: commandContext.auth && structuredClone(commandContext.auth),
+        organizationScope: commandContext.organizationScope && structuredClone(commandContext.organizationScope),
+        organizationIds: commandContext.organizationIds?.slice() ?? null,
+        container: ctx.container.createScope().register({ em: asValue(context.transactionalEm) }),
+        request: originalRequest,
+      }
+      preparedCommand = await source.prepareCommand({
+        operation, raw, directDelete: declaration.delete?.inputStyle === 'direct', context: normalizeContext,
+        request: normalizeContext.request, resourceId: id ?? null,
+        async readPreviousRecord() {
+          return id && context.transactionalEm
+            ? readBoundRecord(source, context.transactionalEm, id, context.scope, true)
+            : null
+        },
+      })
+      const projected = projectCommandInput(declaration, operation, preparedCommand.input)
+      if (!projected || projected.id !== id || projected.expectedUpdatedAt !== declaredVersion) return rejectDerivedMutation()
+      return { payload: projected.payload, serverPayloadPaths: [] }
+    },
+    async execute({ payload: activePayload, commandContext: transaction, expectedUpdatedAt }) {
+      if (!preparedCommand || !supportsFacadeInterceptors(host, route)) return rejectDerivedMutation()
       const commandInput = toCommandInput(declaration, operation, activePayload, id, expectedUpdatedAt)
-      const execution = await source.execute(operation, commandInput, { ...commandContext, ...transaction } satisfies CommandRuntimeContext)
-      logEntry = execution.logEntry
-      return execution.ambient ?? refuse('delegated command did not join the façade transaction')
+      dispatchedInput = structuredClone(commandInput)
+      if (submitSchema) await submitSchema.parseAsync(commandInput)
+      const { ambient } = await source.execute(operation, commandInput, { ...commandContext, ...transaction } satisfies CommandRuntimeContext)
+      if (!ambient) return refuse('delegated command did not join the façade transaction')
+      logEntry = ambient.logEntry
+      return ambient
     },
   }
   const result = operation === 'create'
@@ -507,13 +585,24 @@ async function handleDerivedMutation(
       resolveCommittedResourceId: (created) => isRecord(created) && typeof created.id === 'string' ? created.id : '',
     })
     : operation === 'delete'
-      ? await runCrudFormSectionMutation({ ...common, operation, deleteMode: declaration.delete?.mode ?? (source.softDelete ? 'soft' : 'hard') })
+      ? await runCrudFormSectionMutation({ ...common, operation, deleteMode: declaration.delete?.mode })
       : await runCrudFormSectionMutation({ ...common, operation })
   const projectedResponse = action.response ? await action.response({ result, logEntry, ctx: commandContext }) : result
+  const successStatus = action.status ?? (operation === 'create' ? 201 : 200)
+  const committedId = id ?? (isRecord(result) && typeof result.id === 'string' ? result.id : null)
+  const after = dispatchedInput && await preparedCommand?.afterCommit({
+    input: dispatchedInput, resourceId: committedId, status: successStatus, body: projectedResponse,
+  })
+  const responseBody = after ? after.body : projectedResponse
   const warnings = isRecord(result) ? extensionWarningsSchema.safeParse(result.extensionWarnings) : null
-  const response = warnings?.success ? (isRecord(projectedResponse) ? { ...projectedResponse, extensionWarnings: warnings.data }
-    : { extensionWarnings: warnings.data }) : projectedResponse
-  return Response.json(response, { status: action.status ?? (operation === 'create' ? 201 : 200), headers: crudFormSectionsPrivateHeaders })
+  const response = warnings?.success ? (isRecord(responseBody) ? { ...responseBody, extensionWarnings: warnings.data }
+    : { extensionWarnings: warnings.data }) : responseBody
+  const responseHeaders = new Headers(after?.headers)
+  for (const [key, value] of Object.entries(crudFormSectionsPrivateHeaders)) responseHeaders.set(key, value)
+  return source.attachCommittedOperation(
+    Response.json(response, { status: after?.statusCode ?? successStatus, headers: responseHeaders }),
+    logEntry,
+  )
 }
 
 function protectedWireHeaders(operation: CrudSectionRouteOperation, versioned: boolean) {
@@ -534,6 +623,7 @@ export function createDerivedCrudFormSectionFacade(
   route: string,
   methods: readonly CrudSectionRouteMethod[],
 ) {
+  assertStaticPolicyRoute(route)
   const hosts = declarations.map(derivedHost)
   if (!hosts.length || hosts.some(({ source }) => source !== hosts[0].source)) return refuse('façade can only represent one original factory route')
   const handlers: Partial<Record<CrudSectionRouteMethod, (request: Request) => Promise<Response>>> = {}
@@ -559,8 +649,8 @@ export function createDerivedCrudFormSectionFacade(
     const successSchema = allowsSinks && responseSchema instanceof z.ZodObject
       ? responseSchema.extend({ extensionWarnings: extensionWarningsSchema.optional() }) : responseSchema
     const rejected = allowsSinks
-      ? z.union([crudFormSectionHiddenFieldInvalidResponseSchema, crudFormSectionMutationGuardRejectedResponseSchema, sinkValidationSchema])
-      : z.union([crudFormSectionHiddenFieldInvalidResponseSchema, crudFormSectionMutationGuardRejectedResponseSchema])
+      ? z.union([crudFormSectionHiddenFieldInvalidResponseSchema, crudFormSectionMutationGuardRejectedResponseSchema, sinkValidationSchema, errorSchema])
+      : z.union([crudFormSectionHiddenFieldInvalidResponseSchema, crudFormSectionMutationGuardRejectedResponseSchema, errorSchema])
     const requestBody = bodySchemas.length > 1 ? z.union(bodySchemas) : bodySchemas[0]
     openApi.methods[method] = {
       summary: 'Apply the current CrudForm section policy',
