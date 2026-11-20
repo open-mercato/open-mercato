@@ -47,25 +47,23 @@ export async function ensurePgStatStatements(client) {
 // Statements issued by this script itself carry these markers and are excluded from the counts.
 export const OWN_STATEMENT_FILTER = "query not ilike '%pg_stat_statements%' and query not ilike '%/* om-bench */%'"
 
-export async function resetStatements(client) {
-  await client.query('/* om-bench */ select pg_stat_statements_reset()')
-}
-
-export async function backgroundCalls(client) {
-  return Number(await queryValue(client, `/* om-bench */
-    select coalesce(sum(calls), 0) from pg_stat_statements
-    where dbid = (select oid from pg_database where datname = current_database()) and ${OWN_STATEMENT_FILTER}`))
-}
-
 export async function readStatements(client) {
   const { rows } = await client.query(`/* om-bench */
-    select queryid::text as queryid, calls::bigint as calls, rows::bigint as rows,
-           round(total_exec_time::numeric, 3)::float8 as total_exec_time,
-           round(mean_exec_time::numeric, 4)::float8 as mean_exec_time,
+    select userid::text as userid, dbid::text as dbid, queryid::text as queryid, toplevel, calls::bigint as calls, rows::bigint as rows,
+           total_exec_time,
+           mean_exec_time,
            shared_blks_hit::bigint as shared_blks_hit, shared_blks_read::bigint as shared_blks_read,
            left(query, 4000) as query
     from pg_stat_statements
     where dbid = (select oid from pg_database where datname = current_database()) and ${OWN_STATEMENT_FILTER}
     order by total_exec_time desc`)
-  return rows.map((r) => ({ ...r, calls: Number(r.calls), rows: Number(r.rows), shared_blks_hit: Number(r.shared_blks_hit), shared_blks_read: Number(r.shared_blks_read) }))
+  return rows.map((row) => ({ ...row, calls: Number(row.calls), rows: Number(row.rows), shared_blks_hit: Number(row.shared_blks_hit), shared_blks_read: Number(row.shared_blks_read) }))
+}
+
+export async function readStatementSnapshot(client) {
+  const resetAt = String(await queryValue(client, '/* om-bench */ select stats_reset from pg_stat_statements_info'))
+  const statements = await readStatements(client)
+  const verifiedResetAt = String(await queryValue(client, '/* om-bench */ select stats_reset from pg_stat_statements_info'))
+  if (resetAt !== verifiedResetAt) throw new Error('[internal] Statement counters reset while reading; retry the benchmark.')
+  return { resetAt, statements }
 }

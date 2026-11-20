@@ -106,3 +106,7 @@ scenario. `--html-out <file>` picks another path.
   the same machine.
 - **Latency** includes everything the app does around SQL (auth, DI container, enrichers,
   serialization). Compare p50 between runs on the same machine; treat p95 on a laptop as indicative.
+
+Measurements preserve PostgreSQL statement history: they subtract per-database snapshots and never reset shared counters. A detected external reset, eviction, or decreasing counter aborts the measurement instead of reporting invalid costs.
+
+Dataset provisioning and progress use an exclusive `<state-file>.lock`, held until all outstanding workers settle. Overlapping invocations using the same state file fail before provisioning. After an interrupted owner, confirm its requests have finished before removing that lock; unknown outcomes still require reconciliation. Do not seed the same dataset through different state files.

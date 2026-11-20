@@ -169,7 +169,7 @@ export async function seedCompanies({
   }
 
   let cursor = 0
-  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, async () => {
+  const workers = await Promise.allSettled(Array.from({ length: Math.max(1, concurrency) }, async () => {
     while (cursor < todo.length) {
       const index = todo[cursor++]
       const outcome = await create(index)
@@ -183,5 +183,7 @@ export async function seedCompanies({
       onCreated(index)
     }
   }))
+  const failure = workers.find((worker) => worker.status === 'rejected')
+  if (failure) throw failure.reason
   return { created, recovered, unresolved: unresolved.sort((a, b) => a - b) }
 }

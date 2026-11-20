@@ -34,6 +34,7 @@ import { parseArgs } from 'node:util'
 import { connect, queryValue, resolveDatabaseUrl } from './lib/db.mjs'
 import { generateCompany } from './lib/generator.mjs'
 import { login, requireCredentials } from './lib/http.mjs'
+import { withDatasetLock } from './lib/state-lock.mjs'
 import { parseProgress, seedCompanies, verifyIndexes } from './lib/seeder.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -258,6 +259,7 @@ if (!databaseUrl) {
   console.error('No DATABASE_URL: set it in the environment or apps/mercato/.env, or pass --database-url.')
   process.exit(1)
 }
+await withDatasetLock(statePath, async () => {
 const db = await connect(databaseUrl)
 try {
   const state = loadState()
@@ -281,3 +283,5 @@ try {
 } finally {
   await db.end()
 }
+
+})

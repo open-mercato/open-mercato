@@ -2,11 +2,15 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { withDatasetLock } from '../bench/lib/state-lock.mjs'
 import { fileURLToPath } from 'node:url'
 
 import { fnv1a, generateCompany, mulberry32, weighted } from '../bench/lib/generator.mjs'
 import { companyScenarios, generatedEmailPrefixes } from '../bench/lib/scenarios.mjs'
-import { percentile, renderComparison, summarizeLatencies, summarizeStatements } from '../bench/lib/stats.mjs'
+import { percentile, statementDelta, renderComparison, summarizeLatencies, summarizeStatements } from '../bench/lib/stats.mjs'
 import { escapeHtml, queriesDelta, renderHtmlReport } from '../bench/lib/html-report.mjs'
 import { resolveDatabaseUrl } from '../bench/lib/db.mjs'
 import { measureScenario, UnexpectedStatusError } from '../bench/lib/runner.mjs'
@@ -153,9 +157,9 @@ test('html helpers', () => {
 })
 
 // A fake app for measureScenario: `statusAt(i)` is the status of the i-th request (0-based,
-// warmup included); the statement counters only count calls made after the reset.
+// warmup included); statement snapshots retain historical calls before measurement.
 function fakeScenario({ statusAt = () => 200, warmup = 2, n = 4 } = {}) {
-  const calls = { requests: 0, resets: 0, reads: 0 }
+  const calls = { requests: 0, reads: 0 }
   let paths = 0
   return {
     calls,
@@ -165,10 +169,9 @@ function fakeScenario({ statusAt = () => 200, warmup = 2, n = 4 } = {}) {
       request: async () => ({ status: statusAt(calls.requests++), ms: 5, bytes: 100 }),
       warmup,
       n,
-      resetStatements: async () => { calls.resets++ },
       readStatements: async () => {
         calls.reads++
-        return [{ queryid: '1', calls: 2 * n, total_exec_time: n, query: 'select 1' }]
+        return { resetAt: 'unchanged', statements: [{ queryid: '1', calls: calls.reads === 1 ? 100 : 100 + 2 * n, total_exec_time: calls.reads === 1 ? 50 : 50 + n, query: 'select 1' }] }
       },
     },
   }
@@ -177,14 +180,14 @@ function fakeScenario({ statusAt = () => 200, warmup = 2, n = 4 } = {}) {
 test('measureScenario summarizes successful requests only after the warmup', async () => {
   const { calls, options } = fakeScenario()
   const result = await measureScenario(options)
-  assert.deepEqual(calls, { requests: 6, resets: 1, reads: 1 })
+  assert.deepEqual(calls, { requests: 6, reads: 2 })
   assert.deepEqual(result.statuses, { 200: 4 })
   assert.equal(result.example, '/api/customers/companies?id=2')
   assert.equal(result.queriesPerRequest, 2)
   assert.equal(result.avgResponseBytes, 100)
 })
 
-test('measureScenario rejects a failed warmup before resetting the counters', async () => {
+test('measureScenario rejects a failed warmup before reading a baseline', async () => {
   const { calls, options } = fakeScenario({ statusAt: (i) => (i === 1 ? 401 : 200) })
   await assert.rejects(measureScenario(options), (error) => {
     assert.ok(error instanceof UnexpectedStatusError)
@@ -193,13 +196,13 @@ test('measureScenario rejects a failed warmup before resetting the counters', as
     assert.match(error.message, /R3_lookup: HTTP 401 during warmup on \/api\/customers\/companies\?id=1/)
     return true
   })
-  assert.deepEqual(calls, { requests: 2, resets: 0, reads: 0 })
+  assert.deepEqual(calls, { requests: 2, reads: 0 })
 })
 
 test('measureScenario rejects a failure midway through the measurement', async () => {
   const { calls, options } = fakeScenario({ statusAt: (i) => (i === 4 ? 500 : 200) })
   await assert.rejects(measureScenario(options), (error) => error instanceof UnexpectedStatusError && error.phase === 'measurement' && error.status === 500)
-  assert.deepEqual(calls, { requests: 5, resets: 1, reads: 0 }, 'stops at the failure and reads no statements')
+  assert.deepEqual(calls, { requests: 5, reads: 1 }, 'stops at the failure without reading final counters')
 })
 
 test('parseProgress reads done lines and pending attempts without a done line', () => {
@@ -357,4 +360,76 @@ test('resolveDatabaseUrl prefers the explicit value, then the environment', () =
 test('requireCredentials explains what to set', () => {
   assert.throws(() => requireCredentials({}, {}), /BENCH_EMAIL and BENCH_PASSWORD/)
   assert.deepEqual(requireCredentials({}, { BENCH_EMAIL: 'a@b.c', BENCH_PASSWORD: 'x' }), { email: 'a@b.c', password: 'x' })
+})
+
+test('statement deltas preserve historical counters and distinguish users and nesting', () => {
+  const baseline = { resetAt: 'same', statements: [
+    { userid: '1', dbid: '5', queryid: '7', toplevel: true, calls: 100, rows: 20, total_exec_time: 500, shared_blks_hit: 40 },
+    { userid: '2', dbid: '5', queryid: '7', toplevel: true, calls: 80, total_exec_time: 200 },
+  ] }
+  const original = structuredClone(baseline)
+  const after = { resetAt: 'same', statements: [
+    { ...baseline.statements[0], calls: 102, rows: 24, total_exec_time: 510, shared_blks_hit: 44 },
+    baseline.statements[1],
+    { userid: '1', dbid: '5', queryid: '7', toplevel: false, calls: 3, total_exec_time: 6 },
+  ] }
+  const delta = statementDelta(baseline, after)
+  assert.equal(delta.length, 2)
+  assert.equal(delta[0].calls, 2)
+  assert.equal(delta[0].rows, 4)
+  assert.equal(delta[0].shared_blks_hit, 4)
+  assert.equal(delta[0].mean_exec_time, 5)
+  assert.equal(delta[1].calls, 3)
+  assert.deepEqual(baseline, original)
+})
+
+test('statement deltas refuse resets, counter decreases and evictions', () => {
+  const before = { resetAt: 'old', statements: [{ queryid: '7', calls: 10, total_exec_time: 20 }] }
+  assert.throws(() => statementDelta(before, { ...before, resetAt: 'new' }), /reset/)
+  assert.throws(() => statementDelta(before, { ...before, statements: [{ queryid: '7', calls: 9, total_exec_time: 20 }] }), /decreased/)
+  assert.throws(() => statementDelta(before, { ...before, statements: [] }), /evicted/)
+})
+
+test('dataset lock refuses an overlapping process and releases after failed work', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'om-bench-lock-'))
+  const state = path.join(directory, 'state.json')
+  try {
+    await assert.rejects(withDatasetLock(state, async () => {
+      const modulePath = new URL('../bench/lib/state-lock.mjs', import.meta.url).href
+      const child = spawn(process.execPath, ['--input-type=module', '-e', `import { withDatasetLock } from ${JSON.stringify(modulePath)}; await withDatasetLock(${JSON.stringify(state)}, async () => process.exit(99));`], { stdio: ['ignore', 'ignore', 'pipe'] })
+      let error = ''
+      child.stderr.on('data', (chunk) => { error += chunk })
+      const [code] = await once(child, 'close')
+      assert.equal(code, 1)
+      assert.match(error, /Dataset state is locked/)
+      assert.ok(fs.existsSync(`${state}.lock`))
+      throw new Error('controlled failure')
+    }), /controlled failure/)
+    assert.ok(!fs.existsSync(`${state}.lock`))
+    assert.equal(await withDatasetLock(state, async () => 'reacquired'), 'reacquired')
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('seeder waits for other in-flight writes after a worker fails', async () => {
+  let finishWrite
+  let beginWrite
+  const started = new Promise((resolve) => { beginWrite = resolve })
+  const outstanding = new Promise((resolve) => { finishWrite = resolve })
+  let settled = false
+  const seeding = seedCompanies({
+    target: 'overlap', indexes: [0, 1], concurrency: 2,
+    send: async (index) => {
+      if (index === 0) { await started; return { status: 400 } }
+      beginWrite(); await outstanding; return { status: 201 }
+    },
+    log: { pending: () => {}, done: () => {} },
+    findCommitted: async () => new Set(), relogin: async () => {},
+  }).then(() => { settled = true }, (error) => { settled = true; throw error })
+  await started
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(settled, false)
+  finishWrite()
+  await assert.rejects(seeding, /HTTP 400/)
 })

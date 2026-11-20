@@ -1,7 +1,7 @@
-// One scenario of request-cost.mjs: warm up, reset the statement counters, send N requests and
+// One scenario of request-cost.mjs: warm up, snapshot the statement counters, send N requests and
 // summarize them. Any response other than 2xx aborts the scenario: an expired token, wrong-tenant
 // credentials or a server error would otherwise be measured as a (cheaper) normal request.
-import { summarizeLatencies, summarizeStatements } from './stats.mjs'
+import { statementDelta, summarizeLatencies, summarizeStatements } from './stats.mjs'
 
 export class UnexpectedStatusError extends Error {
   constructor({ scenario, phase, status, requestPath }) {
@@ -18,12 +18,11 @@ const isSuccess = (status) => status >= 200 && status < 300
  * @param {string} options.scenario name, used in errors
  * @param {() => string} options.nextPath request path generator
  * @param {(path: string) => Promise<{ status: number, ms: number, bytes: number }>} options.request
- * @param {number} options.warmup requests before the counters are reset
+ * @param {number} options.warmup requests before the baseline snapshot
  * @param {number} options.n measured requests
- * @param {() => Promise<void>} options.resetStatements
- * @param {() => Promise<object[]>} options.readStatements
+ * @param {() => Promise<{resetAt: string, statements: object[]}>} options.readStatements
  */
-export async function measureScenario({ scenario, nextPath, request, warmup, n, resetStatements, readStatements }) {
+export async function measureScenario({ scenario, nextPath, request, warmup, n, readStatements }) {
   const send = async (phase) => {
     const requestPath = nextPath()
     const response = await request(requestPath)
@@ -32,7 +31,7 @@ export async function measureScenario({ scenario, nextPath, request, warmup, n, 
   }
 
   for (let i = 0; i < warmup; i++) await send('warmup')
-  await resetStatements()
+  const baseline = await readStatements()
   const latencies = []
   const statuses = {}
   let bytes = 0
@@ -44,7 +43,7 @@ export async function measureScenario({ scenario, nextPath, request, warmup, n, 
     bytes += response.bytes
     if (i === 0) example = requestPath
   }
-  const statements = await readStatements()
+  const statements = statementDelta(baseline, await readStatements())
   return {
     example,
     statuses,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // What one API request costs: SQL statements, SQL time and latency, per scenario.
 //
-// For every scenario: warm up, reset pg_stat_statements, send N sequential requests, then read
+// For every scenario: warm up, snapshot pg_stat_statements, send N sequential requests, then read
 // back which statements ran and how often. Concurrency is 1 on purpose: this measures the cost of
 // one request, not throughput, so the numbers are stable enough to compare across commits.
 //
@@ -23,7 +23,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { backgroundCalls, connect, ensurePgStatStatements, readStatements, resetStatements, resolveDatabaseUrl } from './lib/db.mjs'
+import { statementDelta } from './lib/stats.mjs'
+import { connect, ensurePgStatStatements, readStatementSnapshot, resolveDatabaseUrl } from './lib/db.mjs'
 import { mulberry32 } from './lib/generator.mjs'
 import { login, requireCredentials, timedGet } from './lib/http.mjs'
 import { companyScenarios, DEFAULT_SEED, generatedEmailPrefixes, SCENARIO_DESCRIPTIONS } from './lib/scenarios.mjs'
@@ -146,9 +147,9 @@ try {
   const idleSeconds = Number(values['idle-seconds'])
   let idle = -1
   for (let attempt = 1; attempt <= Number(values['idle-attempts']) && idle !== 0; attempt++) {
-    await resetStatements(db)
+    const baseline = await readStatementSnapshot(db)
     await new Promise((resolve) => setTimeout(resolve, idleSeconds * 1000))
-    idle = await backgroundCalls(db)
+    idle = statementDelta(baseline, await readStatementSnapshot(db)).reduce((total, statement) => total + statement.calls, 0)
     console.log(`idle check ${attempt}: ${(idle / idleSeconds).toFixed(2)} background statements/s`)
   }
   if (idle !== 0) {
@@ -166,8 +167,7 @@ try {
         request: (requestPath) => timedGet(BASE, requestPath, requestOptions),
         warmup: WARMUP,
         n: N,
-        resetStatements: () => resetStatements(db),
-        readStatements: () => readStatements(db),
+        readStatements: () => readStatementSnapshot(db),
       }),
     }
     const s = report.scenarios[name]

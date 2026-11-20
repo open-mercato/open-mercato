@@ -50,3 +50,25 @@ export function renderComparison(reports) {
   }
   return `${lines.join('\n')}\n`
 }
+
+export function statementDelta(before, after) {
+  if (before.resetAt !== after.resetAt) throw new Error('[internal] Statement counters reset during measurement; retry the benchmark.')
+  const identity = (statement) => JSON.stringify([statement.userid, statement.dbid, statement.queryid, statement.toplevel])
+  const previous = new Map(before.statements.map((statement) => [identity(statement), statement]))
+  const current = new Map(after.statements.map((statement) => [identity(statement), statement]))
+  if ([...previous.keys()].some((key) => !current.has(key))) throw new Error('[internal] Statement counters were evicted during measurement; retry the benchmark.')
+  const counters = ['calls', 'rows', 'total_exec_time', 'shared_blks_hit', 'shared_blks_read']
+  const result = []
+  for (const statement of after.statements) {
+    const baseline = previous.get(identity(statement))
+    const delta = { ...statement }
+    for (const counter of counters) {
+      delta[counter] = Number(statement[counter] ?? 0) - Number(baseline?.[counter] ?? 0)
+      if (delta[counter] < 0) throw new Error('[internal] Statement counters decreased during measurement; retry the benchmark.')
+    }
+    if (!delta.calls) continue
+    delta.mean_exec_time = delta.total_exec_time / delta.calls
+    result.push(delta)
+  }
+  return result.sort((left, right) => right.total_exec_time - left.total_exec_time)
+}
