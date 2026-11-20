@@ -414,6 +414,14 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // @open-mercato/carrier-inpost and uncomment the line to use it.
   // { id: 'carrier_inpost', from: '@open-mercato/carrier-inpost' },`,
   },
+  posting_rules: {
+    source: `  { id: 'posting_rules', from: '@open-mercato/core' },`,
+    template: `  // Posting Rules Engine — cost reclassification (zespół 4 → 5) on ledger
+  // postings. Requires ledger and journal_entry_line_dimensions, so it stays
+  // disabled here while they are. Tracked in TEMPLATE_COMMENTED_MODULES
+  // (scripts/template-sync.ts) as a deliberate divergence, not drift.
+  // { id: 'posting_rules', from: '@open-mercato/core' },`,
+  },
   forms: {
     source: `  // Audit-grade questionnaire/form primitive — versioned definitions, append-only
   // submissions, role-sliced rendering, public runner + portal + embed surfaces.
