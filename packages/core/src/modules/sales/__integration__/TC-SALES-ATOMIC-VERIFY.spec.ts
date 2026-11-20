@@ -515,8 +515,13 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
     }
   })
 
-  for (const rollback of [false, true]) {
-    test(`public quote acceptance ${rollback ? 'discards effects on rollback' : 'delivers one committed order event'}`, async ({ request }) => {
+  for (const scenario of [
+    { title: 'public quote acceptance delivers one committed order event', staff: false, rollback: false, status: 200 },
+    { title: 'public quote acceptance discards effects on rollback', staff: false, rollback: true, status: 400 },
+    { title: 'staff quote conversion discards effects on rollback', staff: true, rollback: true, status: 400 },
+  ]) {
+    test(scenario.title, async ({ request }) => {
+      const { staff, rollback, status } = scenario
       test.slow()
       const token = await getAuthToken(request, 'admin')
       const scope = getTokenScope(token)
@@ -552,12 +557,14 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
                   organizationId: scope.organizationId,
                 })) return
                 rollbackInjected = true
-                throw new Error('[internal] Injected public acceptance commit failure')
+                throw new Error('[internal] Injected quote conversion commit failure')
               },
             }])
           }
-          const response = await runtime.accept.POST(postSalesRoute('/api/sales/quotes/accept', { token: publicToken }))
-          expect(response.status).toBe(rollback ? 400 : 200)
+          const response = staff
+            ? await runtime.convert.POST(postSalesRoute('/api/sales/quotes/convert', { quoteId }, token))
+            : await runtime.accept.POST(postSalesRoute('/api/sales/quotes/accept', { token: publicToken }))
+          expect(response.status).toBe(status)
           if (rollback) {
             expect(rollbackInjected).toBe(true)
             expect(capture.events).toEqual([])
