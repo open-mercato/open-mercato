@@ -7,6 +7,7 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -136,9 +137,7 @@ export default function RecurrenceSectionWidget({
 
   return (
     <div className="space-y-3 rounded-lg border bg-card p-4 shadow-sm" data-testid="sales-recurrence-section">
-      <div className="text-sm font-semibold text-foreground">
-        {t('sales.recurring.section.title', 'Recurring billing')}
-      </div>
+      <SectionHeader title={t('sales.recurring.section.title', 'Recurring billing')} />
       {recurrence ? (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">

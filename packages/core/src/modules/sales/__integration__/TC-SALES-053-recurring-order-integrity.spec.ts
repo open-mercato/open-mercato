@@ -145,7 +145,7 @@ async function sendWhileAnotherWriterCommits(
 }
 
 test.describe('TC-SALES-053 recurring order state integrity', () => {
-  test('refuses a stopped order carrying a new recurrence on create and update', async ({ request }) => {
+  test('requires a new recurrence to leave the order in a non-stopped status', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const onHold = await orderStatusEntryId(request, token, 'on_hold')
     const canceled = await orderStatusEntryId(request, token, 'canceled')
@@ -171,6 +171,17 @@ test.describe('TC-SALES-053 recurring order state integrity', () => {
       const added = await apiRequest(request, 'PUT', '/api/sales/orders', { token, data: { id: orderId, recurrence } })
       expectCode(added, await readJson(added), 409, 'recurring_order_use_cancel', 'add a recurrence to an on-hold order')
       expect((await readOrder(request, token, orderId)).recurrence).toBeNull()
+
+      const clearedAndAdded = await apiRequest(request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, statusEntryId: null, recurrence },
+      })
+      expect(clearedAndAdded.status(), 'clear on-hold status and add a recurrence in one update').toBe(200)
+      expect(await readOrder(request, token, orderId)).toMatchObject({
+        status: null,
+        statusEntryId: null,
+        recurrence,
+      })
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }

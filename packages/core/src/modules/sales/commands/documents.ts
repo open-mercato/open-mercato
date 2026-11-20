@@ -6459,13 +6459,16 @@ const updateOrderCommand: CommandHandler<
             await assertOrderRecurrenceUnlocked(em, order);
           }
           previousStatus = normalizeStatusValue(order.status);
-          const requestedStatus = parsed.statusEntryId
-            ? normalizeStatusValue(
-                await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
-                  tenantId: order.tenantId,
-                }),
-              )
-            : previousStatus;
+          let requestedStatus = previousStatus;
+          if (parsed.statusEntryId === null) {
+            requestedStatus = null;
+          } else if (parsed.statusEntryId !== undefined) {
+            requestedStatus = normalizeStatusValue(
+              await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
+                tenantId: order.tenantId,
+              }),
+            );
+          }
           if (requestedStatus !== previousStatus || recurrenceChanges) {
             await assertRecurringOrderStatusAllowed(em, order, requestedStatus, parsed.recurrence);
           }
