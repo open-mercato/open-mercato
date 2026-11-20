@@ -697,15 +697,9 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## Deleted-row list access (2026-11-20, #9154) — proposed exception
 
-**Surface:** STABLE API §7, the published `withDeleted` query on
-`GET /api/entities/records`, including exports, and raw CRUD list query behavior.
-The parameter itself lets ordinary viewers recover retracted notes and deleted PII
-without a route-owned opt-in. Retaining that behavior behind a compatibility flag
-would retain the disclosure, so the proposed exception removes only that path and
-keeps explicit, permission-checked route opt-ins available. Existing tenant and
-organization scope, stored rows and internal query-engine options are unchanged.
-
-**Migration:** [client/operator steps](UPGRADE_NOTES.md#explicit-deleted-row-list-access-9154);
-[specification](.ai/specs/2026-11-14-crud-soft-deleted-list-policy.md#migration--backward-compatibility).
-**Named human maintainer acknowledgment: pending.** Steps 1–3 are not treated as
-waived until a named human explicitly accepts this specific security exception.
+STABLE API §7: `GET /api/entities/records` (exports included) and raw CRUD lists
+stop honoring viewer-controlled `withDeleted`; a bridge would retain deleted-PII
+disclosure. Explicit permission-checked route opt-ins, scope, stored rows and internal
+query options stay intact. **Named human acceptance of steps1–3 waiver: pending.**
+[Migration](UPGRADE_NOTES.md#explicit-deleted-row-list-access-9154),
+[spec](.ai/specs/2026-11-14-crud-soft-deleted-list-policy.md#migration--backward-compatibility).
