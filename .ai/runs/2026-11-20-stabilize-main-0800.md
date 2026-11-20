@@ -14,7 +14,7 @@ Non-goals: merge into main, publish packages, change production, suppress checks
 
 ### Phase 1: Establish evidence
 
-1.1 Open the full-suite draft PR and independently investigate current main CI failures.
+1.1 Open the full-suite draft PR and independently investigate current main CI failures. — 43798c42e5
 
 ### Phase 2: Correct and verify
 
@@ -30,6 +30,12 @@ Non-goals: merge into main, publish packages, change production, suppress checks
 
 Use at most two cezar subtasks: one read-only main CI investigation with no repository edits, then one final review of the completed branch. Keep implementation and validation together because fixes depend on the same evolving CI evidence. No child changes are merged without review.
 
+## Investigation evidence
+
+The read-only investigation (child `09a3a872`) was independently checked against snapshot run [44711020020](https://github.com/open-mercato/open-mercato/actions/runs/44711020020/job/136210508883). Publishing succeeds; the standalone app fails typechecking at eleven `resolve.bind(container)` sites in bootstrap, business rules, workflow seeding and search workers. Awilix 13.0.6+ declares its closure-based resolver with `this: void`, rejecting those bindings and erasing the search resolver's generic result. The monorepo lock pins 13.0.5 while standalone's compatible dependency range can install newer patches. The exact installed standalone patch is not printed in failing logs.
+
+Existing role-cancel and payment-edit failures already have merged fixes and pass in newer main logs; do not repeat those changes. Initial draft PR full run [44709996730](https://github.com/open-mercato/open-mercato/actions/runs/44709996730) passed all 15 shards. Correct the demonstrated standalone defect without dependency pinning, weaker typechecking, API changes or workflow changes. Unit coverage checks the actual resolver expressions for no-this/generic compatibility and verifies runtime scope, optional lookup and missing-token behavior. Test both locked 13.0.5 and isolated 13.0.7 installs, including a failing-baseline regression.
+
 ## Risks
 
 Main can advance independently. Inspect both checks and workflow runs for each exact head; pending jobs and skipped gates are not proof of execution. Snapshot publishing failures may require distinguishing external registry propagation from repository defects. Do not publish packages to reproduce a failure. Hosted CI can provide the configured gate evidence when local prerequisites are unavailable; disclose any local limitations.
@@ -37,12 +43,13 @@ Main can advance independently. Inspect both checks and workflow runs for each e
 Engine: om-auto-create-pr (steps: 5, --loop: no)
 
 ## Progress
+PR: #10073
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence
 
-- [ ] 1.1 Open the full-suite draft PR and independently investigate current main CI failures.
+- [x] 1.1 Open the full-suite draft PR and independently investigate current main CI failures. — 43798c42e5
 
 ### Phase 2: Correct and verify
 
