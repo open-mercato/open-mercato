@@ -10,6 +10,7 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { COST_CENTER_CODE_UNIQUE, withUniqueConflict } from '../lib/uniqueConflict'
+import { resolveRecordScopeFilter } from '../lib/recordScope'
 import { CostCenter } from '../data/entities'
 import {
   costCenterCreateSchema,
@@ -139,7 +140,7 @@ const updateCostCenterCommand: CommandHandler<CostCenterUpdateInput, { costCente
     const { parsed, custom } = parseWithCustomFields(costCenterUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const record = await em.findOne(CostCenter, { id: parsed.id, deletedAt: null })
+    const record = await em.findOne(CostCenter, { id: parsed.id, deletedAt: null, ...resolveRecordScopeFilter(ctx, parsed) })
     const { translate } = await resolveTranslations()
     if (!record) throw notFound(translate('posting_rules.errors.costCenterNotFound', 'Cost centre not found.'))
     ensureTenantScope(ctx, record.tenantId)
@@ -232,7 +233,7 @@ const deleteCostCenterCommand: CommandHandler<CostCenterDeleteInput, { costCente
     const parsed = costCenterDeleteSchema.parse(rawInput ?? {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const record = await em.findOne(CostCenter, { id: parsed.id, deletedAt: null })
+    const record = await em.findOne(CostCenter, { id: parsed.id, deletedAt: null, ...resolveRecordScopeFilter(ctx, parsed) })
     const { translate } = await resolveTranslations()
     if (!record) throw notFound(translate('posting_rules.errors.costCenterNotFound', 'Cost centre not found.'))
     ensureTenantScope(ctx, record.tenantId)

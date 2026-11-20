@@ -13,6 +13,7 @@ import { LedgerAccount } from '../../ledger/data/entities'
 import { CostCenter, DefaultAccountPostingRule } from '../data/entities'
 import { isAccountInPolishGroup } from '../lib/reclassify'
 import { DEFAULT_ACCOUNT_POSTING_RULE_SOURCE_UNIQUE, withUniqueConflict } from '../lib/uniqueConflict'
+import { resolveRecordScopeFilter } from '../lib/recordScope'
 import {
   defaultAccountPostingRuleCreateSchema,
   defaultAccountPostingRuleUpdateSchema,
@@ -209,7 +210,7 @@ const updateDefaultAccountPostingRuleCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(defaultAccountPostingRuleUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const record = await em.findOne(DefaultAccountPostingRule, { id: parsed.id })
+    const record = await em.findOne(DefaultAccountPostingRule, { id: parsed.id, ...resolveRecordScopeFilter(ctx, parsed) })
     const { translate } = await resolveTranslations()
     if (!record) throw notFound(translate('posting_rules.errors.defaultAccountPostingRuleNotFound', 'Default account posting rule not found.'))
     ensureTenantScope(ctx, record.tenantId)
@@ -284,7 +285,7 @@ const deleteDefaultAccountPostingRuleCommand: CommandHandler<
     const parsed = defaultAccountPostingRuleDeleteSchema.parse(rawInput ?? {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const record = await em.findOne(DefaultAccountPostingRule, { id: parsed.id })
+    const record = await em.findOne(DefaultAccountPostingRule, { id: parsed.id, ...resolveRecordScopeFilter(ctx, parsed) })
     const { translate } = await resolveTranslations()
     if (!record) throw notFound(translate('posting_rules.errors.defaultAccountPostingRuleNotFound', 'Default account posting rule not found.'))
     ensureTenantScope(ctx, record.tenantId)
