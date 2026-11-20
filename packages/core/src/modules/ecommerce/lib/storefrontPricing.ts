@@ -1,6 +1,7 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import {
   addDecimals,
+  compareDecimals,
   decimalToNumber,
   divideDecimals,
   multiplyDecimals,
@@ -193,8 +194,9 @@ export function selectStorefrontTaxRate(
   return pick(active.filter((rate) => !rate.customerGroupId))
 }
 
-function deriveSide(other: DecimalInput, ratePercent: DecimalInput, target: EcommercePriceDisplayMode): number {
+function deriveSide(other: DecimalInput, ratePercent: DecimalInput, target: EcommercePriceDisplayMode): number | null {
   const factor = addDecimals(1, divideDecimals(ratePercent, 100))
+  if (compareDecimals(factor, 0) <= 0) return null
   const derived = target === 'gross' ? multiplyDecimals(other, factor) : divideDecimals(other, factor)
   return decimalToNumber(roundDecimal(derived, AMOUNT_PRECISION))
 }

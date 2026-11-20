@@ -475,6 +475,28 @@ describe('resolveStorefrontPrices — tax mode', () => {
     expect(result.get('p1')?.price).toBeNull()
   })
 
+  it('leaves the price unresolved instead of throwing when the tax rate makes the derivation factor non-positive', async () => {
+    installFixture({
+      rows: [
+        priceRow({ id: 'p1-gross', productId: 'p1', net: null, gross: '123.00', taxRate: '-100' }),
+        priceRow({ id: 'p2-gross', productId: 'p2', net: null, gross: '123.00', taxRate: '-150' }),
+      ],
+    })
+    const items = [
+      { productId: 'p1', variantIds: [] },
+      { productId: 'p2', variantIds: [] },
+    ]
+    const net = await resolveStorefrontPrices(makeContainer({ omnibus: null }), makeContext({ taxMode: 'net' }), items)
+    expect(net.get('p1')?.price).toBeNull()
+    expect(net.get('p2')?.price).toBeNull()
+
+    installFixture({ rows: [priceRow({ id: 'p1-net', productId: 'p1', net: '100.00', gross: null, taxRate: '-100' })] })
+    const gross = await resolveStorefrontPrices(makeContainer({ omnibus: null }), makeContext({ taxMode: 'gross' }), [
+      { productId: 'p1', variantIds: [] },
+    ])
+    expect(gross.get('p1')?.price).toBeNull()
+  })
+
   it('formats amounts with the shared currency formatter for the effective locale', async () => {
     installFixture({ rows: [priceRow({ id: 'p1', productId: 'p1', gross: '129.00', net: '104.88', currencyCode: 'PLN' })] })
     const result = await resolveStorefrontPrices(
