@@ -22473,7 +22473,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "medium",
-    "prompt": "Replace the Todo showcase completion section with a clearer control. Keep the required completion value in validation and submission and keep the edit route aligned with the authorized server projection. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "prompt": "Replace the Todo showcase completion section with a clearer control. Keep the required completion value through the existing authorized server projection and submission. Use the completion replacement recipe to identify its paired browser runtime and capability. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
     "tags": [
       "umes",
       "crud-form-section-policy",
@@ -22823,7 +22823,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Add a brand field on the Todo showcase backed by my app module’s own table. Read it back on edit, reject stale brand edits even with a current Todo version, and roll back the whole write when storage fails. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "prompt": "In my existing app module, add a brand field to the Todo showcase, backed by the module’s own table. Read it back on edit, reject stale brand edits even with a current Todo version, and roll back the whole write when storage fails. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
     "tags": [
       "umes",
       "crud-form-section-policy",
@@ -23058,7 +23058,7 @@
     "mode": "analysis",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "Send two Todo showcase fields to an ERP after saving. Validate without changing the provider before commit, show sync status with Retry, and keep the latest state when deliveries overlap or a job is lost. Use the local fake to verify the flow. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "prompt": "Review the existing Todo showcase ERP sink for its two configured fields. Explain how its read-only supplier check, queued delivery, retry display and revision handling work together, including what happens when deliveries overlap or a job is lost. Use the existing local fake as the provider recipe. Keep the review within the form policy, integration and retry UI guidance, and follow the single matching Example recipe.",
     "tags": [
       "umes",
       "crud-form-section-policy",
