@@ -395,8 +395,10 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
         'a campaign past the observation cap must fall back instead of freezing a truncated sequence',
       ).not.toBe('progressive_reduction_frozen');
       expect(overflowed.body).toMatchObject({
-        applicabilityReason: 'announced_promotion',
-        lowestPriceGross: '100.0000',
+        applicabilityReason: 'no_history',
+        lowestPriceGross: null,
+        lowestPriceNet: null,
+        promotionAnchorAt: new Date(now - 20 * DAY_MS).toISOString(),
       });
     } finally {
       if (actor) {

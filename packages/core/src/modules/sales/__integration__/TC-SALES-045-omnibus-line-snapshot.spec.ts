@@ -145,7 +145,8 @@ test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
           const priced = original.find((line) => line.name === `priced ${stamp}`);
           expect(priced?.omnibus_reference_net).toBe(referenceNet);
           expect(priced?.omnibus_reference_gross).toBe(referenceGross);
-          expect(priced?.omnibus_promotion_anchor_at).toBe(startsAt);
+          expect(typeof priced?.omnibus_promotion_anchor_at).toBe('string');
+          expect(Date.parse(priced?.omnibus_promotion_anchor_at ?? '')).toBe(Date.parse(startsAt));
           expect(priced?.omnibus_applicability_reason).toBe('announced_promotion');
           expect(priced?.is_personalized).toBe(false);
           expect(priced?.personalization_reason).toBeNull();
