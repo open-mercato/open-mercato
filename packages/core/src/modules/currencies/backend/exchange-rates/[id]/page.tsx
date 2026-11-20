@@ -15,14 +15,8 @@ import {
   exchangeRateGroups,
   validateExchangeRateForm,
   buildExchangeRatePayload,
+  formatDateOnlyUtc,
 } from '../../../lib/exchangeRateFormConfig'
-
-function formatDateOnlyUtc(date: Date): string {
-  const year = date.getUTCFullYear()
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(date.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
 
 type ExchangeRateData = {
   id: string
@@ -32,6 +26,7 @@ type ExchangeRateData = {
   date: string
   source: string | null
   type: string | null
+  metadata?: Record<string, unknown> | null
   isActive: boolean
   organizationId: string
   tenantId: string
@@ -76,8 +71,8 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
   }, [params, t])
 
   const groups = React.useMemo(
-    () => exchangeRateGroups(t, loadOptions),
-    [t, loadOptions]
+    () => exchangeRateGroups(t, loadOptions, exchangeRate?.metadata),
+    [t, loadOptions, exchangeRate?.metadata]
   )
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
@@ -142,7 +137,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
           initialValues={{
             fromCurrencyCode: exchangeRate.fromCurrencyCode,
             toCurrencyCode: exchangeRate.toCurrencyCode,
-            rate: parseFloat(exchangeRate.rate),
+            rate: exchangeRate.rate,
             date: formatDateOnlyUtc(new Date(exchangeRate.date)),
             source: exchangeRate.source || '',
             type: exchangeRate.type || '',
