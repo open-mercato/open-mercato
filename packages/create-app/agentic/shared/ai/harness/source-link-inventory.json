@@ -3,9 +3,9 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 33,
-    "recordCount": 159,
-    "sourceRequiredCount": 133,
-    "readableCount": 159,
+    "recordCount": 161,
+    "sourceRequiredCount": 135,
+    "readableCount": 161,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -3332,6 +3332,52 @@
       "capabilityIds": [
         "umes.extension-points"
       ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Markdown code-block language choices",
+      "href": "../../../../node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/backend/inputs/MarkdownField.tsx",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Markdown code-block language choices",
+      "href": "../../../../node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/backend/markdown/codeBlockLanguages.ts",
       "presets": [
         "classic",
         "crm",
