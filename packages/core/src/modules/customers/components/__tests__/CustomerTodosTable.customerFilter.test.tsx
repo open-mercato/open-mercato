@@ -2,11 +2,12 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CustomerTodosTable } from '../CustomerTodosTable'
 
 const CUSTOMER_ID = '3f0c9a52-6f1d-4c3e-9b8a-2d5e7f1a4b6c'
+const OTHER_CUSTOMER_ID = '8b1e4d27-0c5a-4f9e-a3d6-7e2b9c4f1a08'
 
 const readApiResultOrThrowMock = jest.fn()
 const replaceMock = jest.fn()
@@ -30,13 +31,27 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
 }))
 
+type ExportSection = { prepare?: (format: string) => Promise<{ prepared: { rows: Array<Record<string, unknown>> } }> }
+let latestExporter: { view?: ExportSection; full?: ExportSection } | false | undefined
+
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: (props: { activeFilterChips?: React.ReactNode; emptyState?: React.ReactNode }) => (
-    <div data-testid="data-table">
-      {props.activeFilterChips}
-      {props.emptyState ? <p>{props.emptyState}</p> : null}
-    </div>
-  ),
+  DataTable: (props: {
+    activeFilterChips?: React.ReactNode
+    emptyState?: React.ReactNode
+    data?: Array<{ id: string; customer?: { displayName?: string } }>
+    exporter?: { view?: ExportSection; full?: ExportSection } | false
+  }) => {
+    latestExporter = props.exporter
+    return (
+      <div data-testid="data-table">
+        {props.activeFilterChips}
+        <ul data-testid="rendered-rows">
+          {(props.data ?? []).map((row) => <li key={row.id}>{row.customer?.displayName}</li>)}
+        </ul>
+        {props.emptyState ? <p>{props.emptyState}</p> : null}
+      </div>
+    )
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/RowActions', () => ({
@@ -47,10 +62,10 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
 }))
 
-function taskRow(customerId: string, displayName: string) {
+function taskRow(customerId: string, displayName: string, id = 'task-1') {
   return {
-    id: 'task-1',
-    todoId: 'task-1',
+    id,
+    todoId: id,
     todoSource: 'customers:interaction',
     todoTitle: 'Call back',
     todoIsDone: false,
@@ -81,6 +96,7 @@ describe('CustomerTodosTable customer filter', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     activeQuery = ''
+    latestExporter = undefined
   })
 
   it('lists every customer\'s tasks and shows no filter chip without a customerId parameter', async () => {
@@ -129,5 +145,44 @@ describe('CustomerTodosTable customer filter', () => {
     await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalled())
     expect(requestedUrl().searchParams.has('entityId')).toBe(false)
     expect(screen.queryByTestId('customer-tasks-customer-filter')).not.toBeInTheDocument()
+  })
+
+  it('does not show or export the previous customer\'s rows while a new customer filter loads', async () => {
+    activeQuery = `customerId=${CUSTOMER_ID}`
+    respondWith([taskRow(CUSTOMER_ID, 'Acme Corp', 'task-acme')])
+
+    const { rerender } = renderWithProviders(<CustomerTodosTable />)
+
+    const rowsList = await screen.findByTestId('rendered-rows')
+    await waitFor(() => expect(rowsList).toHaveTextContent('Acme Corp'))
+    await waitFor(() => expect(latestExporter && latestExporter.view).toBeTruthy())
+
+    let resolveDeferred: (value: unknown) => void = () => {}
+    readApiResultOrThrowMock.mockImplementationOnce(() => new Promise((resolve) => { resolveDeferred = resolve }))
+    activeQuery = `customerId=${OTHER_CUSTOMER_ID}`
+    rerender(<CustomerTodosTable />)
+
+    await waitFor(() => expect(requestedUrl().searchParams.get('entityId')).toBe(OTHER_CUSTOMER_ID))
+    expect(screen.getByTestId('rendered-rows')).not.toHaveTextContent('Acme Corp')
+    expect(latestExporter && latestExporter.view).toBeUndefined()
+
+    await act(async () => {
+      resolveDeferred({
+        items: [taskRow(OTHER_CUSTOMER_ID, 'Globex', 'task-globex')],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+    })
+
+    await waitFor(() => expect(screen.getByTestId('rendered-rows')).toHaveTextContent('Globex'))
+    expect(screen.getByTestId('rendered-rows')).not.toHaveTextContent('Acme Corp')
+    const view = latestExporter && latestExporter.view
+    expect(view?.prepare).toBeDefined()
+    const exported = await view!.prepare!('csv')
+    const exportedNames = exported.prepared.rows.map((row) => JSON.stringify(row))
+    expect(exportedNames.join(' ')).toContain('Globex')
+    expect(exportedNames.join(' ')).not.toContain('Acme Corp')
   })
 })

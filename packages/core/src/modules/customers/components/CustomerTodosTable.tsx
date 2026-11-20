@@ -197,13 +197,25 @@ export function CustomerTodosTable(): React.JSX.Element {
     )
   }, [t])
 
-  const { data, isLoading, error, refetch, isFetching } = useQuery<CustomerTodosResponse>({
-    queryKey: ['customers-interactions-tasks', params, scopeVersion],
+  // Previous rows may stand in while a page or search change loads, but never across
+  // a customer or organization scope change: the table (and the view export) would
+  // otherwise show the previous scope's tasks under the new customer's chip.
+  const customerScopeKey = customerId ?? null
+  const { data, isLoading, error, refetch, isFetching, isPlaceholderData } = useQuery<CustomerTodosResponse>({
+    queryKey: ['customers-interactions-tasks', scopeVersion, customerScopeKey, params],
     queryFn: async () => fetchTasks(params),
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) => {
+      const previousKey = previousQuery?.queryKey
+      if (!previousKey) return undefined
+      if (previousKey[1] !== scopeVersion || previousKey[2] !== customerScopeKey) return undefined
+      return keepPreviousData(previousData)
+    },
   })
 
   const rows = data?.items ?? []
+  // The view export serializes the rendered rows, so it is offered only once they
+  // belong to the current query rather than standing in for it.
+  const viewRowsAreCurrent = !!data && !isPlaceholderData
 
   // The chip names the customer from its task rows; remember the name so the chip
   // keeps it while a search narrows the list down to no rows.
@@ -224,7 +236,7 @@ export function CustomerTodosTable(): React.JSX.Element {
   }, [pathname, router, searchParams])
 
   const exportConfig = React.useMemo(() => ({
-    view: {
+    view: viewRowsAreCurrent ? {
       description: t('customers.workPlan.customerTodos.table.export.view'),
       prepare: async (): Promise<{ prepared: PreparedExport; filename: string }> => {
         return {
@@ -232,7 +244,7 @@ export function CustomerTodosTable(): React.JSX.Element {
           filename: 'customer_todos_view',
         }
       },
-    },
+    } : undefined,
     full: {
       description: t('customers.workPlan.customerTodos.table.export.full'),
       prepare: async (_format: DataTableExportFormat): Promise<{ prepared: PreparedExport; filename: string }> => {
@@ -249,7 +261,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         }
       },
     },
-  }), [buildPreparedExport, customerId, fetchTasks, pageSize, rows, search, t, viewExportColumns])
+  }), [buildPreparedExport, customerId, fetchTasks, pageSize, rows, search, t, viewExportColumns, viewRowsAreCurrent])
 
   const handleRefresh = React.useCallback(async () => {
     try {
