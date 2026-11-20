@@ -456,7 +456,10 @@ export function buildCrudFormSectionManifest(
       fingerprint: hash(canonicalSectionJson({
         configured: configuredEntries.map(([key, { overrides: effective }]) =>
           [key, [...effective.entries()].sort(([left], [right]) => compareSectionIds(left, right))]),
-        accepted: [...policies.entries()],
+        accepted: [...policies].map(([key, policy]) => [key, {
+          ...policy,
+          capabilities: policy.capabilities.map(({ fact, source: { moduleId, features } }) => ({ fact, moduleId, features })),
+        }]),
       })),
     },
     policies,

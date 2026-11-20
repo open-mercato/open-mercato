@@ -1,9 +1,26 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type { CrudFormSectionServerModule } from '@open-mercato/shared/modules/form-sections'
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import { registerCrudFormSectionClientRegistry, type CrudFormSectionClientRegistry } from '@open-mercato/shared/lib/crud/form-sections/client-registry'
+import { computeCrudFormSectionClientFingerprint, crudFormSectionHostKey } from '@open-mercato/shared/lib/crud/form-sections/composition'
+import { buildCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
+import { encodeCurrentCrudFormSectionPolicyToken } from '@open-mercato/shared/lib/crud/form-sections/policy-token'
+import { loadCrudFormSectionComposition, selectCrudFormSectionComposition } from '../../../../../ui/src/backend/injection/crud-form-section-composition'
+import { projectCrudFormSectionCustomFields } from '../../../../../ui/src/backend/injection/crud-form-section-custom-fields'
+import { projectCrudFormSectionSubmission } from '../../../../../ui/src/backend/injection/crud-form-section-submission'
+import { fixtureGuards } from '../../../../../../.ai/qa/fixtures/crudform-section-policy/parity/parity-authority'
 import type { ModuleEntry, PackageResolver } from '../../resolver'
 import { generateModuleRegistries, generateModuleRegistryApp } from '../module-registry'
 import { generatedDerivedCrudRouteIndex, readDerivedCrudFormSectionRouteIndex } from '../form-sections'
+
+jest.mock('@open-mercato/ui/backend/crud-form-extensions', () =>
+  jest.requireActual('../../../../../ui/src/backend/crud-form-extensions'), { virtual: true })
+jest.mock('@open-mercato/ui/backend/crud-form-field-granular', () =>
+  jest.requireActual('../../../../../ui/src/backend/crud-form-field-granular'), { virtual: true })
+jest.mock('@open-mercato/ui/backend/injection/crud-form-section-runtime', () =>
+  jest.requireActual('../../../../../ui/src/backend/injection/crud-form-section-runtime'), { virtual: true })
 
 let root: string
 
@@ -86,10 +103,125 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  registerMutationGuards([])
   fs.rmSync(root, { recursive: true, force: true })
 })
 
 describe('CrudForm section registry generation', () => {
+  it('runs equivalent handwritten and wrapper registries through the manifest and browser projection', async () => {
+    const testRoot = root
+    const fixtureSource = path.resolve(__dirname, '../../../../../../.ai/qa/fixtures/crudform-section-policy')
+    const moduleId = 'form_policy_fixture'
+    const address = { hostId: 'form_policy_fixture.record', formVariant: 'showcase', formOperation: 'update' } as const
+    const host = { hostResourceKind: 'form_policy_fixture.record', hostResourceId: 'fixture-record' }
+    const identity = { ...address, resourceId: host.hostResourceId }
+    const policyKey = crudFormSectionHostKey(address)
+    const outputDir = 'app/.mercato/generated'
+    fs.symlinkSync(path.resolve(__dirname, '../../../../../../node_modules'), path.join(testRoot, 'node_modules'), 'dir')
+
+    async function run(variant: 'wrapper' | 'handwritten') {
+      root = path.join(testRoot, variant)
+      const moduleDir = path.join(root, 'app/src/modules', moduleId)
+      fs.cpSync(path.join(fixtureSource, 'src/modules', moduleId), moduleDir, { recursive: true })
+      const alternate = path.join(fixtureSource, 'parity')
+      fs.copyFileSync(path.join(alternate, `${variant}.form-sections.ts`), path.join(moduleDir, 'form-sections.ts'))
+      fs.copyFileSync(path.join(alternate, 'parity-authority.ts'), path.join(moduleDir, 'parity-authority.ts'))
+      for (const part of ['details', 'display', 'hide']) {
+        const filename = `parity-${part}.client.ts`
+        fs.copyFileSync(path.join(alternate, filename), path.join(moduleDir, 'runtime', filename))
+      }
+      fs.rmSync(path.join(moduleDir, 'form-sections.runtime-revisions.json'))
+      await generateModuleRegistries({ resolver: resolver([{ id: moduleId, from: '@app' }]), quiet: true })
+      expect(generated('runtime')).toContain('"position": "before" as InjectionPosition')
+      const server: { crudFormSectionServerModules: readonly CrudFormSectionServerModule[] } =
+        require(path.join(root, outputDir, 'crud-form-section-facts.generated.ts'))
+      const browser: {
+        crudFormSectionClientHostFacts: CrudFormSectionClientRegistry['hostFacts']
+        crudFormSectionRuntimeEntries: CrudFormSectionClientRegistry['runtimeEntries']
+        crudFormSectionContributedOverrides: CrudFormSectionClientRegistry['contributedOverrides']
+      } = require(path.join(root, outputDir, 'crud-form-section-runtime.generated.ts'))
+      const modules = server.crudFormSectionServerModules
+      registerMutationGuards([{ moduleId, guards: fixtureGuards(variant === 'handwritten') }])
+      const manifest = buildCrudFormSectionManifest(modules)
+      const policy = manifest.policies.get(policyKey)
+      expect(policy).toBeDefined()
+      if (!policy) throw new Error('[internal] Generated fixture policy was not accepted')
+      const registry = {
+        hostFacts: browser.crudFormSectionClientHostFacts,
+        runtimeEntries: browser.crudFormSectionRuntimeEntries,
+        contributedOverrides: browser.crudFormSectionContributedOverrides,
+      }
+      registerCrudFormSectionClientRegistry(registry)
+      const composition = selectCrudFormSectionComposition(registry, identity)
+      if (!composition) throw new Error('[internal] Generated fixture client composition was not selected')
+      const runtime = await loadCrudFormSectionComposition<Record<string, unknown>, Record<string, unknown>>(
+        composition, ['details', 'private'], undefined,
+      )
+      if (!runtime) throw new Error('[internal] Generated fixture client runtime was not accepted')
+      const { surface } = composition
+      const { descriptors, identities } = runtime
+      const clientFingerprint = await computeCrudFormSectionClientFingerprint(surface, identities, composition.overrides)
+      expect(clientFingerprint).toBe(policy.clientFingerprint)
+      const entityId = 'form_policy_fixture:record'
+      const customFields = projectCrudFormSectionCustomFields({
+        surface, descriptors, entityIds: [entityId], definitionSets: { 'form_policy_fixture.region-v1': [entityId] },
+        definitions: [{ key: 'region', kind: 'text', formEditable: true, entityId }],
+      })
+      const projection = projectCrudFormSectionSubmission({
+        values: { displayName: '  replacement  ', privateCode: 'omitted', cf_region: 'north' },
+        surface, descriptors, customFields, bareCustomFields: false,
+      })
+      const invalid = projectCrudFormSectionSubmission({
+        values: { displayName: ' ', cf_region: 'north' },
+        surface, descriptors, customFields, bareCustomFields: false,
+      })
+      return { manifest, policy, projection, invalid, descriptors, modules, surface, identities, composition }
+    }
+
+    try {
+      const handwritten = await run('handwritten')
+      const wrapper = await run('wrapper')
+      expect(handwritten.manifest.ledger).toEqual(wrapper.manifest.ledger)
+      expect(handwritten.policy.clientFingerprint).toBe(wrapper.policy.clientFingerprint)
+      expect(handwritten.policy.capabilities.map(({ fact }) => fact)).toEqual(wrapper.policy.capabilities.map(({ fact }) => fact))
+      expect(handwritten.policy.capabilities.map(({ source }) => source.kind)).not.toEqual(wrapper.policy.capabilities.map(({ source }) => source.kind))
+      expect(handwritten.policy.requiredLeaves).toEqual(wrapper.policy.requiredLeaves)
+      expect(wrapper.policy.requiredLeaves).toContainEqual(expect.objectContaining({ payloadPath: 'privateCode', mode: 'preserve-from-record' }))
+      expect(handwritten.projection).toEqual(wrapper.projection)
+      expect(wrapper.projection).toEqual({
+        state: 'ready', payload: { name: 'replacement', customFields: { region: 'north' } },
+        activeValues: { displayName: '  replacement  ', cf_region: 'north' },
+      })
+      expect(wrapper.invalid).toEqual(handwritten.invalid)
+      expect(wrapper.invalid).toEqual({ state: 'invalid', fieldErrors: { displayName: 'form_policy_fixture.validation.name' } })
+      expect(wrapper.descriptors.map(({ id }) => id)).toEqual(handwritten.descriptors.map(({ id }) => id))
+      expect(wrapper.descriptors.map(({ group }) => group.id)).toEqual(['display', 'details'])
+      expect(wrapper.descriptors[0].group.title).toBe(handwritten.descriptors[0].group.title)
+
+      const scoped = buildCrudFormSectionManifest(wrapper.modules.map(({ moduleId: id, sections }) => ({
+        moduleId: id, sections: {
+          ...sections, hostProviders: sections.hostProviders?.map((provider) => ({
+            ...provider, requireFeatures: [...provider.requireFeatures, 'form_policy_fixture.restricted'],
+          })),
+        },
+      })))
+      const scopedPolicy = scoped.policies.get(policyKey)!
+      expect(scopedPolicy.requireFeatures).toContain('form_policy_fixture.restricted')
+      expect(scoped.ledger.fingerprint).not.toBe(wrapper.manifest.ledger.fingerprint)
+      expect(encodeCurrentCrudFormSectionPolicyToken({ address, host, policy: scopedPolicy, fingerprint: scoped.ledger.fingerprint }))
+        .not.toBe(encodeCurrentCrudFormSectionPolicyToken({ address, host, policy: wrapper.policy, fingerprint: wrapper.manifest.ledger.fingerprint }))
+      const routes = wrapper.surface.clientMutationSurfaces!
+      const shifted = routes.map(({ guardedFacade, ...route }) => ({
+        ...route, guardedFacade: { ...guardedFacade, routePattern: '/form-policy-fixture/alternate/section-policy' },
+      }))
+      expect(await computeCrudFormSectionClientFingerprint(
+        { ...wrapper.surface, clientMutationSurfaces: shifted }, wrapper.identities, wrapper.composition.overrides,
+      )).not.toBe(wrapper.policy.clientFingerprint)
+    } finally {
+      root = testRoot
+    }
+  })
+
   it('generates matching fact and lazy runtime registries from the reusable non-production fixture', async () => {
     const fixtureSource = path.resolve(__dirname, '../../../../../../.ai/qa/fixtures/crudform-section-policy/src/modules/form_policy_fixture')
     const fixtureDestination = path.join(root, 'app/src/modules/form_policy_fixture')

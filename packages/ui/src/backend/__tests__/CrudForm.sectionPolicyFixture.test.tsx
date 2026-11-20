@@ -31,6 +31,9 @@ jest.mock('../utils/apiCall', () => ({ ...jest.requireActual('../utils/apiCall')
 jest.mock('@open-mercato/shared/lib/url-safety', () => ({
   safeOutboundFetch: () => { throw new Error('[internal] Fixture must not call an external provider') },
 }))
+jest.mock('@open-mercato/shared/lib/db/mikro', () => ({
+  getOrmEntities: () => { throw new Error('[internal] Fixture has no ORM entities') },
+}))
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }), usePathname: () => '/', useSearchParams: () => new URLSearchParams() }))
 jest.mock('../confirm-dialog', () => ({ useConfirmDialog: () => ({ confirm: async () => true, ConfirmDialogElement: null }) }))
 jest.mock('../fields/registry', () => ({ ...jest.requireActual('../fields/registry'), loadGeneratedFieldRegistrations: async () => {} }))
@@ -45,9 +48,14 @@ function response(result: unknown): Awaited<ReturnType<typeof apiCall>> {
   return { ok: true, status: 200, result, response: new Response(), cacheStatus: null }
 }
 
-function prepareFixture() {
+function prepareFixture(additionalFeatures: readonly string[] = []) {
   registerMutationGuards([{ moduleId, guards }])
-  const manifest = buildCrudFormSectionManifest([{ moduleId, sections: crudFormSections }])
+  const manifest = buildCrudFormSectionManifest([{ moduleId, sections: {
+    ...crudFormSections,
+    hostProviders: crudFormSections.hostProviders.map((provider) => ({
+      ...provider, requireFeatures: [...provider.requireFeatures, ...additionalFeatures],
+    })),
+  } }])
   registerCrudFormSectionClientRegistry({
     hostFacts: crudFormSections.hostFacts.map(({ id, roundTripId, hostResourceKind, alternatives }) => ({
       id, roundTripId, hostResourceKind,
@@ -181,5 +189,21 @@ it('renders C3 pending and then blocked from the real manifest without exposing 
   await screen.findByRole('alert')
   expect(container.querySelector('form')).toBeNull()
   expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  expect(onSubmit).not.toHaveBeenCalled()
+})
+
+it('blocks hydration when the resolved policy requires different features than the server-rendered ledger', async () => {
+  const rendered = prepareFixture()
+  const resolved = prepareFixture(['form_policy_fixture.restricted'])
+  expect(resolved.ledger.fingerprint).not.toBe(rendered.ledger.fingerprint)
+  const onSubmit = jest.fn()
+  const { container } = render(
+    <CrudFormSectionLedgerProvider value={rendered.ledger}>
+      <FixtureForm scenario="showcase" onSubmit={onSubmit} />
+    </CrudFormSectionLedgerProvider>, { wrapper: Providers },
+  )
+  await screen.findByRole('alert')
+  expect(apiCall).toHaveBeenCalled()
+  expect(container.querySelector('form')).toBeNull()
   expect(onSubmit).not.toHaveBeenCalled()
 })

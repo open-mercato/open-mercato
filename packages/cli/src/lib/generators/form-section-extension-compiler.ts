@@ -434,7 +434,9 @@ export function compileCrudFormSectionExtensions(
       const moduleContributions = contributionsByModule.get(module.moduleId) ?? []
       moduleContributions.push(result)
       contributionsByModule.set(module.moduleId, moduleContributions)
-      runtimeFiles.push({ name: file, content: renderBrowserRuntime(result, runtime!, definitionSet) })
+      const ownedDefinitionSet = resultOwnership?.customFieldOwnership.mode !== 'none'
+        ? resultOwnership?.customFieldOwnership.definitionSetId : undefined
+      runtimeFiles.push({ name: file, content: renderBrowserRuntime(result, runtime!, ownedDefinitionSet) })
       return result
     }
 

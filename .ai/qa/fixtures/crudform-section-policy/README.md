@@ -7,3 +7,5 @@ This test-only module stays outside the app's enabled modules. Copy `src/modules
 - The package tests vary the same declarations to cover duplicate leaves, duplicate custom fields, incorrect capabilities, and exact definition-set matching for both `ids` and `all`.
 
 This fixture uses static identities and an in-memory preserved value in the manifest tests. Section write targets describe those tests. Phase 6 owns a persisted disposable app, API-created test records, and the C3 Playwright case.
+
+The `parity/` overlays rebuild the showcase for the paired registry test. It compiles each overlay in a separate disposable module, preserving the same explicit IDs, revisions, route, field ownership, and feature grants. The test runs the emitted server manifest and browser loaders through the normal policies and submission projection. The original C3 fixture and definition mismatch tests remain separate.
