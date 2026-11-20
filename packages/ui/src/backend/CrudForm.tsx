@@ -3536,7 +3536,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         }
         return fetched
       } catch (error) {
-        if (builtin.type === 'select' && !builtin.options?.length) throw error
+        if (builtin.type === 'select') throw error
         return builtin.options ?? EMPTY_OPTIONS
       }
     }
@@ -4860,12 +4860,15 @@ const FieldControl = React.memo(function FieldControlImpl({
     : value == null
       ? ''
       : String(value)
+  const singleSelectOptions = hasLoader && optionLoadState !== 'ready'
+    ? builtin?.options ?? EMPTY_OPTIONS
+    : options
   const singleSelectOptionsKey = React.useMemo(
-    () => options.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
-    [options],
+    () => singleSelectOptions.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
+    [singleSelectOptions],
   )
   const singleSelectLabel = singleSelectValue
-    ? options.find((option) => option.value === singleSelectValue)?.label
+    ? singleSelectOptions.find((option) => option.value === singleSelectValue)?.label
     : undefined
 
   // Fields rendering a single focusable control get a real htmlFor/id pair;
@@ -5119,7 +5122,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             }
             setValue(field.id, next)
           }}
-          disabled={disabled || readOnly || (hasLoader && optionLoadState !== 'ready')}
+          disabled={disabled || readOnly || (hasLoader && optionLoadState !== 'ready' && singleSelectOptions.length === 0)}
         >
           <SelectTrigger id={controlId} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
@@ -5132,7 +5135,7 @@ const FieldControl = React.memo(function FieldControlImpl({
                 {t('ui.forms.select.clearOption', '— Clear —')}
               </SelectItem>
             )}
-            {options
+            {singleSelectOptions
               .filter((opt) => opt.value !== '')
               .map((opt) => (
                 <SelectItem key={opt.value} value={opt.value}>

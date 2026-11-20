@@ -155,6 +155,7 @@ export async function resolveTranslationTargetFields(
   const owner = resolveTranslationOwnerMetadata(context.em, entityType)
   if (!owner) throw await translationTargetNotFound()
   const { metadata, source } = owner
+  if (!source.tenantColumn && !source.organizationColumn) throw await translationTargetNotFound()
   const primaryKey = metadata.primaryKeys.length === 1 ? metadata.properties[metadata.primaryKeys[0]] : undefined
   if (primaryKey?.fieldNames.length !== 1) throw await translationTargetNotFound()
   if (primaryKey.type === 'uuid' && !uuidSchema.safeParse(entityId).success) throw await translationTargetNotFound()
@@ -163,7 +164,6 @@ export async function resolveTranslationTargetFields(
   const projectColumn = action === 'view' && entityType === STAFF_TASK_STATUS_TYPE
     ? metadata.properties.timeProjectId?.fieldNames[0]
     : undefined
-  if (!source.tenantColumn && !source.organizationColumn) throw await translationTargetNotFound()
   let query = db.selectFrom(source.table).where(idColumn, '=', entityId)
   if (source.tenantColumn) query = query.where(source.tenantColumn, '=', tenantId)
   if (source.organizationColumn) {

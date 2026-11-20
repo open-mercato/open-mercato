@@ -76,7 +76,9 @@ operator cleanup. No schema migration is required.
 
 ## Relation options and explicit global query scope (#9106)
 
-Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized scoped custom labels and declared module labels remain available; metadata permission alone no longer grants system-record access.
+Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized callers can read scoped custom labels and declared module labels. Declared system targets without a mapped read feature require a superadmin.
+
+For stored relation fields, edit the field configuration and remove the `labelField` query parameter from the existing `optionsUrl` to use the target’s default label. Keep the other query parameters. If the field needs a specific label, use a label declared by the owning module or the custom entity definition.
 
 Module authors querying a table with neither `tenant_id` nor `organization_id` must explicitly use the existing trusted `omitAutomaticTenantOrgScope: true` option and enforce their own visibility filters. Never bind that option to a request parameter. Operators should review metadata-only roles that relied on excessive access and audit unintended secret or cross-tenant reads. No persisted data, migrations, startup options or configuration formats change. The security exception needs named human-maintainer acknowledgment before merge; automation does not supply it. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
 

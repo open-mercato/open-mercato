@@ -1981,7 +1981,7 @@ export class BasicQueryEngine implements QueryEngine {
     const cached = columnExistsCache.get(key)
     if (cached && cached.expiresAt > Date.now() && cached.dataType !== undefined) return cached.dataType
     const row = await this.getDb().selectFrom('information_schema.columns')
-      .select('data_type').where('table_name', '=', table).where('column_name', '=', column)
+      .select('data_type').where('table_name', '=', table.split('.').pop() ?? table).where('column_name', '=', column)
       .where(sql<boolean>`table_schema = (select nspname from pg_namespace where oid = (
         select relnamespace from pg_class where oid = to_regclass(${table})
       ))`)
@@ -1999,10 +1999,13 @@ export class BasicQueryEngine implements QueryEngine {
     if (cached && cached.expiresAt > Date.now()) return cached.value
     const db = this.getDb()
     const exists = await db
-      .selectFrom('information_schema.columns' as any)
+      .selectFrom('information_schema.columns')
       .select(sql<number>`1`.as('one'))
-      .where('table_name' as any, '=', table)
-      .where('column_name' as any, '=', column)
+      .where('table_name', '=', table.split('.').pop() ?? table)
+      .where('column_name', '=', column)
+      .where(sql<boolean>`table_schema = (select nspname from pg_namespace where oid = (
+        select relnamespace from pg_class where oid = to_regclass(${table})
+      ))`)
       .limit(1)
       .executeTakeFirst()
     const present = !!exists

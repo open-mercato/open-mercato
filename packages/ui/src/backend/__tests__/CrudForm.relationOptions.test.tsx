@@ -59,6 +59,22 @@ describe('relation option feedback', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Unsaved draft', target: 'retained-id' }), expect.any(Object)))
   })
 
+  it('keeps static choices available when the dynamic loader fails', async () => {
+    const fields: CrudField[] = [{
+      id: 'target',
+      label: 'Related record',
+      type: 'select',
+      options: [{ value: 'static', label: 'Static choice' }],
+      loadOptions: async () => { throw new Error('[internal] Options unavailable') },
+    }]
+    renderWithProviders(<CrudForm fields={fields} initialValues={{ target: 'static' }} onSubmit={() => {}} />, { dict })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load options')
+    const select = screen.getByRole('combobox', { name: 'Related record' })
+    expect(select).toBeEnabled()
+    expect(select).toHaveTextContent('Static choice')
+  })
+
   it('distinguishes a successful empty lookup from a failure', async () => {
     renderWithProviders(
       <CrudForm fields={fieldsFor(async () => [])} onSubmit={() => {}} />,
@@ -67,15 +83,6 @@ describe('relation option feedback', () => {
     expect(await screen.findByText('No options available.')).toBeVisible()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Related record' })).toBeEnabled()
-  })
-
-  it('falls back to static options when the loader fails', async () => {
-    const fields: CrudField[] = [
-      { id: 'target', label: 'Related record', type: 'select', options: [{ value: 'static', label: 'Static choice' }], loadOptions: async () => { throw new Error('[internal] HTTP 500') } },
-    ]
-    renderWithProviders(<CrudForm fields={fields} onSubmit={() => {}} />, { dict })
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Related record' })).toBeEnabled())
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('ignores a superseded loader rejection after the new target loads', async () => {
