@@ -26,8 +26,10 @@ Make the required `test` check green again on `main` by aligning the catalog's d
 
 ## Progress
 
+PR: #10150
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix the count
 
-- [ ] 1.1 Update the declared count and run the lessons checks
+- [x] 1.1 Update the declared count and run the lessons checks — bd61fac023
