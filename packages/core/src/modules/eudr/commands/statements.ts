@@ -42,6 +42,7 @@ import {
   type StatementUpdateInput,
 } from '../data/validators'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 import {
   EUDR_AMEND_GUARDED_FIELDS,
   canDeleteStatement,
@@ -767,6 +768,7 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
       const record = await lockForUndo(entityManager, EudrDueDiligenceStatement, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
       const before = structuredClone(await buildStatementSnapshot(entityManager, record))
+      await guardUpdateRedo(ctx, before)
       const previousStatus = record.status
 
       await runCrudCommandWrite({
@@ -828,6 +830,7 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
     }
     return result
   },
+  redo: ({ input, ctx, logEntry }) => updateStatementCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result) => updateStatementSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {
     const lockedSnapshots = updateStatementSnapshots.get(result)
