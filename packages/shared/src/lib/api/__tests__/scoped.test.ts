@@ -1,8 +1,56 @@
 import { z } from 'zod'
 import { parseScopedCommandInput, type ScopedContext } from '../scoped'
 import { IGNORED_FIELDS } from '../../crud/write-payload'
+import { withDecimalCaps, withExactAmounts } from '../../decimal'
 
 const translate = (_key: string, fallback?: string) => fallback ?? _key
+
+describe('schema-approved exact amount aliases', () => {
+  const ctx = { auth: { tenantId: 'tenant-1', orgId: 'org-1' } } as ScopedContext
+  const schema = z.object({ baseRate: withDecimalCaps(z.coerce.number()).default(10) })
+  const precise = '1234567890123456.1234'
+
+  it.each([{ base_rate: precise }, { baseRate: precise }, { baseRate: precise, base_rate: precise }])(
+    'recovers the approved raw value without changing the parsed payload shape', (raw) => {
+      const before = { ...raw }
+      const parsed = parseScopedCommandInput(schema, raw, ctx, translate)
+      expect(parsed).toEqual({ baseRate: Number(precise) })
+      expect(Object.getOwnPropertySymbols(parsed)).toEqual([])
+      expect(JSON.stringify(parsed)).toBe(JSON.stringify({ baseRate: Number(precise) }))
+      expect(withExactAmounts(parsed, raw, ['baseRate']).baseRateExact).toBe(precise)
+      expect(raw).toEqual(before)
+    },
+  )
+
+  it('rejects conflicting duplicates before exact recovery', () => {
+    expect(() => parseScopedCommandInput(schema, { baseRate: precise, base_rate: '12' }, ctx, translate))
+      .toThrow(expect.objectContaining({ status: 400 }))
+  })
+
+  it('does not recover aliases disabled by the caller or unsupported by the schema', () => {
+    const raw = { base_rate: '10.000000000000000001' }
+    const disabled = parseScopedCommandInput(schema, raw, ctx, translate, { aliasSnakeCaseKeys: false })
+    expect(withExactAmounts(disabled, raw, ['baseRate']).baseRateExact).toBe('10')
+    const union = z.union([schema, z.object({ name: z.string() })])
+    const unsupported = parseScopedCommandInput(union, raw, ctx, translate)
+    expect(withExactAmounts(unsupported, raw, ['baseRate']).baseRateExact).toBe('10')
+  })
+
+  it('preserves supplied exact siblings and still checks them against the parsed number', () => {
+    const raw = { base_rate: Number(precise), baseRateExact: precise }
+    const parsed = parseScopedCommandInput(schema, raw, ctx, translate)
+    expect(withExactAmounts(parsed, raw, ['baseRate']).baseRateExact).toBe(precise)
+    expect(withExactAmounts({ ...parsed, baseRate: 12 }, raw, ['baseRate']).baseRateExact).toBe('12')
+  })
+
+  it('retains the normalized source through successive exact field mappings', () => {
+    const pair = schema.extend({ grossRate: withDecimalCaps(z.coerce.number()) })
+    const raw = { base_rate: precise, gross_rate: precise }
+    const parsed = parseScopedCommandInput(pair, raw, ctx, translate)
+    const first = withExactAmounts(parsed, raw, ['baseRate'])
+    expect(withExactAmounts(first, raw, ['grossRate']).grossRateExact).toBe(precise)
+  })
+})
 
 describe('parseScopedCommandInput', () => {
   it('preserves custom fields when parsing scoped payloads', () => {

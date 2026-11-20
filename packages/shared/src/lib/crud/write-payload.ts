@@ -91,19 +91,19 @@ export function collectWritableKeys(schema: z.ZodTypeAny): Set<string> | null {
   return shape ? new Set(Object.keys(shape)) : null
 }
 
-function requiresNonNullCoercion(schema: unknown): boolean {
-  let current = schema
-  for (let depth = 0; depth < 10; depth += 1) {
-    if (!current || typeof current !== 'object') return false
-    const node = current as SchemaInspectionNode
-    if (!node._def || typeof node._def !== 'object') return false
-    const definition = node._def as Record<string, unknown>
-    const typeName = definition.typeName ?? definition.type
-    if (typeName === 'ZodNullable' || typeName === 'nullable') return false
-    if (definition.coerce === true) return true
-    current = readWrappedSchema(definition)
+function requiresNonNullCoercion(schema: unknown, depth = 0): boolean {
+  if (depth >= 10 || !schema || typeof schema !== 'object') return false
+  const node = schema as SchemaInspectionNode
+  if (!node._def || typeof node._def !== 'object') return false
+  const definition = node._def as Record<string, unknown>
+  const typeName = definition.typeName ?? definition.type
+  if (typeName === 'ZodNullable' || typeName === 'nullable') return false
+  if (definition.coerce === true) return true
+  if (typeName === 'ZodPipeline' || typeName === 'pipe') {
+    return requiresNonNullCoercion(definition.in, depth + 1)
+      || requiresNonNullCoercion(definition.out, depth + 1)
   }
-  return false
+  return requiresNonNullCoercion(readWrappedSchema(definition), depth + 1)
 }
 
 /**

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CrudHttpError } from '../errors'
+import { withDecimalCaps } from '../../decimal'
 import type { CrudWriteGuardConfig } from '../write-payload'
 import { collectWritableKeys, guardWriteBody, inspectWritePayload, withIgnoredFieldsReport } from '../write-payload'
 
@@ -108,19 +109,36 @@ describe('guardWriteBody', () => {
     z.coerce.date().transform((value) => value),
     z.coerce.string().optional(),
     z.coerce.boolean().optional(),
+    withDecimalCaps(z.coerce.number()).optional(),
+    withDecimalCaps(z.coerce.number()).default(10).optional().transform((value) => value),
+    z.unknown().nullable().pipe(z.coerce.number()),
+    z.coerce.number().pipe(z.number().nullable()),
+    z.unknown().pipe(z.unknown().pipe(z.coerce.number())),
   ])('rejects a null alias before built-in coercion can replace it', (fieldSchema) => {
     const nullableConsumer = z.object({ expiresAt: fieldSchema }).superRefine(() => {})
     expect(() => guardWriteBody(nullableConsumer, { expires_at: null }, undefined))
       .toThrow(expect.objectContaining({ status: 400, body: { error: 'Invalid input', fields: ['expires_at'] } }))
   })
 
-  it.each([z.coerce.date().nullable().optional(), z.coerce.number().nullable().optional()])(
+  it.each([
+    z.coerce.date().nullable().optional(),
+    z.coerce.number().nullable().optional(),
+    withDecimalCaps(z.coerce.number()).nullable().optional(),
+    withDecimalCaps(z.coerce.number().nullable()).optional().transform((value) => value),
+    z.unknown().nullable().pipe(z.coerce.number().nullable()),
+  ])(
     'preserves null aliases when the consumer explicitly declares nullability', (fieldSchema) => {
       const nullableConsumer = z.object({ expiresAt: fieldSchema })
       const guarded = guardWriteBody(nullableConsumer, { expires_at: null }, undefined)
       expect(nullableConsumer.parse(guarded.body)).toEqual({ expiresAt: null })
     },
   )
+
+  it('keeps canonical pipeline coercion and omitted/defaulted fields unchanged', () => {
+    const consumer = z.object({ baseRate: withDecimalCaps(z.coerce.number()).default(10) })
+    expect(consumer.parse(guardWriteBody(consumer, { baseRate: null }, undefined).body)).toEqual({ baseRate: 0 })
+    expect(consumer.parse(guardWriteBody(consumer, {}, undefined).body)).toEqual({ baseRate: 10 })
+  })
 
   it('leaves the existing validation path unchanged when aliasing is disabled', () => {
     const coerciveSchema = z.object({ expiresAt: z.coerce.date().optional() })

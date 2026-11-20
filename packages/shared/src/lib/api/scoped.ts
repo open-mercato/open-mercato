@@ -3,6 +3,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { guardWriteBody, IGNORED_FIELDS, type CrudWriteGuardConfig, type UnwritableKey } from '@open-mercato/shared/lib/crud/write-payload'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { withExactAmountSource } from '@open-mercato/shared/lib/decimal'
 import type { z } from 'zod'
 
 export type ScopedContext = (CommandRuntimeContext | CrudCtx) & {
@@ -191,6 +192,17 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
   const withReport = unknownHits.length > 0
     ? Object.assign({}, parsedWithCustom, { [IGNORED_FIELDS]: unknownHits })
     : parsedWithCustom
+
+  if (guarded.aliased.length > 0 && typeof withReport === 'object' && withReport !== null) {
+    withExactAmountSource(withReport, base)
+    for (const { to } of guarded.aliased) {
+      const parsedValue = (withReport as Record<string, unknown>)[to]
+      const rawValue = base[to]
+      if (parsedValue && typeof parsedValue === 'object' && rawValue && typeof rawValue === 'object') {
+        withExactAmountSource(parsedValue, rawValue as Record<string, unknown>)
+      }
+    }
+  }
 
   return withReport as z.infer<TSchema> & {
     customFields?: Record<string, unknown>
