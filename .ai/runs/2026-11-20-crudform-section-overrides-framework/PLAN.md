@@ -19,6 +19,7 @@ Status: in-progress
 | 2 | 2.3 | Bind guarded mutation requests to reauthorized providers and resources | dispatch | done | this commit |
 | 2 | 2.4 | Enforce required leaves and scoped default providers | dispatch | done | this commit |
 | 2 | 2.5 | Compose ambient command lifecycle with the final-input transaction boundary | group:A | done | this commit |
+| 2 | 2.5-review-fix | Keep create-only entity writes and pending effects within the ambient lifecycle | inline | done | this commit |
 | 2 | 2.6 | Add transactional sink discovery, lifecycles and read-back | group:A | todo | — |
 | 2 | 2.7 | Derive section hosts for qualifying CRUD routes | dispatch | todo | — |
 | 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | todo | — |
@@ -97,6 +98,10 @@ Framework spec item 7a. Add `requiredLeaves` facts and the schema-drift contract
 #### 2.5 Compose ambient command lifecycle with the final-input transaction boundary
 
 Framework spec item 7b. Add final-input enforcement at the transactional command seam and prove ambient command lifecycle compatibility for ordinary and atomic replay callers.
+
+#### 2.5-review-fix Keep create-only entity writes and pending effects within the ambient lifecycle
+
+Ensure create-only custom entities reuse the outer transaction and attempt all committed queued effects when one effect fails.
 
 #### 2.6 Add transactional sink discovery, lifecycles and read-back
 

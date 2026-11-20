@@ -265,7 +265,7 @@ export function assertCustomEntityStorageEntityId(em: EntityManager, entityId: s
 }
 
 export class DefaultDataEngine implements DataEngine {
-  private deferredNotifications: Array<(suppress?: BulkImportSuppression) => Promise<void>> | null = null
+  private deferredNotifications: Array<(suppress: BulkImportSuppression | undefined, failures: unknown[]) => Promise<void>> | null = null
   private commandEffectsDiscarded = false
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
   private defaultIndexer: DefaultCrudIndexerConfig | null = null
@@ -309,16 +309,12 @@ export class DefaultDataEngine implements DataEngine {
         const failures: unknown[] = []
         for (const notify of deferred) {
           try {
-            await notify(suppress)
+            await notify(suppress, failures)
           } catch (error) {
             failures.push(error)
           }
         }
-        try {
-          await dataEngine.flushOrmEntityChanges(suppress)
-        } catch (error) {
-          failures.push(error)
-        }
+        await dataEngine.flushPendingOrmEntityChanges(suppress, failures)
         if (failures.length) throw new AggregateError(failures, '[internal] Ambient CRUD effects failed after commit')
       },
     }
@@ -585,7 +581,7 @@ export class DefaultDataEngine implements DataEngine {
         return error
       }
       const lockKey = `custom_entity_create:${JSON.stringify([tenantId, orgId, opts.entityId, id.toLowerCase()])}`
-      await withAdvisoryXactLock(this.em, lockKey, async (txEm) => {
+      await this.withCustomEntityStorageLock(lockKey, async (txEm) => {
         const storage = txEm.getKysely<CustomEntityStorageDatabase>()
         const existing = await storage
           .selectFrom('custom_entities_storage')
@@ -995,21 +991,29 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void> {
+    await this.flushPendingOrmEntityChanges(suppress)
+  }
+
+  private async flushPendingOrmEntityChanges(suppress?: BulkImportSuppression, failures?: unknown[]): Promise<void> {
     if (this.commandEffectsDiscarded || !this.pendingSideEffects.size) return
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
     if (this.deferredNotifications) {
-      this.deferredNotifications.push(async (commandSuppression) => this.emitQueuedCrudEffects(entries, {
+      this.deferredNotifications.push(async (commandSuppression, commandFailures) => this.emitQueuedCrudEffects(entries, {
         ...suppress,
         skipEvents: suppress?.skipEvents || commandSuppression?.skipEvents,
         skipReindex: suppress?.skipReindex || commandSuppression?.skipReindex,
-      }))
+      }, commandFailures))
       return
     }
-    await this.emitQueuedCrudEffects(entries, suppress)
+    await this.emitQueuedCrudEffects(entries, suppress, failures)
   }
 
-  private async emitQueuedCrudEffects(entries: readonly QueuedCrudSideEffect[], suppress?: BulkImportSuppression): Promise<void> {
+  private async emitQueuedCrudEffects(
+    entries: readonly QueuedCrudSideEffect[],
+    suppress?: BulkImportSuppression,
+    failures?: unknown[],
+  ): Promise<void> {
     for (const entry of entries) {
       if (entry.indexer && !suppress?.skipReindex && this.matchesDefaultEntityClass(entry.entity)) {
         this.indexedDefaultEntityClass = true
@@ -1026,10 +1030,8 @@ export class DefaultDataEngine implements DataEngine {
           suppress,
         })
       } catch (error) {
-        if (isReadProjectionAlwaysConsistent()) {
-          throw error
-        }
-        // best-effort; continue with remaining side effects
+        if (failures) failures.push(error)
+        else if (isReadProjectionAlwaysConsistent()) throw error
       }
     }
   }
