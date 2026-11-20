@@ -35,5 +35,5 @@ PR: #10079
 
 ### Phase 2: Regression coverage
 
-- [ ] 2.1 Add standalone initialization smoke coverage for the shipped presets
+- [x] 2.1 Add standalone initialization smoke coverage for the shipped presets — 9d6f7ff8a
 - [ ] 2.2 Run validation and review the PR
