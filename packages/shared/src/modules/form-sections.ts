@@ -106,7 +106,15 @@ type SinkMutationContext = {
 }
 
 export type CrudFormSectionSinkSnapshot = { before: SinkRecord | null; after: SinkRecord | null }
-export type CrudFormSectionSinkRow = { values: SinkRecord; updatedAt?: string | Date }
+export type CrudFormSectionSinkRow = {
+  values: SinkRecord
+  updatedAt?: string | Date
+  sync?: {
+    status: 'pending' | 'synced' | 'failed'
+    lastAttemptAt: string | null
+    errorCode: import('../lib/crud/form-sections/outbox').CrudFormSectionOutboxError | null
+  }
+}
 
 export type CrudFormSectionSink = {
   fact: CrudFormExtensionSinkFact
@@ -114,6 +122,7 @@ export type CrudFormSectionSink = {
   hostDetailEntityId: string
   appendOnly?: true
   schema: z.ZodType<SinkRecord>
+  outbox?: import('../lib/crud/form-sections/outbox').CrudFormSectionOutboxRuntime
   persist(input: SinkMutationContext & {
     values: SinkRecord
     hostOperation: 'create' | 'update'

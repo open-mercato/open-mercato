@@ -11,6 +11,8 @@ import type { IntegrationStateService } from './lib/state-service'
 import type { IntegrationLogService } from './lib/log-service'
 import type { KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { crudFormSectionOutboxServiceKey } from '@open-mercato/shared/lib/crud/form-sections/outbox'
+import { createCrudFormSectionOutboxService } from './lib/crud-form-outbox'
 
 type Cradle = {
   em: EntityManager
@@ -22,6 +24,7 @@ type Cradle = {
 
 export function register(container: AppContainer) {
   container.register({
+    [crudFormSectionOutboxServiceKey]: asFunction(() => createCrudFormSectionOutboxService(container)).scoped(),
     integrationCredentialsService: asFunction(({ em, tenantEncryptionService }: Cradle) =>
       createCredentialsService(em, tenantEncryptionService),
     ).scoped().proxy(),

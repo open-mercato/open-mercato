@@ -36,6 +36,14 @@ import {
   type PreparedCrudFormSectionSinks,
 } from './extension-sinks'
 import { getCrudFormSectionManifest, type CrudFormSectionAcceptedPolicy } from './manifest'
+import {
+  assertPrevalidatedCrudFormSectionOutbox,
+  crudFormSectionOutboxScopeSchema,
+  crudFormSectionOutboxServiceKey,
+  preflightCrudFormSectionOutboxIntent,
+  prevalidateCrudFormSectionOutbox,
+  retryCrudFormSectionOutbox,
+} from './outbox'
 import { parseCrudFormSectionPolicyHeaders } from './policy-headers'
 import { decodeCrudFormSectionPolicyToken, encodeCurrentCrudFormSectionPolicyToken } from './policy-token'
 import { resourceIdSchema, symbolicIdSchema } from './protocol'
@@ -484,6 +492,14 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
     allowWrites: surface.kind === 'parent-submit', creating: options.operation === 'create',
   })
   const initial = await splitPayload(await readPayload(request, options.maxBodyBytes))
+  if ([...initial.work.map(({ runtime }) => runtime), ...hardDeleteSinks].some(({ outbox }) => outbox)) {
+    if (!crudFormSectionOutboxScopeSchema.safeParse({
+      tenantId: scope.tenantId, organizationId: scope.organizationId,
+    }).success) return rejectPolicy(route.address, 'outbox_scope_unavailable')
+    if (!container.hasRegistration(crudFormSectionOutboxServiceKey)) {
+      return rejectPolicy(route.address, 'outbox_service_unavailable')
+    }
+  }
   assertActivePayload(initial.hostPayload, context)
   if (surface.kind === 'parent-submit' && !policy.surface.ownershipFacts.some(({ payloadPaths, customFieldOwnership }) =>
     payloadPaths.length || customFieldOwnership.mode === 'all'
@@ -493,6 +509,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
   }
   const requiredLeaves = policy.requiredLeaves.filter((leaf) => leaf.mutationSurfaceId === surface.id)
   await options.prevalidateProjectedPayload?.(structuredClone(withExtensions(initial.hostPayload, initial.extensionEnvelope)), callbackContext)
+  const prevalidatedOutbox = await prevalidateCrudFormSectionOutbox(initial.work, scope, container)
   const userFeatures = await rbac.getGrantedFeatures(actorId, scope)
   const guards = [...getAllMutationGuardInstances()]
   const legacyGuard = bridgeLegacyGuard(container)
@@ -628,8 +645,15 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
         if (!isDeepStrictEqual(sinks.extensionEnvelope, normalizedSinks.extensionEnvelope)) {
           return rejectPolicy(route.address, 'final_extension_payload_not_normalized')
         }
+        assertPrevalidatedCrudFormSectionOutbox(normalizedSinks.work, prevalidatedOutbox)
         const normalized = await validate(normalizedSinks.hostPayload, normalizedSinks.extensionEnvelope)
         if (!isDeepStrictEqual(normalized, projected.payload)) return rejectPolicy(route.address, 'final_payload_not_normalized')
+        if (route.host.hostResourceId) {
+          const sinkContext = { hostResourceId: route.host.hostResourceId, em, scope, auth, container }
+          for (const runtime of [...normalizedSinks.work.map(({ runtime }) => runtime), ...hardDeleteSinks]) {
+            await preflightCrudFormSectionOutboxIntent(runtime, sinkContext)
+          }
+        }
         sinks = normalizedSinks
         verified = true
       }
@@ -648,7 +672,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
           resourceId = undefined
         }
       }
-      const atomicSinks = sinks.work.filter(({ runtime }) => runtime.fact.atomicity === 'host-transaction')
+      const atomicSinks = sinks.work.filter(({ runtime }) => runtime.fact.atomicity !== 'after-commit')
       const afterCommitSinks = sinks.work.filter(({ runtime }) => runtime.fact.atomicity === 'after-commit')
       if (atomicSinks.length || hardDeleteSinks.length) {
         if (!resourceId || !isAmbientCommandExecution(value)) {
@@ -728,4 +752,39 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
     }
   }
   return extensionWarnings.length && isRecord(result) ? { ...result, extensionWarnings } : result
+}
+
+export async function runCrudFormSectionOutboxRetry(
+  options: Omit<CrudFormSectionMutationFacadeOptions<PayloadRecord, { ok: true }>,
+    'operation' | 'requestOperation' | 'mutationSurfaceId' | 'bodySchema' | 'execute' | 'projectFinalInput' | 'validateDomain'> & {
+    sinkId: string
+  },
+): Promise<{ ok: true }> {
+  const mutationSurfaceId = `${options.sinkId}.retry`
+  return runCrudFormSectionMutation({
+    ...options,
+    operation: 'update',
+    requestOperation: 'retry',
+    mutationSurfaceId,
+    bodySchema: z.strictObject({}),
+    validateDomain() {},
+    projectFinalInput: (input) => input as ReturnType<CrudFormSectionMutationFacadeOptions<PayloadRecord, { ok: true }>['projectFinalInput']>,
+    async execute({ commandContext, context, expectedUpdatedAt, payload }) {
+      const { policy, route, auth, scope, container } = context
+      const hostResourceId = route.host.hostResourceId
+      const surface = policy.mutationSurfaces.find(({ id }) => id === mutationSurfaceId)
+      const accepted = policy.sinks?.find(({ fact }) => fact.id === options.sinkId && fact.atomicity === 'outbox')
+      const sink = getCrudFormSectionManifest().sinkRuntimes?.get(options.sinkId)
+      if (!hostResourceId || surface?.kind !== 'section-action' || surface.delegatedTarget.kind !== 'service'
+          || !accepted || !sink?.outbox || sink.fact.roundTripId !== accepted.fact.roundTripId) {
+        return rejectPolicy(route.address, 'extension_sink_retry_unavailable')
+      }
+      const { transactionalEm } = commandContext
+      await commandContext.beforeTransactionalWrite(transactionalEm, {
+        ...route, payload, targetOrganizationId: route.targetOrganizationId, expectedUpdatedAt,
+      })
+      await retryCrudFormSectionOutbox(sink, { em: transactionalEm, hostResourceId, scope, auth, container })
+      return { ok: true }
+    },
+  })
 }

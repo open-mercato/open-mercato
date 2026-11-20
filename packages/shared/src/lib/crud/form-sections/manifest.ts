@@ -309,7 +309,7 @@ export function buildCrudFormSectionManifest(
       fail('invalid_extension_sink')
       continue
     }
-    const supportsAtomicSinks = sinks.some(({ fact }) => fact.atomicity === 'host-transaction')
+    const supportsAtomicSinks = sinks.some(({ fact }) => fact.atomicity !== 'after-commit')
     const parentSurfaces = canonicalSurfaces.filter(({ kind }) => kind === 'parent-submit' || kind === 'parent-delete')
     if (sinks.length && (!parentSurfaces.some(({ kind }) => kind === 'parent-submit') || parentSurfaces.some((candidate) => {
       const support = mutationProviders.get(candidate.id)?.extensionSinkSupport

@@ -379,7 +379,10 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
     return readIdentity(fieldsOf(factProperty.initializer, invalid), invalid).id
   }).sort(compareIds)
   const sinkIds = arrayField(fields, 'sinks', invalid).map((entry) => {
-    const declaration = unwrap(helperArgument(entry, 'defineCrudFormSectionSink', invalid))
+    const call = unwrap(entry)
+    const isOutboxBuilder = ts.isCallExpression(call) && ts.isIdentifier(call.expression)
+      && call.expression.text === 'defineCrudFormSectionOutboxSink'
+    const declaration = unwrap(helperArgument(entry, isOutboxBuilder ? 'defineCrudFormSectionOutboxSink' : 'defineCrudFormSectionSink', invalid))
     if (!ts.isObjectLiteralExpression(declaration)) return invalid('expected a sink declaration object')
     const fact = declaration.properties.find((property): property is ts.PropertyAssignment =>
       ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
@@ -390,6 +393,24 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
     literalData(fact.initializer, invalid)
     if (literalValue(properties.get('ownerModuleId'), 'ownerModuleId', invalid) !== module.modId) {
       return invalid(`sink "${id}" must be declared in its owning module`)
+    }
+    const atomicity = literalValue(properties.get('atomicity'), 'atomicity', invalid)
+    const externalDelivery = properties.get('externalDelivery')
+    if (atomicity === 'outbox') {
+      if (!externalDelivery) return invalid(`outbox sink "${id}" requires a literal externalDelivery contract`)
+      const external = fieldsOf(externalDelivery, invalid)
+      const maxAttempts = external.get('maxAttempts')
+      const attempts = maxAttempts && literalData(maxAttempts, invalid)
+      if (external.size !== 5
+          || literalValue(external.get('fencing'), 'fencing', invalid) !== 'remote-monotonic-revision/v1'
+          || literalValue(external.get('coalesce'), 'coalesce', invalid) !== 'latest-state'
+          || !['none', 'read-only'].includes(literalValue(external.get('preCommitValidation'), 'preCommitValidation', invalid))
+          || !literalValue(external.get('integrationId'), 'integrationId', invalid)
+          || typeof attempts !== 'number' || !Number.isSafeInteger(attempts) || attempts < 1) {
+        return invalid(`outbox sink "${id}" requires the remote-monotonic-revision/v1 fencing contract`)
+      }
+    } else if (!['host-transaction', 'after-commit'].includes(atomicity) || externalDelivery || isOutboxBuilder) {
+      return invalid(`invalid atomicity or externalDelivery for sink "${id}"`)
     }
     return id
   }).sort(compareIds)

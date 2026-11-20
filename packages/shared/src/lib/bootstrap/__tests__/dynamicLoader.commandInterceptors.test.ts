@@ -132,6 +132,22 @@ describe('loadBootstrapData — command interceptors reach worker/CLI bootstrap 
     ])
   })
 
+  it('loads server form-section declarations for workers without loading a client runtime registry', async () => {
+    const root = createAppRoot({
+      'crud-form-section-facts.generated': {
+        ts: 'export const crudFormSectionServerModules = []',
+        compiled: 'module.exports = { crudFormSectionServerModules: [{ moduleId: "example", sections: { sinks: [] } }] }',
+      },
+      'crud-form-section-runtime.generated': {
+        ts: 'export const crudFormSectionRuntimeEntries = []',
+        compiled: 'throw Error("workers must not load the browser registry")',
+      },
+    })
+    const data = await loadBootstrapData(root)
+    expect(data.crudFormSectionServerModules).toEqual([{ moduleId: 'example', sections: { sinks: [] } }])
+    expect(mockedLogger.error).not.toHaveBeenCalled()
+  })
+
   it('falls back to an empty array (not undefined) when the generated file is absent', async () => {
     const generatedDir = path.join(appRoot, '.mercato', 'generated')
     fs.rmSync(path.join(generatedDir, 'command-interceptors.generated.ts'))
@@ -141,6 +157,7 @@ describe('loadBootstrapData — command interceptors reach worker/CLI bootstrap 
 
     expect(data.commandInterceptorEntries).toEqual([])
     expect(data.commandLoaderEntries).toEqual([])
+    expect(data.crudFormSectionServerModules).toEqual([])
     expect(mockedLogger.error).not.toHaveBeenCalled()
   })
 

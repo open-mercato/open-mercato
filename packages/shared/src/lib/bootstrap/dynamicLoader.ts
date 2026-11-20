@@ -793,6 +793,7 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
     webResearchModule,
     commandInterceptorsModule,
     workflowsModule,
+    crudFormSectionModule,
   ] = await Promise.all([
     compileAndImport(path.join(generatedDir, 'modules.cli.generated.ts')),
     compileAndImport(path.join(generatedDir, 'entities.generated.ts')),
@@ -806,6 +807,9 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
       commandInterceptorEntries: [],
     }),
     loadOptionalGeneratedModule(path.join(generatedDir, 'workflows.generated.ts'), { allCodeWorkflows: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'crud-form-section-facts.generated.ts'), {
+      crudFormSectionServerModules: [],
+    }),
   ])
 
   return {
@@ -827,6 +831,7 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
       []) as BootstrapData['commandInterceptorEntries'],
     // Code workflow definitions are needed by workers to resume code-defined instances
     codeWorkflows: (workflowsModule.allCodeWorkflows ?? []) as BootstrapData['codeWorkflows'],
+    crudFormSectionServerModules: (crudFormSectionModule.crudFormSectionServerModules ?? []) as BootstrapData['crudFormSectionServerModules'],
     // Empty UI-related data - not needed for CLI
     dashboardWidgetEntries: [],
     injectionWidgetEntries: [],

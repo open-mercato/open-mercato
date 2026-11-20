@@ -176,7 +176,7 @@ describe('CrudForm section registry generation', () => {
     const sinkDeclaration = `
       export const crudFormSections = defineCrudFormSections({
         sinks: [defineCrudFormSectionSink({
-          fact: { id: 'example.brand', roundTripId: 'example.brand@v1', ownerModuleId: 'example' },
+          fact: { id: 'example.brand', roundTripId: 'example.brand@v1', ownerModuleId: 'example', atomicity: 'host-transaction' },
           schema: serverOnlySchema,
           persist: serverOnlyPersistence,
         })],

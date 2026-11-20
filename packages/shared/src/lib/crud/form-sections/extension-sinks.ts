@@ -18,6 +18,7 @@ import { assertOptimisticLock, enforceRecordGoneIsConflict } from '../optimistic
 import type { CrudFormSectionCapabilityEntry } from '../form-section-capabilities'
 import { compareSectionIds, crudFormSectionHostKey } from './composition'
 import { resourceIdSchema, roundTripIdSchema, symbolicIdSchema } from './protocol'
+import { collectCrudFormSectionOutboxRuntimes, crudFormSectionOutboxSyncSchema, validCrudFormSectionExternalDelivery } from './outbox'
 
 type Payload = Record<string, unknown>
 type HostAddress = Omit<CrudFormSectionAddress, 'sectionId'>
@@ -40,7 +41,7 @@ export type PreparedCrudFormSectionSinks = {
 export type CrudFormSectionSinkWarning = { sinkId: string; code: 'extension_sink_failed' }
 
 const logger = createLogger('shared:crud-form-sections')
-const unsafePathSegments = new Set(['__proto__', 'prototype', 'constructor', '__updatedAt'])
+const unsafePathSegments = new Set(['__proto__', 'prototype', 'constructor', '__updatedAt', '__sync'])
 
 function isSafeSegment(segment: string): boolean {
   return !!segment && !segment.includes('.') && !unsafePathSegments.has(segment)
@@ -75,20 +76,25 @@ export function collectCrudFormSectionSinks(modules: readonly CrudFormSectionSer
           || !symbolicIdSchema.safeParse(sink.capabilityId).success
           || !symbolicIdSchema.safeParse(sink.hostDetailEntityId).success
           || !symbolicIdSchema.safeParse(fact.targetEntityId).success
-          || (fact.atomicity !== 'host-transaction' && fact.atomicity !== 'after-commit')
-          || fact.externalDelivery !== undefined
+          || !['host-transaction', 'after-commit', 'outbox'].includes(fact.atomicity)
+          || !validCrudFormSectionExternalDelivery(fact, sink.outbox)
           || !Array.isArray(fact.payloadPaths) || !fact.payloadPaths.length
           || new Set(fact.payloadPaths).size !== fact.payloadPaths.length
           || !fact.payloadPaths.every((path) => localPath(fact, path))
           || typeof sink.schema?.safeParseAsync !== 'function'
           || typeof sink.persist !== 'function' || typeof sink.load !== 'function'
-          || (sink.onHostDeleted !== undefined && (fact.atomicity !== 'host-transaction' || typeof sink.onHostDeleted !== 'function'))
+          || (sink.onHostDeleted !== undefined && (fact.atomicity === 'after-commit' || typeof sink.onHostDeleted !== 'function'))
+          || (fact.atomicity === 'outbox' && (typeof sink.onHostDeleted !== 'function' || fact.optimisticLock !== 'sink-version'))
           || (fact.optimisticLock === 'sink-version' ? typeof sink.lockRow !== 'function'
             : fact.optimisticLock !== 'none' || sink.appendOnly !== true)
-          || (fact.undo === 'snapshot' ? fact.atomicity !== 'host-transaction' || typeof sink.undo !== 'function'
+          || (fact.undo === 'snapshot' ? fact.atomicity === 'after-commit' || typeof sink.undo !== 'function'
             : fact.undo !== 'unsupported')) continue
       sinks.set(fact.id, sink)
     }
+  }
+  const outboxRuntimes = collectCrudFormSectionOutboxRuntimes(sinks.values())
+  for (const [id, sink] of sinks) {
+    if (sink.outbox && !outboxRuntimes.has(sink.fact.targetEntityId)) sinks.delete(id)
   }
   return sinks
 }
@@ -120,6 +126,8 @@ export function selectCrudFormSectionSinks(input: {
     }
   }
   if ([...ownedPaths].some((path) => path.startsWith('extensions.') && !seen.has(path))) return null
+  const outboxTargets = selected.filter(({ fact }) => fact.atomicity === 'outbox').map(({ fact }) => fact.targetEntityId)
+  if (new Set(outboxTargets).size !== outboxTargets.length) return null
   return selected.sort(compareSinks)
 }
 
@@ -508,15 +516,21 @@ export function buildCrudFormSectionSinkEnrichers(
             || scopedTenant !== context.tenantId || scopedOrganization !== context.organizationId
             || (record._extensions !== undefined && !isRecord(record._extensions))) return record
         const extensions: Payload = { ...(isRecord(record._extensions) ? record._extensions : {}) }
-        const loaded = new Map<string, { values: Payload; versions: Map<string, string>; versioned: number }>()
+        const loaded = new Map<string, {
+          values: Payload; versions: Map<string, string>; versioned: number
+          sync: Map<string, NonNullable<Awaited<ReturnType<CrudFormSectionSink['load']>>>['sync']>; outboxes: number
+        }>()
         const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
         for (const { sink, features } of bySink.values()) {
           if (!authorizeFeatures(features, { grantedFeatures: context.userFeatures ?? [] })) continue
           const runtime = manifest.sinkRuntimes?.get(sink.fact.id)
           if (!runtime) continue
           const owner = sink.fact.ownerModuleId
-          const values = loaded.get(owner) ?? { values: {}, versions: new Map<string, string>(), versioned: 0 }
+          const values = loaded.get(owner) ?? {
+            values: {}, versions: new Map(), versioned: 0, sync: new Map(), outboxes: 0,
+          }
           if (sink.fact.optimisticLock === 'sink-version') values.versioned++
+          if (sink.fact.atomicity === 'outbox') values.outboxes++
           loaded.set(owner, values)
           try {
             const row = await runtime.load({
@@ -524,6 +538,10 @@ export function buildCrudFormSectionSinkEnrichers(
               em: context.em as EntityManager, container: context.container as AwilixContainer,
             })
             if (!row) continue
+            if (sink.fact.atomicity === 'outbox') {
+              const sync = crudFormSectionOutboxSyncSchema.safeParse(row.sync)
+              if (sync.success) values.sync.set(sink.fact.id, sync.data)
+            }
             const leaves = leafEntries(row.values, new Set(declaredPaths(sink.fact)), false)
             for (const [path, value] of leaves) {
               writeLeaf(values.values, path, value)
@@ -538,9 +556,10 @@ export function buildCrudFormSectionSinkEnrichers(
           }
         }
         let added = false
-        for (const [owner, { values, versions, versioned }] of loaded) {
-          if (!Object.keys(values).length || Object.hasOwn(extensions, owner)) continue
+        for (const [owner, { values, versions, versioned, sync, outboxes }] of loaded) {
+          if ((!Object.keys(values).length && !sync.size) || Object.hasOwn(extensions, owner)) continue
           if (versions.size) values.__updatedAt = versioned === 1 ? [...versions.values()][0] : Object.fromEntries(versions)
+          if (sync.size) values.__sync = outboxes === 1 ? [...sync.values()][0] : Object.fromEntries(sync)
           extensions[owner] = values
           added = true
         }

@@ -76,6 +76,10 @@ const extensionWarningsSchema = z.array(z.object({ sinkId: z.string(), code: z.s
 const sinkValidationSchema = z.object({
   error: z.literal('validation_failed'), code: z.literal('validation_failed'), fieldErrors: z.record(z.string(), z.string()),
 }).strict()
+const externalUnavailableSchema = z.object({
+  error: z.literal('crud_form_section_external_unavailable'),
+  code: z.literal('crud_form_section_external_unavailable'),
+}).strict()
 
 function refuse(qualifier: string): never {
   throw new Error(`[internal] Cannot derive CrudForm section host: ${qualifier}. Use a hand-written section adapter.`)
@@ -640,6 +644,7 @@ export function createDerivedCrudFormSectionFacade(
     if (!routeMetadata || !responseSchema || !action) return refuse(`method ${method} is missing original route metadata or response schema`)
     metadata[method] = routeMetadata
     const allowsSinks = relevant.some(({ declaration }) => declaration.extensionSinkSupport !== 'none')
+    const allowsOutbox = relevant.some(({ declaration }) => declaration.extensionSinkSupport === 'host-transaction')
     const bodySchemas = relevant.map(({ declaration }) => (operation === 'delete' ? emptyBodySchema : declaration.projectedSchema)
       .extend({
         ...(operation === 'create' ? {} : { id: (declaration.idSchema ?? z.uuid()).optional() }),
@@ -666,6 +671,8 @@ export function createDerivedCrudFormSectionFacade(
         { status: 409, description: 'Policy or record version conflict', schema: z.union([crudFormSectionPolicyMismatchResponseSchema, optimisticConflictSchema]) },
         { status: 413, description: 'Request exceeds configured body limit', schema: errorSchema },
         { status: 422, description: 'Mutation rejected', schema: rejected },
+        ...(operation !== 'delete' && allowsOutbox
+          ? [{ status: 503, description: 'Read-only external validation unavailable', schema: externalUnavailableSchema }] : []),
       ],
     }
     handlers[method] = async (request) => {

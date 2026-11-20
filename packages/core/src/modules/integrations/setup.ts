@@ -1,5 +1,7 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import crypto from 'node:crypto'
+import { crudFormSectionOutboxSweepQueue } from '@open-mercato/shared/lib/crud/form-sections/outbox'
+import { getCrudFormSectionOutboxRuntimes } from './lib/crud-form-outbox'
 
 function stableUuidFromString(input: string): string {
   const bytes = crypto.createHash('sha256').update(input).digest().subarray(0, 16)
@@ -63,6 +65,23 @@ async function ensureHealthProbeSchedule(ctx: {
     sourceModule: 'integrations',
     isEnabled: true,
   })
+  if (getCrudFormSectionOutboxRuntimes().size) {
+    await schedulerService.register({
+      id: stableUuidFromString(`integrations:crud-form-outbox:${ctx.tenantId}:${ctx.organizationId}`),
+      name: 'CrudForm extension delivery sweep',
+      scopeType: 'organization',
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      scheduleType: 'interval',
+      scheduleValue: '1m',
+      targetType: 'queue',
+      targetQueue: crudFormSectionOutboxSweepQueue,
+      targetPayload: { organizationId: ctx.organizationId, tenantId: ctx.tenantId },
+      sourceType: 'module',
+      sourceModule: 'integrations',
+      isEnabled: true,
+    })
+  }
 }
 
 export const setup: ModuleSetupConfig = {
