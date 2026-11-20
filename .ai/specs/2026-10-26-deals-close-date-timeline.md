@@ -842,4 +842,5 @@ Implemented (Phases 1 and 2, 2026-11-05) and revised through four code-review ro
 ### 2026-11-20
 
 - The board resets its local state and pending presentation when the organization changes. TC-CRM-TL-002 holds the next organization's timeline request and checks that the previous organization's cards are absent during loading.
+- Pending saved-view, drag and drawer close-date or stage writes keep their original scope. After a switch, they stop refreshing the old board or publishing its write notices and conflicts. Saved-view unit tests cover successful and failed writes that settle after the switch.
 - Timeline totals aggregate stored decimal amounts before rounding. Route tests cover fractional amounts and distinguish the list count cap from the amount scan cap.

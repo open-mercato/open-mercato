@@ -21,6 +21,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { isLostDealStatus, isOpenDealStatus, isWonDealStatus } from '../../../../../lib/dealStatus'
 import { compareDateKeys, toUtcDateKey } from '../../../../../lib/dealsTimeline'
 import type { DealTimelineItem } from '../../../../../lib/dealsTimelineTypes'
@@ -34,6 +35,7 @@ import { useDealClosure } from '../../[id]/hooks/useDealClosure'
 import type { GuardedMutationRunner } from '../../[id]/hooks/types'
 import { ChangeCloseDateDialog, formatUtcDateKey } from './ChangeCloseDateDialog'
 import { useDealDrawerData, useDealDrawerPermissions, type DealDrawerDeal } from './useDealDrawerData'
+import { isTimelineScopeCurrent, runTimelineScopedWrite } from './timelineWriteScope'
 
 const TIMELINE_DRAWER_LAYER_STYLE: React.CSSProperties = { zIndex: 'var(--z-index-modal)' }
 
@@ -162,6 +164,7 @@ export function TimelineDealDrawer({
 }: TimelineDealDrawerProps): React.ReactElement {
   const t = useT()
   const locale = useLocale()
+  const scopeVersion = useOrganizationScopeVersion()
   const { state, reload } = useDealDrawerData(dealId)
   const permissions = useDealDrawerPermissions()
   const [closeDateDialogOpen, setCloseDateDialogOpen] = React.useState(false)
@@ -213,37 +216,41 @@ export function TimelineDealDrawer({
 
   const runMutationWithContext = React.useCallback<GuardedMutationRunner>(
     async (operation, mutationPayload) => {
-      if (currentDealId) onWriteStarted?.(currentDealId)
+      if (currentDealId && isTimelineScopeCurrent(scopeVersion)) onWriteStarted?.(currentDealId)
       try {
         return await runMutation({
-          operation,
+          operation: () => runTimelineScopedWrite(scopeVersion, operation),
           mutationPayload,
           context: {
             formId: MUTATION_CONTEXT_ID,
             resourceKind: 'customers.deal',
             resourceId: currentDealId ?? '',
-            retryLastMutation,
+            retryLastMutation: () => isTimelineScopeCurrent(scopeVersion) ? retryLastMutation() : Promise.resolve(false),
           },
         })
       } catch (error) {
-        if (currentDealId) onDealChanged(currentDealId)
+        if (currentDealId && isTimelineScopeCurrent(scopeVersion)) onDealChanged(currentDealId)
         throw error
       }
     },
-    [currentDealId, onDealChanged, onWriteStarted, retryLastMutation, runMutation],
+    [currentDealId, onDealChanged, onWriteStarted, retryLastMutation, runMutation, scopeVersion],
   )
 
   const refreshAfterWrite = React.useCallback(async () => {
-    if (!currentDealId) return
+    if (!currentDealId || !isTimelineScopeCurrent(scopeVersion)) return
     await reload()
-    onDealChanged(currentDealId)
-  }, [currentDealId, onDealChanged, reload])
+    if (isTimelineScopeCurrent(scopeVersion)) onDealChanged(currentDealId)
+  }, [currentDealId, onDealChanged, reload, scopeVersion])
+
+  const refreshAfterConflict = React.useCallback(() => {
+    if (isTimelineScopeCurrent(scopeVersion)) void reload()
+  }, [reload, scopeVersion])
 
   const closure = useDealClosure({
     currentDealId,
     dealUpdatedAt: deal?.updatedAt ?? null,
     runMutationWithContext,
-    confirmDiscardIfDirty: async () => true,
+    confirmDiscardIfDirty: async () => isTimelineScopeCurrent(scopeVersion),
     onClosed: refreshAfterWrite,
   })
 
@@ -260,17 +267,19 @@ export function TimelineDealDrawer({
           { ...payload, operation: 'rescheduleDeal' },
         )
       } catch (err) {
-        if (!surfaceRecordConflict(err, t, { onRefresh: () => { void reload() } })) {
+        if (!isTimelineScopeCurrent(scopeVersion)) return
+        if (!surfaceRecordConflict(err, t, { onRefresh: refreshAfterConflict })) {
           flash(t('customers.deals.timeline.reschedule.error', 'Could not change the close date.'), 'error')
         }
         await reload()
         return
       }
+      if (!isTimelineScopeCurrent(scopeVersion)) return
       setCloseDateDialogOpen(false)
       await reload()
-      onRescheduled({ dealId: deal.id, expectedCloseAt: dateKey })
+      if (isTimelineScopeCurrent(scopeVersion)) onRescheduled({ dealId: deal.id, expectedCloseAt: dateKey })
     },
-    [deal, onRescheduled, reload, runMutationWithContext, t],
+    [deal, onRescheduled, refreshAfterConflict, reload, runMutationWithContext, scopeVersion, t],
   )
 
   const handleStageChange = React.useCallback(
@@ -289,11 +298,13 @@ export function TimelineDealDrawer({
           ),
           { ...payload, operation: 'updateDealStage' },
         )
+        if (!isTimelineScopeCurrent(scopeVersion)) return
         flash(t('customers.deals.detail.stageUpdateSuccess', 'Deal stage updated.'), 'success')
         setStageDialogOpen(false)
         await refreshAfterWrite()
       } catch (err) {
-        if (!surfaceRecordConflict(err, t, { onRefresh: () => { void reload() } })) {
+        if (!isTimelineScopeCurrent(scopeVersion)) return
+        if (!surfaceRecordConflict(err, t, { onRefresh: refreshAfterConflict })) {
           flash(t('customers.deals.detail.stageUpdateError', 'Failed to update deal stage.'), 'error')
         }
         await reload()
@@ -301,7 +312,7 @@ export function TimelineDealDrawer({
         setIsStageSaving(false)
       }
     },
-    [deal, refreshAfterWrite, reload, runMutationWithContext, t],
+    [deal, refreshAfterConflict, refreshAfterWrite, reload, runMutationWithContext, scopeVersion, t],
   )
 
   const handleCloseAutoFocus = React.useCallback(

@@ -8,6 +8,8 @@ import { TimelineSavedViews } from '../TimelineSavedViews'
 import type { DealTimelineSavedView } from '../../../../../../lib/dealsTimelineSavedView'
 
 const mockReadApiResultOrThrow = jest.fn()
+const mockApiCallOrThrow = jest.fn()
+const mockFlash = jest.fn()
 let mockScopeVersion = 1
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -23,15 +25,19 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => mockScopeVersion,
 }))
 
+jest.mock('@open-mercato/shared/lib/frontend/organizationEvents', () => ({
+  getCurrentOrganizationScopeVersion: () => mockScopeVersion,
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => mockReadApiResultOrThrow(...args),
-  apiCallOrThrow: jest.fn(),
+  apiCallOrThrow: (...args: unknown[]) => mockApiCallOrThrow(...args),
   withScopedApiRequestHeaders: (_headers: unknown, operation: () => unknown) => operation(),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({ buildOptimisticLockHeader: () => ({}) }))
 jest.mock('@open-mercato/ui/backend/conflicts', () => ({ surfaceRecordConflict: () => false }))
-jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: (...args: unknown[]) => mockFlash(...args) }))
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: async () => true, ConfirmDialogElement: null }),
 }))
@@ -49,7 +55,16 @@ jest.mock('@open-mercato/ui/backend/views/ViewChip', () => ({
   ),
 }))
 jest.mock('@open-mercato/ui/backend/views/NewViewForm', () => ({
-  NewViewForm: () => <div data-testid="new-view-form" />,
+  NewViewForm: ({ name, onNameChange, onSubmit }: {
+    name: string
+    onNameChange: (name: string) => void
+    onSubmit: () => void
+  }) => (
+    <>
+      <input aria-label="View name" value={name} onChange={(event) => onNameChange(event.target.value)} />
+      <button type="button" onClick={onSubmit}>Create view</button>
+    </>
+  ),
 }))
 
 const currentView: DealTimelineSavedView = {
@@ -88,6 +103,8 @@ function renderViews(client: QueryClient, onApply = jest.fn()) {
 describe('TimelineSavedViews', () => {
   beforeEach(() => {
     mockReadApiResultOrThrow.mockReset()
+    mockApiCallOrThrow.mockReset()
+    mockFlash.mockClear()
     mockScopeVersion = 1
   })
 
@@ -153,6 +170,27 @@ describe('TimelineSavedViews', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(await screen.findByText('Recovered view')).toBeTruthy()
     await waitFor(() => expect(screen.queryByTestId('timeline-saved-views-error')).toBeNull())
+  })
+
+  it.each(['success', 'failure'])('ignores a pending save %s after switching organizations', async (outcome) => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const pendingSave = deferred<unknown>()
+    mockReadApiResultOrThrow.mockResolvedValue({ perspectives: [] })
+    mockApiCallOrThrow.mockReturnValueOnce(pendingSave.promise)
+    const view = renderViews(client)
+    fireEvent.click(await screen.findByRole('button', { name: 'Save view' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'View name' }), { target: { value: 'Org A view' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create view' }))
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+
+    mockScopeVersion = 2
+    view.unmount()
+    renderViews(client)
+    await act(async () => {
+      if (outcome === 'success') pendingSave.resolve({ result: { perspective: perspective('view-a', 'Org A view') } })
+      else pendingSave.reject(new Error('Org A save failed'))
+    })
+    expect(mockFlash).not.toHaveBeenCalled()
   })
 
   it('shows a valid empty state when the user has no saved views', async () => {

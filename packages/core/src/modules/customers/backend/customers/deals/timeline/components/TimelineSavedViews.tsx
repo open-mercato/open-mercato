@@ -17,6 +17,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isTimelineScopeCurrent, runTimelineScopedWrite } from './timelineWriteScope'
 import {
   buildDealTimelinePerspectiveSettings,
   parseDealTimelineSavedView,
@@ -84,8 +85,6 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
   const t = useT()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
-  const scopeVersionRef = React.useRef(scopeVersion)
-  scopeVersionRef.current = scopeVersion
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation, retryLastMutation } = useGuardedMutation<SavedViewsMutationContext>({
     contextId: SAVED_VIEWS_CONTEXT_ID,
@@ -130,7 +129,6 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
   const loadFailed = perspectivesQuery.isError
   const isInitialLoading = perspectivesQuery.isPending && !perspectivesQuery.data
   const reload = React.useCallback(() => queryClient.invalidateQueries({ queryKey }), [queryClient, queryKey])
-  const isStaleScope = React.useCallback((startedAt: number) => scopeVersionRef.current !== startedAt, [])
 
   const duplicateMessage = translateWithFallback(
     t,
@@ -144,7 +142,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
       if (input.perspectiveId) body.perspectiveId = input.perspectiveId
       else body.createOnly = true
       return runMutation({
-        operation: () =>
+        operation: () => runTimelineScopedWrite(scopeVersion, () =>
           withScopedApiRequestHeaders(
             input.perspectiveId ? buildOptimisticLockHeader(input.updatedAt ?? null) : {},
             () =>
@@ -164,16 +162,17 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
                 },
               ),
           ),
+        ),
         context: {
           formId: SAVED_VIEWS_CONTEXT_ID,
           resourceKind: 'perspectives.perspective',
           resourceId: input.perspectiveId ?? TIMELINE_PERSPECTIVE_TABLE_ID,
-          retryLastMutation,
+          retryLastMutation: () => isTimelineScopeCurrent(scopeVersion) ? retryLastMutation() : Promise.resolve(false),
         },
         mutationPayload: body,
       })
     },
-    [retryLastMutation, runMutation, t],
+    [retryLastMutation, runMutation, scopeVersion, t],
   )
 
   const handleWriteError = React.useCallback(
@@ -196,6 +195,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
   )
 
   const handleCreate = React.useCallback(async () => {
+    if (!isTimelineScopeCurrent(scopeVersion)) return
     const name = newName.trim()
     if (!name) return
     const check = validateDealTimelineSavedViewForSave(currentView)
@@ -223,10 +223,9 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
     }
     setSaving(true)
     setNameError(null)
-    const startedAt = scopeVersionRef.current
     try {
       const call = await save({ name, settings: buildDealTimelinePerspectiveSettings(currentView) })
-      if (isStaleScope(startedAt)) return
+      if (!isTimelineScopeCurrent(scopeVersion)) return
       const created = call.result?.perspective
       if (created?.id) setApplied({ id: created.id, signature: currentSignature })
       setCreating(false)
@@ -234,47 +233,46 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
       flash(translateWithFallback(t, 'customers.deals.timeline.savedViews.saved', 'View saved.'), 'success')
       await reload()
     } catch (error) {
-      if (isStaleScope(startedAt)) return
+      if (!isTimelineScopeCurrent(scopeVersion)) return
       handleWriteError(error, () => setNameError(duplicateMessage))
     } finally {
-      if (!isStaleScope(startedAt)) setSaving(false)
+      if (isTimelineScopeCurrent(scopeVersion)) setSaving(false)
     }
-  }, [currentSignature, currentView, duplicateMessage, handleWriteError, isStaleScope, newName, reload, save, t])
+  }, [currentSignature, currentView, duplicateMessage, handleWriteError, newName, reload, save, scopeVersion, t])
 
   const handleRename = React.useCallback(
     async (perspective: PerspectiveRecord) => {
       const name = renameValue.trim()
-      if (!name) return
-      const startedAt = scopeVersionRef.current
+      if (!name || !isTimelineScopeCurrent(scopeVersion)) return
       try {
         await save({ name, settings: perspective.settings, perspectiveId: perspective.id, updatedAt: perspective.updatedAt })
-        if (isStaleScope(startedAt)) return
+        if (!isTimelineScopeCurrent(scopeVersion)) return
         setRenamingId(null)
         await reload()
       } catch (error) {
-        if (isStaleScope(startedAt)) return
+        if (!isTimelineScopeCurrent(scopeVersion)) return
         handleWriteError(error, () => flash(duplicateMessage, 'error'))
       }
     },
-    [duplicateMessage, handleWriteError, isStaleScope, reload, renameValue, save],
+    [duplicateMessage, handleWriteError, reload, renameValue, save, scopeVersion],
   )
 
   const handleClone = React.useCallback(
     async (perspective: PerspectiveRecord) => {
+      if (!isTimelineScopeCurrent(scopeVersion)) return
       const name = translateWithFallback(t, 'customers.deals.timeline.savedViews.copyName', '{name} (copy)', {
         name: perspective.name,
       })
-      const startedAt = scopeVersionRef.current
       try {
         await save({ name, settings: perspective.settings })
-        if (isStaleScope(startedAt)) return
+        if (!isTimelineScopeCurrent(scopeVersion)) return
         await reload()
       } catch (error) {
-        if (isStaleScope(startedAt)) return
+        if (!isTimelineScopeCurrent(scopeVersion)) return
         handleWriteError(error, () => flash(duplicateMessage, 'error'))
       }
     },
-    [duplicateMessage, handleWriteError, isStaleScope, reload, save, t],
+    [duplicateMessage, handleWriteError, reload, save, scopeVersion, t],
   )
 
   const handleDelete = React.useCallback(
@@ -286,12 +284,11 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
         variant: 'destructive',
         confirmText: translateWithFallback(t, 'customers.deals.timeline.savedViews.delete', 'Delete'),
       })
-      if (!confirmed) return
-      const startedAt = scopeVersionRef.current
+      if (!confirmed || !isTimelineScopeCurrent(scopeVersion)) return
       setDeletingId(perspective.id)
       try {
         await runMutation({
-          operation: () =>
+          operation: () => runTimelineScopedWrite(scopeVersion, () =>
             withScopedApiRequestHeaders(buildOptimisticLockHeader(perspective.updatedAt ?? null), () =>
               apiCallOrThrow(
                 `${PERSPECTIVES_URL}/${encodeURIComponent(perspective.id)}`,
@@ -305,25 +302,26 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
                 },
               ),
             ),
+          ),
           context: {
             formId: SAVED_VIEWS_CONTEXT_ID,
             resourceKind: 'perspectives.perspective',
             resourceId: perspective.id,
-            retryLastMutation,
+            retryLastMutation: () => isTimelineScopeCurrent(scopeVersion) ? retryLastMutation() : Promise.resolve(false),
           },
           mutationPayload: { id: perspective.id },
         })
-        if (isStaleScope(startedAt)) return
+        if (!isTimelineScopeCurrent(scopeVersion)) return
         if (applied?.id === perspective.id) setApplied(null)
         await reload()
       } catch (error) {
-        if (isStaleScope(startedAt)) return
+        if (!isTimelineScopeCurrent(scopeVersion)) return
         handleWriteError(error, () => undefined)
       } finally {
-        if (!isStaleScope(startedAt)) setDeletingId(null)
+        if (isTimelineScopeCurrent(scopeVersion)) setDeletingId(null)
       }
     },
-    [applied, confirm, handleWriteError, isStaleScope, reload, retryLastMutation, runMutation, t],
+    [applied, confirm, handleWriteError, reload, retryLastMutation, runMutation, scopeVersion, t],
   )
 
   const handleActivate = React.useCallback(

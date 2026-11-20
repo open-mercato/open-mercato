@@ -36,7 +36,6 @@ import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserI
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { mapDictionaryColorToTone, type FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
@@ -88,6 +87,7 @@ import { TimelineDealCardPreview, formatTimelineDate } from './TimelineDealCard'
 import { TimelineAmounts } from './TimelineAmounts'
 import { TimelineDealDrawer } from './TimelineDealDrawer'
 import { TIMELINE_QUERY_ROOT, findTimelineDeal, useRescheduleDeal } from './useRescheduleDeal'
+import { isTimelineScopeCurrent } from './timelineWriteScope'
 import {
   EMPTY_DEAL_WRITE_LOCKS,
   clearDrawerWaitsExcept,
@@ -474,7 +474,7 @@ function ScopedDealsTimelineBoard({
   const closeDrawerRef = React.useRef<(() => void) | null>(null)
 
   const focusCard = React.useCallback((dealId: string): boolean => {
-    if (typeof document === 'undefined' || getCurrentOrganizationScopeVersion() !== scopeVersion) return false
+    if (typeof document === 'undefined' || !isTimelineScopeCurrent(scopeVersion)) return false
     const element = document.querySelector<HTMLElement>(`[data-timeline-card][data-deal-id="${CSS.escape(dealId)}"]`)
     if (!element) return false
     element.focus()
@@ -507,7 +507,7 @@ function ScopedDealsTimelineBoard({
 
   const afterReschedule = React.useCallback(
     (dealId: string, date: string, knownLaneKey: string | null = null) => {
-      if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
+      if (!isTimelineScopeCurrent(scopeVersion)) return
       const current = queryClient.getQueryData<DealTimelineResponse>(queryKey)
       const location = findTimelineDeal(current, dealId)
       const laneKey = location?.laneKey ?? knownLaneKey
@@ -571,7 +571,7 @@ function ScopedDealsTimelineBoard({
     if (lane) setPopover({ laneKey: lane.key, column, focusDealId: pendingReveal.dealId })
   }, [data, focusCard, pendingReveal, timelineQuery.isFetching])
 
-  const reschedule = useRescheduleDeal(queryKey)
+  const reschedule = useRescheduleDeal(queryKey, scopeVersion)
   const [writeLocks, setWriteLocks] = React.useState<DealWriteLocks>(EMPTY_DEAL_WRITE_LOCKS)
   const readDataUpdatedAt = React.useCallback(
     () => queryClient.getQueryState(queryKey)?.dataUpdatedAt ?? 0,
@@ -608,7 +608,7 @@ function ScopedDealsTimelineBoard({
   )
 
   const closeDrawer = React.useCallback(() => {
-    if (getCurrentOrganizationScopeVersion() !== scopeVersion) return
+    if (!isTimelineScopeCurrent(scopeVersion)) return
     const pendingFocus = pendingDrawerFocusRef.current
     pendingDrawerFocusRef.current = null
     if (pendingFocus?.kind === 'card') {
@@ -632,8 +632,8 @@ function ScopedDealsTimelineBoard({
   )
 
   const invalidateTimeline = React.useCallback(
-    () => queryClient.invalidateQueries({ queryKey: TIMELINE_QUERY_ROOT }),
-    [queryClient],
+    () => queryClient.invalidateQueries({ queryKey: [...TIMELINE_QUERY_ROOT, `scope:${scopeVersion}`] }),
+    [queryClient, scopeVersion],
   )
 
   const lockAfterDrawerWrite = React.useCallback(

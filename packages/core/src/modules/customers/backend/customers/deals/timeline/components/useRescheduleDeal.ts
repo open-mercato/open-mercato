@@ -15,6 +15,7 @@ import type {
   DealTimelineItem,
   DealTimelineResponse,
 } from '../../../../../lib/dealsTimelineTypes'
+import { isTimelineScopeCurrent, runTimelineScopedWrite } from './timelineWriteScope'
 
 export const TIMELINE_QUERY_ROOT = ['customers', 'deals', 'timeline'] as const
 
@@ -192,7 +193,7 @@ export function writeTimelineCacheLocally(
   queryClient.setQueryData(key, data, updatedAt ? { updatedAt } : undefined)
 }
 
-export function useRescheduleDeal(queryKey: QueryKey) {
+export function useRescheduleDeal(queryKey: QueryKey, scopeVersion: number) {
   const t = useT()
   const queryClient = useQueryClient()
   const { runMutation, retryLastMutation } = useGuardedMutation<RescheduleMutationContext>({
@@ -205,6 +206,7 @@ export function useRescheduleDeal(queryKey: QueryKey) {
       request: RescheduleRequest,
       options?: { onSettled?: (outcome: RescheduleOutcome) => void },
     ): Promise<RescheduleOutcome> => {
+      if (!isTimelineScopeCurrent(scopeVersion)) return 'error'
       const errorMessage = translateWithFallback(
         t,
         'customers.deals.timeline.reschedule.error',
@@ -218,7 +220,7 @@ export function useRescheduleDeal(queryKey: QueryKey) {
           cancel: (key) => queryClient.cancelQueries({ queryKey: key }),
           send: ({ item, expectedCloseAt }) =>
             runMutation({
-              operation: () =>
+              operation: () => runTimelineScopedWrite(scopeVersion, () =>
                 withScopedApiRequestHeaders(buildOptimisticLockHeader(item.updatedAt), () =>
                   apiCallOrThrow(
                     '/api/customers/deals',
@@ -230,26 +232,29 @@ export function useRescheduleDeal(queryKey: QueryKey) {
                     { errorMessage },
                   ),
                 ),
+              ),
               context: {
                 formId: RESCHEDULE_CONTEXT_ID,
                 resourceKind: 'customers.deal',
                 resourceId: item.id,
-                retryLastMutation,
+                retryLastMutation: () => isTimelineScopeCurrent(scopeVersion) ? retryLastMutation() : Promise.resolve(false),
               },
               mutationPayload: { id: item.id, expectedCloseAt },
             }),
-          isConflict: (error) => surfaceRecordConflict(error, t),
+          isConflict: (error) => isTimelineScopeCurrent(scopeVersion) && surfaceRecordConflict(error, t),
           onError: (error) => {
+            if (!isTimelineScopeCurrent(scopeVersion)) return
             const message = error instanceof Error && error.message ? error.message : errorMessage
             flash(message, 'error')
           },
         },
         request,
       )
+      if (!isTimelineScopeCurrent(scopeVersion)) return outcome
       options?.onSettled?.(outcome)
-      await queryClient.invalidateQueries({ queryKey: TIMELINE_QUERY_ROOT })
+      await queryClient.invalidateQueries({ queryKey: [...TIMELINE_QUERY_ROOT, `scope:${scopeVersion}`] })
       return outcome
     },
-    [queryClient, queryKey, retryLastMutation, runMutation, t],
+    [queryClient, queryKey, retryLastMutation, runMutation, scopeVersion, t],
   )
 }
