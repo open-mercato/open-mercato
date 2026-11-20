@@ -120,7 +120,11 @@ export class SsoConfigService {
         deletedAt: null,
       })
       if (existing) {
-        throw new SsoConfigError('An SSO configuration already exists for this organization', 409)
+        const { translate } = await resolveTranslations()
+        throw new SsoConfigError(
+          translate('sso.admin.error.alreadyExists', 'An SSO configuration already exists for this organization'),
+          409,
+        )
       }
 
       const domains = uniqueDomains(input.allowedDomains)
@@ -374,7 +378,10 @@ export class SsoConfigService {
     }
 
     const config = await em.findOne(SsoConfig, where, lock ? { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } : {})
-    if (!config) throw new SsoConfigError('SSO configuration not found', 404)
+    if (!config) {
+      const { translate } = await resolveTranslations()
+      throw new SsoConfigError(translate('sso.admin.error.notFound', 'SSO configuration not found'), 404)
+    }
 
     return config
   }

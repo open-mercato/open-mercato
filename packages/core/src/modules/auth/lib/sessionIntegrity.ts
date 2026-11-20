@@ -31,6 +31,7 @@ function resolveActorOrganizationId(auth: NonNullable<AuthContext>): NormalizedS
 export async function resolveCanonicalStaffAuthContext(
   em: EntityManager,
   auth: AuthContext,
+  resolveAuthService?: () => Pick<AuthService, 'isSessionEligible'>,
 ): Promise<AuthContext> {
   if (!auth) return null
   if (auth.isApiKey) return auth
@@ -111,10 +112,8 @@ export async function resolveCanonicalStaffAuthContext(
   if (!(await isStaffTenantActive(em, currentTenantId))) return null
 
   if (session?.ssoProvenance != null) {
-    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-    const container = await createRequestContainer()
-    const authService = container.resolve<AuthService>('authService')
-    if (!(await authService.isSessionEligible(session, user))) return null
+    const authService = resolveAuthService?.()
+    if (!(await authService?.isSessionEligible(session, user))) return null
   }
 
   // Role links and the per-user super-admin flag are likewise independent, so they
@@ -225,6 +224,7 @@ async function roleAclGrantsSuperAdmin(
 export async function isAuthContextValid(
   em: EntityManager,
   auth: AuthContext,
+  resolveAuthService?: () => Pick<AuthService, 'isSessionEligible'>,
 ): Promise<boolean> {
-  return (await resolveCanonicalStaffAuthContext(em, auth)) !== null
+  return (await resolveCanonicalStaffAuthContext(em, auth, resolveAuthService)) !== null
 }
