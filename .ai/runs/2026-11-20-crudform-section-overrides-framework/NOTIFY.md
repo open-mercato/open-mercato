@@ -51,3 +51,8 @@
 - The ordered local gate passed all eight commands, including all 51 unit test tasks and the app build. All 42 uncached typecheck tasks passed.
 - Independent review approved the implementation and final generated inventories. The updated app and template fixture now assert both supported browser conflict surfaces and the actual winning API operation after concurrent writes.
 - All 255 deterministic harness cases passed, and each of the twelve new cases passed individually with the live Codex CLI. The full Linux release remains open after the sandboxed foundation reached its memory limit.
+
+## 2026-11-20T22:01:00Z — verified concurrency repair
+
+- All twelve executions of the repaired Todo spec passed without retries on the fresh Enterprise-enabled app.
+- The exact fixture head passed all 42 uncached local typechecks. GitHub's scoped Linux test job exited in UI typecheck with code 129 and no compiler diagnostic. Previous attempts exited in Core and the app. The next run selects the repository's supported full CI path.
