@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
-  createOrganizationFixture, createRoleFixture, createUserFixture, deleteOrganizationIfExists,
-  deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures,
+  createOrganizationFixture, createRoleFixture, createUserFixture, setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -39,25 +38,24 @@ export async function withIsolatedAddressEncryptionActor(
     const token = await getAuthToken(request, email, password)
     await run({ token, tenantId, organizationId, unrelatedTenantId, unrelatedOrganizationId })
   } finally {
+    const deleteOwned = async (resource: string, id: string | null, body = false) => {
+      if (!id) return
+      const response = await apiRequest(request, 'DELETE', body ? resource : `${resource}?id=${encodeURIComponent(id)}`, {
+        token: superToken, ...(body ? { data: { id } } : {}),
+      })
+      if (!response.ok() && response.status() !== 404) {
+        throw new Error(`[internal] Fixture deletion failed: ${resource} HTTP ${response.status()}`)
+      }
+    }
     const cleanup = [
-      () => deleteUserIfExists(request, superToken, userId),
-      () => deleteRoleIfExists(request, superToken, roleId),
+      () => deleteOwned('/api/auth/users', userId),
+      () => deleteOwned('/api/auth/roles', roleId),
       async () => { if (tenantId) await withClient((client) => client.query('delete from encryption_maps where tenant_id = $1', [tenantId])) },
       async () => { if (unrelatedTenantId) await withClient((client) => client.query('delete from encryption_maps where tenant_id = $1', [unrelatedTenantId])) },
-      () => deleteOrganizationIfExists(request, superToken, organizationId),
-      () => deleteOrganizationIfExists(request, superToken, unrelatedOrganizationId),
-      async () => {
-        if (tenantId) {
-          const deleted = await apiRequest(request, 'DELETE', `/api/directory/tenants?id=${tenantId}`, { token: superToken })
-          expect(deleted.ok()).toBe(true)
-        }
-      },
-      async () => {
-        if (unrelatedTenantId) {
-          const deleted = await apiRequest(request, 'DELETE', `/api/directory/tenants?id=${unrelatedTenantId}`, { token: superToken })
-          expect(deleted.ok()).toBe(true)
-        }
-      },
+      () => deleteOwned('/api/directory/organizations', organizationId, true),
+      () => deleteOwned('/api/directory/organizations', unrelatedOrganizationId, true),
+      () => deleteOwned('/api/directory/tenants', tenantId),
+      () => deleteOwned('/api/directory/tenants', unrelatedTenantId),
     ]
     const errors: unknown[] = []
     for (const removeFixture of cleanup) {
