@@ -1,0 +1,122 @@
+import { buildCompanyCreateInput, diffCompanyUpdate, resolveCompanyStatus, type CompanySnapshot } from '../lib/contacts/compare'
+import type { XeroContact } from '../lib/contacts/contact'
+import { mapXeroContactToCompany, type MappedXeroCompany } from '../lib/contacts/mapping'
+
+const MARKER = 'a3b1c2d3-0000-4000-8000-000000000001:c0000000-0000-4000-8000-000000000001'
+
+function company(fields: Partial<MappedXeroCompany> = {}): MappedXeroCompany {
+  return {
+    displayName: 'Acme Ltd',
+    legalName: 'Acme Ltd',
+    primaryEmail: 'billing@acme.example',
+    primaryPhone: '+44 20 7946 0000',
+    websiteUrl: 'https://acme.example',
+    taxNumber: 'GB 123',
+    contactStatus: 'ACTIVE',
+    warnings: [],
+    ...fields,
+  }
+}
+
+function withTaxNumberOf(fields: Partial<XeroContact>): MappedXeroCompany {
+  const result = mapXeroContactToCompany({ ContactID: 'c0000000-0000-4000-8000-000000000001', Name: 'Acme Ltd', ...fields })
+  if (!result.ok) throw new Error('[internal] expected a mapped Contact')
+  return company({ taxNumber: result.company.taxNumber })
+}
+
+function snapshot(fields: Partial<CompanySnapshot> = {}): CompanySnapshot {
+  return {
+    entityId: 'e0000000-0000-4000-8000-00000000000a',
+    displayName: 'Acme Ltd',
+    legalName: 'Acme Ltd',
+    primaryEmail: 'billing@acme.example',
+    primaryPhone: '+44 20 7946 0000',
+    websiteUrl: 'https://acme.example',
+    taxId: 'GB 123',
+    status: 'active',
+    isActive: true,
+    custom: { xero_contact_id: MARKER },
+    ...fields,
+  }
+}
+
+describe('resolveCompanyStatus', () => {
+  it('archives on ARCHIVED and GDPRREQUEST, activates on create, and brings back only an archived Company', () => {
+    expect(resolveCompanyStatus('ARCHIVED', snapshot())).toEqual({ status: 'archived', isActive: false })
+    expect(resolveCompanyStatus('GDPRREQUEST', null)).toEqual({ status: 'archived', isActive: false })
+    expect(resolveCompanyStatus('ACTIVE', null)).toEqual({ status: 'active', isActive: true })
+    expect(resolveCompanyStatus(null, null)).toEqual({ status: 'active', isActive: true })
+    expect(resolveCompanyStatus('ACTIVE', snapshot({ status: 'archived', isActive: false }))).toEqual({ status: 'active', isActive: true })
+    expect(resolveCompanyStatus('ACTIVE', snapshot({ status: 'pending', isActive: true }))).toBeNull()
+    expect(resolveCompanyStatus('ACTIVE', snapshot({ status: 'inactive', isActive: false }))).toBeNull()
+  })
+})
+
+describe('buildCompanyCreateInput', () => {
+  it('writes every non-blank Xero value, the active status, the marker and the tax number as the native taxId', () => {
+    expect(buildCompanyCreateInput(company({ websiteUrl: null }), MARKER)).toEqual({
+      displayName: 'Acme Ltd',
+      legalName: 'Acme Ltd',
+      primaryEmail: 'billing@acme.example',
+      primaryPhone: '+44 20 7946 0000',
+      taxId: 'GB 123',
+      status: 'active',
+      isActive: true,
+      customFields: { xero_contact_id: MARKER },
+    })
+    const withoutTaxNumber = buildCompanyCreateInput(company({ taxNumber: null, contactStatus: 'ARCHIVED' }), MARKER)
+    expect(withoutTaxNumber).toMatchObject({ status: 'archived', isActive: false, customFields: { xero_contact_id: MARKER } })
+    expect(withoutTaxNumber).not.toHaveProperty('taxId')
+  })
+})
+
+describe('diffCompanyUpdate — compare-before-write', () => {
+  it('answers null for an unchanged Company, so no command runs', () => {
+    expect(diffCompanyUpdate(company(), MARKER, snapshot())).toBeNull()
+  })
+
+  it('holds only the Xero-owned values that differ', () => {
+    const update = diffCompanyUpdate(company({ primaryEmail: 'accounts@acme.example', displayName: 'Acme Group', legalName: 'Acme Group' }), MARKER, snapshot())
+    expect(update).toEqual({ displayName: 'Acme Group', legalName: 'Acme Group', primaryEmail: 'accounts@acme.example' })
+  })
+
+  it('never clears an OM value with a blank or left-out Xero value and never touches an OM-only field', () => {
+    const current = snapshot({ status: 'pending', primaryPhone: '+48 600 000 000', websiteUrl: 'https://om.example' })
+    const update = diffCompanyUpdate(company({ primaryPhone: null, websiteUrl: null, primaryEmail: null }), MARKER, current)
+    expect(update).toBeNull()
+    const changed = diffCompanyUpdate(company({ displayName: 'Acme Group', primaryPhone: null, websiteUrl: null }), MARKER, current)
+    expect(Object.keys(changed ?? {})).toEqual(['displayName'])
+  })
+
+  it('archives and restores through status and isActive together', () => {
+    expect(diffCompanyUpdate(company({ contactStatus: 'ARCHIVED' }), MARKER, snapshot())).toEqual({ status: 'archived', isActive: false })
+    expect(diffCompanyUpdate(company(), MARKER, snapshot({ status: 'archived', isActive: false }))).toEqual({ status: 'active', isActive: true })
+  })
+
+  it('writes the native taxId only when it differs after normalization, and never clears it', () => {
+    expect(diffCompanyUpdate(company({ taxNumber: 'gb123' }), MARKER, snapshot())).toBeNull()
+    expect(diffCompanyUpdate(company({ taxNumber: 'GB 999' }), MARKER, snapshot())).toEqual({ taxId: 'GB 999' })
+    expect(diffCompanyUpdate(company(), MARKER, snapshot({ taxId: null }))).toEqual({ taxId: 'GB 123' })
+    expect(diffCompanyUpdate(company({ taxNumber: null }), MARKER, snapshot({ taxId: 'PL 555' }))).toBeNull()
+  })
+
+  it('never writes an SSN, ITIN or ATIN to taxId on create or update, but writes an EIN or an untyped tax number', () => {
+    for (const type of ['SSN', 'ITIN', 'ATIN']) {
+      const personal = withTaxNumberOf({ TaxNumber: '123-45-6789', TaxNumberType: type })
+      expect(buildCompanyCreateInput(personal, MARKER)).not.toHaveProperty('taxId')
+      expect(diffCompanyUpdate(personal, MARKER, snapshot({ taxId: null }))).toBeNull()
+      expect(diffCompanyUpdate(personal, MARKER, snapshot({ taxId: 'GB 123' }))).toBeNull()
+    }
+    const ein = withTaxNumberOf({ TaxNumber: '12-3456789', TaxNumberType: 'EIN' })
+    expect(buildCompanyCreateInput(ein, MARKER)).toMatchObject({ taxId: '12-3456789' })
+    expect(diffCompanyUpdate(ein, MARKER, snapshot())).toEqual({ taxId: '12-3456789' })
+    const untyped = withTaxNumberOf({ TaxNumber: 'GB 999' })
+    expect(buildCompanyCreateInput(untyped, MARKER)).toMatchObject({ taxId: 'GB 999' })
+    expect(diffCompanyUpdate(untyped, MARKER, snapshot())).toEqual({ taxId: 'GB 999' })
+  })
+
+  it('writes the marker only while the Company has none', () => {
+    expect(diffCompanyUpdate(company(), MARKER, snapshot({ custom: {} }))).toEqual({ customFields: { xero_contact_id: MARKER } })
+    expect(diffCompanyUpdate(company(), MARKER, snapshot({ taxId: 'GB123', custom: { xero_contact_id: 'other:marker' } }))).toBeNull()
+  })
+})
