@@ -5,12 +5,12 @@ PR: https://github.com/open-mercato/open-mercato/pull/10067
 
 ## What just happened
 
-Phase 1 (Steps 1.1–1.4) landed and passed checkpoint 1. The paired registries and section identities are available. The example's override targets stay pending until its real section declarations are projected in Phase 6.
+Steps 2.1–2.5 landed with the authenticated resolver, protected façade, required leaves and owned command effects. An independent check found two engine issues, which landed together as 2.5-review-fix. The local and Playwright checks are recorded in checkpoint 2.
 
 ## Next concrete action
 
-Implement Step 2.1. Collect semantic capabilities from the final runtime registries and compare canonical facts. Step 2.2 will consume that result to build the manifest and resolver.
+Finish Step 2.6. Add server-only sink discovery and exact extension namespaces, persistence and read-back. Use the tentative host identity to write sink records and audit snapshots in the owning transaction. Use the completed result for the HTTP response.
 
 ## Environment
 
-Local runner. Package build and generation passed. No migration or browser flow was required for Phase 1.
+Local package runner and fully managed ephemeral Playwright app. The CLI finished the run and cleaned up its owned environment.

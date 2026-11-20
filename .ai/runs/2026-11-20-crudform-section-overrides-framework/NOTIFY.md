@@ -10,3 +10,9 @@
 
 - Verified Phase 1 with package build, generation, shared and CLI tests, boundary and template checks.
 - Browser evidence was inapplicable because Phase 1 changed no rendered flow.
+
+## 2026-11-20T10:24:42Z — checkpoint 2
+
+- Steps 2.1–2.5 and the ambient engine review fix are verified and pushed.
+- The local gate and two existing Todo browser scenarios passed. Screenshots are attached to the PR.
+- A bounded independent review and the next sink implementation ran in parallel while the immutable Playwright application build served the checkpoint tests.

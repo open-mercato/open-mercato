@@ -14,12 +14,12 @@ Status: in-progress
 | 1 | 1.2 | Discover section facts and lazy browser loaders with deterministic parity | dispatch | done | 0d589dcdc1 |
 | 1 | 1.3 | Define serializable section, capability, dependency and surface facts | dispatch | done | 498703b028 |
 | 1 | 1.4 | Add stable section scopes and pin legacy handle compatibility | dispatch | done | 05f57ef0aa |
-| 2 | 2.1 | Match final server capabilities by canonical facts | dispatch | done | this commit |
-| 2 | 2.2 | Build the accepted manifest, host ledger and authenticated resolver | dispatch | done | this commit |
-| 2 | 2.3 | Bind guarded mutation requests to reauthorized providers and resources | dispatch | done | this commit |
-| 2 | 2.4 | Enforce required leaves and scoped default providers | dispatch | done | this commit |
-| 2 | 2.5 | Compose ambient command lifecycle with the final-input transaction boundary | group:A | done | this commit |
-| 2 | 2.5-review-fix | Keep create-only entity writes and pending effects within the ambient lifecycle | inline | done | this commit |
+| 2 | 2.1 | Match final server capabilities by canonical facts | dispatch | done | 656b6da502 |
+| 2 | 2.2 | Build the accepted manifest, host ledger and authenticated resolver | dispatch | done | b57754dc3c |
+| 2 | 2.3 | Bind guarded mutation requests to reauthorized providers and resources | dispatch | done | d9107f1124 |
+| 2 | 2.4 | Enforce required leaves and scoped default providers | dispatch | done | db7c2bde2d |
+| 2 | 2.5 | Compose ambient command lifecycle with the final-input transaction boundary | group:A | done | 744cddf999 |
+| 2 | 2.5-review-fix | Keep create-only entity writes and pending effects within the ambient lifecycle | inline | done | bf3c4b1d7a |
 | 2 | 2.6 | Add transactional sink discovery, lifecycles and read-back | group:A | todo | — |
 | 2 | 2.7 | Derive section hosts for qualifying CRUD routes | dispatch | todo | — |
 | 2 | 2.8 | Deliver outbox revisions with monotonic fencing and retry | dispatch | todo | — |
