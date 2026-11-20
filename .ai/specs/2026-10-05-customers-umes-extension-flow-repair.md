@@ -70,6 +70,12 @@ Current native form groups remain stable:
 
 Validation blocks native and contributor save; callback exceptions follow existing error behavior. Create contributor failures must display a translated module-owned message and recover by editing the already-created record, never replaying native creation. Native success feedback precedes contributor after-save feedback, while navigation/close only happens after it settles. For ordinary edit failures, the owning widget keeps pending feedback keyed by the submitted data object and restores it after native success; successful retry clears it and another form cannot consume it. onAfterSave remains non-blocking as before. A contributor save can precede a failed native optimistic write, as today, so retries remain sequentially idempotent. This repair does not claim distributed atomicity or add a uniqueness migration. No permission/disabled optional module means neither rendering nor callback execution. Enrichment always runs with trusted scope even on cache hits; cached base objects cannot be mutated. Module/permission changes invalidate tab selection once discovery is ready. Replacement wrappers cannot recursively select the public host as their fallback.
 
+### Customer create redirect submit locking (#9718)
+
+Company and person creation use `successRedirect(values, result)` to derive their existing return-to, created-detail or list destinations after the after-save and success callbacks finish. CrudForm resolves this optional callback and uses the same guarded navigation as a string `successRedirect`, retaining its pending state and submit ref until unmount. Failed saves, denied navigation and a resolver without a destination release the lock. Existing string redirects, void submit results and `onSubmitSuccess` callbacks retain their contracts and ordering; this additive input widening needs no migration or deprecation. No API, database, discovery or permission contract changes.
+
+Regression coverage renders the actual company/person create pages with the real CrudForm and mocked persistence. It holds the mounted form after a resolved save, checks disabled header/footer buttons and repeated click, Enter, Ctrl/Cmd+Enter and direct submit, then verifies one create call. A failed create followed by keyboard retry succeeds and locks again. Return-to and missing-ID list fallbacks remain covered. Shared CrudForm cases cover string/callback redirects, denied navigation, lifecycle ordering and no-destination repeated saves. These component regressions exercise the create-call-site integration; they do not replace a browser/API test.
+
 ## Risks & Impact Review
 
 | Risk | Severity | Mitigation and residual risk |
@@ -121,6 +127,8 @@ Customer hosts now publish semantic `entityId` values (`customers.person`, `cust
 7. Add genuine browser round trips with self-contained fixture cleanup and extend declared create host coverage. Generate registries/catalog, run ordered configured validation, fix independent review findings, open one PR, attach evidence and release the chain lock.
 
 ## Changelog
+
+- 2026-11-19: Route company/person create navigation through an additive result-derived `successRedirect` callback so submit locking covers the post-save navigation window (#9718); cover actual call sites and preserve legacy lifecycle behavior.
 
 - 2026-10-26: Addressed the independent review: restored hook type compatibility, scoped submit projection to injected namespaces, isolated post-save callback errors, stabilized form replacement identity, suppressed recordless portal-account content, corrected quick-deal custom-field identity and create keyboard readiness, and made fixture cleanup attempt every step. Documented semantic context and tab/disabled-widget behavior; optional tab ordering remains in #7020.
 

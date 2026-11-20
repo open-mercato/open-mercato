@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [tasks, total] = await em.findAndCount(UserTask, where, {
-      orderBy: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'DESC', id: 'DESC' },
       limit: pageSize,
       offset: (page - 1) * pageSize,
     })

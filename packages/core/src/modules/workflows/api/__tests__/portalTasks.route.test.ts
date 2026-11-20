@@ -222,6 +222,16 @@ describe('the list', () => {
     expect(body.tasks).toEqual([])
   })
 
+  test('orders by createdAt then id so offset pages stay stable on equal timestamps', async () => {
+    await runList('?page=2')
+
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      UserTask,
+      expect.anything(),
+      expect.objectContaining({ orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
   test('caps the page size at 100 however large the request asks for', async () => {
     await runList('?pageSize=5000')
 

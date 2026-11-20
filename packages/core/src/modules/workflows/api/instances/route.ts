@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
       WorkflowInstance,
       where,
       {
-        orderBy: { createdAt: 'DESC' },
+        orderBy: { createdAt: 'DESC', id: 'DESC' },
         limit,
         offset,
       }
