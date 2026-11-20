@@ -114,7 +114,7 @@ export function selectCrudFormSectionSinks(input: {
     if (!capability.modes.includes('extension-sink')) continue
     const matches = available.filter(({ fact, capabilityId }) =>
       capabilityId === capability.capabilityId && crudFormSectionHostKey(fact) === crudFormSectionHostKey(address))
-    const paths = matches.flatMap(({ fact }) => fact.payloadPaths).sort()
+    const paths = matches.flatMap(({ fact }) => fact.payloadPaths).sort(compareSectionIds)
     if (!matches.length || matches.some(({ hostDetailEntityId }) => hostDetailEntityId !== input.hostResourceKind)
         || paths.length !== capability.payloadPaths.length
         || paths.some((path, index) => path !== capability.payloadPaths[index]
@@ -122,7 +122,7 @@ export function selectCrudFormSectionSinks(input: {
 
     for (const path of paths) seen.add(path)
     for (const { fact, capabilityId, hostDetailEntityId } of matches) {
-      selected.push({ fact: { ...fact, payloadPaths: [...fact.payloadPaths].sort() }, capabilityId, hostDetailEntityId })
+      selected.push({ fact: { ...fact, payloadPaths: [...fact.payloadPaths].sort(compareSectionIds) }, capabilityId, hostDetailEntityId })
     }
   }
   if ([...ownedPaths].some((path) => path.startsWith('extensions.') && !seen.has(path))) return null
@@ -452,7 +452,7 @@ export async function authorizeCrudFormSectionSinkUndo(input: {
   })
   if (features.size) {
     const rbac = context.container.hasRegistration('rbacService') ? context.container.resolve<SinkUndoRbac>('rbacService') : null
-    if (!await rbac?.userHasAllFeaturesWithEntityManager?.(context.em, context.auth.sub, [...features].sort(), context.scope)) {
+    if (!await rbac?.userHasAllFeaturesWithEntityManager?.(context.em, context.auth.sub, [...features].sort(compareSectionIds), context.scope)) {
       return mismatch()
     }
   }

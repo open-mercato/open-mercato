@@ -92,7 +92,7 @@ function uniqueIndex<Entry>(entries: readonly Entry[], key: (entry: Entry) => st
 }
 
 function hasSameIds(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && [...left].sort().every((id, index) => id === right[index])
+  return left.length === right.length && [...left].sort(compareSectionIds).every((id, index) => id === right[index])
 }
 
 function uniqueIds(values: readonly string[]): boolean {
@@ -207,7 +207,7 @@ export function buildCrudFormSectionManifest(
       logger.warn('Rejected configured CrudForm section policy', { ...address, reason, contributionId })
     }
     const effective = [...configuration.overrides.entries()]
-    const ids = effective.map(([, override]) => override?.contributionId).sort()
+    const ids = effective.map(([, override]) => override?.contributionId).sort(compareSectionIds)
     const matches = candidates.filter(({ alternative }) => hasSameIds(alternative.surface.contributionIds, ids))
     const baselines = candidates.filter(({ alternative }) => alternative.surface.contributionIds.length === 0)
     if (configuration.invalid || !host || !resourceKind.success || !providers.has(key) || matches.length !== 1
@@ -246,7 +246,7 @@ export function buildCrudFormSectionManifest(
         || !uniqueIds(surface.dependencies.map((dependency) => dependency.consumerContributionId))
         || !uniqueIds(activeDataContractIds) || !uniqueIds(resourceBindings.map((binding) => binding.id))
         || !uniqueIds(surface.mutationSurfaceIds) || !uniqueIds(mutationSurfaces.map((candidate) => candidate.id))
-        || !hasSameIds(surface.mutationSurfaceIds, mutationSurfaces.map((candidate) => candidate.id).sort())) {
+        || !hasSameIds(surface.mutationSurfaceIds, mutationSurfaces.map((candidate) => candidate.id).sort(compareSectionIds))) {
       fail('invalid_surface_facts')
       continue
     }
@@ -261,7 +261,7 @@ export function buildCrudFormSectionManifest(
 
     const effectiveSinkAtomicities = crudFormSectionSinkAtomicities(sinkRuntimes.values(), address)
     if (Object.entries(sinkAtomicityByCapability).some(([id, modes]) =>
-      !hasSameIds(modes, [...(effectiveSinkAtomicities.get(id) ?? [])].sort()))) {
+      !hasSameIds(modes, [...(effectiveSinkAtomicities.get(id) ?? [])].sort(compareSectionIds)))) {
       fail('invalid_sink_atomicity')
       continue
     }
@@ -354,13 +354,13 @@ export function buildCrudFormSectionManifest(
           delegatedTarget: { kind: proof.delegatedTarget.kind, id: proof.delegatedTarget.id },
           finalInput: proof.finalInput,
           atomicity: proof.atomicity,
-          contenderCoverage: proof.contenderCoverage?.slice().sort(),
+          contenderCoverage: proof.contenderCoverage?.slice().sort(compareSectionIds),
           extensionSinkSupport: proof.extensionSinkSupport,
         }
       }),
       bindings: [...resourceBindings].sort((left, right) => compareSectionIds(left.id, right.id)),
-      requireFeatures: [...new Set([...(provider?.requireFeatures ?? []), ...capabilities.flatMap((entry) => entry.source.features)])].sort(),
-      roundTripIds: descriptors.map(({ roundTripId }) => roundTripId).sort(),
+      requireFeatures: [...new Set([...(provider?.requireFeatures ?? []), ...capabilities.flatMap((entry) => entry.source.features)])].sort(compareSectionIds),
+      roundTripIds: descriptors.map(({ roundTripId }) => roundTripId).sort(compareSectionIds),
       clientFingerprint: hash(crudFormSectionClientFingerprintInput(canonicalSurface, descriptors, configuration.overrides)),
     })
   }

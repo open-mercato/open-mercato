@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
+  compareSectionIds,
   computeCrudFormSectionClientFingerprint,
   type CrudFormSectionConfiguredHostLedger,
 } from '@open-mercato/shared/lib/crud/form-sections/composition'
@@ -96,7 +97,7 @@ async function resolvePolicy<TValues, TPayload>(
   const request = resolveCrudFormSectionsRequestSchema.safeParse({
     hostId: identity.hostId, formVariant: identity.formVariant, formOperation: identity.formOperation,
     hostResourceKind, hostResourceId: identity.resourceId, clientManifestFingerprint,
-    clientRoundTripIds: identities.map(({ roundTripId }) => roundTripId).sort(),
+    clientRoundTripIds: identities.map(({ roundTripId }) => roundTripId).sort(compareSectionIds),
   })
   if (!request.success) return failed('invalid_client_assertion')
   const body = JSON.stringify(request.data)
@@ -107,8 +108,8 @@ async function resolvePolicy<TValues, TPayload>(
   const result = resolveCrudFormSectionsResponseSchema.safeParse(response.result)
   if (!response.ok || !result.success || result.data.state !== 'ready'
       || result.data.fingerprint !== inputs.ledger.fingerprint
-      || !sameCrudFormSectionIds(result.data.activeSectionIds, [...surface.orderedSectionIds].sort())
-      || !sameCrudFormSectionIds(result.data.acceptedContributionIds, [...surface.contributionIds].sort())) {
+      || !sameCrudFormSectionIds(result.data.activeSectionIds, [...surface.orderedSectionIds].sort(compareSectionIds))
+      || !sameCrudFormSectionIds(result.data.acceptedContributionIds, [...surface.contributionIds].sort(compareSectionIds))) {
     return failed('server_manifest_mismatch')
   }
   return { ...result.data, identity, hostResourceKind, surface: canonicalSurface, descriptors, diagnostics: [] }

@@ -3,6 +3,7 @@ import { LockMode, MetadataStorage } from '@mikro-orm/core'
 import { asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
+import { compareSectionIds } from './composition'
 import { getCommandInterceptorHttpRejection } from '../../commands/errors'
 import type { CommandRuntimeContext } from '../../commands/types'
 import { findOneWithDecryption } from '../../encryption/find'
@@ -144,7 +145,7 @@ export function defineCrudRouteSectionHost<const Host extends CrudRouteSectionHo
   }
 
   if (declaration.delete) {
-    const features = (method: CrudSectionRouteMethod) => [...new Set(source.metadata[method]?.requireFeatures ?? [])].sort()
+    const features = (method: CrudSectionRouteMethod) => [...new Set(source.metadata[method]?.requireFeatures ?? [])].sort(compareSectionIds)
     if (!isDeepStrictEqual(features('PUT'), features('DELETE'))) {
       refuse('combined update and delete commands declare different required features')
     }
@@ -173,7 +174,7 @@ export function defineCrudRouteSectionHost<const Host extends CrudRouteSectionHo
   if (fixtureRequirements.some((leaves) => JSON.stringify(leaves) !== JSON.stringify(requiredPaths))) {
     return refuse('conditional required payload leaves need distinct finite form variants')
   }
-  if (selected === 'update' && JSON.stringify(requiredPaths) !== JSON.stringify([...declaration.wireRequiredUpdatePaths ?? []].sort())) {
+  if (selected === 'update' && JSON.stringify(requiredPaths) !== JSON.stringify([...declaration.wireRequiredUpdatePaths ?? []].sort(compareSectionIds))) {
     refuse('wire-required update leaf declaration disagrees with the authoritative schema')
   }
   derivedHosts.set(declaration, { declaration, source, updatedAtField, submitSchema, requiredPaths })
@@ -243,7 +244,7 @@ function makeHostProvider(host: DerivedHost, route: string): CrudFormSectionHost
   const { declaration, source } = host
   const surfaces = hostSurfaces(host, route)
   const requireFeatures = [...new Set(surfaces.flatMap(({ guardedFacade: { method } }) =>
-    source.metadata[method as CrudSectionRouteMethod]?.requireFeatures ?? []))].sort()
+    source.metadata[method as CrudSectionRouteMethod]?.requireFeatures ?? []))].sort(compareSectionIds)
   return {
     hostDescriptorId: declaration.hostDescriptorId,
     requireFeatures,

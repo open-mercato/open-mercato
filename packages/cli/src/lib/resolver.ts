@@ -331,11 +331,11 @@ function validateFormSectionGates(sourceFile: ts.SourceFile, targetVariableName:
       ts.forEachChild(node, visit)
     }
     visit(expression)
-    return [...found].sort()
+    return [...found].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
   }
 
   function assertGates(gates: readonly ts.Expression[]): void {
-    const serverKeys = [...new Set(gates.flatMap(serverEnvironmentReads))].sort()
+    const serverKeys = [...new Set(gates.flatMap(serverEnvironmentReads))].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
     if (serverKeys.length) {
       throw new Error(`[resolver] forms.sections in src/modules.ts requires browser-visible module gating; server-only: ${serverKeys.join(', ')}`)
     }

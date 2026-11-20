@@ -78,7 +78,7 @@ export function ComponentOverrideProvider({
         if (!active()) return
         const granted: unknown = call.result?.granted
         if (call.ok && isGrantList(granted)) {
-          setFeatureCheck({ overrides, epoch, state: 'ready', grants: [...new Set(granted)].sort() })
+          setFeatureCheck({ overrides, epoch, state: 'ready', grants: [...new Set(granted)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0) })
           return
         }
       } catch {

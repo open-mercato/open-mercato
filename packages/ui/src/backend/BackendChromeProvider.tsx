@@ -101,7 +101,7 @@ export function BackendChromeProvider({ adminNavApi, children }: BackendChromePr
     }
   }, [cacheKey, refresh])
 
-  const signature = cached && JSON.stringify([...new Set(cached.grantedFeatures)].sort())
+  const signature = cached && JSON.stringify([...new Set(cached.grantedFeatures)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0))
   const policy = React.useMemo<ScopedChrome>(() => {
     if (!cacheKey) return unconfiguredChrome
     if (signature) return { state: 'ready', features: JSON.parse(signature) }

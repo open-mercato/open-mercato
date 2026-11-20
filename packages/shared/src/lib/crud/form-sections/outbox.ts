@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
+import { compareSectionIds } from './composition'
 import {
   defineCrudFormSectionSink, type CrudFormSectionSink, type CrudFormSectionSinkScope,
   type CrudFormSectionSinkSnapshot,
@@ -182,7 +183,7 @@ export function collectCrudFormSectionOutboxRuntimes(sinks: Iterable<CrudFormSec
     const previousDelivery = previous?.fact.externalDelivery
     if (previous && (previous.hostDetailEntityId !== sink.hostDetailEntityId
         || previous.fact.ownerModuleId !== sink.fact.ownerModuleId || previous.fact.hostId !== sink.fact.hostId
-        || !isDeepStrictEqual([...previous.fact.payloadPaths].sort(), [...sink.fact.payloadPaths].sort())
+        || !isDeepStrictEqual([...previous.fact.payloadPaths].sort(compareSectionIds), [...sink.fact.payloadPaths].sort(compareSectionIds))
         || previous.outbox?.deliver !== sink.outbox.deliver || previous.outbox?.mirror !== sink.outbox.mirror
         || previous.outbox?.failureNotificationType !== sink.outbox.failureNotificationType
         || previousDelivery?.integrationId !== sink.fact.externalDelivery.integrationId

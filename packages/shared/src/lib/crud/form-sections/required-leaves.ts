@@ -49,7 +49,7 @@ function defaultProviderFact(provider: CrudFormLeafDefaultProvider): CrudFormLea
     formVariant: fact.formVariant,
     formOperation: fact.formOperation,
     payloadPath: fact.payloadPath,
-    readsPayloadPaths: [...fact.readsPayloadPaths].sort(),
+    readsPayloadPaths: [...fact.readsPayloadPaths].sort(compareSectionIds),
   }
 }
 

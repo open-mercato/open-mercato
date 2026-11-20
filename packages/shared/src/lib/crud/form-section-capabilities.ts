@@ -84,7 +84,7 @@ function canonicalSet<Value extends string>(values: readonly Value[] = []): Valu
   if (!isArray(values) || Array.from(values).some((value) => !isNonEmptyString(value))) {
     return null
   }
-  return new Set(values).size === values.length ? [...values].sort() : null
+  return new Set(values).size === values.length ? [...values].sort(compareIds) : null
 }
 
 function canonicalOwnership(

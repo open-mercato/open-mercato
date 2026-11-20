@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
+import { compareSectionIds } from '@open-mercato/shared/lib/crud/form-sections/composition'
 import { MODULE_CODE_EXTENSIONS, stripModuleCodeExtension } from './scanner'
 
 const ledgerFileName = 'form-sections.runtime-revisions.json'
@@ -61,7 +62,7 @@ function fingerprintRuntime(source: ts.SourceFile, sourceRoot: string, visited: 
     ts.forEachChild(node, visit)
   }
   visit(source)
-  const dependencies = [...specifiers].sort().flatMap((specifier) => {
+  const dependencies = [...specifiers].sort(compareSectionIds).flatMap((specifier) => {
     const dependency = readLocalDependency(specifier, filename, sourceRoot)
     if (!dependency || visited.has(dependency)) return []
     const contents = ts.createSourceFile(dependency, fs.readFileSync(dependency, 'utf8'), ts.ScriptTarget.Latest, true)
@@ -122,6 +123,6 @@ export function planHandwrittenSectionRevisionWrite(
   if (!changed) return null
   return {
     filename,
-    content: JSON.stringify(Object.fromEntries([...ledger.keys()].sort().map((id) => [id, ledger.get(id)])), null, 2) + '\n',
+    content: JSON.stringify(Object.fromEntries([...ledger.keys()].sort(compareSectionIds).map((id) => [id, ledger.get(id)])), null, 2) + '\n',
   }
 }

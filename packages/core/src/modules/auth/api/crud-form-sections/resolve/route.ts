@@ -5,7 +5,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readBoundedRequestBytes, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
-import { crudFormSectionHostKey } from '@open-mercato/shared/lib/crud/form-sections/composition'
+import { compareSectionIds, crudFormSectionHostKey } from '@open-mercato/shared/lib/crud/form-sections/composition'
 import { getCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
 import { encodeCurrentCrudFormSectionPolicyToken } from '@open-mercato/shared/lib/crud/form-sections/policy-token'
 import {
@@ -123,7 +123,7 @@ export async function POST(request: Request): Promise<Response> {
     state: 'ready',
     fingerprint,
     policyToken,
-    activeSectionIds: [...policy.surface.orderedSectionIds].sort(),
+    activeSectionIds: [...policy.surface.orderedSectionIds].sort(compareSectionIds),
     acceptedContributionIds: [...policy.surface.contributionIds],
   })
   return response.success ? json(response.data) : failed('invalid_manifest_response')

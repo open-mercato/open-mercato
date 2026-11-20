@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 import type { CrudFormRequiredLeafFact } from '../../../modules/form-section-facts'
+import { compareSectionIds } from './composition'
 
 type SchemaFixture = Readonly<Record<string, unknown>>
 
@@ -38,7 +39,7 @@ export function deriveCrudFormRequiredLeafPaths(
       if (!schema.safeParse(omitPath(fixture, path)).success) required.add(path.join('.'))
     }
   }
-  return [...required].sort()
+  return [...required].sort(compareSectionIds)
 }
 
 export async function findCrudFormRequiredLeafDrift(
@@ -61,7 +62,7 @@ export async function findCrudFormRequiredLeafDrift(
 
   const declared = new Set(declaredLeaves.filter((leaf) => leaf.schemaId === schemaId).map((leaf) => leaf.payloadPath))
   return {
-    missingDeclarations: [...required].filter((path) => !declared.has(path)).sort(),
-    noLongerRequired: [...declared].filter((path) => !required.has(path)).sort(),
+    missingDeclarations: [...required].filter((path) => !declared.has(path)).sort(compareSectionIds),
+    noLongerRequired: [...declared].filter((path) => !required.has(path)).sort(compareSectionIds),
   }
 }

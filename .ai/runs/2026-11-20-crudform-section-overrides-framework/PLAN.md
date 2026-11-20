@@ -34,6 +34,7 @@ Status: in-progress
 | 4 | 4.1 | Build the non-production framework fixture | dispatch | done | this commit |
 | 4 | 4.2 | Verify discovery, resolution, mutations and no-policy compatibility | dispatch | done | this commit |
 | 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | done | this commit |
+| 4 | 4.4-review-fix | Preserve canonical order with explicit comparators | inline | done | this commit |
 | 4 | 4.4 | Run and record the framework validation gates | dispatch | todo | — |
 | 5 | 5.1 | Add the single-definition extension authoring API | dispatch | todo | — |
 | 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | todo | — |
@@ -166,6 +167,10 @@ Framework spec item 13. Add framework tests for discovery/loader parity, server/
 #### 4.3 Define the discovery, runtime and generator compatibility guarantees
 
 Framework spec item 14. Update `BACKWARD_COMPATIBILITY.md`, module-development/framework docs, package guides, and the unified-overrides status table with the new auto-discovery and generated-registry contracts.
+
+#### 4.4-review-fix Preserve canonical order with explicit comparators
+
+Address the repository-wide sort audit with explicit UTF-16 ordering wherever the new framework serialized or compared sorted strings.
 
 #### 4.4 Run and record the framework validation gates
 

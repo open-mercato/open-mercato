@@ -26,7 +26,7 @@ import {
   OPTIMISTIC_LOCK_CONFLICT_ERROR,
   OPTIMISTIC_LOCK_HEADER_NAME,
 } from '../optimistic-lock-headers'
-import { crudFormSectionHostKey, hasCrudFormSectionWritableLeaves } from './composition'
+import { compareSectionIds, crudFormSectionHostKey, hasCrudFormSectionWritableLeaves } from './composition'
 import {
   appendCrudFormSectionSinkSnapshot,
   persistCrudFormSectionSink,
@@ -213,7 +213,7 @@ function validResource(kind: string, id?: string): boolean {
 }
 
 function exactIds(left: readonly string[], right: readonly string[] = []): boolean {
-  return left.length === right.length && isDeepStrictEqual([...left].sort(), [...right].sort())
+  return left.length === right.length && isDeepStrictEqual([...left].sort(compareSectionIds), [...right].sort(compareSectionIds))
 }
 
 function sameHost(left: CrudFormSectionHostAssertion, right: CrudFormSectionHostAssertion): boolean {

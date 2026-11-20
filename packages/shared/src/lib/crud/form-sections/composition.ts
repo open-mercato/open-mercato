@@ -75,24 +75,24 @@ export function canonicalCrudFormSectionAlternative(
     formVariant: surface.formVariant,
     formOperation: surface.formOperation,
     orderedSectionIds: [...surface.orderedSectionIds],
-    callerIds: [...surface.callerIds].sort(),
-    contributionIds: [...surface.contributionIds].sort(),
+    callerIds: [...surface.callerIds].sort(compareSectionIds),
+    contributionIds: [...surface.contributionIds].sort(compareSectionIds),
     ownershipFacts: surface.ownershipFacts.map(({ sectionId, payloadPaths, customFieldOwnership }) => ({
       sectionId,
-      payloadPaths: [...payloadPaths].sort(),
+      payloadPaths: [...payloadPaths].sort(compareSectionIds),
       customFieldOwnership: customFieldOwnership.mode === 'ids'
-        ? { ...customFieldOwnership, ids: [...customFieldOwnership.ids].sort() }
+        ? { ...customFieldOwnership, ids: [...customFieldOwnership.ids].sort(compareSectionIds) }
         : customFieldOwnership,
     })).sort((left, right) => compareSectionIds(left.sectionId, right.sectionId)),
-    mutationSurfaceIds: [...surface.mutationSurfaceIds].sort(),
+    mutationSurfaceIds: [...surface.mutationSurfaceIds].sort(compareSectionIds),
     ...(surface.clientMutationSurfaces?.length ? {
       clientMutationSurfaces: [...surface.clientMutationSurfaces].sort((a, b) => compareSectionIds(a.id, b.id)),
     } : {}),
     ...(surface.allowNoopSubmit === true ? { allowNoopSubmit: true } : {}),
     dependencies: surface.dependencies.map((dependency) => ({
       consumerContributionId: dependency.consumerContributionId,
-      requiredSectionIds: [...dependency.requiredSectionIds].sort(),
-      requiredDataContractIds: [...dependency.requiredDataContractIds].sort(),
+      requiredSectionIds: [...dependency.requiredSectionIds].sort(compareSectionIds),
+      requiredDataContractIds: [...dependency.requiredDataContractIds].sort(compareSectionIds),
     })).sort((left, right) => compareSectionIds(left.consumerContributionId, right.consumerContributionId)),
   }
 }

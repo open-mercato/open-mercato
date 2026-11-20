@@ -1,5 +1,6 @@
 import type { CrudFormSectionClientRegistry } from '@open-mercato/shared/lib/crud/form-sections/client-registry'
 import {
+  compareSectionIds,
   applyCrudFormSectionPlacements,
   crudFormSectionConfiguredHosts,
   crudFormSectionHostKey,
@@ -25,11 +26,11 @@ export function selectCrudFormSectionComposition(registry: CrudFormSectionClient
   const configured = crudFormSectionConfiguredHosts(hostFacts, composeFormSectionOverrides(registry.contributedOverrides)).get(hostKey)
   if (hostFacts.length !== 1 || !host.hostResourceKind || !configured || configured.invalid) return null
   const overrides = configured.overrides
-  const selectedIds = [...overrides.values()].map(({ contributionId }) => contributionId).sort()
+  const selectedIds = [...overrides.values()].map(({ contributionId }) => contributionId).sort(compareSectionIds)
   if (new Set(selectedIds).size !== selectedIds.length) return null
   const alternatives = host.alternatives.filter(matchesTuple)
   const baselines = alternatives.filter(({ contributionIds }) => contributionIds.length === 0)
-  const matches = alternatives.filter(({ contributionIds }) => sameCrudFormSectionIds([...contributionIds].sort(), selectedIds))
+  const matches = alternatives.filter(({ contributionIds }) => sameCrudFormSectionIds([...contributionIds].sort(compareSectionIds), selectedIds))
   if (baselines.length !== 1 || matches.length !== 1) return null
   const [baseline] = baselines
   const [surface] = matches
