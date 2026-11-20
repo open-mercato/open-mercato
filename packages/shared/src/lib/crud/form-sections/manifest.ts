@@ -35,7 +35,8 @@ import {
   type CrudFormSectionConfiguredHostLedger,
 } from './composition'
 import { symbolicIdSchema } from './protocol'
-import { bindCompiledCrudFormSink, type CompiledCrudFormFieldRule, type CompiledCrudFormContribution } from './compiled-extensions'
+import { isCustomFieldKind } from '../../../modules/entities/kinds'
+import { bindCompiledCrudFormSink, type CompiledCrudFormCustomField, type CompiledCrudFormFieldRule, type CompiledCrudFormContribution } from './compiled-extensions'
 import { parseCrudFormSectionClientMutationFacts, projectCrudFormSectionClientMutationFact } from './client-mutation-facts'
 import { getDerivedCrudRouteCapabilities } from './factory-route-source'
 import {
@@ -52,6 +53,7 @@ export type CrudFormSectionAcceptedPolicy = {
   mutationSurfaces: readonly CrudFormSectionMutationSurfaceFact[]
   mutationProviders: readonly CrudFormSectionMutationProviderProof[]
   requiredLeaves: readonly CrudFormRequiredLeafCoverage[]
+  compiledCustomFields?: readonly CompiledCrudFormCustomField[]
   sinks?: readonly AcceptedCrudFormSectionSink[]
   bindings: NonNullable<CrudFormSectionHostAlternative['resourceBindings']>
   requireFeatures: readonly string[]
@@ -322,6 +324,21 @@ export function buildCrudFormSectionManifest(
       deriveCompiledCapabilities(entry, canonicalSurfaces, capabilityRegistry.capabilities.values(), mutationProviders)))
     const compiledFieldRules = compiledEntries.flatMap(({ contribution, fieldRules }) =>
       (fieldRules ?? []).map((rule) => ({ address: contribution.address, rule })))
+    const compiledCustomFields = compiledEntries.flatMap(({ contribution, stores }) =>
+      (stores ?? []).flatMap(({ store, payloadPath, customField }) => store.kind === 'customField'
+        ? [{ address: contribution.address, payloadPath, customField }] : []))
+    if (compiledCustomFields.some(({ address: fieldAddress, payloadPath, customField }) => {
+      if (!customField || payloadPath !== `customFields.${customField.key}`
+          || !isCustomFieldKind(customField.kind) || !/^[a-z0-9_]{1,100}$/.test(customField.key)
+          || !host.fact.customFieldSeedEntities || !Object.hasOwn(host.fact.customFieldSeedEntities, customField.definitionSetId)
+          || host.fact.customFieldSeedEntities[customField.definitionSetId] !== customField.entityId) return true
+      return !surface.ownershipFacts.some(({ sectionId, customFieldOwnership }) => sectionId === fieldAddress.sectionId
+        && customFieldOwnership.mode === 'ids' && customFieldOwnership.definitionSetId === customField.definitionSetId
+        && customFieldOwnership.ids.includes(customField.key))
+    })) {
+      fail('invalid_compiled_custom_fields')
+      continue
+    }
     const activeDefaultIds = new Set(compiledEntries.flatMap((entry) => (entry.defaults ?? []).map(({ fact }) => fact.id)))
     const selectedDefaultIds = alternative.compiledDefaultProviderIds ?? []
     if (selectedDefaultIds.some((id) => !compiledDefaultIds.has(id) || !activeDefaultIds.has(id) || !leafDefaultProviders.has(id))
@@ -414,6 +431,7 @@ export function buildCrudFormSectionManifest(
       capabilities,
       mutationSurfaces: canonicalSurfaces,
       requiredLeaves: required.leaves,
+      ...(compiledCustomFields.length ? { compiledCustomFields: compiledCustomFields.map(({ customField }) => ({ ...customField! })) } : {}),
       ...(sinks.length ? { sinks } : {}),
       mutationProviders: canonicalSurfaces.map((candidate) => {
         const proof = mutationProviders.get(candidate.id)!

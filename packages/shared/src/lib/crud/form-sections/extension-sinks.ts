@@ -126,8 +126,9 @@ export function selectCrudFormSectionSinks(input: {
     }
   }
   if ([...ownedPaths].some((path) => path.startsWith('extensions.') && !seen.has(path))) return null
-  const outboxTargets = selected.filter(({ fact }) => fact.atomicity === 'outbox').map(({ fact }) => fact.targetEntityId)
-  if (new Set(outboxTargets).size !== outboxTargets.length) return null
+  const exclusiveTargets = selected.filter(({ fact }) => fact.atomicity === 'outbox' || available.some((sink) =>
+    sink.fact.id === fact.id && sink.tableVersioned)).map(({ fact }) => fact.targetEntityId)
+  if (new Set(exclusiveTargets).size !== exclusiveTargets.length) return null
   return selected.sort(compareSinks)
 }
 
@@ -348,6 +349,8 @@ const snapshotSchema = z.object({
   before: z.record(z.string(), z.unknown()).nullable(),
   after: z.record(z.string(), z.unknown()).nullable(),
   outboxAfterRevision: crudFormSectionOutboxRevisionSchema.optional(),
+  tableAfterUpdatedAt: z.iso.datetime({ offset: true }).nullable().optional(),
+  tableBeforeUpdatedAt: z.iso.datetime({ offset: true }).nullable().optional(),
 }).strict()
 
 type PersistedSnapshot = z.infer<typeof snapshotSchema>
@@ -360,7 +363,9 @@ export function appendCrudFormSectionSinkSnapshot(
   source: SinkMutationSource,
 ): void {
   if (!log?.id || log.resourceId !== hostResourceId || (log.undoToken && runtime.fact.undo !== 'snapshot')) return mismatch()
-  if ((runtime.fact.atomicity === 'outbox') !== (snapshot.outboxAfterRevision !== undefined)) return mismatch()
+  if ((runtime.fact.atomicity === 'outbox') !== (snapshot.outboxAfterRevision !== undefined)
+      || (runtime.tableVersioned === true) !== (snapshot.tableAfterUpdatedAt !== undefined)
+      || (runtime.tableVersioned === true) !== (snapshot.tableBeforeUpdatedAt !== undefined)) return mismatch()
   const entry = snapshotSchema.safeParse({
     ...snapshot,
     protocol: 'crud-form-section-sink/v1',
@@ -446,6 +451,7 @@ export async function authorizeCrudFormSectionSinkUndo(input: {
     const runtime = requireRegisteredSink(manifest, accepted)
     if (!runtime.undo || runtime.fact.undo !== 'snapshot'
         || ((runtime.fact.atomicity === 'outbox') !== (snapshot.outboxAfterRevision !== undefined))
+        || ((runtime.tableVersioned === true) !== (snapshot.tableAfterUpdatedAt !== undefined))
         || (source.kind === 'parent-delete' && !runtime.onHostDeleted)) return mismatch()
     for (const feature of [...policy.requireFeatures, ...sourcePolicy.requireFeatures]) features.add(feature)
     return { runtime, snapshot }
@@ -471,6 +477,9 @@ export async function restoreCrudFormSectionSinks(
       snapshot: {
         before: snapshot.before, after: snapshot.after,
         ...(snapshot.outboxAfterRevision === undefined ? {} : { outboxAfterRevision: snapshot.outboxAfterRevision }),
+        ...(snapshot.tableAfterUpdatedAt === undefined ? {} : {
+          tableAfterUpdatedAt: snapshot.tableAfterUpdatedAt, tableBeforeUpdatedAt: snapshot.tableBeforeUpdatedAt,
+        }),
       },
     })
   }

@@ -79,7 +79,7 @@ import {
   resolveStandaloneSourceMirrorBase,
 } from './scanner'
 import { loadGeneratorExtensions } from './extensions'
-import { writeCrudFormSectionRegistries, writeDerivedCrudFormSectionRoutes } from './form-sections'
+import { prepareCrudFormSectionRegistries, writeCrudFormSectionRegistries, writeDerivedCrudFormSectionRoutes } from './form-sections'
 import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
 import {
   renderRouteManifestShardOutputs,
@@ -100,6 +100,7 @@ interface ModuleRegistryDiscovery {
   modules: ModuleRegistryDiscoveryEntry[]
   identities: ReturnType<typeof getEnabledModuleIdentities>
   getStructureChecksum: () => string
+  getCrudFormSections: () => ReturnType<typeof prepareCrudFormSectionRegistries>
 }
 
 type DiscoveredSubscriber = {
@@ -2208,11 +2209,22 @@ async function createModuleRegistryDiscovery(
   }
 
   let structureChecksum: string | undefined
+  let crudFormSections: ReturnType<typeof prepareCrudFormSectionRegistries> | undefined
+  function getCrudFormSections() {
+    if (crudFormSections) return crudFormSections
+    const requiresByModule = new Map<string, string[]>()
+    for (const module of modules) {
+      const index = module.resolve('index.ts')
+      if (index) collectDeclaredModuleRequires(module.modId, index.absolutePath, requiresByModule, quiet)
+    }
+    return crudFormSections = prepareCrudFormSectionRegistries({ modules, identities, requiresByModule })
+  }
   return {
     enabled,
     modules,
     identities,
     getStructureChecksum: () => structureChecksum ??= calculateStructureChecksum(Array.from(trackedRoots)),
+    getCrudFormSections,
   }
 }
 
@@ -2719,6 +2731,7 @@ function buildModuleCustomFieldSetsValue(options: {
   fieldsImportName?: string | null
   customEntitiesImportName?: string | null
   moduleId: string
+  compiledFields?: readonly import('@open-mercato/shared/modules/entities').CustomFieldSet[]
 }): WriterFunction {
   const parts: WriterFunction[] = []
 
@@ -2773,7 +2786,12 @@ function buildModuleCustomFieldSetsValue(options: {
     parts.push(spreadExpression(mappedEntities))
   }
 
+  if (options.compiledFields?.length) parts.push(spreadExpression(identifier(compiledFieldSetsExpression(options.compiledFields))))
   return arrayLiteral(parts, writeValue)
+}
+
+function compiledFieldSetsExpression(fields: readonly import('@open-mercato/shared/modules/entities').CustomFieldSet[]): string {
+  return `(${JSON.stringify(fields)} satisfies import('@open-mercato/shared/modules/entities').CustomFieldSet[])`
 }
 
 function buildModuleDashboardWidgetsValue(entries: DashboardWidgetEntry[]): WriterFunction {
@@ -4067,6 +4085,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
         parts.push(
           `((( ${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || []).filter((e: any) => Array.isArray(e.fields) && e.fields.length).map((e: any) => ({ entity: e.id, fields: e.fields, source: ${toLiteral(modId)} }))`
         )
+      const compiledFields = discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId)
+      if (compiledFields?.length) parts.push(compiledFieldSetsExpression(compiledFields))
       customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
     }
 
@@ -4686,7 +4706,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
 
     const moduleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
-      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId }) },
+      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId, compiledFields: discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId) }) },
     ]
     const i18nModuleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
@@ -4841,6 +4861,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
 
   const structureChecksum = discovery.getStructureChecksum()
   writeCrudFormSectionRegistries({
+    prepared: discovery.getCrudFormSections(),
     modules: discovery.modules,
     identities: discovery.identities,
     requiresByModule,
@@ -5071,7 +5092,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
     const moduleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
-      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId }) },
+      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId, compiledFields: discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId) }) },
     ]
 
     if (infoImportName) {

@@ -17,6 +17,8 @@ import { readBoundedRequestBytes, WebhookBodyTooLargeError } from '../../webhook
 import type { CrudFormSectionAddress, CrudFormSectionMutationSurfaceFact } from '../../../modules/form-section-facts'
 import type { CrudFormSectionHostAssertion } from '../../../modules/form-sections'
 import { matchRoutePattern, type RouteMatchParams } from '../../../modules/registry'
+import { loadCustomFieldDefinitionIndex } from '../custom-fields'
+import { selectDefinitionForRecord } from '../custom-field-definition-index'
 import { CrudHttpError, isCrudHttpError } from '../errors'
 import { bridgeLegacyGuard, runMutationGuards, type MutationGuardInput } from '../mutation-guard-registry'
 import { getAllMutationGuardInstances } from '../mutation-guard-store'
@@ -357,6 +359,25 @@ function ownsPayloadPath(path: string, context: AuthorizedContext, permitted: Re
   })
 }
 
+async function assertCompiledCustomFields(input: PayloadRecord, payload: PayloadRecord, context: AuthorizedContext, em: EntityManager): Promise<void> {
+  if (!context.policy.compiledCustomFields?.length) return
+  const { tenantId, organizationId } = context.scope
+  const requested = context.policy.compiledCustomFields.filter(({ key }) =>
+    readCrudFormRequiredLeaf(input, `customFields.${key}`) !== undefined
+    || readCrudFormRequiredLeaf(payload, `customFields.${key}`) !== undefined)
+  if (requested.some(({ key }) => readCrudFormRequiredLeaf(payload, `customFields.${key}`) === undefined)) {
+    rejectPolicy(context.route.address, 'compiled_custom_field_dropped')
+  }
+  const entities = [...new Set(requested.map(({ entityId }) => entityId))]
+  const definitions = new Map(await Promise.all(entities.map(async (entityId) => [entityId,
+    await loadCustomFieldDefinitionIndex({ em, entityIds: entityId, tenantId, organizationIds: organizationId ? [organizationId] : [] }),
+  ] as const)))
+  if (requested.some(({ entityId, key, kind }) =>
+    selectDefinitionForRecord(definitions.get(entityId)?.get(key) ?? [], organizationId, tenantId)?.kind !== kind)) {
+    rejectPolicy(context.route.address, 'compiled_custom_field_definition_mismatch')
+  }
+}
+
 function assertActivePayload(
   payload: PayloadRecord,
   context: AuthorizedContext,
@@ -584,6 +605,7 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
             && !hasRequiredLeafValue(readCrudFormRequiredLeaf(parsed.data, payloadPath)))) {
           throw new CrudHttpError(400, { error: 'invalid_request' })
         }
+        await assertCompiledCustomFields(value, parsed.data, executionContext, em)
         await options.validateDomain(parsed.data, executionContext)
         const fieldPayload = withExtensions(parsed.data, extensionEnvelope)
         const adapterErrors = await options.validateFields?.(fieldPayload, executionContext)

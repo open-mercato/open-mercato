@@ -40,7 +40,7 @@ Status: in-progress
 | 5 | 5.1 | Add the single-definition extension authoring API | dispatch | done | this commit |
 | 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | done | this commit |
 | 5 | 5.3 | Compile extension declarations into the framework registries and callbacks | dispatch | done | this commit |
-| 5 | 5.4 | Add custom-field, table and external store builders | dispatch | todo | — |
+| 5 | 5.4 | Add custom-field, table and external store builders | dispatch | done | this commit |
 | 5 | 5.5 | Prove wrapper and hand-written fixture manifest parity | dispatch | todo | — |
 | 5 | 5.6 | Document the wrapper and stable public imports | dispatch | todo | — |
 | 6 | 6.1 | Add the example Todo showcase and transaction ownership contract | dispatch | todo | — |

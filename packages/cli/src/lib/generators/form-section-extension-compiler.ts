@@ -5,7 +5,8 @@ import ts from 'typescript-js'
 import {
   applyCrudFormSectionPlacements, canonicalSectionJson, compareSectionIds, crudFormSectionHostKey,
 } from '@open-mercato/shared/lib/crud/form-sections/composition'
-import type { CompiledCrudFormAlternative } from '@open-mercato/shared/lib/crud/form-sections/compiled-extensions'
+import type { CustomFieldDefinition, CustomFieldSet } from '@open-mercato/shared/modules/entities'
+import type { CompiledCrudFormAlternative, CompiledCrudFormCustomField } from '@open-mercato/shared/lib/crud/form-sections/compiled-extensions'
 import type { CrudFormSectionAddress, CrudFormSectionContributionFact, CrudFormSectionSurfaceAlternativeFact } from '@open-mercato/shared/modules/form-section-facts'
 import type { CrudFormSectionClientHostFact } from '@open-mercato/shared/modules/form-sections'
 import type { FormSectionOverride, FormSectionOverridesMap } from '@open-mercato/shared/modules/overrides'
@@ -34,10 +35,11 @@ export type CompilerModule = {
   clientHosts: CrudFormSectionClientHostFact[]
   contributedOverrides: FormSectionOverridesMap
   runtimeSources: ReadonlyMap<string, Runtime>
+  customFieldSeedEntities: ReadonlyMap<string, Readonly<Record<string, string>>>
   primitiveContributions: readonly Pick<CrudFormSectionContributionFact, 'id' | 'address' | 'operation'>[]
 }
 type AuthoredChange = { module: CompilerModule; extension: SectionExtensionSource; change: SectionExtensionChange }
-type CompiledField = { authored: AuthoredChange; field: SectionExtensionField; payloadPath?: string }
+type CompiledField = { authored: AuthoredChange; field: SectionExtensionField; payloadPath?: string; customField?: CompiledCrudFormCustomField; seed?: CustomFieldDefinition }
 type CompiledChange = {
   id: string
   source: AuthoredChange
@@ -57,6 +59,7 @@ export type CompiledSectionExtensions = {
   runtimeFiles: readonly { name: string; content: string }[]
   revisionWrites: readonly Write[]
   fallbacks: FormSectionOverridesMap
+  customFieldSetsByModule: ReadonlyMap<string, readonly CustomFieldSet[]>
 }
 
 function digest(value: unknown): string {
@@ -216,6 +219,7 @@ export function compileCrudFormSectionExtensions(
     primitiveContributions.map((fact) => [fact.id, fact] as const)))
   const ids = new Set<string>()
   const extensionIds = new Set<string>()
+  const seeds = new Map<string, { moduleId: string; entity: string; field: CustomFieldDefinition }>()
   const tuples = new Map<string, { target: CompiledChange['target']; changes: AuthoredChange[] }>()
   const diagnostics = (module: CompilerModule, reason: string): never => {
     throw new Error(`[generate] crudFormExtensions for "${module.moduleId}" (${module.sourceBase}): ${reason}`)
@@ -239,6 +243,7 @@ export function compileCrudFormSectionExtensions(
     if (matches.length !== 1) return invalid(`expected one published host and baseline for ${key}`)
     const [{ module: hostModule, host, baseline }] = matches
     const runtime = hostModule.runtimeSources.get(host.id)
+    const seedEntities = hostModule.customFieldSeedEntities.get(host.id) ?? {}
     if (!runtime) return invalid(`host runtime missing for ${key}`)
     const needsMutation = changes.some(({ change }) => change.operation !== 'add' || change.fields.length > 0)
     const proof = needsMutation ? chooseProof(host, baseline) : baseline
@@ -272,7 +277,8 @@ export function compileCrudFormSectionExtensions(
       const customDefinitionSets = new Set(baseline.ownershipFacts.flatMap(({ customFieldOwnership }) =>
         customFieldOwnership.mode !== 'none' && customFieldOwnership.definitionSetId ? [customFieldOwnership.definitionSetId] : []))
       const definitionSet = authoredCustom.mode !== 'none' && authoredCustom.definitionSetId
-        ? authoredCustom.definitionSetId : customDefinitionSets.size === 1 ? [...customDefinitionSets][0] : undefined
+        ? authoredCustom.definitionSetId : customDefinitionSets.size === 1 ? [...customDefinitionSets][0]
+          : Object.keys(seedEntities).length === 1 ? Object.keys(seedEntities)[0] : undefined
       const byField = change.operation === 'modify' && base ? granularFields(base, invalid) : new Map<string, string[]>()
       if (byField.size && (!matchingPaths([...byField.values()].flat().filter((leaf) => !leaf.startsWith('customFields.')), [...standardPaths])
           || [...byField.values()].flat().some((leaf) => leaf.startsWith('customFields.') && !customKeys.has(leaf.slice('customFields.'.length))))) {
@@ -317,10 +323,27 @@ export function compileCrudFormSectionExtensions(
           if (store.kind === 'customField') {
             if (!definitionSet || authoredCustom.mode === 'all') invalid(`custom field "${field.id}" requires a bounded host definition set`)
             const fieldKey = store.key ?? field.id
-            if (!validPath(fieldKey) || fieldKey.includes('.') || customKeys.has(fieldKey)) invalid(`invalid or duplicate custom field "${fieldKey}"`)
+            if (!/^[a-z0-9_]{1,100}$/.test(fieldKey) || customKeys.has(fieldKey)) invalid(`invalid or duplicate snake_case custom field "${fieldKey}"`)
+            const entityId = definitionSet && Object.hasOwn(seedEntities, definitionSet) ? seedEntities[definitionSet] : undefined
+            if (!entityId || !definitionSet) return invalid(`custom field "${field.id}" needs a published host customFieldSeedEntities binding`)
+            const type = field.browser.type
+            const kind = type === 'number' ? 'float' : type === 'textarea' ? 'multiline' : type
+            if (kind !== 'text' && kind !== 'multiline' && kind !== 'float' && kind !== 'boolean' && kind !== 'date' && kind !== 'select') {
+              return invalid(`custom field "${field.id}" requires a supported custom-field kind`)
+            }
+            const options = field.browser.options
+            if (kind === 'select' && (!Array.isArray(options) || !options.length || field.loaders.options
+                || options.some((entry) => !entry || typeof entry.value !== 'string' || typeof entry.labelKey !== 'string'))) {
+              return invalid(`custom-field select "${field.id}" requires literal options and label keys`)
+            }
+            const label = typeof field.browser.labelKey === 'string' ? field.browser.labelKey : `${id}.fields.${field.id}`
+            item.customField = { definitionSetId: definitionSet, entityId, key: fieldKey, kind }
+            item.seed = { key: fieldKey, kind, label, required: field.browser.required === true, formEditable: true,
+              ...(kind === 'select' && Array.isArray(options) ? { options: options.map(({ value, labelKey }) => ({ value, label: labelKey })) } : {}) }
             customKeys.add(fieldKey)
             item.payloadPath = `customFields.${fieldKey}`
           } else {
+            if (!store.entityId?.startsWith(authored.module.moduleId + ':')) invalid(`store target "${store.entityId}" must be owned by "${authored.module.moduleId}"`)
             if (field.id.includes('.') || !validPath(authored.module.moduleId)) invalid('extension sink keys must be literal single segments')
             item.payloadPath = `extensions.${authored.module.moduleId}.${field.id}`
             if (standardPaths.has(item.payloadPath)) invalid(`duplicate payload path "${item.payloadPath}"`)
@@ -370,7 +393,9 @@ export function compileCrudFormSectionExtensions(
       for (const item of changedFields) {
         const { authored, field } = item
         if (!field.store || field.store.kind === 'customField') continue
-        const key = canonicalSectionJson([authored.module.moduleId, authored.extension.id, field.store.fieldOverride ? field.id : null])
+        const key = canonicalSectionJson([authored.module.moduleId,
+          field.store.kind === 'table' ? field.store.entityId : authored.extension.id,
+          field.store.kind === 'table' ? null : field.store.fieldOverride ? field.id : null])
         const group = sinkGroups.get(key) ?? []
         group.push(item)
         sinkGroups.set(key, group)
@@ -452,6 +477,16 @@ export function compileCrudFormSectionExtensions(
       if (choice) effective.push(choice)
     }
 
+    for (const candidate of effective) for (const { customField, seed, authored } of candidate.fields) {
+      if (!customField || !seed) continue
+      const identity = canonicalSectionJson([customField.entityId, customField.key])
+      const previous = seeds.get(identity)
+      if (previous && (previous.moduleId !== authored.module.moduleId || canonicalSectionJson(previous.field) !== canonicalSectionJson(seed))) {
+        invalid(`conflicting custom field seed "${customField.entityId}/${customField.key}" from ${previous.moduleId} and ${authored.module.moduleId}`)
+      }
+      seeds.set(identity, { moduleId: authored.module.moduleId, entity: customField.entityId, field: seed })
+    }
+
     const effectiveDefaultKeys = new Set<string>()
     for (const candidate of effective) for (const value of candidate.defaults) {
       if (effectiveDefaultKeys.has(value.payloadPath)) invalid(`conflicting default for "${value.payloadPath}" in ${key}`)
@@ -485,6 +520,9 @@ export function compileCrudFormSectionExtensions(
         ? customFieldOwnership.ids.map((id) => `customFields.${id}`)
         : customFieldOwnership.mode === 'all' ? [`customFields\u0000${index}`] : [])
       const rules = chosen.flatMap(({ defaults }) => defaults)
+      const genericTableTargets = chosen.flatMap(({ sinks }) => sinks.flatMap(({ fields }) =>
+        fields[0].field.store?.kind === 'table' ? [fields[0].field.store.entityId] : []))
+      if (new Set(genericTableTargets).size !== genericTableTargets.length) return false
       if (!orderedSectionIds || chosen.some(({ contribution }) => contribution.requiredSectionIds
           ?.some((sectionId) => !orderedSectionIds.includes(sectionId)))
           || pathsOverlap([...ownershipFacts.flatMap(({ payloadPaths }) => payloadPaths), ...custom])
@@ -560,5 +598,13 @@ export function compileCrudFormSectionExtensions(
     const content = JSON.stringify(Object.fromEntries([...ledger.revisions.keys()].sort(compareSectionIds).map((id) => [id, ledger.revisions.get(id)])), null, 2) + '\n'
     return module.authoredSource && content !== ledger.original ? [{ filename: ledger.filename, content }] : []
   })
-  return { contributionsByModule, alternativesByModule, runtimeFiles, revisionWrites, fallbacks }
+  const customFieldSetsByModule = new Map<string, CustomFieldSet[]>()
+  for (const { moduleId, entity, field } of seeds.values()) {
+    const sets = customFieldSetsByModule.get(moduleId) ?? []
+    const existing = sets.find((entry) => entry.entity === entity)
+    if (existing) existing.fields.push(field)
+    else sets.push({ entity, fields: [field], source: moduleId })
+    customFieldSetsByModule.set(moduleId, sets)
+  }
+  return { contributionsByModule, alternativesByModule, runtimeFiles, revisionWrites, fallbacks, customFieldSetsByModule }
 }

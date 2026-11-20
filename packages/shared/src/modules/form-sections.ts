@@ -54,6 +54,7 @@ export type CrudFormSectionHostAlternative = {
 
 export type CrudFormSectionHostFact = CrudFormSectionDescriptorIdentity & {
   hostResourceKind?: string
+  customFieldSeedEntities?: Readonly<Record<string, string>>
   alternatives?: readonly CrudFormSectionHostAlternative[]
 }
 
@@ -111,6 +112,8 @@ export type CrudFormSectionSinkSnapshot = {
   before: SinkRecord | null
   after: SinkRecord | null
   outboxAfterRevision?: string
+  tableAfterUpdatedAt?: string | null
+  tableBeforeUpdatedAt?: string | null
 }
 export type CrudFormSectionSinkRow = {
   values: SinkRecord
@@ -127,6 +130,7 @@ export type CrudFormSectionSink = {
   capabilityId: string
   hostDetailEntityId: string
   appendOnly?: true
+  tableVersioned?: true
   schema: z.ZodType<SinkRecord>
   outbox?: import('../lib/crud/form-sections/outbox').CrudFormSectionOutboxRuntime
   persist(input: SinkMutationContext & {

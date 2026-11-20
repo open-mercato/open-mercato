@@ -5,16 +5,22 @@ import { registerCommandInterceptors } from '../../../commands/command-intercept
 import { registerTelemetryErrorReporter } from '../../../telemetry/runtime'
 import type { CrudFormSectionMutationSurfaceFact } from '../../../../modules/form-section-facts'
 import { defineCrudFormSectionSink, type CrudFormSectionHostProvider, type CrudFormSectionServerModule, type CrudFormSectionSink } from '../../../../modules/form-sections'
+import { loadCustomFieldDefinitionIndex } from '../../custom-fields'
 import { isUniqueViolation } from '../../errors'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '../../optimistic-lock-headers'
 import { registerMutationGuards } from '../../mutation-guard-store'
-import { bindCompiledCrudFormAlternatives, bindCompiledCrudFormContributions, type CompiledCrudFormFieldRule } from '../compiled-extensions'
+import { bindCompiledCrudFormAlternatives, bindCompiledCrudFormContributions, type CompiledCrudFormCustomField, type CompiledCrudFormFieldRule } from '../compiled-extensions'
 import { crudFormSectionHostKey } from '../composition'
 import { buildCrudFormSectionSinkEnrichers, readCrudFormSectionSinkSnapshots } from '../extension-sinks'
 import { getCrudFormSectionManifest, registerCrudFormSectionManifest } from '../manifest'
 import { runCrudFormSectionMutation, type CrudFormSectionMutationFacadeOptions, type CrudFormSectionMutationIdentity } from '../mutation-facade'
 import { buildCrudFormSectionPolicyHeaders, crudFormSectionPolicyHeaderNames, parseCrudFormSectionPolicyHeaders } from '../policy-headers'
 import { encodeCurrentCrudFormSectionPolicyToken } from '../policy-token'
+
+jest.mock('../../custom-fields', () => ({
+  ...jest.requireActual('../../custom-fields'),
+  loadCustomFieldDefinitionIndex: jest.fn(),
+}))
 
 const dataSchema = z.object({ sku: z.string(), cost: z.number().optional() }).strict()
 type Payload = z.infer<typeof dataSchema>
@@ -54,6 +60,7 @@ function addManifest(
   pairedDelete?: CrudFormSectionMutationSurfaceFact,
   additionalSinks: CrudFormSectionSink[] = [],
   compiledRule?: CompiledCrudFormFieldRule,
+  compiledCustomField?: CompiledCrudFormCustomField,
 ): void {
   if (readLockedRecord) registerMutationGuards([{ moduleId: 'example', guards: [{
     id: 'example.parent-domain', targetEntity: 'example.product', operations: ['update'],
@@ -162,26 +169,35 @@ function addManifest(
       }],
     },
   }]
-  if (compiledRule) {
+  if (compiledRule || compiledCustomField) {
     const entry = modules[0]
     const initial = entry.sections.contributionFacts![0]
+    const customFieldOwnership = compiledCustomField ? { mode: 'ids' as const, ids: [compiledCustomField.key],
+      definitionSetId: compiledCustomField.definitionSetId } : { mode: 'none' as const }
     const contribution = {
       ...initial,
       id: 'example.compiled-notes', roundTripId: 'example.compiled-notes@v1',
       requiredCapabilities: [{
         capabilityId: 'example.compiled-notes.capability', protocol: 'crud-form-sections/v1' as const,
-        modes: ['domain-adapter'] as const, mutationSurfaceIds: [selected.id], payloadPaths: ['sku'],
+        modes: ['domain-adapter'] as const, mutationSurfaceIds: [selected.id], payloadPaths: ['sku'], customFieldOwnership,
       }],
     }
     const existing = entry.sections.hostFacts![0].alternatives![1].surface
-    const sections = bindCompiledCrudFormContributions({ ...entry.sections, contributionFacts: [], contributedOverrides: {} },
-      [{ contribution, fieldRules: [compiledRule] }],
+    const hostFacts = entry.sections.hostFacts!.map((fact) => compiledCustomField ? { ...fact,
+      customFieldSeedEntities: { [compiledCustomField.definitionSetId]: compiledCustomField.entityId },
+    } : fact)
+    const sections = bindCompiledCrudFormContributions({ ...entry.sections, hostFacts, contributionFacts: [], contributedOverrides: {} },
+      [{ contribution, fieldRules: compiledRule ? [compiledRule] : undefined,
+        stores: compiledCustomField ? [{
+          ownerModuleId: 'example', fieldId: 'regionField', payloadPath: `customFields.${compiledCustomField.key}`,
+          store: { kind: 'customField', key: compiledCustomField.key }, customField: compiledCustomField,
+        }] : undefined }],
       { 'example.product/showcase/update/notes': { operation: 'add', contributionId: contribution.id } },
     )
     registerCrudFormSectionManifest([bindCompiledCrudFormAlternatives({ ...entry, sections }, [{
       hostDescriptorId: 'example.host', proofAlternativeId: existing.id, defaultProviders: [],
       surface: { ...existing, id: 'example.compiled-alternative', contributionIds: [contribution.id],
-        ownershipFacts: [{ sectionId: 'notes', payloadPaths: ['sku'], customFieldOwnership: { mode: 'none' } }],
+        ownershipFacts: [{ sectionId: 'notes', payloadPaths: ['sku'], customFieldOwnership }],
       },
     }])])
     return
@@ -288,6 +304,7 @@ function fixture(
 
 beforeEach(() => {
   authority.mockReset().mockResolvedValue(host)
+  jest.mocked(loadCustomFieldDefinitionIndex).mockReset()
   registerMutationGuards([])
   addManifest()
 })
@@ -692,6 +709,37 @@ describe('compiled server rules in the accepted policy', () => {
     expect(rule.mock.calls.map(([value]) => value)).toEqual(['EARLY-DENIED', 'VALID', 'VALID', 'FINAL-DENIED'])
     expect(write).not.toHaveBeenCalled()
     expect(setupFinal.events).toEqual(['begin', 'existing-hook', 'rollback'])
+  })
+})
+
+describe('compiled custom-field storage', () => {
+  const parent: CrudFormSectionMutationSurfaceFact = {
+    ...surface, id: 'example.custom-field-parent', kind: 'parent-submit',
+    guardedFacade: { method: 'PATCH', routePattern: '/example/products/[productId]' },
+    mutationResourceKind: 'example.product', resourceBindingIds: [],
+  }
+  const compiledField = { definitionSetId: 'example.product-fields', entityId: 'example:product', key: 'region', kind: 'text' } as const
+
+  it('checks the installed scoped definition and preserves the value for the original host transaction', async () => {
+    addManifest(true, parent, async () => ({ code: 'LOCKED' }), undefined, undefined, [], undefined, compiledField)
+    const { options, execute, em } = fixture(parent, 'product-1', policyHeaders('product-1', parent), {
+      sku: 'VALID', customFields: { region: 'east' },
+    })
+    const bodySchema = dataSchema.extend({ code: z.string(), customFields: z.object({ region: z.string() }).strict() })
+    const load = jest.mocked(loadCustomFieldDefinitionIndex)
+    const knownDefinition = { key: 'region', kind: 'text', label: null, multi: false, priority: 0, updatedAt: 0,
+      tenantId: 'tenant', organizationId: 'org' }
+    load.mockResolvedValueOnce(new Map([['region', [{ ...knownDefinition, kind: 'number' }]]]))
+    await expect(runCrudFormSectionMutation({ ...options, bodySchema })).rejects.toMatchObject(expectedMismatch)
+    expect(execute).not.toHaveBeenCalled()
+
+    const ready = fixture(parent, 'product-1', policyHeaders('product-1', parent), { sku: 'VALID', customFields: { region: 'east' } })
+    load.mockResolvedValue(new Map([['region', [knownDefinition]]]))
+    await expect(runCrudFormSectionMutation({ ...ready.options, bodySchema })).resolves.toEqual({ id: 'product-1' })
+    expect(load).toHaveBeenCalledWith({ em, entityIds: 'example:product', tenantId: 'tenant', organizationIds: ['org'] })
+    expect(ready.execute).toHaveBeenCalledWith(expect.objectContaining({
+      payload: { sku: 'VALID', code: 'LOCKED', customFields: { region: 'east' } },
+    }))
   })
 })
 

@@ -4,7 +4,10 @@ import type {
 import type {
   CrudFormLeafDefaultProvider, CrudFormSectionHostAlternative, CrudFormSectionServerModule, CrudFormSectionSink,
 } from '../../../modules/form-sections'
+import type { CompiledStoreEntityExports } from './compiled-store-entities'
+import type { CustomFieldKind } from '../../../modules/entities'
 import type { CrudFormSectionOutboxDelivery } from './outbox'
+import { bindCompiledCrudFormGenericSink, type CompiledCrudFormValueField } from './compiled-sinks'
 import { copyDerivedCrudRouteCapabilities } from './factory-route-source'
 import { evaluateCrudFormFieldRules, type CrudFormNormalizedFieldRule } from './field-rules'
 import { readCrudFormRequiredLeaf } from './required-leaves'
@@ -44,11 +47,19 @@ export type CrudFormCompiledStoreSource =
       integrationId: string; mirror: string; contractId?: `${string}@v${number}`; maxAttempts?: number; failureNotificationType?: string
     } }>
 
+export type CompiledCrudFormCustomField = Readonly<{
+  entityId: string
+  definitionSetId: string
+  key: string
+  kind: CustomFieldKind
+}>
+
 export type CompiledCrudFormStoreBinding = Readonly<{
   ownerModuleId: string
   fieldId: string
   payloadPath: string
   store: CrudFormCompiledStoreSource
+  customField?: CompiledCrudFormCustomField
 }>
 
 export type CompiledCrudFormSinkAssociation = Readonly<{
@@ -59,13 +70,15 @@ export type CompiledCrudFormSinkAssociation = Readonly<{
   hostDetailEntityId: string
   payloadPaths: readonly string[]
   store: Exclude<CrudFormCompiledStoreSource, { kind: 'customField' }>
+  fields?: readonly CompiledCrudFormValueField[]
+  entityExports?: CompiledStoreEntityExports
 }>
 
 export function bindCompiledCrudFormSink(
   association: CompiledCrudFormSinkAssociation,
   address: CrudFormSectionAddress,
 ): CrudFormSectionSink | null {
-  if (association.store.kind !== 'sink') return null
+  if (association.store.kind !== 'sink') return bindCompiledCrudFormGenericSink(association, address)
   const { config } = association.store
   if (!config.entityId.startsWith(association.ownerModuleId + ':')) return null
   const fact = {

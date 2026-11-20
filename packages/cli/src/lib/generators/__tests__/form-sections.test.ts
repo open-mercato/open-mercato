@@ -537,7 +537,7 @@ describe('compiled CrudForm extensions', () => {
       requiredCapabilities: [],
     }
     const hostFacts = [{
-      id: 'test.host', roundTripId: 'test.host@v1', hostResourceKind: 'test.record',
+      id: 'test.host', roundTripId: 'test.host@v1', hostResourceKind: 'test.record', customFieldSeedEntities: { 'test.fields': 'test:record' },
       alternatives: [
         { surface: base, mutationSurfaces: [submit] },
         { surface: { ...base, id: 'test.manual-edit', orderedSectionIds: ['details', 'private', 'manual'], contributionIds: [manual.id] }, mutationSurfaces: [submit] },
@@ -683,6 +683,35 @@ describe('compiled CrudForm extensions', () => {
       .map((file) => fs.readFileSync(path.join(dir, file), 'utf8')).join('\n')
     expect(browser).toContain('extensions.extension.erpSupplierRef')
     expect(browser).not.toMatch(/serverOnlyRule|integrationId|erp_link|deliver/)
+  })
+
+  it('feeds compiled custom fields into all ordinary ce.ts seed registries and excludes masked fields', async () => {
+    host()
+    write('app/src/modules/extension/ce.ts', `export const entities = [
+      { id: 'test:record', fields: [{ key: 'manual_ce', kind: 'text' }] },
+    ]`)
+    write('app/src/modules/extension/form-sections.ts', makeExtension(`
+      extra: add({ fields: { brandName: field.add({ type: 'text', labelKey: 'extension.fields.brand', store: store.customField('brand_name') }) } }),
+    `))
+    const generateSeeds = (mask: boolean) => generateModuleRegistries({ resolver: resolver([
+      { id: 'host', from: '@app' }, { id: 'extension', from: '@app',
+        ...(mask ? { formSectionOverrides: { 'test.record/edit/update/extra': null } } : {}) },
+    ]), quiet: true })
+    const readRegistries = () => ['modules.generated.ts', 'modules.bootstrap.generated.ts', 'modules.cli.generated.ts'].map((name) =>
+      fs.readFileSync(path.join(root, 'app/.mercato/generated', name), 'utf8'))
+    await generateSeeds(false)
+    for (const output of readRegistries()) {
+      expect(output).toContain('extension/ce')
+      expect(output).toContain('"brand_name"')
+      expect(output).toMatch(/"entity":\s*"test:record"/)
+    }
+    expect(generated('facts')).toContain('"definitionSetId":"test.fields","entityId":"test:record","key":"brand_name","kind":"text"')
+    expect(generated('runtime')).not.toContain('test:record')
+    await generateSeeds(true)
+    for (const output of readRegistries()) {
+      expect(output).toContain('extension/ce')
+      expect(output).not.toContain('brand_name')
+    }
   })
 
   it('keeps target-scoped descriptor IDs and revisions stable when target order changes', async () => {

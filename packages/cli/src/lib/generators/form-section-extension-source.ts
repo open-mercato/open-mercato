@@ -10,7 +10,7 @@ import { MODULE_CODE_EXTENSIONS, stripModuleCodeExtension } from './scanner'
 type Invalid = (reason: string) => never
 type SourceTarget = Pick<CrudFormSectionAddress, 'formVariant' | 'formOperation'>
 export type SectionBrowserLoader = { importPath: string; source: ts.SourceFile }
-export type SectionExtensionStore = { kind: 'customField' | 'table' | 'sink' | 'external'; key?: string; fieldOverride: boolean }
+export type SectionExtensionStore = { kind: 'customField' | 'table' | 'sink' | 'external'; key?: string; entityId?: string; fieldOverride: boolean }
 
 export type SectionExtensionField = {
   id: string
@@ -105,14 +105,20 @@ function readStore(input: ts.Expression, fieldOverride: boolean, invalid: Invali
       break
     case 'store.table':
       if (args.length === 1) {
-        sectionSymbol(literalData(args[0], invalid), 'store entity', invalid)
-        return { kind: 'table', fieldOverride }
+        return { kind: 'table', fieldOverride, entityId: sectionSymbol(literalData(args[0], invalid), 'store entity', invalid) }
       }
       break
     case 'store.sink':
     case 'store.external':
-      if (args.length === 1 && ts.isObjectLiteralExpression(unwrap(args[0]))) {
-        return { kind: name === 'store.sink' ? 'sink' : 'external', fieldOverride }
+      if (args.length === 1) {
+        const configuration = unwrap(args[0])
+        if (!ts.isObjectLiteralExpression(configuration)) break
+        const propertyName = name === 'store.sink' ? 'entityId' : 'mirror'
+        const property = configuration.properties.find((candidate): candidate is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(candidate) && (ts.isIdentifier(candidate.name) || ts.isStringLiteralLike(candidate.name))
+          && candidate.name.text === propertyName)
+        const entityId = sectionSymbol(property && literalData(property.initializer, invalid), 'store entity', invalid)
+        return { kind: name === 'store.sink' ? 'sink' : 'external', fieldOverride, entityId }
       }
       break
   }
