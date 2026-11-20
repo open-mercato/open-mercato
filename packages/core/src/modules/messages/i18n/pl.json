@@ -38,7 +38,7 @@
   "messages.bulk.flash.unarchiveSuccess": "Przeniesiono {count} wiadomości do skrzynki odbiorczej.",
   "messages.compose": "Napisz wiadomość",
   "messages.compose.sendSeparately": "Wyślij osobno",
-  "messages.compose.sendSeparatelyHint": "Każdy odbiorca dostanie własną kopię i nie zobaczy pozostałych.",
+  "messages.compose.sendSeparatelyHint": "Każdy odbiorca dostaje osobną kopię.",
   "messages.compose.to": "Do",
   "messages.compose.toLimit": "{count} / {max}",
   "messages.compose.toPlaceholder": "Wpisz adres e-mail i naciśnij Enter",

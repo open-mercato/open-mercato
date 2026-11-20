@@ -38,7 +38,7 @@
   "messages.bulk.flash.unarchiveSuccess": "{count} Nachrichten in den Posteingang verschoben.",
   "messages.compose": "Nachricht verfassen",
   "messages.compose.sendSeparately": "Einzeln senden",
-  "messages.compose.sendSeparatelyHint": "Jeder Empfänger erhält eine eigene Kopie und sieht die anderen nicht.",
+  "messages.compose.sendSeparatelyHint": "Jeder Empfänger erhält eine eigene Kopie.",
   "messages.compose.to": "An",
   "messages.compose.toLimit": "{count} / {max}",
   "messages.compose.toPlaceholder": "E-Mail-Adresse eingeben und Enter drücken",

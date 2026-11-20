@@ -38,7 +38,7 @@
   "messages.bulk.flash.unarchiveSuccess": "{count} mensajes movidos a la bandeja de entrada.",
   "messages.compose": "Redactar mensaje",
   "messages.compose.sendSeparately": "Enviar por separado",
-  "messages.compose.sendSeparatelyHint": "Cada destinatario recibe su propia copia y no ve a los demás.",
+  "messages.compose.sendSeparatelyHint": "Cada destinatario recibe su propia copia.",
   "messages.compose.to": "Para",
   "messages.compose.toLimit": "{count} / {max}",
   "messages.compose.toPlaceholder": "Escribe una dirección de correo y pulsa Intro",

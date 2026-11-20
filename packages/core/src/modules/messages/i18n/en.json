@@ -38,7 +38,7 @@
   "messages.bulk.flash.unarchiveSuccess": "{count} messages moved to inbox.",
   "messages.compose": "Compose message",
   "messages.compose.sendSeparately": "Send separately",
-  "messages.compose.sendSeparatelyHint": "Each recipient gets their own copy and does not see the others.",
+  "messages.compose.sendSeparatelyHint": "Each recipient gets a private copy.",
   "messages.compose.to": "To",
   "messages.compose.toLimit": "{count} / {max}",
   "messages.compose.toPlaceholder": "Type an email address and press Enter",

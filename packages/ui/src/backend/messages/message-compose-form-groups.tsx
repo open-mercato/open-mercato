@@ -78,16 +78,23 @@ function ExternalEmailsInput({ compose }: ComposeProps) {
   )
 }
 
-function SendSeparatelySwitch({ compose }: ComposeProps) {
-  if (compose.visibility !== 'public') return null
+function SendSeparatelyField({ compose }: ComposeProps) {
+  const id = 'messages-compose-send-separately'
   return (
-    <SwitchField
-      containerClassName="rounded border px-3 py-2"
-      label={compose.t('messages.compose.sendSeparately', 'Send separately')}
-      description={compose.t('messages.compose.sendSeparatelyHint', 'Each recipient gets their own copy and does not see the others.')}
-      checked={compose.sendSeparately}
-      onCheckedChange={compose.setSendSeparately}
-    />
+    <div className="space-y-2">
+      <Label htmlFor={id}>{compose.t('messages.compose.sendSeparately', 'Send separately')}</Label>
+      <div className="inline-flex h-9 items-center rounded-md border bg-background px-2">
+        <Switch
+          id={id}
+          checked={compose.sendSeparately}
+          onCheckedChange={compose.setSendSeparately}
+          aria-describedby={`${id}-hint`}
+        />
+      </div>
+      <p id={`${id}-hint`} className="max-w-48 text-xs text-muted-foreground">
+        {compose.t('messages.compose.sendSeparatelyHint', 'Each recipient gets a private copy.')}
+      </p>
+    </div>
   )
 }
 
@@ -291,12 +298,13 @@ function ComposeModeFields({ compose }: ComposeProps) {
             )}
           </div>
 
-          <div className="space-y-2">
-            <VisibilitySelector compose={compose} />
+          <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
+            {compose.visibility === 'public' ? <SendSeparatelyField compose={compose} /> : null}
+            <div className="min-w-0 space-y-2">
+              <VisibilitySelector compose={compose} />
+            </div>
           </div>
         </div>
-
-        <SendSeparatelySwitch compose={compose} />
 
         <SenderSelector compose={compose} />
 
@@ -348,15 +356,11 @@ function ReplyModeFields({ compose }: ComposeProps) {
   return (
     <>
       {compose.replyAll && compose.externalEmails.length > 0 ? (
-        <div className="space-y-2">
-          <ExternalEmailsInput compose={compose} />
-          <SwitchField
-            containerClassName="rounded border px-3 py-2"
-            label={compose.t('messages.compose.sendSeparately', 'Send separately')}
-            description={compose.t('messages.compose.sendSeparatelyHint', 'Each recipient gets their own copy and does not see the others.')}
-            checked={compose.sendSeparately}
-            onCheckedChange={compose.setSendSeparately}
-          />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="min-w-0 flex-1 space-y-2">
+            <ExternalEmailsInput compose={compose} />
+          </div>
+          <SendSeparatelyField compose={compose} />
         </div>
       ) : null}
       <MarkdownBodySection

@@ -38,7 +38,7 @@
   "messages.bulk.flash.unarchiveSuccess": "메시지 {count}건을 받은편지함으로 이동했습니다.",
   "messages.compose": "메시지 작성",
   "messages.compose.sendSeparately": "개별 발송",
-  "messages.compose.sendSeparatelyHint": "각 수신자는 자신만의 사본을 받으며 다른 수신자를 볼 수 없습니다.",
+  "messages.compose.sendSeparatelyHint": "각 수신자에게 개별 사본이 전송됩니다.",
   "messages.compose.to": "받는 사람",
   "messages.compose.toLimit": "{count} / {max}",
   "messages.compose.toPlaceholder": "이메일 주소를 입력하고 Enter를 누르세요",
