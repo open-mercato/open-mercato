@@ -1,15 +1,19 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { User, type Session } from '@open-mercato/core/modules/auth/data/entities'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isSsoUserDeactivated } from '../lib/deactivation'
+import { SsoConfig } from '../data/entities'
+import type { SsoAuthorizationService } from './ssoAuthorizationService'
 
 type SsoSessionScope = {
   tenantId: string | null
   organizationId: string
   ssoConfigId: string
+  configUpdatedAt?: number
 }
 
 const UNRESOLVED_PASSWORD_SCOPE = {
@@ -19,7 +23,10 @@ const UNRESOLVED_PASSWORD_SCOPE = {
 }
 
 export class SsoAuthService extends AuthService {
-  constructor(private ssoEm: EntityManager) {
+  constructor(
+    private ssoEm: EntityManager,
+    private ssoAuthorizationService?: SsoAuthorizationService,
+  ) {
     super(ssoEm)
   }
 
@@ -39,7 +46,25 @@ export class SsoAuthService extends AuthService {
     scope?: SsoSessionScope,
   ): Promise<{ session: Session; token: string }> {
     return this.ssoEm.transactional(async (txEm) => {
-      await lockAuthorizationUserRows(txEm, [user.id])
+      if (scope) {
+        if (!this.ssoAuthorizationService) {
+          throw new Error('[internal] SSO authorization service is unavailable')
+        }
+        const config = await findOneWithDecryption(
+          txEm,
+          SsoConfig,
+          { id: scope.ssoConfigId, organizationId: scope.organizationId, isActive: true, deletedAt: null },
+          { refresh: true, lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: scope.tenantId, organizationId: scope.organizationId },
+        )
+        if (!config || !Number.isFinite(scope.configUpdatedAt) || config.updatedAt.getTime() !== scope.configUpdatedAt) {
+          throw new AuthSessionRejectedError()
+        }
+        const tenantId = await this.ssoAuthorizationService.assertAccount(txEm, config, user)
+        if (scope.tenantId !== tenantId) throw new AuthSessionRejectedError()
+      } else {
+        await lockAuthorizationUserRows(txEm, [user.id])
+      }
       const currentUser = await findOneWithDecryption(
         txEm, User,
         { id: user.id, tenantId: user.tenantId ?? null, organizationId: user.organizationId ?? null, deletedAt: null },

@@ -137,6 +137,7 @@
   "sso.admin.wizard.review.save": "구성 생성",
   "sso.admin.wizard.review.testing": "테스트 중...",
   "sso.admin.wizard.review.title": "검토 및 저장",
+  "sso.errors.authorizationDenied": "SSO 권한이 더 이상 유효하지 않습니다. 권한이 있는 관리자에게 구성을 다시 저장하거나 SCIM 토큰을 교체하도록 요청하세요.",
   "sso.errors.oidc_url.blocked_hostname": "OIDC 엔드포인트 호스트가 허용되지 않습니다",
   "sso.errors.oidc_url.credentials_in_url": "OIDC 엔드포인트 URL에 인증 정보를 포함할 수 없습니다",
   "sso.errors.oidc_url.dns_resolution_empty": "OIDC 엔드포인트에 DNS 주소 레코드가 없습니다. 공급자 설정을 확인하세요",

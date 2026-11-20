@@ -137,6 +137,7 @@
   "sso.admin.wizard.review.save": "Konfiguration erstellen",
   "sso.admin.wizard.review.testing": "Wird getestet...",
   "sso.admin.wizard.review.title": "Überprüfen und speichern",
+  "sso.errors.authorizationDenied": "Die SSO-Autorisierung ist nicht mehr gültig. Bitten Sie einen berechtigten Administrator, die Konfiguration erneut zu speichern oder das SCIM-Token zu ersetzen.",
   "sso.errors.oidc_url.blocked_hostname": "Der Host des OIDC-Endpunkts ist nicht zulässig",
   "sso.errors.oidc_url.credentials_in_url": "Die URL des OIDC-Endpunkts darf keine Anmeldedaten enthalten",
   "sso.errors.oidc_url.dns_resolution_empty": "Der OIDC-Endpunkt hat keine DNS-Adressdatensätze; prüfen Sie die Anbieterkonfiguration",

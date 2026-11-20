@@ -137,6 +137,7 @@
   "sso.admin.wizard.review.save": "Create Configuration",
   "sso.admin.wizard.review.testing": "Testing...",
   "sso.admin.wizard.review.title": "Review & Save",
+  "sso.errors.authorizationDenied": "SSO authorization is no longer valid. Ask an authorized administrator to re-save the configuration or replace the SCIM token.",
   "sso.errors.oidc_url.blocked_hostname": "OIDC endpoint host is not allowed",
   "sso.errors.oidc_url.credentials_in_url": "OIDC endpoint URL must not contain credentials",
   "sso.errors.oidc_url.dns_resolution_empty": "OIDC endpoint has no DNS address records; check the provider configuration",

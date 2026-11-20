@@ -1,106 +1,183 @@
 import { EntityManager, type FilterQuery, type RequiredEntityData } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { User, UserRole, Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entities'
 import { emitSsoEvent } from '../events'
-import { EmailNotVerifiedError, SsoRolesRevokedError } from '../lib/errors'
+import { EmailNotVerifiedError, SsoRolesRevokedError, isSsoRolesRevokedError } from '../lib/errors'
 import type { SsoIdentityPayload } from '../lib/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { conflict } from '@open-mercato/shared/lib/crud/errors'
 import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { isSsoUserDeactivated } from '../lib/deactivation'
+import type { SsoAuthorizationService } from './ssoAuthorizationService'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sso').child({ component: 'account-linking' })
 
+type AuthorizedSsoAccount = {
+  user: User
+  identity: SsoIdentity
+  authorizedRoleIds: ReadonlySet<string>
+}
+
+type PendingIdentityEvent = {
+  eventId: 'sso.identity.linked' | 'sso.identity.created'
+  id: string
+  tenantId: string
+  organizationId: string
+}
+
 export class AccountLinkingService {
-  constructor(private em: EntityManager) {}
+  constructor(
+    private em: EntityManager,
+    private ssoAuthorizationService?: SsoAuthorizationService,
+  ) {}
 
   async resolveUser(
     config: SsoConfig,
     idpPayload: SsoIdentityPayload,
     tenantId: string,
+    configVersion: number = config.updatedAt instanceof Date ? config.updatedAt.getTime() : Number.NaN,
   ): Promise<{ user: User; identity: SsoIdentity }> {
-    const existing = await this.findExistingLink(config.id, idpPayload.subject, tenantId, config.organizationId)
-    if (existing) {
-      await this.assignRolesFromSso(this.em, existing.user, config, tenantId, idpPayload.groups)
-      return existing
-    }
-
-    if (idpPayload.emailVerified !== true) {
-      throw new EmailNotVerifiedError('IdP did not verify the email claim — cannot link or provision account')
-    }
-
-    const emailDomain = idpPayload.email.split('@')[1]?.toLowerCase()
-    if (!emailDomain || !config.allowedDomains.some((d) => d.toLowerCase() === emailDomain)) {
-      throw new Error('Email domain is not in the allowed domains for this SSO configuration')
-    }
-
-    const emailLinked = config.autoLinkByEmail
-      ? await this.linkByEmail(config, idpPayload, tenantId)
-      : null
-    if (emailLinked) {
-      await this.assignRolesFromSso(this.em, emailLinked.user, config, tenantId, idpPayload.groups)
-      return emailLinked
-    }
-
-    if (config.jitEnabled) {
-      const scimActive = await this.em.count(ScimToken, { ssoConfigId: config.id, isActive: true }) > 0
-      if (scimActive) {
-        throw new Error('JIT provisioning is disabled because SCIM directory sync is active')
+    const authorization = this.requireAuthorizationService()
+    const pendingEvents: PendingIdentityEvent[] = []
+    const result = await this.em.transactional(async (em) => {
+      const currentConfig = await findOneWithDecryption(
+        em,
+        SsoConfig,
+        { id: config.id, organizationId: config.organizationId, isActive: true, deletedAt: null },
+        { refresh: true, lockMode: LockMode.PESSIMISTIC_WRITE },
+        { tenantId: config.tenantId ?? null, organizationId: config.organizationId },
+      )
+      if (!currentConfig || !Number.isFinite(configVersion) || currentConfig.updatedAt.getTime() !== configVersion) {
+        throw new Error('[internal] SSO configuration changed during authentication')
       }
-      return this.jitProvision(config, idpPayload, tenantId)
-    }
+      const resolvedTenantId = await authorization.resolveTenant(em, currentConfig)
+      if (tenantId && tenantId !== resolvedTenantId) {
+        throw new Error('[internal] SSO tenant scope does not match its organization')
+      }
+      const existing = await this.findExistingLink(em, currentConfig, idpPayload.subject, resolvedTenantId)
+      if (existing) {
+        return this.synchronizeExistingUser(em, existing, currentConfig, resolvedTenantId, idpPayload.groups)
+      }
 
-    throw new Error('No matching user found and JIT provisioning is disabled')
+      if (idpPayload.emailVerified !== true) {
+        throw new EmailNotVerifiedError('IdP did not verify the email claim — cannot link or provision account')
+      }
+
+      const emailDomain = idpPayload.email.split('@')[1]?.toLowerCase()
+      if (!emailDomain || !currentConfig.allowedDomains.some((domain) => domain.toLowerCase() === emailDomain)) {
+        throw new Error('Email domain is not in the allowed domains for this SSO configuration')
+      }
+
+      const emailLinked = currentConfig.autoLinkByEmail
+        ? await this.linkByEmail(em, currentConfig, idpPayload, resolvedTenantId, pendingEvents)
+        : null
+      if (emailLinked) {
+        return this.synchronizeExistingUser(em, emailLinked, currentConfig, resolvedTenantId, idpPayload.groups)
+      }
+
+      await authorization.assertConfiguration(em, currentConfig)
+      if (currentConfig.jitEnabled) {
+        const scimActive = await em.count(ScimToken, { ssoConfigId: currentConfig.id, isActive: true }) > 0
+        if (scimActive) {
+          throw new Error('JIT provisioning is disabled because SCIM directory sync is active')
+        }
+        return this.jitProvision(em, currentConfig, idpPayload, resolvedTenantId, pendingEvents)
+      }
+
+      throw new Error('No matching user found and JIT provisioning is disabled')
+    })
+    for (const { eventId, ...payload } of pendingEvents) {
+      void emitSsoEvent(eventId, payload).catch((eventError) => {
+        logger.error('SSO event emit failed', { err: eventError })
+        try {
+          getTelemetryRuntime()?.reportError(eventError, { module: 'sso', code: 'sso.event_emit_failed' })
+        } catch (telemetryError) {
+          logger.warn('SSO telemetry reporting failed', { err: telemetryError })
+        }
+      })
+    }
+    if (isSsoRolesRevokedError(result)) throw result
+    return result
+  }
+
+  private async synchronizeExistingUser(
+    em: EntityManager,
+    existing: AuthorizedSsoAccount,
+    config: SsoConfig,
+    tenantId: string,
+    idpGroups?: string[],
+  ): Promise<{ user: User; identity: SsoIdentity } | SsoRolesRevokedError> {
+    try {
+      await this.assignRolesFromSso(em, existing.user, config, tenantId, idpGroups, existing.authorizedRoleIds)
+      return { user: existing.user, identity: existing.identity }
+    } catch (error) {
+      if (isSsoRolesRevokedError(error)) return error
+      throw error
+    }
+  }
+
+  private requireAuthorizationService(): SsoAuthorizationService {
+    if (!this.ssoAuthorizationService) {
+      throw new Error('[internal] SSO authorization service is unavailable')
+    }
+    return this.ssoAuthorizationService
   }
 
   private async findExistingLink(
-    ssoConfigId: string,
+    em: EntityManager,
+    config: SsoConfig,
     idpSubject: string,
     tenantId: string,
-    organizationId: string,
-  ): Promise<{ user: User; identity: SsoIdentity } | null> {
+  ): Promise<AuthorizedSsoAccount | null> {
     const identity = await findOneWithDecryption(
-      this.em,
+      em,
       SsoIdentity,
-      { ssoConfigId, idpSubject, deletedAt: null },
+      { ssoConfigId: config.id, idpSubject, deletedAt: null },
       {},
-      { tenantId, organizationId },
+      { tenantId, organizationId: config.organizationId },
     )
     if (!identity) return null
 
     const user = await findOneWithDecryption(
-      this.em,
+      em,
       User,
-      { id: identity.userId, deletedAt: null },
+      { id: identity.userId, tenantId, organizationId: config.organizationId, deletedAt: null },
       {},
-      { tenantId, organizationId },
+      { tenantId, organizationId: config.organizationId },
     )
     if (!user) {
+      await this.requireAuthorizationService().assertConfiguration(em, config)
       identity.deletedAt = new Date()
-      await this.em.flush()
+      await em.flush()
       return null
     }
 
-    await this.requireActiveUser(user.id, ssoConfigId, tenantId, organizationId)
+    const authorization = await this.requireAuthorizationService().authorizeAccount(em, config, user)
+    await this.requireActiveUser(user.id, config.id, tenantId, config.organizationId, em)
 
     identity.lastLoginAt = new Date()
-    await this.em.flush()
+    await em.flush()
 
-    return { user, identity }
+    return { user, identity, authorizedRoleIds: new Set(authorization.mappedRoleIds) }
   }
 
   private async linkByEmail(
+    em: EntityManager,
     config: SsoConfig,
     idpPayload: SsoIdentityPayload,
     tenantId: string,
-  ): Promise<{ user: User; identity: SsoIdentity } | null> {
+    pendingEvents: PendingIdentityEvent[],
+  ): Promise<AuthorizedSsoAccount | null> {
     const emailHash = computeEmailHash(idpPayload.email)
     const user = await findOneWithDecryption(
-      this.em,
+      em,
       User,
       {
+        tenantId,
         organizationId: config.organizationId,
         deletedAt: null,
         $or: [
@@ -113,10 +190,11 @@ export class AccountLinkingService {
     )
     if (!user) return null
 
-    await this.requireActiveUser(user.id, config.id, tenantId, config.organizationId)
+    const authorization = await this.requireAuthorizationService().authorizeAccount(em, config, user)
+    await this.requireActiveUser(user.id, config.id, tenantId, config.organizationId, em)
 
     const now = new Date()
-    const identity = this.em.create(SsoIdentity, {
+    const identity = em.create(SsoIdentity, {
       tenantId,
       organizationId: config.organizationId,
       ssoConfigId: config.id,
@@ -131,15 +209,16 @@ export class AccountLinkingService {
       createdAt: now,
       updatedAt: now,
     } as RequiredEntityData<SsoIdentity>)
-    await this.em.persist(identity).flush()
+    await em.persist(identity).flush()
 
-    void emitSsoEvent('sso.identity.linked', {
+    pendingEvents.push({
+      eventId: 'sso.identity.linked',
       id: identity.id,
       tenantId,
       organizationId: config.organizationId,
-    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+    })
 
-    return { user, identity }
+    return { user, identity, authorizedRoleIds: new Set(authorization.mappedRoleIds) }
   }
 
   private async requireActiveUser(
@@ -155,51 +234,53 @@ export class AccountLinkingService {
   }
 
   private async jitProvision(
+    em: EntityManager,
     config: SsoConfig,
     idpPayload: SsoIdentityPayload,
     tenantId: string,
+    pendingEvents: PendingIdentityEvent[],
   ): Promise<{ user: User; identity: SsoIdentity }> {
-    return this.em.transactional(async (txEm) => {
-      const user = txEm.create(User, {
-        tenantId,
-        organizationId: config.organizationId,
-        email: idpPayload.email,
-        emailHash: computeEmailHash(idpPayload.email),
-        name: idpPayload.name ?? null,
-        passwordHash: null,
-        isConfirmed: true,
-        createdAt: new Date(),
-      })
-      await txEm.persist(user).flush()
-
-      await this.assignRolesFromSso(txEm, user, config, tenantId, idpPayload.groups)
-
-      const now = new Date()
-      const identity = txEm.create(SsoIdentity, {
-        tenantId,
-        organizationId: config.organizationId,
-        ssoConfigId: config.id,
-        userId: user.id,
-        idpSubject: idpPayload.subject,
-        idpEmail: idpPayload.email,
-        idpName: idpPayload.name ?? null,
-        idpGroups: idpPayload.groups ?? [],
-        provisioningMethod: 'jit',
-        firstLoginAt: now,
-        lastLoginAt: now,
-        createdAt: now,
-        updatedAt: now,
-      } as RequiredEntityData<SsoIdentity>)
-      await txEm.persist(identity).flush()
-
-      void emitSsoEvent('sso.identity.created', {
-        id: identity.id,
-        tenantId,
-        organizationId: config.organizationId,
-      }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
-
-      return { user, identity }
+    const user = em.create(User, {
+      tenantId,
+      organizationId: config.organizationId,
+      email: idpPayload.email,
+      emailHash: computeEmailHash(idpPayload.email),
+      name: idpPayload.name ?? null,
+      passwordHash: null,
+      isConfirmed: true,
+      createdAt: new Date(),
     })
+    await em.persist(user).flush()
+
+    const authorization = await this.requireAuthorizationService().authorizeAccount(em, config, user)
+    await this.assignRolesFromSso(em, user, config, tenantId, idpPayload.groups, new Set(authorization.mappedRoleIds))
+
+    const now = new Date()
+    const identity = em.create(SsoIdentity, {
+      tenantId,
+      organizationId: config.organizationId,
+      ssoConfigId: config.id,
+      userId: user.id,
+      idpSubject: idpPayload.subject,
+      idpEmail: idpPayload.email,
+      idpName: idpPayload.name ?? null,
+      idpGroups: idpPayload.groups ?? [],
+      provisioningMethod: 'jit',
+      firstLoginAt: now,
+      lastLoginAt: now,
+      createdAt: now,
+      updatedAt: now,
+    } as RequiredEntityData<SsoIdentity>)
+    await em.persist(identity).flush()
+
+    pendingEvents.push({
+      eventId: 'sso.identity.created',
+      id: identity.id,
+      tenantId,
+      organizationId: config.organizationId,
+    })
+
+    return { user, identity }
   }
 
   private async assignRolesFromSso(
@@ -207,7 +288,8 @@ export class AccountLinkingService {
     user: User,
     config: SsoConfig,
     tenantId: string,
-    idpGroups?: string[],
+    idpGroups: string[] | undefined,
+    authorizedRoleIds: ReadonlySet<string>,
   ): Promise<void> {
     const hasMappings = config.appRoleMappings && Object.keys(config.appRoleMappings).length > 0
     if (!hasMappings) return
@@ -216,7 +298,7 @@ export class AccountLinkingService {
       const managedUser = typeof transactionalEm.getReference === 'function'
         ? transactionalEm.getReference(User, String(user.id))
         : user
-      await this.syncMappedRoles(transactionalEm, managedUser, config, tenantId, idpGroups)
+      await this.syncMappedRoles(transactionalEm, managedUser, config, tenantId, idpGroups, authorizedRoleIds)
       const remainingGrant = await transactionalEm.findOne(SsoRoleGrant, {
         userId: user.id,
         ssoConfigId: config.id,
@@ -243,7 +325,8 @@ export class AccountLinkingService {
     user: User,
     config: SsoConfig,
     tenantId: string,
-    idpGroups?: string[],
+    idpGroups: string[] | undefined,
+    authorizedRoleIds: ReadonlySet<string>,
   ): Promise<void> {
     const resolvedTenantId = tenantId || user.tenantId || ''
     if (!resolvedTenantId) return
@@ -254,6 +337,7 @@ export class AccountLinkingService {
       deletedAt: null,
     } as FilterQuery<Role>)
     let desiredRoleIds = resolveActiveRoleIds(allRoles, desiredRoleNames)
+    assertRoleMutationFootprintWasLocked(desiredRoleIds, authorizedRoleIds)
 
     // Query current SSO grants for this user+config
     let existingGrants = await em.find(SsoRoleGrant, {
@@ -288,6 +372,7 @@ export class AccountLinkingService {
     )
 
     desiredRoleIds = resolveActiveRoleIds(allRoles, desiredRoleNames)
+    assertRoleMutationFootprintWasLocked(desiredRoleIds, authorizedRoleIds)
     const existingGrantedRoleIds = new Set(existingGrants.map((g) => g.roleId))
 
     // Compute diff
@@ -364,9 +449,14 @@ function assertRoleMutationFootprintWasLocked(
 
 function resolveActiveRoleIds(roles: Role[], desiredRoleNames: string[]): Set<string> {
   const roleByNormalizedName = new Map<string, Role>()
+  const desiredNameSet = new Set(desiredRoleNames)
   for (const role of roles) {
     const normalized = normalizeToken(role.name)
-    if (normalized) roleByNormalizedName.set(normalized, role)
+    if (!normalized || !desiredNameSet.has(normalized)) continue
+    if (roleByNormalizedName.has(normalized)) {
+      throw conflict('[internal] SSO role mapping is ambiguous')
+    }
+    roleByNormalizedName.set(normalized, role)
   }
 
   const desiredRoleIds = new Set<string>()

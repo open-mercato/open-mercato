@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 191 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 192 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -35,6 +35,7 @@ This catalog indexes 191 focused lessons. Route the task first, then read only r
 
 - [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
 
+- [Carry authorized SSO role IDs through synchronization](lessons/carry-authorized-sso-role-ids-through-synchronization.md) — area:module-data,testing; module:sso,auth; topic:access-control,concurrency,role-mappings
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
 - [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
 - [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord,catalog,workflows; topic:testing,fixture-cleanup,fixture-setup,api-contracts,proposal-origin,error-handling
