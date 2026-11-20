@@ -1332,8 +1332,35 @@ a validation failure returns the standard 400 shape (see API Contracts).
   `otherOperatingIncomeAccountId` (the gain/loss side is only known after
   the catch-up, so both are required up front) — and rejects before the
   catch-up step begins, so a missing proceeds/operating account cannot
-  leave already-committed catch-up accruals behind. **Then**
-  runs `accrueDepreciation`'s own due-entry logic scoped to this asset,
+  leave already-committed catch-up accruals behind.
+  **Posting-date preflight, also before any catch-up:** under the same
+  exclusive `(tenantId, organizationId, assetId)` lock, re-read the
+  authoritative committed history for this tenant/org/asset: every accrued
+  `DepreciationScheduleEntry` and every original or reversal
+  `AssetImpairment` row, including fully reversed impairments. Resolve
+  their `journalEntryReferenceId` values to the same tenant/org's committed
+  `ledger.JournalEntry` records and compare `disposalDate` with each
+  `JournalEntry.operationDate` (`journal_entries.operation_date`). The
+  ledger prerequisite defines this date field and gives each reversal its
+  own `operationDate` ([PR #5663, pinned entity definition](https://github.com/open-mercato/open-mercato/blob/61bc044f43c7d8db963849fc16c1734a9795dacf/.ai/specs/2026-08-18-general-ledger-core-engine.md#L893-L905),
+  [storage-column index](https://github.com/open-mercato/open-mercato/blob/61bc044f43c7d8db963849fc16c1734a9795dacf/.ai/specs/2026-08-18-general-ledger-core-engine.md#L1041-L1046),
+  [accounting-date and reversal rules](https://github.com/open-mercato/open-mercato/blob/61bc044f43c7d8db963849fc16c1734a9795dacf/.ai/specs/2026-08-18-general-ledger-core-engine.md#L661-L686));
+  `accruedAt`/`postedAt` timestamps, schedule boundaries and cached
+  history/totals are not substitutes for those committed posting dates.
+  If `disposalDate` is earlier than any such `operationDate`, reject
+  with 409 `disposal_precedes_existing_posting` (translated through
+  `fixed_assets.errors.disposal_precedes_existing_posting`) before any
+  new catch-up or disposal write, including disposal-number allocation or
+  asset-status mutation. Retain all existing schedule rows, impairment and
+  reversal history, journal entries and amounts unchanged; do not filter out,
+  delete or rewrite later postings to allow the disposal. No retroactive
+  reconciliation workflow is defined here. A date equal to or later than
+  every existing posting date passes only this guard; all existing status,
+  period, account, catch-up and amount rules still apply. Keep the asset
+  lock held from this authoritative re-read through catch-up and disposal,
+  so a competing financial writer cannot commit between preflight and use.
+  **Only after these preflights**, the command runs
+  `accrueDepreciation`'s own due-entry logic scoped to this asset,
   up to `disposalDate` (see Design Decisions, "always catches up
   due-but-unposted depreciation") — locked periods among the entries
   being caught up (as opposed to the disposal period itself, already
@@ -1844,13 +1871,21 @@ Custom write route (`disposeAsset`), mapped to `update`.
   `DRAFT` or `DISPOSED` (distinct, named codes
   `cannot_dispose_inactive_asset` / `already_disposed` — a `DRAFT` asset
   has no capitalization posting to reverse and no schedule to catch up);
-  the `FiscalPeriod` covering `disposalDate` itself is locked; or a
-  required account is unset in `FixedAssetSettings` —
+  the `FiscalPeriod` covering `disposalDate` itself is locked;
+  `disposal_precedes_existing_posting` when the locked, authoritative
+  posting-date preflight above finds any committed depreciation,
+  impairment or impairment-reversal `JournalEntry.operationDate` later
+  than `disposalDate`; or a required account is unset in
+  `FixedAssetSettings` —
   `saleProceedsAccountId` for `SALE`, or either
   `otherOperatingExpenseAccountId`/`otherOperatingIncomeAccountId`
   (distinct, named codes — see Internationalization). The catch-up
   step's own per-entry locked periods are reported in `catchUpAccrual`,
-  not a 409.
+  not a 409. The posting-date refusal occurs before catch-up and returns
+  `{ code: 'disposal_precedes_existing_posting', disposalPerformed: false,
+  catchUpAccrual: { posted: [], skippedLockedPeriod: [], failed: [] } }`;
+  this request makes zero new catch-up or disposal writes and leaves all
+  previously committed history intact.
 - **Response 403**: caller lacks `fixed_assets.disposals.manage`.
 
 ### `POST /api/fixed_assets/assets/:id/impairments`
@@ -2370,6 +2405,28 @@ All user-facing strings resolve through `useT()` client-side /
   and included in totals, and a deleted stale candidate never posts. Race
   disposal catch-up against revision and impairment to prove no writer
   interleaves between its transactions and disposal posting.
+- Integration: with valid accounts, unlocked periods and a current optimistic
+  header, reject a January disposal after a committed February depreciation
+  posting with 409 `disposal_precedes_existing_posting`. Repeat separately
+  with a later original impairment and a later impairment reversal, including
+  a fully reversed loss whose net impairment is zero. Read the actual linked
+  ledger `operationDate` values; vary `postedAt`/`accruedAt` to prove
+  recording timestamps do not decide the guard. Assert zero new catch-up or
+  disposal journal entries, no new `AssetDisposal`, no disposal-number
+  allocation or asset/schedule/history mutations, and unchanged existing
+  ledger entries and amounts. A disposal date equal to the latest posting
+  date, and one after it, proceeds under all existing rules; retain the
+  locked-period/account failure cases. Prove another tenant/org/asset's later
+  posting does not affect this asset's scoped guard.
+- Integration: start disposal from a stale candidate scan, then let a
+  competing depreciation, impairment or reversal commit a later-dated posting
+  before disposal acquires the asset lock; its post-lock re-read must reject
+  with the named 409 and zero new writes. Reverse the lock order and prove
+  the competing writer cannot interleave between disposal's posting-date
+  preflight, catch-up transactions and final disposal transaction; after
+  disposal releases the lock, the writer re-reads and follows the existing
+  disposed-status rules. These are implementation acceptance cases, not
+  runtime evidence for this documentation change.
 - Integration: revise base-currency and foreign-currency salvage values,
   checking both audit pairs and the regenerated sum. For EUR 10,000 at 4.5,
   revise EUR 1,000 salvage to EUR 2,000 and assert base salvage 9,000;
@@ -2865,6 +2922,25 @@ gates, not defects in this document.
   maintainer decision.
 
 ## Changelog
+
+### 2026-11-20 — partial review response (PR #9786, finding 2 only)
+
+- Require a tenant/org/asset-locked authoritative posting-date preflight before
+  disposal catch-up; reject a date earlier than committed depreciation or
+  impairment/reversal postings with 409 `disposal_precedes_existing_posting`
+  and zero new catch-up/disposal writes. Pin the planned ledger's
+  `operationDate`/`operation_date` field and preserve all later postings.
+- Add API refusal semantics and acceptance cases for backdated, equal/later,
+  cross-scope and concurrent posting/disposal requests. Amounts, period rules,
+  impairment calculations and the ledger transaction prerequisite are unchanged.
+- **Activation remains gated.** This addresses only finding 2 of
+  [review 5970261228](https://github.com/open-mercato/open-mercato/pull/9786#pullrequestreview-5970261228).
+  Finding 1 (zero-value completion/status) and finding 3 (uncertain catch-up
+  outcome) remain unresolved. The earlier compliance verdict is historical,
+  not implementation approval: the Article 30 maintainer decision, financial
+  authority/accounting approval, security gates and unmerged prerequisites
+  remain in force. No runtime implementation, accounting-policy decision or
+  whole-PR approval is supplied by this partial specification repair.
 
 ### 2026-11-19 - review response (PR #9786)
 - Specify asset-scoped serialization, post-lock rechecks and race coverage.

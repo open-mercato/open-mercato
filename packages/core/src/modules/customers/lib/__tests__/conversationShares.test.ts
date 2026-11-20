@@ -11,6 +11,8 @@ import {
   listGrantsForViewer,
   listGrantsForViewerOnPerson,
   listSharedChannelIds,
+  loadLiveInteractionAuthority,
+  LIVE_INTERACTION_ARM_MAX,
   SHARED_CHANNEL_ARM_MAX,
 } from '../conversationShares'
 
@@ -124,5 +126,98 @@ describe('canShareConversation', () => {
 
   it('is false without a person id', async () => {
     await expect(canShareConversation(em(), SCOPE, 'owner-1', '')).resolves.toBe(false)
+  })
+})
+
+describe('loadLiveInteractionAuthority', () => {
+  it('returns an empty map without querying when no ids are given', async () => {
+    const find = jest.fn(async () => [])
+    await expect(loadLiveInteractionAuthority(em({ find }), SCOPE, [])).resolves.toEqual(new Map())
+    expect(find).not.toHaveBeenCalled()
+  })
+
+  it('dedupes ids and maps the CURRENT visibility/author/channel/parent by id', async () => {
+    const find = jest.fn(async () => [
+      { id: 'int-1', visibility: 'private', authorUserId: 'owner-1', channelId: 'chan-1', entity: 'person-1' },
+      { id: 'int-2', visibility: null, authorUserId: null, channelId: null, entity: null },
+    ])
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1', 'int-1', 'int-2'])
+    expect(result).toEqual(
+      new Map([
+        ['int-1', { visibility: 'private', authorUserId: 'owner-1', channelId: 'chan-1', entityId: 'person-1' }],
+        ['int-2', { visibility: null, authorUserId: null, channelId: null, entityId: null }],
+      ]),
+    )
+    expect(find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: { $in: ['int-1', 'int-2'] }, tenantId: SCOPE.tenantId, deletedAt: null }),
+      expect.anything(),
+    )
+  })
+
+  it('resolves the parent entity id from either a raw FK string or a Reference-shaped object', async () => {
+    const find = jest.fn(async () => [
+      { id: 'int-1', visibility: 'private', authorUserId: 'owner-1', channelId: null, entity: 'person-raw-fk' },
+      { id: 'int-2', visibility: 'private', authorUserId: 'owner-1', channelId: null, entity: { id: 'person-ref' } },
+    ])
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1', 'int-2'])
+    expect(result.get('int-1')?.entityId).toBe('person-raw-fk')
+    expect(result.get('int-2')?.entityId).toBe('person-ref')
+  })
+
+  it('omits a deleted/missing interaction — the caller falls back to its own conservative default', async () => {
+    const find = jest.fn(async () => [
+      { id: 'int-1', visibility: 'shared', authorUserId: 'owner-1', channelId: null, entity: 'person-1' },
+    ])
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1', 'int-deleted'])
+    expect(result.has('int-deleted')).toBe(false)
+    expect(result.get('int-1')).toEqual({
+      visibility: 'shared',
+      authorUserId: 'owner-1',
+      channelId: null,
+      entityId: 'person-1',
+    })
+  })
+
+  it('fails closed to an empty map when the lookup throws', async () => {
+    const find = jest.fn(async () => {
+      throw new Error('connection reset')
+    })
+    await expect(loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1'])).resolves.toEqual(new Map())
+  })
+
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909684050) —
+  // the batch query MUST always scope by tenantId, and by organizationId
+  // whenever the caller's scope carries one, so a row from a different
+  // tenant/organization can never surface through this lookup.
+  it('always scopes the query by tenantId, and by organizationId when the caller scope carries one', async () => {
+    const find = jest.fn(async () => [])
+    await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1'])
+    expect(find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId }),
+      expect.anything(),
+    )
+  })
+
+  it('omits organizationId from the query when the caller scope has none (tenant-wide read)', async () => {
+    const find = jest.fn(async () => [])
+    await loadLiveInteractionAuthority(em({ find }), { tenantId: 'tenant-1', organizationId: null }, ['int-1'])
+    const [, where] = find.mock.calls[0]
+    expect(where).not.toHaveProperty('organizationId')
+    expect(where).toMatchObject({ tenantId: 'tenant-1' })
+  })
+
+  it('caps the resolved set at LIVE_INTERACTION_ARM_MAX', async () => {
+    const many = Array.from({ length: LIVE_INTERACTION_ARM_MAX + 25 }, (_v, i) => ({
+      id: `int-${i}`,
+      visibility: 'private',
+      authorUserId: 'owner-1',
+      channelId: null,
+    }))
+    const find = jest.fn(async () => many)
+    const ids = many.map((row) => row.id)
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ids)
+    expect(result.size).toBe(LIVE_INTERACTION_ARM_MAX)
   })
 })
