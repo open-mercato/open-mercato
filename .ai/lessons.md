@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 190 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 192 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,6 +18,7 @@ This catalog indexes 190 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
 - [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
 
 - [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context
@@ -43,7 +44,8 @@ This catalog indexes 190 focused lessons. Route the task first, then read only r
 
 ### architecture
 
-- [Shutdown failure reporting must not block cleanup](lessons/shutdown-failure-reporting-must-not-block-cleanup.md) — area:architecture,testing; module:telemetry; topic:error-reporting,runtime-startup,shutdown
+- [Browser error reporting requires client registration](lessons/browser-error-reporting-requires-client-registration.md) — area:architecture,backend-ui,testing; module:telemetry,ui; topic:error-reporting,runtime-startup,browser,testing
+- [Shutdown failure reporting must not block cleanup](lessons/shutdown-failure-reporting-must-not-block-cleanup.md) — area:architecture,testing; module:telemetry,webhooks; topic:error-reporting,runtime-startup,shutdown,subscribers
 
 - [Dev-session orphan recovery requires consent and full descendant cleanup](lessons/dev-session-orphan-recovery-requires-consent.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,shutdown,concurrency,template-sync
 - [Serialize dev-session stale recovery across ownership changes](lessons/serialize-dev-session-stale-recovery.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,concurrency,template-sync
@@ -191,7 +193,7 @@ This catalog indexes 190 focused lessons. Route the task first, then read only r
 - [Provider sandboxes may sign notifications with a separate CA](lessons/provider-sandboxes-may-sign-with-a-separate-ca.md) — area:integration; module:payment_gateways,gateway_tpay; topic:network-security,webhooks
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
 - [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,sso,api_keys,entities,workflows; topic:access-control,data-scoping,events,testing
-- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,module-data,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security,documents,cart,catalog; topic:events,testing,workers,hydration,component-overrides,timers
+- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,module-data,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security,documents,cart,catalog; topic:test-timeouts,testing,workers,hydration,component-overrides,timers
 - [Use the confirmation dialog's explicit accessibility role](lessons/confirm-dialog-locators-use-alertdialog.md) — area:backend-ui,integration,testing; module:ui,warranty_claims; topic:accessibility,ui-components,testing
 - [Stabilize long claim desk flows with bounded interactions and teardown](lessons/stabilize-long-claim-desk-flows-with-bounded-interactions.md) — area:integration,testing,backend-ui; module:warranty_claims,ui; topic:testing,workers,component-overrides,concurrency,accessibility
 - [Standalone integration activation must match the asserted runtime surface](lessons/standalone-integration-activation-must-match-the-asserted.md) — area:integration,architecture,testing; module:create_app,example,design_system,auth; topic:access-control,component-overrides,generated-files,testing
