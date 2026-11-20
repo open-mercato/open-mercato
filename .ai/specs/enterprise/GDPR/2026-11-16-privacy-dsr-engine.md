@@ -19,18 +19,18 @@ Supersedes: .ai/specs/enterprise/2026-07-08-gdpr-data-erasure.md
 - DSR log as action-log entries (no values); persistent `privacy.subject.erased` event.
 
 **Concerns:**
-- The run is only as complete as the registered classes; every report lists the tables still on the OSS coverage baseline.
+- The run is only as complete as the registered classes. Every report lists, under `notCovered`, the baseline tables and every enabled module with entities but no `privacy.ts`.
 - A restore from backup brings erased data back; the controller re-runs erasures from the kept reports.
 
 ## Overview
 
-The OSS edition ships the contract (`packages/shared/src/modules/privacy.ts`), one handler per module and a coverage test ([contract](../../GDPR/2026-11-16-privacy-data-class-contract.md), [coverage](../../GDPR/2026-11-16-privacy-coverage.md)). Nothing in OSS calls those handlers for a request. This module is the caller. It owns no personal data of its own beyond the request log, adds no table, and never reads another module's tables, with one documented exception: tenant purge.
+The OSS packages ship the contract (`packages/shared/src/modules/privacy.ts`), one handler in every core module that holds personal data, and a coverage check ([contract](../../GDPR/2026-11-16-privacy-data-class-contract.md), [coverage](../../GDPR/2026-11-16-privacy-coverage.md)). This module is the only caller. It runs the handlers of every module the client enables: core, Enterprise ([enterprise coverage](2026-11-16-privacy-coverage-enterprise.md)), official and the client's own app modules. It owns no personal data of its own beyond the request log, adds no table, and never reads another module's tables, with one documented exception: tenant purge.
 
 Audience: tenant administrators answering requests within the Art. 12(3) month, and operators who host tenants as processors.
 
 > **Market reference:** ERPNext/Frappe "Personal Data Download Request" and "Personal Data Deletion Request" — per-doctype rules decide delete vs anonymize, the download is JSON. Adopted: per-class mode chosen by the owning module, JSON download, anonymize when deletion is blocked. Rejected: e-mail confirmation by the subject and self-service (identity verification stays with the controller, procedure in [deployment docs](../../GDPR/2026-11-16-gdpr-deployment-docs.md)).
 
-Open question kept for the maintainer (not gating): may a bare export/erase CLI ship in OSS? Default: no; this spec assumes Enterprise.
+**Compliance target.** An Enterprise deployment must provide every legally required function, with whichever core modules the client enables (owner decision, 2026-11-20). This module runs the flows; each core module contributes its handler. An OSS-only deployment is not a compliance target, so no OSS invoker is planned. The closure gate is the program's phase 3 exit: an empty coverage baseline and `TC-PRIVACY-013` passing with all core and Enterprise modules enabled.
 
 ## Problem Statement
 
@@ -118,7 +118,7 @@ This is the one deliberate exception to owner-only table access: the tenant ceas
 - **Restore.** Restoring a backup brings erased data back. The erasure register is the set of `--out` reports (and page downloads), kept by the controller outside the database; after any restore, re-run every erasure newer than the backup before go-live. Procedure in the [deployment docs](../../GDPR/2026-11-16-gdpr-deployment-docs.md).
 - **No legal-hold engine.** When data must be kept (dispute, litigation), the operator does not run the erasure and documents the reason (docs procedure). Class-level `legal_retention`/`open_case` handle the recurring cases.
 - **No technical restriction (Art. 18).** Procedure in the docs.
-- **Coverage.** Tables on the OSS baseline are not erased; every report lists them under `notCovered`. Free-text mentions of the subject inside other people's records, queue copies (bounded by the [retention pruners](../../GDPR/2026-11-16-operational-retention-pruners.md)) and copies at external providers (Art. 19, docs) are outside the run.
+- **Coverage.** Tables on the coverage baseline, and enabled modules that have entities but no `privacy.ts` (an official or app module not yet registered), are not erased. Every report lists both under `notCovered`, by table and module id. The module list comes from the generated module registry: a module with `data/entities.ts` and no `Module.privacy`. Free-text mentions of the subject inside other people's records, queue copies (bounded by the [retention pruners](../../GDPR/2026-11-16-operational-retention-pruners.md)) and copies at external providers (Art. 19, docs) are outside the run.
 - DSR log entries are kept until tenant purge; they hold ids and counts only.
 
 ### Design decisions
@@ -282,6 +282,11 @@ Additive: new module, routes, feature, event id, queue. No existing contract cha
 1. Table-rule resolver over the snapshot inventory; unit test that every table resolves.
 2. Files, search, rows, log; CLI `purge-tenant`. DB test TC-PRIVACY-011.
 
+
+### Phase 6: Tandem closure
+1. `notCovered` from the generated module registry: enabled modules with `data/entities.ts` and no `Module.privacy`, plus baseline tables. Unit test with a fixture registry. `TC-PRIVACY-014`.
+2. `TC-PRIVACY-013` on an all-modules Enterprise build, run after the OSS coverage phases and the enterprise coverage spec land. This is the GDPR closure gate for Enterprise releases.
+
 ## Integration Coverage
 
 All tests create their own tenant data through API fixtures and clean up in `finally`; files under `packages/enterprise/src/modules/privacy/__integration__/`.
@@ -300,6 +305,8 @@ All tests create their own tenant data through API fixtures and clean up in `fin
 | TC-PRIVACY-010 | Action-log age bound deletes old entries and keeps `privacy.*` entries; floor 90 enforced |
 | TC-PRIVACY-011 | Purge refuses a live tenant; on a soft-deleted tenant no row with its id remains in any inventoried table and its files are gone |
 | TC-PRIVACY-012 | Page: export download, erase preview, confirm dialog, apply, log row appears |
+| TC-PRIVACY-013 | **Tandem closure.** On an Enterprise build with every core and Enterprise module enabled, a fixture person, portal user and staff user are seeded through the real APIs into every module holding personal data: CRM, sales and checkout, cart, forms, messages, channels, phone calls, workflows, AI assistant, staff, notifications, warranty, SSO, security, agent orchestrator. Export returns a section from each module. Erase apply ends `complete` with `notCovered` empty. Afterwards no seeded name, email or phone is returned by any list, detail or search API, and every legally retained order keeps only its allowlisted fields |
+| TC-PRIVACY-014 | A fixture app module with an entity and no `privacy.ts` is enabled; export and erase reports list it under `notCovered` by module id, and the run status says the coverage is incomplete |
 
 ## Final Compliance Report — 2026-11-20
 

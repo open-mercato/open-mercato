@@ -3,7 +3,7 @@
 > **Tracker:** open-mercato/open-mercato#8593
 > **Program:** [program](2026-11-15-gdpr-ready-deployments-program.md)
 > **Edition:** OSS
-> **GDPR basis:** Art. 32(1) and Art. 5(1)(f) (credentials in history); Art. 17 and Art. 5(2) (history strip after erasure, keeping who/when)
+> **GDPR basis:** Art. 32(1) and Art. 5(1)(f) (credentials in history); Art. 17 and Art. 5(2) (history strip after erasure, keeping who/when); Art. 33 (export entries for breach scoping)
 
 ## TLDR
 
@@ -17,11 +17,13 @@
 - Restore never writes a password hash from history.
 - Batched data migration that clears replay data of the affected resource kinds. New `stripped_at` column; undo and redo refuse a stripped row.
 - `stripForResources` for the erasure run.
+- The `audit_logs` privacy declaration with the action-log `pruneExpired` (§6).
+- One action-log entry per server-side data export (§7).
 
 **Out of scope** (one line each)
 - A name-based credential detector for undoable third-party commands: security backlog.
 - MFA method secrets in `security.mfa_method` undo payloads: open PR #9578.
-- Age-based action-log retention: Enterprise, in [DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md).
+- Running age-based action-log retention: the Enterprise runner in [DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md). This spec ships only the `pruneExpired` method it calls (§6).
 - Personal data in snapshots of entries that can still be undone: removed only by the strip on erasure or by age retention.
 
 ## Overview
@@ -104,6 +106,15 @@ actionLogService.stripForResources(scope: PrivacyScope, refs: PrivacyRecordRef[]
 
 - `audit_logs.action_log`: tables `action_logs`; `subjectKinds: []` (history is a copy of other modules' records, removed per `touched` ref by `stripForResources`); handler `auditLogsPrivacyHandler`; `eraseMode: 'delete'`; `retentionSetting: 'audit_logs.action_log_retention_days'`. `exportSubject` returns no sections and `eraseSubject` changes nothing, because the primary records carry the subject's data. `pruneExpired(scope, olderThan, { dryRun, limit })` deletes the tenant's entries older than `olderThan` in batches, except DSR entries (`command_id` starting `privacy.`), which hold no values. Unset keeps everything. The Enterprise runner is its only caller ([DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md), action-log age bound, #2980), so OSS ships no schedule or setting for it.
 - `access_logs`: exempt. It is already bounded inline (7 days / 8 hours).
+
+### 7. Export entry for breach scoping
+
+A controller must be able to tell, after a breach, who took a bulk copy of personal data (Art. 33(3)(a), EDPB Guidelines 9/2022 §37). Today a list export leaves no trace beyond the access log, which rotates in 7 days.
+
+- **Where.** Both export response sites of `makeCrudRoute` (`packages/shared/src/lib/crud/factory.ts:2110` and `:2320`), plus the custom export routes that return personal data: `forms/api/submissions/[submissionId]/export`, `forms/api/subjects/[subjectType]/[subjectId]/export`, `audit_logs/api/audit-logs/actions/export`.
+- **What.** One `actionLogService.log` entry per export response, using only existing `ActionLogCreateInput` fields (`audit_logs/data/validators.ts`): `commandId: 'data.export'`, `actionLabel` (i18n key `audit_logs.actions.dataExport`), `resourceKind` = the route's entity id (no `resourceId`), `tenantId` / `organizationId` / `actorUserId` from the auth context, and `context: { format, scope: 'page' | 'full', rowCount, filtered: boolean }`. No row values, filter values or file names; no snapshots or payload.
+- **How.** `actionLogService` is resolved from the request container with `hasRegistration`; when `audit_logs` is disabled the export runs without an entry. A failed write is reported through `reportError` and does not fail the export.
+- **Retention.** These entries follow the action-log age bound (§6). They are not `privacy.*` entries.
 
 ## Architecture
 
@@ -201,6 +212,9 @@ actionLogService.stripForResources(scope: PrivacyScope, refs: PrivacyRecordRef[]
 1. `stripForResources`. Unit tests: matches on all three id columns; org-or-null scoping; other tenants untouched; `undoing` rows counted in `pending`; idempotent; kept columns unchanged.
 2. `audit_logs/privacy.ts` and `auditLogsPrivacyHandler` with `pruneExpired`. Unit tests: only entries older than the cutoff go; `privacy.*` entries stay; other tenants untouched; dry run writes nothing; batches stop at `limit`.
 
+### Phase 4: Export entries
+1. Export entry in both `makeCrudRoute` export paths and the three custom export routes. Unit tests: one entry per export with format, scope and row count; no row or filter values in the entry; a failing log write still returns the export; no entry and no error when `actionLogService` is not registered. Integration test TC-AUD-EXPORT-001.
+
 ## Integration Coverage
 
 Each test creates its own fixture tenant or records through the API, and removes records, audit rows and fixtures in `finally`. Direct SQL goes through `packages/core/src/helpers/integration/dbFixtures.ts` (`withClient`), and in-process service calls follow `TC-ENTITIES-009-encryption-map-concurrency.spec.ts`.
@@ -211,6 +225,7 @@ Each test creates its own fixture tenant or records through the API, and removes
 | TC-AUD-CRED-002 | Checkout link and template CRUD routes, audit undo and redo, `POST /api/checkout/pay/<slug>/verify-password` | Undo of a title edit on a protected link leaves the old password working. An edit removes the password; undoing it returns 409 `checkout.protected_replay_unavailable` and the row is unchanged. A template's unrelated-edit undo keeps protection, and a link created from it still requires the password. |
 | TC-AUD-CRED-003 | `POST /api/cart/current/merge`, audit undo and redo | Merge two fixture carts, undo succeeds, redo returns 409 `cart.merge_redo_unavailable`, and both carts stay in their post-undo state. |
 | TC-AUD-CRED-004 | Direct SQL fixtures, `stripCredentialHistory({ tenantId })`, `GET …/actions`, `POST …/actions/redo` | Seed `done` and `undone` rows of affected and unaffected kinds in the fixture tenant and run the helper. Affected rows show `strippedAt`, a null token and their snapshots still present. Redo of the `undone` one returns 410. Unaffected kinds and another tenant are unchanged. |
+| TC-AUD-EXPORT-001 | `GET /api/customers/people?format=csv&exportScope=full`, `GET …/actions` | A CSV export of fixture people writes one `data.export` entry with the actor, `customers:customer_entity`, format `csv`, scope `full` and the row count. The entry holds no names or emails. |
 | TC-AUD-CRED-005 | `POST /api/customers/people`, interaction create, in-process `stripForResources`, `GET …/actions` | Create a person and an interaction under it, then strip with the person ref. Both rows show `strippedAt`, no snapshots and the same actor and time. The tenant's other rows are untouched, and a second call strips 0. |
 
 ## Final Compliance Report — 2026-11-20

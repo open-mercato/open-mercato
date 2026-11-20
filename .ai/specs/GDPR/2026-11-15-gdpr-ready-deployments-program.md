@@ -10,7 +10,7 @@ Extends: .ai/specs/enterprise/2026-11-13-sign-in-activity.md
 
 ## TLDR
 
-A controller running Open Mercato on EU personal data cannot today export or erase one person's data across modules. Retention is mostly unbounded. The deployment docs say nothing about sub-processors or rights procedures. **Proposed (future):** eleven work packages close exactly the gaps GDPR and ePrivacy require the platform to *enable*, and nothing else. Data-subject tooling runs in the Enterprise `privacy` module, as the maintainer directed on #8593. OSS modules carry the inert per-module handlers, the security fixes and the operational pruners.
+A controller running Open Mercato on EU personal data cannot today export or erase one person's data across modules. Retention is mostly unbounded. The deployment docs say nothing about sub-processors or rights procedures. **Proposed (future):** eleven work packages close exactly the gaps GDPR and ePrivacy require the platform to *enable*, and nothing else. Data-subject tooling runs in the Enterprise `privacy` module, as the maintainer directed on #8593. Every core (OSS) module that holds personal data carries its own handler, and the Enterprise runner calls them all. **The compliance target is an Enterprise deployment: the Enterprise runner working together with every core, Enterprise, official and app module the client enables.** An OSS-only deployment has the handlers but no runner, so it is not a compliance target.
 
 **Out of scope:** the controller's own legal work (lawful basis, DPAs, RoPA content, DPIA, breach register), Art. 32 hardening that GDPR does not specifically require, and convenience features. They are listed in the scope record. The security items there should be filed as ordinary issues outside this program.
 
@@ -59,26 +59,45 @@ Each row names the minimum the platform must provide. Sources are official EU te
 
 ## Edition rule
 
-The maintainer's comment on #8593 places this capability in **Enterprise**. The program follows it:
+The maintainer's comment on #8593 places this capability in **Enterprise**. The program follows it.
 
-- **OSS:** independent bug and security fixes (WP1–3). Inert seams: the contract types in `packages/shared`, per-module handlers in OSS modules and the coverage test (WP4–5). Operational pruners for OSS tables (WP7). Docs (WP11).
+**Compliance target (owner decision, 2026-11-20).** An **Enterprise deployment must provide every capability this program marks as legally required**. The GDPR flows (export, erasure, retention runs, tenant purge) run only in Enterprise. An Enterprise client uses any core module, so each core module must ship its part of the flow, in its own package. An OSS-only deployment is not a compliance target.
+
+**How the pieces work together.**
+
+```text
+Enterprise `privacy` module (runner: CLI, POST /api/privacy/erase, admin page)
+  │  reads the generated registry of every ENABLED module's privacy.ts
+  ├─► core modules (OSS code)          customers, sales, forms, messages, … → their handlers
+  ├─► Enterprise modules               sso, security, record_locks, agent_orchestrator → their handlers
+  ├─► official modules (separate repo) their own privacy.ts + handlers
+  └─► the client's app modules         src/modules/<id>/privacy.ts + handlers
+  then, once, centrally: history strip (audit_logs), file deletion (attachments),
+  search-index removal (query_index/search), CRUD cache invalidation
+```
+
+- A module the client disables takes no part in a run. A module the client enables takes part through its own handler, and nothing else changes.
+- A core module without a handler is a compliance gap for every Enterprise client who enables it. The coverage check therefore covers all core modules, and the Enterprise closure gate below requires none to be missing.
+- Each run's report lists, under `notCovered`, every enabled module that has entities but no `privacy.ts`, with its module id. An official or app module that was never registered shows up there instead of being silently skipped.
+
+- **OSS packages (code every Enterprise deployment runs):** independent bug and security fixes (WP1–3); the contract types in `packages/shared`; a handler in every core module that holds personal data; the coverage check (WP4–5); operational pruners for core tables (WP7); docs (WP11). Handlers are tested in their own module; in an OSS-only deployment nothing calls them.
 - **Enterprise:** the new `privacy` module runs requests: export, erasure, business-record and action-log retention, tenant purge and the admin page (WP6, WP7). It also holds handlers for Enterprise modules (WP5). The sign-in log (WP10) and tenant legal documents (WP9) follow their existing Enterprise trackers (#8106, #5423).
-- Module isolation requires the handlers to live in their owning modules: Enterprise code must not query OSS tables. This is why the seams are OSS.
+- Module isolation requires the handlers to live in their owning modules: Enterprise code must not query core tables. This is why each core module ships its own handler, and why the Enterprise runner works only through them.
 
 ## Work packages
 
 | WP | Package | GDPR | Ed. | Carrier | Depends on |
 |---|---|---|---|---|---|
-| 1 | User-delete cascade fix: subscribers read `id`; delete per-user stores and stored credentials; portal-user delete clears contact data and credentials | 17, 32 | O | [privacy-coverage](2026-11-16-privacy-coverage.md) Phase 1 | — |
+| 1 | User-delete cascade fix: subscribers read `id`; delete per-user stores and stored credentials; portal-user delete clears contact data and credentials; CRM person delete no longer fails for people with company roles | 17, 32 | O | [privacy-coverage](2026-11-16-privacy-coverage.md) Phase 1 | — |
 | 2 | No passwords, hashes or tokens in command audit/undo history; cleanup migration; `stripped_at` + `actionLogService.stripForResources` | 32, 17 | O | [audit-snapshot-redaction](2026-11-16-audit-snapshot-redaction.md) | — |
 | 3 | Production refuses published encryption secrets; production Compose stops defaulting Meilisearch/Postgres secrets and demo mode | 32 | O | [runtime-encryption-key-guard](2026-11-16-runtime-encryption-key-guard.md) | — |
-| 4 | `privacy.ts` contract and discovery; root handlers for staff user, CRM person and portal user; table coverage test; new-module guardrail | 15, 17, 20, 25 | O | [privacy-data-class-contract](2026-11-16-privacy-data-class-contract.md) | — |
+| 4 | Personal-data registry: `privacy.ts` contract and discovery, one strategy per entity (delete, anonymize, legally retained); root handlers for staff user, CRM person and portal user; coverage check run in the monorepo **and in every standalone app's `yarn test`**; the rule in the standalone `AGENTS.md` and the module-scaffold skills, so a new module (say, bookings) is registered when it is built | 15, 17, 20, 25 | O | [privacy-data-class-contract](2026-11-16-privacy-data-class-contract.md) | — |
 | 5 | Handlers for every other module holding personal data | 15, 17, 17(3) | O / E | [privacy-coverage](2026-11-16-privacy-coverage.md); [privacy-coverage-enterprise](../enterprise/GDPR/2026-11-16-privacy-coverage-enterprise.md) | 4 |
 | 6 | Enterprise `privacy` module: subject export and erasure runs (central history strip, file deletion, search-index removal, cache invalidation), DSR log entry, admin page | 12, 15, 17, 20, 5(2) | E | [privacy-dsr-engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md) | 2, 4, 5 |
 | 7 | Retention: schedule existing pruners; age pruners for operational/log tables; forms retention fix; failed queue job bound (OSS). Business-record and action-log retention runner (#2980); tenant purge (Enterprise) | 5(1)(e), 28(3)(g) | O / E | [operational-retention-pruners](2026-11-16-operational-retention-pruners.md); [privacy-dsr-engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md) | OSS part: — ; Enterprise part: 4, 6 |
-| 8 | Marketing objection: a person-level "do not contact for marketing" flag, honoured by the CRM compose route and any future marketing send path | 21(3) | per tracker | [10-22 consent spec](../2026-10-22-crm-contact-permissions-and-consent-history.md), smallest slice only. **Needs a tracking issue** | — |
-| 9 | Tenant-owned `/privacy` and `/terms` with neutral defaults (08-18 spec Phase 1); `auth.user_consents` records the accepted document version | 13, 14, 7(1) | E (#5423) | [08-18 legal documents spec](../2026-08-18-tenant-legal-documents-and-consent-versioning.md) Phase 1 | — |
-| 10 | Durable sign-in log with IP and user agent, 90-day retention (11-13 spec Phases 1–2); one action-log entry per server-side data export (actor, entity kind, row count) | 32(1)(d), 33 | E (#8106) + O (export entry) | [11-13 sign-in spec](../enterprise/2026-11-13-sign-in-activity.md); export entry: issue | — |
+| 8 | Marketing objection: the person-level `do_not_contact` / `do_not_email` suppression flags, checked before every CRM outreach send | 21(3) | O (`customers`; ships in both editions) | [10-22 consent spec](../2026-10-22-crm-contact-permissions-and-consent-history.md), smallest slice: the suppression flags and the sender-side suppression check. Purpose-level permission history is not required. **Needs a tracking issue** | — |
+| 9 | Tenant-owned `/privacy` and `/terms` with neutral defaults; controller identity at every collection point (onboarding sign-up, checkout); append-only consent evidence. **Required addition:** a `marketing_email` event also records the consent label's i18n key and a SHA-256 of the rendered label text, because the carrier attaches no document to marketing consent and Art. 7(1) needs the shown wording | 13, 14, 7(1) | E (#5423) | [08-18 legal documents spec](../2026-08-18-tenant-legal-documents-and-consent-versioning.md) Phases 1–3 (Phase 4, checkout prefill, is not required) | — |
+| 10 | Durable sign-in log with IP and user agent, 90-day retention (11-13 spec Phases 1–2); one action-log entry per server-side data export (actor, entity kind, format, row count), so a breach can be scoped | 32(1)(d), 33 | E (#8106) + O seam (export entry) | [11-13 sign-in spec](../enterprise/2026-11-13-sign-in-activity.md); export entry: [audit-snapshot redaction](2026-11-16-audit-snapshot-redaction.md) §7 | — |
 | 11 | Deployment docs: roles, sub-processors, hardening, rights procedures (restriction, Art. 19, objection), retention table, backups and restore, breach runbook and register template, RoPA templates, DPIA notes, tenant offboarding | 13–14 facts, 18, 19, 28, 30, 33–35, Ch. V | O (docs) | [gdpr-deployment-docs](2026-11-16-gdpr-deployment-docs.md) | Stage 2 pages follow the features they describe |
 
 WP8 is the only marketing obligation. The product sends no bulk marketing today: form invitations, staff notifications and 1:1 CRM email are not campaigns. If a campaign feature is added later, it must also add an opt-out in every message (ePrivacy Art. 13(2)).
@@ -88,8 +107,8 @@ WP8 is the only marketing obligation. The product sends no bulk marketing today:
 | Phase | Packages | Exit |
 |---|---|---|
 | 1 — Live defects and docs | WP1, WP2, WP3, WP11 stage 1 | Shipped independently. No contract dependency |
-| 2 — Contract and OSS coverage | WP4, then WP5 (OSS); WP7 (OSS) in parallel | Coverage test baseline holds only reviewed exemptions |
-| 3 — Enterprise request tooling | WP6, WP5 (Enterprise), WP7 (Enterprise), WP11 stage 2 | One end-to-end test exports and then erases a person seeded in every covered module |
+| 2 — Contract and core-module coverage | WP4, then WP5 (core modules); WP7 (OSS) in parallel | No core-module table left in the coverage baseline: each is registered or exempt with a reason |
+| 3 — Enterprise request tooling | WP6, WP5 (Enterprise), WP7 (Enterprise), WP11 stage 2 | **Enterprise closure gate:** coverage baseline empty (every core and Enterprise table registered or exempt), and one end-to-end test that exports and then erases a person seeded in every core and Enterprise module holding personal data, run on an Enterprise build with all modules enabled, with `notCovered` empty |
 | 4 — Transparency and logging | WP8, WP9, WP10 | Can run in parallel with phases 2–3 on their own trackers |
 
 ## Known limits
@@ -97,7 +116,8 @@ WP8 is the only marketing obligation. The product sends no bulk marketing today:
 The deployment docs ([index page](2026-11-16-gdpr-deployment-docs.md)) state each of these in plain words:
 
 - Restriction (Art. 18), recipient notification (Art. 19) and backup re-application are procedures, not product features.
-- The OSS edition has handlers but no request runner. OSS deployers handle requests manually, which Art. 12 permits, or use Enterprise.
+- An OSS-only deployment (no Enterprise package) is not a compliance target. It has the core-module handlers but no runner, no action-log bound, no sign-in log, and no tenant legal documents or consent ledger. A deployment that must meet GDPR uses Enterprise, with any core modules it needs.
+- Official modules (`external/official-modules`) and a client's app modules are covered only once they ship their own `privacy.ts`. Until then each run lists them under `notCovered`. Official modules need a follow-up in their own repository.
 - Operational copies (logs, queue jobs, webhook deliveries) are not removed by an erasure. They expire by their published retention windows.
 - Free-text mentions of a person inside other people's records are not found automatically; the docs' erasure procedure includes a manual free-text search step.
 
@@ -124,11 +144,11 @@ The deployment docs ([index page](2026-11-16-gdpr-deployment-docs.md)) state eac
 - **Mitigation**: an explicit refusal message with a runbook link; dev escape variable; the BACKWARD_COMPATIBILITY Emergency Security Exception with maintainer approval.
 - **Residual risk**: downtime until the key is rotated.
 
-#### OSS deployers read "GDPR-ready" as including request tooling
-- **Scenario**: an OSS deployer assumes the product can export or erase a person on request.
+#### OSS deployers read "GDPR-ready" as applying to OSS
+- **Scenario**: an OSS deployer assumes the OSS edition alone meets GDPR.
 - **Severity**: Medium
 - **Affected area**: OSS deployments, WP11.
-- **Mitigation**: the docs index states the edition limit.
+- **Mitigation**: the docs index states plainly that the compliance target is Enterprise and lists what OSS lacks.
 - **Residual risk**: none beyond the disclosure.
 
 #### Handlers drift as modules change
@@ -140,8 +160,9 @@ The deployment docs ([index page](2026-11-16-gdpr-deployment-docs.md)) state eac
 
 ## Open questions for the maintainer (not gating)
 
-1. May a bare `export`/`erase` CLI over the OSS handlers ship in OSS, so that OSS deployments have request tooling? Default: no; Enterprise only.
-2. Is WP8 (marketing objection flag) OSS or Enterprise? It needs its own tracker either way.
+1. WP8 needs an owner and a tracking issue for the suppression slice of the 10-22 spec.
+2. WP3's dev-only escape variable (`OM_ALLOW_PUBLISHED_DEV_KEY`) needs a named maintainer approval under the `BACKWARD_COMPATIBILITY.md` Emergency Security Exception.
+3. WP9 adds one requirement to the 08-18 carrier: the marketing-consent wording (label key plus rendered-text hash). Its owner should confirm it before implementation.
 
 ## Final Compliance Report — 2026-11-20
 
@@ -155,5 +176,7 @@ The deployment docs ([index page](2026-11-16-gdpr-deployment-docs.md)) state eac
 
 ## Changelog
 
+- **2026-11-20 (c)**: States the Enterprise/core tandem explicitly. Enterprise runs the flows; every core module ships its handler. The Enterprise closure gate requires an empty baseline and an end-to-end test with all modules enabled. Runs report unregistered enabled modules under `notCovered`.
+- **2026-11-20 (b)**: Enterprise stated as the compliance target. WP9 now points at 08-18 Phases 1–3 with the marketing-wording addition, because that carrier rejects versioning `user_consents` rows. WP10's export entry is now specified in audit-snapshot redaction §7. WP8 is narrowed to the 10-22 suppression flags.
 - **2026-11-20**: Rewritten to the minimal legal scope. 41 child specs (~21.5k lines) reduced to 8 (~2.4k lines with this program); T2/T3 items moved out (see scope record); pre-existing specs edited on this branch reverted to `main`.
 - **2026-11-15**: Initial program (superseded by the 2026-11-20 rewrite; full draft in git history at `d3e5a87243`).

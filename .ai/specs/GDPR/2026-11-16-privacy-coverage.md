@@ -2,7 +2,7 @@
 
 > **Tracker:** open-mercato/open-mercato#8593
 > **Program:** [program](2026-11-15-gdpr-ready-deployments-program.md)
-> **Edition:** OSS (handlers are inert seams; the invoker is the Enterprise `privacy` module, [DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md))
+> **Edition:** OSS code, run by Enterprise: these core-module handlers are what the Enterprise `privacy` module calls ([DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md)). An Enterprise client may enable any of these modules, so every one must be covered before an Enterprise release claims GDPR readiness.
 > **GDPR basis:** Art. 5(1)(e), 15, 17, 17(3)(b), 20, 32
 
 ## TLDR
@@ -46,13 +46,11 @@ The contract spec ships the three roots (`auth:user`, `customers:person`, `custo
 
 ### Commercial records — Art. 17(3)(b)
 
-- An order is a commercial record when it has an invoice or a payment that is not failed or cancelled; a payment of unknown status counts.
-- On erasure the sales handler keeps, for a commercial record, the buyer block: buyer display name, person and company names, billing and shipping address lines (name, company, street lines, building, flat, city, region, postal code, country), tax identifiers and tax amounts, lines, totals, dates and document numbers. It clears now: email, phone, CRM address ids, coordinates, address `purpose`, preferred names, job titles, comments, internal notes, external and customer references, personal line descriptions and metadata, and credit-memo reasons. It reports `legal_retention` with `retainedUntil = placed_at + period`, or `null` when the tenant has set no period.
+- An order is a commercial record when it has an invoice or a payment that is not failed or cancelled; a payment of unknown status counts. A quote never is.
+- On erasure a commercial record keeps the buyer block the invoice needs and loses everything else now; quotes and other orders are anonymized at once. Field by field, files included: [CRM and Sales in detail](#crm-and-sales-in-detail). A retained order is reported `legal_retention` with `retainedUntil = placed_at + period`, or `null` when the tenant has set no period.
 - The period is the class's `retentionSetting`, `sales.retention.commercialRecordsDays`, in `module_configs`. The tenant chooses it (for example five years from the end of the tax year in Poland, eight to ten in Germany). The platform sets no default; unset means keep, and the docs tell the controller to set it.
 - `pruneExpired(scope, olderThan)` anonymizes every commercial record placed before `olderThan`, not only those of erased subjects, in batches of at most `limit`. The Enterprise runner calls it with `now − period`.
-- Quotes and orders that are not commercial records are anonymized at once: snapshots, comments, notes, references and personal line text cleared; numbers and totals kept.
 - Completed checkout payments follow the same rule with `checkout.retention.completedPaymentsDays`.
-- Files attached to a retained order (invoice and credit-note documents) are kept with it and not listed in `filesToDelete`; files of orders anonymized at once are listed.
 
 ## Architecture
 
@@ -104,7 +102,7 @@ Subjects: P = CRM person, PU = portal user, S = staff user, TM = team member, R 
 
 **Per-user stores.** Each module owns a persistent `auth.user.deleted` subscriber (Phase 1) and a handler (Phase 2). Both call one module-local `deleteForUser(scope, userId)`, so ordinary deletion and an erasure run leave the same state.
 
-**Sales and checkout.** The sales handler finds documents by `customer_entity_id` and `customer_contact_id`, applies the commercial-record rule and calls `shippingCarrierService.clearForOrders` for anonymized orders. The checkout handler finds transactions by email and calls `paymentGatewayService.clearPersonalData` for their gateway rows. Payment providers refund and poll with the typed provider id columns, which stay.
+**Sales and checkout.** The sales rule is spelled out in [CRM and Sales in detail](#crm-and-sales-in-detail). The checkout handler finds transactions by email and calls `paymentGatewayService.clearPersonalData` for their gateway rows. Payment providers refund and poll with the typed provider id columns, which stay.
 
 **Forms full-erasure mode.** `AnonymizeService.anonymize` gains `{ mode: 'sensitive' | 'erasure' }`, default `sensitive` (today's behaviour). `erasure` tombstones every answer in every revision, including revisions already anonymized, clears `change_summary`, does what `sensitive` does to uploads, the PDF link, invitations and submit metadata, clears `ip` and `ua` on the submission's access-audit rows, and sets new `forms_form_submission.erased_at`. With `erased_at` set, save, submit, reopen, upload and PDF regeneration refuse. The submission row and its consent records stay. The retention spec schedules forms retention and decides which mode it uses. Tables without `tenant_id` are reached through a parent that has it.
 
@@ -121,6 +119,74 @@ Subjects: P = CRM person, PU = portal user, S = staff user, TM = team member, R 
 **AI assistant.** For S, delete conversations they own with messages and participants, their participant rows elsewhere, pending actions they created, usage events, moderation flags and agent runs with steps and tool calls. Override tables keep `created_by_user_id` as a reference. For P, delete pending actions whose target records are the person's.
 
 **Staff and planner.** For TM, delete addresses, job histories, comments, activities and their custom values, timesheet preferences, project memberships, entry tags and planner rules now, and clear free-text notes on decided leave requests (they can hold health data). The employment block (member name and user id, leave dates and status, time entries, report entries) is reported `legal_retention`, `retainedUntil: null`; the controller deletes it in the UI when the labour-law period ends, as the deployment docs describe. For P and PU, clear reporter and author display copies and the text of support tickets and task comments they wrote.
+
+### CRM and Sales in detail
+
+What erasing one person does in `customers` and `sales`, table by table. Tables and columns are checked against `data/entities.ts` and `encryption.ts` of `customers`, `sales` and `shipping_carriers`. The person root is defined in the [contract spec](2026-11-16-privacy-data-class-contract.md#customersperson); this section spells it out.
+
+#### CRM (`customers`)
+
+The root runs after every other class. **Delete path** (`customers.people.delete` with `skipLog`): no deal links the person and no class retained a record. **Anonymize path**: a deal links the person, or the orchestrator passes `prefer: 'anonymize'`. Every changed or deleted row goes into `touched`.
+
+| Entity / table | Personal data | Delete path | Anonymize path | Notes |
+|---|---|---|---|---|
+| `customer_entities`, kind `person` | `display_name`, `primary_email`, `primary_phone`, `description`, `next_interaction_name` (encrypted, no lookup hash) | row deleted | row and id kept; `display_name` set to the placeholder, the other four nulled, `anonymized_at` set | status, lifecycle stage, source and `owner_user_id` (staff) stay |
+| `customer_people` (profile) | `first_name`, `last_name`, `preferred_name`, `job_title`, `department`, `seniority`, `timezone`, `linked_in_url`, `twitter_url`, `company_entity_id` | deleted | row kept, all ten nulled | its id is `customer_contact_id` on orders and quotes |
+| `customer_addresses` | `name`, `company_name`, `address_line1`/`2`, `building_number`, `flat_number`, `city`, `region`, `postal_code`, `country`, `latitude`, `longitude`, `purpose` | deleted | deleted | order copies: Sales table |
+| `customer_comments` | `body` | deleted | deleted | includes comments on a deal filed under the person |
+| `customer_activities` | `subject`, `body`, custom values | deleted | deleted | |
+| `customer_interactions` | `title`, `body`, `location`, `participants`, `linked_entities`, custom values | deleted | deleted | another record's interaction naming the person: its `linked_entities` label becomes the placeholder (jsonb id match) and the `participants` entry with the subject's email loses name and email |
+| `customer_tag_assignments`, `customer_label_assignments` | tags and labels staff put on the person | deleted | deleted | tags and labels themselves are configuration |
+| `customer_person_company_links`, `customer_person_company_roles` | where the person works, role values | deleted | deleted | the command deletes links, not roles, and the roles FK has no cascade (`customers/migrations/Migration20260411130944.ts:17`): the handler deletes roles first |
+| `customer_entity_roles` | staff user assigned to the person (`user_id`, `role_type`) | deleted by the handler | deleted | polymorphic `entity_id`, no FK; the command leaves it |
+| `customer_todo_links` | link to a task | deleted | deleted | the task belongs to its own module |
+| `customer_email_conversation_shares` | which mailbox owner shared the person's emails | deleted | deleted | |
+| `customer_deal_people` | link, `role` | deleted | kept, pointing at the anonymized row | |
+| `customer_deals`, only this person linked | `title`, `description`, `loss_notes`, custom values, files | — (a deal link forces anonymize) | amounts, currency, pipeline, stage, status, probability, dates kept; `title` placeholder; `description`, `loss_notes` nulled; custom values deleted; files in `filesToDelete` | counted in `anonymized` |
+| `customer_deals`, also linked to another person or a company | same | — | unchanged | `retained`: `other_party`, `retainedUntil: null` |
+| Custom-field values | `customers:customer_entity` (entity id), `customers:customer_person_profile` (profile id), `customers:customer_activity`, `customers:customer_interaction` | first two hard-deleted by the command; the rest by the handler through `entitiesPrivacyService` | all through `entitiesPrivacyService` | soft-deleted values included |
+| Attached files | attachments of the person, its activities, interactions and sole-person deals | `filesToDelete` | `filesToDelete` | the command does not touch attachments |
+| Companies: kind `company`, `customer_companies`, `customer_company_billing`, `customer_deal_companies` | legal and brand name, domain, `tax_id`, company email and phone | untouched | untouched | not natural persons, exempt; a sole trader whose company name, email or phone names them is a stated limit, edited by hand (docs) |
+| Portal account (`customer_users`) | email, name, password hash, sessions | — | — | its own subject, `customer_accounts:user`, found by the same email and confirmed by the operator; always anonymized: placeholder email, no password or name, `person_entity_id` nulled (contract) |
+
+The delete path emits `customers.person.deleted`; `sales:reconcile-on-person-delete` then nulls `customer_entity_id` on the person's orders and quotes.
+
+**Example.** Erasure request for Jan Kowalski, who has 2 paid orders (one invoiced), 1 open quote, 1 deal with only him linked, and 3 addresses. Sales retains both orders, so the orchestrator passes `prefer: 'anonymize'`; the sole-person deal would force it anyway.
+- Remains: his `customer_entities` and profile rows under the placeholder name, every field above nulled, `anonymized_at` set; the deal with its amount, currency, stage, status and dates under a placeholder title; the `customer_deal_people` link.
+- Cleared: the 3 addresses, his comments, activities, interactions, tags, labels, company links and roles, entity roles, todo links and conversation shares; his and the deal's custom values; his and the deal's files.
+- Report: `deleted` counts the 3 addresses and the other deleted child rows, `anonymized: 2` (person, deal), `retained: []`, `touched` lists the person, profile, deal and every deleted row, `filesToDelete` lists the files. His name and billing address survive only as the orders' own copy (Sales below).
+
+#### Sales (`sales`)
+
+The sales handler runs before the root. It finds orders and quotes by `customer_entity_id` (the person's entity id) and `customer_contact_id`, which holds the person's `customer_people.id`, not the entity id (`sales/commands/documents.ts:839-845`). A commercial record keeps what the invoice must state under VAT Directive 2006/112/EC Art. 226 (customer's full name and address, point 5; VAT id, point 4; nature and quantity of goods, point 6; dates, rates and amounts) for the storage period each member state sets under Art. 247, which the tenant enters as `sales.retention.commercialRecordsDays` (no default; unset keeps the record with `retainedUntil: null`). Orders and quotes have no email or phone column: both sit in `customer_snapshot`. `sales_channels.contact_email` and `contact_phone` are the seller's channel contact, not the buyer's.
+
+| Entity / table | Personal data | Commercial record, kept (Art. 17(3)(b)) | Quote or non-commercial order, anonymized now | After the period (`pruneExpired`) |
+|---|---|---|---|---|
+| Orders and quotes: `customer_snapshot` | `customer` (`displayName`, `primaryEmail`, `primaryPhone`, person `firstName`, `lastName`, `preferredName`, company `legalName`, `brandName`, `domain`, `websiteUrl`), `contact` (names, `jobTitle`, `department`) | rebuilt from an allowlist: `customer.id`, `kind`, `displayName`, person `firstName`, `lastName`, company `legalName`; all else dropped, the whole `contact` block included | null | null |
+| `billing_address_snapshot` | name, company, street lines, building, flat, city, region, postal code, country; CRM address `id`, `purpose`, `latitude`, `longitude`, `isPrimary` | address lines kept (Art. 226(5)); `id`, `purpose`, coordinates, `isPrimary` dropped | null | null |
+| `shipping_address_snapshot` | same | same as billing, because it is the information used to determine where transport of the goods ends, which OSS records must hold (Implementing Reg. 282/2011 Art. 63c(1)) and on which the place of supply and intra-EU exemption rest (Directive Art. 33, 138). For a tenant that sells only domestically this keeps more than its VAT records need; a per-tenant "keep shipping address" switch is a possible later refinement, not a legal requirement | null | null |
+| `tax_info` | buyer VAT id, tax breakdown | VAT id and tax amounts kept (Art. 226(4), (8)–(10)); other keys dropped | null | null |
+| `comments`, `internal_notes` (orders only), `external_reference`, `customer_reference`, `metadata` | free text, references | nulled | nulled | — |
+| `acceptance_token` (quotes only) | public quote link | — | nulled; the link stops working | — |
+| `customer_entity_id`, `customer_contact_id` | link to the person | kept; the person row is anonymized, not deleted | kept; `customer_entity_id` nulled by the reconcile subscriber if the root then deletes the person | nulled |
+| Numbers, status, currency, totals, dates, method snapshots | — | kept | kept | kept |
+| `sales_document_addresses` ("the address on an order" beyond the two snapshots) | the snapshot address fields plus `customer_address_id` | address lines kept; `customer_address_id`, `purpose`, `latitude`, `longitude` nulled | rows deleted | rows deleted |
+| `sales_order_lines`, `sales_quote_lines` | `description`, `comment`, `configuration`, `metadata` | `name`, `sku`, product ids, `catalog_snapshot`, quantities, prices, tax kept (Art. 226(6)); the four fields nulled | the four fields nulled | — |
+| `sales_invoices`, `sales_invoice_lines` | no buyer columns: an invoice prints the order's `customer_snapshot`, `billing_address_snapshot` and `tax_info`; `metadata` | rows and lines kept as issued (Art. 233 integrity of content); `metadata` nulled | — (an invoice makes the order a commercial record) | kept; the buyer copy on the order is gone |
+| `sales_credit_memos`, `sales_credit_memo_lines` | `reason`, `metadata` | `reason` and `metadata` nulled; lines kept as issued | — | kept |
+| `sales_notes` (context order, quote, invoice or credit memo) | `body` | deleted | deleted | — |
+| `sales_payments` | `payment_reference`, `metadata` | amount, currency, status, dates and reference kept; `metadata` nulled | reference and `metadata` nulled | reference nulled |
+| `sales_shipments`, `sales_returns` | shipment `notes`, `metadata`; return `reason`, `notes` | nulled; tracking numbers, dates, quantities kept | nulled | — |
+| `carrier_shipments` (`shipping_carriers`) | `label_data`, `label_url`, `tracking_events[].location` | kept with the shipping address, as proof of dispatch and delivery | cleared by `shippingCarrierService.clearForOrders` | cleared by `clearForOrders` |
+| Attached files (invoice and credit-note PDFs, other order and quote files) | file content | kept, not in `filesToDelete` | listed in `filesToDelete` | deleted by the sales handler through `attachmentService.deleteByIds`, since `pruneExpired` returns counts only |
+
+Invoices, credit memos and payments with no order carry no subject link and are a stated limit (module table). After the period `pruneExpired` writes through the sales commands, so search and cache follow their side effects; history copies age out under the `audit_logs.action_log` class.
+
+**Example (same request).** Period set to 1825 days. Order A, placed 2025-03-10, paid and invoiced; order B, placed 2026-06-02, paid, not invoiced; quote Q, open.
+- A and B keep the buyer block (his name, billing and shipping address lines, VAT id), lines, totals, numbers and dates; A keeps its invoice, lines and PDF; both keep payments, shipments, tracking and labels. Cleared: email, phone, the `contact` block, comments, internal notes, references, line descriptions, CRM address ids, coordinates, payment metadata; their `sales_notes` are deleted.
+- Q keeps its number, totals and line names; snapshots, comments, references, `acceptance_token` and line text are cleared, its address rows and notes deleted, its files listed.
+- Report: `deleted` counts Q's address rows and every deleted note, `anonymized: 1` (Q), `retained: [{ table: 'sales_orders', count: 1, reason: 'legal_retention', retainedUntil: '2030-03-09' }, { table: 'sales_orders', count: 1, reason: 'legal_retention', retainedUntil: '2031-06-01' }, { table: 'sales_invoices', count: 1, reason: 'legal_retention', retainedUntil: '2030-03-09' }]`, `touched` lists A, B, Q and their changed children, `filesToDelete` lists Q's files. A and B are in `touched` (their email and notes changed) but not in `anonymized`. One `retained` entry per table and `retainedUntil`; lines, addresses, payments and shipments kept with an order are not listed apart. With no period set: one `sales_orders` entry with `count: 2` and one `sales_invoices` entry, both `retainedUntil: null`.
+- From 2030-03-10 the runner's `pruneExpired(scope, now − 1825 days)` anonymizes A (buyer block, links and address rows gone, PDF deleted, label cleared); B follows from 2031-06-02.
 
 ## Data Models
 
@@ -145,6 +211,7 @@ All are nullable timestamps with no backfill. Retention periods are `module_conf
 | `messagesPrivacyService.clearBySource(scope, sourceEntityType, sourceIds)` | messages (new `di.ts`) | Clears subject, body and outside fields of messages created from those records; returns `touched` |
 | `AnonymizeService.anonymize(id, scope, { mode })` | forms | Additive optional argument; default unchanged |
 | `attachmentService.readByIds(scope, ids)` / `deleteByIds(scope, ids)` | attachments | Tenant-scoped read and hard delete (row and stored object) by attachment id, for the Enterprise run; refuses ids outside the tenant; idempotent |
+| `customerPersonLookupService.getProfileId(scope, personEntityId)` | customers | Person entity id → `customer_people.id`; used by the sales handler for `customer_contact_id` (defined in the contract spec) |
 | `workflowPrivacyService.deleteTerminalInstance(scope, instanceId)` | workflows | Deletes a `COMPLETED`, `CANCELLED` or `FAILED` instance with its steps, branches, events and user tasks; refuses a running one; used by the workflows handler, the retention age bound and the Enterprise agent class |
 
 Each module adds `privacy.ts` and registers its handler in `di.ts` under `<module>PrivacyHandler`. No route, event, ACL feature or CLI command is added.
@@ -202,7 +269,8 @@ Each module adds `privacy.ts` and registers its handler in `di.ts` under `<modul
 5. Add `customer_users.anonymized_at` and `customerUserService.anonymize`; `softDelete` calls it. Both delete routes keep revoking sessions.
 6. Add `packages/shared/src/lib/db/__tests__/orm-config-guard.test.ts`: fails if any `MikroORM.init` call in `packages/shared/src/lib/db/mikro.ts` or `packages/cli/src/lib/db/commands.ts` sets `ignoreUndefinedInQuery`.
 7. Rows left by users deleted before this fix: `mercato communication_channels cleanup-deleted-users` and the per-module equivalents (one per subscriber added in step 4; SSO in the enterprise coverage spec). Each takes `--tenant`, finds user ids in its own rows with no live `users` row (checked through `authService`), reports by default and deletes only with `--apply`; idempotent; unit test per command.
-8. Integration tests: `TC-PRIVACY-CASCADE-001` to `003`.
+8. Person delete with company roles: `customers.people.delete` hard-deletes the person (`em.remove`) but not its `customer_person_company_roles` rows, whose foreign key has no `ON DELETE` (`customers/migrations/Migration20260411130944.ts:17`), so deleting anyone with a company role fails today. The command deletes the person's role rows and `customer_entity_roles` rows before the remove. Unit test plus `TC-PRIVACY-CASCADE-004`: a person linked to a company with a role is deleted through the API; no role or entity-role row remains.
+9. Integration tests: `TC-PRIVACY-CASCADE-001` to `004`.
 
 ### Phase 2 — Per-user stores and cross-cutting declarations
 1. `privacy.ts` and handlers for notifications, push_notifications, devices, api_keys, perspectives, dashboards, integrations and onboarding, reusing `deleteForUser`.
@@ -236,6 +304,7 @@ Phase 1 tests are Playwright tests in the owning module's `__integration__` fold
 | `TC-PRIVACY-CASCADE-001` | A staff user connects a channel with `seedConnectedChannel` (writes a per-user credential) and is deleted through the API; the channel is disconnected and no `integration_credentials` row with that user id remains; a second user's channel and credential are unchanged |
 | `TC-PRIVACY-CASCADE-002` | After deleting a staff user with a notification, preference, device, push delivery, session API key, private perspective and dashboard layout, none remains; a second user's rows remain |
 | `TC-PRIVACY-CASCADE-003` | Deleting a portal user through the admin API leaves a placeholder email, null password hash, placeholder name and no sessions; a new account can register with the old email |
+| `TC-PRIVACY-CASCADE-004` | A person linked to a company with a role value is deleted through `DELETE /api/customers/people`; the delete succeeds and no `customer_person_company_roles` or `customer_entity_roles` row of the person remains; the company and its other people are unchanged |
 | `TC-PRIVACY-USERSTORES-001` | Per-user handlers export without tokens or secrets and erase only the subject's rows in the subject's tenant |
 | `TC-PRIVACY-SALES-001` | An invoiced order keeps the buyer block and loses email, phone, notes and coordinates, `retainedUntil` follows the setting or is null; a quote is anonymized; `pruneExpired` anonymizes past-period orders only; carrier label cleared only for the anonymized order |
 | `TC-PRIVACY-CHECKOUT-001` | Completed payment keeps name and amount, failed payment anonymized, pending payment `open_case` and unchanged; gateway metadata cleared, provider ids kept |
@@ -261,3 +330,4 @@ Verdict: ready for implementation; Phase 1 can ship before the contract.
 
 ### 2026-11-20
 - Rewritten to minimal GDPR scope; replaces the four domain coverage specs.
+- Added "CRM and Sales in detail" (field-by-field erasure for `customers` and `sales`, with worked examples); the commercial-record field list moved there.

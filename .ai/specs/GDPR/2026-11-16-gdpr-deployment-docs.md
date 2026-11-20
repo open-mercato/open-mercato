@@ -48,7 +48,8 @@ Ten `.mdx` pages, in a "GDPR" category under "Deployment". Required content per 
   - No automatic Art. 19 notification of recipients.
   - A restore brings erased data back until the erasures are re-applied.
   - Log, queue and other operational copies expire only by their retention windows.
-  - The OSS edition has no request-running tooling. Requests are handled manually or with Enterprise.
+  - **The compliance target is an Enterprise deployment, with any core modules it enables.** The Enterprise `privacy` module runs the GDPR flows, and every core module ships the handler those flows call. An OSS-only deployment is not a compliance target: it has no request-running tooling, no action-log age bound, no durable sign-in log and no tenant legal documents or consent ledger.
+  - Modules you add yourself (app modules) or install from official modules take part once they ship a `privacy.ts`. Until then each run lists them under `notCovered`; erase their data by hand.
   - Free-text mentions of a person in other people's records are not found automatically. Neither are copies held by external providers.
 - **Cookie inventory.** All cookies are first-party, and strictly necessary or a preference the user set. No consent banner is needed ([ePrivacy Art. 5(3)](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:02002L0058-20091219), [WP194](https://ec.europa.eu/justice/article-29/documentation/opinion-recommendation/files/2012/wp194_en.pdf)). List purpose and lifetime for each:
   - Sessions: `auth_token` and `session_token` (staff), `customer_auth_token` and `customer_session_token` (portal). All HttpOnly, SameSite=Lax, Secure in production (`auth/api/login.ts:263-270`).
@@ -192,7 +193,7 @@ Sources: [GDPR Art. 17, 32(1)(c)](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
 ### 7. `breach-response`
 Sources: [GDPR Art. 33–34](https://eur-lex.europa.eu/eli/reg/2016/679/oj), [EDPB 9/2022](https://www.edpb.europa.eu/documents/guideline/guidelines-92022-on-personal-data-breach-notification-under-gdpr_en) §37, [EDPB 01/2021](https://www.edpb.europa.eu/documents/guideline/guidelines-012021-on-examples-regarding-personal-data-breach-notification_en).
 - **Detection sources, with their retention:**
-  - the action log; Enterprise export and erase runs add entries, but ordinary list exports are not logged;
+  - the action log: every server-side data export writes one `data.export` entry (actor, entity, format, row count; no values), and Enterprise export and erase runs add their own entries;
   - access logs (7 d / 8 h);
   - the Enterprise sign-in log (90 d, once shipped);
   - `integration_logs` and `webhook_deliveries`;

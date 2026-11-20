@@ -2,7 +2,7 @@
 
 > **Tracker:** open-mercato/open-mercato#8593
 > **Program:** [program](2026-11-15-gdpr-ready-deployments-program.md)
-> **Edition:** OSS (inert seams; the invoker is the Enterprise `privacy` module, [DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md))
+> **Edition:** OSS code, run by Enterprise: every core module ships its handler here; the Enterprise `privacy` module runs them ([DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md)). Required for every Enterprise deployment, whichever core modules it enables.
 > **GDPR basis:** Art. 15, 17, 20, 25(1), 30
 
 ## TLDR
@@ -10,7 +10,8 @@
 - A module that stores personal data declares it in an auto-discovered `<module>/privacy.ts` and registers a handler that exports and erases one subject's data in that module's own tables.
 - The types and zod schemas live in `packages/shared/src/modules/privacy.ts`. `yarn generate` adds each declaration to the module registry as `Module.privacy`.
 - This spec ships the three root handlers: `auth:user`, `customers:person` and `customer_accounts:user`.
-- A unit test fails when a table in any module snapshot is neither claimed by a data class nor exempt with a reason. Today's gaps sit in a baseline that may only shrink. The module scaffold gains a `privacy.ts` stub.
+- `privacy.ts` is the personal-data registry. Each entity holding personal data is registered with a strategy (delete, anonymize, or legally retained), so one central erase call reaches it. This applies to platform modules and to modules an agent or developer adds in a standalone app.
+- A coverage check fails when a table in any module snapshot is neither registered nor exempt with a reason. It runs in the monorepo and in every standalone app's `yarn test`. Today's platform gaps sit in a baseline that may only shrink. The standalone `AGENTS.md`, the module-scaffold skill and the template modules carry the rule.
 - OSS ships no runner. No CLI, route or page calls a handler. Export and erasure runs belong to the Enterprise `privacy` module.
 
 ## Overview
@@ -33,7 +34,7 @@ The contract lets an operator answer "what do we hold about this person?" and "r
 
 1. **Declare.** A module adds `privacy.ts` with a default `PrivacyModuleDeclaration`: its data classes and the tables each class covers, plus exempt tables with a reason.
 2. **Implement.** The module registers a `PrivacyHandler` under a DI key in its `di.ts`. The handler reads its own entities through the decryption helpers and writes through its own commands or services.
-3. **Invoke.** The Enterprise `privacy` module calls handlers. In OSS the handlers are inert: they are unit- and integration-tested but nothing runs them.
+3. **Invoke.** The Enterprise `privacy` module calls the handlers of every enabled module, core, Enterprise, official or app alike. Handlers are unit- and integration-tested in their own module. In an OSS-only deployment nothing calls them.
 4. **Guard.** A coverage unit test and a scaffold stub keep new tables from slipping through.
 
 ### Design decisions
@@ -65,6 +66,7 @@ The contract lets an operator answer "what do we hold about this person?" and "r
 - Erasure is idempotent: a second run changes nothing and reports the same `retained` entries.
 - `dryRun: true` writes nothing and returns the counts and `touched` refs a real run would produce.
 - An `open_case` record (pending payment, open claim, locked cart, running workflow) is reported with `retainedUntil: null` and left unchanged; the operator retries later.
+- `pruneExpired` has no central pass: it writes through the owner's commands (so search and cache follow), and deletes the files of the records it deletes or anonymizes itself, through `attachmentService.deleteByIds`.
 - `touched` lists every record the handler changed or deleted, as `{ entityType, recordId, organizationId }` with the entity id used by the module's events and index (for example `customers:customer_entity`) and the record's organization (null for tenant-wide rows). The orchestrator uses it once for the history strip (`actionLogService.stripForResources`, [audit-snapshot redaction](2026-11-16-audit-snapshot-redaction.md)), search-index removal and CRUD-cache invalidation. A dry run returns the refs a real run would touch.
 - `filesToDelete` lists the attachment ids the handler wants removed; the orchestrator deletes them centrally through the attachments service. The handler decides: files of a record kept under `legal_retention` (an invoice PDF on a retained order) are not listed, files of deleted or anonymized records are. Files are never deleted merely because their record appears in `touched`.
 
@@ -105,7 +107,7 @@ The orchestrator writes one JSON document per subject: the subject reference, sc
 
 - **Find:** decrypting scan of `customer_entities` of kind `person` in scope: email against trimmed, lower-cased `primary_email`; phone against the digits of `primary_phone`.
 - **Export:** person and profile fields, addresses, comments, activities, interactions, tags and labels, company links and roles (company display name only), entity roles, todo links, email-conversation shares, and linked deals (title, description, stage, status, value, currency, loss notes). Custom values of `customers:customer_entity` and `customers:customer_person_profile`. `related`: none.
-- **Delete** (no deal link, no `prefer: 'anonymize'`): run the existing `customers.people.delete` command with `skipLog`. It already removes addresses, comments, activities, interactions, todo links, tags, company links, deal links, conversation shares and custom values (`customers/commands/people.ts:1335-1349`).
+- **Delete** (no deal link, no `prefer: 'anonymize'`): run the existing `customers.people.delete` command with `skipLog`. It removes addresses, comments, activities, interactions, todo links, tags, company links, deal links, conversation shares and the person's and profile's custom values (`customers/commands/people.ts:1335-1349`). Before it, the handler deletes `customer_person_company_roles` and `customer_entity_roles` rows of the person, and the custom values of the person's activities and interactions through `entitiesPrivacyService`. The command deletes neither, and the roles foreign key has no `ON DELETE` (`customers/migrations/Migration20260411130944.ts:17`), so without this step the delete fails. The role-row part is also an ordinary-delete bug, fixed in [coverage Phase 1](2026-11-16-privacy-coverage.md#phase-1--user-delete-cascade-fix). Field-by-field detail: [CRM and Sales in detail](2026-11-16-privacy-coverage.md#crm-and-sales-in-detail).
 - **Anonymize in place** (a deal links the person, or `prefer: 'anonymize'`): keep the `customer_entities` row and its id; clear `display_name` to a fixed placeholder, `primary_email`, `primary_phone`, `description`, `next_interaction_name` and the profile's name and contact fields; delete the child rows listed above except deal links; delete the person's custom values; set new `customer_entities.anonymized_at`.
 - **Deals:** a deal linked only to this person keeps amounts, currency, stage, status and dates; its `title` becomes a placeholder, `description` and `loss_notes` are cleared, and its custom values are deleted. Its files are listed in `filesToDelete`. A deal also linked to another person or a company is unchanged and reported as `other_party`.
 
@@ -121,7 +123,12 @@ The `entities` module registers `entitiesPrivacyService` in its `di.ts` with `ex
 
 ### Coverage test
 
-`packages/core/src/__tests__/privacy-table-coverage.test.ts` reads every `migrations/.snapshot-open-mercato.json` under `packages/*/src/modules/*` and `packages/create-app/template/src/modules/*`, and imports the module's `privacy.ts` when present. It fails when:
+The check is one shared function, `checkPrivacyCoverage({ moduleRoots, baselinePath, maxBaseline })`, exported from `@open-mercato/shared/modules/privacy-coverage` (Node-only, test use). It reads every `migrations/.snapshot-open-mercato.json` under the given module roots and imports each module's `privacy.ts` when present. Two tests call it:
+
+- the monorepo test `packages/core/src/__tests__/privacy-table-coverage.test.ts`, over `packages/*/src/modules/*` and `packages/create-app/template/src/modules/*`;
+- the standalone-app test `packages/create-app/template/src/__tests__/privacy-coverage.test.ts`, over the app's own `src/modules/*`. Installed package modules are checked upstream, not in the app. The template ships an empty baseline, so `yarn test` in a new app fails as soon as an app module adds a table that is neither registered nor exempt.
+
+It fails when:
 
 - a snapshot table is not claimed by exactly one class `tables` entry, not in `exemptTables`, and not in `packages/core/src/__tests__/privacy-coverage-baseline.json`;
 - a declaration fails the zod schema, claims a table absent from its own snapshot, or both claims and exempts a table;
@@ -130,12 +137,53 @@ The `entities` module registers `entitiesPrivacyService` in its `di.ts` with `ex
 
 Tables created outside module snapshots (the pgvector store, the Meilisearch index) are derived copies removed per `touched` record and are not seen by this test.
 
-### New-module guardrail
+### Personal-data registry for new modules (platform and standalone apps)
 
-- The create-app template `example` and `example_customers_sync` modules gain a `privacy.ts` stub that exempts their tables with reasons, so a scaffolded module starts with the file.
-- The scaffold skill's discovery catalog (`packages/create-app/agentic/shared/ai/skills/om-module-scaffold/references/discovery-surface-catalog.md`) gains a `privacy.ts` row.
-- `.ai/docs/module-development.md` and the Encryption section of `packages/core/AGENTS.md` gain one line: a module that stores personal data declares its tables in `privacy.ts` and registers a handler.
-- `.ai/review-checklist.md` gains one line: a new table is claimed in `privacy.ts` or exempt with a reason, and the coverage baseline did not grow.
+`privacy.ts` is the personal-data registry. Every module that stores personal data, in the platform or in a standalone app, registers its entities there: which subjects they hold data about, which tables, which handler, and which strategy. The central erase call then reaches the new module without any change elsewhere. In Enterprise that call is one CLI command, one `POST /api/privacy/erase` and one admin action ([DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md)). A table that is not registered or exempt fails the coverage test, so an agent or developer cannot add personal data silently.
+
+**Strategy rule.** For each entity, pick the first that fits:
+
+| Strategy | When | What the handler does |
+|---|---|---|
+| `delete` | The record exists only because of this person: their booking request, preferences, saved filters | Deletes the row and its children through the owner's command |
+| `anonymize` | The record must survive for someone else or for totals: an order line in a report, a booking another guest shares, a deal with a company | Keeps the row and its non-personal facts (dates, amounts, status, ids); clears or replaces every personal field; sets `anonymized_at` when a later write must be refused |
+| `retained` with `legal_retention` | Law requires the personal data itself: an invoice under tax law | Keeps only a fixed field allowlist; reports `retainedUntil`; `pruneExpired` anonymizes it when the tenant's `retentionSetting` period ends |
+| exempt | The table holds no personal data: configuration, catalog, resources | Listed in `exemptTables` with a one-line reason |
+
+`eraseMode` on the class is its default (`delete` or `anonymize`). A handler may still report rows as `retained` or `open_case` per request.
+
+**Example: a standalone app adds a `bookings` module.** Its `bookings` table holds `customer_entity_id`, `guest_name`, `guest_email` and `notes`; its `resources` table holds rooms. A paid booking appears on an invoice.
+
+```ts
+// src/modules/bookings/privacy.ts
+import type { PrivacyModuleDeclaration } from '@open-mercato/shared/modules/privacy'
+
+const privacy: PrivacyModuleDeclaration = {
+  dataClasses: [
+    {
+      id: 'bookings.bookings',
+      subjectKinds: ['customers:person'],   // found by customer_entity_id, or by lookup email for guests
+      tables: ['bookings'],
+      handler: 'bookingsPrivacyHandler',     // registered in src/modules/bookings/di.ts
+      eraseMode: 'anonymize',                // bookings feed invoices and occupancy reports
+    },
+  ],
+  exemptTables: { resources: { reason: 'Rooms and equipment; no person data' } },
+}
+
+export default privacy
+```
+
+The handler exports the person's bookings and on erasure clears `guest_name`, `guest_email` and `notes` while keeping dates, room and price. `guest_email` gets a `hashField` in `encryption.ts` so guests without a CRM record are found by `lookup`.
+
+**Guardrails.**
+- **Standalone `AGENTS.md`** (`packages/create-app/template/AGENTS.md`, *Always*): "An entity that stores personal data is registered in its module's `privacy.ts` (class, tables, handler, strategy: delete, anonymize or legally retained); tables without personal data are exempt with a reason. `yarn test` runs the privacy coverage check." Editing the template follows the create-app template-sync checklist and the `om-refresh-standalone-harness` skill.
+- **Scaffold skill** (`packages/create-app/agentic/shared/ai/skills/om-module-scaffold/`): `references/data-and-migrations.md` step 4 adds "register personal-data entities in `privacy.ts` with a strategy and handler"; `references/discovery-surface-catalog.md` gains a `privacy.ts` row.
+- **Data-model skill** (`packages/create-app/agentic/shared/ai/skills/om-data-model-design/references/sensitive-data.md`): step 1's "retention/deletion" item points to the strategy rule above, with the booking example.
+- **Template modules:** `example` and `example_customers_sync` ship a `privacy.ts`, so a scaffolded module starts with the file.
+- **`yarn generate`** prints one warning line per app module whose snapshot has tables but no `privacy.ts`. It is non-fatal, so it shows up in the agent's own output before tests run.
+- **Official modules:** `external/official-modules` follows the same contract and runs `checkPrivacyCoverage` over its own modules in its own CI. That is a follow-up PR in that repository; until it lands, the Enterprise run reports those modules under `notCovered`.
+- **Monorepo:** `.ai/docs/module-development.md` and the Encryption section of `packages/core/AGENTS.md` gain the same one-line rule; `.ai/review-checklist.md` gains "a new table is registered in `privacy.ts` or exempt with a reason, and the coverage baseline did not grow".
 
 ## Data Models
 
@@ -212,6 +260,7 @@ export default privacy
 | `authPrivacyHandler`, `customersPrivacyHandler`, `customerAccountsPrivacyHandler` | owning module | `PrivacyHandler` for the roots |
 | `entitiesPrivacyService` | `entities` | `exportValues(scope, refs)`, `deleteValues(scope, refs)` |
 | `customerUserService.anonymize(userId, scope)` | `customer_accounts` | Additive method used by the root and by portal-user delete |
+| `customerPersonLookupService.getProfileId(scope, personEntityId)` | `customers` | Returns the person's `customer_people.id` (or `null`). Orders and quotes store it as `customer_contact_id`, so the sales handler needs it without reading `customers` tables |
 
 No API route, CLI command, event or ACL feature is added.
 
@@ -266,10 +315,12 @@ No API route, CLI command, event or ACL feature is added.
 3. Add `privacy.ts` to the three registry emitters and to `STRUCTURAL_CONVENTION_FILES`; run `yarn generate`.
 4. Tests: schema unit tests (bad id prefix, empty tables, empty reason, request without subject or lookup); generator test that a fixture module's default export reaches `Module.privacy` in all five generated files; collector tests for duplicate class id and double-claimed table.
 
-### Phase 2 — Coverage test and guardrail
-1. Add the coverage test and the baseline JSON listing every current table; set `MAX_BASELINE_TABLES` to its size.
-2. Add the template `privacy.ts` stubs, the scaffold catalog row, the module-guide lines and the review-checklist line.
-3. Tests: the coverage test itself, plus fixture cases for an unclaimed table, a stale claim and a stale baseline entry.
+### Phase 2 — Coverage check and personal-data registry guardrails
+1. Add `checkPrivacyCoverage` to `@open-mercato/shared/modules/privacy-coverage`, the monorepo test, and the baseline JSON listing every current table; set `MAX_BASELINE_TABLES` to its size.
+2. Add the standalone-app test `src/__tests__/privacy-coverage.test.ts` with an empty baseline to the create-app template; run `yarn template:sync:fix`.
+3. Add the `yarn generate` warning for app modules with tables and no `privacy.ts`.
+4. Add the template `privacy.ts` stubs, the standalone `AGENTS.md` rule, the scaffold and data-model skill lines, the monorepo module-guide lines and the review-checklist line. Run `yarn agents:check-budget` for the `AGENTS.md` change.
+5. Tests: unit tests of `checkPrivacyCoverage` with fixture modules (unclaimed table, stale claim, stale baseline entry, table both claimed and exempt); the generator warning; a `packages/create-app` unit test that runs `checkPrivacyCoverage` over the template's `src/modules` (passes) and over the template plus a fixture module with an unregistered table (fails). `packages/create-app/src/lib/agent-instruction-budget.test.ts` must keep passing after the `AGENTS.md` line.
 
 ### Phase 3 — Custom values and `auth:user`
 1. `entitiesPrivacyService` with unit tests (soft-deleted values, scope, hard delete).

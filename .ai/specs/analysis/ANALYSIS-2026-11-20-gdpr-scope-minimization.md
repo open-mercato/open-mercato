@@ -16,7 +16,8 @@
 **Why the drafts grew.** Repeated review rounds added machinery for edge cases the law does not require: legal-hold fences, erasure journals and confirmation tokens, restore-replay manifests, evidence-expiry clocks for evidence records, compatibility bridges spanning several minors, lookup-hash rehash programs, store-scanning verification suites and closure-evidence registers. The minimal program keeps every legally required capability and drops that machinery.
 
 **What changed in substance.**
-- Request tooling (export, erasure) moves to the Enterprise `privacy` module, following the maintainer's comment on #8593. The handlers stay in their owning OSS modules as inert seams.
+- Request tooling (export, erasure) moves to the Enterprise `privacy` module, following the maintainer's comment on #8593. The handlers stay in their owning core modules; the Enterprise runner calls them, so every core module an Enterprise client enables is covered.
+- **Compliance target (owner decision, 2026-11-20):** an Enterprise deployment, meaning the Enterprise runner together with every core module the client enables, must provide every legally required function. The flows run in Enterprise; each core module ships its own handler. An OSS-only deployment is not a compliance target. Verified against the legal baseline: each required capability maps to a work package available in Enterprise builds.
 - Restore-after-erasure, restriction, Art. 19 notification, RoPA, DPIA, tenant-exit return and inactive-subject review become documented procedures, which the law accepts.
 - Encryption coverage, KMS fail-closed, search token redesign, queue sealing, cache encryption, alerting and auth hardening leave the GDPR program. They are Art. 32 hardening or conveniences and should be filed as ordinary issues.
 
@@ -225,5 +226,5 @@ Portal self-service download/delete and portal email change; consent-gate hook a
 - **Action logs and soft-deleted AI chats are kept forever**: now bounded (WP7).
 - **Sole-person deals keep free text** (title, description, loss notes; a CV via form-to-deals): now cleared on erasure.
 - **Breach register template, Art. 33(2) processor notice, Art. 15(1) supplementary information, Art. 30(2) processor record**: now in the docs.
-- **Export audit for breach scoping**: one action-log entry per server-side export (WP10).
-- **Consent text version** (Art. 7(1)): `auth.user_consents` gains the accepted document version (WP9).
+- **Export audit for breach scoping**: one action-log entry per server-side export (WP10), specified in `GDPR/2026-11-16-audit-snapshot-redaction.md` §7.
+- **Consent text version** (Art. 7(1)): carried by the 08-18 spec's Phase 3 consent ledger (WP9). That carrier attaches no document to marketing consent, which onboarding collects today, so the program adds one requirement: record the label key and a hash of the rendered label text.
