@@ -253,7 +253,7 @@ describe('ActivityConfigFields', () => {
       />,
     )
 
-    const pickerInput = screen.getByPlaceholderText('sales.orders.created')
+    const pickerInput = screen.getByPlaceholderText('Select an event...')
     fireEvent.focus(pickerInput)
     await waitFor(() => {
       expect(screen.getByText('Approval Requested')).toBeInTheDocument()
@@ -275,7 +275,7 @@ describe('ActivityConfigFields', () => {
       />,
     )
 
-    const pickerInput = screen.getByPlaceholderText('sales.orders.created')
+    const pickerInput = screen.getByPlaceholderText('Select an event...')
     fireEvent.change(pickerInput, { target: { value: 'custom.record.archived' } })
     fireEvent.keyDown(pickerInput, { key: 'Enter' })
 
@@ -603,7 +603,7 @@ describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', (
 
     fireEvent.click(screen.getByText('Emit Event'))
 
-    expect(screen.getByPlaceholderText('sales.orders.created')).toHaveValue('sales.order.created')
+    expect(screen.getByPlaceholderText('Select an event...')).toHaveValue('sales.order.created')
     expect(screen.getByRole('button', { name: /advancedJson/ })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('workflows.fieldEditors.activities.configurationHint')).toBeNull()
   })
