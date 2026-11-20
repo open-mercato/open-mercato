@@ -31,6 +31,7 @@ function makeTransaction(amount: string, capturedAmount: string): GatewayTransac
     id: 'txn_1',
     amount,
     capturedAmount,
+    unifiedStatus: 'authorized',
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
     deletedAt: null,
@@ -129,7 +130,12 @@ describe('reserveCaptureAmountExact', () => {
 
     expect(reserved).toBe('40')
     expect(operation.reservedAmount).toBe('40')
-    expect(nativeUpdate.mock.calls[0]?.[1]).toMatchObject({ capturedAmount: '60.0000', deletedAt: null, ...scope })
+    expect(nativeUpdate.mock.calls[0]?.[1]).toMatchObject({
+      capturedAmount: '60.0000',
+      unifiedStatus: 'authorized',
+      deletedAt: null,
+      ...scope,
+    })
     expect(nativeUpdate.mock.calls[0]?.[2]).toMatchObject({ capturedAmount: '100' })
   })
 
