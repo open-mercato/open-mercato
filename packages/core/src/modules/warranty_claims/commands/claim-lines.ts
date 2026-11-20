@@ -788,23 +788,23 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     const input = parseCommandInput(claimLineUpdateSchema, rawInput)
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await requireScopedLine(em, input.id, scope)
-    const claim = claimOf(line) ?? await requireScopedClaim(em, input.claimId ?? claimIdOf(line), scope)
-    if (input.claimId && input.claimId !== claim.id) {
-      throw new CrudHttpError(400, { error: 'warranty_claims.errors.notFound' })
-    }
-    assertParentMutable(claim)
-    await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND)
-    const effectiveOrderLineId = hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null)
-    if (hasOwn(input, 'disposition')) {
-      assertDispositionAllowedForType(claim.claimType, input.disposition ?? null)
-      assertDispositionAllowedForGrade(toConditionGrade(line.conditionGrade), input.disposition ?? null)
-    }
+    let line = await requireScopedLine(em, input.id, scope)
+    let claim = await requireScopedClaim(em, claimIdOf(line), scope)
     const guardsClaimedQty = hasOwn(input, 'qtyClaimed') || hasOwn(input, 'orderLineId')
     await withAtomicFlush(em, [
       async () => {
-        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        claim = await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        line = await requireScopedLine(em, input.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        if (input.claimId && input.claimId !== claim.id) {
+          throw new CrudHttpError(400, { error: 'warranty_claims.errors.notFound' })
+        }
         assertParentMutable(claim)
+        await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND)
+        const effectiveOrderLineId = hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null)
+        if (hasOwn(input, 'disposition')) {
+          assertDispositionAllowedForType(claim.claimType, input.disposition ?? null)
+          assertDispositionAllowedForGrade(toConditionGrade(line.conditionGrade), input.disposition ?? null)
+        }
         if (input.lineNo !== undefined) await assertClaimLineNumberAvailable(em, claim, input.lineNo, line.id, true)
         if (effectiveOrderLineId && (claim.orderId || effectiveOrderLineId !== (line.orderLineId ?? null))) {
           await validateClaimReferences(ctx, scope, {
@@ -882,16 +882,17 @@ const deleteClaimLineCommand: CommandHandler<LineDeleteInput, { lineId: string; 
     const input = parseCommandInput(lineDeleteSchema, rawInput)
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await requireScopedLine(em, input.id, scope)
-    const claim = claimOf(line) ?? await requireScopedClaim(em, input.claimId ?? claimIdOf(line), scope)
-    if (input.claimId && input.claimId !== claim.id) {
-      throw new CrudHttpError(400, { error: 'warranty_claims.errors.notFound' })
-    }
-    assertParentMutable(claim)
-    await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND)
+    let line = await requireScopedLine(em, input.id, scope)
+    let claim = await requireScopedClaim(em, claimIdOf(line), scope)
     await withAtomicFlush(em, [
       async () => {
-        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        claim = await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        line = await requireScopedLine(em, input.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        if (input.claimId && input.claimId !== claim.id) {
+          throw new CrudHttpError(400, { error: 'warranty_claims.errors.notFound' })
+        }
+        assertParentMutable(claim)
+        await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND)
       },
       () => {
         line.deletedAt = new Date()
@@ -1123,14 +1124,15 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
     const input = parseCommandInput(lineSetAssessmentSchema, rawInput)
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const line = await requireScopedLine(em, input.id, scope)
-    const claim = claimOf(line) ?? await requireScopedClaim(em, claimIdOf(line), scope)
-    assertParentMutable(claim)
-    await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
+    let line = await requireScopedLine(em, input.id, scope)
+    let claim = await requireScopedClaim(em, claimIdOf(line), scope)
 
     await withAtomicFlush(em, [
       async () => {
-        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        claim = await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        line = await requireScopedLine(em, input.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+        assertParentMutable(claim)
+        await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
       },
       () => {
         line.assessmentPayload = input.assessmentPayload
