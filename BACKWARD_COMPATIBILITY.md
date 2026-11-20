@@ -693,3 +693,16 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+# 2026-11-07 — CRUD sort-map boundary (#3827)
+
+Surface: query-engine CRUD list sorting (stable API behavior). When a route
+declares `sortFieldMap`, unmapped ordinary client selectors now fall back to its
+trusted default. Own aliases, trusted defaults/tiebreaks, dynamic custom fields
+and routes without maps retain their behavior. Retaining raw ordinary selectors
+for mapped routes would preserve the reported boundary bypass. Clients must use
+a declared alias; route authors can add aliases for intended sortable columns.
+No operator startup, configuration or data migration is required. See
+`.ai/specs/2026-11-07-crud-sort-map-boundary.md` and `UPGRADE_NOTES.md`.
+This entry requests the emergency security exception; a named human maintainer
+must acknowledge the waiver before merge. Automated review does not grant it.
