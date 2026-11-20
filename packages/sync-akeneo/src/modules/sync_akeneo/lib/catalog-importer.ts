@@ -813,6 +813,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   const preferredPriceKindCodeCache = new Map<string, Promise<string | null>>()
   const attributeOptionLabelCache = new Map<string, Promise<Map<string, string>>>()
   const defaultProductSettings = buildDefaultAkeneoMapping('products').settings?.products
+  const salesChannelsAvailable = em.getMetadata().has(SalesChannel)
+  let salesChannelsUnavailableReported = false
 
   function buildCommandContext(): CommandRuntimeContext {
     return {
@@ -976,7 +978,20 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return categoryCache.get(code) ?? null
   }
 
+  async function reportSalesChannelsUnavailable(): Promise<void> {
+    if (salesChannelsUnavailableReported) return
+    salesChannelsUnavailableReported = true
+    const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
+    await integrationLogService.write({
+      integrationId: 'sync_akeneo',
+      level: 'warn',
+      code: 'sync_akeneo.sales_channels_unavailable',
+      message: 'The sales module is disabled, so Akeneo channel-bound offers and prices were skipped.',
+    }, scope)
+  }
+
   async function resolveChannel(code: string, options?: { createIfMissing?: boolean; label?: string | null }): Promise<{ id: string; code: string } | null> {
+    if (!salesChannelsAvailable) return null
     const normalizedCode = code.trim().toLowerCase()
     if (!normalizedCode) return null
     const cacheKey = `${normalizedCode}:${options?.createIfMissing ? 'create' : 'read'}:${options?.label ?? ''}`
@@ -1038,6 +1053,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }
 
   async function resolvePreferredLocalChannelCode(): Promise<string | null> {
+    if (!salesChannelsAvailable) return null
     const cacheKey = 'preferred'
     if (!preferredChannelCodeCache.has(cacheKey)) {
       preferredChannelCodeCache.set(cacheKey, (async () => {
@@ -1834,6 +1850,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     settings: AkeneoProductMappingSettings
     priceAttributeCodes: string[]
   }): Promise<AkeneoProductMappingSettings['priceMappings']> {
+    if (!salesChannelsAvailable) {
+      if (params.priceAttributeCodes.length > 0) await reportSalesChannelsUnavailable()
+      return []
+    }
     const fallbackChannelCode = await resolvePreferredLocalChannelCode()
 
     const mappings: AkeneoProductMappingSettings['priceMappings'] = []
@@ -2145,6 +2165,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     resolvedProductDescription: string | null
     variantExternalId: string
   }): Promise<void> {
+    if (!salesChannelsAvailable) {
+      if (params.settings.priceMappings.length > 0) await reportSalesChannelsUnavailable()
+      return
+    }
     const desiredOffers = new Map<string, DesiredOffer>()
     for (const priceMapping of params.settings.priceMappings) {
       const channel = await resolveChannel(priceMapping.localChannelCode, {
