@@ -13,7 +13,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowDefinition } from '../../data/entities'
 import {
   createWorkflowDefinitionInputSchema,
@@ -28,13 +28,21 @@ import {
 } from '../openapi'
 import { invalidateTriggerCache } from '../../lib/event-trigger-service'
 import { normalizeDefinitionValidationIssues } from '../../lib/definition-error-body'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import {
+  mappingTargetIssuesForApi,
+  UNSAFE_MAPPING_TARGET_MESSAGE,
+  UNSAFE_MAPPING_TARGET_MESSAGE_KEY,
+} from '../../lib/mapping-target-validation'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
 import {
   authorizeWorkflowGrantChange,
   normalizeGrantedFeatures,
   syncWorkflowDefinitionPrincipal,
 } from '../../lib/definition-grant'
+import { collectAgentInvokeGrantWarnings } from '../../lib/agent-invoke-grant-warnings'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -226,7 +234,7 @@ export async function POST(request: NextRequest) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     // Check create permission
     const rbacService = container.resolve('rbacService')
@@ -261,6 +269,15 @@ export async function POST(request: NextRequest) {
     }
 
     const input: CreateWorkflowDefinitionApiInput = validation.data
+    const { translate } = await resolveTranslations()
+    const mappingMessage = translate(UNSAFE_MAPPING_TARGET_MESSAGE_KEY, UNSAFE_MAPPING_TARGET_MESSAGE)
+    const mappingIssues = mappingTargetIssuesForApi(input.definition, ['definition'], mappingMessage)
+    if (mappingIssues.length > 0) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: mappingIssues },
+        { status: 400 }
+      )
+    }
 
     // New definitions default to strict interpolation (spec §3.6). The default
     // lives on the create path only — a schema-level default would flip
@@ -336,14 +353,21 @@ export async function POST(request: NextRequest) {
     // next event reload picks up this definition.
     if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
+    const warnings = await collectAgentInvokeGrantWarnings(container, {
+      definition: definition.definition,
+      grantedFeatures: definition.grantedFeatures,
+    })
+
     return NextResponse.json(
       {
         data: serializeWorkflowDefinition(definition),
         message: 'Workflow definition created successfully',
+        ...(warnings.length ? { warnings } : {}),
       },
       { status: 201 }
     )
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     if (isWorkflowIdUniqueConstraintError(error)) {
       return NextResponse.json(
         { error: 'Workflow definition with this ID already exists' },

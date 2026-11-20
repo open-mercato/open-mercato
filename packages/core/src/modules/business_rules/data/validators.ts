@@ -170,6 +170,15 @@ const businessRuleBaseFields = {
   createdBy: z.string().max(50).optional().nullable(),
 } as const
 
+// Zod 4 still applies `.default()` to keys omitted from a `.partial()` schema,
+// so update schemas re-declare defaulted fields without defaults to keep
+// partial PUTs from overwriting stored values.
+const businessRuleUpdateFieldOverrides = {
+  enabled: z.boolean().optional(),
+  priority: z.number().int().min(0).max(9999).optional(),
+  version: z.number().int().min(1).optional(),
+} as const
+
 // Static schemas (without i18n — used for OpenAPI docs and non-route contexts)
 export const createBusinessRuleSchema = z
   .object({
@@ -191,7 +200,7 @@ export const updateBusinessRuleSchema = z
   })
   .omit({ tenantId: true, organizationId: true, createdBy: true })
   .partial()
-  .extend({ id: uuid })
+  .extend({ ...businessRuleUpdateFieldOverrides, id: uuid })
   .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx))
 
 export type UpdateBusinessRuleInput = z.input<typeof updateBusinessRuleSchema>
@@ -224,7 +233,7 @@ export function createLocalizedUpdateBusinessRuleSchema(t: TranslatorFn) {
     })
     .omit({ tenantId: true, organizationId: true, createdBy: true })
     .partial()
-    .extend({ id: uuid })
+    .extend({ ...businessRuleUpdateFieldOverrides, id: uuid })
     .superRefine((data, ctx) => refineEffectiveDateRange(data, ctx, message))
 }
 
@@ -293,7 +302,7 @@ export type CreateRuleSetInput = z.infer<typeof createRuleSetSchema>
 export const updateRuleSetSchema = createRuleSetSchema
   .omit({ tenantId: true, organizationId: true, createdBy: true })
   .partial()
-  .extend({ id: uuid })
+  .extend({ enabled: z.boolean().optional(), id: uuid })
 
 export type UpdateRuleSetInput = z.infer<typeof updateRuleSetSchema>
 

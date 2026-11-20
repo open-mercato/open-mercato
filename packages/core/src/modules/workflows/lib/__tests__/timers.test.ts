@@ -252,6 +252,92 @@ describe('WAIT_FOR_TIMER step', () => {
       expect(result.error).toMatch(/duration|until/i)
       expect(mockEnqueueTimerJob).not.toHaveBeenCalled()
     })
+
+    describe('{{...}} templates in the timer config', () => {
+      const enterTimerStep = async (
+        stepConfig: Record<string, unknown>,
+        workflowContext: Record<string, unknown>,
+        interpolationMode?: 'lenient' | 'strict',
+      ) => {
+        const definition = makeDefinition(stepConfig)
+        if (interpolationMode) {
+          definition.definition = { ...definition.definition, interpolation: interpolationMode } as WorkflowDefinition['definition']
+        }
+        const instance = makeInstance({ context: workflowContext })
+        mockEm.findOne.mockResolvedValue(definition as WorkflowDefinition)
+        mockEm.create.mockReturnValue({
+          id: 'step-instance-1',
+          workflowInstanceId: instanceId,
+          stepId: 'timer_step',
+          stepType: 'WAIT_FOR_TIMER',
+          status: 'ACTIVE',
+          enteredAt: new Date(),
+          tenantId,
+          organizationId,
+        } as unknown as StepInstance)
+        const result = await stepHandler.executeStep(mockEm, instance, 'timer_step', { workflowContext })
+        return { result, instance }
+      }
+
+      test('resolves a templated duration before scheduling the timer', async () => {
+        const { result, instance } = await enterTimerStep(
+          { duration: '{{context.reminderDelay}}' },
+          { reminderDelay: 'PT10M' },
+        )
+
+        expect(result.status).toBe('WAITING')
+        expect(result.outputData?.duration).toBe('PT10M')
+        expect(instance.status).toBe('PAUSED')
+        const { delayMs } = mockEnqueueTimerJob.mock.calls[0][0]
+        expect(delayMs).toBeGreaterThan(9 * 60 * 1000)
+        expect(delayMs).toBeLessThanOrEqual(10 * 60 * 1000)
+      })
+
+      test('resolves a templated until before scheduling the timer', async () => {
+        const followUpAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+        const { result } = await enterTimerStep({ until: '{{context.followUpAt}}' }, { followUpAt })
+
+        expect(result.status).toBe('WAITING')
+        expect(result.outputData?.until).toBe(followUpAt)
+        expect(mockEnqueueTimerJob).toHaveBeenCalledWith(expect.objectContaining({ fireAt: followUpAt }))
+      })
+
+      test('fires immediately when a templated until resolves to the past', async () => {
+        const { result } = await enterTimerStep(
+          { until: '{{context.followUpAt}}' },
+          { followUpAt: new Date(Date.now() - 60_000).toISOString() },
+        )
+
+        expect(result.status).toBe('COMPLETED')
+        expect(result.outputData?.timerFiredImmediately).toBe(true)
+        expect(mockEnqueueTimerJob).not.toHaveBeenCalled()
+      })
+
+      test('fails with an invalid-duration error naming the template when it does not resolve', async () => {
+        const { result } = await enterTimerStep({ duration: '{{context.missingDelay}}' }, {})
+
+        expect(result.status).toBe('FAILED')
+        expect(result.error).toContain('WAIT_FOR_TIMER invalid "duration"')
+        expect(result.error).toContain('{{context.missingDelay}}')
+        expect(mockEnqueueTimerJob).not.toHaveBeenCalled()
+      })
+
+      test('fails with an invalid-duration error when a template resolves to a non-string value', async () => {
+        const { result } = await enterTimerStep({ duration: '{{context.delayMs}}' }, { delayMs: 600_000 })
+
+        expect(result.status).toBe('FAILED')
+        expect(result.error).toContain('WAIT_FOR_TIMER invalid "duration"')
+        expect(mockEnqueueTimerJob).not.toHaveBeenCalled()
+      })
+
+      test('honours strict interpolation mode', async () => {
+        const { result } = await enterTimerStep({ duration: '{{context.missingDelay}}' }, {}, 'strict')
+
+        expect(result.status).toBe('FAILED')
+        expect(result.error).toContain('Cannot interpolate {{context.missingDelay}}')
+        expect(mockEnqueueTimerJob).not.toHaveBeenCalled()
+      })
+    })
   })
 
   describe('fireTimer', () => {

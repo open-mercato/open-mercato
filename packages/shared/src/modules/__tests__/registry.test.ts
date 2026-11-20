@@ -17,6 +17,10 @@ import {
   getFrontendRouteManifests,
   resolvePageRouteMetadata,
 } from '../registry'
+import {
+  getMatchedApiRoutePath,
+  resolveApiInterceptorRoutePath,
+} from '../../lib/modules/api-route-identity'
 
 describe('CLI Modules Registry', () => {
   // Clear the registry before each test
@@ -627,6 +631,94 @@ describe('findApiRouteManifestMatch — specificity (issue #1870)', () => {
     const unsorted = [apiEntry('/api/things/[id]'), apiEntry('/api/things/new')]
     const match = findApiRouteManifestMatch(unsorted, 'GET', '/api/things/new')
     expect(match?.route.path).toBe('/api/things/new')
+  })
+
+  it.each([
+    ['normal spelling', 'http://localhost/api/auth/users/AbC-123?view=full', '/auth/users/AbC-123'],
+    ['mixed-case alias', 'http://localhost/api/AUTH/users/AbC-123?view=full', '/AUTH/users/AbC-123'],
+    ['percent-encoded alias', 'http://localhost/api/%61uth/users/AbC-123?view=full', '/auth/users/AbC-123'],
+  ])('binds the authored static route as canonical identity for %s', (_label, url, dispatcherPath) => {
+    const request = new Request(url)
+    const routes = [apiEntry('/auth/users/[id]')]
+    const match = findApiRouteManifestMatch(routes, 'GET', dispatcherPath, request)
+
+    expect(match?.params).toEqual({ id: 'AbC-123' })
+    expect(getMatchedApiRoutePath(request)).toBe('/auth/users/AbC-123')
+    expect(resolveApiInterceptorRoutePath(request.clone())).toBe('auth/users/AbC-123')
+    expect(resolveApiInterceptorRoutePath(new Request(request.url, request))).toBe('auth/users/AbC-123')
+    expect(new URL(request.url).searchParams.get('view')).toBe('full')
+  })
+
+  it('preserves catch-all parameter values in the canonical identity', () => {
+    const request = new Request('http://localhost/api/DOCS/guides/Getting-Started')
+    const routes = [apiEntry('/docs/[...slug]')]
+    const match = findApiRouteManifestMatch(
+      routes,
+      'GET',
+      '/DOCS/guides/Getting-Started',
+      request,
+    )
+
+    expect(match?.params).toEqual({ slug: ['guides', 'Getting-Started'] })
+    expect(getMatchedApiRoutePath(request)).toBe('/docs/guides/Getting-Started')
+    expect(resolveApiInterceptorRoutePath(request.clone())).toBe('docs/guides/Getting-Started')
+    expect(resolveApiInterceptorRoutePath(new Request(request.url, request))).toBe('docs/guides/Getting-Started')
+  })
+
+  it('fails closed for an attacker-supplied route identity token', () => {
+    const request = new Request('http://localhost/api/AUTH/users/AbC-123', {
+      headers: { 'x-open-mercato-route-identity': 'attacker-controlled' },
+    })
+
+    expect(resolveApiInterceptorRoutePath(request)).toBeNull()
+    expect(resolveApiInterceptorRoutePath(request.clone())).toBeNull()
+  })
+
+  it('bounds clone-capability state and fails closed after eviction', () => {
+    const routes = [apiEntry('/auth/users/[id]')]
+    let firstClone: Request | null = null
+    let lastClone: Request | null = null
+
+    for (let index = 0; index < 4200; index += 1) {
+      const request = new Request(`http://localhost/api/auth/users/user-${index}`)
+      expect(findApiRouteManifestMatch(
+        routes,
+        'GET',
+        `/auth/users/user-${index}`,
+        request,
+      )).toBeDefined()
+      if (index === 0) firstClone = request.clone()
+      if (index === 4199) lastClone = request.clone()
+    }
+
+    expect(firstClone).not.toBeNull()
+    expect(lastClone).not.toBeNull()
+    expect(resolveApiInterceptorRoutePath(firstClone!)).toBeNull()
+    expect(resolveApiInterceptorRoutePath(lastClone!)).toBe('auth/users/user-4199')
+  })
+
+  it('fails closed before binding a route when the request path has malformed encoding', () => {
+    const request = new Request('http://localhost/api/auth/%ZZ')
+    const match = findApiRouteManifestMatch(
+      [apiEntry('/auth/[id]')],
+      'GET',
+      '/auth/%ZZ',
+      request,
+    )
+
+    expect(match).toBeUndefined()
+    expect(getMatchedApiRoutePath(request)).toBeUndefined()
+  })
+
+  it('keeps the three-argument matcher contract for non-request consumers', () => {
+    const match = findApiRouteManifestMatch(
+      [apiEntry('/auth/users/[id]')],
+      'GET',
+      '/AUTH/users/AbC-123',
+    )
+
+    expect(match?.route.path).toBe('/auth/users/[id]')
+    expect(match?.params).toEqual({ id: 'AbC-123' })
   })
 })
 

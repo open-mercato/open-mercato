@@ -14,6 +14,10 @@
  * shape `{ "keys": ["module.brand.name", ...] }`. Allowlisted keys are skipped
  * in the "significant identical" count.
  *
+ * Compared locales follow the same scopes as `i18n-check-sync.ts`: modules
+ * outside `apps/` use the platform set from `packages/shared/src/lib/i18n/config.ts`,
+ * and modules inside `apps/<app>/` use the locale files in `apps/<app>/src/i18n/`.
+ *
  * Usage:
  *   node scripts/i18n-check-values.mjs                 # report
  *   node scripts/i18n-check-values.mjs --json          # machine output
@@ -29,12 +33,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { globSync } from 'glob'
 import { compareLocale, flattenDictionary } from './i18n-values-scanner.mjs'
+import { createTargetLocaleResolver } from './lib/i18n-locale-set.mjs'
 
 const __filename_ = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename_), '..')
 
 const REFERENCE_LOCALE = 'en'
-const TARGET_LOCALES = ['pl', 'es', 'de', 'ko']
 const ALLOWLIST_PATH = path.join(ROOT, 'scripts', 'i18n-values-allowlist.json')
 
 const red = (s) => `\x1b[31m${s}\x1b[0m`
@@ -110,9 +114,24 @@ function main() {
     absolute: true,
   }).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
-  const locales = opts.localesFilter && opts.localesFilter.length > 0
-    ? opts.localesFilter.filter((l) => l !== REFERENCE_LOCALE)
-    : TARGET_LOCALES
+  const localeResolver = createTargetLocaleResolver({ root: ROOT, referenceLocale: REFERENCE_LOCALE })
+  const localesFilter = opts.localesFilter && opts.localesFilter.length > 0
+    ? new Set(opts.localesFilter.filter((locale) => locale !== REFERENCE_LOCALE))
+    : null
+  const targetsFor = (enPath) => localeResolver
+    .targetsFor(enPath)
+    .filter((locale) => !localesFilter || localesFilter.has(locale))
+
+  const scannedEnFiles = opts.moduleFilter
+    ? enFiles.filter((enPath) => deriveModuleName(enPath).includes(opts.moduleFilter))
+    : enFiles
+
+  const locales = []
+  for (const enPath of scannedEnFiles) {
+    for (const locale of targetsFor(enPath)) {
+      if (!locales.includes(locale)) locales.push(locale)
+    }
+  }
 
   const perLocale = new Map()
   for (const locale of locales) {
@@ -128,15 +147,14 @@ function main() {
 
   let modulesProcessed = 0
 
-  for (const enPath of enFiles) {
+  for (const enPath of scannedEnFiles) {
     const moduleName = deriveModuleName(enPath)
-    if (opts.moduleFilter && !moduleName.includes(opts.moduleFilter)) continue
     const enFlat = safeLoadJsonFlat(enPath)
     if (!enFlat) continue
     modulesProcessed += 1
     const i18nDir = path.dirname(enPath)
 
-    for (const locale of locales) {
+    for (const locale of targetsFor(enPath)) {
       const localePath = path.join(i18nDir, `${locale}.json`)
       if (!fs.existsSync(localePath)) {
         const accum = perLocale.get(locale)

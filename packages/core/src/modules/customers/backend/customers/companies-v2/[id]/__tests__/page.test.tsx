@@ -8,8 +8,13 @@ import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optim
 import CompanyDetailV2Page from '../page'
 
 const readApiResultOrThrowMock = jest.fn()
+const apiCallOrThrowMock = jest.fn()
 const scopedDeleteHeaderCalls: Array<Record<string, string>> = []
+const companyDetailTabsPropsCapture: {
+  current: { injectedTabs?: Array<{ id: string; label: string; priority?: number }> } | null
+} = { current: null }
 let activeTabParam: string | null = 'activity-log'
+let injectedTabWidgets: Array<Record<string, unknown>> = []
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -53,7 +58,7 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCallOrThrow: jest.fn(),
+  apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
   withScopedApiRequestHeaders: <T,>(headers: Record<string, string>, run: () => Promise<T>) => {
     scopedDeleteHeaderCalls.push(headers)
@@ -71,7 +76,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
   InjectionSpot: () => null,
-  useInjectionWidgets: () => ({ widgets: [] }),
+  useInjectionWidgets: () => ({ widgets: injectedTabWidgets }),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -128,24 +133,44 @@ jest.mock('../../../../../components/detail/CompanyKpiBar', () => ({
 }))
 
 jest.mock('../../../../../components/detail/CompanyDetailTabs', () => ({
+  COMPANY_DETAIL_TAB_IDS: jest.requireActual<typeof import('../../../../../components/detail/CompanyDetailTabs')>('../../../../../components/detail/CompanyDetailTabs').COMPANY_DETAIL_TAB_IDS,
   resolveLegacyTab: (tab?: string | null) => {
     if (tab === 'activity-log' || tab === 'files') {
       return tab
     }
     return 'people'
   },
-  CompanyDetailTabs: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  CompanyDetailTabs: ({
+    children,
+    injectedTabs,
+  }: {
+    children: React.ReactNode
+    injectedTabs?: Array<{ id: string; label: string; priority?: number }>
+  }) => {
+    companyDetailTabsPropsCapture.current = { injectedTabs }
+    return <div>{children}</div>
+  },
 }))
 
 jest.mock('../../../../../components/detail/ActivityLogTab', () => ({
   ActivityLogTab: ({
+    entityType,
+    entityId,
     onEditActivity,
     onScheduleRequested,
+    onMarkDone,
   }: {
+    entityType?: string
+    entityId: string
     onEditActivity: (activity: Record<string, unknown>) => void
     onScheduleRequested: () => void
+    onMarkDone?: (id: string) => void
   }) => (
     <div>
+      <div data-testid="activity-log-scope">{entityType}:{entityId}</div>
+      <button type="button" onClick={() => onMarkDone?.('activity-1')}>
+        mark-done
+      </button>
       <button
         type="button"
         onClick={() => onEditActivity({ id: 'activity-1', interactionType: 'meeting', title: 'Existing meeting', scheduledAt: '2026-04-20T09:00:00.000Z' })}
@@ -195,9 +220,11 @@ jest.mock('../../../../../components/detail/ChangelogTab', () => ({
   ChangelogTab: () => <div>changelog</div>,
 }))
 
-describe('CompanyDetailV2Page schedule dialog state', () => {
+describe('CompanyDetailV2Page', () => {
   beforeEach(() => {
     activeTabParam = 'activity-log'
+    injectedTabWidgets = []
+    companyDetailTabsPropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue({
       company: {
@@ -242,6 +269,28 @@ describe('CompanyDetailV2Page schedule dialog state', () => {
     expect(screen.getByTestId('schedule-dialog-mode')).toHaveTextContent('create')
   })
 
+  it('scopes the shared activity log to the company and wires mark done through the guarded runner (#7494)', async () => {
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('activity-log-scope')).toHaveTextContent('company:company-123')
+    })
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        expect.stringContaining('/api/customers/interactions?entityId=company-123&excludeStatus='),
+      )
+    })
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('dealId='))
+
+    fireEvent.click(screen.getByRole('button', { name: 'mark-done' }))
+    await waitFor(() => {
+      expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/interactions/complete',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+  })
+
   it('renders the shared attachments section on the files tab', async () => {
     activeTabParam = 'files'
 
@@ -251,6 +300,35 @@ describe('CompanyDetailV2Page schedule dialog state', () => {
       expect(screen.getByTestId('attachments-section')).toHaveTextContent(
         'e1:company-123:Files:Upload and manage files linked to this company.',
       )
+    })
+  })
+
+  it('sends no interactions request while a non-activity tab is open (#7494)', async () => {
+    activeTabParam = 'files'
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('attachments-section')).toBeInTheDocument()
+    })
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/customers/interactions'),
+    )
+  })
+
+  it('passes injected tab priority through to CompanyDetailTabs', async () => {
+    injectedTabWidgets = [{
+      widgetId: 'crm.overview',
+      placement: { kind: 'tab', groupId: 'crm.overview', priority: 1000 },
+      module: { metadata: { title: 'Overview' }, Widget: () => <div>overview</div> },
+    }]
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-123' }} />)
+
+    await waitFor(() => {
+      expect(companyDetailTabsPropsCapture.current?.injectedTabs).toEqual([
+        { id: 'crm.overview', label: 'Overview', priority: 1000 },
+      ])
     })
   })
 

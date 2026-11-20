@@ -99,6 +99,7 @@ function buildRequest(options: {
   agent?: string | null
   body?: unknown
   bodyRaw?: string
+  headers?: Record<string, string>
 }): Request {
   const url = new URL('http://localhost/api/ai/chat')
   if (options.agent !== undefined && options.agent !== null) {
@@ -109,7 +110,7 @@ function buildRequest(options: {
     init.body = options.bodyRaw
   } else if (options.body !== undefined) {
     init.body = JSON.stringify(options.body)
-    init.headers = { 'content-type': 'application/json' }
+    init.headers = { 'content-type': 'application/json', ...(options.headers ?? {}) }
   }
   return new Request(url, init)
 }
@@ -315,6 +316,47 @@ describe('POST /api/ai/chat', () => {
     expect(callArg.container).toBeDefined()
   })
 
+  it('passes a generated runId with the chat channel and the request correlation id', async () => {
+    seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
+
+    await POST(
+      buildRequest({
+        agent: 'customers.assistant',
+        body: { messages: [{ role: 'user', content: 'Hello assistant' }] },
+        headers: { 'x-correlation-id': ' corr-42 ' },
+      }) as any,
+    )
+
+    const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+      runId?: string
+      trace?: { channel?: string; correlationId?: string }
+    }
+    expect(callArg.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(callArg.trace).toEqual({ channel: 'chat', correlationId: 'corr-42' })
+  })
+
+  it('uses the playground channel and a generated correlation id for playground turns', async () => {
+    seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
+
+    await POST(
+      buildRequest({
+        agent: 'customers.assistant',
+        body: {
+          messages: [{ role: 'user', content: 'Hello assistant' }],
+          pageContext: { source: 'playground', pageId: 'ai_assistant.playground' },
+        },
+      }) as any,
+    )
+
+    const callArg = runAiAgentTextMock.mock.calls[0][0] as {
+      runId?: string
+      trace?: { channel?: string; correlationId?: string }
+    }
+    expect(callArg.trace?.channel).toBe('playground')
+    expect(callArg.trace?.correlationId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(callArg.trace?.correlationId).not.toBe(callArg.runId)
+  })
+
   it('persists the user message before dispatch and the assistant message after the stream finishes', async () => {
     seedAgentRegistryForTests([
       makeAgent({
@@ -402,6 +444,7 @@ describe('POST /api/ai/chat', () => {
         clientMessageId: 'msg-user-1:assistant',
         role: 'assistant',
         content: 'Hello world',
+        metadata: { runId: (runAiAgentTextMock.mock.calls[0][0] as { runId: string }).runId },
       }),
       expect.objectContaining({
         tenantId: 'tenant-1',
@@ -547,6 +590,51 @@ describe('POST /api/ai/chat', () => {
         requestOverride?: { providerId?: string | null; modelId?: string | null; baseURL?: string | null }
       }
       expect(callArg.requestOverride?.baseURL).toBe('https://openrouter.ai/api/v1')
+    })
+
+    describe('with the real AI_RUNTIME_BASEURL_ALLOWLIST helper (issue #7228)', () => {
+      const originalAllowlist = process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+      const actualBaseurlAllowlist = jest.requireActual<typeof import('../../../../lib/baseurl-allowlist')>(
+        '../../../../lib/baseurl-allowlist',
+      )
+
+      beforeEach(() => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com,http://localhost:11434'
+        readBaseurlAllowlistMock.mockImplementation(actualBaseurlAllowlist.readBaseurlAllowlist)
+        isBaseurlAllowlistedMock.mockImplementation(actualBaseurlAllowlist.isBaseurlAllowlisted)
+        seedAgentRegistryForTests([
+          makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+        ])
+      })
+
+      afterEach(() => {
+        if (originalAllowlist === undefined) delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+        else process.env.AI_RUNTIME_BASEURL_ALLOWLIST = originalAllowlist
+      })
+
+      it.each([
+        ['http://api.openai.com/v1'],
+        ['https://api.openai.com:8443/v1'],
+        ['https://localhost:11434/v1'],
+      ])('rejects %s with baseurl_not_allowlisted and never dispatches', async (baseUrl) => {
+        const response = await POST(buildRequestWithOverrides({ baseUrl }) as any)
+
+        expect(response.status).toBe(400)
+        const json = await response.json()
+        expect(json.code).toBe('baseurl_not_allowlisted')
+        expect(runAiAgentTextMock).not.toHaveBeenCalled()
+      })
+
+      it.each([
+        ['https://api.openai.com/v1'],
+        ['http://localhost:11434/v1'],
+      ])('forwards %s', async (baseUrl) => {
+        const response = await POST(buildRequestWithOverrides({ baseUrl }) as any)
+
+        expect(response.status).toBe(200)
+        const callArg = runAiAgentTextMock.mock.calls[0][0] as { requestOverride?: { baseURL?: string | null } }
+        expect(callArg.requestOverride?.baseURL).toBe(baseUrl)
+      })
     })
   })
 

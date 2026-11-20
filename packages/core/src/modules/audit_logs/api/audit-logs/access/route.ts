@@ -7,6 +7,7 @@ import { AccessLogService } from '@open-mercato/core/modules/audit_logs/services
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
 import { requireResolvedTenantScope } from '../readScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
@@ -17,6 +18,10 @@ export const metadata = {
 const auditAccessQuerySchema = z.object({
   organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
   actorUserId: z.string().uuid().describe('Filter by actor user id (tenant administrators only)').optional(),
+  actorScope: z
+    .enum(['self', 'all'])
+    .describe('`self` (default) lists only the caller\'s own entries. `all` lists entries of every actor and is honored only for callers holding `audit_logs.view_tenant`; others silently keep `self`. Ignored when `actorUserId` is set.')
+    .optional(),
   resourceKind: z.string().describe('Restrict to a resource kind such as `order` or `product`').optional(),
   accessType: z.string().describe('Access type filter, e.g. `read` or `export`').optional(),
   page: z.string().describe('Page number (default 1)').optional(),
@@ -85,15 +90,10 @@ export async function GET(req: Request) {
   const accessLogs = (container.resolve('accessLogService') as AccessLogService)
   const em = (container.resolve('em') as EntityManager)
 
-  const canViewTenant = await rbac.userHasAllFeatures(
-    auth.sub,
-    ['audit_logs.view_tenant'],
-    { tenantId: auth.tenantId ?? null, organizationId: defaultOrganizationId ?? null },
-  )
-
   const url = new URL(req.url)
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
+  const actorScope = url.searchParams.get('actorScope') === 'all' ? 'all' : 'self'
   const resourceKind = url.searchParams.get('resourceKind')
   const accessType = url.searchParams.get('accessType')
   const page = parseNumber(url.searchParams.get('page'), { min: 1, max: 1000000, fallback: 1 })
@@ -108,16 +108,30 @@ export async function GET(req: Request) {
     }
   }
 
-  let actorUserId = auth.sub
+  const canViewTenant = await rbac.userHasAllFeatures(
+    auth.sub,
+    ['audit_logs.view_tenant'],
+    { tenantId: auth.tenantId ?? null, organizationId: organizationId ?? null },
+  )
+
+  let actorUserId: string | undefined = auth.sub
   if (canViewTenant && actorQuery) {
     actorUserId = actorQuery
+  } else if (canViewTenant && actorScope === 'all') {
+    actorUserId = undefined
   }
+
+  const readsOtherActors = actorUserId !== auth.sub
+  const organizationIds = readsOtherActors && !organizationId && Array.isArray(scope.allowedIds)
+    ? scope.allowedIds
+    : undefined
 
   let list: Awaited<ReturnType<AccessLogService['list']>>
   try {
     list = await accessLogs.list({
       tenantId: auth.tenantId ?? undefined,
       organizationId: organizationId ?? undefined,
+      organizationIds,
       actorUserId,
       resourceKind: resourceKind ?? undefined,
       accessType: accessType ?? undefined,
@@ -134,11 +148,12 @@ export async function GET(req: Request) {
     throw err
   }
 
+  const { translate } = await resolveTranslations()
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: list.items.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
     tenantIds: list.items.map((entry) => entry.tenantId).filter((value): value is string => !!value),
     organizationIds: list.items.map((entry) => entry.organizationId).filter((value): value is string => !!value),
-  })
+  }, { translate })
 
   const items = list.items.map((entry) => ({
     id: entry.id,

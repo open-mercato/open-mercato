@@ -1909,6 +1909,24 @@ Integration tests for this module must be implemented under the existing QA harn
 
 ## Migration & Backward Compatibility
 
+TOTP setup error maintenance (#10013, #10014) keeps the provider confirmation route,
+payloads and `{ error: string }` response shape. Expected setup failures use the existing
+localized error messages: invalid codes and expired setups return 400; missing setups
+return 404. Clients should display these errors and allow retry or setup restart instead
+of treating them as unexpected server failures. Unknown failures retain the generic 500.
+No operator migration, schema, verifier, authentication or rate-limit changes are needed.
+Polish setup/login labels and the built-in TOTP page title use existing translation keys.
+Registration and last-used relative times on MFA method lists follow the UI locale via the
+existing `useDateFnsLocale` helper; no tenant date/time settings are involved.
+
+The emergency-bypass notification change (#5523) corrects shared enabled-module ownership
+for nested ACL wildcards such as `security.mfa.*`. Existing stored role and per-user grants
+can therefore authorize matching features previously discarded by the initialized registry
+across all enabled modules. Before upgrading, operators must audit these grants and replace
+unintended wildcards with approved exact feature IDs. Disabled modules, removed features,
+and tenant/organization restrictions still take precedence; exact, module-level, and global
+grants keep their semantics. See [the operator upgrade instructions](../../../../UPGRADE_NOTES.md#nested-acl-wildcards-now-grant-their-matching-enabled-module-features-5523).
+
 - `POST /api/security/mfa/recovery-codes/regenerate` remains the stable, supported path for creating recovery codes and is now the only generation path.
 - MFA provider confirmation routes keep the existing response shape compatibility bridge (`recoveryCodes?: string[]` remains tolerated by local types/OpenAPI), but the platform no longer populates that field during setup. Consumers must call the regeneration endpoint after enrollment when they need a fresh recovery-code set.
 - Sudo challenge request and response contracts remain unchanged. `targetIdentifier`, `tenantId`, and `organizationId` supplied at verification are compatibility assertions and must exactly match the values captured at initiation.
@@ -2130,3 +2148,25 @@ Ordinary self-service MFA management now requires `security.mfa.manage`, and the
 ### 2026-08-22 — Harden MFA emergency bypass with audit logging
 
 `OM_SECURITY_MFA_EMERGENCY_BYPASS` keeps its fail-closed default (`false`) and bypass semantics. When truthy, the system emits a warn-level structured log via `createLogger('security').child({ component: 'mfa-emergency-bypass' })` with a stable message `MFA emergency bypass is active` and fields `emergencyBypass:true, context` plus call-site context. Startup emits once per process (`context:startup, startup:true`); per-challenge warnings emit only when the flag actually changes the MFA outcome — login `api/interceptors.ts` after claims/service validation (`context:login MFA challenge bypassed, userId`), enrollment `lib/enforcement-redirect.ts` after enforcement/compliance/deadline evaluation (`context:mfa-enrollment-redirect bypassed, userId, pathname, enforced/compliant/overdue or reason`), and sudo `services/SudoChallengeService.ts` only when downgrading an MFA-capable challenge to password (`context:sudo challenge downgraded to password, configuredMethod, availableMfaMethodCount`). No bypass state is returned to clients. Env documentation in `apps/mercato/.env.example`, `packages/create-app/template/.env.example`, and the spec env block is updated to break-glass parity, and unit coverage asserts active/inactive, once-per-process startup, per-path structured fields, and negative cases (compliant, unenforced, non-overdue, password-only, invalid token/service).
+
+
+### 2026-10-18 — Notify MFA administrators about emergency bypass (#5523)
+
+Existing login, enrollment-redirect and sudo bypass branches also request a persistent `security.mfa.emergency_bypass_detected` event through the security-config helper, preserving warn-level audit logs. The in-app warning reaches only users authorized for `security.mfa.manage` (including wildcards) in the authenticated tenant/organization. Durable deduplication serializes by scope and UTC observation day and checks all notification statuses, so repeated requests, retries, restarts, and dismissal do not create another daily warning. The next observed UTC day permits a reminder. Missing scope remains log-only; no global tenant broadcast. Notification delivery errors do not block emergency access. Design and integration coverage: [MFA emergency bypass notification](../2026-10-18-mfa-emergency-bypass-notification.md).
+
+### 2026-10-25 — Address emergency-bypass notification review
+
+Page middleware requests persistent notification delivery without awaiting the enqueue, including unavailable-service and failed-compliance paths. Login and sudo retain their two-second fail-open enqueue bound; the helper still reports enqueue failures and the durable subscriber still owns daily deduplication. The nested-wildcard effective-permission correction and operator ACL audit are documented in Migration & Backward Compatibility and UPGRADE_NOTES. Unrelated CI workflow and workflow UI test corrections are excluded from this feature PR.
+
+### 2026-11-18 — Make recovery-code use and enrollment confirmation atomic (#9673)
+
+Recovery verification claims the matched code with a user- and tenant-scoped conditional update that succeeds only while the code is unused. Concurrent losers return the existing invalid-code result and emit no usage event. Enrollment confirmation serializes by user with a PostgreSQL transaction advisory lock, refreshes pending and invariant reads under the lock, and commits activation before emitting the existing enrollment event. Single-instance provider limits, duplicate-label checks and same-setup rejection retain their existing errors; multi-instance providers still accept distinct labels. Unit and real PostgreSQL lock-barrier regressions cover concurrent recovery use, different and identical setups, duplicate and distinct labels, stale identity-map state, and event emission after commit. No schema, configuration, startup, dependency or public-contract change is required.
+
+### 2026-11-19 — TOTP setup errors and Polish MFA labels (#10013, #10014)
+
+Expected TOTP setup failures use the existing localized HTTP error path without changing
+verification or cleanup. Mocked unit tests cover invalid-code retry, missing/expired setup,
+unknown-error redaction, Polish labels and page title, and custom-provider label fallback.
+The errors are raised with the shared `badRequest`/`notFound` helpers, and PUT route→service→provider
+tests assert failed confirmations neither activate, flush nor emit enrollment. MFA method-list
+relative times are passed the active date-fns locale; `ui.table.registeredAt` is translated in de/es.

@@ -12,7 +12,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { resolveOrganizationScopeFilter, resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowDefinition, WorkflowInstance } from '../../../data/entities'
 import {
   updateWorkflowDefinitionInputSchema,
@@ -28,6 +28,12 @@ import {
 } from '../../openapi'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
 import { normalizeDefinitionValidationIssues } from '../../../lib/definition-error-body'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import {
+  mappingTargetIssuesForApi,
+  UNSAFE_MAPPING_TARGET_MESSAGE,
+  UNSAFE_MAPPING_TARGET_MESSAGE_KEY,
+} from '../../../lib/mapping-target-validation'
 import { getCodeWorkflow, getAllCodeWorkflows } from '../../../lib/code-registry'
 import { codeWorkflowUuid } from '../../../lib/find-definition'
 import {
@@ -46,6 +52,7 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { collectAgentInvokeGrantWarnings } from '../../../lib/agent-invoke-grant-warnings'
 
 const logger = createLogger('workflows')
 
@@ -165,7 +172,7 @@ export async function PUT(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     // Check edit permission
     const rbacService = container.resolve('rbacService')
@@ -200,6 +207,17 @@ export async function PUT(
     }
 
     const input: UpdateWorkflowDefinitionApiInput = validation.data
+    const { translate } = await resolveTranslations()
+    const mappingMessage = translate(UNSAFE_MAPPING_TARGET_MESSAGE_KEY, UNSAFE_MAPPING_TARGET_MESSAGE)
+    const mappingIssues = input.definition
+      ? mappingTargetIssuesForApi(input.definition, ['definition'], mappingMessage)
+      : []
+    if (mappingIssues.length > 0) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: mappingIssues },
+        { status: 400 }
+      )
+    }
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: tenantId ?? '',
       organizationId: organizationId ?? null,
@@ -321,9 +339,15 @@ export async function PUT(
         })
       }
 
+      const overrideWarnings = await collectAgentInvokeGrantWarnings(container, {
+        definition: savedOverride.definition,
+        grantedFeatures: savedOverride.grantedFeatures,
+      })
+
       return NextResponse.json({
         data: serializeWorkflowDefinition(savedOverride),
         message: 'Workflow definition customized successfully',
+        ...(overrideWarnings.length ? { warnings: overrideWarnings } : {}),
       })
     }
 
@@ -458,11 +482,18 @@ export async function PUT(
     // the wildcard event subscriber reloads them on the next event.
     if (tenantId) invalidateTriggerCache(tenantId, organizationId ?? undefined)
 
+    const warnings = await collectAgentInvokeGrantWarnings(container, {
+      definition: definition.definition,
+      grantedFeatures: definition.grantedFeatures,
+    })
+
     return NextResponse.json({
       data: serializeWorkflowDefinition(definition),
       message: 'Workflow definition updated successfully',
+      ...(warnings.length ? { warnings } : {}),
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error updating workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to update workflow definition' },
@@ -492,7 +523,7 @@ export async function DELETE(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     // Check delete permission
     const rbacService = container.resolve('rbacService')
@@ -583,6 +614,7 @@ export async function DELETE(
       message: 'Workflow definition deleted successfully',
     })
   } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error deleting workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to delete workflow definition' },

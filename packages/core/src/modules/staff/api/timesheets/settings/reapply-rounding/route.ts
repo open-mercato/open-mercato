@@ -23,6 +23,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
     }
 
     const actorId = typeof auth.sub === 'string' && auth.sub.trim().length > 0 ? auth.sub : 'system'
-    const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null
 
     // One lookup through the module's single RBAC authority: the decision is
     // checked unconditionally and fails closed, and the grant list the plumbing

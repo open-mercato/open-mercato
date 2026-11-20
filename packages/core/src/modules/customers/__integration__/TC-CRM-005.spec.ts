@@ -30,7 +30,12 @@ test.describe('TC-CRM-005: Link Person to Company', () => {
       await login(page, 'admin');
       await page.goto(`/backend/customers/people/${personId}`);
 
-      await page.getByRole('button', { name: /^Edit$/i }).first().click();
+      // Scope to the Company highlight panel: every inline field editor on this page now
+      // exposes its own "Edit" trigger, so a page-wide .first() picks an arbitrary one.
+      const companyPanel = page
+        .locator('div.group')
+        .filter({ has: page.locator('p', { hasText: /^Company$/ }) });
+      await companyPanel.getByRole('button', { name: /^Edit$/i }).click();
       // Person detail page renders CompanySelectField directly (no CrudForm wrapper).
       // Scope to the placeholder visible in the trigger when no company is selected.
       const companyCombobox = page.locator('[role="combobox"]').filter({ hasText: 'Select a company' });

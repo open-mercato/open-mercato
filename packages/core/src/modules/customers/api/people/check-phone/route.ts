@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CustomerEntity } from '../../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -115,7 +116,7 @@ export async function GET(req: Request) {
     },
     {
       tenantId: auth.tenantId ?? null,
-      organizationId: scope?.selectedId ?? auth.orgId ?? null,
+      organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     },
   )
 

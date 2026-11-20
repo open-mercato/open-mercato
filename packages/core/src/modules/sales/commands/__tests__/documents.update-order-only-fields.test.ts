@@ -23,6 +23,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { SalesOrder, SalesQuote } from '../../data/entities'
 import { documentUpdateSchema, type DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -139,6 +140,7 @@ function makeEm(document: StoredDocument, entityClass: unknown = SalesOrder) {
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
     flush: jest.fn(async () => {}),
     begin: jest.fn(async () => {}),
+    getKysely: () => createSalesDocumentLockKyselyFixture(String(document.id)),
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     fork: () => em,
@@ -148,7 +150,10 @@ function makeEm(document: StoredDocument, entityClass: unknown = SalesOrder) {
 
 function makeCtx(em: unknown) {
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-  container.register({ em: asValue(em) })
+  container.register({
+    em: asValue(em),
+    dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
+  })
   return {
     container,
     auth: { tenantId: TENANT_ID, orgId: ORG_ID, sub: 'user-1' },
@@ -234,6 +239,20 @@ describe('documentUpdateSchema — order-only fields', () => {
     expect(result.success).toBe(false)
     expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain('exchangeRate')
   })
+
+  it.each([
+    ['a numeric 1e305', 1e305],
+    ['a string 1e305', '1e305'],
+    ['a 1001 significant digit string', `0.${'1'.repeat(1001)}`],
+  ])(
+    'rejects an exchangeRate of %s beyond the decimal size caps, matching the create schema',
+    (_label, exchangeRate) => {
+      const result = documentUpdateSchema.safeParse({ id: ORDER_ID, exchangeRate })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain('exchangeRate')
+    },
+  )
 
   it.each(['paymentStatusEntryId', 'fulfillmentStatusEntryId'])(
     'rejects a non-uuid %s',

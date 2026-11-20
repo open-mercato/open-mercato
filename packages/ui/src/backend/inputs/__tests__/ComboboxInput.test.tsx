@@ -48,6 +48,28 @@ function blurAndFlush(input: HTMLElement) {
   })
 }
 
+it('associates the input with its label and accessibility description', () => {
+  render(
+    <>
+      <label htmlFor="color-input">Color</label>
+      <span id="color-help">Choose a color</span>
+      <Harness
+        id="color-input"
+        aria-describedby="color-help"
+        aria-invalid
+        aria-required
+      />
+    </>
+  )
+
+  const input = screen.getByRole('combobox', { name: 'Color' })
+  expect(screen.getByLabelText('Color')).toBe(input)
+  expect(input).toHaveAttribute('id', 'color-input')
+  expect(input).toHaveAccessibleDescription('Choose a color')
+  expect(input).toHaveAttribute('aria-invalid', 'true')
+  expect(input).toHaveAttribute('aria-required', 'true')
+})
+
 describe('ComboboxInput clearable behavior', () => {
   beforeEach(() => {
     jest.useFakeTimers()
@@ -180,6 +202,30 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Resolved uuid-123'))
     expect(resolveLabel).toHaveBeenCalledWith('uuid-123')
     expect(resolveLabel).toHaveBeenCalledTimes(1)
+  })
+
+  it('resolves a disabled preselected value without enabling or changing it', async () => {
+    const onChange = jest.fn()
+    const resolveLabel = jest.fn(async () => 'Source bin')
+    const { container } = render(
+      <ComboboxInput value="location-id" onChange={onChange} resolveLabel={resolveLabel} disabled />,
+    )
+
+    await waitFor(() => expect(getInput(container).value).toBe('Source bin'))
+    expect(getInput(container).disabled).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('loads a disabled preselected label when no resolver is supplied', async () => {
+    const onChange = jest.fn()
+    const loadSuggestions = jest.fn(async () => [{ value: 'location-id', label: 'Source bin' }])
+    const { container } = render(
+      <ComboboxInput value="location-id" onChange={onChange} loadSuggestions={loadSuggestions} disabled />,
+    )
+
+    await waitFor(() => expect(getInput(container).value).toBe('Source bin'))
+    expect(getInput(container).disabled).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
   })
 
   it('resolves the label via a synchronous resolveLabel', async () => {
@@ -428,6 +474,55 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Central warehouse'))
   })
 
+  it.each(['suggestions', 'seedOptions'] as const)('shows a saved currency under autofocus with self-labeled %s', (source) => {
+    const onChange = jest.fn()
+    const { container } = render(
+      <ComboboxInput
+        value="USD"
+        onChange={onChange}
+        autoFocus
+        allowCustomValues={false}
+        {...{ [source]: [{ value: 'USD', label: 'USD' }] }}
+      />,
+    )
+
+    expect(document.activeElement).toBe(getInput(container))
+    expect(getInput(container).value).toBe('USD')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('shows a saved currency when its options arrive after autofocus without changing the stored value', async () => {
+    const onChange = jest.fn()
+    const loadSuggestions = jest.fn(async () => [{ value: 'USD', label: 'USD' }])
+    const { container } = render(
+      <ComboboxInput value="USD" onChange={onChange} autoFocus allowCustomValues={false} loadSuggestions={loadSuggestions} />,
+    )
+
+    await waitFor(() => expect(getInput(container).value).toBe('USD'))
+    expect(document.activeElement).toBe(getInput(container))
+    expect(loadSuggestions).toHaveBeenCalledTimes(1)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('reverts an invalid query to the saved self-labeled currency on blur', async () => {
+    const onChange = jest.fn()
+    const { container } = render(
+      <ComboboxInput
+        value="USD"
+        onChange={onChange}
+        suggestions={[{ value: 'USD', label: 'USD' }]}
+        allowCustomValues={false}
+      />,
+    )
+    const input = getInput(container)
+    act(() => input.focus())
+    fireEvent.change(input, { target: { value: 'missing' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(input.value).toBe('USD'))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   // Guards the opposite direction of the case above: it passes on both the old
   // focus-based guard and the current typing-based one, so it is a behavior pin
   // rather than a regression test for any specific bug.
@@ -673,5 +768,32 @@ describe('ComboboxInput suggestion popup placement', () => {
       })
       jest.useRealTimers()
     }
+  })
+})
+
+describe('ComboboxInput labelling and validation attributes', () => {
+  it('forwards id and ARIA validation attributes to the combobox input', () => {
+    render(
+      <div>
+        <label htmlFor="combo-field">Colour</label>
+        <Harness id="combo-field" aria-required aria-invalid aria-describedby="combo-field-error" />
+        <p id="combo-field-error">Pick a colour.</p>
+      </div>,
+    )
+
+    const input = screen.getByRole('combobox', { name: 'Colour' })
+    expect(input).toHaveAttribute('id', 'combo-field')
+    expect(input).toBeRequired()
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAccessibleDescription('Pick a colour.')
+  })
+
+  it('omits the ARIA validation attributes when they are not passed', () => {
+    render(<Harness />)
+
+    const input = screen.getByRole('combobox')
+    expect(input).not.toHaveAttribute('aria-required')
+    expect(input).not.toHaveAttribute('aria-invalid')
+    expect(input).not.toHaveAttribute('aria-describedby')
   })
 })

@@ -824,11 +824,20 @@ async function loadPriceKinds(
   return map;
 }
 
+export function listCatalogExampleKeys(): { productHandles: string[]; variantSkus: string[] } {
+  return {
+    productHandles: PRODUCT_SEEDS.map((seed) => seed.handle),
+    variantSkus: PRODUCT_SEEDS.flatMap((seed) => seed.variants.map((variant) => variant.sku)),
+  };
+}
+
 export async function seedCatalogExamples(
   em: EntityManager,
   container: AwilixContainer,
   scope: SeedScope,
 ): Promise<boolean> {
+  if (!em.getMetadata().has(SalesChannel)) return false;
+
   await ensureFieldsetsAndDefinitions(em, scope);
   await ensureDefaultPartitions(em);
 
@@ -852,7 +861,7 @@ export async function seedCatalogExamples(
   const defaultTaxRateValue = defaultTaxRate?.rate ?? null;
   if (!regularKind || !saleKind) {
     throw new Error(
-      "Missing catalog price kinds; run `mercato catalog seed-price-kinds` first.",
+      "[internal] Catalog price kinds `regular` and `sale` must exist and not be deleted; run `mercato catalog seed-price-kinds` to create missing ones, or restore deleted ones.",
     );
   }
 

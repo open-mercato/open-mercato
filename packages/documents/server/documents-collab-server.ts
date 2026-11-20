@@ -26,9 +26,12 @@ import type {
   onChangePayload,
   onRequestPayload,
   onStoreDocumentPayload,
+  onStatelessPayload,
   Server as HocuspocusServer,
 } from '@hocuspocus/server'
 import * as Y from 'yjs'
+import { collabContentSaveRequestSchema } from '@open-mercato/documents/modules/documents/data/validators'
+import { containsDocumentSnapshot } from '@open-mercato/documents/modules/documents/lib/collabPersistence'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -2505,6 +2508,32 @@ export function createCollabHooks(deps: CollabHooksDeps) {
     assertConnectionAuthorization,
     establishConnectionAuthorization,
     releaseConnectionAuthorization,
+    async saveContent(data: {
+      documentName: string
+      document: Y.Doc
+      context: CollabContext
+      store: (confirmPersistence: (snapshot: Y.Snapshot) => void) => Promise<unknown>
+    }): Promise<boolean> {
+      try {
+        assertScopedContext(data.context)
+        const scope = roomScopes.get(data.document)
+        const isCurrent = () => data.context.documentId === data.documentName
+          && scope?.tenantId === data.context.tenantId
+          && scope.organizationId === data.context.organizationId
+          && !data.context.readOnly
+          && !isInvalidated(data.documentName, data.document)
+          && !isFinalDrainPending(data.documentName)
+        if (!isCurrent() || !(await deps.authorizeContext(data.context)) || !isCurrent()) return false
+        const requested = Y.snapshot(data.document)
+        const confirmation: { snapshot: Y.Snapshot | null } = { snapshot: null }
+        await data.store((snapshot) => { confirmation.snapshot = snapshot })
+        if (!isCurrent() || !(await deps.authorizeContext(data.context)) || !isCurrent()) return false
+        const durable = confirmation.snapshot
+        return Boolean(durable && containsDocumentSnapshot(durable, requested))
+      } catch {
+        return false
+      }
+    },
     reauthorizeActiveConnection,
     recordRedisAggregate(document: Y.Doc, byteLength: number): void {
       const previous = roomResourceBudgets.get(document)
@@ -2747,6 +2776,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       documentName: string
       context: CollabContext
       document: Y.Doc
+      confirmPersistence?: (snapshot: Y.Snapshot) => void
     }): Promise<void> {
       try {
         assertScopedContext(data.context)
@@ -2833,6 +2863,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
             logger.warn('materialization failed; preserving previous html/text', { room: data.documentName })
           }
           const yjsState = Buffer.from(Y.encodeStateAsUpdate(data.document))
+          const storingSnapshot = Y.snapshot(data.document)
           const resourceBudgetRevision = roomResourceBudgets.get(data.document)?.revision ?? 0
           assertDocumentContentResourceLimits({
             yjsState,
@@ -2950,6 +2981,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
             })
           }
           deps.onPersisted?.(data.document, yjsState, collaborationGeneration)
+          if (materialized) data.confirmPersistence?.(storingSnapshot)
           if (finalDrainAuthorized) deps.finalDrainRegistry?.complete(data.document)
           return
         }
@@ -3141,6 +3173,8 @@ export async function main(): Promise<void> {
   const finalDrainRegistry = createCollabFinalDrainRegistry()
   let server: HocuspocusServer<CollabContext> | null = null
   let redisStoreExtension: DocumentsCollabRedisExtension | null = null
+  const savingConnections = new WeakSet<object>()
+  const storeConfirmations = new WeakMap<onStoreDocumentPayload<CollabContext>, (snapshot: Y.Snapshot) => void>()
   const closeRoomConnectionsForContentReset = (documentName: string): void => {
     if (server) closeCollabRoomConnectionsForContentReset(server.hocuspocus, documentName)
   }
@@ -3325,7 +3359,52 @@ export async function main(): Promise<void> {
         documentName: data.documentName,
         context: data.lastContext,
         document: data.document,
+        confirmPersistence: storeConfirmations.get(data),
       })
+    },
+    async onStateless(data: onStatelessPayload) {
+      let value: unknown
+      try { value = JSON.parse(data.payload) } catch { return }
+      const request = collabContentSaveRequestSchema.safeParse(value)
+      if (!request.success) return
+      const respond = (saved: boolean) => data.connection.sendStateless(JSON.stringify({
+        type: 'documents.content.saved',
+        requestId: request.data.requestId,
+        saved,
+      }))
+      if (savingConnections.has(data.connection) || !server) {
+        respond(false)
+        return
+      }
+      savingConnections.add(data.connection)
+      try {
+        const runtime = server.hocuspocus
+        const context: CollabContext = data.connection.context
+        const saved = await hooks.saveContent({
+          documentName: data.documentName,
+          document: data.document,
+          context,
+          store: async (confirmPersistence) => {
+            const payload: onStoreDocumentPayload<CollabContext> = {
+              instance: runtime,
+              document: data.document,
+              documentName: data.documentName,
+              clientsCount: data.document.getConnectionsCount(),
+              lastContext: context,
+              lastTransactionOrigin: { source: 'local', context },
+            }
+            storeConfirmations.set(payload, confirmPersistence)
+            try {
+              await runtime.storeDocumentHooks(data.document, payload, true)
+            } finally {
+              storeConfirmations.delete(payload)
+            }
+          },
+        })
+        respond(saved)
+      } finally {
+        savingConnections.delete(data.connection)
+      }
     },
     async onRequest(data: onRequestPayload) {
       return handleCollabServerRequest(data)

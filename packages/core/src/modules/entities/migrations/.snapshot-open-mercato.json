@@ -907,6 +907,15 @@
           "unique": false
         },
         {
+          "keyName": "encryption_maps_entity_scope_live_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"encryption_maps_entity_scope_live_unique\" on \"encryption_maps\" (\"entity_id\", \"tenant_id\", \"organization_id\") nulls not distinct where deleted_at is null"
+        },
+        {
           "keyName": "encryption_maps_pkey",
           "columnNames": [
             "id"

@@ -37,6 +37,7 @@ const GENERAL_PURPOSE_TOOLS = new Set([
   'search.get_record_context',
   'attachments.list_record_attachments',
   'attachments.read_attachment',
+  'attachments.get_document_sections',
   'meta.describe_agent',
 ])
 
@@ -85,12 +86,21 @@ describe('customers.account_assistant agent definition', () => {
     expect(agent.acceptedMediaTypes).toEqual(['image', 'pdf', 'file'])
   })
 
+  it('reads long documents section by section so answers can cite the exact section', () => {
+    expect(agent.allowedTools).toContain('attachments.get_document_sections')
+    const attachments = promptTemplate.sections.find((section) => section.name === 'attachments')
+    expect(attachments?.content).toContain('attachments.get_document_sections')
+    expect(attachments?.content).toContain('includeText: false')
+    expect(attachments?.content).toContain('customers:customer_entity')
+    expect(attachments?.content).toContain('customers:customer_deal')
+  })
+
   it('enables the visible task-plan helper by agent configuration', () => {
     expect(agent.taskPlan).toEqual({ enabled: true })
     expect(agent.allowedTools).not.toContain('meta.update_task_plan')
   })
 
-  it('whitelists only read-only tools that exist in the customers pack or general-purpose packs', () => {
+  it('whitelists only tools that exist in the customers pack or general-purpose packs', () => {
     const customersToolNames = new Set(customersAiTools.map((tool) => tool.name))
     for (const toolName of agent.allowedTools) {
       const isCustomerRead = customersToolNames.has(toolName)

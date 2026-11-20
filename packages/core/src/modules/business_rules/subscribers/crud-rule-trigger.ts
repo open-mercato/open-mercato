@@ -11,7 +11,11 @@
  */
 
 import type { EntityManager } from '@mikro-orm/core'
-import { executeRules, resolveBusinessRuleDiscoveryCache } from '../lib/rule-engine'
+import {
+  executeRules,
+  resolveBusinessRuleDiscoveryCache,
+  resolveBusinessRuleRbacService,
+} from '../lib/rule-engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('business_rules').child({ component: 'crud-rule-trigger' })
@@ -68,6 +72,7 @@ export default async function handle(
 
   const em = ctx.resolve<EntityManager>('em')
   const cache = resolveBusinessRuleDiscoveryCache(ctx.resolve)
+  const rbacService = resolveBusinessRuleRbacService(ctx.resolve)
 
   try {
     await executeRules(em, {
@@ -76,7 +81,7 @@ export default async function handle(
       data,
       tenantId,
       organizationId,
-    }, { cache })
+    }, { cache, rbacService })
   } catch (error) {
     logger.error('Rule execution failed for event', { event: eventName, err: error })
   }

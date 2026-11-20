@@ -59,7 +59,6 @@ export function TaskForm({
   useCanonicalInteractions = false,
 }: TaskFormProps) {
   const t = useT()
-  const containerRef = React.useRef<HTMLDivElement | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
   const statusDictionary = useCustomerDictionary('interaction-statuses', scopeVersion)
 
@@ -101,21 +100,6 @@ export function TaskForm({
       : t('customers.people.detail.tasks.form.submitCreate', 'Save task (⌘/Ctrl + Enter)'))
   const resolvedCancelLabel = cancelLabel ?? t('customers.people.detail.tasks.cancel', 'Cancel')
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        const form = containerRef.current?.querySelector('form')
-        form?.requestSubmit()
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onCancel()
-      }
-    },
-    [onCancel],
-  )
-
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
       const payload = buildTaskSubmitPayload(values, t)
@@ -133,7 +117,7 @@ export function TaskForm({
   }, [initialValues, mode, useCanonicalInteractions])
 
   return (
-    <div ref={containerRef} onKeyDown={handleKeyDown}>
+    <div>
       <CrudForm
         embedded
         entityId={formEntityId}

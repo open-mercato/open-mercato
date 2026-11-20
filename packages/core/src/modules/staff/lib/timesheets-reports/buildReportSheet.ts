@@ -45,6 +45,8 @@ export type BuildReportSheetInput = {
   labels: ReportSheetLabels
   /** Overrides the report's stored grouping, for an export that re-groups. */
   grouping?: ReportGrouping
+  /** Decimals amounts round to (the report currency's); defaults to 2. */
+  amountDecimalPlaces?: number
 }
 
 export type ReportSheet = {
@@ -79,6 +81,7 @@ export async function buildReportSheet(input: BuildReportSheetInput): Promise<Re
     timeProjectIds: input.timeProjectIds,
     periodFrom: toDate(report.periodFrom, new Date(0)),
     periodTo: toDate(report.periodTo, new Date()),
+    currentReportId: report.id,
   })
 
   // A closed report shows only what it froze. An entry logged into the period
@@ -97,6 +100,7 @@ export async function buildReportSheet(input: BuildReportSheetInput): Promise<Re
       grouping,
       nonbillableMode,
       includeAlreadyReported: report.includeAlreadyReported ?? false,
+      amountDecimalPlaces: input.amountDecimalPlaces,
     },
     currentReportId: report.id,
     labels,

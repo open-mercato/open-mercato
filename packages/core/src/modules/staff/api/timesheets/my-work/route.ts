@@ -27,10 +27,13 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -41,7 +44,10 @@ import {
   StaffTimeProjectMember,
   StaffTimeTask,
 } from '../../../data/entities'
-import { computeProjectFinancials } from '../../../lib/timesheets-projects/computeProjectFinancials'
+import {
+  computeProjectFinancials,
+  resolveProjectAmountDecimalPlaces,
+} from '../../../lib/timesheets-projects/computeProjectFinancials'
 import { computeBudgetBurn } from '../../../lib/timesheets-projects/budgetBurn'
 import {
   addUtcDays,
@@ -51,13 +57,19 @@ import {
   toDateOnlyString,
 } from '../../../lib/timesheets-projects/dateBuckets'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
-import { buildMyWorkKpis, pickRecentTaskIds, toMinutes } from './myWorkAggregate'
+import { buildMyWorkKpis, pickRecentTaskIds, toMinutes, type MyWorkCapacity } from './myWorkAggregate'
+import { resolveCapacityForRange } from '../../../lib/time-tracking/capacityService'
 import {
   readSearchParamsRecord,
   runTimesheetInterceptors,
 } from '../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/my-work' })
+
+function toNullableExact(value: string | number | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
+}
 
 const VIEW_FEATURE = 'staff.timesheets.view'
 const RATES_FEATURE = 'staff.timesheets.rates.view'
@@ -100,6 +112,7 @@ const projectSchema = z.object({
   myMinutes: z.number().int(),
   totalMinutes: z.number().int(),
   hourlyRate: z.number().nullable().optional(),
+  hourlyRateExact: z.string().nullable().optional(),
   currencyCode: z.string().nullable().optional(),
   budget: z
     .object({
@@ -156,7 +169,7 @@ export async function GET(req: Request) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const tenantId = scope?.tenantId ?? auth.tenantId ?? null
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
     if (!tenantId || !organizationId) {
       throw new CrudHttpError(400, {
         error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.'),
@@ -252,6 +265,23 @@ export async function GET(req: Request) {
       ],
     )) as TotalsRow[]
 
+    const weekRange = { from: toDateOnlyString(weekStart), to: toDateOnlyString(weekEnd) }
+    const monthRange = { from: toDateOnlyString(monthStart), to: toDateOnlyString(monthEnd) }
+    let capacity: MyWorkCapacity | null = null
+    try {
+      const capacityInput = { container, staffMemberId: staffMember.id, tenantId, organizationId, dailyHours }
+      const [week, month] = await Promise.all([
+        resolveCapacityForRange({ ...capacityInput, range: weekRange }),
+        resolveCapacityForRange({ ...capacityInput, range: monthRange }),
+      ])
+      capacity = { today: todayDate, week, month }
+    } catch (err) {
+      // A capacity provider must not empty the dashboard; the KPIs fall back to
+      // the flat `targets.dailyHours` arithmetic.
+      logger.error('staff.timesheets.my-work capacity resolution failed', { err })
+      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.my_work_capacity_failed' })
+    }
+
     const totals = totalsRows[0]
     const kpis = buildMyWorkKpis(
       {
@@ -260,11 +290,9 @@ export async function GET(req: Request) {
         monthMinutes: toMinutes(totals?.month_minutes),
         monthNonBillableMinutes: toMinutes(totals?.month_nonbillable_minutes),
       },
-      {
-        week: { from: toDateOnlyString(weekStart), to: toDateOnlyString(weekEnd) },
-        month: { from: toDateOnlyString(monthStart), to: toDateOnlyString(monthEnd) },
-      },
+      { week: weekRange, month: monthRange },
       dailyHours,
+      capacity,
     )
 
     const memberships = await em.fork().find(StaffTimeProjectMember, {
@@ -290,12 +318,13 @@ export async function GET(req: Request) {
           )
         : []
 
-    const hourlyRateByProjectId = new Map<string, number | null>(
-      projects.map((project) => [
-        project.id,
-        project.hourlyRate === null || project.hourlyRate === undefined ? null : Number(project.hourlyRate),
-      ]),
+    const hourlyRateByProjectId = new Map<string, string | null>(
+      projects.map((project) => [project.id, project.hourlyRate ?? null]),
     )
+    const amountDecimalPlacesByProjectId = await resolveProjectAmountDecimalPlaces(container, projects, {
+      tenantId,
+      organizationId,
+    })
     const [mine, everyone] = await Promise.all([
       computeProjectFinancials({
         em,
@@ -303,6 +332,7 @@ export async function GET(req: Request) {
         organizationId,
         projectIds: projects.map((project) => project.id),
         hourlyRateByProjectId,
+        amountDecimalPlacesByProjectId,
         staffMemberId: staffMember.id,
       }),
       computeProjectFinancials({
@@ -311,6 +341,7 @@ export async function GET(req: Request) {
         organizationId,
         projectIds: projects.map((project) => project.id),
         hourlyRateByProjectId,
+        amountDecimalPlacesByProjectId,
       }),
     ])
 
@@ -412,7 +443,9 @@ export async function GET(req: Request) {
           totalMinutes: allFinancials?.totalMinutes ?? 0,
           ...(canSeeMoney
             ? {
-                hourlyRate: hourlyRateByProjectId.get(project.id) ?? null,
+                hourlyRate:
+                  project.hourlyRate === null || project.hourlyRate === undefined ? null : Number(project.hourlyRate),
+                hourlyRateExact: toNullableExact(project.hourlyRate),
                 currencyCode: project.currencyCode ?? null,
               }
             : {}),

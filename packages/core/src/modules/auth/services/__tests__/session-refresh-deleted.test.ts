@@ -32,6 +32,7 @@ describe('refreshFromSessionToken — deleted user rejection', () => {
           return { expiresAt: new Date(Date.now() + 60_000), user: { id: 'u1' } }
         }
         if (query.id === 'u1') return activeUser
+        if (Entity.name === 'Tenant') return { id: 't1' }
         return null
       }),
       find: jest.fn(async () => []),

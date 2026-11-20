@@ -1,11 +1,15 @@
-import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
-import { ReferenceKind } from '@mikro-orm/core'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { EntityMetadata, EventArgs, EventSubscriber, FlushEventArgs } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { DriverException, ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
 import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantDataEncryptionService'
+import { forgetEncryptionPolicyMemo } from './policyMemo'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { createLogger } from '../logger'
+import { DECRYPT_REFUSAL_LOG_MESSAGE, DecryptRefusalTally, resolveDecryptScope } from './decryptScope'
 import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
 
 const logger = createLogger('shared').child({ component: 'encryption' })
@@ -19,7 +23,38 @@ type Scoped = {
   organization?: { id?: string | null } | null
 }
 
-type Scope = { tenantId: string | null; organizationId: string | null }
+type Scope = { tenantId: string | null; organizationId: string | null; bindsTenant?: boolean }
+
+type CallerDecryptContext = { scope: Scope; refusalTallies: Map<string, DecryptRefusalTally> }
+
+const callerDecryptContext = new AsyncLocalStorage<CallerDecryptContext>()
+
+function toCallerScope(tenantId?: string | null, organizationId?: string | null): Scope | undefined {
+  if (!tenantId && !organizationId) return undefined
+  return { tenantId: tenantId ?? null, organizationId: organizationId ?? null }
+}
+
+/**
+ * Runs an ORM read so that the `onLoad` / `afterFind` hooks it triggers decrypt under the caller's
+ * scope instead of the loaded row's own tenant. Without it, hydration would decrypt a foreign-tenant
+ * entity with that tenant's DEK before `find*WithDecryption` gets to apply the tenant binding.
+ * Refusals raised during hydration are collected in `refusalTallies` so the caller reports them once.
+ */
+export async function runWithCallerDecryptScope<T>(
+  scope: { tenantId?: string | null; organizationId?: string | null },
+  refusalTallies: Map<string, DecryptRefusalTally>,
+  read: () => Promise<T>,
+): Promise<T> {
+  const callerScope = toCallerScope(scope.tenantId, scope.organizationId)
+  if (!callerScope) return callerDecryptContext.exit(read)
+  return callerDecryptContext.run({ scope: callerScope, refusalTallies }, read)
+}
+
+function readCallerDecryptContext(): { fallbackScope?: Scope; refusalTallies?: Map<string, DecryptRefusalTally> } {
+  const context = callerDecryptContext.getStore()
+  if (!context) return {}
+  return { fallbackScope: context.scope, refusalTallies: context.refusalTallies }
+}
 
 function resolveScope(entity: Scoped): Scope {
   const tenantId = entity.tenantId ?? entity.tenant_id ?? entity.tenant?.id ?? null
@@ -89,6 +124,26 @@ function getSubscriberForService(service: TenantDataEncryptionService): TenantEn
 
 const toSnakeCase = (value: string): string =>
   value.replace(/([A-Z])/g, '_$1').replace(/__/g, '_').toLowerCase()
+
+function isDatabaseError(err: unknown): boolean {
+  if (err instanceof DriverException) return true
+  if (!err || typeof err !== 'object') return false
+  const candidate = err as { code?: unknown; severity?: unknown; sqlState?: unknown }
+  if (typeof candidate.sqlState === 'string') return true
+  return typeof candidate.code === 'string' && typeof candidate.severity === 'string'
+}
+
+function isInTransaction(em: unknown): boolean {
+  if (!em || typeof em !== 'object') return false
+  const candidate = em as { isInTransaction?: () => boolean; getTransactionContext?: () => unknown }
+  try {
+    if (typeof candidate.isInTransaction === 'function') return candidate.isInTransaction()
+    if (typeof candidate.getTransactionContext === 'function') return candidate.getTransactionContext() != null
+  } catch {
+    return false
+  }
+  return false
+}
 
 export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   constructor(private readonly service: TenantDataEncryptionService) {}
@@ -247,7 +302,13 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return
     }
     const { tenantId, organizationId } = resolveScope(target)
-    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
+    // Hand the flushing EntityManager to the policy read so it runs on this
+    // transaction's own connection instead of acquiring a second pooled one
+    // (an uncached lookup from inside an open write transaction deadlocks the
+    // pool once every slot is held by such a transaction).
+    const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId, {
+      em: em as EntityManager | undefined,
+    })
     const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
       ? resolvedMeta.properties
       : {}
@@ -316,9 +377,34 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
     em?: { getMetadata?: () => any; getComparator?: () => any },
-    opts: { syncOriginal?: boolean; seen?: WeakSet<object>; fallbackScope?: Scope } = {},
+    opts: {
+      syncOriginal?: boolean
+      seen?: WeakSet<object>
+      fallbackScope?: Scope
+      refusalTallies?: Map<string, DecryptRefusalTally>
+    } = {},
   ) {
     await this.decrypt(target, meta, em, opts)
+  }
+
+  /**
+   * Scope handed to a loaded relation. The caller's tenant binding is inherited only through a parent
+   * that carries a tenant of its own (and so already passed the binding): a tenant-less parent such as
+   * a join row may legitimately link entities of several tenants, so its relations keep the caller's
+   * scope as a key fallback but are not refused against it. Entities hydrated by the same read are
+   * still checked against the caller directly in `onLoad`.
+   */
+  private resolveRelationFallback(
+    fallbackScope: Scope | undefined,
+    tenantId: string | null,
+    organizationId: string | null,
+  ): Scope {
+    if (tenantId) {
+      if (fallbackScope && fallbackScope.bindsTenant !== false) return fallbackScope
+      return { tenantId, organizationId }
+    }
+    if (fallbackScope) return { ...fallbackScope, bindsTenant: false }
+    return { tenantId: null, organizationId }
   }
 
   private async decrypt(
@@ -329,7 +415,13 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       syncOriginal = false,
       seen,
       fallbackScope,
-    }: { syncOriginal?: boolean; seen?: WeakSet<object>; fallbackScope?: Scope } = {},
+      refusalTallies,
+    }: {
+      syncOriginal?: boolean
+      seen?: WeakSet<object>
+      fallbackScope?: Scope
+      refusalTallies?: Map<string, DecryptRefusalTally>
+    } = {},
   ) {
     const visited = seen ?? new WeakSet<object>()
     if (visited.has(target as object)) return
@@ -342,24 +434,41 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     const entityId = this.resolveEntityId(resolvedMeta)
     if (!entityId) return
     const { tenantId, organizationId } = resolveScope(target)
-    const scopedTenantId = tenantId ?? fallbackScope?.tenantId ?? null
-    const scopedOrgId = organizationId ?? fallbackScope?.organizationId ?? null
+    const decision = resolveDecryptScope({
+      rowTenantId: tenantId,
+      rowOrganizationId: organizationId,
+      callerTenantId: fallbackScope?.bindsTenant === false ? null : fallbackScope?.tenantId ?? null,
+      callerOrganizationId: fallbackScope?.organizationId ?? null,
+    })
+    if (!decision.decrypt) {
+      const rowId = (target as { id?: unknown }).id
+      if (refusalTallies) {
+        const tally = refusalTallies.get(entityId) ?? new DecryptRefusalTally()
+        refusalTallies.set(entityId, tally)
+        tally.record(decision, rowId == null ? null : String(rowId))
+      } else {
+        const tally = new DecryptRefusalTally()
+        tally.record(decision, rowId == null ? null : String(rowId))
+        logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, tally.toLogContext(entityId))
+      }
+      return
+    }
+    const scopedTenantId = decision.tenantId ?? fallbackScope?.tenantId ?? null
+    const scopedOrgId = decision.organizationId
     // Capture pending (un-flushed) changes BEFORE decrypt mutates the target. Re-baselining a
     // managed entity that a command already mutated would clear its dirty changeset and silently
     // drop the pending write (e.g. an undo handler that mutates an entity, then loads a related
     // encrypted entity whose deep-decrypt recurses back into the still-dirty entity before flush).
     const hadPendingChanges = syncOriginal ? this.hasPendingChanges(target, resolvedMeta, em as any) : false
-    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
+    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId, {
+      em: em as EntityManager | undefined,
+    })
     Object.assign(target, decrypted)
     this.restoreDecryptedJsonColumns(target, resolvedMeta)
     if (syncOriginal && !hadPendingChanges) {
       this.syncOriginalEntityData(target, resolvedMeta, em as any)
     }
-    const nextFallback =
-      fallbackScope ??
-      (tenantId || organizationId
-        ? { tenantId: tenantId ?? null, organizationId: organizationId ?? null }
-        : { tenantId: scopedTenantId, organizationId: scopedOrgId })
+    const nextFallback = this.resolveRelationFallback(fallbackScope, tenantId, organizationId)
     // Best-effort deep decrypt for loaded relations so populated graphs get cleaned too.
     try {
       const extractEntities = (value: any): any[] => {
@@ -407,6 +516,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
               syncOriginal: true,
               seen: visited,
               fallbackScope: nextFallback,
+              refusalTallies,
             })
           }
           continue
@@ -421,11 +531,15 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
               syncOriginal: true,
               seen: visited,
               fallbackScope: nextFallback,
+              refusalTallies,
             })
           }
         }
       }
     } catch (err) {
+      // A failed statement aborts the surrounding Postgres transaction; swallowing it here would
+      // only move the failure to the caller's next statement ("current transaction is aborted").
+      if (isDatabaseError(err) && isInTransaction(em)) throw err
       debug('⚠️ subscriber.deep_decrypt.error', {
         entityId,
         message: (err as Error)?.message ?? String(err),
@@ -455,13 +569,17 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   }
 
   async onLoad(args: EventArgs<any>) {
-    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true, ...readCallerDecryptContext() })
+  }
+
+  afterFlush(args: FlushEventArgs) {
+    forgetEncryptionPolicyMemo(args.em as unknown as EntityManager)
   }
 
   async afterFind(args: EventArgs<any> & { entities?: unknown[] }) {
     const entities = Array.isArray(args.entities) ? args.entities : []
     for (const entity of entities) {
-      await this.decrypt(entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
+      await this.decrypt(entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true, ...readCallerDecryptContext() })
     }
   }
 }
@@ -484,11 +602,13 @@ export async function decryptEntitiesWithFallbackScope(
     tenantId,
     organizationId,
     encryptionService,
+    refusalTallies = new Map<string, DecryptRefusalTally>(),
   }: {
     em: { getMetadata?: () => any; getComparator?: () => any }
     tenantId?: string | null
     organizationId?: string | null
     encryptionService?: TenantDataEncryptionService | null
+    refusalTallies?: Map<string, DecryptRefusalTally>
   },
 ): Promise<void> {
   if (!isTenantDataEncryptionEnabled()) return
@@ -497,19 +617,18 @@ export async function decryptEntitiesWithFallbackScope(
   const service = encryptionService ?? resolveTenantEncryptionService(em as any)
   if (!service || !service.isEnabled()) return
   const subscriber = getSubscriberForService(service)
-  const fallback: Scope | undefined =
-    tenantId || organizationId
-      ? {
-          tenantId: tenantId ?? null,
-          organizationId: organizationId ?? null,
-        }
-      : undefined
+  const fallback = toCallerScope(tenantId, organizationId)
   for (const entity of list) {
     if (!entity || typeof entity !== 'object') continue
     const meta = (entity as any).__meta ?? (entity as any).__helper?.__meta
     await subscriber.decryptEntityGraph(entity as Record<string, unknown>, meta, em as any, {
       syncOriginal: true,
       fallbackScope: fallback,
+      refusalTallies,
     })
+  }
+  for (const [entityId, tally] of refusalTallies) {
+    if (tally.refused === 0) continue
+    logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, tally.toLogContext(entityId))
   }
 }

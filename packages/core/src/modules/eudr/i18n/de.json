@@ -123,6 +123,7 @@
   "eudr.errors.plot_required": "Die Parzellen-ID ist erforderlich",
   "eudr.errors.pointAreaRequired": "Punktparzellen erfordern eine positive Fläche.",
   "eudr.errors.polygonRequired": "Verwenden Sie Polygongeometrie für Parzellen über 4 Hektar.",
+  "eudr.errors.redoConflict": "Dieser Datensatz wurde nach dem Rückgängigmachen geändert. Die Wiederholung wurde abgelehnt und die aktuelle Version beibehalten. Laden Sie den Datensatz neu und wenden Sie Ihre Änderung manuell an.",
   "eudr.errors.referenceIssuedAtImmutable": "Das Ausstellungsdatum der Referenz kann nicht geändert werden.",
   "eudr.errors.referenceIssuedAtInvalid": "Das Ausstellungsdatum der Referenz darf nicht in der Zukunft liegen.",
   "eudr.errors.referenceNumbersRequired": "Referenz- und Verifizierungsnummern sind erforderlich.",
@@ -136,6 +137,7 @@
   "eudr.errors.statement_required": "Die ID der Sorgfaltserklärung ist erforderlich",
   "eudr.errors.submission_required": "Die ID der Nachweiseinreichung ist erforderlich.",
   "eudr.errors.unauthorized": "Nicht autorisiert",
+  "eudr.errors.undoConflict": "Dieser Datensatz wurde nach der Aktion, die Sie rückgängig machen möchten, geändert. Das Rückgängigmachen wurde abgelehnt.",
   "eudr.evidence.attachAfterCreateHint": "Nachweiseinreichung erstellt. Sie können jetzt Nachweisdateien anhängen.",
   "eudr.evidenceSubmissions.create.title": "Nachweiseinreichung erstellen",
   "eudr.evidenceSubmissions.edit.title": "Nachweiseinreichung bearbeiten",
@@ -745,6 +747,7 @@
   "eudr.supplierPanel.warnings": "Mit Warnungen",
   "eudr.warnings.harvestBeforeCutoff": "Ernte vor dem EUDR-Stichtag",
   "eudr.warnings.speciesMissing": "Bei einer verknüpften Holz-Zuordnung fehlt der wissenschaftliche oder gebräuchliche Artname",
+  "notifications.categories.eudr": "EUDR",
   "search.entityType.eudr.eudr_due_diligence_statement": "DDS-Erklärung",
   "search.entityType.eudr.eudr_evidence_submission": "Nachweiseinreichung",
   "search.entityType.eudr.eudr_plot": "Parzelle"
