@@ -619,6 +619,11 @@ GitHub rejects self-approval (reviewing your own PR); surface that instead of wo
 ```bash
 gh pr merge {prNumber} --repo {owner}/{repo} --squash --match-head-commit "{headSha}"
 ```
+Surface GitHub's refusal reason as-is and never retry another way. A refusal that
+identifies an outstanding required review is a host review blocker for the caller
+to report (with the reviewer or maintainer needed and a retry condition); a fresh
+guarded attempt after a verified change in the blocking facts is evaluated under
+the caller's normal finish gates.
 
 #### mark-pr-ready
 Promote a draft PR.
@@ -743,12 +748,26 @@ REST does not expose a thread's resolved state (that lives in GraphQL's review t
 
 
 #### approve-pending-runs
-Head SHA → approve every workflow run on that commit that is waiting for maintainer approval (`conclusion` `action_required` — GitHub holds runs from first-time or outside contributors until a maintainer approves them). Prints the approved run ids; an empty result means nothing was waiting. Approving lets the contributor's workflow code run with this repository's CI, so callers approve only on a PR a human has authorized for automation (e.g. an `automerge` label) and read the diff's workflow changes first.
+Head SHA → approve every workflow run on that commit that is waiting for maintainer approval (`conclusion` `action_required` — GitHub holds runs from first-time or outside contributors until a maintainer approves them). Prints the approved run ids. An empty result with exit status 0 means nothing was waiting. A listing or approval failure returns nonzero even when some approvals succeeded. Approving lets the contributor's workflow code run with this repository's CI, so callers approve only on a PR a human has authorized for automation (an `automerge` label, or the repository's `ci.approveHeldRunsOnReview` opt-in on a head `om-auto-review-pr` has just reviewed) and read the diff's workflow changes first.
+
+**Reviewed-SHA binding:** `sha-bound` — every approval names a run id GitHub created for `{headSha}`, and the listing re-checks each run's `head_sha`, so a push made after the caller's head check gets new runs that stay held. `om-auto-review-pr` releases automatically only through operations that declare `sha-bound`.
 ```bash
-gh api "repos/{owner}/{repo}/actions/runs?head_sha={headSha}&status=action_required&per_page=100" \
-  --jq '.workflow_runs[].id' | while read -r run; do
-  gh api -X POST "repos/{owner}/{repo}/actions/runs/$run/approve" >/dev/null && echo "$run"
-done
+(
+  runs=$(gh api --paginate "repos/{owner}/{repo}/actions/runs?head_sha={headSha}&status=action_required&per_page=100" \
+    --jq '.workflow_runs[] | select(.head_sha == "{headSha}") | .id') || exit 1
+  failed=0
+  while IFS= read -r run; do
+    [ -n "$run" ] || continue
+    if gh api -X POST "repos/{owner}/{repo}/actions/runs/$run/approve" >/dev/null; then
+      printf '%s\n' "$run"
+    else
+      failed=1
+    fi
+  done <<EOF
+$runs
+EOF
+  exit "$failed"
+)
 ```
 
 
