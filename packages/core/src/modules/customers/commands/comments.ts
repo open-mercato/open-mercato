@@ -6,6 +6,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerComment } from '../data/entities'
 import { commentCreateSchema, commentUpdateSchema, type CommentCreateInput, type CommentUpdateInput } from '../data/validators'
 import {
+  commandScopeWhere,
+  type CommandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   requireTimelineParentEntity,
@@ -55,8 +57,12 @@ type CommentUndoPayload = {
   after?: CommentSnapshot | null
 }
 
-async function loadCommentSnapshot(em: EntityManager, id: string): Promise<CommentSnapshot | null> {
-  const comment = await em.findOne(CustomerComment, { id }, { populate: ['entity'] })
+async function loadCommentSnapshot(
+  em: EntityManager,
+  id: string,
+  scopeWhere: CommandScopeWhere = {},
+): Promise<CommentSnapshot | null> {
+  const comment = await em.findOne(CustomerComment, { id, ...scopeWhere }, { populate: ['entity'] })
   if (!comment) return null
   const entityRef = comment.entity
   const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
@@ -190,13 +196,13 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
   async prepare(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadCommentSnapshot(em, parsed.id)
+    const snapshot = await loadCommentSnapshot(em, parsed.id, commandScopeWhere(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await em.findOne(CustomerComment, { id: parsed.id })
+    const comment = await em.findOne(CustomerComment, { id: parsed.id, ...commandScopeWhere(ctx) })
     if (!comment) throw notFound('Comment not found')
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
@@ -335,13 +341,13 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async prepare(input, ctx) {
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadCommentSnapshot(em, id)
+      const snapshot = await loadCommentSnapshot(em, id, commandScopeWhere(ctx))
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const comment = await em.findOne(CustomerComment, { id })
+      const comment = await em.findOne(CustomerComment, { id, ...commandScopeWhere(ctx) })
       if (!comment) throw notFound('Comment not found')
       ensureTenantScope(ctx, comment.tenantId)
       ensureOrganizationScope(ctx, comment.organizationId)

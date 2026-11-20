@@ -35,6 +35,29 @@ export function normalizeDictionaryIcon(input: unknown): string | null {
 
 export { assertFound } from '@open-mercato/shared/lib/crud/errors'
 
+export type CommandScopeWhere = {
+  tenantId?: string
+  organizationId?: { $in: string[] }
+}
+
+// Filter to merge into a write command's target lookup so ids outside the caller's
+// tenant (from auth, or organizationScope.tenantId for auth-less callers) and, for
+// restricted callers, outside the allowed organizations resolve as "not found"
+// instead of being loaded and rejected afterwards. The ensure*Scope checks stay as
+// the second layer (#7598, mirrors catalog #3825).
+export function commandScopeWhere(
+  ctx: Pick<CommandRuntimeContext, 'auth' | 'organizationScope'>,
+): CommandScopeWhere {
+  const where: CommandScopeWhere = {}
+  const tenantId = ctx.auth ? ctx.auth.tenantId ?? null : ctx.organizationScope?.tenantId ?? null
+  if (tenantId) where.tenantId = tenantId
+  const allowedIds = ctx.organizationScope?.allowedIds
+  if (ctx.auth?.isSuperAdmin !== true && Array.isArray(allowedIds)) {
+    where.organizationId = { $in: [...allowedIds] }
+  }
+  return where
+}
+
 export type CustomerEntityScope = {
   tenantId: string
   organizationId: string

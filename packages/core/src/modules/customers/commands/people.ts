@@ -48,6 +48,8 @@ import {
   type PersonUpdateInput,
 } from '../data/validators'
 import {
+  commandScopeWhere,
+  type CommandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -418,9 +420,9 @@ function serializePersonSnapshot(
 async function loadPersonSnapshot(
   em: EntityManager,
   entityId: string,
-  options: { includeInteractionRestoreDetails?: boolean } = {},
+  options: { includeInteractionRestoreDetails?: boolean; scopeWhere?: CommandScopeWhere } = {},
 ): Promise<PersonSnapshot | null> {
-  const entity = await em.findOne(CustomerEntity, { id: entityId, deletedAt: null })
+  const entity = await em.findOne(CustomerEntity, { id: entityId, deletedAt: null, ...options.scopeWhere })
   if (!entity || entity.kind !== 'person') return null
   const profile = await findOneWithDecryption(
     em,
@@ -971,13 +973,13 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadPersonSnapshot(em, parsed.id)
+    const snapshot = await loadPersonSnapshot(em, parsed.id, { scopeWhere: commandScopeWhere(ctx) })
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
+    const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null, ...commandScopeWhere(ctx) })
     const record = assertFound(entity, 'Person not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1282,7 +1284,7 @@ const deletePersonCommand: CommandHandler<
     async prepare(input, ctx) {
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadPersonSnapshot(em, id, { includeInteractionRestoreDetails: true })
+      const snapshot = await loadPersonSnapshot(em, id, { includeInteractionRestoreDetails: true, scopeWhere: commandScopeWhere(ctx) })
       if (!snapshot) return {}
       ensureTenantScope(ctx, snapshot.entity.tenantId)
       ensureOrganizationScope(ctx, snapshot.entity.organizationId)
@@ -1306,7 +1308,7 @@ const deletePersonCommand: CommandHandler<
     async execute(input, ctx) {
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadPersonSnapshot(em, id)
+      const snapshot = await loadPersonSnapshot(em, id, { scopeWhere: commandScopeWhere(ctx) })
 
       let record!: CustomerEntity
       const profileHolder: { value: CustomerPersonProfile | null } = { value: null }
@@ -1318,7 +1320,7 @@ const deletePersonCommand: CommandHandler<
           // concurrent insert of a child row (e.g. a label assignment) serializes
           // behind this transaction instead of racing the final delete with a
           // 409 FOREIGN_KEY_VIOLATION. See issue #7613.
-          const entity = await em.findOne(CustomerEntity, { id, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+          const entity = await em.findOne(CustomerEntity, { id, deletedAt: null, ...commandScopeWhere(ctx) }, { lockMode: LockMode.PESSIMISTIC_WRITE })
           record = assertFound(entity, 'Person not found')
           ensureTenantScope(ctx, record.tenantId)
           ensureOrganizationScope(ctx, record.organizationId)
