@@ -53,6 +53,38 @@ TODO: Fix that latter to have reference by the package names
   line-height: var(--font-size-overline--line-height, 1rem);
 }
 
+@theme {
+  --color-start-graphite: #252723;
+  --color-start-night: #101010;
+  --color-start-control-border: #909090;
+}
+
+.start-page:not(.dark *) {
+  --foreground: var(--color-start-graphite);
+}
+
+.start-logo-grid {
+  position: relative;
+  isolation: isolate;
+}
+
+.start-logo-grid::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 -8%;
+  background-image:
+    repeating-linear-gradient(30deg, currentColor 0 1px, transparent 1px 18px),
+    repeating-linear-gradient(-30deg, currentColor 0 1px, transparent 1px 18px);
+  mask-image: radial-gradient(ellipse at center, black 12%, transparent 72%);
+  opacity: 0.16;
+}
+
+.dark .start-page {
+  color-scheme: dark;
+  --background: #1b1b1b;
+}
+
 @theme inline {
   --color-accent-orange: var(--accent-orange);
   --color-accent-orange-text: var(--accent-orange-text);

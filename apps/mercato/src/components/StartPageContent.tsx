@@ -1,96 +1,274 @@
 'use client'
 
-import React, { useState, type ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
+import React, { useEffect, useState, type ReactNode } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Shield, Users, Briefcase, Info, Rocket, ArrowRight, BookOpen } from 'lucide-react'
-import { getApiDocsResources } from '@open-mercato/core/modules/api_docs/lib/resources'
+import { ArrowRight, ArrowUpRight, Check, Copy, Cpu, Mail, SquareTerminal } from 'lucide-react'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import Image from 'next/image'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
-interface RoleTileProps {
-  icon: ReactNode
-  title: string
-  description: string
-  features: string[]
-  loginUrl: string
-  variant?: 'default' | 'secondary' | 'outline'
-  disabled?: boolean
-  disabledCtaLabel?: string
-  disabledMessage?: ReactNode
+const DOCS_URL = 'https://docs.openmercato.com'
+const MODULES_URL = 'https://modules.openmercato.com'
+const COMMUNITY_URL = 'https://discord.gg/f4qwPtJ3qA'
+const CONTACT_EMAIL = 'info@openmercato.com'
+const VIDEOS_URL = 'https://www.youtube.com/@openmercato'
+const heroLinkClass = 'inline-flex min-h-11 w-fit items-center gap-2 border border-white/40 bg-start-graphite px-5 py-2 text-sm font-medium text-white hover:underline focus-visible:outline-offset-4 dark:bg-white dark:text-start-night'
+const DEMO_PASSWORD = 'secret'
+const AGENT_COMMAND = 'npx cezar-run'
+const NEW_MODULE_COMMAND = 'npx create-mercato-module init visits'
+
+export type StartPageDemoRole = 'superadmin' | 'admin' | 'employee'
+
+export type StartPageDemoAccount = {
+  role: StartPageDemoRole
+  email: string
 }
 
-function RoleTile({
-  icon,
-  title,
-  description,
-  features,
-  loginUrl,
-  variant = 'default',
-  disabled = false,
-  disabledCtaLabel,
-  disabledMessage,
-}: RoleTileProps) {
-  const t = useT()
-  const defaultDisabledCtaLabel = t('startPage.roleTile.loginUnavailable', 'Login unavailable')
-  return (
-    <div className="rounded-lg border bg-card p-6 flex flex-col gap-4 transition-all hover:shadow-md">
-      <div className="flex items-start gap-4">
-        <div className="rounded-lg bg-primary/10 p-3 text-primary">
-          {icon}
-        </div>
-        <div className="flex-1">
-          <h3 className="text-lg font-semibold">{title}</h3>
-          <p className="text-sm text-muted-foreground mt-1">{description}</p>
-        </div>
-      </div>
-      
-      <div className="flex-1">
-        <div className="text-xs font-medium text-muted-foreground mb-2">{t('startPage.roleTile.availableFeatures', 'Available Features:')}</div>
-        <ul className="space-y-1.5">
-          {features.map((feature, idx) => (
-            <li key={idx} className="text-sm flex items-start gap-2">
-              <span className="text-primary mt-0.5">•</span>
-              <span>{feature}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {disabled ? (
-        <>
-          <Button type="button" variant="outline" className="w-full cursor-not-allowed opacity-80" disabled>
-            {disabledCtaLabel ?? defaultDisabledCtaLabel}
-          </Button>
-          {disabledMessage ? (
-            <p className="text-xs text-muted-foreground text-center leading-relaxed">
-              {disabledMessage}
-            </p>
-          ) : null}
-        </>
-      ) : (
-        <Button asChild variant={variant} className="w-full">
-          <Link href={loginUrl}>{t('startPage.roleTile.loginAs', 'Login as {title}', { title })}</Link>
-        </Button>
-      )}
-    </div>
-  )
-}
+export type StartPageSetupItem = 'email' | 'ai'
 
 interface StartPageContentProps {
   showStartPage: boolean
   showOnboardingCta?: boolean
-  // Resolved server-side: the fallback env vars (APP_URL) are unavailable in the
-  // client bundle, so resolving here would hydrate a different URL than SSR.
-  apiBaseUrl: string
+  demoAccounts?: StartPageDemoAccount[]
+  signedIn?: boolean
+  databaseReachable?: boolean
+  pendingSetup?: StartPageSetupItem[]
 }
 
-export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false, apiBaseUrl }: StartPageContentProps) {
+type RoleDefinition = {
+  descriptionKey: string
+  descriptionFallback: string
+  titleKey: string
+  titleFallback: string
+}
+
+const ROLE_DEFINITIONS: Record<StartPageDemoRole, RoleDefinition> = {
+  superadmin: {
+    descriptionKey: 'startPage.roles.superAdmin.description',
+    descriptionFallback: 'You see every organization, role and module.',
+    titleKey: 'startPage.roles.superAdmin.title',
+    titleFallback: 'Super Admin',
+  },
+  admin: {
+    descriptionKey: 'startPage.roles.admin.description',
+    descriptionFallback: 'You run one organization: its users, settings and reports.',
+    titleKey: 'startPage.roles.admin.title',
+    titleFallback: 'Admin',
+  },
+  employee: {
+    descriptionKey: 'startPage.roles.employee.description',
+    descriptionFallback: 'You see everyday work: your tasks and your dashboard.',
+    titleKey: 'startPage.roles.employee.title',
+    titleFallback: 'Employee',
+  },
+}
+
+type SetupDefinition = {
+  icon: typeof Mail
+  docsPath: string
+  titleKey: string
+  titleFallback: string
+  descriptionKey: string
+  descriptionFallback: string
+}
+
+const SETUP_DEFINITIONS: Record<StartPageSetupItem, SetupDefinition> = {
+  email: {
+    icon: Mail,
+    docsPath: '/installation/setup',
+    titleKey: 'startPage.setup.email.title',
+    titleFallback: 'Outgoing email',
+    descriptionKey: 'startPage.setup.email.description',
+    descriptionFallback: 'Connect an email provider to send invitations and password reset links.',
+  },
+  ai: {
+    icon: Cpu,
+    docsPath: '/user-guide/ai-assistant',
+    titleKey: 'startPage.setup.ai.title',
+    titleFallback: 'AI provider',
+    descriptionKey: 'startPage.setup.ai.description',
+    descriptionFallback: 'Add your provider’s API key to enable the AI assistant.',
+  },
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!copied) return
+    const timeout = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(timeout)
+  }, [copied])
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <IconButton
+      className="rounded-none bg-start-graphite text-white hover:bg-start-graphite hover:text-white dark:bg-white dark:text-start-night dark:inset-ring dark:inset-ring-start-control-border dark:hover:bg-white dark:hover:text-start-night hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+      variant="ghost"
+      size="xs"
+      onClick={handleCopy}
+      aria-label={copied ? t('startPage.copy.copied', 'Copied') : label}
+    >
+      {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+    </IconButton>
+  )
+}
+
+function TerminalCommand({ value, title, description }: { value: string; title: string; description: string }) {
+  const t = useT()
+  return (
+    <article className="grid min-w-0 gap-3">
+      <h3 className="font-mono text-sm font-medium text-white"><span aria-hidden="true" className="text-white/55"># </span>{title}</h3>
+      <p className="max-w-prose text-sm leading-relaxed text-white/75">{description}</p>
+      <div className="mt-1 flex min-h-12 items-center gap-3 border border-white/25 bg-white/5 py-2 pl-3 pr-2 sm:pl-4 sm:pr-3">
+        <span aria-hidden="true" className="select-none font-mono text-brand-lime">$</span>
+        <code className="min-w-0 flex-1 break-words font-mono text-sm leading-relaxed text-white">{value}</code>
+        <CopyButton value={value} label={t('startPage.copy.command', 'Copy command')} />
+      </div>
+    </article>
+  )
+}
+
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex w-fit items-center gap-1.5 text-sm font-medium underline-offset-4 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+    >
+      {children}
+      <ArrowUpRight className="size-4" aria-hidden />
+    </a>
+  )
+}
+
+function demoLoginUrl(account: StartPageDemoAccount) {
+  return `/login?role=${account.role}&email=${encodeURIComponent(account.email)}`
+}
+
+function DemoGuide() {
+  const t = useT()
+  return (
+    <section aria-labelledby="start-title" className="isolate grid items-center gap-4 lg:grid-cols-5 overflow-hidden bg-start-graphite p-5 text-white dark:border-x dark:border-b dark:border-foreground/20 dark:bg-background sm:gap-x-6 sm:p-8">
+      <h1 id="start-title" className="text-3xl font-medium tracking-tight lg:col-span-3 lg:self-end sm:text-4xl">{t('startPage.guide.begin', 'Getting started')}</h1>
+      <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-white/90 marker:font-medium lg:col-span-3 lg:row-start-2 lg:self-start sm:text-base">
+        <li className="pl-1">{t('startPage.guide.chooseHint', 'Choose a role below. The sign-in form opens with the email already filled in.')}</li>
+        <li className="pl-1">
+          {t('startPage.guide.passwordStep', 'Sign in with the default demo password.')}
+          {' '}<span className="inline-flex items-center gap-1 bg-white py-0.5 pl-3 pr-1 align-middle text-start-graphite">
+            <code className="select-all font-mono text-sm">{DEMO_PASSWORD}</code>
+            <CopyButton value={DEMO_PASSWORD} label={t('startPage.accounts.copyPassword', 'Copy password')} />
+          </span>
+        </li>
+        <li className="pl-1">{t('startPage.guide.dashboardStep', 'On the dashboard, use the menu to explore the modules available to your role.')}</li>
+      </ol>
+      <picture className="start-logo-grid pointer-events-none w-full max-w-48 justify-self-center lg:col-span-2 lg:col-start-4 lg:row-span-2 lg:row-start-1 lg:max-w-64">
+        <source media="(prefers-reduced-motion: reduce)" srcSet="/start/wire-3x3-mark.webp" />
+        <Image src="/start/wire-3x3-loop.webp" alt="" width={480} height={384} loading="eager" unoptimized className="block h-auto w-full" />
+      </picture>
+    </section>
+  )
+}
+
+function AccountCell({ account, disabled }: { account: StartPageDemoAccount; disabled: boolean }) {
+  const t = useT()
+  const definition = ROLE_DEFINITIONS[account.role]
+  const title = t(definition.titleKey, definition.titleFallback)
+  const description = disabled
+    ? t('startPage.roles.superAdmin.disabledMessage', 'Not available on this instance. Install Open Mercato locally for full access.')
+    : t(definition.descriptionKey, definition.descriptionFallback)
+
+  const layout = 'flex h-full min-w-0 flex-col items-start bg-foreground/7 p-5 dark:bg-muted lg:p-6'
+  const descriptionId = `start-role-${account.role}-description`
+  const content = (
+    <>
+      <h3 className="text-xl font-medium leading-tight tracking-tight">{title}</h3>
+      <p id={descriptionId} className="mt-2 grow text-sm leading-relaxed text-muted-foreground">{description}</p>
+      {!disabled && (
+        <span aria-hidden="true" className="mt-5 inline-flex min-h-9 items-center gap-2 bg-start-graphite px-3 py-2 text-sm font-medium text-white dark:bg-white dark:text-start-night dark:group-hover:underline">
+          {t('startPage.accounts.login', 'Log in')}
+          <ArrowRight className="size-4 motion-safe:transition-transform motion-safe:group-hover:translate-x-0.5" />
+        </span>
+      )}
+    </>
+  )
+
+  return (
+    <article className="min-w-0 border-r border-b border-foreground/20">
+      {disabled ? (
+        <div className={layout}>{content}</div>
+      ) : (
+        <Link
+          href={demoLoginUrl(account)}
+          aria-label={t('startPage.roleTile.loginAs', 'Log in as {title}', { title })}
+          aria-describedby={descriptionId}
+          className={`${layout} group cursor-pointer hover:inset-ring hover:inset-ring-foreground/40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground active:inset-shadow-sm`}
+        >
+          {content}
+        </Link>
+      )}
+    </article>
+  )
+}
+
+function getStartAction(t: ReturnType<typeof useT>, signedIn: boolean, databaseReachable: boolean, onboarding: boolean) {
+  if (!databaseReachable) {
+    return {
+      title: t('startPage.guide.offline', 'Connect the database'),
+      description: t('startPage.databaseError', 'The database is not reachable. Check DATABASE_URL and restart the app.'),
+      label: t('startPage.help.documentation', 'Documentation'),
+      href: `${DOCS_URL}/installation/setup`,
+    }
+  }
+  if (signedIn) {
+    return {
+      title: t('startPage.guide.return', 'Return to your workspace'),
+      description: t('startPage.guide.returnHint', 'You are already signed in. Open your dashboard to pick up where you left off.'),
+      label: t('startPage.signedIn.cta', 'Go to the app'),
+      href: '/backend',
+    }
+  }
+  if (onboarding) {
+    return {
+      title: t('startPage.onboarding.title', 'Launch your own workspace'),
+      description: t('startPage.guide.workspaceHint', 'Fill in the form and confirm your email within 24 hours. You’ll get an administrator account and a workspace with sample data.'),
+      label: t('startPage.guide.create', 'Create a workspace'),
+      href: '/onboarding',
+    }
+  }
+  return {
+    title: t('startPage.guide.signIn', 'Open your workspace'),
+    description: t('startPage.guide.signInHint', 'Sign in with your work email and password to open your dashboard.'),
+    label: t('startPage.accounts.login', 'Log in'),
+    href: '/login',
+  }
+}
+
+export function StartPageContent({
+  showStartPage: initialShowStartPage,
+  showOnboardingCta = false,
+  demoAccounts = [],
+  signedIn = false,
+  databaseReachable = true,
+  pendingSetup = [],
+}: StartPageContentProps) {
   const t = useT()
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
 
-  const superAdminDisabled = showOnboardingCta
-  const apiDocs = getApiDocsResources()
+  const showAccounts = !signedIn && databaseReachable
+  const hasDemoLogin = showAccounts && demoAccounts.some(({ role }) => role !== 'superadmin' || !showOnboardingCta)
+  const action = getStartAction(t, signedIn, databaseReachable, showOnboardingCta)
 
   const handleCheckboxChange = (checked: boolean) => {
     setShowStartPage(checked)
@@ -106,174 +284,151 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
   }
 
   return (
-    <>
-      <section className="rounded-lg border bg-gradient-to-br from-background to-muted/20 p-8 text-center">
-        <h2 className="text-2xl font-semibold mb-3">{t('startPage.welcome.title', 'Welcome to Your Open Mercato Installation')}</h2>
-        <p className="text-muted-foreground max-w-2xl mx-auto">
-          {t('startPage.welcome.description', 'This is a customizable start page for your fresh Open Mercato installation. Choose your role below to get started and explore the features available to you.')}
-        </p>
-      </section>
+    <main className="start-page min-h-svh bg-foreground/25 dark:bg-start-night px-2 py-3 text-foreground sm:px-6 sm:py-10 lg:py-10">
+      <div className="mx-auto max-w-6xl bg-background p-3 sm:p-7 lg:p-10">
+        <div>
+          <header className="flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border border-foreground/20 bg-white px-4 py-2.5 dark:bg-muted">
+            <div className="flex items-center gap-2 text-lg font-medium tracking-tight">
+              <Image src="/open-mercato.svg" alt="" width={28} height={28} priority />
+              {t('app.page.title', 'Open Mercato')}
+            </div>
+            <nav aria-label={t('startPage.help.title', 'Help')} className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <ExternalLink href={VIDEOS_URL}>{t('startPage.help.videos', 'Video tutorials')}</ExternalLink>
+              <a href={DOCS_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 bg-start-graphite px-4 text-sm font-medium text-white dark:bg-white dark:text-start-night underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground">
+                {t('startPage.help.documentation', 'Documentation')} <ArrowUpRight aria-hidden className="size-4" />
+              </a>
+            </nav>
+          </header>
 
-      {showOnboardingCta ? (
-        <section className="rounded-lg border border-status-success-border bg-status-success-bg p-6 md:p-8 flex flex-col md:flex-row md:items-center gap-6 shadow-sm">
-          <div className="flex items-start gap-4">
-            <div className="rounded-full bg-status-success-icon text-status-success-bg p-3">
-              <Rocket className="size-6" />
-            </div>
-            <div className="space-y-3">
-              <div>
-                <h3 className="text-lg font-semibold text-status-success-text">{t('startPage.onboarding.title', 'Launch your own workspace')}</h3>
-                <p className="text-sm text-status-success-text/90">
-                  {t('startPage.onboarding.description', 'Create a tenant, organization, and administrator account in minutes. We\'ll verify your email and deliver a pre-seeded environment so you can explore Open Mercato with real data.')}
-                </p>
-              </div>
-              <ul className="text-sm text-status-success-text/90 space-y-1 list-disc pl-5 marker:text-status-success-icon">
-                <li>{t('startPage.onboarding.feature1', 'Automatic tenant and sample data provisioning')}</li>
-                <li>{t('startPage.onboarding.feature2', 'Ready-to-use superadmin credentials after verification')}</li>
-              </ul>
-            </div>
+          <div>
+            {hasDemoLogin ? (
+              <DemoGuide />
+            ) : (
+              <section aria-labelledby="start-title" className="space-y-4 bg-start-graphite p-6 text-white dark:border-x dark:border-b dark:border-foreground/20 dark:bg-background sm:p-8">
+                <h1 id="start-title" className="text-balance text-3xl font-medium tracking-tight sm:text-4xl">{action.title}</h1>
+                <p role={databaseReachable ? undefined : 'alert'} className="max-w-prose leading-relaxed text-white/85">{action.description}</p>
+                <Link href={action.href} className={heroLinkClass}>
+                  {action.label} <ArrowRight aria-hidden className="size-4" />
+                </Link>
+              </section>
+            )}
+
+            {showAccounts && demoAccounts.length > 0 && (
+              <section id="accounts" aria-labelledby="accounts-title">
+                <h2 id="accounts-title" className="sr-only">{t('startPage.guide.choose', 'Choose a role')}</h2>
+                <div className="grid border-l border-foreground/20 sm:auto-cols-fr sm:grid-flow-col">
+                  {demoAccounts.map((account) => (
+                    <AccountCell key={account.role} account={account} disabled={showOnboardingCta && account.role === 'superadmin'} />
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
-          <div className="md:ml-auto">
-            <Button asChild size="lg" className="font-semibold shadow-md">
-              <Link href="/onboarding">
-                {t('startPage.onboarding.cta', 'Start onboarding')}
-                <ArrowRight className="size-4" aria-hidden />
-              </Link>
-            </Button>
+        </div>
+
+        {hasDemoLogin && showOnboardingCta && (
+          <section className="flex flex-wrap items-center justify-between gap-4 border-x border-b border-foreground/20 p-5 lg:p-6">
+            <div className="max-w-prose space-y-1">
+              <h2 className="text-lg font-medium tracking-tight">{action.title}</h2>
+              <p className="text-sm leading-relaxed text-muted-foreground">{action.description}</p>
+            </div>
+            <Link href={action.href} className="inline-flex min-h-10 items-center gap-2 bg-start-graphite px-4 text-sm font-medium text-white dark:bg-white dark:text-start-night">
+              {action.label} <ArrowRight aria-hidden className="size-4" />
+            </Link>
+          </section>
+        )}
+
+        <section aria-labelledby="next">
+          <div className="space-y-2 border-x border-b border-foreground/20 p-5 sm:px-8 lg:py-6">
+            <h2 id="next" className="text-2xl font-medium tracking-tight">{t('startPage.guide.build', 'Extend your local installation')}</h2>
+            <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{t('startPage.guide.terminal', 'Working on the code? Run these commands in a terminal from your app folder.')}</p>
+          </div>
+          <div className="grid border-x border-b border-foreground/20 lg:grid-cols-12">
+            <div className="min-w-0 bg-start-graphite text-white dark:bg-start-night lg:col-span-7">
+              <div className="flex items-center gap-2 border-b border-white/20 px-5 py-3.5 font-mono text-xs dark:bg-muted sm:px-8">
+                <SquareTerminal aria-hidden className="size-4" />
+                {t('startPage.guide.terminalLabel', 'Terminal')}
+              </div>
+              <div className="grid gap-9 px-5 py-7 sm:gap-12 sm:p-8">
+                <TerminalCommand value={AGENT_COMMAND}
+                  title={t('startPage.next.agent.title', 'Start the coding agent')}
+                  description={t('startPage.guide.agentHint', 'Open Cezar, describe one change, and let the agent work on a separate branch.')}
+                />
+                <TerminalCommand value={NEW_MODULE_COMMAND}
+                  title={t('startPage.next.module.title', 'Build your own module')}
+                  description={t('startPage.guide.moduleHint', 'This example creates a module called visits. Choose your module name, run the command, then restart the dev server.')}
+                />
+              </div>
+            </div>
+            <article className="flex min-w-0 flex-col items-start gap-4 bg-muted p-5 sm:grid sm:grid-cols-2 sm:content-center sm:items-center sm:gap-x-8 sm:p-8 lg:col-span-5 lg:flex lg:items-start">
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium leading-tight tracking-tight">{t('startPage.next.catalog.title', 'Add a ready-made module')}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">{t('startPage.next.catalog.description', 'Find one in the catalog and run its install command.')}</p>
+              </div>
+              <Image src="/start/catalog.svg" alt="" width={320} height={200} unoptimized className="my-auto h-auto w-full max-w-80 self-center justify-self-center sm:col-start-2 sm:row-span-2 sm:row-start-1 mix-blend-multiply dark:mix-blend-normal dark:grayscale dark:invert dark:contrast-75" />
+              <ExternalLink href={MODULES_URL}>{t('startPage.next.catalog.link', 'Open the module catalog')}</ExternalLink>
+            </article>
           </div>
         </section>
-      ) : null}
 
-      <section className="rounded-lg border border-status-info-border bg-status-info-bg p-4">
-        <div className="flex items-start gap-3">
-          <Info className="size-5 text-status-info-icon shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-status-info-text mb-1">{t('startPage.defaultPassword.title', 'Default Password')}</h3>
-            <p className="text-sm text-status-info-text">
-              {t('startPage.defaultPassword.description1', 'The default password for all demo accounts is')}{' '}
-              <code className="px-1.5 py-0.5 rounded border border-status-info-border/70 bg-background/70 font-mono text-xs text-foreground">secret</code>.
-              {' '}{t('startPage.defaultPassword.description2', 'To change passwords, use the CLI command:')}{' '}
-              <code className="px-1.5 py-0.5 rounded border border-status-info-border/70 bg-background/70 font-mono text-xs text-foreground">yarn mercato auth set-password --email &lt;email&gt; --password &lt;newPassword&gt;</code>
-              <span className="mt-2 block">{t('startPage.defaultPassword.description3', 'Demo account emails are printed in the terminal output during yarn initialize.')}</span>
+        {pendingSetup.length ? (
+          <section aria-labelledby="setup" className="grid border-x border-b border-foreground/20 md:grid-cols-3">
+            <h2 id="setup" className="grid place-items-center border-b border-foreground/20 bg-muted p-5 text-center text-2xl font-medium tracking-tight md:border-r md:border-b-0 lg:p-6">
+              {t('startPage.setup.title', 'Still to set up')}
+            </h2>
+            <ul className="min-w-0 divide-y divide-foreground/20 md:col-span-2">
+              {pendingSetup.map((item) => {
+                const definition = SETUP_DEFINITIONS[item]
+                const Icon = definition.icon
+                return (
+                  <li key={item}>
+                    <a href={`${DOCS_URL}${definition.docsPath}`} target="_blank" rel="noreferrer"
+                      className="group flex items-center gap-3 p-5 hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground sm:gap-4 lg:p-6">
+                      <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center border border-foreground/20 bg-muted">
+                        <Icon className="size-5" strokeWidth={1.5} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-base font-semibold leading-tight">{t(definition.titleKey, definition.titleFallback)}</h3>
+                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{t(definition.descriptionKey, definition.descriptionFallback)}</p>
+                      </div>
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium underline-offset-4 group-hover:underline">
+                        <span className="sr-only lg:not-sr-only">{t('startPage.setup.link', 'Setup guide')}</span>
+                        <ArrowUpRight aria-hidden className="size-4" />
+                      </span>
+                    </a>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        ) : null}
+
+        <section aria-labelledby="start-support-title" className="grid items-center gap-4 border-x border-b border-foreground/20 bg-start-graphite p-5 text-white dark:bg-background sm:grid-cols-3 sm:gap-8 lg:px-8 lg:py-6">
+          <div className="min-w-0 space-y-3 sm:col-span-2">
+            <h2 id="start-support-title" className="text-2xl font-medium tracking-tight">{t('startPage.support.title', 'Need help?')}</h2>
+            <p className="max-w-prose text-sm leading-relaxed text-white/85">
+              {t('startPage.support.description', 'Ask the community on Discord or email the Open Mercato team. Tell us which step you reached and what happened.')}
             </p>
-          </div>
-        </div>
-      </section>
-
-      <section>
-        <h2 className="text-xl font-semibold mb-4">{t('startPage.chooseRole.title', 'Choose Your Role')}</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <RoleTile
-            icon={<Shield className="size-6" />}
-            title={t('startPage.roles.superAdmin.title', 'Super Admin')}
-            description={t('startPage.roles.superAdmin.description', 'Full system access with complete control')}
-            features={[
-              t('startPage.roles.superAdmin.feature1', 'Manage organization structure'),
-              t('startPage.roles.superAdmin.feature2', 'Create and manage roles'),
-              t('startPage.roles.superAdmin.feature3', 'Manage all users across organizations'),
-              t('startPage.roles.superAdmin.feature4', 'System-wide configuration'),
-              t('startPage.roles.superAdmin.feature5', 'Access to all modules and features')
-            ]}
-            loginUrl="/login?role=superadmin"
-            disabled={superAdminDisabled}
-            disabledCtaLabel={t('startPage.roles.superAdmin.disabledCta', 'Superadmin login disabled')}
-            disabledMessage={
-              <>
-                {t('startPage.roles.superAdmin.disabledMessage1', 'Superadmin demo access is not enabled on this instance.')}{' '}
-                {t('startPage.roles.superAdmin.disabledMessage2', 'Install Open Mercato locally for full access via')}{' '}
-                <a
-                  href="https://github.com/open-mercato"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline hover:text-primary transition-colors"
-                >
-                  github.com/open-mercato
-                </a>
-                .
-              </>
-            }
-          />
-          
-          <RoleTile
-            icon={<Users className="size-6" />}
-            title={t('startPage.roles.admin.title', 'Admin')}
-            description={t('startPage.roles.admin.description', 'Organization-level administration')}
-            features={[
-              t('startPage.roles.admin.feature1', 'Admin specific organization(s)'),
-              t('startPage.roles.admin.feature2', 'Manage users within organization'),
-              t('startPage.roles.admin.feature3', 'Configure organization settings'),
-              t('startPage.roles.admin.feature4', 'Access to admin modules'),
-              t('startPage.roles.admin.feature5', 'Report and analytics access')
-            ]}
-            loginUrl="/login?role=admin"
-            variant="secondary"
-          />
-          
-          <RoleTile
-            icon={<Briefcase className="size-6" />}
-            title={t('startPage.roles.employee.title', 'Employee')}
-            description={t('startPage.roles.employee.description', 'Work on your daily tasks')}
-            features={[
-              t('startPage.roles.employee.feature1', 'Work on assigned tasks'),
-              t('startPage.roles.employee.feature2', 'Access organization resources'),
-              t('startPage.roles.employee.feature3', 'Collaborate with team members'),
-              t('startPage.roles.employee.feature4', 'View personal dashboard'),
-              t('startPage.roles.employee.feature5', 'Submit reports and updates')
-            ]}
-            loginUrl="/login?role=employee"
-            variant="outline"
-          />
-        </div>
-      </section>
-
-      <section className="rounded-lg border bg-card p-6 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-3">
-            <span className="rounded-full bg-primary/10 p-2 text-primary">
-              <BookOpen className="size-5" />
-            </span>
-            <div>
-              <h2 className="text-lg font-semibold">{t('startPage.apiResources.title', 'API resources')}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t('startPage.apiResources.description', 'Explore the official documentation and download the generated OpenAPI exports for this installation.')}
-              </p>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <a href={COMMUNITY_URL} target="_blank" rel="noreferrer" className={heroLinkClass}>
+                {t('startPage.support.discord', 'Ask on Discord')} <ArrowUpRight aria-hidden className="size-4" />
+              </a>
+              <a href={`mailto:${CONTACT_EMAIL}`} className="inline-flex min-h-11 items-center text-sm underline underline-offset-4 hover:decoration-2 focus-visible:outline-offset-4">{CONTACT_EMAIL}</a>
             </div>
           </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          {apiDocs.map((resource) => (
-            <a
-              key={resource.href}
-              href={resource.href}
-              target={resource.external ? '_blank' : undefined}
-              rel={resource.external ? 'noreferrer' : undefined}
-              className="rounded border bg-background p-4 text-sm transition hover:border-primary"
-            >
-              <div className="font-medium text-foreground">{resource.label}</div>
-              <p className="mt-1 text-xs text-muted-foreground">{resource.description}</p>
-              <span className="mt-3 inline-flex text-xs font-medium text-primary">{resource.actionLabel ?? t('startPage.apiResources.openLink', 'Open link')}</span>
-            </a>
-          ))}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {t('startPage.apiResources.baseUrl', 'Current API base URL:')}{' '}
-          <code className="rounded bg-muted px-2 py-0.5 text-overline text-foreground">{apiBaseUrl}</code>
-        </p>
-      </section>
+          <Image src="/start/support-keyboard.webp" width={640} height={460} alt="" unoptimized className="h-auto w-36 justify-self-end mix-blend-lighten sm:w-full sm:max-w-60" />
+        </section>
 
-      <section className="rounded-lg border p-4 flex items-center justify-center gap-3">
-        <Checkbox
-          id="show-start-page"
-          checked={showStartPage}
-          onCheckedChange={handleCheckboxChange}
-        />
-        <label
-          htmlFor="show-start-page"
-          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-50 cursor-pointer"
-        >
-          {t('startPage.showNextTime', 'Display this start page next time')}
-        </label>
-      </section>
-    </>
+        <footer className="flex flex-wrap items-start justify-between gap-4 border-x border-b border-foreground/20 p-5 lg:p-6">
+          <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1">
+            <Checkbox className="rounded-none data-[state=checked]:border-start-graphite data-[state=checked]:bg-start-graphite data-[state=checked]:text-white dark:data-[state=checked]:border-white dark:data-[state=checked]:bg-white dark:data-[state=checked]:text-start-night dark:inset-ring dark:inset-ring-start-control-border" id="show-start-page" checked={showStartPage} aria-describedby="start-preference-hint" onCheckedChange={handleCheckboxChange} />
+            <label htmlFor="show-start-page" className="cursor-pointer text-sm">
+              {t('startPage.showNextTime', 'Display this start page next time')}
+            </label>
+            <p id="start-preference-hint" className="col-start-2 text-xs text-muted-foreground">{t('startPage.guide.dismissHint', 'Turning this off opens the app or sign-in page immediately.')}</p>
+          </div>
+        </footer>
+      </div>
+    </main>
   )
 }

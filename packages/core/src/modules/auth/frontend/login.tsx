@@ -105,6 +105,7 @@ export default function LoginPage() {
   const requireRole = (searchParams.get('requireRole') || searchParams.get('role') || '').trim()
   const requireFeature = (searchParams.get('requireFeature') || '').trim()
   const redirectParam = searchParams.get('redirect') || ''
+  const prefilledEmail = (searchParams.get('email') || '').trim()
   const requiredRoles = requireRole ? requireRole.split(',').map((value) => value.trim()).filter(Boolean) : []
   const requiredFeatures = requireFeature ? requireFeature.split(',').map((value) => value.trim()).filter(Boolean) : []
   const translatedRoles = requiredRoles.map((role) => translate(`auth.roles.${role}`, role))
@@ -115,7 +116,7 @@ export default function LoginPage() {
   const [authOverridePending, setAuthOverridePending] = useState(false)
   const [clientReady, setClientReady] = useState(false)
   const [activeAuthenticatedUser, setActiveAuthenticatedUser] = useState(false)
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(prefilledEmail)
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [tenantName, setTenantName] = useState<string | null>(null)
   const [tenantLoading, setTenantLoading] = useState(false)
@@ -426,6 +427,7 @@ export default function LoginPage() {
                 <EmailInput
                   id="email"
                   name="email"
+                  defaultValue={prefilledEmail}
                   required
                   aria-invalid={!!error}
                   onChange={(e) => setEmail(e.target.value)}

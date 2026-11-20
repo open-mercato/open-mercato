@@ -26,12 +26,11 @@ test.describe('TC-START-001: start page onboarding gate', () => {
       const response = await page.goto('/start', { waitUntil: 'networkidle' })
 
       expect(response?.status()).toBe(200)
-      await expect(page.getByRole('heading', { name: 'Welcome to Your Open Mercato Installation' })).toBeVisible()
-      await expect(page.getByRole('heading', { name: 'Launch your own workspace' })).toBeVisible()
-      await expect(page.getByRole('link', { name: 'Start onboarding' })).toHaveAttribute('href', '/onboarding')
-      await expect(page.getByRole('button', { name: 'Superadmin login disabled' })).toBeDisabled()
-      const databaseStatusCard = page.getByText('Database Status', { exact: true }).locator('..')
-      await expect(databaseStatusCard).toContainText(/Status:\s*Connected/)
+      await expect(page.getByRole('heading', { level: 1, name: 'Getting started' })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Create a workspace' })).toHaveAttribute('href', '/onboarding')
+      await expect(page.getByRole('link', { name: 'Log in as Super Admin' })).toHaveCount(0)
+      await expect(page.getByRole('link', { name: 'Log in as Admin' })).toHaveAttribute('href', /^\/login\?role=admin&email=/)
+      await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0)
       expect(await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
       )).toBe(false)
