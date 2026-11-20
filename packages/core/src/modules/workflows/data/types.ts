@@ -98,6 +98,8 @@ export type UserTaskEntityBinding = {
   entityType: string
   entityId: string
   label?: string | Record<string, string> | null
+  /** Server-resolved record detail path; absent on payloads that predate it. */
+  href?: string | null
 }
 
 export type UserTaskDecision = {

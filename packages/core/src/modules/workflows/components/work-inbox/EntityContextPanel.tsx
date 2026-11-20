@@ -15,9 +15,9 @@
  * construction rather than by a third copy.
  *
  * Deep links DEGRADE rather than guess: a binding with no id, or one whose
- * record type has no enumerated detail page, renders as a labelled row that
- * says so. Sending an operator to the wrong record is worse than not offering
- * the link.
+ * record type has neither a server-resolved `href` (a registered link builder)
+ * nor an enumerated detail page, renders as a labelled row that says so.
+ * Sending an operator to the wrong record is worse than not offering the link.
  */
 
 import * as React from 'react'
@@ -123,7 +123,7 @@ export function bindingsToEntityContextItems(
     id: `${binding.entityType}:${binding.entityId}:${index}`,
     title: flattenTaskText(binding.label ?? null) ?? binding.entityType,
     subtitle: binding.entityType,
-    href: buildEntityRecordHref(binding.entityType, binding.entityId),
+    href: typeof binding.href === 'string' ? binding.href : buildEntityRecordHref(binding.entityType, binding.entityId),
     noLinkLabel: labels.noLink,
   }))
 }
