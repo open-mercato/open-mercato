@@ -1,7 +1,8 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
-import { DomainMappingService, DomainMappingOrgScopeError, DomainMappingRegistrationConflict, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DomainMappingService, DomainMappingOrgScopeError, DomainMappingRegistrationConflict, DomainMappingUnavailableError, DomainMappingHealthCheckConflict } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { emitCustomerAccountsEvent } from '../../events'
 import {
   DomainMapping,
   type DomainStatus,
@@ -693,7 +694,9 @@ describe('DomainMappingService.healthCheck', () => {
     const em = createFakeEm({ domains: [row] })
     const service = new DomainMappingService(em as unknown as EntityManager)
 
-    await expect(service.healthCheck(row.id)).rejects.toThrow(/cannot run health check from status pending/)
+    const result = service.healthCheck(row.id)
+    await expect(result).rejects.toThrow(/cannot run health check from status pending/)
+    await expect(result).rejects.toBeInstanceOf(DomainMappingHealthCheckConflict)
   })
 
   it('rejects health check from dns_failed status', async () => {
@@ -701,7 +704,9 @@ describe('DomainMappingService.healthCheck', () => {
     const em = createFakeEm({ domains: [row] })
     const service = new DomainMappingService(em as unknown as EntityManager)
 
-    await expect(service.healthCheck(row.id)).rejects.toThrow(/cannot run health check from status dns_failed/)
+    const result = service.healthCheck(row.id)
+    await expect(result).rejects.toThrow(/cannot run health check from status dns_failed/)
+    await expect(result).rejects.toBeInstanceOf(DomainMappingHealthCheckConflict)
   })
 
   it('allows retry from tls_failed back to active when probe finally succeeds', async () => {
@@ -732,6 +737,33 @@ describe('DomainMappingService.healthCheck', () => {
 // ---------------------------------------------------------------------------
 
 describe('DomainMappingService.remove', () => {
+  it('rejects a stale version under the row lock without changing the mapping', async () => {
+    const row = seedDomain({ updatedAt: new Date('2026-11-20T00:00:01.000Z'), dnsFailureReason: 'Newer DNS state' })
+    const before = { ...row }
+    const em = createFakeEm({ domains: [row] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+    const eventCount = jest.mocked(emitCustomerAccountsEvent).mock.calls.length
+
+    await expect(service.remove(row.id, {
+      tenantId: TENANT_A, expectedUpdatedAt: '2026-11-20T00:00:00.000Z',
+    })).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+
+    expect(row).toEqual(before)
+    expect(em.findOne).toHaveBeenCalledWith(DomainMapping, expect.objectContaining({ id: row.id, tenantId: TENANT_A }),
+      expect.objectContaining({ refresh: true, lockMode: expect.anything() }))
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(emitCustomerAccountsEvent).toHaveBeenCalledTimes(eventCount)
+  })
+
+  it('accepts the current version while keeping unversioned removal additive', async () => {
+    const row = seedDomain({ updatedAt: new Date('2026-11-20T00:00:01.000Z') })
+    const em = createFakeEm({ domains: [row] })
+    const service = new DomainMappingService(em as unknown as EntityManager)
+
+    await service.remove(row.id, { tenantId: TENANT_A, expectedUpdatedAt: row.updatedAt!.toISOString() })
+
+    expect(row.deletedAt).toBeInstanceOf(Date)
+  })
   it('preserves the releasing tenant reservation when its fresh registration ends before proof', async () => {
     const row = seedDomain({ status: 'active' })
     const em = createFakeEm({

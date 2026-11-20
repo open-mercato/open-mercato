@@ -1,6 +1,12 @@
 import { GET, POST, DELETE } from '../domain-mappings'
 import { POST as verify } from '../domain-mappings/[id]/verify'
 import { POST as healthCheck } from '../domain-mappings/[id]/health-check'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { DomainMappingHealthCheckConflict } from '../../../services/domainMappingService'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (key: string) => key }),
+}))
 
 const mockGetAuth = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
@@ -48,6 +54,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/services/domainMappingSe
   DomainMappingOrgScopeError: class extends Error {},
   DomainMappingRegistrationConflict: class extends Error {},
   DomainMappingUnavailableError: class extends Error {},
+  DomainMappingHealthCheckConflict: class extends Error {},
 }))
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -273,6 +280,42 @@ describe.each(actions)('domain $name authorization', ({ invoke, mutation }) => {
 
     expect((await invoke()).status).toBe(409)
     expect(mutation).not.toHaveBeenCalled()
+    expect(mockAfterSuccess).not.toHaveBeenCalled()
+  })
+})
+
+describe('domain action lifecycle refusals', () => {
+  it('passes the client version to locked removal and preserves its standard conflict', async () => {
+    const expectedUpdatedAt = '2026-10-01T00:00:00.000Z'
+    const conflict = {
+      error: 'record_modified', code: 'optimistic_lock_conflict',
+      currentUpdatedAt: '2026-10-01T00:00:01.000Z', expectedUpdatedAt,
+    }
+    mockService.remove.mockRejectedValueOnce(new CrudHttpError(409, conflict))
+    mockGuard.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true })
+
+    const response = await DELETE(new Request(`${baseUrl}?id=${mappingId}`, {
+      method: 'DELETE', headers: { 'x-om-ext-optimistic-lock-expected-updated-at': expectedUpdatedAt },
+    }))
+
+    expect(mockService.remove).toHaveBeenCalledWith(mappingId, { tenantId, expectedUpdatedAt })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual(conflict)
+    expect(mockAfterSuccess).not.toHaveBeenCalled()
+  })
+
+  it('returns a documented conflict when the domain is not ready for a TLS check', async () => {
+    mockService.healthCheck.mockRejectedValueOnce(new DomainMappingHealthCheckConflict('[internal] Pending mapping'))
+    mockGuard.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true })
+
+    const response = await healthCheck(new Request(`${baseUrl}/${mappingId}/health-check`, { method: 'POST' }), {
+      params: Promise.resolve({ id: mappingId }),
+    })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      ok: false, error: 'customer_accounts.domainMapping.dns.txtUnverified', code: 'domain_mapping_not_verified',
+    })
     expect(mockAfterSuccess).not.toHaveBeenCalled()
   })
 })

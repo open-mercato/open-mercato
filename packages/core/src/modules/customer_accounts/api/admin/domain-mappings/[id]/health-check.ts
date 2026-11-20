@@ -3,12 +3,13 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
   validateCrudMutationGuard,
   runCrudMutationGuardAfterSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { DomainMappingService, DomainMappingUnavailableError } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import { DomainMappingService, DomainMappingUnavailableError, DomainMappingHealthCheckConflict } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
 const FEATURE = 'customer_accounts.domain.manage'
 
@@ -51,6 +52,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     updated = await service.healthCheck(id)
   } catch (err) {
+    if (err instanceof DomainMappingHealthCheckConflict) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({
+        ok: false,
+        error: translate('customer_accounts.domainMapping.dns.txtUnverified'),
+        code: 'domain_mapping_not_verified',
+      }, { status: 409 })
+    }
     if (err instanceof DomainMappingUnavailableError) {
       return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
     }
@@ -113,6 +122,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 409, description: 'DNS ownership must be verified before checking TLS health', schema: errorSchema.extend({ code: z.literal('domain_mapping_not_verified') }) },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Forbidden', schema: errorSchema },
         { status: 404, description: 'Not found', schema: errorSchema },

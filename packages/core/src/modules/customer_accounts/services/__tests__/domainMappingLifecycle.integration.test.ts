@@ -112,6 +112,28 @@ describeWithPostgres('custom domain lifecycle on PostgreSQL', () => {
     expect(await verifying.resolveActiveByOrg(scope.organizationId)).toMatchObject({ hostname: legacy.hostname })
   })
 
+  it('preserves the complete newer DNS record when a second manager submits stale removal', async () => {
+    const mapping = await new DomainMappingService(database()).register({ ...scope, hostname: 'stale-remove.example.test' })
+    const previousUpdatedAt = new Date('2026-11-20T00:00:00.000Z')
+    await database().nativeUpdate(DomainMapping, { id: mapping.id }, { updatedAt: previousUpdatedAt })
+    const expectedUpdatedAt = previousUpdatedAt.toISOString()
+    const currentUpdatedAt = new Date(previousUpdatedAt.getTime() + 1000)
+    await database().nativeUpdate(DomainMapping, { id: mapping.id }, {
+      status: 'dns_failed', dnsFailureReason: 'newer-state', lastDnsCheckAt: currentUpdatedAt, updatedAt: currentUpdatedAt,
+    })
+    const before = await database().execute('select * from domain_mappings where id = ?', [mapping.id])
+
+    await expect(new DomainMappingService(database()).remove(mapping.id, {
+      tenantId: scope.tenantId, expectedUpdatedAt,
+    })).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+
+    expect(await database().execute('select * from domain_mappings where id = ?', [mapping.id])).toEqual(before)
+    await new DomainMappingService(database()).remove(mapping.id, {
+      tenantId: scope.tenantId, expectedUpdatedAt: currentUpdatedAt.toISOString(),
+    })
+    expect(await database().findOne(DomainMapping, { id: mapping.id, deletedAt: null })).toBeNull()
+  })
+
   it('enforces the organization limit across concurrent registrations on separate managers', async () => {
     const attempts = await Promise.allSettled(['first', 'second', 'third'].map((label) =>
       new DomainMappingService(database()).register({ ...scope, hostname: `${label}.example.test` }),

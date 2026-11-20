@@ -7,6 +7,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   validateCrudMutationGuard,
@@ -241,7 +243,17 @@ export async function DELETE(req: Request) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
-  await service.remove(id, { tenantId: auth.tenantId })
+  try {
+    await service.remove(id, {
+      tenantId: auth.tenantId,
+      expectedUpdatedAt: readOptimisticLockExpected(req),
+    })
+  } catch (error: unknown) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
+    throw error
+  }
 
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
     await runCrudMutationGuardAfterSuccess(container, {
@@ -337,6 +349,7 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Removes the domain mapping identified by ?id=. Cache and Traefik routing drain within TTL.',
       responses: [{ status: 200, description: 'OK', schema: z.object({ ok: z.literal(true) }) }],
       errors: [
+        { status: 409, description: 'The mapping changed after it was loaded', schema: z.object({ error: z.string(), code: z.literal('optimistic_lock_conflict'), currentUpdatedAt: z.string(), expectedUpdatedAt: z.string() }) },
         { status: 400, description: 'Bad request', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Forbidden', schema: errorSchema },
