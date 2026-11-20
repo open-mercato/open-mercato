@@ -115,6 +115,28 @@ describe('required leaf coverage', () => {
     expect(readFork.flush).not.toHaveBeenCalled()
   })
 
+  it('derives an omitted update leaf only from the scoped locked-read proof or exact active default', async () => {
+    const { selection, alternative, provider } = fixture('update')
+    const compiled = { ...alternative, compiledDefaultProviderIds: [] }
+    expect(selectCrudFormRequiredLeaves({ ...selection, alternative: compiled }))
+      .toMatchObject({ ok: true, leaves: [{ mode: 'preserve-from-record', payloadPath: 'code' }] })
+    expect(selectCrudFormRequiredLeaves({ ...selection, alternative: compiled, canReadLockedRecord: false }))
+      .toEqual({ ok: false, reason: 'required_leaf_uncovered' })
+
+    const selected = selectCrudFormRequiredLeaves({
+      ...selection, alternative: { ...compiled, compiledDefaultProviderIds: [provider.fact.id] },
+      defaultProviders: [provider],
+    })
+    if (!selected.ok) throw new Error('[internal] Expected exactly one compiled default')
+    expect(selected.leaves).toMatchObject([{ mode: 'server-default', payloadPath: 'code' }])
+    const readFork = { find: jest.fn(), findOne: jest.fn(), count: jest.fn() }
+    await expect(prepareCrudFormRequiredLeaves({
+      payload: { name: 'visible-title' }, leaves: selected.leaves, lockedRecord: { name: 'hidden-name' },
+      scope, transactionalEm: { fork: () => readFork } as unknown as EntityManager,
+      providers: new Map([[provider.fact.id, provider]]),
+    })).resolves.toMatchObject({ ok: true, payload: { name: 'visible-title', code: 'slug-visible-title' } })
+  })
+
   it('prepares an update-required value from the locked scoped projection', async () => {
     const { selection, alternative } = fixture('update')
     const selected = selectCrudFormRequiredLeaves({

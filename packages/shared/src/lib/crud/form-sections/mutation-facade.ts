@@ -35,6 +35,7 @@ import {
   selectCrudFormSectionHostDeleteSinks,
   type PreparedCrudFormSectionSinks,
 } from './extension-sinks'
+import { validateCompiledCrudFormFieldRules } from './compiled-extensions'
 import { getCrudFormSectionManifest, type CrudFormSectionAcceptedPolicy } from './manifest'
 import {
   assertPrevalidatedCrudFormSectionOutbox,
@@ -50,6 +51,7 @@ import { resourceIdSchema, symbolicIdSchema } from './protocol'
 import {
   hasRequiredLeafValue,
   prepareCrudFormRequiredLeaves,
+  projectCrudFormLeafPaths,
   readCrudFormRequiredLeaf,
   type CrudFormRequiredLeafCoverage,
 } from './required-leaves'
@@ -583,8 +585,23 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
           throw new CrudHttpError(400, { error: 'invalid_request' })
         }
         await options.validateDomain(parsed.data, executionContext)
-        const fieldErrors = await options.validateFields?.(withExtensions(parsed.data, extensionEnvelope), executionContext)
-        if (fieldErrors && Object.keys(fieldErrors).length) throw guardRejection({ fieldErrors })
+        const fieldPayload = withExtensions(parsed.data, extensionEnvelope)
+        const adapterErrors = await options.validateFields?.(fieldPayload, executionContext)
+        const rules = surface.kind === 'parent-submit'
+          ? manifest.compiledFieldRules?.get(crudFormSectionHostKey(route.address)) : undefined
+        const compiledErrors = rules?.length
+          ? await validateCompiledCrudFormFieldRules(rules, {
+              values: projectCrudFormLeafPaths(fieldPayload, policy.surface.ownershipFacts.flatMap(({ payloadPaths, customFieldOwnership }) => [
+                ...payloadPaths,
+                ...(customFieldOwnership.mode === 'ids' ? customFieldOwnership.ids.map((id) => `customFields.${id}`)
+                  : customFieldOwnership.mode === 'all' ? ['customFields'] : []),
+              ])),
+              scope, actorId, hostResourceId: route.host.hostResourceId,
+              hostResourceKind: route.host.hostResourceKind,
+            })
+          : undefined
+        const fieldErrors = { ...compiledErrors, ...adapterErrors }
+        if (Object.keys(fieldErrors).length) throw guardRejection({ fieldErrors })
         return parsed.data
       }
 

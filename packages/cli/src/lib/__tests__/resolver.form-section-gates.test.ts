@@ -63,3 +63,20 @@ it('leaves other override domains and legacy server-only gated modules alone', (
     if (process.env.OM_PRIVATE_FORM) enabledModules.push({ id: 'normal' });
   `).map(({ id }) => id)).toEqual(['example'])
 })
+
+it('retains a literal forms selector through a local alias, including the shared placement enum', () => {
+  expect(configure(`
+    const sections = { 'example.todo/default/update/extra': {
+      operation: 'add', contributionId: 'example.patch.extra',
+      placement: { position: InjectionPosition.After, relativeTo: 'details' },
+    } } as const;
+    const forms = { sections };
+    const overrides = { forms };
+    export const enabledModules = [{ id: 'example', overrides }];
+  `)[0].formSectionOverrides).toEqual({
+    'example.todo/default/update/extra': {
+      operation: 'add', contributionId: 'example.patch.extra',
+      placement: { position: 'after', relativeTo: 'details' },
+    },
+  })
+})

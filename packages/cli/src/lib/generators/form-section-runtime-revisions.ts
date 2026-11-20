@@ -44,6 +44,14 @@ function isDefaultRefinementFlag(property: ts.Node): boolean {
 }
 
 function normalize(node: ts.Node, source: ts.SourceFile): unknown {
+  if (ts.isObjectLiteralExpression(node) && ts.isArrayLiteralExpression(node.parent)
+      && ts.isPropertyAssignment(node.parent.parent)
+      && node.parent.parent.name.getText(source).replace(/^['"]|['"]$/g, '') === 'refinements') {
+    const entries = node.properties.filter((property) => !ts.isPropertyAssignment(property)
+      || property.name.getText(source).replace(/^['"]|['"]$/g, '') !== 'mandatory'
+      || property.initializer.kind !== ts.SyntaxKind.FalseKeyword)
+    return [node.kind, entries.map((entry) => normalize(entry, source))]
+  }
   const children = node.getChildren(source).filter((child) => !ts.isJSDoc(child))
   if (ts.isObjectLiteralExpression(node) && isGranularRefinement(node)) {
     return [node.kind, node.properties.filter((property) => !isDefaultRefinementFlag(property)).map((property) => normalize(property, source))]
@@ -160,4 +168,44 @@ export function planHandwrittenSectionRevisionWrite(
     filename,
     content: JSON.stringify(Object.fromEntries([...ledger.keys()].sort(compareSectionIds).map((id) => [id, ledger.get(id)])), null, 2) + '\n',
   }
+}
+
+export function hashCompiledSectionSource(syntax: ts.Expression, moduleBase: string): string {
+  const source = syntax.getSourceFile()
+  const sourceRoot = fs.realpathSync(path.resolve(moduleBase, '../..'))
+  const declarations = new Map<string, ts.Node>()
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name) declarations.set(statement.name.text, statement)
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name)) declarations.set(declaration.name.text, declaration)
+    }
+    if (ts.isImportDeclaration(statement) && !statement.importClause?.isTypeOnly) {
+      const clause = statement.importClause
+      if (clause?.name) declarations.set(clause.name.text, statement)
+      const bindings = clause?.namedBindings
+      if (bindings && ts.isNamespaceImport(bindings)) declarations.set(bindings.name.text, statement)
+      if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) {
+        if (!element.isTypeOnly) declarations.set(element.name.text, statement)
+      }
+    }
+  }
+  const reachable = new Set<ts.Node>()
+  function visit(node: ts.Node): void {
+    if (ts.isIdentifier(node)) {
+      const declaration = declarations.get(node.text)
+      if (declaration && !reachable.has(declaration)) {
+        reachable.add(declaration)
+        ts.forEachChild(declaration, visit)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(syntax)
+  const imports = [...reachable].filter(ts.isImportDeclaration)
+  const snippets = [...imports.map((statement) => statement.getText(source)), `const descriptor = (${syntax.getText(source)})`]
+  const graph = ts.createSourceFile(source.fileName, snippets.join('\n'), ts.ScriptTarget.Latest, true)
+  return createHash('sha256').update(JSON.stringify([
+    [...reachable].filter((statement) => !ts.isImportDeclaration(statement)).map((statement) => normalize(statement, source)),
+    fingerprintRuntime(graph, sourceRoot, new Set()),
+  ])).digest('hex')
 }

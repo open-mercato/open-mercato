@@ -17,6 +17,7 @@ type CapabilitySourceKind =
   | 'mutation-guard'
   | 'section-policy'
   | 'derived-crud-route'
+  | 'compiled-extension'
 
 type CapabilitySource = {
   kind: CapabilitySourceKind
@@ -258,6 +259,26 @@ export function collectCrudFormSectionCapabilities(
 
   for (const { moduleId, fact, features } of derivedRoutes) {
     if (fact) register({ kind: 'derived-crud-route', moduleId, id: fact.capabilityId }, canonicalSet(features), fact, true)
+  }
+  return { capabilities, rejected }
+}
+
+export function extendCrudFormSectionCapabilities(
+  registry: CrudFormSectionCapabilityRegistry,
+  compiled: readonly CrudFormSectionCapabilityEntry[],
+): CrudFormSectionCapabilityRegistry {
+  if (!compiled.length) return registry
+  const capabilities = new Map(registry.capabilities)
+  const rejected = new Map(registry.rejected)
+  for (const { source, fact: declaration } of compiled) {
+    const id = declaration.capabilityId
+    const fact = canonicalProvider(declaration)
+    if (capabilities.has(id) || rejected.has(id)) {
+      capabilities.delete(id)
+      rejected.set(id, 'duplicate-provider')
+    } else if (!fact || (fact.modes.includes('display-only') && !isDisplayOnly(fact))) {
+      rejected.set(id, 'invalid-provider')
+    } else capabilities.set(id, { source, fact })
   }
   return { capabilities, rejected }
 }

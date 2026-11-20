@@ -39,7 +39,7 @@ Status: in-progress
 | 4 | 4.4 | Run and record the framework validation gates | dispatch | done | this commit |
 | 5 | 5.1 | Add the single-definition extension authoring API | dispatch | done | this commit |
 | 5 | 5.2 | Derive field-level sections and enforce mandatory refinements | dispatch | done | this commit |
-| 5 | 5.3 | Compile extension declarations into the framework registries and callbacks | dispatch | todo | — |
+| 5 | 5.3 | Compile extension declarations into the framework registries and callbacks | dispatch | done | this commit |
 | 5 | 5.4 | Add custom-field, table and external store builders | dispatch | todo | — |
 | 5 | 5.5 | Prove wrapper and hand-written fixture manifest parity | dispatch | todo | — |
 | 5 | 5.6 | Document the wrapper and stable public imports | dispatch | todo | — |

@@ -107,7 +107,9 @@ export function selectCrudFormRequiredLeaves(input: {
       }
       const label = Object.hasOwn(requiredLeafLabelKeys, payloadPath) ? requiredLeafLabelKeys[payloadPath] : undefined
       const canReportHiddenLeaf = typeof label === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,191}$/.test(label)
-      if (preserved.length && canReportHiddenLeaf && fact.coverage.includes('preserve-from-record')
+      const canDerivePreservation = alternative.compiledDefaultProviderIds !== undefined
+        && !ownedSections.length && !defaultProvider
+      if ((preserved.length || canDerivePreservation) && canReportHiddenLeaf && fact.coverage.includes('preserve-from-record')
           && surface.formOperation === 'update' && canReadLockedRecord) {
         candidates.push({ ...requiredLeaf, mode: 'preserve-from-record', fieldLabelKey: label })
       }
@@ -166,7 +168,7 @@ function writeLeaf(payload: Payload, path: string, value: unknown): void {
   current[leaf] = value
 }
 
-function projectPayload(payload: Payload, paths: readonly string[]): Payload {
+export function projectCrudFormLeafPaths(payload: Payload, paths: readonly string[]): Payload {
   const projected: Payload = {}
   for (const path of paths) {
     const value = readCrudFormRequiredLeaf(payload, path)
@@ -208,7 +210,7 @@ export async function prepareCrudFormRequiredLeaves(input: {
       const value = leaf.mode === 'preserve-from-record'
         ? input.lockedRecord && readCrudFormRequiredLeaf(input.lockedRecord, leaf.payloadPath)
         : await provider?.resolve({
-          payload: projectPayload(input.payload, leaf.provider.readsPayloadPaths),
+          payload: projectCrudFormLeafPaths(input.payload, leaf.provider.readsPayloadPaths),
           lockedRecord: input.lockedRecord && structuredClone(input.lockedRecord),
           scope: input.scope,
           readEm: readOnlyFork(input.transactionalEm),

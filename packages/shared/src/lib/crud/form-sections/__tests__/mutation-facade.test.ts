@@ -8,6 +8,7 @@ import { defineCrudFormSectionSink, type CrudFormSectionHostProvider, type CrudF
 import { isUniqueViolation } from '../../errors'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '../../optimistic-lock-headers'
 import { registerMutationGuards } from '../../mutation-guard-store'
+import { bindCompiledCrudFormAlternatives, bindCompiledCrudFormContributions, type CompiledCrudFormFieldRule } from '../compiled-extensions'
 import { crudFormSectionHostKey } from '../composition'
 import { buildCrudFormSectionSinkEnrichers, readCrudFormSectionSinkSnapshots } from '../extension-sinks'
 import { getCrudFormSectionManifest, registerCrudFormSectionManifest } from '../manifest'
@@ -52,6 +53,7 @@ function addManifest(
   sink?: CrudFormSectionSink,
   pairedDelete?: CrudFormSectionMutationSurfaceFact,
   additionalSinks: CrudFormSectionSink[] = [],
+  compiledRule?: CompiledCrudFormFieldRule,
 ): void {
   if (readLockedRecord) registerMutationGuards([{ moduleId: 'example', guards: [{
     id: 'example.parent-domain', targetEntity: 'example.product', operations: ['update'],
@@ -160,6 +162,30 @@ function addManifest(
       }],
     },
   }]
+  if (compiledRule) {
+    const entry = modules[0]
+    const initial = entry.sections.contributionFacts![0]
+    const contribution = {
+      ...initial,
+      id: 'example.compiled-notes', roundTripId: 'example.compiled-notes@v1',
+      requiredCapabilities: [{
+        capabilityId: 'example.compiled-notes.capability', protocol: 'crud-form-sections/v1' as const,
+        modes: ['domain-adapter'] as const, mutationSurfaceIds: [selected.id], payloadPaths: ['sku'],
+      }],
+    }
+    const existing = entry.sections.hostFacts![0].alternatives![1].surface
+    const sections = bindCompiledCrudFormContributions({ ...entry.sections, contributionFacts: [], contributedOverrides: {} },
+      [{ contribution, fieldRules: [compiledRule] }],
+      { 'example.product/showcase/update/notes': { operation: 'add', contributionId: contribution.id } },
+    )
+    registerCrudFormSectionManifest([bindCompiledCrudFormAlternatives({ ...entry, sections }, [{
+      hostDescriptorId: 'example.host', proofAlternativeId: existing.id, defaultProviders: [],
+      surface: { ...existing, id: 'example.compiled-alternative', contributionIds: [contribution.id],
+        ownershipFacts: [{ sectionId: 'notes', payloadPaths: ['sku'], customFieldOwnership: { mode: 'none' } }],
+      },
+    }])])
+    return
+  }
   registerCrudFormSectionManifest(modules)
 }
 
@@ -618,6 +644,56 @@ function runThroughCommandBus(
     },
   }
 }
+
+describe('compiled server rules in the accepted policy', () => {
+  const parent: CrudFormSectionMutationSurfaceFact = {
+    ...surface, id: 'example.compiled-parent', kind: 'parent-submit',
+    guardedFacade: { method: 'PATCH', routePattern: '/example/products/[productId]' },
+    mutationResourceKind: 'example.product', resourceBindingIds: [],
+  }
+  const rejection = { status: 422, body: { code: 'mutation_guard_rejected', details: { fieldErrors: { sku: 'example.errors.CompileDenied' } } } }
+
+  it('rejects a scoped async callback early and rechecks a real command interceptor rewrite on the final value', async () => {
+    const rule = jest.fn<ReturnType<NonNullable<CompiledCrudFormFieldRule['server']>>,
+      Parameters<NonNullable<CompiledCrudFormFieldRule['server']>>>(async (value, context) => {
+        expect(context).toMatchObject({ fieldId: 'sku', payloadPath: 'sku', actorId: 'actor',
+          hostResourceId: 'product-1', scope: { tenantId: 'tenant', organizationId: 'org' } })
+        expect(context.values).toEqual({ sku: value })
+        return value === 'VALID' ? true : 'example.errors.CompileDenied'
+      })
+    addManifest(true, parent, async () => ({ code: 'SERVER-PRESERVED' }), undefined, undefined, [],
+      { fieldId: 'sku', payloadPath: 'sku', rules: [], server: rule })
+    expect(() => structuredClone(getCrudFormSectionManifest().policies.get(crudFormSectionHostKey(address)))).not.toThrow()
+
+    const setupEarly = fixture(parent, 'product-1', policyHeaders('product-1', parent), { sku: 'EARLY-DENIED' })
+    await expect(runCrudFormSectionMutation({
+      ...setupEarly.options, bodySchema: dataSchema.extend({ code: z.string() }),
+    })).rejects.toMatchObject(rejection)
+    expect(setupEarly.execute).not.toHaveBeenCalled()
+
+    const setupFinal = fixture(parent, 'product-1')
+    const write = jest.fn(async () => ({ id: 'product-1' }))
+    registerCommand<OfferCommandInput, Result>({
+      id: delegatedTarget.id,
+      async execute(input, context) {
+        if (!context.transactionalEm) throw new Error('[internal] Expected a transactional EntityManager')
+        await context.beforeTransactionalWrite?.(context.transactionalEm, input)
+        return write()
+      },
+    })
+    registerCommandInterceptors([{ moduleId: 'example', interceptors: [{
+      id: 'example.compiled-change', targetCommand: delegatedTarget.id,
+      beforeExecute: async () => ({ ok: true, modifiedInput: { payload: { sku: 'FINAL-DENIED', code: 'SERVER-PRESERVED' } } }),
+    }] }])
+    await expect(runCrudFormSectionMutation({
+      ...setupFinal.options, bodySchema: dataSchema.extend({ code: z.string() }),
+      ...runThroughCommandBus(setupFinal, parent, 'product-1'),
+    })).rejects.toMatchObject(rejection)
+    expect(rule.mock.calls.map(([value]) => value)).toEqual(['EARLY-DENIED', 'VALID', 'VALID', 'FINAL-DENIED'])
+    expect(write).not.toHaveBeenCalled()
+    expect(setupFinal.events).toEqual(['begin', 'existing-hook', 'rollback'])
+  })
+})
 
 describe('real command interception at the write boundary', () => {
   it.each([

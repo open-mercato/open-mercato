@@ -1,3 +1,4 @@
+import type { CompiledCrudFormContribution } from '../lib/crud/form-sections/compiled-extensions'
 import type { CrudRouteSectionHostDeclaration } from '../lib/crud/form-sections/derived-route-host'
 import type { AwilixContainer } from 'awilix'
 import type { EntityName, FilterQuery } from '@mikro-orm/core'
@@ -48,6 +49,7 @@ export type CrudFormSectionHostAlternative = {
   requiredSectionLeaves?: readonly { sectionId: string; payloadPath: string }[]
   preservedLeafPaths?: readonly string[]
   requiredLeafLabelKeys?: Readonly<Record<string, string>>
+  compiledDefaultProviderIds?: readonly string[]
 }
 
 export type CrudFormSectionHostFact = CrudFormSectionDescriptorIdentity & {
@@ -190,6 +192,8 @@ export type CrudFormSectionsDeclaration = {
   leafDefaultProviders?: readonly CrudFormLeafDefaultProvider[]
   sinks?: readonly CrudFormSectionSink[]
   displayPolicies?: readonly CrudFormSectionCapabilityProviderFact[]
+  compiledContributions?: readonly CompiledCrudFormContribution[]
+  compiledSectionOverrides?: Readonly<FormSectionOverridesMap>
   contributedOverrides?: Readonly<FormSectionOverridesMap>
   runtimes?: readonly CrudFormSectionRuntimeDeclaration[]
 }

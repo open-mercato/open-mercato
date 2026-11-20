@@ -126,6 +126,7 @@ type ModuleRegistryDiscoveryEntry = {
   imps: ModuleImports
   appImportBase: string
   isAppModule: boolean
+  formSectionOverrides?: ModuleEntry['formSectionOverrides']
   resolve: (relativePath: string) => ResolvedFile | null
   frontendFiles: ScannedFile[]
   backendFiles: ScannedFile[]
@@ -2189,6 +2190,7 @@ async function createModuleRegistryDiscovery(
       imps,
       appImportBase,
       isAppModule: entry.from === '@app',
+      formSectionOverrides: entry.formSectionOverrides,
       resolve,
       frontendFiles: scanModuleDir(roots, SCAN_CONFIGS.frontendPages),
       backendFiles: scanModuleDir(roots, SCAN_CONFIGS.backendPages),

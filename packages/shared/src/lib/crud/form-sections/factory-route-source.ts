@@ -82,3 +82,8 @@ export function getDerivedCrudRouteCapabilities(sections: object): readonly Deri
     .filter(({ ready }) => ready())
     .map(({ fact, features }) => ({ fact, features }))
 }
+
+export function copyDerivedCrudRouteCapabilities(source: object, target: object): void {
+  const entries = capabilities[capabilityKey]?.get(source)
+  if (entries) rememberDerivedCrudRouteCapabilities(target, entries)
+}

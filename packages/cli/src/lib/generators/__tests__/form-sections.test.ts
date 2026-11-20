@@ -504,3 +504,198 @@ it('projects a hand-written child façade without exposing its delegated command
   expect(generated('runtime')).toContain('"optimisticLock": "target-required"')
   expect(generated('runtime')).not.toMatch(/secret\.server\.command|server\.binding\.v1/)
 })
+
+describe('compiled CrudForm extensions', () => {
+  const address = { hostId: 'test.record', formVariant: 'edit', formOperation: 'update' }
+  const base = {
+    ...address, id: 'test.edit', orderedSectionIds: ['details', 'private'], callerIds: ['test.editor'],
+    contributionIds: [], dependencies: [], mutationSurfaceIds: ['test.submit'],
+    ownershipFacts: [
+      { sectionId: 'details', payloadPaths: ['title', 'description'], customFieldOwnership: { mode: 'ids', ids: ['region'], definitionSetId: 'test.fields' } },
+      { sectionId: 'private', payloadPaths: ['code'], customFieldOwnership: { mode: 'none' } },
+    ],
+  }
+  const submit = {
+    id: 'test.submit', kind: 'parent-submit', requestOperation: 'update',
+    guardedFacade: { method: 'PUT', routePattern: '/test/records/section-policy' },
+    delegatedTarget: { kind: 'command', id: 'test.update' },
+    hostResourceKind: 'test.record', mutationResourceKind: 'test.record', optimisticLock: 'none',
+  }
+  const authoredId = 'extension.patch'
+  const makeExtension = (sections: string, defaults = '{}', id = authoredId, targets = "[{ formVariant: 'edit', formOperation: 'update' }]") => `
+    import { defineCrudFormExtension, modify, add, hide, replace, field, store } from '@open-mercato/ui/backend/crud-form-extensions'
+    const serverOnlyRule = async () => 'extension.errors.denied'
+    export const crudFormExtensions = [defineCrudFormExtension({
+      id: ${JSON.stringify(id)}, host: 'crud-form:test.record', targets: ${targets},
+      sections: { ${sections} }, defaults: ${defaults},
+    })]
+  `
+
+  function host(mandatory = false, secondTarget = false) {
+    const manual = {
+      id: 'test.manual', roundTripId: 'test.manual@v1', operation: 'add', address: { ...address, sectionId: 'manual' },
+      requiredCapabilities: [],
+    }
+    const hostFacts = [{
+      id: 'test.host', roundTripId: 'test.host@v1', hostResourceKind: 'test.record',
+      alternatives: [
+        { surface: base, mutationSurfaces: [submit] },
+        { surface: { ...base, id: 'test.manual-edit', orderedSectionIds: ['details', 'private', 'manual'], contributionIds: [manual.id] }, mutationSurfaces: [submit] },
+        ...(secondTarget ? [{ surface: { ...base, id: 'test.edit-other', formVariant: 'other' }, mutationSurfaces: [submit] }] : []),
+      ],
+    }]
+    write('app/src/modules/host/form-sections.ts', `
+      export const crudFormSections = defineCrudFormSections({
+        hostFacts: ${JSON.stringify(hostFacts)}, contributionFacts: [${JSON.stringify(manual)}],
+        contributedOverrides: { 'test.record/edit/update/manual': { operation: 'add', contributionId: 'test.manual' } },
+        runtimes: [
+          { id: 'test.host', roundTripId: 'test.host@v1', load: lazyCrudFormSectionRuntime(() => import('./host.client')) },
+          { id: 'test.manual', roundTripId: 'test.manual@v1', load: lazyCrudFormSectionRuntime(() => import('./manual.client')) },
+        ],
+      })
+    `)
+    write('app/src/modules/host/host.client.ts', `
+      const details = defineCrudFormFieldGranularSection({
+        id: 'test.details', roundTripId: 'test.details@v1', group: { id: 'details' },
+        fields: [], fieldPayloadPaths: { title: ['title'], description: ['description'] },
+        fieldSchemas: {}, projectField: {},
+        refinements: [{ id: 'summary', fieldPaths: ['description'], mandatory: ${mandatory}, check: () => null }],
+      })
+      const secret = defineCrudFormSectionRuntime({
+        id: 'test.private', roundTripId: 'test.private@v1', group: { id: 'private' },
+        ownedFieldPaths: ['code'], validate: () => ({ success: true, data: {} }), projectPayload: () => ({}),
+      })
+      export const crudFormSectionRuntime = {
+        id: 'test.host', roundTripId: 'test.host@v1', sectionDescriptors: [details, secret],
+      }
+    `)
+    write('app/src/modules/host/manual.client.ts', runtime(manual.id))
+  }
+
+  function generate(entries: ModuleEntry[] = [{ id: 'extension', from: '@app' }]) {
+    return generateModuleRegistryApp({ resolver: resolver([{ id: 'host', from: '@app' }, ...entries]), quiet: true })
+  }
+
+  it('compiles mixed finite alternatives and binds browser and server implementations to the same revision', async () => {
+    host()
+    const definition = makeExtension(`
+      details: modify({ fields: {
+        title: field.patch({ labelKey: 'extension.fields.title', validate: { server: serverOnlyRule, minLength: 2, enforce: 'client-and-server', messageKey: 'extension.errors.short' } }),
+        description: field.remove(),
+      } }),
+      private: hide(),
+      extra: add({ after: 'details', titleKey: 'extension.extra', fields: { alias: field.add({ type: 'text' }) } }),
+    `, "{ description: ({ payload }) => String(payload.title ?? '') }")
+    write('app/src/modules/extension/form-sections.ts', definition)
+    await generate()
+    const dir = path.join(root, 'app/.mercato/generated')
+    const browser = fs.readdirSync(dir).filter((file) => /^crud-form-section-extension-.*\.ts$/.test(file))
+      .map((file) => fs.readFileSync(path.join(dir, file), 'utf8')).join('\n')
+    const ledger = path.join(root, 'app/src/modules/extension/form-sections.revisions.json')
+    expect(JSON.parse(fs.readFileSync(ledger, 'utf8'))).toMatchObject({
+      'extension.patch.details': { n: 1, baseRoundTripId: 'test.details@v1' },
+      'extension.patch.extra': { n: 1, baseRoundTripId: null },
+      'extension.patch.private': { n: 1, baseRoundTripId: 'test.private@v1' },
+    })
+    expect(browser).toContain('deriveCrudFormFieldGranularSection')
+    expect(browser).toContain('customFields.alias')
+    expect(browser).toContain('extension.fields.title')
+    expect(browser).not.toMatch(/serverOnlyRule|\.validate\.server|\.defaults|form-sections["']/)
+    expect(generated('facts')).toContain('.validate.server')
+    expect(generated('facts')).toContain('"readsPayloadPaths":["title"]')
+    expect(generated('facts')).toContain('extensions0[0].defaults["description"]')
+    expect(generated('runtime')).toContain('extension.patch.details@v1')
+    expect(generated('runtime')).toMatch(/"contributionIds": \[\s+"extension.patch.details",\s+"extension.patch.extra",\s+"extension.patch.private",\s+"test.manual"/)
+    expect((await generate()).filesWritten).toEqual([])
+    const baseFile = 'app/src/modules/host/host.client.ts'
+    const baseRuntime = fs.readFileSync(path.join(root, baseFile), 'utf8')
+    write(baseFile, baseRuntime.replace('mandatory: false, ', ''))
+    expect((await generate()).filesWritten).toEqual([])
+    write('app/src/modules/extension/form-sections.ts', definition.replace('extension.errors.denied', 'extension.errors.new-deny'))
+    await generate()
+    expect(JSON.parse(fs.readFileSync(ledger, 'utf8'))).toMatchObject({
+      'extension.patch.details': { n: 2 }, 'extension.patch.extra': { n: 1 }, 'extension.patch.private': { n: 1 },
+    })
+  })
+
+  it('rejects removal of a mandatory refinement and replacement with different ownership', async () => {
+    host(true)
+    write('app/src/modules/extension/form-sections.ts', makeExtension("details: modify({ fields: { description: field.remove() } })"))
+    await expect(generate()).rejects.toThrow(/mandatory refinement "summary"/)
+    write('app/src/modules/extension/form-sections.ts', makeExtension("private: replace(() => import('./replace.client'))"))
+    write('app/src/modules/extension/replace.client.ts', `
+      export const crudFormSectionRuntime = { id: 'extension.replacement', roundTripId: 'extension.replacement@v1',
+        group: { id: 'private' }, ownedFieldPaths: ['unrelated'] }
+    `)
+    await expect(generate()).rejects.toThrow(/replacement must preserve exact payload ownership/)
+    write('app/src/modules/extension/replace.client.ts', `
+      export const crudFormSectionRuntime = { id: 'extension.replacement', roundTripId: 'extension.replacement@v1',
+        group: { id: 'private' }, ownedFieldPaths: ['code'] }
+    `)
+    await generate()
+    expect(generated('runtime')).toContain('extension.patch.private@v1')
+  })
+
+  it('requires conflict resolution by exact module selector or null and retains both runtime choices', async () => {
+    host()
+    const patch = "details: modify({ fields: { title: field.patch({ labelKey: 'extension.fields.title' }) } })"
+    write('app/src/modules/extension/form-sections.ts', makeExtension(patch))
+    write('app/src/modules/secondary/form-sections.ts', makeExtension(patch, '{}', 'secondary.patch'))
+    const entries = [{ id: 'extension', from: '@app' }, { id: 'secondary', from: '@app' }] satisfies ModuleEntry[]
+    await expect(generate(entries)).rejects.toThrow(/extension, secondary.*exact modules.ts selector or null/)
+    const key = 'test.record/edit/update/details'
+    await generate([{ ...entries[0], formSectionOverrides: { [key]: null } }, entries[1]])
+    expect(generated('runtime')).toContain('extension.patch.details@v1')
+    expect(generated('runtime')).toContain('secondary.patch.details@v1')
+    await generate([{ ...entries[0], formSectionOverrides: { [key]: { contributionId: 'secondary.patch.details', operation: 'replace' } } }, entries[1]])
+    expect(generated('runtime')).toContain('secondary.patch.details@v1')
+  })
+
+  it('rejects a default that reads a masked field and permits a conflict mask for overlapping custom keys', async () => {
+    host()
+    const definition = makeExtension("details: modify({ fields: { title: field.remove(), description: field.remove() } })",
+      "{ description: ({ payload }) => String(payload.title) }")
+    write('app/src/modules/extension/form-sections.ts', definition)
+    await expect(generate()).rejects.toThrow(/effective alternatives.*conflicting fields, defaults/)
+    const patch = (fieldId: string) => `details: modify({ fields: { ${fieldId}: field.add({ type: 'text', store: store.customField('shared') }) } })`
+    write('app/src/modules/extension/form-sections.ts', makeExtension(patch('firstField')))
+    write('app/src/modules/secondary/form-sections.ts', makeExtension(patch('secondField'), '{}', 'secondary.patch'))
+    const entries = [{ id: 'extension', from: '@app' }, { id: 'secondary', from: '@app' }] satisfies ModuleEntry[]
+    await expect(generate(entries)).rejects.toThrow(/requires an exact modules.ts selector or null/)
+    await generate([{ ...entries[0], formSectionOverrides: { 'test.record/edit/update/details': null } }, entries[1]])
+    expect(generated('runtime')).not.toContain('combined-')
+  })
+
+  it('emits versioned store associations without letting storage callbacks reach browser modules', async () => {
+    host()
+    write('app/src/modules/extension/form-sections.ts', makeExtension(`
+      erp: add({ fields: { erpSupplierRef: field.add({ type: 'text' }), erpCostCenter: field.add({ type: 'text' }) },
+        store: store.external({ integrationId: 'erp', mirror: 'extension:erp_link', deliver: serverOnlyRule }) }),
+    `))
+    await generate()
+    const facts = generated('facts')
+    expect(facts).toContain('"ownerModuleId":"extension"')
+    expect(facts).toContain('"payloadPaths":["extensions.extension.erpSupplierRef","extensions.extension.erpCostCenter"]')
+    expect(facts).toContain('"modes":["extension-sink"]')
+    expect(facts).toContain('.options.store')
+    const dir = path.join(root, 'app/.mercato/generated')
+    const browser = fs.readdirSync(dir).filter((file) => /^crud-form-section-extension-.*\.ts$/.test(file))
+      .map((file) => fs.readFileSync(path.join(dir, file), 'utf8')).join('\n')
+    expect(browser).toContain('extensions.extension.erpSupplierRef')
+    expect(browser).not.toMatch(/serverOnlyRule|integrationId|erp_link|deliver/)
+  })
+
+  it('keeps target-scoped descriptor IDs and revisions stable when target order changes', async () => {
+    host(false, true)
+    const patch = "details: modify({ fields: { title: field.patch({ labelKey: 'extension.fields.title' }) } })"
+    const target = (variant: string) => `{formVariant:${JSON.stringify(variant)},formOperation:'update'}`
+    write('app/src/modules/extension/form-sections.ts', makeExtension(patch, '{}', authoredId, `[${target('edit')},${target('other')}]`))
+    await generate()
+    const output = generated('runtime')
+    expect(output).toContain('extension.patch.edit.update.details@v1')
+    expect(output).toContain('extension.patch.other.update.details@v1')
+    write('app/src/modules/extension/form-sections.ts', makeExtension(patch, '{}', authoredId, `[${target('other')},${target('edit')}]`))
+    expect((await generate()).filesWritten).toEqual([])
+    expect(generated('runtime')).toBe(output)
+  })
+})

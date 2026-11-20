@@ -7,7 +7,12 @@ import {
   crudFormSectionClientMutationFactSchema, crudSectionOperationMethods as derivedRouteMethods,
   derivedCrudFormSectionClientMutationFact, parseCrudFormSectionClientMutationFacts,
 } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
+import type { CrudFormSectionClientHostFact } from '@open-mercato/shared/modules/form-sections'
+import type { FormSectionOverridesMap } from '@open-mercato/shared/modules/overrides'
 import { writeGeneratedFile, type GeneratorResult } from '../utils'
+import { compileCrudFormSectionExtensions, type CompilerModule, type CompiledSectionExtensions } from './form-section-extension-compiler'
+import { parseSectionExtensionSources } from './form-section-extension-source'
+import { arrayField, exportedDeclaration, fieldsOf, helperArgument, literalData, literalValue, readIdentity, readSectionRuntimeFields, unwrap } from './form-section-ast'
 import { hashHandwrittenSectionRuntime, planHandwrittenSectionRevisionWrite } from './form-section-runtime-revisions'
 import {
   MODULE_CODE_EXTENSIONS,
@@ -21,6 +26,7 @@ type ModuleSource = {
   modId: string
   roots: ModuleRoots
   resolve: (relativePath: string) => ResolvedFile | null
+  formSectionOverrides?: Readonly<FormSectionOverridesMap>
 }
 
 const factFields = [
@@ -37,14 +43,11 @@ type Descriptor = {
   runtimePath: string
 }
 
-type ModuleSections = {
-  moduleId: string
-  importPath: string
+type ModuleSections = CompilerModule & {
+  hasHandwrittenSections: boolean
   descriptors: Descriptor[]
   leafDefaultProviderIds: readonly string[]
   sinkIds: readonly string[]
-  clientHosts: readonly unknown[]
-  contributedOverrides: unknown
   derivedRoutes: readonly DerivedRouteDeclaration[]
   revisionWrite: ReturnType<typeof planHandwrittenSectionRevisionWrite>
 }
@@ -70,100 +73,6 @@ export const generatedDerivedCrudRouteIndex = 'crud-form-section-derived-routes.
 function compareIds(left: string, right: string): number {
   if (left === right) return 0
   return left < right ? -1 : 1
-}
-
-function unwrap(expression: ts.Expression): ts.Expression {
-  while (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) {
-    expression = expression.expression
-  }
-  return expression
-}
-
-function exportedDeclaration(source: ts.SourceFile, name: string): ts.Expression | undefined {
-  const exportedNames = new Set<string>()
-  for (const statement of source.statements) {
-    if (!ts.isExportDeclaration(statement) || statement.isTypeOnly || statement.moduleSpecifier || !statement.exportClause) continue
-    if (!ts.isNamedExports(statement.exportClause)) continue
-    for (const entry of statement.exportClause.elements) {
-      if (!entry.isTypeOnly && entry.name.text === name) exportedNames.add((entry.propertyName ?? entry.name).text)
-    }
-  }
-  for (const statement of source.statements) {
-    if (!ts.isVariableStatement(statement)) continue
-    const direct = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
-    for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name)) continue
-      if ((direct && declaration.name.text === name) || exportedNames.has(declaration.name.text)) return declaration.initializer
-    }
-  }
-  return undefined
-}
-
-function fieldsOf(node: ts.Expression, invalid: (reason: string) => never): Map<string, ts.Expression> {
-  const literal = unwrap(node)
-  if (!ts.isObjectLiteralExpression(literal)) return invalid('expected an object literal')
-  const fields = new Map<string, ts.Expression>()
-  for (const property of literal.properties) {
-    if (!ts.isPropertyAssignment(property) || !(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) {
-      return invalid('expected literal property assignments')
-    }
-    const name = property.name.text
-    if (fields.has(name)) return invalid(`duplicate property "${name}"`)
-    fields.set(name, property.initializer)
-  }
-  return fields
-}
-
-function literalData(node: ts.Expression, invalid: (reason: string) => never): unknown {
-  const value = unwrap(node)
-  if (ts.isStringLiteralLike(value)) return value.text
-  if (ts.isNumericLiteral(value)) return Number(value.text)
-  if (value.kind === ts.SyntaxKind.NullKeyword) return null
-  if (value.kind === ts.SyntaxKind.TrueKeyword) return true
-  if (value.kind === ts.SyntaxKind.FalseKeyword) return false
-  if (ts.isArrayLiteralExpression(value)) return value.elements.map((element) => literalData(element, invalid))
-  if (ts.isObjectLiteralExpression(value)) {
-    return Object.fromEntries([...fieldsOf(value, invalid)]
-      .map(([key, entry]) => [key, literalData(entry, invalid)]))
-  }
-  return invalid('expected JSON-serializable client facts')
-}
-
-function literalValue(node: ts.Expression | undefined, name: string, invalid: (reason: string) => never): string {
-  if (!node) return invalid(`missing literal ${name}`)
-  const literal = unwrap(node)
-  if (!ts.isStringLiteralLike(literal) || !literal.text) return invalid(`expected a non-empty literal ${name}`)
-  return literal.text
-}
-
-function readIdentity(fields: ReadonlyMap<string, ts.Expression>, invalid: (reason: string) => never) {
-  const id = literalValue(fields.get('id'), 'id', invalid)
-  const roundTripId = literalValue(fields.get('roundTripId'), 'roundTripId', invalid)
-  const separator = roundTripId.lastIndexOf('@v')
-  if (separator < 0 || roundTripId.slice(0, separator) !== id || !/^[1-9][0-9]*$/.test(roundTripId.slice(separator + 2))) {
-    return invalid(`roundTripId "${roundTripId}" must be "${id}@v<positive-integer>"`)
-  }
-  return { id, roundTripId }
-}
-
-function arrayField(
-  fields: ReadonlyMap<string, ts.Expression>,
-  name: string,
-  invalid: (reason: string) => never,
-): readonly ts.Expression[] {
-  const initializer = fields.get(name)
-  if (!initializer) return []
-  const literal = unwrap(initializer)
-  if (!ts.isArrayLiteralExpression(literal)) return invalid(`expected a literal ${name} array`)
-  return literal.elements
-}
-
-function helperArgument(node: ts.Expression, name: string, invalid: (reason: string) => never): ts.Expression {
-  const call = unwrap(node)
-  if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || call.expression.text !== name || call.arguments.length !== 1) {
-    return invalid(`expected ${name} with one argument`)
-  }
-  return call.arguments[0]
 }
 
 function readRuntimePath(
@@ -374,8 +283,11 @@ function parseModuleSections(module: ModuleSource, checkRevisions = false): Modu
     }
   }
   const initializer = exportedDeclaration(source, 'crudFormSections')
-  if (!initializer) return invalid('expected a named crudFormSections declaration')
-  const fields = fieldsOf(helperArgument(initializer, 'defineCrudFormSections', invalid), invalid)
+  const extensionExport = exportedDeclaration(source, 'crudFormExtensions')
+  if (!initializer && !extensionExport) return invalid('expected a named crudFormSections or crudFormExtensions declaration')
+  const moduleBase = path.dirname(sourceFile)
+  const extensions = parseSectionExtensionSources(extensionExport, moduleBase, declaration.importPath, invalid)
+  const fields = initializer ? fieldsOf(helperArgument(initializer, 'defineCrudFormSections', invalid), invalid) : new Map<string, ts.Expression>()
 
   const derivedRoutes = parseDerivedRoutes(fields, module, declaration, source, invalid)
   const runtimes = new Map<string, { roundTripId: string; runtimePath: string; source: ts.SourceFile }>()
@@ -438,11 +350,11 @@ function parseModuleSections(module: ModuleSource, checkRevisions = false): Modu
     return id
   }).sort(compareIds)
   const descriptors: Descriptor[] = []
-  const moduleBase = path.dirname(sourceFile)
+  const primitiveContributions: CompilerModule['primitiveContributions'][number][] = []
   const authoredSource = !moduleBase.split(path.sep).includes('node_modules')
     && (declaration.fromApp || !moduleBase.split(path.sep).includes('dist'))
   const revisions: Array<{ id: string; roundTripId: string; sourceHash: string }> = []
-  const clientHosts: Array<{ id: string; roundTripId: string; hostResourceKind?: string; alternatives: unknown[] }> = []
+  const clientHosts: CrudFormSectionClientHostFact[] = []
   const factIds = new Set<string>()
   for (const [kind, field] of factFields) {
     const facts = arrayField(fields, field, invalid)
@@ -487,7 +399,23 @@ function parseModuleSections(module: ModuleSource, checkRevisions = false): Modu
           }
         })
         if (alternatives.length && !hostResourceKind) return invalid('host alternatives require a hostResourceKind')
-        clientHosts.push({ id, roundTripId, hostResourceKind, alternatives })
+        clientHosts.push({ id, roundTripId, hostResourceKind, alternatives: alternatives as unknown as CrudFormSectionClientHostFact['alternatives'] })
+      }
+      const addressNode = properties.get('address')
+      const operationNode = properties.get('operation')
+      if (kind === 'contribution' && addressNode && operationNode && ts.isObjectLiteralExpression(unwrap(addressNode))) {
+        const operation = unwrap(operationNode)
+        const literalAddress = unwrap(addressNode) as ts.ObjectLiteralExpression
+        const address = Object.fromEntries(literalAddress.properties.flatMap((property) => {
+          if (!ts.isPropertyAssignment(property) || (!ts.isIdentifier(property.name) && !ts.isStringLiteralLike(property.name))) return []
+          const value = unwrap(property.initializer)
+          return ts.isStringLiteralLike(value) ? [[property.name.text, value.text]] : []
+        }))
+        const { hostId, formVariant, formOperation, sectionId } = address
+        if (hostId && formVariant && sectionId && (formOperation === 'create' || formOperation === 'update')
+            && ts.isStringLiteralLike(operation) && (operation.text === 'add' || operation.text === 'replace' || operation.text === 'hide')) {
+          primitiveContributions.push({ id, address: { hostId, formVariant, formOperation, sectionId }, operation: operation.text })
+        }
       }
       if (factIds.has(id)) invalid(`duplicate fact id "${id}"`)
       factIds.add(id)
@@ -508,10 +436,16 @@ function parseModuleSections(module: ModuleSource, checkRevisions = false): Modu
   return {
     moduleId: module.modId,
     importPath: declaration.importPath,
+    hasHandwrittenSections: Boolean(initializer),
+    sourceBase: moduleBase,
+    authoredSource,
+    extensionSources: extensions,
+    runtimeSources: runtimes,
+    primitiveContributions,
     derivedRoutes,
     clientHosts: clientHosts.sort((left, right) => compareIds(left.id, right.id)),
     contributedOverrides: fields.has('contributedOverrides')
-      ? literalData(fields.get('contributedOverrides')!, invalid)
+      ? literalData(fields.get('contributedOverrides')!, invalid) as FormSectionOverridesMap
       : {},
     leafDefaultProviderIds,
     sinkIds,
@@ -551,46 +485,106 @@ function orderedSectionModules(
 
 const generatedHeader = '// Auto-generated by yarn generate. Do not edit.'
 
-function renderFactRegistry(modules: readonly ModuleSections[]): string {
-  const imports = modules.map(({ importPath }, index) =>
-    `import { crudFormSections as sections${index} } from ${JSON.stringify(importPath)}`,
-  )
-  const entries = modules.flatMap(({ moduleId, descriptors }, index) => descriptors.map((descriptor) =>
-    `  { kind: ${JSON.stringify(descriptor.kind)}, moduleId: ${JSON.stringify(moduleId)}, fact: sections${index}.${descriptor.field}[${descriptor.index}] },`,
-  ))
+function renderFactRegistry(modules: readonly ModuleSections[], compiled: CompiledSectionExtensions): string {
+  const moduleIndexes = new Map(modules.map(({ moduleId }, index) => [moduleId, index]))
+  const imports = modules.flatMap(({ importPath, hasHandwrittenSections, extensionSources }, index) => [
+    ...(hasHandwrittenSections ? [`import { crudFormSections as sections${index} } from ${JSON.stringify(importPath)}`] : []),
+    ...(extensionSources.length ? [`import { crudFormExtensions as extensions${index} } from ${JSON.stringify(importPath)}`] : []),
+  ])
+  const authoredSection = ({ module, extension, change }: {
+    module: CompilerModule; extension: CompilerModule['extensionSources'][number]; change: CompilerModule['extensionSources'][number]['changes'][number]
+  }) => `extensions${moduleIndexes.get(module.moduleId)}[${extension.index}].sections[${JSON.stringify(change.id)}]`
+  const compiledDeclarations = modules.flatMap(({ moduleId }, index) => {
+    const candidates = compiled.contributionsByModule.get(moduleId)
+    if (!candidates?.length) return []
+    const lines = candidates.map(({ contribution, fields, defaults, sinks }) => {
+      const compiledFields = fields.flatMap(({ field, authored, payloadPath }) => {
+        if (!payloadPath || (!field.server && !field.rules.some(({ enforce }) => enforce === 'client-and-server'))) return []
+        const source = `${authoredSection(authored)}.options.fields[${JSON.stringify(field.id)}].${field.operation === 'add' ? 'definition' : 'patch'}`
+        const data = JSON.stringify({ fieldId: field.id, payloadPath, rules: field.rules })
+        return [`{ ...${data}${field.server ? `, server: ${source}.validate.server` : ''} }`]
+      })
+      function fieldStore({ field, authored, payloadPath }: (typeof fields)[number]): string {
+        const source = authoredSection(authored)
+        if (field.store?.fieldOverride) return `${source}.options.fields[${JSON.stringify(field.id)}].definition.store`
+        if (authored.change.operation === 'add' && field.store?.kind !== 'customField') return `${source}.options.store`
+        return `{ kind: 'customField', key: ${JSON.stringify(payloadPath?.slice('customFields.'.length))} }`
+      }
+      const stores = fields.flatMap((item) => {
+        const { field, authored, payloadPath } = item
+        if (!payloadPath || !field.store) return []
+        const data = JSON.stringify({ ownerModuleId: authored.module.moduleId, fieldId: field.id, payloadPath })
+        return [`{ ...${data}, store: ${fieldStore(item)} }`]
+      })
+      const sinkAssociations = sinks.map(({ fields: owned, ...keys }) => {
+        const [{ authored }] = owned
+        const plan = { ...keys, ownerModuleId: authored.module.moduleId, payloadPaths: owned.map(({ payloadPath }) => payloadPath!) }
+        return `{ ...${JSON.stringify(plan)}, store: ${fieldStore(owned[0])} }`
+      })
+      const providers = defaults.map(({ owner, id, payloadPath, readsPayloadPaths }) => {
+        const { hostId, formVariant, formOperation } = contribution.address
+        const fact = { id, roundTripId: `${id}@v${contribution.roundTripId.split('@v')[1]}`, hostId, formVariant, formOperation, payloadPath, readsPayloadPaths }
+        return `{ fact: ${JSON.stringify(fact)}, resolve: extensions${moduleIndexes.get(owner.module.moduleId)}[${owner.extension.index}].defaults[${JSON.stringify(payloadPath)}] }`
+      })
+      return `  { contribution: ${JSON.stringify(contribution)}, fieldRules: [${compiledFields.join(', ')}], defaults: [${providers.join(', ')}], stores: [${stores.join(', ')}], sinkAssociations: [${sinkAssociations.join(', ')}] },`
+    })
+    const overrides = Object.fromEntries(Object.entries(compiled.fallbacks).filter(([, override]) => candidates.some(({ id }) => id === override?.contributionId)))
+    return [`const compiled${index} = [`, ...lines, '] as const satisfies readonly CompiledCrudFormContribution[]',
+      `const compiledOverrides${index} = ${JSON.stringify(overrides)} as const`]
+  })
+  const entries = modules.flatMap(({ moduleId, descriptors }, index) => [
+    ...descriptors.map((descriptor) =>
+      `  { kind: ${JSON.stringify(descriptor.kind)}, moduleId: ${JSON.stringify(moduleId)}, fact: sections${index}.${descriptor.field}[${descriptor.index}] },`,
+    ),
+    ...(compiled.contributionsByModule.get(moduleId) ?? []).map((_, contribution) =>
+      `  { kind: "contribution", moduleId: ${JSON.stringify(moduleId)}, fact: compiled${index}[${contribution}].contribution },`),
+  ])
   return [
     generatedHeader,
     "import type { CrudFormSectionFactEntry, CrudFormSectionServerModule } from '@open-mercato/shared/modules/form-sections'",
     ...imports,
+    ...(compiledDeclarations.length ? [
+      "import { bindCompiledCrudFormAlternatives, bindCompiledCrudFormContributions, type CompiledCrudFormContribution } from '@open-mercato/shared/lib/crud/form-sections/compiled-extensions'",
+    ] : []),
     ...(modules.some(({ derivedRoutes }) => derivedRoutes.length)
       ? ["import { bindDerivedCrudRouteSectionHosts } from '@open-mercato/shared/lib/crud/form-sections/derived-route-host'"] : []),
     '',
+    ...compiledDeclarations,
     'export const crudFormSectionFactEntries = [',
     ...entries,
     '] as const satisfies readonly CrudFormSectionFactEntry[]',
     '',
     'export const crudFormSectionServerModules = [',
-    ...modules.map(({ moduleId, derivedRoutes }, index) => {
+    ...modules.map(({ moduleId, derivedRoutes, hasHandwrittenSections }, index) => {
       const bindings = derivedRoutes.map((route) => `{ declaration: sections${index}.derivedHosts[${route.index}], route: ${JSON.stringify(route.routePath)} }`)
-      const sections = bindings.length ? `bindDerivedCrudRouteSectionHosts(sections${index}, [${bindings.join(', ')}])` : `sections${index}`
-      return `  { moduleId: ${JSON.stringify(moduleId)}, sections: ${sections} },`
+      const primitive = bindings.length ? `bindDerivedCrudRouteSectionHosts(sections${index}, [${bindings.join(', ')}])`
+        : hasHandwrittenSections ? `sections${index}` : '{}'
+      const sections = compiled.contributionsByModule.has(moduleId)
+        ? `bindCompiledCrudFormContributions(${primitive}, compiled${index}, compiledOverrides${index})` : primitive
+      const entry = `{ moduleId: ${JSON.stringify(moduleId)}, sections: ${sections} }`
+      const alternatives = compiled.alternativesByModule.get(moduleId)
+      return `  ${alternatives?.length ? `bindCompiledCrudFormAlternatives(${entry}, ${JSON.stringify(alternatives)})` : entry},`
     }),
     '] as const satisfies readonly CrudFormSectionServerModule[]',
     '',
   ].join('\n')
 }
 
-function renderRuntimeRegistry(modules: readonly ModuleSections[]): string {
-  const entries = modules.flatMap(({ moduleId, descriptors }) => descriptors.map(({ id, roundTripId, kind, runtimePath }) =>
+function renderRuntimeRegistry(modules: readonly ModuleSections[], compiled: CompiledSectionExtensions): string {
+  const entries = modules.flatMap(({ moduleId, descriptors }) => [
+    ...descriptors.map(({ id, roundTripId, kind, runtimePath }) =>
     `  { id: ${JSON.stringify(id)}, roundTripId: ${JSON.stringify(roundTripId)}, kind: ${JSON.stringify(kind)}, moduleId: ${JSON.stringify(moduleId)}, load: () => import(${JSON.stringify(runtimePath)}) },`,
-  ))
+    ),
+    ...(compiled.contributionsByModule.get(moduleId) ?? []).map(({ contribution: { id, roundTripId }, file }) =>
+      `  { id: ${JSON.stringify(id)}, roundTripId: ${JSON.stringify(roundTripId)}, kind: "contribution", moduleId: ${JSON.stringify(moduleId)}, load: () => import(${JSON.stringify('./' + stripModuleCodeExtension(file))}) },`),
+  ])
   return [
     generatedHeader,
     "import type { CrudFormSectionClientHostFact, CrudFormSectionRuntimeEntry } from '@open-mercato/shared/modules/form-sections'",
     "import type { FormSectionOverridesMap } from '@open-mercato/shared/modules/overrides'",
     '',
     `export const crudFormSectionClientHostFacts = ${JSON.stringify(modules.flatMap((module) => module.clientHosts), null, 2)} as const satisfies readonly CrudFormSectionClientHostFact[]`,
-    `export const crudFormSectionContributedOverrides = ${JSON.stringify(Object.assign({}, ...modules.map((module) => module.contributedOverrides)), null, 2)} as const satisfies Readonly<FormSectionOverridesMap>`,
+    `export const crudFormSectionContributedOverrides = ${JSON.stringify(Object.assign({}, ...modules.map((module) => module.contributedOverrides), compiled.fallbacks), null, 2)} as const satisfies Readonly<FormSectionOverridesMap>`,
     '',
     'export const crudFormSectionRuntimeEntries: readonly CrudFormSectionRuntimeEntry[] = [',
     ...entries,
@@ -645,8 +639,14 @@ export function writeCrudFormSectionRegistries(options: {
     }
   }
 
-  for (const { revisionWrite } of modules) {
-    if (!revisionWrite) continue
+  const compiled = compileCrudFormSectionExtensions(modules, Object.assign({}, ...options.modules.map(({ formSectionOverrides }) => formSectionOverrides)))
+  for (const [moduleId, candidates] of compiled.contributionsByModule) for (const { id } of candidates) {
+    const owner = modulesById.get(id)
+    if (owner) throw new Error(`[generate] Duplicate form-sections descriptor id "${id}" in "${owner}" and "${moduleId}"`)
+    modulesById.set(id, moduleId)
+  }
+  const revisions = [...modules.flatMap(({ revisionWrite }) => revisionWrite ? [revisionWrite] : []), ...compiled.revisionWrites]
+  for (const revisionWrite of revisions) {
     const temporary = `${revisionWrite.filename}.${randomUUID()}.tmp`
     try {
       fs.writeFileSync(temporary, revisionWrite.content, { flag: 'wx' })
@@ -657,9 +657,23 @@ export function writeCrudFormSectionRegistries(options: {
     options.result.filesWritten.push(revisionWrite.filename)
   }
   const outputs = [
-    ['crud-form-section-facts', renderFactRegistry(modules)],
-    ['crud-form-section-runtime', renderRuntimeRegistry(modules)],
+    ['crud-form-section-facts', renderFactRegistry(modules, compiled)],
+    ['crud-form-section-runtime', renderRuntimeRegistry(modules, compiled)],
+    ...compiled.runtimeFiles.map(({ name, content }) => [name.slice(0, -'.generated.ts'.length), content]),
   ]
+  const retainedRuntimeFiles = new Set(compiled.runtimeFiles.map(({ name }) => name))
+  if (fs.existsSync(options.outputDir)) for (const filename of fs.readdirSync(options.outputDir)) {
+    if (!/^crud-form-section-extension-[0-9a-f]{20}\.generated\.(?:checksum|ts)$/.test(filename)
+        || retainedRuntimeFiles.has(filename.replace(/\.checksum$/, '.ts'))) continue
+    fs.rmSync(path.join(options.outputDir, filename), { force: true })
+  }
+  if (!options.quiet) for (const [moduleId, candidates] of compiled.contributionsByModule) {
+    for (const candidate of candidates) {
+      const owned = candidate.ownership?.payloadPaths.join(', ') || 'none'
+      const stores = candidate.fields.filter(({ field }) => field.store).map(({ field }) => `${field.id}/${field.store!.kind}`).join(', ') || 'none'
+      console.log(`[generate] CrudForm extension ${moduleId}/${candidate.id} ${candidate.override.operation}; fields: ${candidate.fields.length}, payload leaves: ${owned}, defaults: ${candidate.defaults.length}, stores: ${stores}, field rules: ${candidate.fields.filter(({ field }) => field.server || field.rules.length).length}`)
+    }
+  }
   for (const [name, content] of outputs) {
     writeGeneratedFile({
       outFile: path.join(options.outputDir, `${name}.generated.ts`),

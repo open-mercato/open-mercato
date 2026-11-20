@@ -20,6 +20,7 @@ import type {
 import {
   canonicalCrudFormSectionMutationSurface,
   collectCrudFormSectionCapabilities,
+  extendCrudFormSectionCapabilities,
   matchCrudFormSectionCapabilities,
   type CrudFormSectionCapabilityEntry,
 } from '../form-section-capabilities'
@@ -34,6 +35,7 @@ import {
   type CrudFormSectionConfiguredHostLedger,
 } from './composition'
 import { symbolicIdSchema } from './protocol'
+import { bindCompiledCrudFormSink, type CompiledCrudFormFieldRule, type CompiledCrudFormContribution } from './compiled-extensions'
 import { parseCrudFormSectionClientMutationFacts, projectCrudFormSectionClientMutationFact } from './client-mutation-facts'
 import { getDerivedCrudRouteCapabilities } from './factory-route-source'
 import {
@@ -61,6 +63,7 @@ export type CrudFormSectionManifest = {
   ledger: CrudFormSectionConfiguredHostLedger
   policies: ReadonlyMap<string, CrudFormSectionAcceptedPolicy>
   providers: ReadonlyMap<string, CrudFormSectionHostProvider & { hostResourceKind: string }>
+  compiledFieldRules?: ReadonlyMap<string, readonly { address: CrudFormSectionAddress; rule: CompiledCrudFormFieldRule }[]>
   leafDefaultProviders: ReadonlyMap<string, CrudFormLeafDefaultProvider>
   sinkRuntimes?: ReadonlyMap<string, CrudFormSectionSink>
 }
@@ -153,14 +156,53 @@ function hasTuple(
     && surface.formOperation === address.formOperation
 }
 
+function deriveCompiledCapabilities(
+  { moduleId, contribution }: CompiledCrudFormContribution & { moduleId: string },
+  surfaces: readonly CrudFormSectionMutationSurfaceFact[],
+  authorities: Iterable<CrudFormSectionCapabilityEntry>,
+  mutationProofs: ReadonlyMap<string, CrudFormSectionMutationProviderProof>,
+): CrudFormSectionCapabilityEntry[] {
+  const { hostId, formVariant, formOperation } = contribution.address
+  return contribution.requiredCapabilities.flatMap((requirement) => {
+    const ids = requirement.mutationSurfaceIds ?? []
+    const matched = surfaces.filter(({ id }) => ids.includes(id))
+    const supports = [...authorities].filter(({ fact }) => fact.hostId === hostId && fact.formVariant === formVariant
+      && fact.formOperation === formOperation && fact.modes.some((mode) =>
+        mode === 'domain-adapter' || mode === 'merge-server-leaves' || mode === 'omit-preserves')
+      && matched.some((surface) => fact.mutationSurfaces.some((candidate) =>
+        canonicalSectionJson(candidate) === canonicalSectionJson(surface))))
+    const displayOnly = contribution.operation === 'add' && requirement.modes.length === 1 && requirement.modes[0] === 'display-only'
+    if (!displayOnly && (!matched.length || matched.length !== ids.length || matched.some((surface) =>
+      !supports.some(({ fact }) => fact.mutationSurfaces.some((candidate) =>
+        canonicalSectionJson(candidate) === canonicalSectionJson(surface)))))) return []
+    const proofSupports = matched.map(({ id }) => mutationProofs.get(id)?.extensionSinkSupport)
+    const extensionSinkSupport = proofSupports.length && proofSupports.every((support) => support === 'host-transaction')
+      ? 'host-transaction' : proofSupports.length && proofSupports.every((support) => support === 'host-transaction' || support === 'after-commit')
+        ? 'after-commit' : 'none'
+    return [{
+      source: { kind: 'compiled-extension', id: requirement.capabilityId, moduleId,
+        features: [...new Set(supports.flatMap(({ source }) => source.features))].sort(compareSectionIds) },
+      fact: {
+        hostId, formVariant, formOperation, protocol: requirement.protocol,
+        capabilityId: requirement.capabilityId, roundTripId: contribution.roundTripId, modes: requirement.modes,
+        payloadPaths: requirement.payloadPaths ?? [], customFieldOwnership: requirement.customFieldOwnership ?? { mode: 'none' },
+        mutationSurfaces: matched, providedDataContractIds: [], allowNoopSubmit: false,
+        requiredLeaves: [], extensionSinkSupport: requirement.modes.includes('extension-sink') ? extensionSinkSupport : 'none',
+      },
+    }]
+  })
+}
+
 export function buildCrudFormSectionManifest(
   modules: readonly CrudFormSectionServerModule[],
   overrides: Readonly<FormSectionOverridesMap> = composeFormSectionOverrides(Object.assign(
     {},
     ...modules.map(({ sections }) => sections.contributedOverrides),
+    ...modules.map(({ sections }) => sections.compiledSectionOverrides),
   )),
 ): CrudFormSectionManifest {
   const policies = new Map<string, CrudFormSectionAcceptedPolicy>()
+  const compiledRulesByPolicy = new Map<string, readonly { address: CrudFormSectionAddress; rule: CompiledCrudFormFieldRule }[]>()
   const providers = new Map<string, CrudFormSectionHostProvider & { hostResourceKind: string }>()
   const hosts = modules.flatMap(({ sections }): ExistingHost[] => {
     const moduleProviders = uniqueIndex(sections.hostProviders ?? [], (provider) => provider.hostDescriptorId)
@@ -172,10 +214,17 @@ export function buildCrudFormSectionManifest(
   }))
   const configured = crudFormSectionConfiguredHosts(hostFacts, overrides)
   const configuredEntries = [...configured.entries()].sort(([left], [right]) => compareSectionIds(left, right))
-  const defaults = modules.flatMap(({ sections }) => sections.leafDefaultProviders ?? [])
-    .filter((provider) => Boolean(provider?.fact?.id))
-  const leafDefaultProviders = uniqueIndex(defaults, ({ fact }) => fact.id)
-  const sinkRuntimes = collectCrudFormSectionSinks(modules)
+  const defaults = modules.flatMap(({ sections }) => sections.leafDefaultProviders ?? []).filter((provider) => Boolean(provider?.fact?.id))
+  const compiled = uniqueIndex(modules.flatMap(({ moduleId, sections }) =>
+    (sections.compiledContributions ?? []).map((entry) => ({ ...entry, moduleId }))), ({ contribution }) => contribution.id)
+  const compiledDefaults = [...compiled.values()].flatMap((entry) => entry.defaults ?? [])
+  const compiledDefaultIds = new Set(compiledDefaults.map(({ fact }) => fact.id))
+  const leafDefaultProviders = uniqueIndex([...defaults, ...compiledDefaults], ({ fact }) => fact.id)
+  const sinkRuntimes = collectCrudFormSectionSinks([...modules, ...[...compiled.values()].flatMap(({ contribution, sinkAssociations }) =>
+    (sinkAssociations ?? []).flatMap((association) => {
+      const sink = bindCompiledCrudFormSink(association, contribution.address)
+      return sink ? [{ moduleId: association.ownerModuleId, sections: { sinks: [sink] } }] : []
+    }))])
   if (!configuredEntries.length) return { ledger: { hosts: [], fingerprint: hash('[]') }, policies, providers, leafDefaultProviders, sinkRuntimes }
 
   const capabilityRegistry = collectCrudFormSectionCapabilities(
@@ -265,10 +314,28 @@ export function buildCrudFormSectionManifest(
       fail('invalid_sink_atomicity')
       continue
     }
+    const compiledEntries = selectedContributions.flatMap((contribution) => {
+      const entry = compiled.get(contribution.id)
+      return entry && entry.contribution === contribution ? [entry] : []
+    })
+    const scopedCapabilityRegistry = extendCrudFormSectionCapabilities(capabilityRegistry, compiledEntries.flatMap((entry) =>
+      deriveCompiledCapabilities(entry, canonicalSurfaces, capabilityRegistry.capabilities.values(), mutationProviders)))
+    const compiledFieldRules = compiledEntries.flatMap(({ contribution, fieldRules }) =>
+      (fieldRules ?? []).map((rule) => ({ address: contribution.address, rule })))
+    const activeDefaultIds = new Set(compiledEntries.flatMap((entry) => (entry.defaults ?? []).map(({ fact }) => fact.id)))
+    const selectedDefaultIds = alternative.compiledDefaultProviderIds ?? []
+    if (selectedDefaultIds.some((id) => !compiledDefaultIds.has(id) || !activeDefaultIds.has(id) || !leafDefaultProviders.has(id))
+        || compiledFieldRules.some(({ address: fieldAddress, rule }) => !surface.ownershipFacts.some(({ sectionId, payloadPaths, customFieldOwnership }) =>
+          sectionId === fieldAddress.sectionId && (payloadPaths.includes(rule.payloadPath)
+            || (rule.payloadPath.startsWith('customFields.') && customFieldOwnership.mode === 'ids'
+              && customFieldOwnership.ids.includes(rule.payloadPath.slice('customFields.'.length))))))) {
+      fail('invalid_compiled_extension_binding')
+      continue
+    }
     const matchedCapabilities = new Map<string, CrudFormSectionCapabilityEntry>()
     let policyValid = true
     for (const contribution of selectedContributions) {
-      const match = matchCrudFormSectionCapabilities(capabilityRegistry, contribution, {
+      const match = matchCrudFormSectionCapabilities(scopedCapabilityRegistry, contribution, {
         activeSectionIds: activeSections,
         activeDataContractIds: dataContracts,
         mutationSurfaces: new Map(mutationSurfaces.map((candidate) => [candidate.id, candidate])),
@@ -288,8 +355,8 @@ export function buildCrudFormSectionManifest(
     if (!policyValid) continue
 
     const required = selectCrudFormRequiredLeaves({
-      alternative, surfaces: canonicalSurfaces, capabilities: capabilityRegistry.capabilities.values(),
-      defaultProviders: defaults, canReadLockedRecord: typeof provider?.readLockedRecord === 'function',
+      alternative, surfaces: canonicalSurfaces, capabilities: scopedCapabilityRegistry.capabilities.values(),
+      defaultProviders: [...defaults, ...selectedDefaultIds.map((id) => leafDefaultProviders.get(id)!)], canReadLockedRecord: typeof provider?.readLockedRecord === 'function',
     })
     if (!required.ok) {
       fail(required.reason)
@@ -339,6 +406,7 @@ export function buildCrudFormSectionManifest(
       fail('unsupported_extension_sink_lifecycle')
       continue
     }
+    if (compiledFieldRules.length) compiledRulesByPolicy.set(key, compiledFieldRules)
     policies.set(key, {
       hostDescriptorId: host.fact.id,
       hostResourceKind: resourceKind.data,
@@ -375,6 +443,7 @@ export function buildCrudFormSectionManifest(
     },
     policies,
     providers,
+    ...(compiledRulesByPolicy.size ? { compiledFieldRules: compiledRulesByPolicy } : {}),
     leafDefaultProviders,
     sinkRuntimes,
   }

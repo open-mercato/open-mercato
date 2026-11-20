@@ -5,6 +5,7 @@ import {
   normalizeCrudFormFieldRules,
   type CrudFormDeclarativeFieldConstraint,
 } from '@open-mercato/shared/lib/crud/form-sections/field-rules'
+import { isRecord } from '@open-mercato/shared/lib/utils'
 import { symbolicIdSchema } from '@open-mercato/shared/lib/crud/form-sections/protocol'
 import type { CrudFormSectionAddress } from '@open-mercato/shared/modules/form-section-facts'
 import type { CrudFormSectionDescriptorIdentity } from '@open-mercato/shared/modules/form-sections'
@@ -214,6 +215,19 @@ function placeFields(fields: CrudField[], placements: ReadonlyMap<string, FieldP
   return order
 }
 
+export function getCrudFormFieldGranularBase(host: unknown, sectionId: string): CrudFormFieldGranularSection {
+  const candidates = isRecord(host) && Array.isArray(host.sectionDescriptors) ? host.sectionDescriptors : [host]
+  const candidate: unknown = candidates.find((value: unknown) =>
+    isRecord(value) && isRecord(value.group) && value.group.id === sectionId,
+  )
+  if (!isRecord(candidate) || !Array.isArray(candidate.fields) || !Array.isArray(candidate.refinements)
+      || !isRecord(candidate.fieldSchemas) || !isRecord(candidate.fieldPayloadPaths) || !isRecord(candidate.projectField)
+      || typeof candidate.validateAndProject !== 'function') {
+    return invalid(`missing exact field-granular host section "${sectionId}"`)
+  }
+  return candidate as unknown as CrudFormFieldGranularSection
+}
+
 export function deriveCrudFormFieldGranularSection<TValues extends FormValues = FormValues>({
   identity, address, base, titleKey, changes, addedPayloadPaths, customFieldDefinitionSetId = base?.customFieldDefinitionSetId, prepared = {},
 }: {
@@ -303,5 +317,5 @@ export function deriveCrudFormFieldGranularSection<TValues extends FormValues = 
     fields: placeFields([...fields.values()], placements),
     fieldSchemas: Object.fromEntries(fieldSchemas), fieldPayloadPaths: Object.fromEntries(fieldPayloadPaths),
     projectField: Object.fromEntries(projectField), refinements, ownedCustomFieldIds, customFieldDefinitionSetId,
-  }, checks, Boolean(base))
+  }, checks, Boolean(base || titleKey))
 }

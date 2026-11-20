@@ -1,3 +1,4 @@
+import type { FormSectionOverridesMap, FormSectionOverride } from '@open-mercato/shared/modules/overrides'
 import path from 'node:path'
 import fs from 'node:fs'
 import ts from 'typescript-js'
@@ -29,6 +30,7 @@ export type ModuleEntry = {
   locator?: string
   packageName?: string
   devSupervisorRequiresFullBootstrap?: boolean
+  formSectionOverrides?: Readonly<FormSectionOverridesMap>
 }
 
 export type PackageInfo = {
@@ -74,13 +76,91 @@ function pkgRootFor(rootDir: string, from?: string, isMonorepo = true, appDir = 
   return resolveInstalledPackageRootWithRequire(packageName, appDir) ?? path.join(rootDir, 'node_modules', packageName)
 }
 
+function staticFormSectionOverrides(expression: ts.Expression): FormSectionOverridesMap | undefined {
+  const initializers = new Map<string, ts.Expression>()
+  for (const statement of expression.getSourceFile().statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) initializers.set(declaration.name.text, declaration.initializer)
+    }
+  }
+  function unwrap(value: ts.Expression): ts.Expression {
+    const visited = new Set<string>()
+    while (true) {
+      if (ts.isAsExpression(value) || ts.isSatisfiesExpression(value) || ts.isParenthesizedExpression(value)) {
+        value = value.expression
+        continue
+      }
+      if (!ts.isIdentifier(value) || visited.has(value.text)) return value
+      const resolved = initializers.get(value.text)
+      if (!resolved) return value
+      visited.add(value.text)
+      value = resolved
+    }
+  }
+  function fields(value: ts.Expression | undefined, visited: ReadonlySet<ts.Expression> = new Set()): Map<string, ts.Expression> {
+    if (!value) return new Map()
+    const node = unwrap(value)
+    if (!ts.isObjectLiteralExpression(node) || visited.has(node)) return new Map()
+    const next = new Set([...visited, node])
+    const output = new Map<string, ts.Expression>()
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) for (const [key, entry] of fields(property.expression, next)) output.set(key, entry)
+      else if (ts.isShorthandPropertyAssignment(property)) output.set(property.name.text, property.name)
+      else if (ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))) {
+        output.set(property.name.text, property.initializer)
+      }
+    }
+    return output
+  }
+  const entries = fields(fields(fields(expression).get('forms')).get('sections'))
+  const result = new Map<string, FormSectionOverride | null>()
+  function text(input: ts.Expression | undefined): string | undefined {
+    const node = input ? unwrap(input) : undefined
+    return node && ts.isStringLiteralLike(node) ? node.text : undefined
+  }
+  for (const [key, value] of entries) {
+    if (unwrap(value).kind === ts.SyntaxKind.NullKeyword) {
+      result.set(key, null)
+      continue
+    }
+    const options = fields(value)
+    const operation = text(options.get('operation'))
+    const contributionId = text(options.get('contributionId'))
+    if (!contributionId || (operation !== 'add' && operation !== 'hide' && operation !== 'replace')) continue
+    if (operation !== 'add') {
+      result.set(key, { operation, contributionId })
+      continue
+    }
+    const placement = fields(options.get('placement'))
+    const rawPosition = placement.get('position')
+    const positionNode = rawPosition ? unwrap(rawPosition) : undefined
+    const position = positionNode && ts.isPropertyAccessExpression(positionNode)
+      && ts.isIdentifier(positionNode.expression) && positionNode.expression.text === 'InjectionPosition'
+      && ['First', 'Last', 'Before', 'After'].includes(positionNode.name.text)
+      ? positionNode.name.text.toLowerCase() : text(rawPosition)
+    const relativeTo = text(placement.get('relativeTo'))
+    const allowed: ReadonlySet<string> = new Set(['first', 'last', 'before', 'after'])
+    if (placement.size && (!position || !allowed.has(position))) continue
+    result.set(key, { operation, contributionId, ...(position ? {
+      placement: { position: position as NonNullable<Extract<FormSectionOverride, { operation: 'add' }>['placement']>['position'], relativeTo },
+    } : {}) })
+  }
+  return result.size ? Object.fromEntries(result) : undefined
+}
+
 function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): ModuleEntry | null {
   let id: string | null = null
   let from: string | null = null
   let locator: string | undefined
   let packageName: string | undefined
   let devSupervisorRequiresFullBootstrap = false
+  let formSectionOverrides: FormSectionOverridesMap | undefined
   for (const property of node.properties) {
+    if (ts.isShorthandPropertyAssignment(property) && property.name.text === 'overrides') {
+      formSectionOverrides = staticFormSectionOverrides(property.name)
+      continue
+    }
     if (!ts.isPropertyAssignment(property)) continue
     const key = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
       ? property.name.text
@@ -98,6 +178,7 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
       locator = property.initializer.text
     }
     if (key === 'overrides') {
+      formSectionOverrides = staticFormSectionOverrides(property.initializer)
       if (!ts.isObjectLiteralExpression(property.initializer)) {
         devSupervisorRequiresFullBootstrap = true
         continue
@@ -125,6 +206,7 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
     ...(locator ? { locator } : {}),
     ...(packageName ? { packageName } : {}),
     ...(devSupervisorRequiresFullBootstrap ? { devSupervisorRequiresFullBootstrap: true } : {}),
+    ...(formSectionOverrides ? { formSectionOverrides } : {}),
   }
 }
 
