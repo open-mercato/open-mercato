@@ -222,13 +222,15 @@ export function usePersonTasks({
         pageSize: String(pageSize),
         entityId,
       })
-      const readPage = (path: string) => readApiResultOrThrow<CustomerTodosResponse>(
+      const readPage = (path: string, init?: RequestInit) => readApiResultOrThrow<CustomerTodosResponse>(
         `${path}?${params.toString()}`,
-        undefined,
+        init,
         { errorMessage: 'Failed to load tasks.' },
       )
       try {
-        return await readPage('/api/customers/interactions/tasks')
+        return await readPage('/api/customers/interactions/tasks', {
+          headers: { 'x-om-forbidden-redirect': '0' },
+        })
       } catch (error) {
         if (typeof error !== 'object' || error === null || !('status' in error) || error.status !== 403) {
           throw error

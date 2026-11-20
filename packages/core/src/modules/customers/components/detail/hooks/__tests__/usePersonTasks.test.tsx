@@ -206,7 +206,7 @@ describe('usePersonTasks load-more termination', () => {
     expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
       2,
       `/api/customers/interactions/tasks?page=2&pageSize=${PAGE_SIZE}&entityId=person-1`,
-      undefined,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
       { errorMessage: 'Failed to load tasks.' },
     )
     expect(result.current.tasks).toHaveLength(PAGE_SIZE + 1)
@@ -265,7 +265,7 @@ describe('usePersonTasks merged customer task reads', () => {
 
     expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
       `/api/customers/interactions/tasks?page=1&pageSize=${PAGE_SIZE}&entityId=person-1`,
-      undefined,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
       { errorMessage: 'Failed to load tasks.' },
     )
     expect(result.current.tasks).toEqual([expect.objectContaining({
@@ -382,7 +382,7 @@ describe('usePersonTasks merged customer task reads', () => {
     expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
       1,
       `/api/customers/interactions/tasks?page=1&pageSize=${PAGE_SIZE}&entityId=person-1`,
-      undefined,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
       expect.any(Object),
     )
     expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
