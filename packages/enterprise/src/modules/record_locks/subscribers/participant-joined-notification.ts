@@ -1,10 +1,7 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import { isNotificationsModuleAvailable } from '../lib/notificationsAvailability'
 import { resolveRecordLockNotificationType, resolveRecordResourceLink } from '../lib/notificationHelpers'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-
-const logger = createLogger('record_locks').child({ subscriber: 'participant-joined-notification' })
 
 export const metadata = {
   event: 'record_locks.participant.joined',
@@ -32,38 +29,29 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
     : []
   if (!recipientUserIds.length) return
 
-  try {
-    const notificationService = resolveNotificationService(ctx)
-    const typeDef = resolveRecordLockNotificationType('record_locks.participant.joined')
-    if (!typeDef) return
+  if (!(await isNotificationsModuleAvailable(ctx))) return
+  const notificationService = resolveNotificationService(ctx)
+  const typeDef = resolveRecordLockNotificationType('record_locks.participant.joined')
+  if (!typeDef) return
 
-    const linkHref = resolveRecordResourceLink(payload.resourceKind, payload.resourceId)
-    for (const recipientUserId of recipientUserIds) {
-      if (recipientUserId === payload.joinedUserId) continue
+  const linkHref = resolveRecordResourceLink(payload.resourceKind, payload.resourceId)
+  for (const recipientUserId of recipientUserIds) {
+    if (recipientUserId === payload.joinedUserId) continue
 
-      const notificationInput = buildNotificationFromType(typeDef, {
-        recipientUserId,
-        bodyVariables: {
-          resourceKind: payload.resourceKind,
-        },
-        sourceEntityType: 'record_locks:lock',
-        sourceEntityId: payload.lockId,
-        linkHref,
-        groupKey: `record_locks.participant.joined:${payload.lockId}:${payload.joinedUserId}`,
-      })
-
-      await notificationService.create(notificationInput, {
-        tenantId: payload.tenantId,
-        organizationId: payload.organizationId ?? null,
-      })
-    }
-  } catch (error) {
-    logger.warn('Notification skipped', {
-      error: error instanceof Error ? error.message : String(error),
+    const notificationInput = buildNotificationFromType(typeDef, {
+      recipientUserId,
+      bodyVariables: {
+        resourceKind: payload.resourceKind,
+      },
+      sourceEntityType: 'record_locks:lock',
+      sourceEntityId: payload.lockId,
+      linkHref,
+      groupKey: `record_locks.participant.joined:${payload.lockId}:${payload.joinedUserId}`,
     })
-    getTelemetryRuntime()?.reportError(error, {
-      module: 'record_locks',
-      code: 'record_locks.notification_failed',
+
+    await notificationService.create(notificationInput, {
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
     })
   }
 }

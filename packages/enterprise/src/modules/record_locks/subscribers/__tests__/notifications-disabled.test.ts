@@ -1,15 +1,3 @@
-const mockWarn = jest.fn()
-const mockReportError = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/logger', () => {
-  const logger = { warn: (...args: unknown[]) => mockWarn(...args), error: jest.fn(), info: jest.fn(), debug: jest.fn() }
-  return { createLogger: () => ({ ...logger, child: () => logger }) }
-})
-
-jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
-  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => mockReportError(...args) }),
-}))
-
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationBuilder', () => ({
   buildNotificationFromType: jest.fn((_type: unknown, input: unknown) => input),
 }))
@@ -18,12 +6,17 @@ jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', ()
   resolveNotificationService: jest.fn(),
 }))
 
+jest.mock('@open-mercato/core/modules/notifications/data/entities', () => ({
+  Notification: class Notification {},
+}))
+
 jest.mock('../../lib/notificationHelpers', () => ({
   resolveRecordLockNotificationType: jest.fn((type: string) => ({ type })),
   resolveRecordResourceLink: jest.fn(() => '/backend/customers/people/person-1'),
 }))
 
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import { Notification } from '@open-mercato/core/modules/notifications/data/entities'
 import incomingChanges from '../incoming-changes-notification'
 import participantJoined from '../participant-joined-notification'
 import participantLeft from '../participant-left-notification'
@@ -42,54 +35,51 @@ const basePayload = {
   incomingActionLogId: 'log-1',
 }
 
-const ctx = { resolve: jest.fn() }
+type Context = { resolve: <T = unknown>(name: string) => T }
 
-const cases: Array<[string, (payload: typeof basePayload, context: typeof ctx) => Promise<void>]> = [
+function contextWithNotifications(enabled: boolean): Context {
+  const em = { getMetadata: () => ({ has: (entity: unknown) => enabled && entity === Notification }) }
+  return { resolve: (<T,>(name: string) => (name === 'em' ? em : undefined) as T) }
+}
+
+const cases: Array<[string, (payload: typeof basePayload, context: Context) => Promise<void>]> = [
   ['incoming-changes-notification', incomingChanges],
   ['participant-joined-notification', participantJoined],
   ['participant-left-notification', participantLeft],
   ['record-deleted-notification', recordDeleted],
 ]
 
-describe('record_locks notification subscribers without the notifications module (#9205)', () => {
+describe('record_locks notification subscribers and the optional notifications module (#9205)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
-  test.each(cases)('%s logs a warning instead of throwing when the service cannot be resolved', async (_name, handle) => {
-    jest.mocked(resolveNotificationService).mockImplementation(() => {
-      throw new Error("Could not resolve 'notificationService'")
-    })
-
-    await expect(handle(basePayload, ctx)).resolves.toBeUndefined()
-
-    expect(mockWarn).toHaveBeenCalledTimes(1)
-    expect(mockReportError).toHaveBeenCalledWith(
-      expect.any(Error),
-      expect.objectContaining({ module: 'record_locks', code: 'record_locks.notification_failed' }),
-    )
-  })
-
-  test.each(cases)('%s swallows a throwing create', async (_name, handle) => {
-    const create = jest.fn().mockRejectedValue(new Error('Metadata for entity Notification not found'))
+  test.each(cases)('%s skips delivery when the notifications module is disabled', async (_name, handle) => {
+    const create = jest.fn()
     jest.mocked(resolveNotificationService).mockReturnValue({ create } as never)
 
-    await expect(handle(basePayload, ctx)).resolves.toBeUndefined()
+    await expect(handle(basePayload, contextWithNotifications(false))).resolves.toBeUndefined()
 
-    expect(create).toHaveBeenCalledTimes(1)
-    expect(mockWarn).toHaveBeenCalledTimes(1)
+    expect(resolveNotificationService).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
   })
 
-  test.each(cases)('%s still creates the notification when the service works', async (_name, handle) => {
+  test.each(cases)('%s propagates a delivery failure when notifications is enabled so the event is retried', async (_name, handle) => {
+    const create = jest.fn().mockRejectedValue(new Error('connection reset'))
+    jest.mocked(resolveNotificationService).mockReturnValue({ create } as never)
+
+    await expect(handle(basePayload, contextWithNotifications(true))).rejects.toThrow('connection reset')
+  })
+
+  test.each(cases)('%s creates the notification when notifications is enabled', async (_name, handle) => {
     const create = jest.fn().mockResolvedValue(undefined)
     jest.mocked(resolveNotificationService).mockReturnValue({ create } as never)
 
-    await handle(basePayload, ctx)
+    await handle(basePayload, contextWithNotifications(true))
 
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ recipientUserId: 'user-2' }),
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
-    expect(mockWarn).not.toHaveBeenCalled()
   })
 })

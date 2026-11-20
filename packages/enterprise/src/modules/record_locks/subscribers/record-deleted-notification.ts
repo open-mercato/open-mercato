@@ -1,10 +1,7 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import { isNotificationsModuleAvailable } from '../lib/notificationsAvailability'
 import { resolveRecordLockNotificationType } from '../lib/notificationHelpers'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-
-const logger = createLogger('record_locks').child({ subscriber: 'record-deleted-notification' })
 
 export const metadata = {
   event: 'record_locks.record.deleted',
@@ -31,36 +28,27 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
     : []
   if (!recipientUserIds.length) return
 
-  try {
-    const notificationService = resolveNotificationService(ctx)
-    const typeDef = resolveRecordLockNotificationType('record_locks.record.deleted')
-    if (!typeDef) return
+  if (!(await isNotificationsModuleAvailable(ctx))) return
+  const notificationService = resolveNotificationService(ctx)
+  const typeDef = resolveRecordLockNotificationType('record_locks.record.deleted')
+  if (!typeDef) return
 
-    for (const recipientUserId of recipientUserIds) {
-      if (recipientUserId === payload.deletedByUserId) continue
+  for (const recipientUserId of recipientUserIds) {
+    if (recipientUserId === payload.deletedByUserId) continue
 
-      const notificationInput = buildNotificationFromType(typeDef, {
-        recipientUserId,
-        bodyVariables: {
-          resourceKind: payload.resourceKind,
-        },
-        sourceEntityType: 'record_locks:record',
-        sourceEntityId: payload.resourceId,
-        groupKey: `record_locks.record.deleted:${payload.resourceKind}:${payload.resourceId}`,
-      })
-
-      await notificationService.create(notificationInput, {
-        tenantId: payload.tenantId,
-        organizationId: payload.organizationId ?? null,
-      })
-    }
-  } catch (error) {
-    logger.warn('Notification skipped', {
-      error: error instanceof Error ? error.message : String(error),
+    const notificationInput = buildNotificationFromType(typeDef, {
+      recipientUserId,
+      bodyVariables: {
+        resourceKind: payload.resourceKind,
+      },
+      sourceEntityType: 'record_locks:record',
+      sourceEntityId: payload.resourceId,
+      groupKey: `record_locks.record.deleted:${payload.resourceKind}:${payload.resourceId}`,
     })
-    getTelemetryRuntime()?.reportError(error, {
-      module: 'record_locks',
-      code: 'record_locks.notification_failed',
+
+    await notificationService.create(notificationInput, {
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
     })
   }
 }

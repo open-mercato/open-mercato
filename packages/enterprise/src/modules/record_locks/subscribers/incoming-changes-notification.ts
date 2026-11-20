@@ -1,13 +1,10 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import { isNotificationsModuleAvailable } from '../lib/notificationsAvailability'
 import {
   resolveRecordLockNotificationType,
   resolveRecordResourceLink,
 } from '../lib/notificationHelpers'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-
-const logger = createLogger('record_locks').child({ subscriber: 'incoming-changes-notification' })
 
 export const metadata = {
   event: 'record_locks.incoming_changes.available',
@@ -37,44 +34,35 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
     : []
   if (!recipientUserIds.length) return
 
-  try {
-    const notificationService = resolveNotificationService(ctx)
-    const typeDef = resolveRecordLockNotificationType('record_locks.incoming_changes.available')
-    if (!typeDef) return
+  if (!(await isNotificationsModuleAvailable(ctx))) return
+  const notificationService = resolveNotificationService(ctx)
+  const typeDef = resolveRecordLockNotificationType('record_locks.incoming_changes.available')
+  if (!typeDef) return
 
-    const linkHref = resolveRecordResourceLink(payload.resourceKind, payload.resourceId)
-    const changedFields = typeof payload.changedFields === 'string' && payload.changedFields.trim().length > 0
-      ? payload.changedFields
-      : '-'
+  const linkHref = resolveRecordResourceLink(payload.resourceKind, payload.resourceId)
+  const changedFields = typeof payload.changedFields === 'string' && payload.changedFields.trim().length > 0
+    ? payload.changedFields
+    : '-'
 
-    for (const recipientUserId of recipientUserIds) {
-      const notificationInput = buildNotificationFromType(typeDef, {
-        recipientUserId,
-        bodyVariables: {
-          resourceKind: payload.resourceKind,
-          changedFields,
-          changedRowsJson: typeof payload.changedRowsJson === 'string' ? payload.changedRowsJson : '',
-        },
-        sourceEntityType: 'record_locks:incoming_change',
-        sourceEntityId: payload.incomingActionLogId ?? undefined,
-        linkHref,
-        groupKey: payload.incomingActionLogId
-          ? `record_locks.incoming_changes:${payload.incomingActionLogId}`
-          : `record_locks.incoming_changes:${payload.resourceKind}:${payload.resourceId}`,
-      })
-
-      await notificationService.create(notificationInput, {
-        tenantId: payload.tenantId,
-        organizationId: payload.organizationId ?? null,
-      })
-    }
-  } catch (error) {
-    logger.warn('Notification skipped', {
-      error: error instanceof Error ? error.message : String(error),
+  for (const recipientUserId of recipientUserIds) {
+    const notificationInput = buildNotificationFromType(typeDef, {
+      recipientUserId,
+      bodyVariables: {
+        resourceKind: payload.resourceKind,
+        changedFields,
+        changedRowsJson: typeof payload.changedRowsJson === 'string' ? payload.changedRowsJson : '',
+      },
+      sourceEntityType: 'record_locks:incoming_change',
+      sourceEntityId: payload.incomingActionLogId ?? undefined,
+      linkHref,
+      groupKey: payload.incomingActionLogId
+        ? `record_locks.incoming_changes:${payload.incomingActionLogId}`
+        : `record_locks.incoming_changes:${payload.resourceKind}:${payload.resourceId}`,
     })
-    getTelemetryRuntime()?.reportError(error, {
-      module: 'record_locks',
-      code: 'record_locks.notification_failed',
+
+    await notificationService.create(notificationInput, {
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
     })
   }
 }
