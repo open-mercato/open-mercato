@@ -1,4 +1,4 @@
-import { stableScheduleUuid } from './emailRetrySchedule'
+import { ensureMessagesModuleSchedule, stableScheduleUuid, type SchedulerSource } from './emailRetrySchedule'
 
 export const MESSAGES_SCHEDULED_RELEASE_QUEUE_NAME = 'messages-scheduled-release'
 export const RELEASE_SCHEDULED_COMMAND_ID = 'messages.messages.release_scheduled'
@@ -31,7 +31,25 @@ export async function registerMessagesScheduledReleaseSchedule(
 ): Promise<void> {
   if (!container || !isSchedulingAvailable(container)) return
   const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
-  await schedulerService.register({
+  await schedulerService.register(buildScheduledReleaseRegistration(scope))
+}
+
+/** Lazily registers the release tick when a message is scheduled (see `ensureMessagesModuleSchedule`). */
+export async function ensureMessagesScheduledReleaseSchedule(
+  source: SchedulerSource,
+  scope: { tenantId: string; organizationId: string | null },
+): Promise<void> {
+  const { tenantId, organizationId } = scope
+  if (!organizationId) return
+  await ensureMessagesModuleSchedule(
+    source,
+    `scheduled-release:${organizationId}`,
+    () => buildScheduledReleaseRegistration({ tenantId, organizationId }),
+  )
+}
+
+function buildScheduledReleaseRegistration(scope: { tenantId: string; organizationId: string }): Record<string, unknown> {
+  return {
     id: stableScheduleUuid(`messages:scheduled-release:${scope.organizationId}`),
     name: 'Messages scheduled send release',
     description: 'Every 60s, sends the scheduled messages whose time has come.',
@@ -47,5 +65,5 @@ export async function registerMessagesScheduledReleaseSchedule(
     sourceType: 'module',
     sourceModule: 'messages',
     isEnabled: true,
-  })
+  }
 }
