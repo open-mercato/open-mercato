@@ -400,7 +400,7 @@ Decisions taken while implementing, with their reasons. Where they differ from t
 - `GET /api/communication_channels/me/channels` items gain `supportsAttachments: boolean` (additive); `communicationChannelsValidateSenderChannel` returns `{ ok: true, supportsAttachments }`; `MessageSenderOption.supportsAttachments?: boolean` (additive). The composer hides the attachments section and shows `messages.composer.senderAttachmentsUnsupported` while such a sender is selected.
 - Known risk: if the "Send now" step of an immediate mailbox compose with attachments fails (budget 429, mailbox refusal), the composed message stays in Drafts with its files and the error is returned.
 
-### 2026-11-22 — Browser QA fixes
+### 2026-11-20 — Browser QA fixes
 - "Send later" picker defaults to the next local :00/:30 at least 5 minutes ahead (`defaultScheduleTime`), instead of tomorrow 00:00; the current `scheduledAt` still wins when rescheduling.
 - The detail page's edit dialog now gets "Send from" (shared `useComposeSenderOptions` hook, also used by the compose page) and "Send later" (`useComposeScheduling`), preselects the stored `senderChannelId` and seeds the picker with the stored `scheduledAt`; scheduling an existing message goes through the existing PATCH path.
 - Closing or saving the edit dialog invalidates `['messages','detail',id]` (detail and attachments queries), so deleted attachments no longer linger.
