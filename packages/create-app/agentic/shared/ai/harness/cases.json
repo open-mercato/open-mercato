@@ -3839,7 +3839,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 135710,
     "relatedCases": [
       "OMH-047"
     ]
@@ -6004,7 +6004,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 13,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 69922,
     "maxTotalContextBytes": 446464,
     "relatedCases": [
       "OMH-020",
@@ -6414,7 +6414,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 15,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 69922,
     "maxTotalContextBytes": 839680,
     "relatedCases": [
       "OMH-016",
@@ -6828,7 +6828,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 13,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 70198,
     "maxTotalContextBytes": 524288,
     "relatedCases": [
       "OMH-042",
@@ -8280,7 +8280,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 12,
-    "maxInitialContextBytes": 66560,
+    "maxInitialContextBytes": 67100,
     "maxTotalContextBytes": 548864,
     "relatedCases": [
       "OMH-018",
@@ -8648,7 +8648,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 274432,
     "relatedCases": [
       "OMH-017",
@@ -8825,7 +8825,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 274432,
     "relatedCases": [
       "OMH-012",
@@ -9022,7 +9022,7 @@
       "oracle.business.command"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 335872,
     "relatedCases": [
       "OMH-031",
@@ -9432,7 +9432,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 57670,
     "maxTotalContextBytes": 315392,
     "relatedCases": [
       "OMH-019",
@@ -9625,7 +9625,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 69922,
     "maxTotalContextBytes": 618496,
     "relatedCases": [
       "OMH-060",
@@ -10195,7 +10195,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 348160,
     "relatedCases": [
       "OMH-010",
@@ -10286,7 +10286,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 204800,
     "relatedCases": [
       "OMH-009",
@@ -10861,7 +10861,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 348160,
     "relatedCases": [
       "OMH-012",
@@ -11223,7 +11223,7 @@
       "oracle.business.async-operation"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-012",
@@ -11424,7 +11424,7 @@
       "oracle.business.ui-surface"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 344064,
     "relatedCases": [
       "OMH-034",
@@ -12482,7 +12482,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 66560,
+    "maxInitialContextBytes": 67100,
     "maxTotalContextBytes": 307200,
     "relatedCases": [
       "OMH-053",
@@ -13664,7 +13664,7 @@
       "src/modules/erp_sync/workers/**"
     ],
     "maxContextFiles": 15,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 70198,
     "maxTotalContextBytes": 638976,
     "relatedCases": [
       "OMH-042",
@@ -13831,7 +13831,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 12,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 70198,
     "maxTotalContextBytes": 311296,
     "relatedCases": [
       "OMH-018",
@@ -15023,7 +15023,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 69860,
     "maxTotalContextBytes": 286720,
     "relatedCases": [
       "OMH-005",

@@ -50,6 +50,7 @@ Status: in-progress
 | 6 | 6.4 | Refresh standalone harness coverage for each showcase case | dispatch | todo | — |
 | 6 | 6.2-audit-review-fix | Keep private sink replay data out of audit responses | self | done | this commit |
 | 6 | 6.2-host-review-fix | Keep configured host and sink versions independent and extend compatibility coverage | self | done | this commit |
+| 6 | 6.4-packed-budget-fix | Account for the measured rendered scaffold context | self | done | this commit |
 | 6 | 6.5 | Record example, harness and integration evidence | dispatch | todo | — |
 
 ## Goal
