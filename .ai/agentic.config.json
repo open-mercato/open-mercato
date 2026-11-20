@@ -26,7 +26,7 @@
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
   "qaGate": true,
-  "qaGateLabel": "needs-human-qa",
+  "qaGateLabel": "needs-qa",
   "qaReadyLabel": "ready-for-qa",
   "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },

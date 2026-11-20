@@ -23,7 +23,7 @@ The shared `references/diagnose.md` signal 4 asks for the diff's scope. In this 
 
 The label vocabulary, the mutual-exclusion groups, and the priority/risk inference rules are defined in the root `AGENTS.md` → PR Workflow section; read it rather than restating the taxonomy. Three repo rules bind the chain:
 
-- **The QA-approval merge gate is hard.** A PR carrying `needs-human-qa` (config `qaGateLabel`) without `qa-approved` MUST NOT merge, even when everything else is green; `needs-qa` alone asks for automatic QA and does not block. `skip-qa` is the explicit opt-out; never combine it with `needs-qa`/`needs-human-qa`/`qa-approved`.
+- **The QA-approval merge gate is hard.** A PR carrying `needs-qa` without `qa-approved` MUST NOT merge, even when everything else is green. `skip-qa` is the explicit opt-out; never combine it with `needs-qa`/`qa-approved`.
 - **Never set the `qa` pipeline label.** It means "manual QA in progress" and is applied by QA reviewers only. This skill and everything it dispatches request QA with `needs-qa` alone.
 - **`qa-failed`, `blocked`, and `do-not-merge` are hard blocks** — matrix row 0c stops on them.
 
