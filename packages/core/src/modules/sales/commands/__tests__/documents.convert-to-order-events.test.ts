@@ -23,6 +23,12 @@ type MarkedChange = {
 }
 
 const mockCreateForFeature = jest.fn(async () => [])
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
@@ -174,6 +180,7 @@ describe('sales.quotes.convert_to_order — sales.order.created side effect (#64
 
   beforeEach(() => {
     mockCreateForFeature.mockClear()
+    mockReportError.mockClear()
   })
 
   function getHandler() {
@@ -221,13 +228,37 @@ describe('sales.quotes.convert_to_order — sales.order.created side effect (#64
     )
   })
 
-  test('marks the change once when joining the caller transaction (quote acceptance)', async () => {
-    const { ctx, em, marked } = setup({ callerTransaction: true })
+  test('reports notification failure and still stages the committed order event', async () => {
+    const { ctx, marked } = setup()
+    const failure = new Error('notification unavailable')
+    mockCreateForFeature.mockRejectedValueOnce(failure)
 
-    await getHandler().execute({ quoteId: QUOTE_ID, orderId: ORDER_ID }, ctx)
+    await expect(
+      getHandler().execute({ quoteId: QUOTE_ID, orderId: ORDER_ID }, ctx),
+    ).resolves.toEqual({ orderId: ORDER_ID })
 
-    expect(em.transactional).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'sales',
+      code: 'sales.order_created_notification_failed',
+      attributes: { commandId: 'sales.quotes.convert_to_order', orderId: ORDER_ID },
+    })
     expect(orderCreatedChanges(marked)).toHaveLength(1)
+  })
+
+  test('rejects an untracked caller transaction before mutating or staging effects', async () => {
+    const { ctx, em, marked, dataEngine } = setup({ callerTransaction: true })
+
+    await expect(
+      getHandler().execute({ quoteId: QUOTE_ID, orderId: ORDER_ID }, ctx),
+    ).rejects.toThrow('Quote conversion requires an active transaction lifetime')
+
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(orderCreatedChanges(marked)).toHaveLength(0)
+    expect(dataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+    expect(mockCreateForFeature).not.toHaveBeenCalled()
   })
 
   test('defers the mark, flush and notification until the caller transaction commits (quote acceptance)', async () => {

@@ -1,6 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
+import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { withNextRuntime } from '../../customer_accounts/__integration__/helpers/nextRuntime'
 import { listActionLogs } from '@open-mercato/core/modules/audit_logs/__integration__/helpers/auditLogsApi'
 
 /**
@@ -20,6 +27,81 @@ import { listActionLogs } from '@open-mercato/core/modules/audit_logs/__integrat
  */
 
 const SALES_UNDO_PATH = '/api/audit_logs/audit-logs/actions/undo'
+
+async function loadSalesRuntime() {
+  if (process.env.OM_INTEGRATION_TEST !== 'true' || !process.env.DATABASE_URL) {
+    throw new Error('[internal] Sales event integration requires the isolated CLI test environment')
+  }
+
+  return withNextRuntime(async () => {
+    const { bootstrapFromAppRoot } = await importFromAppRuntime<
+      typeof import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    >('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    await bootstrapFromAppRoot(resolveAppRoot())
+    const [accept, convert, bus, database, entities] = await Promise.all([
+      importFromAppRuntime<typeof import('../api/quotes/accept/route')>(
+        '@open-mercato/core/modules/sales/api/quotes/accept/route',
+      ),
+      importFromAppRuntime<typeof import('../api/quotes/convert/route')>(
+        '@open-mercato/core/modules/sales/api/quotes/convert/route',
+      ),
+      importFromAppRuntime<typeof import('@open-mercato/events/bus')>('@open-mercato/events/bus'),
+      importFromAppRuntime<typeof import('@open-mercato/shared/lib/db/mikro')>('@open-mercato/shared/lib/db/mikro'),
+      importFromAppRuntime<typeof import('../data/entities')>('@open-mercato/core/modules/sales/data/entities'),
+    ])
+    return { accept, convert, bus, database, entities }
+  })
+}
+
+function recordOrderCreated(
+  bus: Awaited<ReturnType<typeof loadSalesRuntime>>['bus'],
+  orderId: string,
+) {
+  const events: unknown[] = []
+  const stop = bus.registerGlobalEventTap(async (event, payload, options) => {
+    if (event !== 'sales.order.created' || !payload || typeof payload !== 'object'
+      || !('id' in payload) || payload.id !== orderId) return
+    const { tenantId, organizationId } = payload as Record<string, unknown>
+    const { rowCount } = await withClient((client) => client.query(
+      'select id from sales_orders where id = $1 and tenant_id = $2 and organization_id = $3',
+      [orderId, options?.tenantId, options?.organizationId],
+    ))
+    events.push({
+      id: payload.id,
+      tenantId,
+      organizationId,
+      envelopeTenantId: options?.tenantId,
+      envelopeOrganizationId: options?.organizationId,
+      committed: rowCount === 1,
+    })
+  })
+  return { events, stop }
+}
+
+function expectedOrderCreated(orderId: string, scope: ReturnType<typeof getTokenScope>) {
+  return {
+    id: orderId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    envelopeTenantId: scope.tenantId,
+    envelopeOrganizationId: scope.organizationId,
+    committed: true,
+  }
+}
+
+function postSalesRoute(path: string, data: object, token?: string) {
+  const url = new URL(path, process.env.BASE_URL)
+  return new Request(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: url.origin,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+  })
+}
+
 
 type JsonRecord = Record<string, unknown>
 
@@ -375,17 +457,21 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
       expect(expectedGrandNet).toBe(95)
       expect(expectedGrandGross).toBe(94)
 
-      // Single-transaction convert: source quote -> order.
-      const convertResponse = await apiRequest(request, 'POST', '/api/sales/quotes/convert', {
-        token,
-        data: { quoteId: quoteId! },
-      })
-      expect(convertResponse.status(), 'POST /api/sales/quotes/convert should be 200').toBe(200)
-      const convertBody = await readJson(convertResponse)
-      orderId = typeof convertBody.orderId === 'string' ? convertBody.orderId : null
-      expect(orderId, 'convert should return orderId').toBeTruthy()
-      // Convert also emits an undo operation header.
-      expect(parseUndoToken(convertResponse), 'convert should emit an undo token').toBeTruthy()
+      const runtime = await loadSalesRuntime()
+      const capture = recordOrderCreated(runtime.bus, quoteId!)
+      try {
+        const convertResponse = await runtime.convert.POST(postSalesRoute('/api/sales/quotes/convert', {
+          quoteId,
+        }, token))
+        expect(convertResponse.status, 'POST /api/sales/quotes/convert should be 200').toBe(200)
+        const convertBody = await convertResponse.json() as { orderId?: string }
+        orderId = convertBody.orderId ?? null
+        expect(orderId, 'convert should return the order id').toBe(quoteId)
+        expect(convertResponse.headers.get('x-om-operation')).toMatch(/^omop:/)
+        expect(capture.events).toEqual([expectedOrderCreated(quoteId!, getTokenScope(token))])
+      } finally {
+        capture.stop()
+      }
 
       // The resulting order carries the line over.
       const orderLines = await listChildItems(request, token, 'order-lines', `orderId=${encodeURIComponent(orderId!)}`)
@@ -428,6 +514,84 @@ test.describe('TC-SALES-ATOMIC-VERIFY: atomic-write backward-compat & data safet
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
   })
+
+  for (const rollback of [false, true]) {
+    test(`public quote acceptance ${rollback ? 'discards effects on rollback' : 'delivers one committed order event'}`, async ({ request }) => {
+      test.slow()
+      const token = await getAuthToken(request, 'admin')
+      const scope = getTokenScope(token)
+      const publicToken = randomUUID()
+      const create = await apiRequest(request, 'POST', '/api/sales/quotes', {
+        token,
+        data: { currencyCode: 'USD' },
+      })
+      expect(create.status()).toBe(201)
+      const { id: quoteId } = await create.json() as { id: string }
+      expect(quoteId).toBeTruthy()
+
+      try {
+        const seeded = await withClient((client) => client.query(
+          `update sales_quotes set acceptance_token = $1, status = 'sent'
+           where id = $2 and tenant_id = $3 and organization_id = $4`,
+          [hashAuthToken(publicToken), quoteId, scope.tenantId, scope.organizationId],
+        ))
+        expect(seeded.rowCount).toBe(1)
+
+        const runtime = await loadSalesRuntime()
+        const orm = await runtime.database.getOrm()
+        const subscribers = orm.config.get('subscribers')
+        let rollbackInjected = false
+        const capture = recordOrderCreated(runtime.bus, quoteId)
+        try {
+          if (rollback) {
+            orm.config.set('subscribers', [...subscribers, {
+              async beforeTransactionCommit({ em }) {
+                if (!await em.count(runtime.entities.SalesOrder, {
+                  id: quoteId,
+                  tenantId: scope.tenantId,
+                  organizationId: scope.organizationId,
+                })) return
+                rollbackInjected = true
+                throw new Error('[internal] Injected public acceptance commit failure')
+              },
+            }])
+          }
+          const response = await runtime.accept.POST(postSalesRoute('/api/sales/quotes/accept', { token: publicToken }))
+          expect(response.status).toBe(rollback ? 400 : 200)
+          if (rollback) {
+            expect(rollbackInjected).toBe(true)
+            expect(capture.events).toEqual([])
+            const persisted = await withClient(async (client) => ({
+              quotes: (await client.query<{ status: string }>(
+                'select status from sales_quotes where id = $1 and tenant_id = $2', [quoteId, scope.tenantId],
+              )).rows,
+              orders: (await client.query(
+                'select id from sales_orders where id = $1 and tenant_id = $2', [quoteId, scope.tenantId],
+              )).rowCount,
+              notifications: (await client.query(
+                'select id from notifications where source_entity_id = $1 and tenant_id = $2 and type = $3',
+                [quoteId, scope.tenantId, 'sales.order.created'],
+              )).rowCount,
+            }))
+            expect(persisted).toEqual({ quotes: [{ status: 'sent' }], orders: 0, notifications: 0 })
+          } else {
+            expect(await response.json()).toMatchObject({ orderId: quoteId })
+            expect(capture.events).toEqual([expectedOrderCreated(quoteId, scope)])
+          }
+        } finally {
+          capture.stop()
+          if (rollback) orm.config.set('subscribers', subscribers)
+        }
+      } finally {
+        await deleteSalesEntityIfExists(request, token, '/api/sales/orders', quoteId)
+        await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+        await withClient((client) => client.query(
+          'delete from notifications where source_entity_id = $1 and tenant_id = $2 and type = $3',
+          [quoteId, scope.tenantId, 'sales.order.created'],
+        ))
+      }
+    })
+  }
 
   test('payment (PR #2355): create/update field persistence and consistent order totals', async ({ request }) => {
     test.slow()

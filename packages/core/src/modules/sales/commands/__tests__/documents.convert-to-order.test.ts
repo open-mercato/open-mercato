@@ -4,6 +4,10 @@ import { LockMode } from '@mikro-orm/core'
 import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
+import {
+  beginTransactionLifetime,
+  completeTransactionLifetime,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -18,6 +22,18 @@ import {
 
 type ConvertToOrderInput = { quoteId: string; orderId?: string; orderNumber?: string }
 type ConvertToOrderResult = { orderId: string }
+
+async function executeInCallerTransaction<TResult>(
+  em: NonNullable<CommandRuntimeContext['transactionalEm']>,
+  execute: () => TResult | Promise<TResult>,
+): Promise<TResult> {
+  const lifetime = beginTransactionLifetime(em)
+  try {
+    return await execute()
+  } finally {
+    await completeTransactionLifetime(em, lifetime, 'rolled_back')
+  }
+}
 
 function readWhereId(where: unknown): unknown {
   if (where && typeof where === 'object' && 'id' in where) {
@@ -162,17 +178,15 @@ describe('sales.quotes.convert_to_order', () => {
 
     const em = {
       fork: jest.fn(),
-      transactional: jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
+      transactional: jest.fn(async (callback: (trx: unknown) => Promise<unknown>): Promise<unknown> => {
         const previous = active
-        let release: (() => void) | null = null
-        active = new Promise<void>((resolve) => {
-          release = resolve
-        })
+        const { promise, resolve: release } = Promise.withResolvers<void>()
+        active = promise
         await previous
         try {
           return await callback(em)
         } finally {
-          release?.()
+          release()
         }
       }),
       findOne: jest.fn(async () => null),
@@ -336,10 +350,10 @@ describe('sales.quotes.convert_to_order', () => {
       transactionalEm: providedEm as unknown as CommandRuntimeContext['transactionalEm'],
     }
 
-    const result = await handler!.execute(
+    const result = await executeInCallerTransaction(ctx.transactionalEm!, () => handler!.execute(
       { quoteId: quote.id, orderId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' },
       ctx,
-    )
+    ))
 
     expect(result.orderId).toBe('dddddddd-dddd-4ddd-8ddd-dddddddddddd')
     expect(containerEm.fork).not.toHaveBeenCalled()
@@ -434,7 +448,10 @@ describe('sales.quotes.convert_to_order — shipping and surcharge totals', () =
       transactionalEm: em as unknown as CommandRuntimeContext['transactionalEm'],
     }
 
-    return { execute: () => handler!.execute({ quoteId: quote.id }, ctx), em }
+    return {
+      execute: () => executeInCallerTransaction(ctx.transactionalEm!, () => handler!.execute({ quoteId: quote.id }, ctx)),
+      em,
+    }
   }
 
   async function convertQuote(totalsSnapshot: unknown, rows: FeeRow[]): Promise<Record<string, unknown>> {

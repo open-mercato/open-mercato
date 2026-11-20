@@ -213,6 +213,7 @@ import {
 import type { AuthContext } from "@open-mercato/shared/lib/auth/server";
 import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/translate";
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
 let warnedDeprecatedOrderPaymentLedgerInput = false
@@ -6659,6 +6660,18 @@ async function notifySalesOrderCreated(
   } catch (err) {
     // Notification creation is non-critical, don't fail the command
     logger.error(`${commandId} failed to create notification`, { err });
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: "sales",
+        code: "sales.order_created_notification_failed",
+        attributes: { commandId, orderId: order.id },
+      });
+    } catch (reportingErr) {
+      logger.warn(`${commandId} notification failure could not be reported`, {
+        err: reportingErr,
+        orderId: order.id,
+      });
+    }
   }
 }
 
@@ -7333,6 +7346,9 @@ const convertQuoteToOrderCommand: CommandHandler<
     // (and its row locks) so the quote status flip and the order materialization
     // commit or roll back as one atomic unit — no out-of-band compensating write.
     const callerEm = ctx.transactionalEm;
+    if (callerEm && !getTransactionLifetime(callerEm)) {
+      throw new Error("[internal] Quote conversion requires an active transaction lifetime");
+    }
     const rootEm =
       callerEm ?? (ctx.container.resolve("em") as EntityManager).fork();
     const transactionalEm = rootEm as EntityManager & {
@@ -7702,7 +7718,7 @@ const convertQuoteToOrderCommand: CommandHandler<
       });
     };
 
-    if (callerEm && getTransactionLifetime(callerEm)) {
+    if (callerEm) {
       onTransactionLifetimeComplete(callerEm, async (outcome) => {
         if (outcome !== "committed") return;
         await emitOrderCreated();
