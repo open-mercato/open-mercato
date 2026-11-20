@@ -1,10 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { ChannelThreadMapping, CommunicationChannel, MessageChannelLink } from '../data/entities'
+import { MessageChannelLink } from '../data/entities'
 import { Message, MessageExternalParticipant } from '../../messages/data/entities'
 import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 import { isIngestedInboundMessage } from '../lib/inbound-message-origin'
 import { isOutboundDeliveryIntended } from '../lib/outbound-delivery-intent'
+import { resolveOutboundRouting } from '../lib/outbound-routing'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 
@@ -49,6 +50,7 @@ type MessageSentPayload = {
    * `lib/outbound-delivery-intent`.
    */
   forwardedFrom?: string | null
+  replyTo?: string | null
   tenantId: string
   organizationId?: string | null
 }
@@ -96,7 +98,10 @@ export default async function handler(
     dscope,
   )
   if (!message) return
-  if (message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE) {
+  if (
+    message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE &&
+    (!message.parentMessageId || payload.replyTo !== message.parentMessageId)
+  ) {
     return
   }
   // (a1) Intent gate. The origin test at (c1) answers "did the ingest command
@@ -109,20 +114,6 @@ export default async function handler(
     return
   }
   if (!message.threadId) return // Internal-only; no channel routing.
-
-  // (b) Look up the channel mapping by threadId.
-  const mapping = await findOneWithDecryption(
-    em,
-    ChannelThreadMapping,
-    {
-      messageThreadId: message.threadId,
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId ?? null,
-    },
-    undefined,
-    dscope,
-  )
-  if (!mapping) return // Internal-only thread; skip silently.
 
   // (c) Idempotency — skip if already delivered. A "send separately" message
   // has one link per participant, so every link of the message is checked.
@@ -166,19 +157,9 @@ export default async function handler(
   // shared inboxes) accept any sender. Without this, composing into another
   // user's channel-linked thread would send from their connected account
   // (impersonation). Mirrors lib/send-as-user and the reaction ownership gate.
-  const channel = await findOneWithDecryption(
-    em,
-    CommunicationChannel,
-    {
-      id: mapping.channelId,
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId ?? null,
-      deletedAt: null,
-    },
-    undefined,
-    dscope,
-  )
-  if (!channel) return
+  const routing = await resolveOutboundRouting(em, { message, link: existingLink, scope: dscope })
+  if (!routing) return
+  const { channel } = routing
   if (channel.userId != null && channel.userId !== message.senderUserId) {
     return
   }

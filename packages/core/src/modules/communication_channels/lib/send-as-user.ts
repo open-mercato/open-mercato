@@ -18,7 +18,21 @@ import { ChannelMutationBlockedError, guardOutboundCreate } from './mutation-gua
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from './queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 import { htmlToText } from './email-mime'
+import type { ChannelAdapterRegistry } from './registry'
+import {
+  OUTBOUND_ATTACHMENTS_METADATA_KEY,
+  omitOutboundAttachments,
+  parseOutboundAttachmentRefs,
+  readStoredOutboundAttachments,
+  validateOutboundAttachments,
+  type OutboundAttachmentErrorCode,
+  type OutboundAttachmentRef,
+  type StoredOutboundAttachment,
+} from './outbound-attachments'
+import { buildOutboundConversationRef } from './outbound-conversation-ref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('communication_channels')
 
@@ -55,7 +69,8 @@ export type SendAsUserInput = {
    * Free-form metadata persisted on the resulting MessageChannelLink. Used by
    * downstream subscribers (e.g. the customers module's link-channel-message
    * subscriber) to anchor the sent message back to a CRM Person or honor a
-   * caller-specified visibility flag. The hub does not interpret these keys.
+   * caller-specified visibility flag. The hub does not interpret these keys,
+   * except that it owns `outboundAttachments` and drops a caller-supplied value.
    */
   channelMetadata?: Record<string, unknown>
   /**
@@ -66,9 +81,20 @@ export type SendAsUserInput = {
   /**
    * Send later: the message is stored as scheduled (no channel link, nothing
    * enqueued) and the messages release tick hands it to `userChannelId` at this
-   * instant, replaying `channelMetadata`, `inReplyTo` and `references`.
+   * instant, replaying `channelMetadata`, `inReplyTo`, `references` and the
+   * validated `attachments`.
    */
   scheduledAt?: Date
+  /**
+   * Files from the attachments module to send with the message. Each ref names
+   * the record that owns the file; like `parentMessageId`, the caller MUST have
+   * established that the actor can read that record. The hub checks the rest:
+   * the adapter ships files (`fileSharing`), the file is readable in the
+   * actor's tenant and organization and owned by `owner`, its type and size fit
+   * the adapter. Only the refs are stored; the bytes are read at delivery.
+   * With "send separately" every copy carries the same files.
+   */
+  attachments?: OutboundAttachmentRef[]
 }
 
 /**
@@ -102,7 +128,14 @@ export type SendAsUserResult =
       /** ISO instant the message is scheduled for; set only by a scheduled compose. */
       scheduledAt?: string
     }
-  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; code?: SendAsUserFailureCode }
+  | {
+      ok: false
+      status: number
+      error: string
+      fieldErrors?: Record<string, string>
+      code?: SendAsUserFailureCode | OutboundAttachmentErrorCode
+      headers?: Record<string, string>
+    }
 
 type SendAsUserFailure = Extract<SendAsUserResult, { ok: false }>
 
@@ -152,6 +185,29 @@ export async function sendAsUser(
   if (!resolved.ok) return resolved
   const { channel } = resolved
 
+  // Re-parsed for the same reason as `to`: DI callers skip the route's schema.
+  const attachmentRefs = input.attachments === undefined ? [] : parseOutboundAttachmentRefs(input.attachments)
+  if (!attachmentRefs) {
+    return { ok: false, status: 422, error: '[internal] attachments must be attachment references' }
+  }
+
+  let storedAttachments: StoredOutboundAttachment[] = []
+  if (attachmentRefs.length) {
+    const adapterRegistry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
+    const adapter = adapterRegistry.get(channel.providerKey)
+    if (!adapter) return { ok: false, status: 409, error: '[internal] No channel adapter registered for this provider' }
+    const validation = await validateOutboundAttachments({
+      container,
+      scope: { userId: actor.userId, tenantId, organizationId },
+      refs: attachmentRefs,
+      capabilities: adapter.capabilities,
+    })
+    if (!validation.ok) {
+      return { ok: false, status: validation.status, error: validation.error, code: validation.code }
+    }
+    storedAttachments = validation.stored
+  }
+
   // Create the Message via the messages module compose command. The outbound
   // subscriber picks it up via `messages.message.sent` and routes through the
   // adapter chain.
@@ -170,6 +226,9 @@ export async function sendAsUser(
       ...(input.bcc ?? []).map((email) => ({ email, role: 'bcc' as const })),
     ],
     sendSeparately,
+    ...(channel.channelType === 'email'
+      ? { externalEmailRecipients: [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])] }
+      : {}),
     externalName: input.subject,
     recipients: [],
     subject: input.subject,
@@ -184,7 +243,14 @@ export async function sendAsUser(
           scheduledAt,
           senderChannelId: channel.id,
           senderDeliveryOptions: {
-            ...(input.channelMetadata ? { channelMetadata: input.channelMetadata } : {}),
+            ...(input.channelMetadata || storedAttachments.length
+              ? {
+                  channelMetadata: {
+                    ...omitOutboundAttachments(input.channelMetadata),
+                    ...(storedAttachments.length ? { [OUTBOUND_ATTACHMENTS_METADATA_KEY]: storedAttachments } : {}),
+                  },
+                }
+              : {}),
             inReplyTo: input.inReplyTo ?? null,
             references: input.references ?? [],
           },
@@ -218,7 +284,18 @@ export async function sendAsUser(
       const error = t(scheduleIssue.message, scheduleIssue.message)
       return { ok: false, status: 400, error, fieldErrors: { scheduledAt: error } }
     }
+    if (isCrudHttpError(err)) {
+      return {
+        ok: false,
+        status: err.status,
+        error: typeof err.body.error === 'string' ? err.body.error : err.message,
+        ...('headers' in err && err.headers instanceof Headers
+          ? { headers: Object.fromEntries(err.headers.entries()) }
+          : {}),
+      }
+    }
     logger.error('communication_channels send-as-user compose failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'communication_channels', code: 'communication_channels.compose_failed' })
     return { ok: false, status: 500, error: '[internal] compose failed' }
   }
 
@@ -258,6 +335,8 @@ export async function sendAsUser(
     inReplyTo: input.inReplyTo ?? null,
     references: input.references ?? [],
     channelMetadata: input.channelMetadata,
+    parentMessageId: input.parentMessageId ?? null,
+    attachments: storedAttachments,
     deliveries,
   })
   await enqueueOutboundDeliveries(messageId, dscope, deliveries)
@@ -284,6 +363,8 @@ type OutboundDeliveryContent = {
   inReplyTo: string | null
   references: string[]
   channelMetadata?: Record<string, unknown>
+  parentMessageId: string | null
+  attachments: StoredOutboundAttachment[]
   deliveries: OutboundDelivery[]
 }
 
@@ -420,6 +501,9 @@ async function sendExistingMessageAsUser(
       inReplyTo: input.channelMetadata ? null : stored?.inReplyTo ?? null,
       references: input.channelMetadata ? [] : stored?.references ?? [],
       channelMetadata: input.channelMetadata ?? stored?.channelMetadata,
+      parentMessageId: message.parentMessageId ?? null,
+      // Validated when the message was scheduled; only the hub writes this key.
+      attachments: readStoredOutboundAttachments(stored?.channelMetadata),
       deliveries,
     },
     async () => {
@@ -459,7 +543,7 @@ async function persistOutboundDelivery(
   const { tenantId } = actor
   const organizationId = actor.organizationId
   const dscope = { tenantId, organizationId }
-  const externalThreadRef = `outbound:${content.messageThreadId}`
+  const externalThreadRef = buildOutboundConversationRef(content.messageThreadId)
 
   // Persist the conversation, thread mapping, and channel link as one unit. The
   // conversation's id is DB-generated (`gen_random_uuid()`), so it must be
@@ -468,18 +552,64 @@ async function persistOutboundDelivery(
   // wraps the whole sequence so a mid-way failure rolls back all three writes
   // instead of leaving an orphaned conversation row.
   await em.transactional(async () => {
-    let conversation = await findOneWithDecryption(
-      em,
-      ExternalConversation,
-      {
-        channelId: channel.id,
-        externalConversationId: externalThreadRef,
-        tenantId,
-        organizationId,
-      },
-      undefined,
-      dscope,
-    )
+    // A reply belongs to the conversation its parent lives in on this channel.
+    // One logical thread can map to several provider conversations on the same
+    // channel, so the thread alone cannot pick the right one.
+    let conversation = content.parentMessageId
+      ? await findParentConversation(em, {
+          parentMessageId: content.parentMessageId,
+          messageThreadId: content.messageThreadId,
+          channelId: channel.id,
+          scope: dscope,
+        })
+      : null
+    if (!conversation) {
+      conversation = await findOneWithDecryption(
+        em,
+        ExternalConversation,
+        {
+          channelId: channel.id,
+          externalConversationId: externalThreadRef,
+          tenantId,
+          organizationId,
+        },
+        undefined,
+        dscope,
+      )
+    }
+    if (!conversation) {
+      // The thread may already be mapped on this channel under the provider's own
+      // conversation id: an inbound thread, or an earlier send whose `outbound:`
+      // placeholder was re-keyed by the delivery command. Reuse that conversation
+      // so a follow-up send stays in it instead of opening a parallel one. When
+      // the thread spans several conversations here, the oldest one wins.
+      const threadMapping = await findOneWithDecryption(
+        em,
+        ChannelThreadMapping,
+        {
+          messageThreadId: content.messageThreadId,
+          channelId: channel.id,
+          tenantId,
+          organizationId,
+        },
+        { orderBy: { createdAt: 'asc' } },
+        dscope,
+      )
+      if (threadMapping) {
+        conversation = await findOneWithDecryption(
+          em,
+          ExternalConversation,
+          {
+            id: threadMapping.externalConversationId,
+            channelId: channel.id,
+            tenantId,
+            organizationId,
+          },
+          undefined,
+          dscope,
+        )
+      }
+    }
     if (!conversation) {
       conversation = em.create(ExternalConversation, {
         channelId: channel.id,
@@ -546,14 +676,18 @@ async function persistOutboundDelivery(
         channelMetadata: {
           // Caller-supplied pass-through metadata merged FIRST so the validated
           // routing fields below always win — a caller cannot override the
-          // recipients/subject/threading headers via `channelMetadata`.
-          ...(content.channelMetadata ?? {}),
+          // recipients/subject/threading headers via `channelMetadata`. The
+          // attachment refs key is hub-owned: a caller-supplied value is dropped
+          // so no ref can skip the checks above.
+          ...omitOutboundAttachments(content.channelMetadata),
           to: delivery.to,
           cc: delivery.externalParticipantId ? [] : content.cc,
           bcc: delivery.externalParticipantId ? [] : content.bcc,
           subject: content.subject,
           inReplyTo: content.inReplyTo,
           references: content.references,
+          // Every copy of a "send separately" message carries the files.
+          ...(content.attachments.length ? { [OUTBOUND_ATTACHMENTS_METADATA_KEY]: content.attachments } : {}),
         },
         tenantId,
         organizationId,
@@ -603,6 +737,52 @@ async function validateSendSeparately(
     'Send separately cannot be combined with CC or BCC when there is more than one recipient.',
   )
   return { ok: false, status: 400, error, fieldErrors: Object.fromEntries(fields.map((field) => [field, error])) }
+}
+
+/**
+ * The parent's conversation on this channel, but only when it is mapped to the
+ * reply's own thread there: delivery resolves the mapping by thread and
+ * conversation, so any other conversation would leave the reply undeliverable.
+ */
+async function findParentConversation(
+  em: EntityManager,
+  params: {
+    parentMessageId: string
+    messageThreadId: string
+    channelId: string
+    scope: { tenantId: string; organizationId: string | null }
+  },
+): Promise<ExternalConversation | null> {
+  const { tenantId, organizationId } = params.scope
+  const parentLink = await findOneWithDecryption(
+    em,
+    MessageChannelLink,
+    { messageId: params.parentMessageId, tenantId, organizationId },
+    undefined,
+    params.scope,
+  )
+  if (!parentLink) return null
+  const parentMapping = await findOneWithDecryption(
+    em,
+    ChannelThreadMapping,
+    {
+      externalConversationId: parentLink.externalConversationId,
+      messageThreadId: params.messageThreadId,
+      channelId: params.channelId,
+      tenantId,
+      organizationId,
+    },
+    undefined,
+    params.scope,
+  )
+  if (!parentMapping) return null
+  return findOneWithDecryption(
+    em,
+    ExternalConversation,
+    { id: parentMapping.externalConversationId, channelId: params.channelId, tenantId, organizationId },
+    undefined,
+    params.scope,
+  )
 }
 
 /** DI service type for cross-module callers (resolve `communicationChannelsSendAsUser`). */

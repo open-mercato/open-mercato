@@ -6,6 +6,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findSendSeparatelyCopyFields, sendAsUser } from '../../../lib/send-as-user'
 import { validateRouteMutationGuard } from '../../../lib/route-mutation-guard'
+import { outboundAttachmentRefSchema } from '../../../lib/outbound-attachments'
 
 export const metadata = {
   path: '/communication_channels/send-as-user',
@@ -38,11 +39,18 @@ const bodySchema = z.object({
    * downstream subscribers (e.g. the customers module's link-channel-message
    * subscriber) to anchor the sent message back to a CRM Person or honor a
    * caller-specified visibility flag. Keys are caller-defined; the hub does
-   * not interpret them.
+   * not interpret them, except that it owns `outboundAttachments` and drops a
+   * caller-supplied value.
    */
   channelMetadata: z.record(z.string(), z.unknown()).optional(),
   /** One email per "to" address; with more than one "to" it cannot be combined with cc/bcc (400). */
   sendSeparately: z.boolean().optional(),
+  /**
+   * Files from the attachments module, by id and owning record. Sent only
+   * through a channel whose adapter advertises `fileSharing`. The count is
+   * checked by the facade so the refusal carries its `code`.
+   */
+  attachments: z.array(outboundAttachmentRefSchema).optional(),
 }).superRefine((value, ctx) => {
   for (const field of findSendSeparatelyCopyFields(value)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: SEND_SEPARATELY_WITH_COPIES })
@@ -118,8 +126,12 @@ export async function POST(req: Request): Promise<Response> {
 
   if (!result.ok) {
     return NextResponse.json(
-      result.fieldErrors ? { error: result.error, fieldErrors: result.fieldErrors } : { error: result.error },
-      { status: result.status },
+      {
+        error: result.error,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}),
+      },
+      { status: result.status, headers: result.headers },
     )
   }
   await guard.afterSuccess()
@@ -142,6 +154,7 @@ export const openApi = {
     POST: {
       summary: 'Send a message through the current user\'s own channel',
       tags: ['CommunicationChannels'],
+      requestBody: { required: true, contentType: 'application/json', schema: bodySchema },
       responses: [
         { status: 202, description: 'Message persisted; outbound delivery enqueued' },
         { status: 400, description: 'sendSeparately combined with cc/bcc for more than one recipient' },
@@ -149,7 +162,11 @@ export const openApi = {
         { status: 403, description: 'Cannot send through a channel you don\'t own' },
         { status: 404, description: 'Channel (or the given messageId) not found' },
         { status: 409, description: 'Channel in a non-deliverable transitional status, or messageId already linked / not sent yet' },
-        { status: 422, description: 'Invalid body, or channel requires_reauth / disconnected' },
+        {
+          status: 422,
+          description:
+            'Invalid body, channel requires_reauth / disconnected, or attachments rejected (`code`: attachments_unsupported, too_many_attachments, duplicate_attachment, attachment_not_found, attachment_type_not_allowed, attachments_too_large)',
+        },
       ],
     },
   },

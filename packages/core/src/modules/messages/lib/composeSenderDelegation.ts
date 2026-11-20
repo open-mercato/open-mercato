@@ -26,7 +26,7 @@ export type ComposeSenderActor = {
 
 export type ComposeSenderResult =
   | { ok: true; messageId: string; threadId: string }
-  | { ok: false; status: number; error: string; fieldErrors: Record<string, string> }
+  | { ok: false; status: number; error: string; fieldErrors: Record<string, string>; headers?: Record<string, string> }
 
 type SendAsUserFailure = {
   ok: false
@@ -34,6 +34,7 @@ type SendAsUserFailure = {
   error: string
   fieldErrors?: Record<string, string>
   code?: 'already_linked' | 'channel_unavailable'
+  headers?: Record<string, string>
 }
 
 type SendAsUserResult =
@@ -145,9 +146,11 @@ async function refuseSenderRequest(input: ComposeSenderRequest): Promise<Extract
       ),
     )
   }
-  // `SendAsUserInput` carries recipients, subject, body and threading headers
-  // and nothing else. Refusing is the only honest answer while that is true —
-  // accepting would drop the payload after the message had already been sent.
+  // `SendAsUserInput.attachments` takes files by owning record, but the
+  // composer has not decided which owner its uploads carry on this path or
+  // whether a mailbox send re-parents them to the message (#6261). Until it
+  // does, refusing is the only honest answer — accepting would drop the files
+  // after the message had already been sent.
   if (
     (input.attachmentIds?.length ?? 0) > 0 ||
     (input.objects?.length ?? 0) > 0 ||
@@ -261,5 +264,8 @@ export async function delegateComposeToSender(
     return { ok: true, messageId: result.messageId, threadId: result.threadId }
   }
 
-  return senderFailure(result.status, result.error, Object.values(result.fieldErrors ?? {})[0])
+  return {
+    ...senderFailure(result.status, result.error, Object.values(result.fieldErrors ?? {})[0]),
+    ...(result.headers ? { headers: result.headers } : {}),
+  }
 }

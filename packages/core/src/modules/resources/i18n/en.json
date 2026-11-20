@@ -519,6 +519,7 @@
   "resources.resources.unavailability.title.daily": "Daily unavailability",
   "resources.resources.unavailability.title.once": "Unavailability",
   "resources.resources.unavailability.title.weekly": "Weekly unavailability",
+  "resources.resources.validation.capacityInvalid": "Capacity must be a whole number greater than 0.",
   "resources.search.badge.attendee": "Attendee",
   "resources.search.badge.availabilityRuleSet": "Availability rule set",
   "resources.search.badge.resource": "Resource",

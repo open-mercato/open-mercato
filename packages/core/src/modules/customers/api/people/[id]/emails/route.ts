@@ -210,7 +210,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   if (!sendResult.ok) {
     return NextResponse.json(
       { error: sendResult.error, ...(sendResult.fieldErrors ? { fieldErrors: sendResult.fieldErrors } : {}) },
-      { status: sendResult.status },
+      { status: sendResult.status, headers: sendResult.headers },
     )
   }
 

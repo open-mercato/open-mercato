@@ -256,7 +256,7 @@ Read at call time with positive-int validation and built-in fallback (pattern: `
 1. Entity `MessageExternalParticipant`, encryption map, migration + snapshot; unit tests for encryption map registration.
 2. Compose command writes participants for outbound (`externalEmails`, first → `external_email`); ingest passes extra inbound To/CC via `externalParticipants` (exclude sender and the channel's own address).
 3. `GET /api/messages?externalEmail=` OR-EXISTS filter; `GET /api/messages/[id]` returns participants.
-4. Backfill upgrade action. Integration: TC-API-MSG-023 (search finds CC'd inbound participant and 2nd outbound recipient).
+4. Backfill upgrade action. Integration: TC-API-MSG-033 (search finds CC'd inbound participant and 2nd outbound recipient).
 
 ### Phase 2 — Shared email contract
 1. `SendEmailOptions`/`ResolvedEmailPayload`/`EmailTransport`/`EmailSendResult` changes + `sendSeparately` fan-out; unit tests incl. unsupported-transport error and `void` result.
@@ -264,7 +264,7 @@ Read at call time with positive-int validation and built-in fallback (pattern: `
 
 ### Phase 3 — Compose multi "To" + send separately (system path)
 1. Compose schema (`externalEmails`, `sendSeparately`, limits, 400 rules); `messages-email` `external_participants` job; worker claim/write-back; legacy job kept.
-2. UI: `TagsInput` "To", switch, detail "Recipients" section. Integration: TC-MSG-EMAIL-003 (joint send, one captured email with N "To"), TC-MSG-EMAIL-004 (separately: N captured emails, each one "To"), TC-API-MSG-024 (validation: >50, both `externalEmail` + `externalEmails`).
+2. UI: `TagsInput` "To", switch, detail "Recipients" section. Integration: TC-MSG-EMAIL-006 (joint send, one captured email with N "To"), TC-MSG-EMAIL-004 (separately: N captured emails, each one "To"), TC-API-MSG-034 (validation: >50, both `externalEmail` + `externalEmails`).
 
 ### Phase 4 — Mailbox path
 1. `message_channel_links.external_participant_id`, partial unique indexes; `sendAsUser` creates N links in separate mode; `deliver-outbound-message` builds `to/cc/bcc` from participants, writes per-participant results, idempotency per link; `outbound-bridge` and other `findOne`-by-message callers handle multiple links.
@@ -274,7 +274,7 @@ Read at call time with positive-int validation and built-in fallback (pattern: `
 1. Partial result handling (SMTP/IMAP accepted/rejected, IMAP smtp-client fix), link status rule, Gmail 429 body parsing.
 2. Retry tick schedule + upgrade action; env config + `.env.example` + template sync; window expiry; reauth → failed.
 3. `messages.message.delivery_finished` event, `messages.delivery_failed` notification; `resend-failed` command + route + UI action.
-4. Integration: TC-API-MSG-025 (partial rejection via test transport → message sent, 1 failed participant), TC-API-MSG-026 (resend-failed addresses only failed participants; 409 when none), TC-API-MSG-027 (transient 429 with `Retry-After` keeps `pending` and sets `next_attempt_at`).
+4. Integration: TC-API-MSG-035 (partial rejection via test transport → message sent, 1 failed participant), TC-API-MSG-026 (resend-failed addresses only failed participants; 409 when none), TC-API-MSG-027 (transient 429 with `Retry-After` keeps `pending` and sets `next_attempt_at`).
 
 ### File Manifest (main)
 | File | Action |
@@ -288,7 +288,7 @@ Read at call time with positive-int validation and built-in fallback (pattern: `
 
 ### Testing Strategy
 - Unit: `sendEmail` fan-out/flag/result merge; claim SQL; status transitions; 400 rules; backfill mapping.
-- Integration (self-contained fixtures, cleanup in `finally`, email capture via `OM_TEST_MODE`, channel via test-seed adapter): TC-API-MSG-023…027, TC-MSG-EMAIL-003/004, TC-CHANNEL-EMAIL-HUB-010/011.
+- Integration (self-contained fixtures, cleanup in `finally`, email capture via `OM_TEST_MODE`, channel via test-seed adapter): TC-API-MSG-026, TC-API-MSG-027, TC-API-MSG-033…035, TC-MSG-EMAIL-004, TC-MSG-EMAIL-006, TC-CHANNEL-EMAIL-HUB-010/011.
 
 ## Risks & Impact Review
 
@@ -422,7 +422,7 @@ Decisions taken while implementing, with their reasons. They refine the design a
 - Both paths claim participants (`next_attempt_at` lock) and settle them via `settleExternalParticipants` under a per-message advisory lock, which emits `messages.message.delivery_finished` exactly once. Transient → `pending` + `next_attempt_at` (provider retry time, else the worker's short backoff for the first attempts on the mailbox path, else `OM_EMAIL_DELIVERY_RETRY_DELAY_SECONDS`), capped at the `OM_EMAIL_DELIVERY_MAX_HOURS` window, then `failed` with `delivery window exceeded`. Reauth: one forced-refresh retry, then all pending participants of the link `failed`. Workers re-enqueue at `next_attempt_at` (no coalescing); the outbound worker's `OUTBOUND_DELIVERY_MAX_ATTEMPTS` cap now applies only to legacy links without participants.
 - Retry tick: queue `messages-email-retry`, 60 s per organization (`messages/setup.ts` + upgrade action `messages.register-email-retry-schedule`); re-enqueues due/lost deliveries (system job, or mailbox job per link through the new DI facade `communicationChannelsEnqueueOutboundDelivery`) and expires participants past the window. Not opted into the user-facing scheduler allowlist: module-authored rows dispatch by provenance, and `core` cannot import `@open-mercato/scheduler`.
 - Notification `messages.delivery_failed` (deduped per message by `groupKey`); command `messages.messages.resend_failed` + `POST /api/messages/[id]/resend-failed` (a former BCC forces a separate send); detail returns `canResendFailed`; failed-delivery alert with "Resend to failed" on the message detail.
-- Integration: TC-API-MSG-025/026/027 through the test-seed mailbox (`+reject@` / `+ratelimit@` fixture recipients).
+- Integration: TC-API-MSG-035/026/027 through the test-seed mailbox (`+reject@` / `+ratelimit@` fixture recipients).
 
 ### 2026-11-20 — Manual QA follow-ups
 - Author list folders (`sent`, `drafts`, `scheduled`) show recipients comma-separated with "+N" instead of "(No recipient)": `GET /api/messages` returns an additive `recipientSummary: { labels, total }` for those folders (internal recipients first, then external addresses, to → cc → bcc; `externalEmail` fallback for legacy rows), built by `lib/recipientSummary.ts`.

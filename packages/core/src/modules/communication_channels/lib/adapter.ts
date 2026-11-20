@@ -29,6 +29,12 @@ export interface ChannelCapabilities {
   richText: boolean
   fileSharing: boolean
   maxFileSize?: number
+  /**
+   * Largest total of raw attachment bytes in one outbound message, as a
+   * positive number of bytes. When unset the hub caps a message at 25 MB
+   * (`OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES`).
+   */
+  maxTotalBytes?: number
   supportedMimeTypes?: string[]
   readReceipts: boolean
   deliveryReceipts: boolean
@@ -99,7 +105,7 @@ export interface MessageContent {
   text?: string
   html?: string
   bodyFormat?: 'text' | 'markdown' | 'html'
-  attachments?: Array<{ url: string; mimeType: string; fileName: string; fileSize?: number; inline?: boolean }>
+  attachments?: NormalizedAttachment[]
   raw?: Record<string, unknown>
 }
 
@@ -195,6 +201,12 @@ export interface NormalizedAttachment {
   fileName: string
   fileSize?: number
   inline?: boolean
+  /**
+   * The file bytes, set by the hub for outbound attachments it read from the
+   * attachments module. Adapters prefer it over `url`, decode `data:` URLs
+   * otherwise, and never fetch a remote URL.
+   */
+  content?: Uint8Array
 }
 
 export interface InboundReaction {
@@ -385,6 +397,13 @@ export interface ApplyPushNotificationInput {
 export interface ImportHistoryInput {
   credentials: Record<string, unknown>
   scope: TenantScope
+  /**
+   * Provider conversation identifier, typically `channel.externalIdentifier`
+   * (for email channels this is the mailbox address). Optional for back-compat:
+   * adapters whose history import needs a channel identity must fail closed
+   * when it is absent rather than guessing from the credential scope.
+   */
+  conversationId?: string
   /**
    * Look back at most this many days. The hub accepts 1..`OM_IMPORT_HISTORY_MAX_SINCE_DAYS`
    * (default ceiling 3650, i.e. ten years) and defaults to 30 when omitted.

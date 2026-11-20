@@ -10,6 +10,10 @@ type RegisteredCommand = {
 const mockRegisteredCommands = new Map<string, RegisteredCommand>()
 const delegateComposeToSenderMock = jest.fn()
 
+jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => ({
+  assertExternalEmailBudget: jest.fn(async () => undefined),
+}))
+
 jest.mock('@open-mercato/shared/lib/commands', () => ({
   registerCommand: (command: RegisteredCommand) => mockRegisteredCommands.set(command.id, command),
 }))

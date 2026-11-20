@@ -262,32 +262,47 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     // back to the existing `ChannelThreadMapping`-by-conversation-id lookup
     // (which also returns null on first-ever inbound, in which case the
     // compose command opens a new thread).
+    //
+    // The matcher is specified for email (SPEC B): its token/JWZ/subject
+    // strategies only check that a resolved thread is mapped to the
+    // *receiving channel*, never to the *sending provider conversation*. A
+    // provider whose conversation identity is already authoritative on
+    // inbound (Discord's `externalConversationId` is the Discord channel/
+    // thread id — see `normalize-inbound.ts`) must not run it: a message
+    // posted in one conversation that merely contains another conversation's
+    // thread token (visible in an ordinary bot reply footer) would otherwise
+    // graft that conversation onto the token's thread. Gate on the adapter's
+    // `recipientFormat` — `'provider-native'` is exactly the contract flag
+    // for "conversation identity comes from the provider, not an email
+    // address" (see `ChannelCapabilities.recipientFormat` in `lib/adapter.ts`).
     const metaForMatcher = (m.channelMetadata ?? {}) as Record<string, unknown>
     let threadMatch: ThreadMatch | null = null
-    try {
-      threadMatch = await matchThread(
-        {
-          channelId: input.channelId,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
-          messageId: extractStringFromMeta(metaForMatcher, 'messageId') ?? m.externalMessageId,
-          inReplyTo:
-            m.replyToExternalId ?? extractStringFromMeta(metaForMatcher, 'inReplyTo'),
-          references: extractStringArrayFromMeta(metaForMatcher, 'references'),
-          subject: m.subject ?? '',
-          fromAddress:
-            extractStringFromMeta(metaForMatcher, 'from') ?? m.senderIdentifier,
-          toAddresses: extractStringArrayFromMeta(metaForMatcher, 'to'),
-          ccAddresses: extractStringArrayFromMeta(metaForMatcher, 'cc'),
-          bodyPlain: m.bodyFormat === 'html' ? null : m.body ?? null,
-          bodyHtml: m.bodyFormat === 'html' ? m.body ?? null : null,
-        },
-        { em },
-      )
-    } catch (matcherErr) {
-      // Matcher failure must not block ingest — fall back to the existing
-      // conversation-based thread mapping so the message still lands.
-      logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
+    if (adapter.capabilities.recipientFormat !== 'provider-native') {
+      try {
+        threadMatch = await matchThread(
+          {
+            channelId: input.channelId,
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId ?? null,
+            messageId: extractStringFromMeta(metaForMatcher, 'messageId') ?? m.externalMessageId,
+            inReplyTo:
+              m.replyToExternalId ?? extractStringFromMeta(metaForMatcher, 'inReplyTo'),
+            references: extractStringArrayFromMeta(metaForMatcher, 'references'),
+            subject: m.subject ?? '',
+            fromAddress:
+              extractStringFromMeta(metaForMatcher, 'from') ?? m.senderIdentifier,
+            toAddresses: extractStringArrayFromMeta(metaForMatcher, 'to'),
+            ccAddresses: extractStringArrayFromMeta(metaForMatcher, 'cc'),
+            bodyPlain: m.bodyFormat === 'html' ? null : m.body ?? null,
+            bodyHtml: m.bodyFormat === 'html' ? m.body ?? null : null,
+          },
+          { em },
+        )
+      } catch (matcherErr) {
+        // Matcher failure must not block ingest — fall back to the existing
+        // conversation-based thread mapping so the message still lands.
+        logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
+      }
     }
 
     // (4) Contact resolution (best-effort, advisory).

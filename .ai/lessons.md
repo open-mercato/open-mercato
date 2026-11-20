@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 183 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 194 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -18,7 +18,14 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
+- [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
+
+- [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context
+
 - [Stabilization CI must not follow label churn](lessons/stabilization-ci-must-not-follow-label-churn.md) — area:ai-workflow,testing; module:platform; topic:ci-scheduling,stabilization,required-checks,regression-testing
+
+- [Workflow environment changes must preserve credential guards](lessons/workflow-environment-changes-must-preserve-credential-guards.md) — area:ai-workflow,testing; module:platform; topic:ci-workflows,credential-isolation,regression-testing
 
 - [Archive rotated context as one batch](lessons/archive-rotated-context-as-one-batch.md) — area:ai-workflow,testing; module:platform; topic:context-budget,archival,file-count,regression-testing
 
@@ -28,14 +35,17 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 
 - [Content Security Policy must cover srcDoc previews](lessons/content-security-policy-must-cover-srcdoc-previews.md) — area:backend-ui,testing,integration; module:ecommerce,ui,shared,documents; topic:content-security-policy,srcdoc,nonces,security-regression,configured-origins
 
+- [Carry authorized SSO role IDs through synchronization](lessons/carry-authorized-sso-role-ids-through-synchronization.md) — area:module-data,testing; module:sso,auth; topic:access-control,concurrency,role-mappings
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
 - [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
-- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord; topic:testing,fixture-cleanup,fixture-setup,api-contracts,schema-validation,proposal-origin
+- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord,catalog,workflows; topic:testing,fixture-cleanup,fixture-setup,api-contracts,proposal-origin,error-handling
 - [Realtime detail refreshes must preserve drafts and reject stale responses](lessons/realtime-detail-refreshes-preserve-drafts-and-response-order.md) — area:backend-ui,testing; module:warranty_claims,ui,events; topic:events,realtime,request-ordering,testing,telemetry
 
 ### architecture
 
-- [Shutdown failure reporting must not block cleanup](lessons/shutdown-failure-reporting-must-not-block-cleanup.md) — area:architecture,testing; module:telemetry; topic:error-reporting,runtime-startup,shutdown
+- [Bounded merged pagination needs a shared ordering](lessons/bounded-merged-pagination-needs-shared-ordering.md) — area:architecture,module-data,testing; module:workflows; topic:pagination,database-queries,sorting,pagination-boundaries
+- [Browser error reporting requires client registration](lessons/browser-error-reporting-requires-client-registration.md) — area:architecture,backend-ui,testing; module:telemetry,ui; topic:error-reporting,runtime-startup,browser,testing
+- [Shutdown failure reporting must not block cleanup](lessons/shutdown-failure-reporting-must-not-block-cleanup.md) — area:architecture,testing; module:telemetry,webhooks; topic:error-reporting,runtime-startup,shutdown,subscribers
 
 - [Dev-session orphan recovery requires consent and full descendant cleanup](lessons/dev-session-orphan-recovery-requires-consent.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,shutdown,concurrency,template-sync
 - [Serialize dev-session stale recovery across ownership changes](lessons/serialize-dev-session-stale-recovery.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,concurrency,template-sync
@@ -56,7 +66,7 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 - [Global registries in publishable packages must use `globalThis`, not module-local state](lessons/global-registries-in-publishable-packages-must-use.md) — area:architecture,module-data; module:shared,create_app,query_index; topic:events,module-boundaries,package-runtime
 - [Keep create-app template files in lockstep with app shell/layout changes](lessons/keep-create-app-template-files-in-lockstep-with-app.md) — area:architecture,backend-ui,testing; module:create_app,ui,example; topic:template-sync,ui-components,testing
 - [Keep mirrored dev runtimes aligned with their process registry type](lessons/keep-mirrored-dev-runtimes-aligned-with-their-process.md) — area:architecture,debugging; module:events,create_app; topic:events,dev-runtime,filters
-- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context,testing; module:create_app,documents,events,cli; topic:auto-discovery,generated-files,package-runtime,session-export,testing,context-budget
+- [Keep standalone agentic content in sync with module conventions](lessons/keep-standalone-agentic-content-in-sync-with-module.md) — area:architecture,framework-context,testing; module:create_app,documents,events,cli,ui; topic:auto-discovery,generated-files,package-runtime,session-export,context-budget,component-overrides
 - [Keep standalone template module lists aligned with template package dependencies](lessons/keep-standalone-template-module-lists-aligned-with.md) — area:architecture; module:create_app,cli; topic:generated-files,package-runtime,template-sync
 - [Module-registered schedules can only target workers owned by the same module](lessons/module-schedules-can-only-target-workers-owned-by-the-same-module.md) — area:architecture,integration; module:scheduler,queue,payment_gateways; topic:workers,module-boundaries,provider-lifecycle
 - [Never guard sensitive routes with `requireRoles` on mutable role names](lessons/never-guard-sensitive-routes-with-requireroles-on.md) — area:architecture; module:auth; topic:access-control,data-scoping
@@ -84,7 +94,7 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
 - [A self-request needs data committed outside the caller's transaction](lessons/a-self-request-needs-data-committed-outside-the-callers.md) — area:module-data; module:auth,checkout,query_index; topic:data-integrity,query-index,workers
 - [A migration with swapped up/down can silently drop a unique constraint the code relies on](lessons/swapped-migration-up-down-can-silently-drop-a-unique-constraint.md) — area:module-data,debugging,testing; module:payment_gateways; topic:database-migrations,data-integrity,webhooks
-- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging,testing; module:audit_logs,cache,customers,auth; topic:command-pattern,data-integrity,generated-files,encryption,authorization-locks
+- [Avoid identity-map stale snapshots in command logs](lessons/avoid-identity-map-stale-snapshots-in-command-logs.md) — area:module-data,debugging,testing; module:audit_logs,cache,customers,auth,customer_accounts; topic:command-pattern,data-integrity,generated-files,encryption,authorization-locks
 - [Classify redo creation by operation and snapshot](lessons/classify-redo-creation-by-operation-and-snapshot.md) — area:module-data,testing; module:feature_toggles; topic:command-pattern,data-integrity,undo-redo
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
 - [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
@@ -107,7 +117,7 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 - [Type Kysely tables on generic transaction managers](lessons/type-kysely-tables-on-generic-transaction-managers.md) — area:module-data,testing; module:shared,entities; topic:kysely,transactions,typechecking
 - [Normalize raw SQL result types before JSON responses](lessons/normalize-raw-sql-result-types-before-json-responses.md) — area:module-data; module:platform; topic:testing,type-normalization
 - [JSON column defaults, twice-parsed command inputs, and scale-padded numerics](lessons/orm-json-defaults-double-parsed-inputs-and-numeric-padding.md) — area:module-data,debugging; module:eudr; topic:database-migrations,command-pattern,generated-files
-- [Organization-scoped routes must resolve request selection and reject invalid explicit writes](lessons/organization-scoped-routes-must-resolve-request-selection.md) — area:module-data,integration,debugging; module:entities,directory,auth; topic:data-scoping,access-control,route-coverage
+- [Organization-scoped routes must resolve request selection and reject invalid explicit writes](lessons/organization-scoped-routes-must-resolve-request-selection.md) — area:module-data,integration,debugging; module:entities,directory,auth,customer_accounts; topic:data-scoping,access-control,route-coverage,backward-compatibility
 - [Empty collection scopes need an explicit semantic predicate](lessons/empty-collection-scopes-need-an-explicit-semantic-predicate.md) — area:backend-ui,module-data,testing; module:auth; topic:access-control,data-scoping,route-coverage
 - [PostgreSQL partial unique indexes are not constraints](lessons/postgresql-partial-unique-indexes-are-not-constraints.md) — area:module-data,debugging; module:platform; topic:data-integrity,data-scoping,testing
 - [Preserve Turbopack compiler cache during greenfield dev warmup](lessons/preserve-turbopack-compiler-cache-during-greenfield-dev.md) — area:module-data,architecture,debugging; module:cache,auth,create_app; topic:dev-runtime,runtime-startup,template-sync
@@ -138,6 +148,7 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 ### backend-ui
 
 - [Design-system coverage needs a source inventory and visual checks](lessons/design-system-coverage-needs-a-source-inventory.md) — area:backend-ui,testing; module:ui,design_system,security; topic:design-system,ui-components,visual-testing,native-navigation,realtime,dev-runtime
+- [Tables inside detail cards need their own scroll container](lessons/tables-inside-detail-cards-need-a-scroll-container.md) — area:backend-ui,testing; module:ui,customers; topic:ui-components,layout,design-system
 - [Write-only secret editors need explicit unchanged intent and separate form state](lessons/write-only-secret-editors-need-explicit-unchanged-intent.md) — area:backend-ui,integration,testing; module:integrations,ui; topic:data-integrity,ui-components,testing
 - [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components
 - [Async edit selects must be hydrated as value-plus-options](lessons/async-edit-selects-must-be-hydrated-as-value-plus.md) — area:backend-ui,integration,testing; module:checkout,entities,ui; topic:custom-fields,filters,testing
@@ -146,6 +157,7 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 - [Blur suppression must guard the whole validation pipeline](lessons/blur-suppression-must-guard-the-whole-validation-pipeline.md) — area:backend-ui,testing; module:ui; topic:schema-composition,testing,validation-errors
 - [Auto-discovered DataTable fields must only advertise controls the table can actually honor](lessons/auto-discovered-datatable-fields-must-only-advertise.md) — area:backend-ui,umes,module-data; module:ui,customers,entities; topic:custom-fields,filters,ui-components
 - [Browser SSE bridges must work across worker and web processes](lessons/browser-sse-bridges-must-work-across-worker-and-web.md) — area:backend-ui,module-data,integration; module:events,queue,catalog; topic:data-import,events,realtime
+- [Canonical read migrations must preserve legacy role access](lessons/canonical-read-migrations-must-preserve-legacy-role-access.md) — area:backend-ui,debugging,testing; module:customers; topic:access-control,backward-compatibility,testing
 - [Component-scoped notification effects must not depend on header chrome](lessons/component-scoped-notification-effects-must-not-depend.md) — area:backend-ui,integration,testing; module:notifications,events,ui; topic:access-control,data-scoping,events
 - [Detail sections must route writes through page-level guarded mutations](lessons/detail-sections-must-route-writes-through-page-level.md) — area:backend-ui,umes,module-data; module:customers,events,ui; topic:events,network-security,testing
 - [dnd-kit contexts rendered in SSR need stable ids](lessons/dnd-kit-contexts-rendered-in-ssr-need-stable-ids.md) — area:backend-ui; module:customers,ui,cli; topic:generated-files,ui-components
@@ -178,11 +190,11 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 - [Lazy provider wrappers must not render provider-dependent children before the provider loads](lessons/lazy-provider-wrappers-must-not-render-provider.md) — area:integration,backend-ui,architecture; module:ai_assistant,ui,cli; topic:provider-lifecycle,ui-components
 - [New shared deep import paths should get explicit export-map entries](lessons/new-shared-deep-import-paths-should-get-explicit-export.md) — area:integration,testing,debugging; module:shared; topic:events,package-runtime,testing
 - [Optional native dependencies must report load failures accurately](lessons/optional-native-dependencies-must-report-load-failures.md) — area:integration,module-data,debugging; module:cache; topic:error-states,package-runtime,testing
-- [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration; module:auth,integrations,data_sync; topic:data-import,data-scoping,media
+- [Provider credentials must never control authenticated cross-origin requests](lessons/provider-credentials-must-never-control-authenticated.md) — area:integration,testing; module:auth,integrations,data_sync,channel_imap; topic:data-import,data-scoping,media,credentials,regression-testing
 - [Provider sandboxes may sign notifications with a separate CA](lessons/provider-sandboxes-may-sign-with-a-separate-ca.md) — area:integration; module:payment_gateways,gateway_tpay; topic:network-security,webhooks
 - [Security caches must outlive request-scoped providers and cover reserved IPv6 space](lessons/security-caches-must-outlive-request-scoped-providers.md) — area:integration,umes; module:cache,auth,cli; topic:data-scoping,network-security,provider-lifecycle
-- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,sso,api_keys; topic:access-control,data-scoping,events,testing
-- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,module-data,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security,documents,cart,catalog; topic:events,testing,workers,hydration,component-overrides,timers
+- [Shared security-default changes require a complete consumer audit](lessons/shared-security-default-changes-require-a-complete.md) — area:integration,testing,module-data; module:shared,auth,cache,events,example,create_app,sso,api_keys,entities,workflows; topic:access-control,data-scoping,events,testing
+- [Stabilize flaky integration tests by finding the hang, not by raising the timeout](lessons/stabilize-flaky-integration-tests-by-finding-the-hang.md) — area:integration,testing,backend-ui,module-data,debugging; module:events,queue,ui,auth,example,record_locks,warranty_claims,customers,phone_calls,search,cache,query_index,sales,sync_excel,workflows,data_sync,communication_channels,forms,security,documents,cart,catalog; topic:test-timeouts,testing,workers,hydration,component-overrides,timers
 - [Use the confirmation dialog's explicit accessibility role](lessons/confirm-dialog-locators-use-alertdialog.md) — area:backend-ui,integration,testing; module:ui,warranty_claims; topic:accessibility,ui-components,testing
 - [Stabilize long claim desk flows with bounded interactions and teardown](lessons/stabilize-long-claim-desk-flows-with-bounded-interactions.md) — area:integration,testing,backend-ui; module:warranty_claims,ui; topic:testing,workers,component-overrides,concurrency,accessibility
 - [Standalone integration activation must match the asserted runtime surface](lessons/standalone-integration-activation-must-match-the-asserted.md) — area:integration,architecture,testing; module:create_app,example,design_system,auth; topic:access-control,component-overrides,generated-files,testing
@@ -244,3 +256,6 @@ This catalog indexes 183 focused lessons. Route the task first, then read only r
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
 - [Write Open Mercato specifications in English](lessons/write-open-mercato-specifications-in-english.md) — area:spec-pr,ai-workflow; module:platform; topic:specifications,documentation-language
 - [Preserve generated fact row selectors when compacting](lessons/preserve-generated-fact-row-selectors-when-compacting.md) — area:testing,debugging; module:cli,create_app; topic:generated-files,context-budgets,backward-compatibility
+
+- [Resolve script entrypoints through symlinks](lessons/resolve-script-entrypoints-through-symlinks.md) — area:debugging,testing; module:starter,create_app; topic:symlinks,script-entrypoints,encryption,setup
+- [Handle timestamp ties when filtering undone price history](lessons/catalog-history-undo-timestamp-ties.md) — area:module-data,testing; module:catalog; topic:undo-redo,data-integrity,timestamp-ordering

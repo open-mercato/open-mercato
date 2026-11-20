@@ -32,6 +32,7 @@ import {
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { getExternalEmailBudgetErrorResponse } from '../../lib/externalEmailBudget'
 
 const logger = createLogger('messages').child({ component: 'api' })
 
@@ -540,6 +541,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     })
     return response
   } catch (error) {
+    const budgetResponse = getExternalEmailBudgetErrorResponse(error)
+    if (budgetResponse) return budgetResponse
     if (isCrudHttpError(error)) {
       return Response.json(error.body, { status: error.status })
     }
@@ -713,6 +716,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Payload failed validation (e.g. scheduledAt in the past, too far ahead or not a whole minute)', schema: errorResponseSchema },
         { status: 409, description: 'Only drafts and scheduled messages can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
         { status: 422, description: 'scheduledAt given while scheduling is unavailable', schema: errorResponseSchema },
+        { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
+        { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],
     },
     DELETE: {

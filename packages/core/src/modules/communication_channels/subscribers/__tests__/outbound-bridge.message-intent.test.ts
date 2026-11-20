@@ -1,3 +1,9 @@
+jest.mock('../../lib/outbound-routing', () => ({
+  resolveOutboundRouting: jest.fn(async () => ({
+    mapping: { id: 'mapping-1' }, channel: { id: 'ch-1', userId: null },
+  })),
+}))
+
 import '@open-mercato/core/modules/messages/commands/messages'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
@@ -141,9 +147,7 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
   function makeBridgeContainer(composed: Record<string, unknown>) {
     const findOne = jest.fn()
     findOne.mockResolvedValueOnce(composed) // Message re-fetch
-    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: threadId, channelId: 'ch-1' })
     findOne.mockResolvedValueOnce(null) // no MessageChannelLink yet
-    findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // shared channel
     return {
       container: {
         resolve: ((name: string) => (name === 'em' ? { fork: () => ({ findOne, find: linkListFromFindOne(findOne) }) } : null)) as <T>(name: string) => T,

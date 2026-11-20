@@ -50,6 +50,21 @@ describe('NodemailerClient.send — RFC2822 capture for the Sent-folder append',
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it('sends attachments as bytes with file and URL access disabled', async () => {
+    const result = await getSmtpClient().send(connection, {
+      from: 'sender@example.com',
+      to: ['recipient@example.com'],
+      subject: 'With attachment',
+      text: 'body',
+      attachments: [{ filename: 'order.pdf', content: Buffer.from('%PDF-1.7'), contentType: 'application/pdf' }],
+    })
+
+    const options = sendMail.mock.calls[0][0] as Record<string, unknown>
+    expect(options.disableFileAccess).toBe(true)
+    expect(options.disableUrlAccess).toBe(true)
+    expect(result.raw.toString('utf8')).toContain('filename=order.pdf')
+  })
+
   it('prefers the composed Message-ID when the caller supplies one', async () => {
     const result = await getSmtpClient().send(connection, {
       from: 'sender@example.com',
@@ -85,13 +100,32 @@ describe('NodemailerClient.send — RFC2822 capture for the Sent-folder append',
   })
 })
 
-describe('NodemailerClient.send — accepted/rejected split', () => {
+describe('NodemailerClient.send — recipients refused by the server', () => {
   afterEach(() => {
     setSmtpClient(null)
     jest.clearAllMocks()
   })
 
-  it('returns the accepted and rejected recipients as plain addresses', async () => {
+  it('returns the accepted and rejected recipients nodemailer reports', async () => {
+    sendMail.mockImplementationOnce(async () => ({
+      messageId: '<server@example.com>',
+      response: '250 2.0.0 Ok: queued',
+      accepted: ['good@example.com'],
+      rejected: ['bad@example.com'],
+    }))
+
+    const result = await getSmtpClient().send(connection, {
+      from: 'sender@example.com',
+      to: ['good@example.com', 'bad@example.com'],
+      subject: 'Partial rejection',
+      text: 'body',
+    })
+
+    expect(result.accepted).toEqual(['good@example.com'])
+    expect(result.rejected).toEqual(['bad@example.com'])
+  })
+
+  it('normalizes address objects to plain addresses', async () => {
     sendMail.mockImplementationOnce(async () => ({
       messageId: '<server@example.com>',
       response: '250 OK',
@@ -108,6 +142,41 @@ describe('NodemailerClient.send — accepted/rejected split', () => {
 
     expect(result.accepted).toEqual(['a@example.com'])
     expect(result.rejected).toEqual(['b@example.com'])
+  })
+
+  it('reports no rejected recipients when the server accepts everyone', async () => {
+    sendMail.mockImplementationOnce(async () => ({
+      messageId: '<server@example.com>',
+      response: '250 OK',
+      accepted: ['good@example.com'],
+      rejected: [],
+    }))
+
+    const result = await getSmtpClient().send(connection, {
+      from: 'sender@example.com',
+      to: ['good@example.com'],
+      subject: 'Full success',
+      text: 'body',
+    })
+
+    expect(result.accepted).toEqual(['good@example.com'])
+    expect(result.rejected).toEqual([])
+  })
+
+  it('still fails the send when the server rejects every recipient', async () => {
+    sendMail.mockImplementationOnce(async () => {
+      throw new Error("Can't send mail - all recipients were rejected")
+    })
+
+    await expect(
+      getSmtpClient().send(connection, {
+        from: 'sender@example.com',
+        to: ['bad@example.com'],
+        subject: 'Full rejection',
+        text: 'body',
+      }),
+    ).rejects.toThrow('all recipients were rejected')
+    expect(close).toHaveBeenCalledTimes(1)
   })
 })
 

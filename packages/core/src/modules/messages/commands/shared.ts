@@ -2,6 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Message, MessageObject, MessageRecipient, type MessageActionData, type MessageStatus, type RecipientStatus } from '../data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
+import {
+  deleteMessageAttachmentRows,
+  enqueueMessageAttachmentSectionCleanup,
+  type DeletedMessageAttachmentRows,
+} from '../lib/attachments'
 
 export type MessageCommandExecuteResult = {
   id: string
@@ -190,6 +195,7 @@ export async function restoreMessageAggregateSnapshot(
   em: EntityManager,
   snapshot: MessageAggregateSnapshot,
 ): Promise<void> {
+  let deletedAttachments: DeletedMessageAttachmentRows | null = null
   await withAtomicFlush(em, [async () => {
     // Resolve every read before mutating: a query issued between a scalar
     // mutation and the flush can silently reset the Unit of Work (SPEC-018
@@ -330,18 +336,18 @@ export async function restoreMessageAggregateSnapshot(
       existing.entitySnapshot = object.entitySnapshot
     }
 
-    await em.nativeDelete(Attachment, {
-      entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-      recordId: snapshot.message.id,
+    deletedAttachments = await deleteMessageAttachmentRows(em, {
+      messageId: snapshot.message.id,
       tenantId: snapshot.message.tenantId,
       organizationId: snapshot.message.organizationId,
-      id: { $nin: snapshot.attachmentIds.length > 0 ? snapshot.attachmentIds : ['00000000-0000-0000-0000-000000000000'] },
+      excludeIds: snapshot.attachmentIds,
     })
     for (const attachment of attachmentsToRelink) {
       attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
       attachment.recordId = snapshot.message.id
     }
   }], { transaction: true })
+  if (deletedAttachments) await enqueueMessageAttachmentSectionCleanup(deletedAttachments)
 }
 
 export function buildCommandLogBase(

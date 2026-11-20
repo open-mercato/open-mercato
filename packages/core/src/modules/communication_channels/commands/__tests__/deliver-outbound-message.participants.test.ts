@@ -71,6 +71,7 @@ function makeCtx(sendResult: SendResult, options: { claimed?: number; settledCou
   em.fork.mockReturnValue(em)
   const adapter = {
     providerKey: 'imap',
+    capabilities: {},
     convertOutbound: jest.fn(async (input: { channelMetadata: Record<string, unknown> }) => ({
       content: { raw: 'x' },
       metadata: input.channelMetadata,
@@ -91,17 +92,23 @@ function makeCtx(sendResult: SendResult, options: { claimed?: number; settledCou
   return { ctx, em, adapter }
 }
 
-function primeFinds(link: Record<string, unknown>, linkParticipants: Array<Record<string, unknown>>) {
+function primeFinds(link: Record<string, unknown> | null, linkParticipants: Array<Record<string, unknown>>) {
+  // Routing (`resolveOutboundRouting`) needs an outbound link on the mapped conversation.
+  if (link) Object.assign(link, { direction: 'outbound', externalConversationId: 'conv-1', providerKey: 'imap', channelType: 'email', ...link })
+  const mapping = {
+    messageThreadId: 'thread-1',
+    channelId: 'ch-1',
+    providerKey: 'imap',
+    externalConversationId: 'conv-1',
+    externalThreadRef: 'outbound:thread-1',
+  }
   mockFindOne.mockReset()
   mockFindOne
     .mockResolvedValueOnce({ id: MSG, threadId: 'thread-1', body: 'hello', bodyFormat: 'text' } as never)
     .mockResolvedValueOnce(link as never)
-    .mockResolvedValueOnce({
-      messageThreadId: 'thread-1',
-      channelId: 'ch-1',
-      externalConversationId: 'conv-1',
-      externalThreadRef: 'outbound:thread-1',
-    } as never)
+  if (link) mockFindOne.mockResolvedValueOnce(mapping as never)
+  mockFindOne
+    .mockResolvedValueOnce({ id: 'conv-1', channelId: 'ch-1', externalConversationId: 'outbound:thread-1' } as never)
     .mockResolvedValueOnce({
       id: 'ch-1',
       isActive: true,
@@ -112,6 +119,7 @@ function primeFinds(link: Record<string, unknown>, linkParticipants: Array<Recor
       status: 'connected',
     } as never)
   mockFind.mockReset()
+  if (!link) mockFind.mockResolvedValueOnce([mapping] as never)
   mockFind.mockResolvedValueOnce(linkParticipants as never).mockResolvedValue([] as never)
 }
 
@@ -231,7 +239,7 @@ describe('deliverOutboundMessageCommand — participants', () => {
 
   it('creates the separate link for its participant when none exists yet', async () => {
     const { ctx, em } = makeCtx({ status: 'sent', externalMessageId: 'gmail-2' })
-    primeFinds(null as never, [{ id: PARTICIPANT_B, role: 'to', email: 'b@example.com' }])
+    primeFinds(null, [{ id: PARTICIPANT_B, role: 'to', email: 'b@example.com' }])
 
     await deliverOutboundMessageCommand.execute(
       { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG }, externalParticipantId: PARTICIPANT_B },
