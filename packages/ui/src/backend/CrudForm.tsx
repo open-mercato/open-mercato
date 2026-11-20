@@ -96,7 +96,8 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
+import { parseLocaleDecimal, parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
+import { addDecimals, decimalToString } from '@open-mercato/shared/lib/decimal'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -242,6 +243,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'checkbox'
     | 'select'
     | 'number'
+    | 'decimal'
     | 'date'
     | 'datepicker'
     | 'datetime-local'
@@ -338,7 +340,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   formId?: string
   customFieldsLoadingMessage?: string
   cancelHref?: string
-  successRedirect?: string
+  successRedirect?: string | ((values: TValues, result: void | CrudFormSubmitResult) => string | undefined)
   deleteRedirect?: string
   onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void | CrudFormSubmitResult> | void | CrudFormSubmitResult
   onSubmitSuccess?: (values: TValues, result: void | CrudFormSubmitResult) => Promise<void> | void
@@ -1157,7 +1159,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     navigationConfirmPendingRef.current = true
     try {
       const confirmed = await confirm({
-        title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+        title: t('ui.forms.unsavedChangesTitle', 'Discard unsaved changes?'),
+        description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
+        confirmText: t('ui.forms.unsavedChangesDiscard', 'Discard changes'),
+        cancelText: t('ui.forms.unsavedChangesKeep', 'Keep editing'),
+        variant: 'destructive',
       })
       if (confirmed) allowNextNavigation()
       return confirmed
@@ -1396,13 +1402,15 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   )
 
   const navigateWithGuard = React.useCallback(
-    async (target: string) => {
-      if (!target) return
+    async (target: string): Promise<boolean> => {
+      if (!target) return false
       const allowed = await canNavigateTo(target)
       if (allowed) {
         allowNextNavigation()
         router.push(target)
+        return true
       }
+      return false
     },
     [allowNextNavigation, canNavigateTo, router],
   )
@@ -3119,6 +3127,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     if (submittingRef.current) return
     submittingRef.current = true
+    let redirectNavigationStarted = false
     try {
     setFormError(null)
     setErrors({})
@@ -3376,7 +3385,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         logger.error('Error in onSubmitSuccess', { err })
         getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
       }
-      if (successRedirect) await navigateWithGuard(successRedirect)
+      const successRedirectTarget = typeof successRedirect === 'function'
+        ? successRedirect(coreSubmitValues, submitResult)
+        : successRedirect
+      if (successRedirectTarget) redirectNavigationStarted = await navigateWithGuard(successRedirectTarget)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
       try {
@@ -3448,10 +3460,14 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       }
       setFormError(displayMessage)
     } finally {
-      setPending(false)
+      // A successful submit that kicks off the success-redirect keeps the form
+      // "pending"/locked until it actually unmounts, so a second submit fired
+      // during router navigation (which resolves well before unmount) doesn't
+      // re-run onSubmit and create a duplicate record.
+      if (!redirectNavigationStarted) setPending(false)
     }
     } finally {
-      submittingRef.current = false
+      if (!redirectNavigationStarted) submittingRef.current = false
     }
   }
 
@@ -3607,6 +3623,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               entityIdForField={primaryEntityId ?? undefined}
               recordId={explicitResourceId ?? recordId}
               markRequired={widgetRequiredFieldIds.has(f.id)}
+              formId={formId}
             />
           )
         })}
@@ -3907,13 +3924,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           if (renderedSections.length) customFieldsInnerNodes.push(...renderedSections)
 
           if (collapsibleGroupsEnabled && g.title) {
-            const customFieldCount = customFieldLayout.reduce(
-              (sum, entity) => sum + entity.sections.reduce(
-                (sSum, section) => sSum + section.groups.reduce(
-                  (gSum, group) => gSum + group.fields.length, 0,
-                ), 0,
-              ), 0,
-            )
             const customFieldErrors = customFieldLayout.reduce(
               (sum, entity) => sum + entity.sections.reduce(
                 (sSum, section) => sSum + section.groups.reduce(
@@ -3932,7 +3942,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                 title={t(g.title, g.title)}
                 pageType={collapsiblePageType}
                 errorCount={customFieldErrors}
-                fieldCount={customFieldCount}
                 chevronPosition={collapsibleChevronPosition}
               >
                 <div className={densityStackMd}>
@@ -3992,7 +4001,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               title={t(g.title, g.title)}
               pageType={collapsiblePageType}
               errorCount={groupErrorCount}
-              fieldCount={groupFields.length}
               chevronPosition={collapsibleChevronPosition}
             >
               <div className={densityStackMd}>
@@ -4080,13 +4088,13 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
                   <SortableContext items={col1Sortable.map(({ id }) => id)} strategy={verticalListSortingStrategy}>
-                    <div className={densityStackMd}>{col1Content}</div>
+                    <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className={densityStackMd}>{col1Content}</div>
+                <div className={`min-w-0 ${densityStackMd}`}>{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className={`min-w-0 ${densityStackMd}`} data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
@@ -4182,6 +4190,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                     entityIdForField={primaryEntityId ?? undefined}
                     recordId={explicitResourceId ?? recordId}
                     markRequired={widgetRequiredFieldIds.has(f.id)}
+                    formId={formId}
                   />
                 )
               })}
@@ -4273,6 +4282,7 @@ function RelationSelect({
 }
 // Local-buffer text input to avoid focus loss when parent re-renders
 function TextInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4283,6 +4293,7 @@ function TextInput({
   suggestions,
   inputType = 'text',
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4339,6 +4350,7 @@ function TextInput({
   if (inputType === 'password') {
     return (
       <PasswordInput
+        id={id}
         placeholder={placeholder}
         value={local}
         onChange={handleChange}
@@ -4356,6 +4368,7 @@ function TextInput({
   return (
     <>
       <Input
+        id={id}
         type={inputType}
         placeholder={placeholder}
         value={local}
@@ -4383,19 +4396,23 @@ function TextInput({
 
 // Local-buffer number input to avoid focus loss when parent re-renders
 function NumberInput({
+  id,
   value,
   onChange,
   placeholder,
   autoFocus,
   onSubmit,
+  exact = false,
   disabled,
   readOnly,
 }: {
+  id?: string
   value: number | string | null | undefined
-  onChange: (v: number | undefined) => void
+  onChange: (v: number | string | undefined) => void
   placeholder?: string
   autoFocus?: boolean
   onSubmit?: () => void
+  exact?: boolean
   disabled?: boolean
   readOnly?: boolean
 }) {
@@ -4410,11 +4427,11 @@ function NumberInput({
   // Users type the separator the surrounding UI displays, which follows the application
   // locale — `110,70` under Polish. `Number()` only ever accepted `.` (issue #5552).
   const parse = React.useCallback(
-    (raw: string): number | undefined => {
+    (raw: string): number | string | undefined => {
       if (raw === '') return undefined
-      return parseLocaleNumber(raw, locale) ?? undefined
+      return (exact ? parseLocaleDecimal(raw, locale) : parseLocaleNumber(raw, locale)) ?? undefined
     },
-    [locale],
+    [exact, locale],
   )
   const commitIfChanged = React.useCallback(() => {
     if (local === serializedValue) return
@@ -4448,14 +4465,17 @@ function NumberInput({
       // Binary floating point puts 8.2 - 1 at 7.199999999999999; the native spinner
       // re-serialized against the step rather than committing that to form state.
       const base = parse(local) ?? 0
-      const stepped = Number((base + (e.key === 'ArrowUp' ? 1 : -1)).toFixed(10))
+      const step = e.key === 'ArrowUp' ? 1 : -1
+      const stepped = exact
+        ? decimalToString(addDecimals(base, step))
+        : Number((Number(base) + step).toFixed(10))
       // The box must keep showing the separator the rest of the UI displays, which is
       // the application locale's — not the dot String() always emits (issue #5552).
       const { decimal } = resolveLocaleNumberSeparators(locale)
       setLocal(decimal === '.' ? String(stepped) : String(stepped).replace('.', decimal))
       onChange(stepped)
     }
-  }, [commitIfChanged, local, locale, onChange, onSubmit, parse])
+  }, [commitIfChanged, exact, local, locale, onChange, onSubmit, parse])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -4471,6 +4491,7 @@ function NumberInput({
     // against the BROWSER locale, so it discards the separator the app locale displays
     // before React ever sees it (issue #5552). inputMode keeps the mobile numeric keypad.
     <Input
+      id={id}
       type="text"
       inputMode="decimal"
       // A text input is eligible for autofill and spellcheck; a number field is not.
@@ -4492,6 +4513,7 @@ function NumberInput({
 
 // Local-buffer textarea to avoid form-wide re-renders while typing
 function TextAreaInput({
+  id,
   value,
   onChange,
   placeholder,
@@ -4502,6 +4524,7 @@ function TextAreaInput({
   disabled,
   readOnly,
 }: {
+  id?: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
@@ -4538,6 +4561,7 @@ function TextAreaInput({
 
   return (
     <Textarea
+      id={id}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
@@ -4667,6 +4691,7 @@ type FieldControlProps = {
   entityIdForField?: string
   recordId?: string
   markRequired?: boolean
+  formId: string
 }
 
 function supportsWrapperBlurValidation(field: CrudField): boolean {
@@ -4676,7 +4701,8 @@ function supportsWrapperBlurValidation(field: CrudField): boolean {
     field.type === 'textarea' ||
     field.type === 'checkbox' ||
     field.type === 'select' ||
-    field.type === 'number'
+    field.type === 'number' ||
+    field.type === 'decimal'
   )
 }
 
@@ -4781,6 +4807,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   entityIdForField,
   recordId,
   markRequired,
+  formId,
 }: FieldControlProps) {
   const t = useT()
   const fieldSetValue = React.useCallback(
@@ -4826,6 +4853,21 @@ const FieldControl = React.memo(function FieldControlImpl({
     ? options.find((option) => option.value === singleSelectValue)?.label
     : undefined
 
+  // Fields rendering a single focusable control get a real htmlFor/id pair;
+  // fields rendering a composite widget (date/time pickers, rich text, tags,
+  // relation search, multi-value selects) fall back to aria-labelledby on a
+  // group wrapper, per #5360's accessible-name requirement.
+  const controlId = `${formId}-field-${field.id}`
+  const labelId = `${controlId}-label`
+  const hasSingleControl =
+    field.type === 'text' ||
+    field.type === 'password' ||
+    field.type === 'number' ||
+    field.type === 'decimal' ||
+    field.type === 'textarea' ||
+    field.type === 'combobox' ||
+    (field.type === 'select' && !builtin?.multiple)
+
   return (
     <div
       className={rootClassName}
@@ -4839,13 +4881,18 @@ const FieldControl = React.memo(function FieldControlImpl({
         : undefined}
     >
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
-        <label className="block text-sm font-medium">
+        <label
+          id={labelId}
+          htmlFor={hasSingleControl ? controlId : undefined}
+          className="block text-sm font-medium"
+        >
           {field.label}
           {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
         </label>
       ) : null}
       {field.type === 'text' && (
         <TextInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4858,6 +4905,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'password' && (
         <TextInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4868,85 +4916,98 @@ const FieldControl = React.memo(function FieldControlImpl({
           inputType="password"
         />
       )}
-      {field.type === 'number' && (
+      {(field.type === 'number' || field.type === 'decimal') && (
         <NumberInput
+          id={controlId}
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
           placeholder={placeholder}
           onChange={fieldSetValue}
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
+          exact={field.type === 'decimal'}
           disabled={disabled}
           readOnly={readOnly}
         />
       )}
       {field.type === 'date' && (
-        <DatePicker
-          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          closeOnSelect={builtin?.closeOnSelect}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DatePicker
+            value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            closeOnSelect={builtin?.closeOnSelect}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datetime-local' && (
-        <DateTimePicker
-          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DateTimePicker
+            value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datepicker' && (
-        <DatePicker
-          value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          closeOnSelect={builtin?.closeOnSelect}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DatePicker
+            value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            closeOnSelect={builtin?.closeOnSelect}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'datetime' && (
-        <DateTimePicker
-          value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
-          onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-          minDate={builtin?.minDate}
-          maxDate={builtin?.maxDate}
-          displayFormat={builtin?.displayFormat}
-          locale={builtin?.locale}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <DateTimePicker
+            value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
+            onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+            minDate={builtin?.minDate}
+            maxDate={builtin?.maxDate}
+            displayFormat={builtin?.displayFormat}
+            locale={builtin?.locale}
+          />
+        </div>
       )}
       {field.type === 'time' && (
-        <TimePicker
-          value={typeof value === 'string' ? value : null}
-          onChange={(time) => setValue(field.id, time ?? undefined)}
-          disabled={disabled}
-          readOnly={readOnly}
-          placeholder={placeholder}
-          minuteStep={builtin?.minuteStep}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <TimePicker
+            value={typeof value === 'string' ? value : null}
+            onChange={(time) => setValue(field.id, time ?? undefined)}
+            disabled={disabled}
+            readOnly={readOnly}
+            placeholder={placeholder}
+            minuteStep={builtin?.minuteStep}
+          />
+        </div>
       )}
       {field.type === 'textarea' && (
         <TextAreaInput
+          id={controlId}
           value={value == null ? '' : String(value)}
           placeholder={placeholder}
           onChange={(next) => fieldSetValue(next)}
@@ -4959,28 +5020,37 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
-        <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
-        <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
-        <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        <div role="group" aria-labelledby={labelId}>
+          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+        </div>
       )}
       {field.type === 'tags' && (
-        <TagsInput
-          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-          onChange={(next) => fieldSetValue(next)}
-          placeholder={placeholder}
-          autoFocus={autoFocusField}
-          suppressInitialSuggestionsOnFocus={autoFocusField}
-          suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
-          loadSuggestions={loadFieldSuggestions}
-          disabled={disabled}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <TagsInput
+            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+            onChange={(next) => fieldSetValue(next)}
+            placeholder={placeholder}
+            autoFocus={autoFocusField}
+            suppressInitialSuggestionsOnFocus={autoFocusField}
+            suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
+            loadSuggestions={loadFieldSuggestions}
+            disabled={disabled}
+          />
+        </div>
       )}
       {field.type === 'combobox' && (
         <ComboboxInput
+          id={controlId}
           value={typeof value === 'string' ? value : String(value ?? '')}
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
@@ -5003,8 +5073,9 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <label className="inline-flex items-center gap-2 cursor-pointer">
+        <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
           <Checkbox
+            id={controlId}
             checked={value === true}
             onCheckedChange={(next) => setValue(field.id, next === true)}
             data-crud-focus-target=""
@@ -5035,7 +5106,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           }}
           disabled={disabled || readOnly}
         >
-          <SelectTrigger data-crud-focus-target="">
+          <SelectTrigger id={controlId} data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>
               {singleSelectLabel}
             </SelectValue>
@@ -5057,16 +5128,18 @@ const FieldControl = React.memo(function FieldControlImpl({
         </Select>
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox === true && (
-        <ListboxMultiSelect
-          options={options}
-          placeholder={placeholder}
-          value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
-          onChange={(vals) => setValue(field.id, vals)}
-          autoFocus={autoFocusField}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <ListboxMultiSelect
+            options={options}
+            placeholder={placeholder}
+            value={Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []}
+            onChange={(vals) => setValue(field.id, vals)}
+            autoFocus={autoFocusField}
+          />
+        </div>
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={labelId}>
           {options.map((opt) => {
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
@@ -5094,22 +5167,24 @@ const FieldControl = React.memo(function FieldControlImpl({
         </div>
       )}
       {field.type === 'relation' && (
-        <RelationSelect
-          options={options}
-          placeholder={placeholder}
-          value={
-            Array.isArray(value)
-              ? String(value[0] ?? '')
-              : value == null
-                ? ''
-                : String(value)
-          }
-          onChange={(selected) => setValue(field.id, selected)}
-          autoFocus={autoFocusField}
-        />
+        <div role="group" aria-labelledby={labelId}>
+          <RelationSelect
+            options={options}
+            placeholder={placeholder}
+            value={
+              Array.isArray(value)
+                ? String(value[0] ?? '')
+                : value == null
+                  ? ''
+                  : String(value)
+            }
+            onChange={(selected) => setValue(field.id, selected)}
+            autoFocus={autoFocusField}
+          />
+        </div>
       )}
       {field.type === 'custom' && (
-        <>
+        <div role="group" aria-labelledby={labelId}>
           {field.component({
             id: field.id,
             value,
@@ -5122,7 +5197,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             autoFocus,
             disabled,
           })}
-        </>
+        </div>
       )}
       {field.description ? (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -5154,6 +5229,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
+  prev.formId === next.formId &&
   (prev.field.type !== 'custom' ||
     (prev.values === next.values &&
       prev.field.component === (next.field as CrudCustomField).component &&
