@@ -530,7 +530,7 @@ export async function POST(req: Request) {
         sourceHint.data,
       )
     : undefined
-  // `inboundFromChannel`, `sentAt` and `externalParticipants` are likewise server-only (#6093, #6095):
+  // `inboundFromChannel`, `sentAt`, `externalParticipants` and `senderDeliveryOptions` are likewise server-only (#6093, #6095):
   // channel ingest sets them so an inbound message can be addressed to the
   // conversation's assignee and stamped with the provider's receive time, but
   // a request body must not be able to waive the recipients rule or backdate
@@ -540,6 +540,7 @@ export async function POST(req: Request) {
     inboundFromChannel: _clientSuppliedInboundFlag,
     sentAt: _clientSuppliedSentAt,
     externalParticipants: _clientSuppliedParticipants,
+    senderDeliveryOptions: _clientSuppliedDeliveryOptions,
     ...clientBody
   } = (body ?? {}) as Record<string, unknown>
   let input: ComposeMessageInput

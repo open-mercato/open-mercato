@@ -34,7 +34,7 @@ const actor = { userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' 
 const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
 const input = { userChannelId: 'ch-1', messageId: 'msg-1' }
 
-function makeContainer() {
+function makeContainer(options: { scheduler?: boolean } = {}) {
   const created: Array<{ entity: unknown; data: Record<string, unknown> }> = []
   const em = {
     fork: jest.fn(),
@@ -55,6 +55,7 @@ function makeContainer() {
       if (name === 'commandBus') return { execute: commandExecuteMock }
       throw new Error(`unexpected resolve: ${name}`)
     },
+    hasRegistration: (name: string) => name === 'schedulerService' && options.scheduler === true,
   }
   return { container: container as never, em, created }
 }
@@ -130,6 +131,40 @@ describe('sendAsUser — existing message', () => {
     )
     expect(enqueueMock).toHaveBeenCalledTimes(1)
     expect(enqueueMock.mock.calls[0][0]).toEqual({ messageId: 'msg-1', scope, attempt: 1 })
+  })
+
+  it('replays stored sender delivery options when the caller passes no metadata', async () => {
+    prime({
+      message: {
+        senderDeliveryOptions: {
+          channelMetadata: { crmPersonId: 'person-1', crmVisibility: 'shared' },
+          inReplyTo: '<parent@example.com>',
+          references: ['<root@example.com>', '<parent@example.com>'],
+        },
+      },
+    })
+    const { container, created } = makeContainer()
+
+    await sendAsUser(container, actor, input)
+
+    expect(links(created)[0].channelMetadata).toEqual(expect.objectContaining({
+      crmPersonId: 'person-1',
+      crmVisibility: 'shared',
+      inReplyTo: '<parent@example.com>',
+      references: ['<root@example.com>', '<parent@example.com>'],
+      cc: ['c@example.com'],
+    }))
+  })
+
+  it('prefers caller metadata over stored sender delivery options', async () => {
+    prime({ message: { senderDeliveryOptions: { channelMetadata: { crmPersonId: 'person-1' }, inReplyTo: '<x@example.com>' } } })
+    const { container, created } = makeContainer()
+
+    await sendAsUser(container, actor, { ...input, channelMetadata: { origin: 'caller' } })
+
+    const metadata = links(created)[0].channelMetadata as Record<string, unknown>
+    expect(metadata).toEqual(expect.objectContaining({ origin: 'caller', inReplyTo: null, references: [] }))
+    expect(metadata.crmPersonId).toBeUndefined()
   })
 
   it('marks participants that were never queued as pending', async () => {
@@ -225,5 +260,96 @@ describe('validateSenderChannel', () => {
     await expect(validateSenderChannel(makeContainer().container, actor, 'ch-1')).resolves.toEqual({ ok: true })
     await expect(validateSenderChannel(makeContainer().container, { ...actor, userId: 'user-2' }, 'ch-1'))
       .resolves.toMatchObject({ ok: false, status: 403, code: 'channel_unavailable' })
+  })
+})
+
+describe('sendAsUser — scheduled compose', () => {
+  const composeInput = {
+    userChannelId: 'ch-1',
+    to: ['a@example.com'],
+    cc: ['c@example.com'],
+    bcc: ['d@example.com'],
+    subject: 'Quote',
+    body: { plain: 'Hello' },
+    inReplyTo: '<parent@example.com>',
+    references: ['<parent@example.com>'],
+    channelMetadata: { crmPersonId: 'person-1', crmVisibility: 'shared' },
+    scheduledAt: new Date('2099-01-01T10:00:00.000Z'),
+  }
+
+  beforeEach(() => {
+    enqueueMock.mockClear()
+    commandExecuteMock.mockReset()
+    mockFindOne.mockReset()
+    mockFind.mockReset()
+    mockGuard.mockReset()
+    mockGuard.mockResolvedValue(undefined)
+    prime()
+  })
+
+  it('stores the message as scheduled with its delivery options and skips link and enqueue', async () => {
+    commandExecuteMock.mockResolvedValue({ result: { id: 'msg-9', threadId: null } })
+    const { container, created } = makeContainer({ scheduler: true })
+
+    const result = await sendAsUser(container, actor, composeInput)
+
+    expect(result).toEqual({
+      ok: true,
+      messageId: 'msg-9',
+      threadId: 'msg-9',
+      channelId: 'ch-1',
+      providerKey: 'imap',
+      scheduledAt: '2099-01-01T10:00:00.000Z',
+    })
+    const [commandId, { input: commandInput }] = commandExecuteMock.mock.calls[0]
+    expect(commandId).toBe('messages.messages.compose')
+    expect(commandInput).toEqual(expect.objectContaining({
+      isDraft: false,
+      scheduledAt: composeInput.scheduledAt,
+      senderChannelId: 'ch-1',
+      senderDeliveryOptions: {
+        channelMetadata: { crmPersonId: 'person-1', crmVisibility: 'shared' },
+        inReplyTo: '<parent@example.com>',
+        references: ['<parent@example.com>'],
+      },
+      externalParticipants: [
+        { email: 'a@example.com', role: 'to' },
+        { email: 'c@example.com', role: 'cc' },
+        { email: 'd@example.com', role: 'bcc' },
+      ],
+    }))
+    expect(links(created)).toHaveLength(0)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses with 422 when the scheduler is not available', async () => {
+    const { container } = makeContainer()
+
+    const result = await sendAsUser(container, actor, composeInput)
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 422,
+      code: 'scheduling_unavailable',
+      fieldErrors: { scheduledAt: 'translated:messages.errors.schedulingUnavailable' },
+    })
+    expect(commandExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('maps a compose validation error on scheduledAt to a field error', async () => {
+    const { z } = jest.requireActual<typeof import('zod')>('zod')
+    commandExecuteMock.mockRejectedValue(new z.ZodError([
+      { code: 'custom', path: ['scheduledAt'], message: 'messages.errors.scheduleInPast' },
+    ]))
+    const { container } = makeContainer({ scheduler: true })
+
+    const result = await sendAsUser(container, actor, composeInput)
+
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: 'translated:messages.errors.scheduleInPast',
+      fieldErrors: { scheduledAt: 'translated:messages.errors.scheduleInPast' },
+    })
   })
 })

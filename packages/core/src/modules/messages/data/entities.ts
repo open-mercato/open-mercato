@@ -156,6 +156,9 @@ export class Message {
 
   @Property({ name: 'sender_channel_id', type: 'uuid', nullable: true })
   senderChannelId?: string | null
+
+  @Property({ name: 'sender_delivery_options', type: 'json', nullable: true })
+  senderDeliveryOptions?: { channelMetadata?: Record<string, unknown>; inReplyTo?: string | null; references?: string[] } | null
 }
 
 export type RecipientType = 'to' | 'cc' | 'bcc'

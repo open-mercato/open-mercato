@@ -130,6 +130,14 @@ export const messageActionDataSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 })
 
+export const senderDeliveryOptionsSchema = z.object({
+  channelMetadata: z.record(z.string(), z.unknown()).optional(),
+  inReplyTo: z.string().max(998).nullable().optional(),
+  references: z.array(z.string().max(998)).max(100).optional(),
+})
+
+export type SenderDeliveryOptions = z.infer<typeof senderDeliveryOptionsSchema>
+
 export const MAX_COMPOSE_EXTERNAL_EMAILS = 50
 // Inbound mail may carry long To/CC headers; ingest must never fail on them.
 export const MAX_COMPOSE_EXTERNAL_PARTICIPANTS = 500
@@ -206,11 +214,17 @@ const composeMessageBaseSchema = z.object({
   sentAt: z.coerce.date().nullable().optional(),
   /** Send later: the message is stored as a scheduled draft and released at this instant (whole minute, UTC). */
   scheduledAt: scheduledAtSchema.optional(),
+  /**
+   * Mailbox delivery context replayed when a scheduled message is handed to its
+   * sender channel (CRM metadata, reply threading headers). Server-only: set by
+   * the send-as-user facade; the HTTP route strips any client-sent value.
+   */
+  senderDeliveryOptions: senderDeliveryOptionsSchema.optional(),
 })
 
 type ComposeMessageRefinementValue = Omit<
   z.infer<typeof composeMessageBaseSchema>,
-  'sourceChannelType' | 'sentAt' | 'externalParticipants'
+  'sourceChannelType' | 'sentAt' | 'externalParticipants' | 'senderDeliveryOptions'
 > & { sourceChannelType?: string; sentAt?: Date | null }
 
 function refineExternalEmailsExclusive(
@@ -314,7 +328,7 @@ export const composeMessageSchema = composeMessageBaseSchema.superRefine(refineC
  * then validates against {@link composeMessageSchema}.
  */
 export const composeMessageRequestSchema = composeMessageBaseSchema
-  .omit({ sourceChannelType: true, inboundFromChannel: true, sentAt: true, externalParticipants: true })
+  .omit({ sourceChannelType: true, inboundFromChannel: true, sentAt: true, externalParticipants: true, senderDeliveryOptions: true })
   .superRefine(refineComposeMessage)
 
 export const updateDraftSchema = z.object({

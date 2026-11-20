@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -6,6 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Message, MessageExternalParticipant } from '../../messages/data/entities'
 import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 import { renderMarkdownEmailBody } from '../../messages/lib/markdownEmailBody'
+import { isSchedulingAvailable } from '../../messages/lib/scheduledSend'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -61,12 +63,20 @@ export type SendAsUserInput = {
    * Cannot be combined with cc/bcc when there is more than one "to" address.
    */
   sendSeparately?: boolean
+  /**
+   * Send later: the message is stored as scheduled (no channel link, nothing
+   * enqueued) and the messages release tick hands it to `userChannelId` at this
+   * instant, replaying `channelMetadata`, `inReplyTo` and `references`.
+   */
+  scheduledAt?: Date
 }
 
 /**
  * Delivers an existing, already sent `messages.message` through the actor's
  * mailbox (scheduled release, sending a saved draft) instead of composing a new
  * one. Recipients, subject, body and "send separately" come from the message.
+ * Without `channelMetadata`, the message's stored `senderDeliveryOptions`
+ * (written by a scheduled compose) supply the metadata and threading headers.
  */
 export type SendAsUserExistingMessageInput = {
   userChannelId: string
@@ -78,8 +88,9 @@ export type SendAsUserExistingMessageInput = {
  * `already_linked`: the message already has an outbound link (a previous attempt
  * handed it off). `channel_unavailable`: the channel is missing, not the actor's,
  * or cannot deliver (`requires_reauth`, `disconnected`, not connected).
+ * `scheduling_unavailable`: `scheduledAt` was set but the scheduler module is absent.
  */
-export type SendAsUserFailureCode = 'already_linked' | 'channel_unavailable'
+export type SendAsUserFailureCode = 'already_linked' | 'channel_unavailable' | 'scheduling_unavailable'
 
 export type SendAsUserResult =
   | {
@@ -88,6 +99,8 @@ export type SendAsUserResult =
       threadId: string
       channelId: string
       providerKey: string
+      /** ISO instant the message is scheduled for; set only by a scheduled compose. */
+      scheduledAt?: string
     }
   | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; code?: SendAsUserFailureCode }
 
@@ -123,6 +136,12 @@ export async function sendAsUser(
   const copiesError = await validateSendSeparately(input)
   if (copiesError) return copiesError
   const sendSeparately = input.sendSeparately === true && input.to.length > 1
+  const scheduledAt = input.scheduledAt ?? null
+  if (scheduledAt && !isSchedulingAvailable(container)) {
+    const { t } = await resolveTranslations()
+    const error = t('messages.errors.schedulingUnavailable', 'Scheduled sending is not available.')
+    return { ok: false, status: 422, error, fieldErrors: { scheduledAt: error }, code: 'scheduling_unavailable' }
+  }
 
   const em = (container.resolve('em') as EntityManager).fork()
   const { tenantId } = actor
@@ -160,6 +179,17 @@ export async function sendAsUser(
     sendViaEmail: false,
     parentMessageId: input.parentMessageId,
     isDraft: false,
+    ...(scheduledAt
+      ? {
+          scheduledAt,
+          senderChannelId: channel.id,
+          senderDeliveryOptions: {
+            ...(input.channelMetadata ? { channelMetadata: input.channelMetadata } : {}),
+            inReplyTo: input.inReplyTo ?? null,
+            references: input.references ?? [],
+          },
+        }
+      : {}),
     tenantId,
     organizationId,
     userId: actor.userId,
@@ -180,12 +210,30 @@ export async function sendAsUser(
       },
     )
   } catch (err) {
+    const scheduleIssue = err instanceof z.ZodError
+      ? err.issues.find((issue) => issue.path[0] === 'scheduledAt')
+      : undefined
+    if (scheduleIssue) {
+      const { t } = await resolveTranslations()
+      const error = t(scheduleIssue.message, scheduleIssue.message)
+      return { ok: false, status: 400, error, fieldErrors: { scheduledAt: error } }
+    }
     logger.error('communication_channels send-as-user compose failed', { err })
     return { ok: false, status: 500, error: '[internal] compose failed' }
   }
 
   const messageId = result.result.id
   const messageThreadId = result.result.threadId ?? messageId
+  if (scheduledAt) {
+    return {
+      ok: true,
+      messageId,
+      threadId: messageThreadId,
+      channelId: channel.id,
+      providerKey: channel.providerKey,
+      scheduledAt: scheduledAt.toISOString(),
+    }
+  }
   const separateParticipants = sendSeparately
     ? await findWithDecryption(
         em,
@@ -352,6 +400,7 @@ async function sendExistingMessageAsUser(
   const deliveries: OutboundDelivery[] = sendSeparately
     ? toParticipants.map((participant) => ({ externalParticipantId: participant.id, to: [participant.email] }))
     : [{ externalParticipantId: null, to }]
+  const stored = message.senderDeliveryOptions ?? null
   const html = message.bodyFormat === 'markdown' && message.body.trim()
     ? await renderMarkdownEmailBody(message.body)
     : undefined
@@ -368,9 +417,9 @@ async function sendExistingMessageAsUser(
       html,
       cc,
       bcc,
-      inReplyTo: null,
-      references: [],
-      channelMetadata: input.channelMetadata,
+      inReplyTo: input.channelMetadata ? null : stored?.inReplyTo ?? null,
+      references: input.channelMetadata ? [] : stored?.references ?? [],
+      channelMetadata: input.channelMetadata ?? stored?.channelMetadata,
       deliveries,
     },
     async () => {

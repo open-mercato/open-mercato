@@ -355,6 +355,15 @@
           "primary": false,
           "nullable": true,
           "mappedType": "uuid"
+        },
+        "sender_delivery_options": {
+          "name": "sender_delivery_options",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
         }
       },
       "name": "messages",

@@ -433,6 +433,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         scheduledAt,
         // Only a stored message keeps its mailbox; an immediate mailbox send is delegated before reaching this command.
         senderChannelId: storesAsDraft ? input.senderChannelId ?? null : null,
+        senderDeliveryOptions: storesAsDraft ? input.senderDeliveryOptions ?? null : null,
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,
