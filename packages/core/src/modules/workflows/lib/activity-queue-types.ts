@@ -15,6 +15,7 @@
  *     sub-workflow for a failed instance, outside the failing transaction
  */
 
+import type { InvokeAgentCallSettings } from '../data/activity-config-schemas'
 import type { AgentDispositionReview } from './agent-disposition-task'
 
 export interface WorkflowActivityJobBase {
@@ -113,6 +114,9 @@ export interface WorkflowActivityJobInvokeAgent extends WorkflowActivityJobBase 
   // so an in-flight definition edit cannot retro-change who the disposition task
   // belongs to. Absent on every job enqueued before the section existed.
   review?: AgentDispositionReview
+  // Optional per-call model settings (invokeAgentConfigSchema.callSettings),
+  // validated at enqueue time. Absent on every job enqueued before the field existed.
+  callSettings?: InvokeAgentCallSettings
 }
 
 /**

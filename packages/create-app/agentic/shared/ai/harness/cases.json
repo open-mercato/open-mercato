@@ -520,7 +520,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 126976,
+    "maxTotalContextBytes": 132096,
     "relatedCases": [
       "OMH-008"
     ]
@@ -1736,7 +1736,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 110592,
+    "maxTotalContextBytes": 119808,
     "relatedCases": [
       "OMH-023"
     ]
@@ -2431,7 +2431,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 126976,
+    "maxTotalContextBytes": 135168,
     "relatedCases": [
       "OMH-031"
     ]
@@ -3914,7 +3914,8 @@
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
-      "OMH-050"
+      "OMH-050",
+      "OMH-242"
     ],
     "fixture": {
       "scaffold": "fresh-standalone",
@@ -4073,7 +4074,8 @@
     "maxInitialContextBytes": 40960,
     "maxTotalContextBytes": 131072,
     "relatedCases": [
-      "OMH-052"
+      "OMH-052",
+      "OMH-242"
     ]
   },
   {
@@ -4554,7 +4556,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 118784,
+    "maxTotalContextBytes": 124928,
     "relatedCases": [
       "OMH-058"
     ],
@@ -5145,7 +5147,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 126976,
+    "maxTotalContextBytes": 132096,
     "relatedCases": [
       "OMH-065"
     ]
@@ -21930,6 +21932,206 @@
     "relatedCases": [
       "OMH-239",
       "OMH-002"
+    ]
+  },
+  {
+    "id": "OMH-242",
+    "title": "Plan reproducible native agent eval CI without provider credentials",
+    "family": "ai-workflow",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "Plan reproducible native Agent Orchestrator eval CI in this standalone app without provider credentials in CI. Inspect the installed eval CLI documentation first. Explain synthetic recording, fully offline replay, model and tool fixture files for each case and trial, tenant/organization scope, error-on-miss behavior, fixture privacy, OpenCode limitations and schema-change invalidation. Distinguish tool-only replay from offline model replay and helper-only tests from full runtime proof. Prepare the plan only; do not access credentials, call providers, edit installed packages or run production workloads.",
+    "tags": [
+      "ai-workflow",
+      "offline-eval",
+      "ci",
+      "fixtures",
+      "security"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-create-ai-agent/references/surface-selector.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "ai-workflow"
+      ],
+      "allowedExtra": [
+        "testing",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-create-ai-agent",
+      "om-framework-context"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/ai-workflows.md",
+        ".ai/skills/om-create-ai-agent/SKILL.md",
+        ".ai/skills/om-create-ai-agent/references/surface-selector.md",
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "frameworkContext": [
+      {
+        "module": "agent_orchestrator",
+        "query": "on-fixture-miss"
+      }
+    ],
+    "requiredDecisions": [
+      "installed-eval-cli-first",
+      "synthetic-record-before-offline-replay",
+      "replay-alone-live-model",
+      "error-on-miss-no-live-fallback",
+      "tenant-org-eval-scope",
+      "per-case-per-trial-model-tools",
+      "private-decrypted-fixtures",
+      "reject-opencode-offline",
+      "invalidate-schema-call-sequence",
+      "runtime-proof-not-helper-only"
+    ],
+    "forbiddenPatterns": [
+      "OM_AI_SCRIPTED_[A-Z_]+",
+      "--on-fixture-miss\\s+live",
+      "(?:edit|patch|write).{0,30}node_modules",
+      "(?:use|supply|copy).{0,30}production.{0,20}(?:credentials|keys)",
+      "helper-only.{0,30}(?:proves|certifies).{0,20}(?:full|runtime)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 32768,
+    "maxTotalContextBytes": 327680,
+    "relatedCases": [
+      "OMH-049",
+      "OMH-051"
+    ]
+  },
+  {
+    "id": "OMH-243",
+    "title": "Customize Markdown code-block languages through an exact component props contract",
+    "family": "umes",
+    "mode": "one-shot",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, customize MarkdownField code-block language choices: add Rust, rename JavaScript with a translated label and fallback, and hide SQL. Prefer the smallest component extension while preserving the existing public handle, caller props and language options, the empty-tag choice, and stored hidden or unknown language tags. Resolve the mounted host from framework facts, read exact installed props and language contracts, and use the canonical component props-transform example. Explain module registration and app-level override registration, keep framework packages read-only, preserve tenant and organization boundaries, and identify the smallest relevant validation.",
+    "tags": [
+      "umes",
+      "backend-ui",
+      "component-replacement"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "backend-ui"
+      ],
+      "allowedExtra": [
+        "architecture",
+        "module-data",
+        "debugging",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-system-extension"
+    ],
+    "optionalSkills": [
+      {
+        "id": "om-framework-context",
+        "route": "framework-context"
+      }
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/guides/upstream/BACKWARD_COMPATIBILITY.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/framework-extension-points.md",
+        ".ai/skills/om-system-extension/references/unified-overrides.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-framework-context/SKILL.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "README.md",
+            "references/surface-map.md"
+          ],
+          "allowedCapabilityIds": [
+            "umes.component-replacement"
+          ],
+          "maxFiles": 9,
+          "maxBytes": 204800
+        }
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+        "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts"
+      ]
+    },
+    "requiredDecisions": [
+      "component-replacement",
+      "props-contract",
+      "markdown-props-transform",
+      "language-patch-composition",
+      "preserve-stored-language-tags",
+      "translated-language-labels"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:delete|modify).{0,30}node_modules"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 16,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 356352,
+    "relatedCases": [
+      "OMH-030",
+      "OMH-088",
+      "OMH-089"
     ]
   }
 ]
