@@ -42,7 +42,7 @@ Status: in-progress
 | 5 | 5.3 | Compile extension declarations into the framework registries and callbacks | dispatch | done | this commit |
 | 5 | 5.4 | Add custom-field, table and external store builders | dispatch | done | this commit |
 | 5 | 5.5 | Prove wrapper and hand-written fixture manifest parity | dispatch | done | this commit |
-| 5 | 5.6 | Document the wrapper and stable public imports | dispatch | todo | — |
+| 5 | 5.6 | Document the wrapper and stable public imports | dispatch | done | this commit |
 | 6 | 6.1 | Add the example Todo showcase and transaction ownership contract | dispatch | todo | — |
 | 6 | 6.2 | Cover all showcase cases in Playwright and generator tests | dispatch | todo | — |
 | 6 | 6.3 | Register example capabilities and verify template parity | dispatch | todo | — |

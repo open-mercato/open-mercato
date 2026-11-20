@@ -24,7 +24,7 @@
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |
 | `extension-points.ts` | `extensionPoints` | Canonical serializable UI host declarations for generated UMES facts |
-| `form-sections.ts` | `crudFormSections` | Server-only CrudForm section facts, adapters, and paired lazy browser runtime declarations |
+| `form-sections.ts` | `crudFormExtensions`, `crudFormSections` | CrudForm section extension declarations and optional hand-written host facts and adapters |
 | `translations.ts` | `translatableFields` | Translatable field declarations per entity |
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
@@ -42,12 +42,12 @@
 
 ## CrudForm section policies
 
-1. Declare `crudFormSections` with `defineCrudFormSections` from `@open-mercato/shared/modules/form-sections`. For each supported host, form variant, and operation, declare a baseline and finite alternatives with exact group order, contribution IDs, ownership, dependencies, and mutation bindings. Provide authoritative scope and capabilities for each configured alternative. Conventional single-resource CRUD factories can declare a `derivedHosts` entry with `defineCrudRouteSectionHost`.
-2. Pair each fact with `lazyCrudFormSectionRuntime(() => import('./section.client'))`. The client file exports `crudFormSectionRuntime` with the same `id` and `roundTripId`. Use `defineCrudFormSectionRuntime` from `@open-mercato/ui/backend/injection/crud-form-section-runtime` for section renderers, owned fields, validators, and payload projectors. Keep server callbacks in `form-sections.ts`.
-3. Run `yarn generate` with the same enabled modules on server and browser. Commit the module-root `form-sections.runtime-revisions.json` ledger. When changing a fact or runtime's behavior, increase its `<descriptor-id>@v<n>` in both declarations before generating again.
-4. Enable a vetted alternative with `overrides.forms.sections` in `modules.ts`. Pass explicit form identity and use the bound mutation APIs for its façade. Verify ready, blocked, and all-masked behavior before rollout.
+1. Find the published `crud-form:<hostId>` and its supported variant and operation. Add one `defineCrudFormExtension` for that host to the module-root `form-sections.ts` export `crudFormExtensions`. Import the builders from `@open-mercato/ui/backend/crud-form-extensions`.
+2. Use `add`, `hide`, `replace`, or `modify` for sections. Use `field.add`, `field.patch`, and `field.remove` on field-granular sections. Keep labels and validation messages as i18n keys. Leave a field's store omitted to inherit its section store or the default custom-field store.
+3. Run `yarn generate` with the same enabled modules on server and browser. Review the compiled summary and commit `form-sections.revisions.json`. Resolve competing contributions with an exact `overrides.forms.sections` selector in `modules.ts`, or mask the address with `null`.
+4. Verify the configured form, its guarded write, and the behavior when its overrides are masked. Use `crudFormSections` with `defineCrudFormSections` for hand-written capabilities, custom host adapters, and independent mutation surfaces. Conventional single-resource CRUD factories can publish a `derivedHosts` entry with `defineCrudRouteSectionHost`.
 
-See the [CrudForm guide](../../apps/docs/docs/framework/admin-ui/crud-form.mdx#server-verified-section-policies), the [framework spec](../specs/2026-10-22-crudform-section-overrides-framework.md), and the [non-production fixture](../qa/fixtures/crudform-section-policy/README.md).
+See the [wrapper and advanced recipes](../../apps/docs/docs/framework/admin-ui/crud-form.mdx#server-verified-section-policies), the [framework spec](../specs/2026-10-22-crudform-section-overrides-framework.md), and the [non-production parity fixture](../qa/fixtures/crudform-section-policy/README.md).
 
 ## Module Rules
 

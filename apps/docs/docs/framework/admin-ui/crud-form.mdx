@@ -157,7 +157,51 @@ Because hosts address groups by id, a built-in group's `id` is a contract surfac
 
 Use [section overrides](../modules/overrides.mdx#crudform-sections) when adding, hiding, or replacing a group changes what the form can write. A host registers the exact compositions it supports. Each alternative identifies the ordered groups, contribution IDs, callers, payload and custom-field ownership, dependencies, and guarded mutation surfaces for one `(hostId, formVariant, formOperation)` tuple.
 
-### Declare the host and its runtimes
+### Extend a published host
+
+Use `defineCrudFormExtension` to change sections of a host that already publishes a section policy. In the contributing module's `form-sections.ts`, export `crudFormExtensions` with one declaration per host. This example assumes the host publishes the `details` and `notes` groups, lists `title` as a field of `details`, and provides a custom-field definition set.
+
+```ts
+import { add, defineCrudFormExtension, field, hide, modify } from '@open-mercato/ui/backend/crud-form-extensions'
+
+export const crudFormExtensions = [defineCrudFormExtension({
+  id: 'my_app.product_form',
+  host: 'crud-form:inventory.product',
+  targets: [{ formVariant: 'edit', formOperation: 'update' }],
+  sections: {
+    notes: hide(),
+    details: modify({ fields: {
+      title: field.patch({ labelKey: 'my_app.fields.product_name' }),
+    } }),
+    'supplier-info': add({
+      after: 'details',
+      titleKey: 'my_app.sections.supplier',
+      fields: {
+        supplier_ref: field.add({ type: 'text', labelKey: 'my_app.fields.supplier_ref' }),
+      },
+    }),
+  },
+})]
+```
+
+- Use `modify` on a base that publishes `fields`, `fieldSchemas`, `fieldPayloadPaths`, `projectField`, and `refinements` through `defineCrudFormFieldGranularSection` from `@open-mercato/ui/backend/crud-form-field-granular`. Unchanged fields retain their validators and projectors. `field.remove()` drops dependent optional refinements; a dependent mandatory refinement blocks generation.
+- For a component-only group use `hide()` or `replace(() => import('./details.client'))`. A replacement exports `crudFormSectionRuntime` and preserves the published payload ownership. Omitted required leaves need approved preservation on update or a `defaults` provider on the declaration.
+- Use i18n keys for labels and validation messages. Define browser choices as literal `{ value, labelKey }` entries or a literal `import()` loader. Use `validate.client` for a literal loader and `validate.server` for a server callback. Declarative rules with `enforce: 'client-and-server'` run in both places. The façade checks server rules against the admitted field again before the transactional write.
+
+An explicit field store takes precedence over the section's store. With neither declared, the field uses `store.customField()`.
+
+| Store | Host or module requirements |
+| --- | --- |
+| `store.customField(key?)` | Use a `snake_case` key. The host maps the definition-set ID to its entity through `customFieldSeedEntities` and supplies the matching form scope. The seed pipeline installs the definition and the host persists the value. |
+| `store.table(entityId)` | Export a contributing-module ORM entity with scalar `tenantId`, `organizationId`, and `hostId` in a unique tuple, plus `id`, `updatedAt`, and columns for the owned fields. Ship its migration. |
+| `store.sink(config)` | Supply the persistence, load, and lifecycle callbacks appropriate to the declared transaction, locking, and undo contract. |
+| `store.external(config)` | Export an owned mirror entity with the same scoped tuple, `updatedAt`, the shared `outboxColumns` mixin, and nullable JSON `values`. Ship its migration and implement the versioned delivery callback. Share the mirror's delivery `contractId` across create and update, and advance it when remote behavior changes. |
+
+Run `yarn generate`, review the extension summary, and commit `form-sections.revisions.json`. The generator assigns `<extension>.<section>` for one target and `<extension>.<variant>.<operation>.<section>` for multiple targets. The round-trip ID appends `@v<n>` to the contribution ID. For a conflict, use the exact contribution ID in [`overrides.forms.sections`](../modules/overrides.mdx#crudform-sections) or set that address to `null` to mask it.
+
+### Advanced host declarations and hand-written contributions
+
+Use the primitives to publish new host facts, supply a custom adapter, or bind an independent mutation surface. The wrapper compiles contributions into these same policy contracts.
 
 - In module-root `form-sections.ts`, export `crudFormSections` with `defineCrudFormSections` from `@open-mercato/shared/modules/form-sections`. Add the baseline and supported alternatives and associate server capabilities with the exact host and surfaces. A required leaf that a section omits needs explicit coverage, such as preservation from the locked record on update or a registered `server-default` provider.
 - Pair each fact with `lazyCrudFormSectionRuntime(() => import('./section.client'))`. The client module exports `crudFormSectionRuntime` with the fact's `id` and `roundTripId`. A host runtime contains `sectionDescriptors`. Use `defineCrudFormSectionRuntime` from `@open-mercato/ui/backend/injection/crud-form-section-runtime` to pair each section's group, owned fields, validator, and payload projector. Revisions have the form `<descriptor-id>@v<n>`.

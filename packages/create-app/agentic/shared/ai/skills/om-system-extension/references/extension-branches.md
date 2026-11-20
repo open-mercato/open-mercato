@@ -17,6 +17,12 @@ Load only the selected branch.
 
 Run `yarn generate` for every discovered branch and verify generated registration selects the intended host exactly once.
 
+## CrudForm section policy
+
+- Author `crudFormExtensions` with `defineCrudFormExtension`, `add`/`hide`/`replace`/`modify`, and `field.*` and `store.*` from `@open-mercato/ui/backend/crud-form-extensions`. Use `modify` on field-granular sections and `hide` or `replace` on component-only sections. Use i18n keys, serializable field definitions, and literal browser imports.
+- Added fields inherit a section store or use `store.customField()`. Check the host's definition-set binding, or publish a scoped app-owned entity for `store.table` or `store.external`. Keep storage and validation callbacks on the server. Use `crudFormSections` primitives for a custom host adapter or independent mutation surface.
+- Run `yarn generate`, review the compiled capabilities, routes, and ownership, and commit `form-sections.revisions.json`. Verify the authorized write, denied write, and masked configuration using the exact `overrides.forms.sections` key.
+
 ## Canonical example source
 
 One compiling contributor per branch, plus the callers that consume it. Open only your branch's row.
