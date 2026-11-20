@@ -168,6 +168,58 @@ test.describe('TC-CRM-WRITE-GUARD-001: writes never silently discard a field', (
     }
   });
 
+  for (const spelling of ['camelCase', 'snake_case'] as const) {
+    test(`activity appearance ${spelling}: create, set, clear and read persisted values`, async ({ request }) => {
+      const token = await getAuthToken(request);
+      let companyId: string | null = null;
+      let activityId: string | null = null;
+      const appearance = (icon: string | null, color: string | null) => spelling === 'camelCase'
+        ? { appearanceIcon: icon, appearanceColor: color }
+        : { appearance_icon: icon, appearance_color: color };
+
+      try {
+        companyId = await createCompanyFixture(request, token, `QA WG appearance ${spelling} ${Date.now()}`);
+        const created = await apiRequest(request, 'POST', '/api/customers/activities', {
+          token,
+          data: { entityId: companyId, activityType: 'note', subject: `QA appearance ${spelling}` },
+        });
+        expect(created.status()).toBe(201);
+        activityId = (await created.json() as { id: string }).id;
+        expect(activityId).toBeTruthy();
+
+        const readAppearance = async (resource: 'interactions' | 'activities' = 'interactions') => {
+          const response = await apiRequest(request, 'GET', `/api/customers/${resource}?entityId=${companyId}`, { token });
+          expect(response.status()).toBe(200);
+          const body = await response.json() as {
+            items: Array<{ id: string; appearanceIcon: string | null; appearanceColor: string | null }>;
+          };
+          const record = body.items.find((item) => item.id === activityId);
+          expect(record).toBeDefined();
+          return record;
+        };
+        expect(await readAppearance()).toMatchObject({ appearanceIcon: null, appearanceColor: null });
+
+        const set = await apiRequest(request, 'PUT', '/api/customers/activities', {
+          token, data: { id: activityId, ...appearance('lucide:phone', '#123456') },
+        });
+        expect(set.status()).toBe(200);
+        expect((await set.json()).ignoredFields).toBeUndefined();
+        expect(await readAppearance()).toMatchObject({ appearanceIcon: 'lucide:phone', appearanceColor: '#123456' });
+
+        const cleared = await apiRequest(request, 'PUT', '/api/customers/activities', {
+          token, data: { id: activityId, ...appearance(null, null) },
+        });
+        expect(cleared.status()).toBe(200);
+        expect((await cleared.json()).ignoredFields).toBeUndefined();
+        expect(await readAppearance()).toMatchObject({ appearanceIcon: null, appearanceColor: null });
+        expect(await readAppearance('activities')).toMatchObject({ appearanceIcon: null, appearanceColor: null });
+      } finally {
+        await deleteEntityIfExists(request, token, '/api/customers/activities', activityId);
+        await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
+      }
+    });
+  }
+
   for (const resource of ['activities', 'interactions'] as const) {
     const endpoint = `/api/customers/${resource}`;
 
