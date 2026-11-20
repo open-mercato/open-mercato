@@ -21,6 +21,8 @@
 | 3 | 3.1 | UPGRADE_NOTES + spec changelog line | inline | done | a75cc865c8 |
 | 3 | 3.2 | Integration coverage TC-ASSIST-001 (§10.1 settings rows) | inline | done | e629326f48 |
 | 3 | 3.3 | Gate fix: map interceptor rejections in the PUT catch (command-interceptor-http-coverage) | inline | done | 8088ceecde |
+| 3 | 3.4-review-fix | Settings route reads the dispatcher's `ctx.auth` instead of `getAuthFromRequest` | inline | done | 831a96b659 |
+| 3 | 3.5-review-fix | TC-ASSIST-001: same-tenant cross-organization 404 and store-org write rows | inline | done | e899b363de |
 
 ## Goal
 
