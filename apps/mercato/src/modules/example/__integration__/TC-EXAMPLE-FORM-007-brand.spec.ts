@@ -20,9 +20,10 @@ function versionForBrand(todo: TodoRecord): string {
   throw new Error('[internal] Expected a versioned brand')
 }
 
-test('TC-EXAMPLE-FORM-007 persists and freshens both versions, and rolls back a rejected table write', async ({ page, request, showcaseTodo }) => {
+test('TC-EXAMPLE-FORM-007 advances the brand version independently and rolls back a rejected table write', async ({ page, request, showcaseTodo }) => {
   test.slow()
   const policy = await readReadyShowcasePolicy(page, showcaseTodo.open)
+  const original = await showcaseTodo.read()
   const brand = field(page, 'brand').getByRole('textbox')
   const rejectedBrand = `reject-${randomUUID()}`
   const refresh = () => page.waitForResponse((response) => {
@@ -35,6 +36,7 @@ test('TC-EXAMPLE-FORM-007 persists and freshens both versions, and rolls back a 
   expect((await saveShowcase(page)).status()).toBe(200)
   expect((await refreshedFirst).status()).toBe(200)
   const first = await showcaseTodo.read()
+  expect(first.updatedAt).toBe(original.updatedAt)
   expect(first._extensions?.example?.brand).toBe('First brand')
   const oldVersion = versionForBrand(first)
 
@@ -44,7 +46,7 @@ test('TC-EXAMPLE-FORM-007 persists and freshens both versions, and rolls back a 
   expect((await saveShowcase(page)).status()).toBe(200)
   expect((await refreshedSecond).status()).toBe(200)
   const saved = await showcaseTodo.read()
-  expect(saved.updatedAt).not.toBe(first.updatedAt)
+  expect(saved.updatedAt).toBe(original.updatedAt)
   expect(versionForBrand(saved)).not.toBe(oldVersion)
   expect(saved._extensions?.example?.brand).toBe('Second brand')
   await expect(brand).toHaveValue('Second brand')

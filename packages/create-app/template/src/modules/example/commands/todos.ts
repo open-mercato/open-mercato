@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import {
@@ -380,6 +381,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       resourceId: parsed.id,
       expected: parsed.expected_updated_at,
       current: existing.updatedAt,
+      envValue: ctx.crudFormSectionTargetVersionRequired ? 'all' : undefined,
     })
     const custom = await loadTodoCustomSnapshot(
       em,
@@ -394,21 +396,28 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const scope = ensureScope(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const encryption = parsed.notes !== undefined ? tryResolveTodoEncryptionService(ctx) : null
-    const patch = await buildTodoUpdatePatch(
-      { title: parsed.title, isDone: parsed.is_done, notes: parsed.notes },
-      scope,
-      encryption,
-    )
-    const previousVersion = await beforeTodoTransactionalWrite(ctx, rawInput, parsed.id, parsed.expected_updated_at)
-    const todo = await writeTodoUpdate(ctx.transactionalEm ?? em.fork({ clear: true, freshEventManager: true }), {
-      id: parsed.id,
-      ...scope,
-      patch,
-      refresh: !!ctx.transactionalEm,
-      previousVersion,
-      touchVersion: !!ctx.transactionalEm && Object.keys(custom).length > 0,
-    })
+    const locked = await beforeTodoTransactionalWrite(ctx, rawInput, parsed.id, parsed.expected_updated_at)
+    const configured = ctx.crudFormSectionTargetVersionRequired ? locked : undefined
+    const notes = configured && parsed.notes === (configured.notes ?? null) ? undefined : parsed.notes
+    const patch = await buildTodoUpdatePatch({
+      title: parsed.title === configured?.title ? undefined : parsed.title,
+      isDone: parsed.is_done === configured?.isDone ? undefined : parsed.is_done,
+      notes,
+    }, scope, notes === undefined ? null : tryResolveTodoEncryptionService(ctx))
+    const customUpdates = configured && ctx.transactionalEm
+      ? await changedTodoCustomFields(ctx.transactionalEm, configured.id, scope, custom)
+      : custom
+    const touchVersion = !!ctx.transactionalEm && Object.keys(customUpdates).length > 0
+    const todo = configured && !touchVersion && !Object.keys(patch).length
+      ? configured
+      : await writeTodoUpdate(ctx.transactionalEm ?? em.fork({ clear: true, freshEventManager: true }), {
+        id: parsed.id,
+        ...scope,
+        patch,
+        refresh: !!ctx.transactionalEm,
+        previousVersion: locked?.updatedAt,
+        touchVersion,
+      })
     if (!todo) throw new CrudHttpError(404, { error: 'Todo not found' })
 
     await setCustomFieldsIfAny({
@@ -417,7 +426,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       recordId: String(todo.id),
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      values: custom,
+      values: customUpdates,
     })
 
     await emitCrudSideEffects({
@@ -706,13 +715,28 @@ async function beforeTodoTransactionalWrite(ctx: CommandRuntimeContext, input: u
     throw new Error('[internal] Todo write requires the owned transaction')
   }
   const current = id ? await readScopedTodo(em, id, ensureScope(ctx), { lock: true }) : null
-  if (id && !current) {
-    enforceRecordGoneIsConflict({ resourceKind: ENTITY_ID, resourceId: id, expected })
-    throw todoNotFound()
+  if (id) {
+    const version = {
+      resourceKind: ENTITY_ID, resourceId: id, expected,
+      envValue: ctx.crudFormSectionTargetVersionRequired ? 'all' : undefined,
+    }
+    if (!current) {
+      enforceRecordGoneIsConflict(version)
+      throw todoNotFound()
+    }
+    assertOptimisticLock({ ...version, current: current.updatedAt })
   }
-  if (id && current) assertOptimisticLock({ resourceKind: ENTITY_ID, resourceId: id, expected, current: current.updatedAt })
   await ctx.beforeTransactionalWrite?.(em, input)
-  return current?.updatedAt
+  return current ?? undefined
+}
+
+async function changedTodoCustomFields(
+  em: EntityManager, id: string, scope: { tenantId: string; organizationId: string }, custom: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (!Object.keys(custom).length) return custom
+  const stored = await loadTodoCustomSnapshot(em, id, scope.tenantId, scope.organizationId)
+  return Object.fromEntries(Object.entries(normalizeCustomFieldValues(custom)).filter(([key, value]) =>
+    value !== undefined && !isDeepStrictEqual(value, stored[key] ?? null)))
 }
 
 function isConfiguredTodoHardDelete(ctx: CommandRuntimeContext): boolean {

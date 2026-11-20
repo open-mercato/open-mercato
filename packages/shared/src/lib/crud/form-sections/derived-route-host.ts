@@ -566,6 +566,7 @@ async function handleDerivedMutation(
           ...ctx.organizationScope, selectedId: organizationId, filterIds: organizationId ? [organizationId] : null,
         } : null,
         request: facadeRequest,
+        ...(surface.optimisticLock === 'target-required' ? { crudFormSectionTargetVersionRequired: true } : {}),
         ...(operation === 'delete' ? { crudFormSectionDeleteMode: declaration.delete?.mode } : {}),
       }
       const normalizeContext = {

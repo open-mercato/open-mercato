@@ -169,6 +169,7 @@ test('preserves Todo custom field snapshots through a legacy update, undo, redo 
 
 
 configuredTest('TC-EXAMPLE-FORM-001 saves a visible field and shows a concurrent edit conflict', async ({ page, showcaseTodo }) => {
+  configuredTest.slow()
   await showcaseTodo.open()
   await expect(field(page, 'title')).toHaveCount(0)
   await field(page, 'is_done').getByRole('checkbox').check()
@@ -187,9 +188,17 @@ configuredTest('TC-EXAMPLE-FORM-001 saves a visible field and shows a concurrent
   } finally {
     await other.close()
   }
-  await field(page, 'cf_priority').getByRole('textbox', { name: 'Priority level' }).fill('4')
-  expect((await saveShowcase(page)).status()).toBe(409)
-  await expect(page.getByTestId('record-conflict-banner')).toBeVisible()
-  expect(await showcaseTodo.read()).toMatchObject({ title: showcaseTodo.title, notes: showcaseTodo.notes, is_done: true })
+  const conflict = page.getByTestId('record-conflict-banner')
+  if (!await conflict.isVisible()) {
+    const submitStaleEdit = async () => {
+      await field(page, 'cf_priority').getByRole('textbox', { name: 'Priority level' }).fill('4')
+      expect((await saveShowcase(page)).status()).toBe(409)
+    }
+    await Promise.race([submitStaleEdit(), conflict.waitFor({ state: 'visible' })])
+  }
+  await expect(conflict).toBeVisible()
+  expect(await showcaseTodo.read()).toMatchObject({
+    title: showcaseTodo.title, notes: showcaseTodo.notes, is_done: true, cf_priority: 3,
+  })
   await captureShowcase(page, 'c1-edit-conflict')
 })

@@ -337,6 +337,14 @@ describe('derived façade command pipeline', () => {
     expect(fixture.events).toEqual(['begin', 'write', 'commit'])
   })
 
+  it('passes the proven route lock requirement to a versioned update command', async () => {
+    const fixture = executableFixture(false, 'update')
+    expect((await fixture.response()).status).toBe(200)
+    expect(fixture.execute).toHaveBeenCalledWith('update', expect.objectContaining({
+      id: fixture.recordId, expectedUpdatedAt: '2026-11-20T00:00:00.000Z',
+    }), expect.objectContaining({ crudFormSectionTargetVersionRequired: true }))
+  })
+
   it('rolls back before dispatch when the original mapper adds an undeclared leaf', async () => {
     const fixture = executableFixture(true)
     const response = await fixture.response()

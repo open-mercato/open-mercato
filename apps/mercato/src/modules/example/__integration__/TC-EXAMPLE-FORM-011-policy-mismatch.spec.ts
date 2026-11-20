@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { expect } from '@playwright/test'
-import { apiRequest } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setUserAclVisibility,
+} from '@open-mercato/core/helpers/integration/authFixtures'
+import { createOrganizationInDb, deleteOrganizationInDb, deleteUserAclInDb } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   buildCrudFormSectionPolicyHeaders,
   crudFormSectionPolicyHeaderNames,
@@ -10,7 +15,7 @@ import {
   readyResolveCrudFormSectionsResponseSchema,
 } from '@open-mercato/shared/lib/crud/form-sections/protocol'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import { test } from './todoShowcaseFixtures'
+import { readReadyShowcasePolicy, showcaseHeaders, test } from './todoShowcaseFixtures'
 
 export const integrationMeta = { dependsOnModules: ['example'] }
 
@@ -60,5 +65,53 @@ test('TC-EXAMPLE-FORM-011 refuses three policy mismatches without any write', as
     const after = await showcaseTodo.read()
     expect(after).toMatchObject({ id, title: before.title, is_done: before.is_done, updatedAt: before.updatedAt })
     expect(after._extensions).toEqual(before._extensions)
+  }
+})
+
+test('TC-EXAMPLE-FORM-011 checks form policy permissions and organization scope', async ({ page, request, showcaseTodo }) => {
+  test.slow()
+  const { tenantId, organizationId } = getTokenScope(showcaseTodo.token)
+  if (!tenantId || !organizationId) throw new Error('[internal] The Todo fixture requires a scoped admin')
+  const stamp = randomUUID()
+  const password = `QaTodo-${stamp}!`
+  const actors = [
+    { email: `todo-read-${stamp}@example.invalid`, features: ['example.todos.view'], status: 403 },
+    { email: `todo-other-${stamp}@example.invalid`, features: ['example.todos.view', 'example.todos.manage'], status: 404 },
+  ]
+  const policy = await readReadyShowcasePolicy(page, showcaseTodo.open)
+  const before = await showcaseTodo.read()
+  const headers = showcaseHeaders(policy, before.id, before.updatedAt)
+  const userIds: string[] = []
+  let otherOrganization: string | null = null
+  let role: string | null = null
+  try {
+    otherOrganization = await createOrganizationInDb({ name: `Todo policy ${stamp}`, tenantId })
+    role = await createRoleFixture(request, showcaseTodo.token, { name: `Todo policy ${stamp}` })
+    for (const actor of actors) {
+      const actorOrganization = actor.status === 403 ? organizationId : otherOrganization
+      const userId = await createUserFixture(request, showcaseTodo.token, {
+        email: actor.email, password, organizationId: actorOrganization, roles: [role],
+      })
+      userIds.push(userId)
+      await setUserAclVisibility(request, showcaseTodo.token, {
+        userId, organizations: [actorOrganization], features: actor.features,
+      })
+      const token = await getAuthToken(request, actor.email, password)
+      expect(getTokenScope(token).organizationId).toBe(actorOrganization)
+      const response = await apiRequest(request, 'PUT', '/api/example/todos/section-policy', {
+        token, headers, data: { id: before.id, is_done: !before.is_done },
+      })
+      expect(response.status()).toBe(actor.status)
+    }
+    const after = await showcaseTodo.read()
+    expect(after).toMatchObject({ id: before.id, is_done: before.is_done, updatedAt: before.updatedAt })
+    expect(after._extensions).toEqual(before._extensions)
+  } finally {
+    for (const userId of userIds) {
+      await deleteUserIfExists(request, showcaseTodo.token, userId)
+      await deleteUserAclInDb(userId)
+    }
+    await deleteRoleIfExists(request, showcaseTodo.token, role)
+    await deleteOrganizationInDb(otherOrganization)
   }
 })

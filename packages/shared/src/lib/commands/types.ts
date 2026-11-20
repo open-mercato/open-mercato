@@ -77,6 +77,8 @@ export type CommandRuntimeContext = {
   beforeTransactionalWrite?: (em: EntityManager, input?: unknown) => Promise<void>
   /** Deletion mode supplied by a proven server-side CrudForm route adapter. */
   crudFormSectionDeleteMode?: 'hard' | 'soft'
+  /** Target-version requirement supplied by a proven server-side CrudForm route adapter. */
+  crudFormSectionTargetVersionRequired?: true
   /**
    * Identifies the owner of an already-active {@link transactionalEm} lifetime.
    * Normal execution opts in to an ambient transaction when this token is
