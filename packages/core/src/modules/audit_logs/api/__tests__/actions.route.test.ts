@@ -1,6 +1,10 @@
 /** @jest-environment node */
 import { GET } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/route'
 import { actionLogListSchema } from '@open-mercato/core/modules/audit_logs/data/validators'
+import {
+  loadCustomerAuditRedactionContext,
+  redactCustomerAuditEntry,
+} from '@open-mercato/core/modules/customers/lib/auditRedaction'
 
 import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
@@ -8,6 +12,18 @@ import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-en
 const mockRbac = { userHasAllFeatures: jest.fn(), getGrantedFeatures: jest.fn() }
 const mockActionLogs = { list: jest.fn() }
 const mockEm = {}
+// Mirrors the real DI registration in `customers/di.ts` against the generic
+// `actionLogRedactionProvider` extension point (see
+// `audit_logs/lib/actionLogRedaction.ts`) — a missing token simulates the
+// customers module being disabled (see the "customers module disabled" tests
+// below).
+const mockActionLogRedactionProvider = {
+  loadContext: loadCustomerAuditRedactionContext,
+  redactEntry: redactCustomerAuditEntry,
+}
+// Toggled by the "customers module disabled" tests — mirrors Awilix throwing on
+// an unregistered token, which is exactly what `tryResolve` guards against.
+let customersModuleEnabled = true
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
@@ -19,6 +35,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (token === 'rbacService') return mockRbac
       if (token === 'actionLogService') return mockActionLogs
       if (token === 'em') return mockEm
+      if (token === 'actionLogRedactionProvider') {
+        if (!customersModuleEnabled) throw new Error('AwilixResolutionError: Could not resolve actionLogRedactionProvider')
+        return mockActionLogRedactionProvider
+      }
       return null
     },
   })),
@@ -65,6 +85,7 @@ function makeActionLogEntry(overrides: Record<string, unknown> = {}) {
 describe('GET /api/audit_logs/audit-logs/actions', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
+    customersModuleEnabled = true
     const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
       organizationId: 'org-1',
@@ -121,6 +142,486 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     expect(listQuery.pageSize).toBeUndefined()
     expect(listQuery.limit).toBeUndefined()
     expect(listQuery.offset).toBeUndefined()
+  })
+
+  // Regression for issue #8887 — the route used to serialize decrypted CRM
+  // interaction snapshots verbatim, exposing private email subjects/bodies to
+  // any viewer with audit_logs.view_tenant regardless of CRM ownership.
+  it('redacts private email title/body from a customers.interaction entry when the viewer is not the author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+              title: 'Private subject',
+              body: 'Private body',
+            },
+          },
+          snapshotAfter: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
+    expect(data.items[0].snapshotBefore.interaction.body).toBeNull()
+  })
+
+  it('leaves private email title/body visible to its own author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-1',
+              title: 'Private subject',
+              body: 'Private body',
+            },
+          },
+          snapshotAfter: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore.interaction.title).toBe('Private subject')
+    expect(data.items[0].snapshotBefore.interaction.body).toBe('Private body')
+  })
+
+  // Regression for the follow-up security finding on #8978 — the route only
+  // redacted title/body, so a hidden private email's participants (addresses)
+  // and linkedEntities still leaked to a viewer without live CRM access.
+  it('redacts private email participants/linkedEntities from a customers.interaction entry when the viewer is not the author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+              title: 'Private subject',
+              body: 'Private body',
+              participants: [{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }],
+              linkedEntities: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }],
+            },
+          },
+          snapshotAfter: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore.interaction.participants).toBeNull()
+    expect(data.items[0].snapshotBefore.interaction.linkedEntities).toBeNull()
+  })
+
+  it('leaves private email participants/linkedEntities visible to its own author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-1',
+              title: 'Private subject',
+              body: 'Private body',
+              participants: [{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }],
+              linkedEntities: [{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }],
+            },
+          },
+          snapshotAfter: null,
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore.interaction.participants).toEqual([
+      { userId: 'user-3', name: 'Third Party', email: 'third@example.com' },
+    ])
+    expect(data.items[0].snapshotBefore.interaction.linkedEntities).toEqual([
+      { id: 'deal-1', type: 'deal', label: 'Confidential Deal' },
+    ])
+  })
+
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909076861,
+  // pullrequestreview-5909263810) — a stored `customers.interaction` snapshot's
+  // own `visibility` describes the state AT THE TIME that audit entry was
+  // recorded, which a later shared→private revocation can make stale. These
+  // exercise the full response boundary (not just the helper) so a broken
+  // `ActionLog.resourceId` → provider → JSON wiring would be caught here too.
+  describe('live-authority revocation at the response boundary', () => {
+    afterEach(() => {
+      delete (mockEm as Record<string, unknown>).find
+    })
+
+    function mockLiveInteraction(row: Record<string, unknown> | null) {
+      const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        const idFilter = where?.id as { $in?: string[] } | undefined
+        if (row && idFilter?.$in?.includes(row.id as string)) return [row]
+        return []
+      })
+      ;(mockEm as Record<string, unknown>).find = find
+      return find
+    }
+
+    it('hides a shared-at-the-time email after it has been revoked to private', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      const find = mockLiveInteraction({
+        id: 'interaction-1',
+        visibility: 'private',
+        authorUserId: 'user-2',
+        channelId: null,
+        entity: 'person-1',
+      })
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-1',
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-1',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Old shared subject',
+                body: 'Old shared body',
+              },
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
+      expect(data.items[0].snapshotBefore.interaction.body).toBeNull()
+      // The batch query must be scoped to the caller's own tenant/organization.
+      expect(find).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: { $in: ['interaction-1'] }, tenantId: 'tenant-1', organizationId: 'org-1' }),
+        expect.anything(),
+      )
+    })
+
+    it('keeps the revoked email visible to its own author', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      mockLiveInteraction({
+        id: 'interaction-1',
+        visibility: 'private',
+        authorUserId: 'user-2',
+        channelId: null,
+        entity: 'person-1',
+      })
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-1',
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-1',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Old shared subject',
+              },
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interaction.title).toBe('Old shared subject')
+    })
+
+    it('fails closed when the live-authority lookup finds nothing (interaction deleted since)', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      mockLiveInteraction(null)
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-deleted',
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-deleted',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Deleted-interaction subject',
+              },
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
+    })
+
+    it('does not widen access with a conversation-share grant for the historical (no-longer-current) parent after the interaction moved', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      // The interaction now lives under person-2, but the grant was only ever
+      // made for the OLD parent, person-1.
+      const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        const idFilter = where?.id as { $in?: string[] } | undefined
+        if (idFilter?.$in?.includes('interaction-1')) {
+          return [{ id: 'interaction-1', visibility: 'private', authorUserId: 'user-2', channelId: null, entity: 'person-2' }]
+        }
+        if ('ownerUserId' in where) {
+          return [{ id: 'share-1', ownerUserId: 'user-2', personEntity: { id: 'person-1' } }]
+        }
+        return []
+      })
+      ;(mockEm as Record<string, unknown>).find = find
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-1',
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-1',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Moved interaction subject',
+              },
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
+    })
+
+    // Regression for @pkarw's review on #8978 (pullrequestreview-5909526934) —
+    // an embedded Person-history interaction whose ownership transferred to a
+    // different user. A grant for the OLD (stored) author must not authorize
+    // it; only a grant for the CURRENT (live) author may.
+    it('does not authorize embedded Person history using a grant for the author it had before an ownership transfer', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        const idFilter = where?.id as { $in?: string[] } | undefined
+        if (idFilter?.$in?.includes('embedded-1')) {
+          return [{ id: 'embedded-1', visibility: 'private', authorUserId: 'user-3', channelId: null, entity: 'person-1' }]
+        }
+        if ('ownerUserId' in where) {
+          // The only share grant on record covers the OLD (stored) author, user-2.
+          return [{ id: 'share-1', ownerUserId: 'user-2', personEntity: { id: 'person-1' } }]
+        }
+        return []
+      })
+      ;(mockEm as Record<string, unknown>).find = find
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.person',
+            resourceId: 'person-1',
+            snapshotBefore: {
+              entity: { id: 'person-1' },
+              interactions: [
+                { id: 'embedded-1', interactionType: 'email', authorUserId: 'user-2', title: 'Secret subject', body: 'Secret body' },
+              ],
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interactions[0].title).toBeNull()
+      expect(find).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: { $in: ['embedded-1'] }, tenantId: 'tenant-1', organizationId: 'org-1' }),
+        expect.anything(),
+      )
+    })
+  })
+
+  // Regression for the maintainer review on #8978 — this generic route must not
+  // statically import CRM business logic (`packages/core/AGENTS.md` § Cross-Module
+  // Coupling). When the `customers` module is disabled (its DI service is never
+  // registered), the route must fail CLOSED for protected resource kinds — disabling
+  // the module does not delete existing `action_logs` rows, so a stored private
+  // email must never be disclosed just because its policy provider is unavailable.
+  it('suppresses protected entries when the customers module is disabled', async () => {
+    customersModuleEnabled = false
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        makeActionLogEntry({
+          resourceKind: 'customers.interaction',
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+              title: 'Private subject',
+              body: 'Private body',
+            },
+          },
+          snapshotAfter: null,
+          changesJson: { title: { from: 'Old private subject', to: 'Private subject' } },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotBefore).toBeNull()
+    expect(data.items[0].snapshotAfter).toBeNull()
+    expect(data.items[0].changes).toBeNull()
+    expect(JSON.stringify(data)).not.toContain('Private subject')
+    expect(JSON.stringify(data)).not.toContain('Private body')
+  })
+
+  it('keeps unrelated resource kinds usable when the customers module is disabled', async () => {
+    customersModuleEnabled = false
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [makeActionLogEntry()],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotAfter).toEqual({ name: 'Widget' })
   })
 
   it('passes page and pageSize to service', async () => {
