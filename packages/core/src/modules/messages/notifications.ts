@@ -42,6 +42,26 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend/messages/{sourceEntityId}',
     expiresAfterHours: 168,
   },
+  {
+    type: 'messages.scheduled_send_failed',
+    channels: ['in_app', 'email'],
+    module: 'messages',
+    titleKey: 'messages.notifications.scheduledSendFailed.title',
+    bodyKey: 'messages.notifications.scheduledSendFailed.body',
+    icon: 'alert-triangle',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/messages/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/messages/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
 ]
 
 export default notificationTypes

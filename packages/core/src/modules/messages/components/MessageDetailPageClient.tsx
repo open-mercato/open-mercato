@@ -22,6 +22,7 @@ import {
   MessageListComponent,
   MessageHeader,
   MessageDetailMetaSection,
+  MessageDetailScheduledAlert,
   MessageDetailObjectsSection,
 } from './message-detail/detail-panels'
 import { useMessageDetails } from './message-detail/hooks/useMessageDetails'
@@ -99,6 +100,14 @@ function MessageConversationDetailItem({
             context={{ messageId }}
             data={state.detail}
           />
+
+          {state.detail.status === 'scheduled' ? (
+            <MessageDetailScheduledAlert
+              detail={state.detail}
+              onEdit={() => state.setEditOpen(true)}
+              onChanged={() => state.refreshDetailWithoutAutoMarkRead()}
+            />
+          ) : null}
 
           <MessageDetailMetaSection detail={state.detail} onResent={() => state.refreshDetailWithoutAutoMarkRead()} />
 

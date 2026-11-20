@@ -16,6 +16,7 @@ export type ComposeMessagePayload = {
   body: string;
   sendViaEmail?: boolean;
   isDraft?: boolean;
+  scheduledAt?: string;
   actionData?: {
     actions: Array<{
       id: string;

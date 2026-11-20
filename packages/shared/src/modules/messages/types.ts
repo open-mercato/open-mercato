@@ -30,6 +30,8 @@ export type MessageListItemProps = {
     priority: 'low' | 'normal' | 'high' | 'urgent'
     sentAt: Date | null
     isDraft?: boolean
+    /** Set for a scheduled message: when it will be sent. */
+    scheduledAt?: Date | null
     senderName?: string
     senderAvatar?: string
     hasObjects: boolean

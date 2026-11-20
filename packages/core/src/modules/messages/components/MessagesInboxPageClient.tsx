@@ -16,7 +16,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useAppEventCoalesced } from '@open-mercato/ui/backend/injection/useAppEventCoalesced'
-import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
+import { Archive, ChevronDown, Clock, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
 import { getMessageListParticipantLabel } from './messageListLabels'
@@ -55,6 +55,7 @@ type MessageListItem = {
   hasActions: boolean
   actionTaken?: string | null
   sentAt?: string | null
+  scheduledAt?: string | null
   readAt?: string | null
   threadId?: string | null
 }
@@ -307,6 +308,7 @@ export function MessagesInboxPageClient() {
               priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
               sentAt: item.sentAt ? new Date(item.sentAt) : null,
               isDraft: item.isDraft,
+              scheduledAt: item.scheduledAt ? new Date(item.scheduledAt) : null,
               senderName: getMessageListParticipantLabel(item, folder, t),
               hasObjects: item.hasObjects,
               objectCount: item.objectCount,
@@ -328,6 +330,7 @@ export function MessagesInboxPageClient() {
     { id: 'inbox' as const, label: t('messages.folder.inbox', 'Inbox'), icon: Inbox },
     { id: 'sent' as const, label: t('messages.folder.sent', 'Sent'), icon: Send },
     { id: 'drafts' as const, label: t('messages.folder.drafts', 'Drafts'), icon: FilePenLine },
+    { id: 'scheduled' as const, label: t('messages.folder.scheduled', 'Scheduled'), icon: Clock },
     { id: 'archived' as const, label: t('messages.folder.archived', 'Archived'), icon: Archive },
     { id: 'all' as const, label: t('messages.folder.all', 'All'), icon: Layers },
   ], [t])

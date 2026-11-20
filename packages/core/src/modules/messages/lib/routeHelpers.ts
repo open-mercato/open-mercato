@@ -1,4 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { z } from 'zod'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isSchedulingAvailable } from './scheduledSend'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageRecipient } from '../data/entities'
@@ -235,4 +238,33 @@ export async function canUseMessageEmailFeature(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
+}
+
+/** First message per top-level field of a zod error, e.g. `{ scheduledAt: 'messages.errors.scheduleInPast' }`. */
+export function buildValidationFieldErrors(error: z.ZodError): Record<string, string> {
+  const fieldErrors: Record<string, string> = {}
+  for (const issue of error.issues) {
+    const field = issue.path[0]
+    if (field === undefined || String(field) in fieldErrors) continue
+    fieldErrors[String(field)] = issue.message
+  }
+  return fieldErrors
+}
+
+/** Scheduling needs the scheduler module (release tick) and, until mailbox release ships, the platform sender. */
+export async function refuseUnsupportedSchedule(container: unknown, viaMailbox: boolean): Promise<Response | null> {
+  if (!isSchedulingAvailable(container)) {
+    const { translate } = await resolveTranslations()
+    const error = translate('messages.errors.schedulingUnavailable', 'Scheduled sending is not available.')
+    return Response.json({ error, fieldErrors: { scheduledAt: error } }, { status: 422 })
+  }
+  if (viaMailbox) {
+    const { translate } = await resolveTranslations()
+    const error = translate(
+      'messages.errors.senderScheduleUnsupported',
+      'Scheduling a message sent from a connected mailbox is not supported yet.',
+    )
+    return Response.json({ error, fieldErrors: { senderChannelId: error } }, { status: 422 })
+  }
+  return null
 }

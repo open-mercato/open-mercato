@@ -15,8 +15,10 @@ import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import {
+  buildValidationFieldErrors,
   canPostToChannelThread,
   hasOrganizationAccess,
+  refuseUnsupportedSchedule,
   resolveMessageContext,
   resolveMessageReadAccess,
 } from '../../lib/routeHelpers'
@@ -284,6 +286,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     updatedAt: message.updatedAt ?? null,
     type: message.type,
     isDraft: message.isDraft,
+    status: message.status,
+    scheduledAt: message.scheduledAt ? message.scheduledAt.toISOString() : null,
+    senderChannelId: message.senderUserId === scope.userId ? message.senderChannelId ?? null : null,
     canEditDraft: message.isDraft && message.senderUserId === scope.userId,
     canArchive: Boolean(recipient),
     isArchived: recipient?.status === 'archived',
@@ -396,7 +401,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
-  const input = updateDraftSchema.parse(body)
+  const parsed = updateDraftSchema.safeParse(body)
+  if (!parsed.success) {
+    const { t } = await resolveTranslations()
+    return Response.json(
+      {
+        error: t('messages.errors.invalidComposePayload', 'Invalid message payload'),
+        details: parsed.error.issues,
+        fieldErrors: buildValidationFieldErrors(parsed.error),
+      },
+      { status: 400 },
+    )
+  }
+  const input = parsed.data
 
   const message = await em.findOne(Message, {
     id: params.id,
@@ -436,11 +453,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     )
   }
 
+  if (input.scheduledAt) {
+    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container, false)
+    if (scheduleRefusal) return scheduleRefusal
+  }
+
   // A draft is filed on its parent's thread and skips the compose route's
   // channel gate, so sending it publicly must pass the same gate (#6432).
   const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
   if (
-    input.isDraft === false &&
+    (input.isDraft === false || input.scheduledAt instanceof Date) &&
     finalVisibility === 'public' &&
     !(await canPostToChannelThread(ctx, scope, message.threadId ?? message.id))
   ) {
@@ -684,7 +706,9 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
-        { status: 409, description: 'Only drafts can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
+        { status: 400, description: 'Payload failed validation (e.g. scheduledAt in the past, too far ahead or not a whole minute)', schema: errorResponseSchema },
+        { status: 409, description: 'Only drafts and scheduled messages can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
+        { status: 422, description: 'scheduledAt given while scheduling is unavailable', schema: errorResponseSchema },
       ],
     },
     DELETE: {

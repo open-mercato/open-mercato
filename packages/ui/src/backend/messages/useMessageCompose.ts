@@ -135,7 +135,10 @@ export type UseMessageComposeResult = {
   loadAttachmentIds: () => Promise<string[]>
   handleSaveDraft: () => void
   handleBack: () => void
-  handleSubmit: ({ saveAsDraft }?: { saveAsDraft?: boolean }) => Promise<boolean>
+  handleSubmit: ({ saveAsDraft, scheduledAt }?: { saveAsDraft?: boolean; scheduledAt?: string }) => Promise<boolean>
+  canSchedule: boolean
+  scheduleMaxDays: number
+  handleSchedule: (scheduledAt: string) => Promise<boolean>
   handleDialogOpenChange: (nextOpen: boolean) => void
   handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
 }
@@ -158,6 +161,7 @@ export function useMessageCompose({
   senderOptions,
   defaultValues,
   expectedUpdatedAt = null,
+  scheduling = null,
   onSuccess,
   onCancel,
 }: UseMessageComposeParams): UseMessageComposeResult {
@@ -690,7 +694,7 @@ export function useMessageCompose({
     contextActionType,
   })
 
-  const handleSubmit = React.useCallback(async ({ saveAsDraft = false }: { saveAsDraft?: boolean } = {}) => {
+  const handleSubmit = React.useCallback(async ({ saveAsDraft = false, scheduledAt }: { saveAsDraft?: boolean; scheduledAt?: string } = {}) => {
     if (submitting) return false
 
     setSubmitError(null)
@@ -734,7 +738,10 @@ export function useMessageCompose({
       }
 
       if (!shouldReturnFalse) {
-        const { endpoint, method, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
+        const { endpoint, method, payload: operationPayload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
+        const payload = scheduledAt ? { ...operationPayload, scheduledAt } : operationPayload
+        // Scheduling keeps the message a draft until release: PATCH must not also ask to send now.
+        if (scheduledAt && method === 'PATCH') delete payload.isDraft
 
         // Editing an existing draft is a PATCH on the message aggregate, so carry
         // the OSS optimistic-lock header to reject a stale overwrite. New
@@ -770,7 +777,7 @@ export function useMessageCompose({
           }
           shouldReturnFalse = true
         } else {
-          flash(operation.successMessage, 'success')
+          flash(scheduledAt ? t('messages.flash.scheduledSuccess', 'Message scheduled.') : operation.successMessage, 'success')
           keepSubmitLock = true
 
           onSuccess?.({ id: call.result?.id })
@@ -823,6 +830,14 @@ export function useMessageCompose({
     updateDraftOperation,
     variant,
   ])
+
+  const canSchedule = variant === 'compose' && scheduling?.available === true && !effectiveSenderChannelId
+  const scheduleMaxDays = scheduling?.maxDays ?? 0
+
+  const handleSchedule = React.useCallback(
+    (scheduledAt: string) => handleSubmit({ scheduledAt }),
+    [handleSubmit],
+  )
 
   const handleSaveDraft = React.useCallback(() => {
     if (variant !== 'compose') return
@@ -935,6 +950,9 @@ export function useMessageCompose({
     handleSaveDraft,
     handleBack,
     handleSubmit,
+    canSchedule,
+    scheduleMaxDays,
+    handleSchedule,
     handleDialogOpenChange,
     handleKeyDown,
   }

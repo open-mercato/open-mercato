@@ -59,6 +59,8 @@ export type MessageDetail = {
   updatedAt?: string | null
   type: string
   isDraft: boolean
+  status?: 'draft' | 'sent' | 'scheduled'
+  scheduledAt?: string | null
   canEditDraft: boolean
   canArchive: boolean
   isArchived: boolean

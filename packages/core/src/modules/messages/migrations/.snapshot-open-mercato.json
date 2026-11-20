@@ -326,6 +326,35 @@
           "primary": false,
           "nullable": true,
           "mappedType": "text"
+        },
+        "scheduled_at": {
+          "name": "scheduled_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "scheduled_release_attempts": {
+          "name": "scheduled_release_attempts",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "0",
+          "mappedType": "integer"
+        },
+        "sender_channel_id": {
+          "name": "sender_channel_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
         }
       },
       "name": "messages",
@@ -383,6 +412,15 @@
           "constraint": false,
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "messages_scheduled_release_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"messages_scheduled_release_idx\" on \"messages\" (\"tenant_id\", \"organization_id\", \"scheduled_at\") where \"status\" = 'scheduled'"
         },
         {
           "columnNames": [],

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { channelTypeRequiresExternalEmail } from '../lib/channel-sender-identity'
+import { getScheduleMaxDays } from '../lib/scheduleLimits'
 
 function collectDuplicateRecipientIds(
   recipients: Array<{ userId: string }>,
@@ -59,6 +60,35 @@ function validateDefaultWithObjectsPayload(
       })
     }
   })
+}
+
+export const SCHEDULE_ERROR_KEYS = {
+  inPast: 'messages.errors.scheduleInPast',
+  tooFar: 'messages.errors.scheduleTooFar',
+  notMinute: 'messages.errors.scheduleNotMinute',
+} as const
+
+const scheduledAtSchema = z.coerce.date()
+
+function refineScheduledAt(
+  value: { scheduledAt?: Date | null; isDraft?: boolean },
+  ctx: z.RefinementCtx,
+): void {
+  const scheduledAt = value.scheduledAt
+  if (!(scheduledAt instanceof Date)) return
+  if (value.isDraft === true) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: 'scheduledAt cannot be combined with isDraft' })
+    return
+  }
+  const time = scheduledAt.getTime()
+  const now = Date.now()
+  if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: SCHEDULE_ERROR_KEYS.notMinute })
+  } else if (time <= now) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: SCHEDULE_ERROR_KEYS.inPast })
+  } else if (time > now + getScheduleMaxDays() * 86_400_000) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: SCHEDULE_ERROR_KEYS.tooFar })
+  }
 }
 
 export const messageRecipientSchema = z.object({
@@ -174,6 +204,8 @@ const composeMessageBaseSchema = z.object({
    * external occurrence time; omission uses the send time. Ignored for drafts.
    */
   sentAt: z.coerce.date().nullable().optional(),
+  /** Send later: the message is stored as a scheduled draft and released at this instant (whole minute, UTC). */
+  scheduledAt: scheduledAtSchema.optional(),
 })
 
 type ComposeMessageRefinementValue = Omit<
@@ -261,6 +293,7 @@ function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.Refin
   }
 
   validateDefaultWithObjectsPayload(value, ctx)
+  refineScheduledAt(value, ctx)
 }
 
 /**
@@ -306,8 +339,15 @@ export const updateDraftSchema = z.object({
   isDraft: z.literal(false).optional(),
   /** Accepted only so the route can refuse it explicitly; zod would otherwise strip it and the send would fall back to the platform sender unnoticed. */
   senderChannelId: z.string().uuid().optional(),
+  /** A date (re)schedules the draft; `null` turns a scheduled message back into a plain draft. */
+  scheduledAt: scheduledAtSchema.nullable().optional(),
 }).superRefine((value, ctx) => {
   refineExternalEmailsExclusive(value, ctx)
+  if (value.scheduledAt instanceof Date && value.isDraft === false) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: 'scheduledAt cannot be combined with isDraft false' })
+  } else {
+    refineScheduledAt(value, ctx)
+  }
   if (value.recipients) {
     const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
     if (duplicateRecipientIds.length > 0) {
@@ -323,7 +363,7 @@ export const updateDraftSchema = z.object({
 })
 
 export const listMessagesSchema = z.object({
-  folder: z.enum(['inbox', 'sent', 'drafts', 'archived', 'all']).optional().default('inbox'),
+  folder: z.enum(['inbox', 'sent', 'drafts', 'scheduled', 'archived', 'all']).optional().default('inbox'),
   status: z.enum(['unread', 'read', 'archived']).optional(),
   type: z.string().optional(),
   visibility: z.enum(['public', 'internal']).optional(),

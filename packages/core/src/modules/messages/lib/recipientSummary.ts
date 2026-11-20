@@ -16,7 +16,7 @@ function roleRank(role: string | null | undefined): number {
 }
 
 /**
- * Who a message went to, for the author's list folders (sent, drafts):
+ * Who a message went to, for the author's list folders (sent, drafts, scheduled):
  * internal recipients first, then external addresses, each in to → cc → bcc order.
  * Only the first few labels are returned; `total` counts everyone.
  */

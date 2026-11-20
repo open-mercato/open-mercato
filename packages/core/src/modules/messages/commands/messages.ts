@@ -14,6 +14,13 @@ import {
   updateDraftSchema,
 } from '../data/validators'
 import { conflict, CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { buildBatchNotificationFromType } from '../../notifications/lib/notificationBuilder'
+import { resolveNotificationService } from '../../notifications/lib/notificationService'
+import { notificationTypes } from '../notifications'
+import { claimDueScheduledMessages, type ClaimedScheduledMessage, type ScheduledReleaseScope } from '../lib/scheduledRelease'
+import { MAX_SCHEDULED_RELEASE_ATTEMPTS, RELEASE_SCHEDULED_COMMAND_ID } from '../lib/scheduledSend'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { delegateComposeToSender } from '../lib/composeSenderDelegation'
 import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../lib/messageSourceEntityTypes'
@@ -62,6 +69,44 @@ type ContainerWithResolve = {
 
 async function emitMessageSentEvent(_container: ContainerWithResolve, payload: MessageSentEventPayload) {
   await emitMessagesEvent('messages.message.sent', payload, { persistent: true })
+}
+
+async function emitDraftSentEvent(
+  container: ContainerWithResolve,
+  message: Message,
+  recipientUserIds: string[],
+) {
+  await emitMessageSentEvent(container, {
+    messageId: message.id,
+    senderUserId: message.senderUserId,
+    recipientUserIds,
+    sendViaEmail: message.visibility === 'public' ? true : message.sendViaEmail,
+    externalEmail: message.externalEmail ?? null,
+    tenantId: message.tenantId,
+    organizationId: message.organizationId ?? null,
+  })
+}
+
+async function markDraftParticipantsPending(
+  em: EntityManager,
+  scope: { messageId: string; tenantId: string; organizationId: string | null },
+) {
+  await em.nativeUpdate(MessageExternalParticipant, { ...scope, deliveryStatus: null }, { deliveryStatus: 'pending' })
+}
+
+async function emitMessageScheduledEvent(payload: {
+  messageId: string
+  senderUserId: string
+  scheduledAt: Date
+  tenantId: string
+  organizationId: string | null
+}) {
+  // The audience is the author only: recipients must not learn about a message before it is released.
+  await emitMessagesEvent(
+    'messages.message.scheduled',
+    { ...payload, scheduledAt: payload.scheduledAt.toISOString(), recipientUserIds: [payload.senderUserId] },
+    { persistent: true },
+  )
 }
 
 async function emitMessageDeletedEvent(_container: ContainerWithResolve, payload: {
@@ -329,7 +374,10 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     let messageId = ''
     let responseThreadId: string | null = null
     let responseExternalEmail: string | null = null
-    const externalAddressing = planComposeExternalParticipants(input)
+    const scheduledAt = input.scheduledAt ?? null
+    // A scheduled message stays a draft until the release worker sends it, so every draft-hiding read path hides it too.
+    const storesAsDraft = input.isDraft || scheduledAt !== null
+    const externalAddressing = planComposeExternalParticipants({ ...input, isDraft: storesAsDraft })
 
     const composeTx = em.transactional(async (trx) => {
       const threadId = input.parentMessageId
@@ -372,11 +420,12 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         body: input.body,
         bodyFormat: input.bodyFormat,
         priority: input.priority,
-        status: input.isDraft ? 'draft' : 'sent',
-        isDraft: input.isDraft ?? false,
+        status: scheduledAt ? 'scheduled' : input.isDraft ? 'draft' : 'sent',
+        isDraft: storesAsDraft,
         // #6095: channel ingest passes the provider's timestamp so an imported
         // mailbox sorts by when the mail was received, not when it was imported.
-        sentAt: input.isDraft ? null : sentAt,
+        sentAt: storesAsDraft ? null : sentAt,
+        scheduledAt,
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,
@@ -385,7 +434,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       })
 
       await trx.persist(message).flush()
-      if (!threadId && !input.isDraft && !message.threadId) {
+      if (!threadId && !storesAsDraft && !message.threadId) {
         message.threadId = message.id
         await trx.flush()
       }
@@ -460,7 +509,15 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       throw err
     }
 
-    if (!input.isDraft) {
+    if (scheduledAt) {
+      await emitMessageScheduledEvent({
+        messageId,
+        senderUserId: input.userId,
+        scheduledAt,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+    } else if (!input.isDraft) {
       await emitMessageSentEvent(ctx.container, {
         messageId,
         senderUserId: input.userId,
@@ -473,17 +530,19 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       })
     }
 
-    await emitMessageIndexUpsert(ctx.container, {
-      messageId,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
+    if (!storesAsDraft) {
+      await emitMessageIndexUpsert(ctx.container, {
+        messageId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+    }
 
     return {
       id: messageId,
       threadId: responseThreadId,
       externalEmail: responseExternalEmail,
-      isDraft: input.isDraft,
+      isDraft: storesAsDraft,
       recipientUserIds: input.recipients.map((recipient) => recipient.userId),
     }
   },
@@ -499,7 +558,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     if (result.deduplicated) return { skipLog: true }
     const parsed = composeCommandSchema.parse(input)
     return {
-      actionLabel: parsed.isDraft ? 'Create draft message' : 'Compose message',
+      actionLabel: parsed.scheduledAt ? 'Schedule message' : parsed.isDraft ? 'Create draft message' : 'Compose message',
       resourceKind: 'messages.message',
       resourceId: result.id,
       tenantId: parsed.tenantId,
@@ -553,7 +612,9 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     if (!message.isDraft) throw new Error('Only draft messages can be edited')
 
     const isSending = input.isDraft === false
-    const preloadedRecipients = isSending && !input.recipients
+    const isScheduling = input.scheduledAt instanceof Date
+    const isUnscheduling = input.scheduledAt === null && message.status === 'scheduled'
+    const preloadedRecipients = (isSending || isScheduling) && !input.recipients
       ? await findWithDecryption(
         em,
         MessageRecipient,
@@ -592,7 +653,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     // Validate the send transition BEFORE the atomic-flush block so a rejected
     // send never mutates or flushes anything (everything checked here is known
     // from the parsed input + the loaded message).
-    if (isSending) {
+    if (isSending || isScheduling) {
       const finalVisibility = input.visibility ?? message.visibility
       const finalSubject = input.subject ?? message.subject
       const finalBody = input.body ?? message.body
@@ -633,9 +694,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
         persistExternalParticipants(em, message.id, draftAddressing.participants, input)
         await em.flush()
       }
-      if (isSending) {
-        await em.nativeUpdate(MessageExternalParticipant, { ...participantScope, deliveryStatus: null }, { deliveryStatus: 'pending' })
-      }
+      if (isSending) await markDraftParticipantsPending(em, participantScope)
 
       if (input.recipients) {
         await em.nativeDelete(MessageRecipient, { messageId: message.id })
@@ -697,28 +756,34 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
         message.isDraft = false
         message.status = 'sent'
         message.sentAt = new Date()
+        message.scheduledAt = null
         if (!message.threadId) message.threadId = message.id
+      } else if (input.scheduledAt instanceof Date) {
+        message.status = 'scheduled'
+        message.scheduledAt = input.scheduledAt
+        message.scheduledReleaseAttempts = 0
+      } else if (isUnscheduling) {
+        message.status = 'draft'
+        message.scheduledAt = null
+        message.scheduledReleaseAttempts = 0
       }
     }], { transaction: true })
 
-    await emitMessageIndexUpsert(ctx.container, {
-      messageId: message.id,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
-
     if (isSending) {
+      await emitMessageIndexUpsert(ctx.container, {
+        messageId: message.id,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
       const recipientUserIds = input.recipients
         ? input.recipients.map((r) => r.userId)
         : (preloadedRecipients ?? []).map((r) => r.recipientUserId)
-      const resolvedVisibility = input.visibility ?? message.visibility
-      const resolvedSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
-      await emitMessageSentEvent(ctx.container, {
+      await emitDraftSentEvent(ctx.container, message, recipientUserIds)
+    } else if (input.scheduledAt instanceof Date) {
+      await emitMessageScheduledEvent({
         messageId: message.id,
-        senderUserId: input.userId,
-        recipientUserIds,
-        sendViaEmail: resolvedVisibility === 'public' ? true : resolvedSendViaEmail,
-        externalEmail: message.externalEmail ?? null,
+        senderUserId: message.senderUserId,
+        scheduledAt: input.scheduledAt,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
@@ -737,7 +802,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   buildLog: async ({ input, snapshots }) => {
     const parsed = updateDraftCommandSchema.parse(input)
     return {
-      actionLabel: parsed.isDraft === false ? 'Send draft message' : 'Update draft message',
+      actionLabel: parsed.isDraft === false
+        ? 'Send draft message'
+        : parsed.scheduledAt
+          ? 'Schedule draft message'
+          : parsed.scheduledAt === null ? 'Cancel scheduled message' : 'Update draft message',
       resourceKind: 'messages.message',
       resourceId: parsed.messageId,
       tenantId: parsed.tenantId,
@@ -811,6 +880,8 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     const input = replyCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const original = await requireMessageById(em, input, input.messageId)
+    // Drafts and scheduled messages are not delivered yet, so there is nothing to answer.
+    if (original.isDraft) throw new Error('Message not found')
     const ownRecipient = await em.findOne(MessageRecipient, {
       messageId: original.id,
       recipientUserId: input.userId,
@@ -994,6 +1065,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     const input = forwardCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const original = await requireMessageById(em, input, input.messageId)
+    if (original.isDraft) throw new Error('Message not found')
     const isRecipient = await em.findOne(MessageRecipient, {
       messageId: input.messageId,
       recipientUserId: input.userId,
@@ -1387,9 +1459,138 @@ const resendFailedCommand: CommandHandler<unknown, { id: string; threadId: strin
   undo: async (args) => composeMessageCommand.undo?.(args),
 }
 
+const releaseLogger = createLogger('messages').child({ component: 'scheduled-release' })
+
+const releaseScheduledCommandSchema = z.object({
+  tenantId: scopeSchema.shape.tenantId,
+  organizationId: scopeSchema.shape.organizationId,
+})
+
+type ReleaseScheduledResult = { released: string[]; reverted: string[]; returnedToDraft: string[] }
+
+type ReleaseContainer = CommandRuntimeContext['container']
+
+async function handOffReleasedMessage(
+  container: ReleaseContainer,
+  em: EntityManager,
+  messageId: string,
+  scope: ScheduledReleaseScope,
+): Promise<void> {
+  await em.fork().transactional(async (trx) => {
+    await markDraftParticipantsPending(trx, { messageId, ...scope })
+    await trx.nativeUpdate(Message, { id: messageId, ...scope, threadId: null }, { threadId: messageId })
+    await trx.nativeUpdate(Message, { id: messageId, ...scope }, { scheduledAt: null })
+  })
+  const readEm = em.fork()
+  const message = await findOneWithDecryption(readEm, Message, { id: messageId, ...scope, deletedAt: null }, undefined, scope)
+  if (!message) throw new Error('Message not found')
+  const recipients = await findWithDecryption(readEm, MessageRecipient, { messageId, deletedAt: null }, undefined, scope)
+  await emitMessageIndexUpsert(container, { messageId, ...scope })
+  await invalidateCrudCache(
+    container,
+    'messages.message',
+    { id: messageId, ...scope },
+    scope.tenantId,
+    `command:${RELEASE_SCHEDULED_COMMAND_ID}:execute`,
+  )
+  // Emitted last and never reverted afterwards, so recipients are not notified twice.
+  await emitDraftSentEvent(container, message, recipients.map((recipient) => recipient.recipientUserId))
+}
+
+async function notifyScheduledSendFailed(container: ReleaseContainer, em: EntityManager, messageId: string, scope: ScheduledReleaseScope) {
+  const typeDef = notificationTypes.find((type) => type.type === 'messages.scheduled_send_failed')
+  if (!typeDef) return
+  const message = await findOneWithDecryption(em.fork(), Message, { id: messageId, ...scope, deletedAt: null }, undefined, scope)
+  if (!message) return
+  const variables = { subject: message.subject ?? '' }
+  await resolveNotificationService(container).createBatch(
+    buildBatchNotificationFromType(typeDef, {
+      recipientUserIds: [message.senderUserId],
+      titleVariables: variables,
+      bodyVariables: variables,
+      sourceEntityType: 'message',
+      sourceEntityId: message.id,
+      linkHref: `/backend/messages/${message.id}`,
+      groupKey: `messages.scheduled_send_failed:${message.id}`,
+    }),
+    scope,
+  )
+}
+
+/** Hand-off failed: retry on the next tick, or give up after the attempt cap and return the message to the author's drafts. */
+async function revertFailedRelease(
+  container: ReleaseContainer,
+  em: EntityManager,
+  claimed: ClaimedScheduledMessage,
+  scope: ScheduledReleaseScope,
+): Promise<'reverted' | 'returnedToDraft'> {
+  const toDraft = claimed.attempts >= MAX_SCHEDULED_RELEASE_ATTEMPTS
+  await em.fork().transactional(async (trx) => {
+    await trx.nativeUpdate(
+      MessageExternalParticipant,
+      { messageId: claimed.id, ...scope, deliveryStatus: 'pending' },
+      { deliveryStatus: null },
+    )
+    await trx.nativeUpdate(
+      Message,
+      { id: claimed.id, ...scope, status: 'sent' },
+      toDraft
+        ? { status: 'draft', isDraft: true, sentAt: null, scheduledAt: null }
+        : { status: 'scheduled', isDraft: true, sentAt: null, scheduledAt: claimed.scheduledAt ?? new Date() },
+    )
+  })
+  if (!toDraft) return 'reverted'
+  try {
+    await notifyScheduledSendFailed(container, em, claimed.id, scope)
+  } catch (error) {
+    releaseLogger.warn('Failed to notify the author about a failed scheduled send', { messageId: claimed.id, err: error })
+  }
+  return 'returnedToDraft'
+}
+
+/**
+ * Worker-only: sends the organization's due scheduled messages through the same
+ * path as sending a draft. Not undoable — the release is the send.
+ */
+const releaseScheduledCommand: CommandHandler<unknown, ReleaseScheduledResult> = {
+  id: RELEASE_SCHEDULED_COMMAND_ID,
+  async execute(rawInput, ctx) {
+    const input = releaseScheduledCommandSchema.parse(rawInput)
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const result: ReleaseScheduledResult = { released: [], reverted: [], returnedToDraft: [] }
+    const claimed = await claimDueScheduledMessages(em, scope)
+    for (const item of claimed) {
+      try {
+        await handOffReleasedMessage(ctx.container, em, item.id, scope)
+        result.released.push(item.id)
+      } catch (error) {
+        releaseLogger.warn('Scheduled message hand-off failed', { messageId: item.id, attempts: item.attempts, err: error })
+        const outcome = await revertFailedRelease(ctx.container, em, item, scope)
+        result[outcome].push(item.id)
+      }
+    }
+    return result
+  },
+  buildLog: async ({ input, result }) => {
+    if (result.released.length + result.reverted.length + result.returnedToDraft.length === 0) return { skipLog: true }
+    const parsed = releaseScheduledCommandSchema.parse(input)
+    return {
+      actionLabel: 'Release scheduled messages',
+      resourceKind: 'messages.message',
+      resourceId: result.released.length === 1 ? result.released[0] : null,
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      replayable: false,
+      payload: result,
+    }
+  },
+}
+
 registerCommand(composeMessageCommand)
 registerCommand(updateDraftCommand)
 registerCommand(replyMessageCommand)
 registerCommand(forwardMessageCommand)
 registerCommand(deleteForActorCommand)
 registerCommand(resendFailedCommand)
+registerCommand(releaseScheduledCommand)

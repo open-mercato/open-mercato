@@ -1,7 +1,7 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
-export type MessageStatus = 'draft' | 'sent'
+export type MessageStatus = 'draft' | 'sent' | 'scheduled'
 export type MessagePriority = 'low' | 'normal' | 'high' | 'urgent'
 export type MessageBodyFormat = 'text' | 'markdown'
 
@@ -31,12 +31,17 @@ export type MessageActionData = {
 @Index({ name: 'messages_tenant_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'messages_external_email_hash_idx', properties: ['externalEmailHash'] })
 @Index({
+  name: 'messages_scheduled_release_idx',
+  expression:
+    'create index "messages_scheduled_release_idx" on "messages" ("tenant_id", "organization_id", "scheduled_at") where "status" = \'scheduled\'',
+})
+@Index({
   name: 'messages_idempotency_key_uq',
   expression:
     'create unique index "messages_idempotency_key_uq" on "messages" ("tenant_id", "idempotency_key") where "idempotency_key" is not null',
 })
 export class Message {
-  [OptionalProps]?: 'type' | 'status' | 'priority' | 'bodyFormat' | 'isDraft' | 'emailSendSeparately' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'type' | 'status' | 'priority' | 'bodyFormat' | 'isDraft' | 'emailSendSeparately' | 'scheduledReleaseAttempts' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -142,6 +147,15 @@ export class Message {
 
   @Property({ name: 'external_email_error', type: 'text', nullable: true })
   externalEmailError?: string | null
+
+  @Property({ name: 'scheduled_at', type: Date, nullable: true })
+  scheduledAt?: Date | null
+
+  @Property({ name: 'scheduled_release_attempts', type: 'int', default: 0 })
+  scheduledReleaseAttempts: number = 0
+
+  @Property({ name: 'sender_channel_id', type: 'uuid', nullable: true })
+  senderChannelId?: string | null
 }
 
 export type RecipientType = 'to' | 'cc' | 'bcc'

@@ -71,7 +71,7 @@ export function getMessageListParticipantLabel(
   folder: MessageFolder,
   t: Translate,
 ): string {
-  if (folder === 'sent' || folder === 'drafts') {
+  if (folder === 'sent' || folder === 'drafts' || folder === 'scheduled') {
     const labels = item.recipientSummary?.labels ?? []
     if (labels.length > 0) {
       const hidden = Number(item.recipientSummary?.total ?? labels.length) - labels.length

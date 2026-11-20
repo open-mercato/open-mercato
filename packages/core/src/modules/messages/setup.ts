@@ -1,6 +1,7 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { registerMessagesEmailRetrySchedule } from './lib/emailRetrySchedule'
+import { registerMessagesScheduledReleaseSchedule } from './lib/scheduledSend'
 
 const logger = createLogger('messages')
 
@@ -13,6 +14,11 @@ async function ensureEmailRetrySchedule(ctx: {
     await registerMessagesEmailRetrySchedule(ctx.container, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
   } catch (error) {
     logger.warn('Failed to register the email retry schedule', { err: error })
+  }
+  try {
+    await registerMessagesScheduledReleaseSchedule(ctx.container, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
+  } catch (error) {
+    logger.warn('Failed to register the scheduled send release schedule', { err: error })
   }
 }
 

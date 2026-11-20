@@ -153,6 +153,28 @@ retried at the provider's retry time or after `OM_EMAIL_DELIVERY_RETRY_DELAY_SEC
 `OUTBOUND_DELIVERY_MAX_ATTEMPTS` cap now applies only to links without participant rows; with
 participants the retry schedule follows `next_attempt_at`.
 
+### Wall-time helper moved to `@open-mercato/shared/lib/time/wall-time`
+
+The DST-safe wall-time conversion now lives in `@open-mercato/shared/lib/time/wall-time`
+(`wallTimeToInstant`, `instantToWallTime`, `isValidTimezone`, `resolveBrowserTimezone`). The old
+exports in `@open-mercato/core/modules/customers/lib/calendar/timezone`
+(`calendarWallTimeToInstant`, `calendarInstantToWallTime`, `isCalendarTimezone`,
+`defaultCalendarTimezone`) remain as `@deprecated` aliases with unchanged behavior; switch imports to
+the shared path before the next minor release.
+
+### Messages: scheduled send
+
+Compose (`POST /api/messages`) and draft edit (`PATCH /api/messages/[id]`) accept `scheduledAt`
+(ISO UTC, whole minute, future, at most `OM_MESSAGES_SCHEDULE_MAX_DAYS` days ahead, default 30). A
+scheduled message stays a draft (`status = 'scheduled'`, `is_draft = true`) until the release worker
+sends it; `scheduledAt: null` turns it back into a plain draft. Additive contracts: `MessageStatus`
+value `scheduled`, folder `scheduled`, event `messages.message.scheduled`, notification type
+`messages.scheduled_send_failed`, queue `messages-scheduled-release`, command
+`messages.messages.release_scheduled`. Run the `messages.register-scheduled-release` upgrade action
+to schedule the 60 s release tick for existing organizations. Requires the `scheduler` module;
+without it the API answers 422 `messages.errors.schedulingUnavailable`. Drafts no longer count
+towards the unread badge and no longer appear in the `all` and `archived` folders.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

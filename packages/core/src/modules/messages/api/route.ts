@@ -39,6 +39,8 @@ import {
   canUseChannelThreadFallback,
   resolveReplyParentMessage,
   canUseMessageEmailFeature,
+  buildValidationFieldErrors,
+  refuseUnsupportedSchedule,
   resolveMessageContext,
 } from '../lib/routeHelpers'
 import { applyMessageParticipantScope } from '../lib/participantScope'
@@ -69,6 +71,7 @@ type MessageListScopeRow = {
   id: string
   sender_user_id: string
   is_draft: boolean
+  message_status: string
   recipient_status: string | null
   read_at: string | null
 }
@@ -219,6 +222,7 @@ export async function GET(req: Request) {
           .where('r.message_id', 'is not', null)
           .where('r.deleted_at', 'is', null)
           .where('r.archived_at', 'is not', null)
+          .where('m.is_draft', '=', false)
         break
       case 'sent':
         q = q
@@ -230,12 +234,19 @@ export async function GET(req: Request) {
         q = q
           .where('m.sender_user_id', '=', scope.userId)
           .where('m.is_draft', '=', true)
+          .where('m.status', '<>', 'scheduled')
+        joinRecipient()
+        break
+      case 'scheduled':
+        q = q
+          .where('m.sender_user_id', '=', scope.userId)
+          .where('m.status', '=', 'scheduled')
         joinRecipient()
         break
       case 'all':
         // Sender-OR-recipient participant scope shared with the
         // communication_channels message enricher — see participantScope.ts (#4133).
-        q = applyMessageParticipantScope(q, scope.userId)
+        q = applyMessageParticipantScope(q.where('m.is_draft', '=', false), scope.userId)
         break
       default: {
         const unsupportedFolder: never = input.folder
@@ -332,10 +343,11 @@ export async function GET(req: Request) {
       'm.id',
       'm.sender_user_id',
       'm.is_draft',
+      'm.status as message_status',
       'r.status as recipient_status',
       'r.read_at',
     ])
-    .orderBy(sql`${sql.ref('m.sent_at')} desc nulls last`)
+    .orderBy(input.folder === 'scheduled' ? sql`${sql.ref('m.scheduled_at')} asc` : sql`${sql.ref('m.sent_at')} desc nulls last`)
     .orderBy('m.id', 'desc')
     .offset(offset)
     .limit(input.pageSize)
@@ -399,7 +411,7 @@ export async function GET(req: Request) {
     return acc
   }, {})
 
-  const isAuthorFolder = input.folder === 'sent' || input.folder === 'drafts'
+  const isAuthorFolder = input.folder === 'sent' || input.folder === 'drafts' || input.folder === 'scheduled'
   const recipientSummaryByMessage = isAuthorFolder
     ? await buildRecipientSummaries(em, messageEntities, { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null })
     : null
@@ -447,7 +459,7 @@ export async function GET(req: Request) {
           bodyPreview,
           senderUserId: message.senderUserId,
           priority: message.priority,
-          status: row.recipient_status ?? (row.is_draft ? 'draft' : 'sent'),
+          status: row.recipient_status ?? (row.message_status === 'scheduled' ? 'scheduled' : row.is_draft ? 'draft' : 'sent'),
           isDraft: row.is_draft,
           hasObjects: (objectsByMessage[message.id] || []).length > 0,
           objectCount: (objectsByMessage[message.id] || []).length,
@@ -461,6 +473,7 @@ export async function GET(req: Request) {
             || (objectsByMessage[message.id] || []).some((item) => item.actionRequired && Boolean(item.actionType)),
           actionTaken: message.actionTaken ?? null,
           sentAt: message.sentAt ? message.sentAt.toISOString() : null,
+          scheduledAt: message.scheduledAt ? message.scheduledAt.toISOString() : null,
           readAt: row.read_at,
           threadId: message.threadId ?? null,
         }
@@ -539,11 +552,20 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       const { translate } = await resolveTranslations()
       return Response.json(
-        { error: translate('messages.errors.invalidComposePayload', 'Invalid message payload'), details: err.issues },
+        {
+          error: translate('messages.errors.invalidComposePayload', 'Invalid message payload'),
+          details: err.issues,
+          fieldErrors: buildValidationFieldErrors(err),
+        },
         { status: 400 },
       )
     }
     throw err
+  }
+
+  if (input.scheduledAt) {
+    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container, requiresSenderDelegation(input))
+    if (scheduleRefusal) return scheduleRefusal
   }
 
   const isPublicVisibility = input.visibility === 'public'
@@ -783,6 +805,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Compose payload failed validation', schema: errorResponseSchema },
         { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
         { status: 404, description: 'parentMessageId is unknown, deleted, or outside the caller organization', schema: errorResponseSchema },
+        { status: 422, description: 'scheduledAt given while scheduling is unavailable (scheduler module disabled) or with a mailbox sender', schema: errorResponseSchema },
       ],
     },
   },

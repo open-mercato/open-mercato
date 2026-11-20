@@ -1,4 +1,6 @@
 export { MessageComposer } from './MessageComposer'
+export { ScheduleSendDialog } from './ScheduleSendDialog'
+export type { ScheduleSendDialogProps } from './ScheduleSendDialog'
 export type {
   MessageComposerContextObject,
   MessageComposerProps,

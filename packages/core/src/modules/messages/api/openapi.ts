@@ -48,6 +48,7 @@ export const messageListItemSchema = z.object({
   hasActions: z.boolean(),
   actionTaken: z.string().nullable().optional(),
   sentAt: z.string().nullable().optional(),
+  scheduledAt: z.string().nullable().optional(),
   readAt: z.string().nullable().optional(),
   threadId: z.string().uuid().nullable().optional(),
 })
@@ -85,6 +86,9 @@ export const messageDetailResponseSchema = z.object({
   updatedAt: z.string().nullable().optional(),
   type: z.string(),
   isDraft: z.boolean(),
+  status: z.enum(['draft', 'sent', 'scheduled']).optional(),
+  scheduledAt: z.string().nullable().optional(),
+  senderChannelId: z.string().uuid().nullable().optional(),
   canEditDraft: z.boolean(),
   canArchive: z.boolean(),
   isArchived: z.boolean(),
@@ -253,6 +257,7 @@ export const errorResponseSchema = z.object({
   code: z.string().optional(),
   error: z.string(),
   details: z.array(validationIssueSchema).optional(),
+  fieldErrors: z.record(z.string(), z.string()).optional(),
 })
 
 export const messageTypeResponseItemSchema = z.object({

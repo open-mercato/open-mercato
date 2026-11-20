@@ -1379,3 +1379,108 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
     })
   })
 })
+
+describe('messages /api/messages/[id] PATCH scheduled send', () => {
+  const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const messageId = '22222222-2222-4222-8222-222222222222'
+  const currentUpdatedAt = new Date('2026-02-24T10:00:00.000Z')
+
+  function inMinutes(minutes: number): string {
+    const date = new Date(Date.now() + minutes * 60_000)
+    date.setUTCSeconds(0, 0)
+    return date.toISOString()
+  }
+
+  function setup(message: Record<string, unknown>, options: { scheduler?: boolean } = {}) {
+    const em = {
+      fork: jest.fn().mockReturnThis(),
+      findOne: jest.fn().mockResolvedValue({
+        id: messageId,
+        tenantId,
+        organizationId,
+        senderUserId: userId,
+        deletedAt: null,
+        updatedAt: currentUpdatedAt,
+        visibility: 'internal',
+        ...message,
+      }),
+    }
+    const commandBus = {
+      execute: jest.fn().mockResolvedValue({ result: { ok: true, id: messageId }, logEntry: null }),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        return null
+      },
+      hasRegistration: (name: string) => name === 'schedulerService' && options.scheduler !== false,
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container, auth: null },
+      scope: { tenantId, organizationId, userId },
+    })
+    return { commandBus }
+  }
+
+  function patch(body: Record<string, unknown>, expectedUpdatedAt = currentUpdatedAt.toISOString()) {
+    return PATCH(new Request(`https://example.test/api/messages/${messageId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', [OPTIMISTIC_LOCK_HEADER_NAME]: expectedUpdatedAt },
+      body: JSON.stringify(body),
+    }), { params: { id: messageId } })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    hasOrganizationAccessMock.mockReturnValue(true)
+  })
+
+  it('reschedules a scheduled message through update_draft', async () => {
+    const { commandBus } = setup({ isDraft: true, status: 'scheduled' })
+    const scheduledAt = inMinutes(90)
+    const response = await patch({ scheduledAt })
+    expect(response.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledWith('messages.messages.update_draft', expect.objectContaining({
+      input: expect.objectContaining({ scheduledAt: new Date(scheduledAt), messageId }),
+    }))
+  })
+
+  it('cancels a schedule (scheduledAt: null) and sends now (with isDraft: false)', async () => {
+    const { commandBus } = setup({ isDraft: true, status: 'scheduled' })
+    expect((await patch({ scheduledAt: null })).status).toBe(200)
+    expect((await patch({ scheduledAt: null, isDraft: false })).status).toBe(200)
+    expect(commandBus.execute.mock.calls.map(([, args]) => (args as { input: Record<string, unknown> }).input))
+      .toEqual([
+        expect.objectContaining({ scheduledAt: null }),
+        expect.objectContaining({ scheduledAt: null, isDraft: false }),
+      ])
+  })
+
+  it('rejects a stale edit of a scheduled message with 409', async () => {
+    const { commandBus } = setup({ isDraft: true, status: 'scheduled' })
+    const response = await patch({ subject: 'Edit' }, '2026-02-24T09:00:00.000Z')
+    expect(response.status).toBe(409)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('answers 409 once the release already sent the message', async () => {
+    const { commandBus } = setup({ isDraft: false, status: 'sent' })
+    expect((await patch({ scheduledAt: null })).status).toBe(409)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 with fieldErrors for an invalid schedule and 422 without the scheduler', async () => {
+    setup({ isDraft: true, status: 'draft' })
+    const invalid = await patch({ scheduledAt: inMinutes(-5) })
+    expect(invalid.status).toBe(400)
+    expect((await invalid.json()).fieldErrors).toEqual({ scheduledAt: 'messages.errors.scheduleInPast' })
+
+    const { commandBus } = setup({ isDraft: true, status: 'draft' }, { scheduler: false })
+    const unavailable = await patch({ scheduledAt: inMinutes(30) })
+    expect(unavailable.status).toBe(422)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+})

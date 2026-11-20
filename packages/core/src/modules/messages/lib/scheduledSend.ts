@@ -1,0 +1,51 @@
+import { stableScheduleUuid } from './emailRetrySchedule'
+
+export const MESSAGES_SCHEDULED_RELEASE_QUEUE_NAME = 'messages-scheduled-release'
+export const RELEASE_SCHEDULED_COMMAND_ID = 'messages.messages.release_scheduled'
+export const SCHEDULED_RELEASE_BATCH = 100
+export const MAX_SCHEDULED_RELEASE_ATTEMPTS = 3
+
+const SCHEDULED_RELEASE_SCHEDULE_VALUE = '60s'
+
+type ContainerWithRegistration = { hasRegistration?: (name: string) => boolean }
+
+export function isSchedulingAvailable(container: unknown): boolean {
+  const cradle = container as ContainerWithRegistration | null | undefined
+  return typeof cradle?.hasRegistration === 'function' && cradle.hasRegistration('schedulerService')
+}
+
+type SchedulerServiceLike = {
+  register: (registration: Record<string, unknown>) => Promise<void>
+}
+
+/**
+ * Registers the per-organization release tick for scheduled messages. A
+ * module-owned schedule: the scheduler dispatches it because `messages` owns the
+ * queue's worker, so it is not in the user-facing safe-queue allowlist. Called
+ * from `setup.ts` and the `messages.register-scheduled-release` upgrade action;
+ * an idempotent upsert keyed by a stable uuid. No-op without the scheduler.
+ */
+export async function registerMessagesScheduledReleaseSchedule(
+  container: import('awilix').AwilixContainer | undefined,
+  scope: { tenantId: string; organizationId: string },
+): Promise<void> {
+  if (!container || !isSchedulingAvailable(container)) return
+  const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
+  await schedulerService.register({
+    id: stableScheduleUuid(`messages:scheduled-release:${scope.organizationId}`),
+    name: 'Messages scheduled send release',
+    description: 'Every 60s, sends the scheduled messages whose time has come.',
+    scopeType: 'organization',
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: SCHEDULED_RELEASE_SCHEDULE_VALUE,
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: MESSAGES_SCHEDULED_RELEASE_QUEUE_NAME,
+    targetPayload: { scope: { tenantId: scope.tenantId, organizationId: scope.organizationId } },
+    sourceType: 'module',
+    sourceModule: 'messages',
+    isEnabled: true,
+  })
+}

@@ -15,6 +15,29 @@ import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 export function ComposeMessagePageClient() {
   const router = useRouter()
   const [senderOptions, setSenderOptions] = React.useState<MessageSenderOption[]>([])
+  const [scheduling, setScheduling] = React.useState<{ available: boolean; maxDays: number } | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const response = await apiCall<{ schedulingAvailable?: boolean; scheduleMaxDays?: number }>(
+          '/api/messages/compose-capabilities',
+          { method: 'GET', headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
+        )
+        if (cancelled || !response.ok) return
+        setScheduling({
+          available: response.result?.schedulingAvailable === true,
+          maxDays: typeof response.result?.scheduleMaxDays === 'number' ? response.result.scheduleMaxDays : 0,
+        })
+      } catch {
+        if (!cancelled) setScheduling(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // `communication_channels` is optional, so its endpoint may be absent or
   // forbidden here. Either way the list stays empty and the composer renders
@@ -57,6 +80,7 @@ export function ComposeMessagePageClient() {
         inline
         variant="compose"
         senderOptions={senderOptions}
+        scheduling={scheduling}
         onCancel={() => {
           router.push('/backend/messages')
         }}

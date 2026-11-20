@@ -323,3 +323,10 @@ Same env pattern as `import-history-limits.ts`; commented entry in `apps/mercato
 - **Risks**: Passed after revision — revert loop, double notification, scheduler registration (module-owned queue; corrected 2026-11-20: no user-facing allowlist opt-in).
 - **Scope**: reviewer suggested shipping `sendAsUser` existing-message mode (Phase 3.1) and the wall-time move (Phase 1) as separate PRs ahead of scheduling; kept in this spec as separate phases per maintainer decision (two specs), each phase = one PR.
 - **Verdict**: Approved after revision
+
+### 2026-11-20 — Phases 1–2 implemented
+- Phase 1: `@open-mercato/shared/lib/time/wall-time` (`wallTimeToInstant`, `instantToWallTime`, `isValidTimezone`, `resolveBrowserTimezone`); `customers/lib/calendar/timezone.ts` keeps the old names as `@deprecated` aliases; Warsaw gap/overlap tests; `UPGRADE_NOTES.md`.
+- Phase 2: migration `Migration20261120120000` adds `scheduled_at`, `scheduled_release_attempts` and `sender_channel_id` (column only — used from Phase 3) plus the partial release index; compose/PATCH `scheduledAt` (400 `fieldErrors.scheduledAt`, 422 `schedulingUnavailable`, 422 `senderScheduleUnsupported` for a mailbox sender until Phase 3); `messages.message.scheduled` (audience: author); `scheduled` folder; drafts excluded from unread count, `all`, `archived`, search index and reply/forward; queue `messages-scheduled-release` + command `messages.messages.release_scheduled` (claim ≤ 100, revert, cap 3 → draft + `messages.scheduled_send_failed`); upgrade action `messages.register-scheduled-release`; subscriber `messages:cancel-scheduled-on-user-deleted`.
+- Compose capability is served by `GET /api/messages/compose-capabilities` (`schedulingAvailable`, `scheduleMaxDays`) instead of the sender-options list, which comes from the optional `communication_channels` API.
+- i18n: the folder label uses the existing `messages.folder.*` prefix (`messages.folder.scheduled`).
+- TC-API-MSG-031: the 3×-failure path has no fault-injection seam in a running app; the spec asserts attempt counting and keeps the failure scenario as `test.fixme`, covered by `commands/__tests__/messages.scheduled-send.test.ts`.

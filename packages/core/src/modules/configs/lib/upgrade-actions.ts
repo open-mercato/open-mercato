@@ -272,6 +272,21 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       await registerMessagesEmailRetrySchedule(container, { tenantId, organizationId })
     },
   },
+  {
+    id: 'messages.register-scheduled-release',
+    version: '0.10.0',
+    messageKey: 'messages.upgradeActions.scheduledRelease.message',
+    ctaKey: 'messages.upgradeActions.scheduledRelease.cta',
+    successKey: 'messages.upgradeActions.scheduledRelease.success',
+    loadingKey: 'messages.upgradeActions.scheduledRelease.loading',
+    requiredModules: ['messages', 'scheduler'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerMessagesScheduledReleaseSchedule } = await import(
+        '@open-mercato/core/modules/messages/lib/scheduledSend'
+      )
+      await registerMessagesScheduledReleaseSchedule(container, { tenantId, organizationId })
+    },
+  },
 ]
 
 export function actionsUpToVersion(version: string): UpgradeActionDefinition[] {

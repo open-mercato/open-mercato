@@ -8,6 +8,7 @@ export {
   MessageListComponent,
   MessageHeader,
   MessageDetailMetaSection,
+  MessageDetailScheduledAlert,
   MessageDetailObjectsSection,
   MessageDetailThreadSection,
 } from './panels'
