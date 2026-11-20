@@ -7,6 +7,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { LedgerAccount } from '../../ledger/data/entities'
 import { PostingRulesSettings } from '../data/entities'
+import { POSTING_RULES_SETTINGS_SCOPE_UNIQUE, withUniqueConflict } from '../lib/uniqueConflict'
 import { updatePostingRulesSettingsSchema, type UpdatePostingRulesSettingsInput } from '../data/validators'
 
 export const POSTING_RULES_SETTINGS_RESOURCE_KIND = 'posting_rules.settings'
@@ -117,7 +118,18 @@ const updatePostingRulesSettingsCommand: CommandHandler<UpdatePostingRulesSettin
     }
     settings.updatedAt = new Date()
 
-    await em.flush()
+    // Two first saves for an organization without a seeded row can both find
+    // no row and both insert; the second hits the per-organization unique
+    // constraint and is answered with a 409 instead of a generic failure.
+    await withUniqueConflict(
+      POSTING_RULES_SETTINGS_SCOPE_UNIQUE,
+      () =>
+        translate(
+          'posting_rules.errors.settingsSavedConcurrently',
+          'Posting rules settings were saved by someone else at the same time. Reload the page and try again.',
+        ),
+      () => em.flush(),
+    )
 
     return buildResult(settings)
   },

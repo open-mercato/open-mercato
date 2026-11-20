@@ -9,6 +9,7 @@ import { conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
+import { COST_CENTER_CODE_UNIQUE, withUniqueConflict } from '../lib/uniqueConflict'
 import { CostCenter } from '../data/entities'
 import {
   costCenterCreateSchema,
@@ -20,6 +21,9 @@ import {
 } from '../data/validators'
 
 const COST_CENTER_ENTITY_ID = 'posting_rules:cost_center'
+
+const COST_CENTER_CODE_TAKEN_KEY = 'posting_rules.errors.costCenterCodeTaken'
+const COST_CENTER_CODE_TAKEN_FALLBACK = 'A cost centre with this code already exists for this organization.'
 
 type Scope = { organizationId: string; tenantId: string }
 
@@ -74,40 +78,45 @@ const createCostCenterCommand: CommandHandler<CostCenterCreateInput, { costCente
       deletedAt: null,
     })
     if (existing) {
-      throw conflict(translate('posting_rules.errors.costCenterCodeTaken', 'A cost centre with this code already exists for this organization.'))
+      throw conflict(translate(COST_CENTER_CODE_TAKEN_KEY, COST_CENTER_CODE_TAKEN_FALLBACK))
     }
 
     let record!: CostCenter
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: COST_CENTER_ENTITY_ID,
-      action: 'created',
-      scope,
-      customFields: custom,
-      events: costCenterCrudEvents,
-      indexer: costCenterCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      }),
-      phases: [
-        () => {
-          const now = new Date()
-          record = em.create(CostCenter, {
-            id: randomUUID(),
-            organizationId: parsed.organizationId,
-            tenantId: parsed.tenantId,
-            code: parsed.code,
-            name: parsed.name,
-            isActive: parsed.isActive ?? true,
-            createdAt: now,
-            updatedAt: now,
-          })
-          em.persist(record)
-        },
-      ],
-    })
+    await withUniqueConflict(
+      COST_CENTER_CODE_UNIQUE,
+      () => translate(COST_CENTER_CODE_TAKEN_KEY, COST_CENTER_CODE_TAKEN_FALLBACK),
+      () =>
+        runCrudCommandWrite({
+          ctx,
+          em,
+          entityId: COST_CENTER_ENTITY_ID,
+          action: 'created',
+          scope,
+          customFields: custom,
+          events: costCenterCrudEvents,
+          indexer: costCenterCrudIndexer,
+          sideEffect: () => ({
+            entity: record,
+            identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+          }),
+          phases: [
+            () => {
+              const now = new Date()
+              record = em.create(CostCenter, {
+                id: randomUUID(),
+                organizationId: parsed.organizationId,
+                tenantId: parsed.tenantId,
+                code: parsed.code,
+                name: parsed.name,
+                isActive: parsed.isActive ?? true,
+                createdAt: now,
+                updatedAt: now,
+              })
+              em.persist(record)
+            },
+          ],
+        }),
+    )
 
     return { costCenterId: record.id }
   },
@@ -163,32 +172,37 @@ const updateCostCenterCommand: CommandHandler<CostCenterUpdateInput, { costCente
         deletedAt: null,
         id: { $ne: record.id },
       })
-      if (existing) throw conflict(translate('posting_rules.errors.costCenterCodeTaken', 'A cost centre with this code already exists for this organization.'))
+      if (existing) throw conflict(translate(COST_CENTER_CODE_TAKEN_KEY, COST_CENTER_CODE_TAKEN_FALLBACK))
     }
 
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: COST_CENTER_ENTITY_ID,
-      action: 'updated',
-      scope,
-      customFields: custom,
-      events: costCenterCrudEvents,
-      indexer: costCenterCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      }),
-      phases: [
-        () => {
-          if (parsed.code !== undefined) record.code = parsed.code
-          if (parsed.name !== undefined) record.name = parsed.name
-          if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-          record.updatedAt = new Date()
-          em.persist(record)
-        },
-      ],
-    })
+    await withUniqueConflict(
+      COST_CENTER_CODE_UNIQUE,
+      () => translate(COST_CENTER_CODE_TAKEN_KEY, COST_CENTER_CODE_TAKEN_FALLBACK),
+      () =>
+        runCrudCommandWrite({
+          ctx,
+          em,
+          entityId: COST_CENTER_ENTITY_ID,
+          action: 'updated',
+          scope,
+          customFields: custom,
+          events: costCenterCrudEvents,
+          indexer: costCenterCrudIndexer,
+          sideEffect: () => ({
+            entity: record,
+            identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+          }),
+          phases: [
+            () => {
+              if (parsed.code !== undefined) record.code = parsed.code
+              if (parsed.name !== undefined) record.name = parsed.name
+              if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+              record.updatedAt = new Date()
+              em.persist(record)
+            },
+          ],
+        }),
+    )
 
     return { costCenterId: record.id }
   },

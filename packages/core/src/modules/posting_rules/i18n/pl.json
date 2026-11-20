@@ -80,6 +80,7 @@
   "posting_rules.errors.sentinelCostCenterCannotBeDeleted": "Nie można usunąć wzorcowego MPK „UNALLOCATED”.",
   "posting_rules.errors.sentinelCostCenterCodeLocked": "Nie można zmienić kodu wzorcowego MPK „UNALLOCATED”.",
   "posting_rules.errors.sentinelCostCenterMissing": "Brak wzorcowego MPK „UNALLOCATED” dla tej organizacji. Uruchom ponownie konfigurację modułu.",
+  "posting_rules.errors.settingsSavedConcurrently": "Ustawienia reguł księgowania zostały w tym samym czasie zapisane przez kogoś innego. Odśwież stronę i spróbuj ponownie.",
   "posting_rules.errors.sourceAccountNotClass4": "Konto źródłowe musi być kontem zespołu 4 (koszty według rodzajów).",
   "posting_rules.errors.sourceAccountNotFoundForOrg": "Wskazane konto źródłowe nie istnieje dla tej organizacji.",
   "posting_rules.errors.targetAccountNotClass5": "Konto docelowe musi być kontem zespołu 5 (koszty według typów działalności).",

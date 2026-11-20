@@ -12,6 +12,7 @@ import { E } from '#generated/entities.ids.generated'
 import { LedgerAccount } from '../../ledger/data/entities'
 import { CostCenter, DefaultAccountPostingRule } from '../data/entities'
 import { isAccountInPolishGroup } from '../lib/reclassify'
+import { DEFAULT_ACCOUNT_POSTING_RULE_SOURCE_UNIQUE, withUniqueConflict } from '../lib/uniqueConflict'
 import {
   defaultAccountPostingRuleCreateSchema,
   defaultAccountPostingRuleUpdateSchema,
@@ -22,6 +23,9 @@ import {
 } from '../data/validators'
 
 const DEFAULT_ACCOUNT_POSTING_RULE_ENTITY_ID = 'posting_rules:default_account_posting_rule'
+
+const RULE_SOURCE_TAKEN_KEY = 'posting_rules.errors.defaultAccountPostingRuleSourceTaken'
+const RULE_SOURCE_TAKEN_FALLBACK = 'A default account posting rule already exists for this source account.'
 
 type Scope = { organizationId: string; tenantId: string }
 
@@ -127,12 +131,7 @@ const createDefaultAccountPostingRuleCommand: CommandHandler<
       tenantId: scope.tenantId,
     })
     if (existing) {
-      throw conflict(
-        translate(
-          'posting_rules.errors.defaultAccountPostingRuleSourceTaken',
-          'A default account posting rule already exists for this source account.',
-        ),
-      )
+      throw conflict(translate(RULE_SOURCE_TAKEN_KEY, RULE_SOURCE_TAKEN_FALLBACK))
     }
 
     await requireExistingLedgerAccount(
@@ -150,36 +149,41 @@ const createDefaultAccountPostingRuleCommand: CommandHandler<
     }
 
     let record!: DefaultAccountPostingRule
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: DEFAULT_ACCOUNT_POSTING_RULE_ENTITY_ID,
-      action: 'created',
-      scope,
-      customFields: custom,
-      events: ruleCrudEvents,
-      indexer: ruleCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      }),
-      phases: [
-        () => {
-          const now = new Date()
-          record = em.create(DefaultAccountPostingRule, {
-            id: randomUUID(),
-            organizationId: parsed.organizationId,
-            tenantId: parsed.tenantId,
-            sourceAccountId: parsed.sourceAccountId,
-            targetAccountId: parsed.targetAccountId,
-            defaultCostCenterId: parsed.defaultCostCenterId ?? null,
-            createdAt: now,
-            updatedAt: now,
-          })
-          em.persist(record)
-        },
-      ],
-    })
+    await withUniqueConflict(
+      DEFAULT_ACCOUNT_POSTING_RULE_SOURCE_UNIQUE,
+      () => translate(RULE_SOURCE_TAKEN_KEY, RULE_SOURCE_TAKEN_FALLBACK),
+      () =>
+        runCrudCommandWrite({
+          ctx,
+          em,
+          entityId: DEFAULT_ACCOUNT_POSTING_RULE_ENTITY_ID,
+          action: 'created',
+          scope,
+          customFields: custom,
+          events: ruleCrudEvents,
+          indexer: ruleCrudIndexer,
+          sideEffect: () => ({
+            entity: record,
+            identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+          }),
+          phases: [
+            () => {
+              const now = new Date()
+              record = em.create(DefaultAccountPostingRule, {
+                id: randomUUID(),
+                organizationId: parsed.organizationId,
+                tenantId: parsed.tenantId,
+                sourceAccountId: parsed.sourceAccountId,
+                targetAccountId: parsed.targetAccountId,
+                defaultCostCenterId: parsed.defaultCostCenterId ?? null,
+                createdAt: now,
+                updatedAt: now,
+              })
+              em.persist(record)
+            },
+          ],
+        }),
+    )
 
     return { defaultAccountPostingRuleId: record.id }
   },
