@@ -274,25 +274,27 @@ async function replacePairRows(em: EntityManager, write: PairWrite, scope: Scope
  * `withAtomicFlush(..., { transaction: true })`, so a failed insert rolls the
  * delete back and a rejected check leaves the rows untouched.
  *
- * `afterPairLocked` runs right after the advisory lock, on the transaction's
- * own `em`. `execute` passes `ctx.beforeTransactionalWrite` there, which the
- * command bus uses (`prepareSnapshotInsideTransaction`) to run `prepare`, so
- * the undo `before` state is read under the lock and cannot be overtaken by a
- * concurrent write to the same pair.
+ * `beforeWrite` runs after the advisory lock AND the ownership check, right
+ * before the delete, on the transaction's own `em` — the order the spec's
+ * Commands step (4) prescribes. `execute` passes `ctx.beforeTransactionalWrite`
+ * there, which the command bus uses (`prepareSnapshotInsideTransaction`) to
+ * run `prepare`, so the undo `before` state is read under the lock and cannot
+ * be overtaken by a concurrent write to the same pair, and a write another
+ * writer owns is rejected before any snapshot is taken.
  */
 async function applyPairWrite(
   em: EntityManager,
   write: PairWrite,
   scope: Scope,
   translate: TranslateWithFallbackFn,
-  afterPairLocked?: (em: EntityManager) => Promise<void>,
+  beforeWrite?: (em: EntityManager) => Promise<void>,
 ): Promise<void> {
   const line = await requireJournalEntryLine(em, write.journalEntryLineId, scope, translate)
   await requireUnlockedPeriodForLine(em, line, scope, translate)
   await lockPair(em, write.journalEntryLineId, write.dimensionType, scope)
-  await afterPairLocked?.(em)
   const existing = await loadPairRows(em, write.journalEntryLineId, write.dimensionType, scope)
   assertWriterOwnsPair(existing, write.writer, translate)
+  await beforeWrite?.(em)
   await replacePairRows(em, write, scope)
 }
 
@@ -322,7 +324,9 @@ const setJournalEntryLineDimensionCommand: CommandHandler<SetJournalEntryLineDim
       [
         async () => {
           await applyPairWrite(em, parsed, scope, translate, async (lockedEm) => {
-            await ctx.beforeTransactionalWrite?.(lockedEm, rawInput)
+            // The spec passes the parsed input (Commands step 4), so `prepare`
+            // sees the same normalized payload `execute` validated.
+            await ctx.beforeTransactionalWrite?.(lockedEm, parsed)
           })
         },
       ],

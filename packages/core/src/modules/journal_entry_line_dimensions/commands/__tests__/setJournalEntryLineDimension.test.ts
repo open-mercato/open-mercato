@@ -629,6 +629,39 @@ describe('journal_entry_line_dimensions.dimensions.set', () => {
       expect(calls).toEqual(['period', 'lock', 'delete', 'insert'])
     })
 
+    it('checks ownership before it calls ctx.beforeTransactionalWrite, and calls it before the delete (spec Commands step 4)', async () => {
+      const { em, calls } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')] })
+      const find = em.find.getMockImplementation()
+      em.find.mockImplementation(async (ctor: unknown, where: unknown) => {
+        calls.push('loadPair')
+        return find(ctor, where)
+      })
+      const ctx = makeCtx(em, TENANT_A, ORG_A)
+      const seenInputs: unknown[] = []
+      ctx.beforeTransactionalWrite = jest.fn(async (_em: unknown, input?: unknown) => {
+        calls.push('beforeTransactionalWrite')
+        seenInputs.push(input)
+      })
+
+      await getHandler().execute({ ...baseInput, extraneous: 'dropped by the schema' }, ctx)
+
+      expect(calls).toEqual(['period', 'lock', 'loadPair', 'beforeTransactionalWrite', 'delete', 'insert'])
+      expect(seenInputs).toEqual([setJournalEntryLineDimensionSchema.parse(baseInput)])
+      expect(seenInputs[0]).not.toHaveProperty('extraneous')
+    })
+
+    it('does not call ctx.beforeTransactionalWrite when another writer owns the pair', async () => {
+      const { em } = makeFakeEm({ dimensionRows: [dimRow('CostCenter', 'cc-pr', 'posting_rules')] })
+      const ctx = makeCtx(em, TENANT_A, ORG_A)
+      const beforeTransactionalWrite = jest.fn(async () => undefined)
+      ctx.beforeTransactionalWrite = beforeTransactionalWrite
+
+      await expect(
+        getHandler().execute({ ...baseInput, writer: 'fixed_assets', dimensionIds: ['cc-fa'] }, ctx),
+      ).rejects.toMatchObject({ status: 409 })
+      expect(beforeTransactionalWrite).not.toHaveBeenCalled()
+    })
+
     it('rolls the delete back when the insert phase throws, so the previous rows are still present', async () => {
       const { em, dimensionRows } = makeFakeEm({
         dimensionRows: [dimRow('CostCenter', 'cc-old', 'posting_rules')],
