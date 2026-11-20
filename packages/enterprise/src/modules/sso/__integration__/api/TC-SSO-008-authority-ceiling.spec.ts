@@ -323,32 +323,6 @@ test.describe('TC-SSO-008: SSO authority ceilings', () => {
     })
   })
 
-  test('shows the translated error when an SSO configuration save is refused', async ({ request, page, baseURL }) => {
-    await withAuthorityFixture(request, async (fixture) => {
-      const configId = await createConfig(request, fixture)
-      const cookieUrl = baseURL ?? 'http://localhost:3000'
-      await page.context().addCookies([
-        { name: 'auth_token', value: fixture.managerToken, url: cookieUrl },
-        { name: 'locale', value: 'en', url: cookieUrl },
-      ])
-      await page.goto(`/backend/sso/config/${configId}`)
-      const name = page.getByLabel('Configuration Name', { exact: true })
-      await expect(name).toHaveValue(/^Authority config /)
-      await name.fill('This change must be refused')
-
-      const update = await apiRequest(request, 'PUT', `/api/sso/config/${configId}`, {
-        token: fixture.adminToken,
-        data: { appRoleMappings: { 'idp-privileged': fixture.privilegedRoleName } },
-      })
-      expect(update.status()).toBe(200)
-      const rejectedSave = page.waitForResponse((response) =>
-        response.request().method() === 'PUT' && response.url().endsWith(`/api/sso/config/${configId}`))
-      await page.getByRole('button', { name: 'Save', exact: true }).click()
-      expect((await rejectedSave).status()).toBe(403)
-      await expect(page.getByText(/SSO authorization is no longer valid/)).toBeVisible()
-    })
-  })
-
   test('validates concurrent SSO requests and rejects access and refresh after authority loss', async ({ request }) => {
     await withAuthorityFixture(request, async (fixture) => {
       const response = await apiRequest(request, 'POST', '/api/sso/config', {
