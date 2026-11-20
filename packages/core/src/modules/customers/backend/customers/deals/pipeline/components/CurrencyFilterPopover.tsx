@@ -143,7 +143,7 @@ export function CurrencyFilterPopover({
                 {translateWithFallback(
                   t,
                   'customers.deals.kanban.currencyFilter.subtitle',
-                  '{label} · {count} deals · {total} {currency}',
+                  '{label}, {count} deals, {total} {currency}',
                   {
                     label: headingLabel,
                     count: headingCount,
@@ -192,7 +192,7 @@ export function CurrencyFilterPopover({
                 {translateWithFallback(
                   t,
                   'customers.deals.kanban.currencyFilter.footerCredit',
-                  'NBP mid conversion rate · {date}',
+                  'NBP mid conversion rate, {date}',
                   { date: formatToday(locale) },
                 )}
               </p>

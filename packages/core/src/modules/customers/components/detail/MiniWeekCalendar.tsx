@@ -19,6 +19,8 @@ interface MiniWeekCalendarProps {
   entityId: string
   useCanonicalInteractions?: boolean
   refreshRef?: React.RefObject<(() => void) | null>
+  /** Host refresh signal: the week reloads whenever it changes (an activity was created, changed or deleted elsewhere on the page). */
+  refreshKey?: number
 }
 
 export function getWeekDays(baseDate: Date, weekStartsOn: FirstDayOfWeek): Date[] {
@@ -62,7 +64,7 @@ function dotColorForType(type: string, isToday: boolean): string {
   return INTERACTION_TYPE_COLORS[type] ?? INTERACTION_TYPE_FALLBACK_COLOR
 }
 
-export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef }: MiniWeekCalendarProps) {
+export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef, refreshKey = 0 }: MiniWeekCalendarProps) {
   const t = useT()
   const locale = useLocale()
   const formatLocale = useDateLocaleSettings().locale ?? locale
@@ -89,8 +91,8 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
       : month
   }, [baseDate, formatLocale, t, weekOffset])
 
-  const [refreshKey, setRefreshKey] = React.useState(0)
-  const refresh = React.useCallback(() => setRefreshKey((k) => k + 1), [])
+  const [localRefreshKey, setLocalRefreshKey] = React.useState(0)
+  const refresh = React.useCallback(() => setLocalRefreshKey((k) => k + 1), [])
 
   React.useEffect(() => {
     if (refreshRef) (refreshRef as React.MutableRefObject<(() => void) | null>).current = refresh
@@ -166,7 +168,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
       }
     })()
     return () => controller.abort()
-  }, [entityId, weekStart, weekEnd, timeZone, useCanonicalInteractions, refreshKey])
+  }, [entityId, weekStart, weekEnd, timeZone, useCanonicalInteractions, refreshKey, localRefreshKey])
 
   const eventsByDay = React.useMemo(() => {
     const map = new Map<string, InteractionSummary[]>()

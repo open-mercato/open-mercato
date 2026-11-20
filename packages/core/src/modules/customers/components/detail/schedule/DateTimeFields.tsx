@@ -212,14 +212,12 @@ export function DateTimeFields({
             <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="rounded" />
             {t('customers.schedule.allDay', 'All day')}
           </label>
-          <span className="text-muted-foreground">&middot;</span>
           <span className="flex items-center gap-1.5">
             <Globe className="size-3.5" />
             {scheduleZoneLabel()}
           </span>
           {showRecurrence && (
             <>
-              <span className="text-muted-foreground">&middot;</span>
               <Button
                 type="button"
                 variant="ghost"

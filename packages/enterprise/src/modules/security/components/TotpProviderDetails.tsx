@@ -1,11 +1,12 @@
 'use client'
 
 import * as React from 'react'
-import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDistanceToNow, type Locale as DateFnsLocale } from 'date-fns'
 import { Loader2, Smartphone, Trash2 } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation.js'
-import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDateFnsLocale } from '@open-mercato/ui/primitives/date-locale'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -64,11 +65,11 @@ function normalizeTotpSetupResponse(response: TotpSetupResponse): TotpSetupState
   }
 }
 
-function formatRelative(value: string | null, fallback: string, locale: string): string {
+function formatRelative(value: string | null, fallback: string, locale?: DateFnsLocale): string {
   if (!value) return fallback
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return fallback
-  return formatRelativeTime(value, { locale }) ?? fallback
+  return formatDistanceToNow(parsed, { addSuffix: true, locale })
 }
 
 export default function TotpProviderDetails({
@@ -78,7 +79,7 @@ export default function TotpProviderDetails({
   onMethodsChanged,
 }: TotpProviderDetailsProps) {
   const t = useT()
-  const locale = useLocale()
+  const dateLocale = useDateFnsLocale()
   const router = useRouter()
   const [loading, setLoading] = React.useState(false)
   const [setup, setSetup] = React.useState<TotpSetupState | null>(null)
@@ -196,7 +197,7 @@ export default function TotpProviderDetails({
                   {formatRelative(
                     method.createdAt,
                     t('security.profile.mfa.method.unknownTime', 'Unknown'),
-                    locale,
+                    dateLocale,
                   )}
                 </p>
               </div>

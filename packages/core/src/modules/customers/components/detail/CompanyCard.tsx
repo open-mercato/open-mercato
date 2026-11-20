@@ -353,7 +353,7 @@ export function CompanyCard({
                   <Building2 className="size-3 shrink-0" />
                   <span className="min-w-0 break-words">
                     {data.activeDeal.title}
-                    {dealValue ? ` · ${dealValue}` : ''}
+                    {dealValue ? `, ${dealValue}` : ''}
                   </span>
                 </>
               ) : (
@@ -415,7 +415,7 @@ export function CompanyCard({
                   label={t('customers.fields.bankIban', 'Bank / IBAN')}
                   value={[data.billing?.bankName, data.billing?.bankAccountMasked]
                     .filter(Boolean)
-                    .join(' · ')}
+                    .join(', ')}
                   t={t}
                 />
               )}
