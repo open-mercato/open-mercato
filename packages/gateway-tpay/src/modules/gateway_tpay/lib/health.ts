@@ -5,7 +5,7 @@ import { translateTpayText } from './errors'
 import { requestAccessToken, resolveTpayEnvironment, TpayClientError, type TpayEnvironment } from './tpay-client'
 
 export interface TpayHealthCheckResult {
-  status: 'healthy' | 'unhealthy'
+  status: 'healthy' | 'degraded' | 'unhealthy'
   message: string
   details: Record<string, unknown>
   checkedAt: Date
@@ -79,10 +79,23 @@ export const tpayHealthCheck = {
       })
     }
 
+    const details = { environment, notificationUrlConfigured: notificationUrl !== null }
+    if (!readNonEmptyString(credentials.notificationSecurityCode)) {
+      return {
+        status: 'degraded',
+        message: await translateTpayText(
+          'gateway_tpay.health.notificationsDisabled',
+          'Tpay connection works, but payment notifications are rejected until the notification security code is set.',
+        ),
+        details: { ...details, notificationsReady: false },
+        checkedAt: new Date(),
+      }
+    }
+
     return {
       status: 'healthy',
       message: await translateTpayText('gateway_tpay.health.healthy', 'Tpay connection is healthy.'),
-      details: { environment, notificationUrlConfigured: notificationUrl !== null },
+      details: { ...details, notificationsReady: true },
       checkedAt: new Date(),
     }
   },
