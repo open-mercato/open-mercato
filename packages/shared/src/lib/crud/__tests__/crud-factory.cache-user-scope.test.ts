@@ -322,6 +322,7 @@ describe('CRUD Factory — encrypted lists bypass the response cache', () => {
     encryptedFieldNames.mockImplementation(async (entityId) => entityId === 'example:profile' ? ['name'] : [])
     const relatedRoute = makeCrudRoute({
       metadata: { GET: { requireAuth: true } },
+      indexer: { entityType: 'example:todo' },
       orm: { entity: Todo },
       list: {
         schema: querySchema,
