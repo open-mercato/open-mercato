@@ -175,7 +175,7 @@ describe('Documents API peer-module availability gates', () => {
     expect(mockVerifyEntityRegistryTargetAccess).toHaveBeenCalledWith(request, {
       entityType: 'product',
       entityId: PRODUCT_ID,
-    })
+    }, { scope: expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }) })
     expect(body.items).toEqual([{
       id: LINK_ID,
       entityType: 'product',
@@ -346,7 +346,7 @@ describe('Documents API peer-module availability gates', () => {
     expect(mockVerifyEntityRegistryTargetAccess).toHaveBeenCalledWith(request, {
       entityType: 'product',
       entityId: PRODUCT_ID,
-    })
+    }, { scope: expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }) })
     expect(mockGetVisibleDocumentPage).toHaveBeenCalledWith(expect.objectContaining({
       relationFilter: { entityType: 'product', entityId: PRODUCT_ID },
     }))

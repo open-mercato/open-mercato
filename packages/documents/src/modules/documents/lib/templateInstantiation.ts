@@ -146,6 +146,7 @@ export async function prepareTemplateRender(
       label: slot.label,
       href: slot.href,
     })),
+    { scope: { tenantId: input.template.tenantId, organizationId: input.template.organizationId } },
   )
 
   const verifiedSlots = input.slots.map((slot) => {

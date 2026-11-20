@@ -1,3 +1,9 @@
+const mockScope = { tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }
+
+jest.mock('../api/_shared', () => ({
+  resolveDocumentsContext: jest.fn(async () => mockScope),
+}))
+
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const mockIsDocumentEntityRegistryModuleEnabled = jest.fn((_entry: unknown) => true)
@@ -87,7 +93,7 @@ describe('server entity-registry verification', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     const [url, options] = fetchImpl.mock.calls[0]!
-    expect(String(url)).toBe(`https://mercato.example/api/catalog/offers?id=${OFFER_ID}&pageSize=1`)
+    expect(String(url)).toBe(`https://mercato.example/api/catalog/offers?id=${OFFER_ID}&pageSize=1&exactOrganizationId=${mockScope.organizationId}&exactTenantId=${mockScope.tenantId}`)
     expect(options).toMatchObject({ method: 'GET', cache: 'no-store', redirect: 'manual' })
     const headers = options?.headers as Headers
     expect(headers.get('cookie')).toBe('session=allowed')
@@ -301,7 +307,7 @@ describe('server entity-registry verification', () => {
       entityId: OFFER_ID,
       label: 'Annual offer',
       href: PRODUCT_HREF,
-    })
+    }, { scope: mockScope })
 
     controller.abort(new Error('caller disconnected'))
 
@@ -349,4 +355,33 @@ describe('server entity-registry verification', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(10)
     expect(maxActive).toBe(4)
   })
+})
+
+
+describe('exact persisted Documents scope (#7780)', () => {
+  beforeEach(() => { mockIsDocumentEntityRegistryModuleEnabled.mockReturnValue(true) })
+  const persistedScope = {
+    tenantId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    organizationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  }
+
+  it.each(['customer-person', 'customer-company', 'deal', 'product', 'catalog-offer', 'quote', 'sales-order', 'document'] as const)(
+    'qualifies %s through its owner route using persisted scope rather than request selection',
+    async (entityType) => {
+      const fetchImpl = jest.fn(async (url: RequestInfo | URL) => {
+        const query = new URL(String(url)).searchParams
+        expect(query.get('id')).toBe(PRODUCT_ID)
+        expect(query.get('exactOrganizationId')).toBe(persistedScope.organizationId)
+        expect(query.get('exactTenantId')).toBe(persistedScope.tenantId)
+        return new Response(JSON.stringify({ items: [{
+          id: PRODUCT_ID, name: 'Exact owner', title: 'Exact owner',
+          productId: PRODUCT_ID, quoteNumber: 'Exact owner', orderNumber: 'Exact owner',
+        }] }), { status: 200 })
+      })
+      await expect(verifyEntityRegistryTargetAccess(request(), {
+        entityType, entityId: PRODUCT_ID,
+      }, { fetchImpl, scope: persistedScope })).resolves.toMatchObject({ label: 'Exact owner' })
+    },
+  )
+
 })

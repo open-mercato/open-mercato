@@ -100,7 +100,7 @@ async function collectVerifiedSourceLinks(
         continue
       }
       try {
-        const verified = await verifyEntityRegistryTargetAccess(request, { entityType, entityId })
+        const verified = await verifyEntityRegistryTargetAccess(request, { entityType, entityId }, { scope: ctx })
         verificationOutcomes[index] = {
           entityType,
           entityId,
