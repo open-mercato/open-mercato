@@ -1,9 +1,10 @@
 # SPEC-055: Promotions Module
 
 **Date**: 2026-02-23
-**Status**: Approved (amended 2026-08-14, reconciliation-fixed 2026-08-17, audit-fixed 2026-08-17, applies-to/caps amendment 2026-09-07, §B.6 mapping corrected 2026-09-09, **eComm Release 4 decisions applied 2026-10-14 (v2.2.0)**, **Phases 1–3 implemented 2026-10-15 (v2.2.1, PR adeptofvoltron/open-mercato#15)** — see §Amendment and §Changelog; Phases 4–5 unchanged, spec-only, not built)
+**Status**: Approved (amended 2026-08-14, reconciliation-fixed 2026-08-17, audit-fixed 2026-08-17, applies-to/caps amendment 2026-09-07, §B.6 mapping corrected 2026-09-09, **eComm Release 4 decisions applied 2026-10-14 (v2.2.0)**, **Phases 1–3 implemented 2026-10-15 (v2.2.1, PR adeptofvoltron/open-mercato#15)**, **eComm Release 5 C5 `revertCodeUse`/cancellation-subscriber amendment applied 2026-10-26 (v2.3.0)**, **eComm Release 5 D-R5-17 `delivery_method`/`DELIVERY_DISCOUNT` un-hide applied 2026-10-26 (v2.4.0)** — see §Amendment and §Changelog; Phases 4–5 unchanged, spec-only, not built)
 **Suite**: [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 6, Phase 2
 **Release 4 decisions**: [eComm Release 4 Decisions](./analysis/ANALYSIS-2026-10-14-ecommerce-release-4-decisions.md) D-R4-1…29 (authoritative audit trail; this revision is where they land in the spec text)
+**Release 5 decisions**: [eComm Release 5 Owner Decisions](./analysis/ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md) — finding C5 ([checkout analysis](./analysis/ANALYSIS-2026-10-26-checkout-release-5.md)), accepted as an owner decision directly (no separate D-R5 row); D-R5-17 (un-hides `delivery_method`/`DELIVERY_DISCOUNT`, amends D-R4-14)
 
 > **Amendment notice (2026-08-14).** This spec was written against a hypothetical external cart addressed over HTTP by SKU. The platform now has a first-class [`cart` module](./2026-08-14-cart-module.md). The **Amendment** section near the end of this document is normative and takes precedence over the *Cart-Facing Endpoints* section where they conflict: the primary integration becomes a DI service call, the `/api/cart/*` namespace moves to `/api/promotions/*`, item addressing gains product and variant ids, and effects map onto `SalesAdjustmentDraft`. Everything else in this spec — the rule tree, the three-pass engine, codes, usage ledger, extensibility — is unchanged. **(rev 2.2.0, 2026-10-14)** Items are now addressed by id alone, with no `sku` fallback, and effects carry `amountNet`/`amountGross` directly rather than a single amount with a basis flag — see §A.4/§A.5 (superseded) and §Public TypeScript Contract for the current shapes.
 
@@ -134,7 +135,7 @@ promotions/
 │   ├── product-page/route.ts         Product promotion badge data (POST); `/api/promotions/product-page`
 │   └── extension-types/route.ts      Phase 5 — available extension rule/benefit type metadata (GET)
 
-**`delivery-methods/route.ts` is deferred past Release 4 (rev — D-R4-14).** `delivery_method` has no data source Phases 1–3 can supply (no shipping-method resolution exists in `cart`), so the route, its rule evaluator and the `DELIVERY_DISCOUNT` benefit stay unbuilt until a later release gives them one; §Data Models and §API Contracts mark every reference below.
+**`delivery-methods/route.ts` stays deferred (rev — D-R5-17, amends D-R4-14).** Release 5 gave `delivery_method`/`DELIVERY_DISCOUNT` their data source — `promotionsService.evaluate`'s `deliveryMethodCode`/`deliveryCost` inputs, and checkout as the caller that supplies them — so the rule evaluator and the benefit resolver are now real (§Data Models, §Public TypeScript Contract). This standalone badge-check route (distinct from checkout's own rate quoting, out of scope here) stays unbuilt; §API Contracts marks it.
 │
 ├── backend/
 │   ├── promotions/page.tsx           Promotion list (drag-sort, filters, save)
@@ -157,7 +158,7 @@ promotions/
 │   ├── unit-selection.ts             Selector ordering + cart-wide quantity budget
 │   ├── effect-resolvers.ts           Benefit config → ResolvedEffect[] (owns all discount math)
 │   ├── product-page-engine.ts        Lightweight variant (product visibility)
-│   ├── code-service.ts               Code validation, reservation (per-cart, §A.6 rev), usage — DI token `promotionCodeService`
+│   ├── code-service.ts               Code validation, reservation (per-cart, §A.6 rev), usage, and its reversal (`revertCodeUse`, Release 5 C5) — DI token `promotionCodeService`
 │   ├── tag-exclusion.ts              Promotion ordering + cumulativity + tag exclusion loop
 │   ├── extension-registry.ts         Phase 5 — Server-side rule/benefit/middleware extension registry
 │   ├── extension-registry.client.ts  Phase 5 — Client-side configurator component registry
@@ -174,7 +175,8 @@ promotions/
 │
 ├── subscribers/
 │   ├── invalidate-promotion-cache.ts On promotion CUD + usage events → invalidate cache
-│   └── budget-exhausted.ts           On budget-exhausted → emit notification (Phase 4 — no notification type exists before then; this subscriber is a no-op shell in Release 4)
+│   ├── budget-exhausted.ts           On budget-exhausted → emit notification (Phase 4 — no notification type exists before then; this subscriber is a no-op shell in Release 4)
+│   └── order-cancelled-usage-revert.ts  Release 5 C5 — persistent subscriber on `sales.order.cancelled`; calls `revertUsage` then `revertCodeUse`, idempotently; FK-id only, never imports a `sales` entity
 │
 ├── data/
 │   ├── entities.ts                   MikroORM entities (all tables, incl. `PromotionUsage` — moved to Phase 1, C8)
@@ -291,11 +293,35 @@ The evaluation engine (`lib/evaluation-engine.ts`) operates purely on `Normalize
 codes/reserve  → validate code + per-customer limit (CodeUsage + other carts' active reservations, D-R4-8) → create/extend CodeReservation keyed (code_id, cart_id), TTL 24h
 codes/validate → re-check reservation + code active status
 evaluate       → codes: {id, type}[] passed in context (rev — never a single code_id) → CodeRule evaluator matches
-codes/use      → deactivate GeneratedCode OR increment Code.used → write CodeUsage → delete reservation keyed (code_id, cart_id)
+codes/use      → deactivate GeneratedCode OR increment Code.used → write CodeUsage (cart_id always, order_id when the
+                 caller already knows it, generated_code_id for a dynamic use) → delete reservation keyed (code_id, cart_id)
 codes/release  → delete CodeReservation for that (code_id, cart_id) only
+revertCodeUse  → (rev — Release 5 C5, additive, no HTTP route — in-process service method + registered command only)
+                 find unreverted CodeUsage row(s) by cart_id and/or order_id, scoped to tenant/organization
+                 → reactivate the specific GeneratedCode OR decrement Code.used (and reactivate once headroom
+                   returns) — the exact inverse of codes/use's own flip
+                 → SET reverted_at = NOW() on each row; never deletes (audit immutability, same as CodeUsage's
+                   append-only-log precedent and PromotionUsage.reverted_at below)
 ```
 
-(route names per `/api/promotions/*`, Amendment §A.3 — each also has a matching `promotionsService` method, §A.2)
+(route names per `/api/promotions/*`, Amendment §A.3 — each also has a matching `promotionsService` method, §A.2.
+`revertCodeUse` is NOT an HTTP route — nothing calls `codes/use` yet either (checkout's Phase 4 submit sequence is
+its first caller, D-R4-26/C5), so this Release 5 Step ships only the reversal capability and the subscriber that
+invokes it automatically on `sales.order.cancelled`, ahead of that caller.)
+
+**Reversal — `promotions.code.use.revert` / `PromotionCodeService.revertCodeUse` (Release 5 C5, additive).**
+`useCode` had nothing identifying *which* cart or order a use belonged to, so there was nothing a reversal could
+key on — `CodeUsage` gains `cart_id`, `order_id` (both nullable; see §Data Models), and `generated_code_id` (so a
+dynamic use reactivates the one voucher it deactivated, never every `GeneratedCode` under the parent `Code`) to
+close that gap. `UseCodeInput` gains an additive, optional `orderId` so checkout's future submit sequence — which
+calls `useCode` **after** document creation (§C19) — can record it immediately. A promotions-owned, persistent
+subscriber on `sales.order.cancelled` (`order-cancelled-usage-revert.ts`) calls `PromotionUsageService.revertUsage`
+then `PromotionCodeService.revertCodeUse`, both keyed by the event's `orderId`; both are idempotent (unreverted-row
+lookups), so redelivery reverts nothing twice. This is the fix for the finding recorded at D-R4-26 above: the
+original §3.3 text said `sales` would call `revertUsage` directly, which is impossible — `sales` cannot depend on
+`promotions` (upstream never depends on downstream, root `AGENTS.md`) — and nothing subscribed to anything in its
+place. The subscriber lives in `promotions`, reads only the event payload's `orderId`/`tenantId`/`organizationId`,
+and never imports a `sales` entity.
 
 ### Promotion Usage Lifecycle
 
@@ -338,6 +364,7 @@ The `promotions.usage.registered` and `promotions.usage.reverted` events trigger
 | `promotions.code.update` | `promotions.code.updated` |
 | `promotions.code.delete` | `promotions.code.deleted` |
 | `promotions.code.use` | `promotions.code.used` |
+| `promotions.code.use.revert` | — **(rev — Release 5 C5, additive)** No event emitted, matching `codes/use`'s own behaviour; the subscriber that calls it reacts directly to `sales.order.cancelled`, so no further event is needed to drive cache invalidation (`revertCodeUse` calls `invalidateCrudCache` itself) |
 | `promotions.generated_code.generate` | `promotions.generated_code.created` (batch) — **(rev — W1/D-R4-25, decided literally: event ids use underscores, naming `generated_code` by id).** Replaces the hyphenated `promotions.generated-code.generate`/`.created`; no hyphenated event id exists anywhere in this platform (`ecommerce` uses `store_domain_binding`, `branding_updated`) |
 
 Additional events emitted by the evaluation and code pipelines:
@@ -449,11 +476,11 @@ Table: `promotion_rules`
 | `producer` | `producer_code` text, `quantity` integer, `operator` text | **Hidden.** No producer/manufacturer field exists on `catalog.CatalogProduct` |
 | `exclude_pharmaceutical` | (flag only, no config) | **Hidden.** No such product flag exists in `catalog` |
 | `consent_flag` | `flag_key` text | **Hidden.** No consent store exists in `customer_accounts` |
-| `delivery_method` | `delivery_method_code` text | **Hidden.** No delivery-method field in the Release 4 `evaluate` request (D-R4-14) |
-| `payment_method` | `payment_method_code` text | **Hidden.** Same reason |
+| `delivery_method` | `delivery_method_code` text | **Shipped (rev — D-R5-17, Release 5, amends D-R4-14).** Checkout is the data source Release 4 lacked: `EvaluateInput.deliveryMethodCode` is now a real (optional) field. Matches when `context.deliveryMethodCode` equals the configured code; evaluates to `false` (never throws) when the caller omits delivery context entirely — every cart-stage caller today, unchanged by this amendment |
+| `payment_method` | `payment_method_code` text | **Hidden.** Same reason D-R4-14 gave — still no payment-method field on the `evaluate` request |
 | `shipping_address` | `field` text, `operator` text, `value` text | **Hidden.** Same reason |
 
-This is **eleven** shipped rule types for Release 4, not the "15 built-in" or "16-row table" earlier revisions of this document claimed (W10) — the count was never true against this platform and the gap is closed by deciding which ones have a real data source rather than by building the missing sources.
+This is **eleven** shipped rule types for Release 4 — twelve as of Release 5's `delivery_method` (D-R5-17) — not the "15 built-in" or "16-row table" earlier revisions of this document claimed (W10) — the count was never true against this platform and the gap is closed by deciding which ones have a real data source rather than by building the missing sources.
 
 ### Benefit
 
@@ -539,7 +566,7 @@ Every variant below is intersected with the shared quantity-cap block (`max_quan
 |----------------|---------------|
 | `product_discount` | `product_id` uuid nullable, `discount_type` text, `value` decimal string, `limit_to_category_id` uuid nullable, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
 | `cart_discount` | `discount_type` text, `value` decimal string, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
-| `delivery_discount` | `delivery_method_code` text, `discount_type` text, `value` decimal string, `labels` Record\<locale, string\> — **hidden from the admin tree builder in Release 4 (D-R4-14)**; the type and its config schema stay in the model |
+| `delivery_discount` | `delivery_method_code` text, `discount_type` text, `value` decimal string, `labels` Record\<locale, string\> — **shipped as of Release 5 (rev — D-R5-17, amends D-R4-14)**; `applies_to` is fixed to `order` (no line/unit dimension for a delivery charge), and `max_discount` does not apply — the benefit is naturally bounded by `deliveryCost` (resolution clamps the magnitude to it, same clamp every other benefit's base amount gets) |
 | `free_product` | `product_id` uuid nullable, `category_id` uuid nullable, `quantity` int, `labels` Record\<locale, string\> |
 | `buy_x_get_y` | `trigger_product_id` uuid nullable, `trigger_category_id` uuid nullable, `trigger_quantity` int, `reward_product_id` uuid, `reward_variant_id` uuid nullable, `reward_quantity` int, `discount_type` text, `value` decimal string, `max_applications` int nullable, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
 | `tiered_discount` | `limit_to_category_id` uuid nullable, `tiers` TierElement[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
@@ -628,10 +655,14 @@ Table: `promotion_code_usages`
 |--------|------|-------|
 | `id` | uuid PK | |
 | `code_id` | uuid FK → promotion_codes | |
+| `cart_id` | uuid nullable | **(rev — Release 5 C5, additive)** The reserving cart's id, always written by `codes/use` (it already receives `cartId`). Lets `revertCodeUse` find the row before an order exists |
+| `order_id` | text nullable | **(rev — Release 5 C5, additive)** The order this use was recorded against, when the caller already knows it — checkout's submit sequence calls `codes/use` *after* document creation (§C19), so it usually does. A plain FK-id, never a `ManyToOne` into `sales` (no cross-module ORM relationships, root `AGENTS.md`) — same precedent as `PromotionUsage.order_id` below |
+| `generated_code_id` | uuid nullable, FK → promotion_generated_codes, `ON DELETE SET NULL` | **(rev — Release 5 C5, additive)** Which specific dynamic voucher this use deactivated, so `revertCodeUse` reactivates *that* row, never every `GeneratedCode` under the parent `Code`. `null` for a static-code use |
 | `customer_id` | text nullable | `null` for a guest — a per-customer limit cannot apply to a guest, so a guest's usage never needs this column populated |
 | `organization_id` | uuid | |
 | `tenant_id` | uuid | |
 | `used_at` | timestamptz | |
+| `reverted_at` | timestamptz nullable | **(rev — Release 5 C5, additive)** Set by `revertCodeUse`; row is never deleted — same non-destructive-revert precedent as `PromotionUsage.reverted_at` below |
 
 ### PromotionUsage
 
@@ -649,7 +680,7 @@ Serves a dual purpose: **compliance audit ledger** (immutable record of exactly 
 | `order_type` | text | `order`, `quote`, `pos_cart` — for cross-document audit filtering |
 | `customer_id` | text nullable | Customer session identifier |
 | `currency` | text | ISO 4217 currency code the order was placed in |
-| `total_discount_amount` | numeric | Sum of `\|amountNet\|` across every `ResolvedEffect` for this promotion on this order that carries an amount. **(rev — budget-accounting rule, previously unstated.)** `ADD_FREE_ITEM` effects carry no amount and never contribute to this sum — a buy-2-get-1 promotion's `max_budget` is spent only by any amount-carrying effect on the *same* promotion, never by the gift itself; `DELIVERY_DISCOUNT` effects do contribute when they occur (Release 4: never, D-R4-14) |
+| `total_discount_amount` | numeric | Sum of `\|amountNet\|` across every `ResolvedEffect` for this promotion on this order that carries an amount. **(rev — budget-accounting rule, previously unstated.)** `ADD_FREE_ITEM` effects carry no amount and never contribute to this sum — a buy-2-get-1 promotion's `max_budget` is spent only by any amount-carrying effect on the *same* promotion, never by the gift itself; `DELIVERY_DISCOUNT` effects do contribute when they occur (Release 4: never, D-R4-14; reachable as of Release 5, D-R5-17 — this file's own `computeTotalDiscountAmount` required no change, since it already summed any amount-carrying effect generically) |
 | `effects_snapshot` | jsonb | Full `ResolvedEffect[]` snapshot at time of registration — immutable audit record |
 | `registered_at` | timestamptz | When the usage was recorded |
 | `reverted_at` | timestamptz nullable | Set on order cancellation; row is never deleted — reverted rows are excluded from budget aggregation |
@@ -746,11 +777,13 @@ Request:
   "cartWeight": "3.5",                  // null if unknown
   "codes": [                            // array, never a single object (X1) — empty if none entered
     { "id": "uuid", "type": "static | dynamic" }
-  ]
+  ],
+  "deliveryMethodCode": "standard",     // optional (rev — D-R5-17, amends D-R4-14); present only once a caller has a selected delivery method — checkout, from Phase 2 (Step 2.13) onward. Omitted by every cart-stage caller today
+  "deliveryCost": "9.99"                // optional, same gate as deliveryMethodCode — both or neither
 }
 ```
 
-Deliberately absent from Release 4's request (D-R4-14 — no data source Phases 1–3 can supply): `deliveryMethodCode`, `paymentMethodCode`, `shippingAddress`, `deliveryCost`, `consentFlags`. The corresponding rule types (`delivery_method`, `payment_method`, `shipping_address`, `consent_flag`) and the `delivery_discount`/`DELIVERY_DISCOUNT` benefit are hidden from the admin tree builder (§Data Models) so no promotion can be authored that would need these fields; a later release adds them back together with their caller.
+Still deliberately absent from the request (D-R4-14 — no data source exists): `paymentMethodCode`, `shippingAddress`, `consentFlags`. The corresponding rule types (`payment_method`, `shipping_address`, `consent_flag`) and their config schemas stay hidden from the admin tree builder (§Data Models) so no promotion can be authored that would need these fields; a later release adds them back together with their caller. `deliveryMethodCode`/`deliveryCost` and the `delivery_method` rule/`delivery_discount` benefit they unlock are **no longer** in this deferred set — Release 5 (D-R5-17) gave them a real caller (checkout) and un-hid both.
 
 Response:
 ```jsonc
@@ -809,7 +842,7 @@ Response:
 }
 ```
 
-`DELIVERY_DISCOUNT` stays a defined effect type in the model (§Resolved Effect Types) but cannot occur in a Release-4 response: the `delivery_method` rule it depends on is hidden from the admin tree builder (D-R4-14), so no promotion configured in this release can resolve one.
+`DELIVERY_DISCOUNT` was a defined-but-unreachable effect type through Release 4 (D-R4-14): the `delivery_method` rule it depends on was hidden from the admin tree builder, so no promotion could resolve one. As of Release 5 (D-R5-17), it is reachable: once the caller supplies `deliveryMethodCode`/`deliveryCost` on the `evaluate` request and a `delivery_method` rule matches, `effect-resolvers.ts#resolveDeliveryDiscount` produces it, clamped to `deliveryCost` the same way every other benefit's base amount is clamped.
 
 **Resolved Effect Types:**
 
@@ -817,7 +850,7 @@ Response:
 |------|----------------|-------|
 | `LINE_DISCOUNT` | `targetLineId`, `targetProductId`, `targetVariantId`, `appliesTo`, `lineQuantity`, `appliedQuantity`, `amountNet`, `amountGross` (both negative strings), `basis`, `currency` | One effect per affected line item. `amountNet`/`amountGross` are the total row discount for the covered quantity; `appliedQuantity` states how many of the line's `lineQuantity` units it covers. A capped benefit reports `appliedQuantity < lineQuantity`. **Rev (C1/D-R4-9):** the consumer (`cart`) maps `amountNet` as-is to `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'` — never divides by `lineQuantity` or `appliedQuantity`; that per-unit mapping is withdrawn (it matched no `sales` API that has ever existed on `develop`). |
 | `CART_DISCOUNT` | `appliesTo`, `amountNet`, `amountGross` (negative strings), `basis`, `currency` | Flat or percentage discount applied against cart subtotal |
-| `DELIVERY_DISCOUNT` | `appliesTo`, `deliveryMethodCode`, `amountNet`, `amountGross` (negative strings), `basis`, `currency` | Defined in the model; unreachable in Release 4 (D-R4-14, above) |
+| `DELIVERY_DISCOUNT` | `appliesTo`, `deliveryMethodCode`, `amountNet`, `amountGross` (negative strings), `basis`, `currency` | Unreachable in Release 4 (D-R4-14); reachable as of Release 5 (D-R5-17, above) once the caller supplies delivery context |
 | `ADD_FREE_ITEM` | `productId`, `variantId`, `quantity`, `reason`, `promotionId` | Promotions resolves which product/variant and how many; cart adds the line, marked with this `promotionId` (D-R4-7). `reason` is `FREE_PRODUCT` or `BUY_X_GET_Y` |
 
 **Invariants:**
@@ -895,9 +928,9 @@ Response: list of promotion condition summaries for storefront label rendering (
 
 Request: cart context subset, addressed by `productId`/`variantId` (rev — never `sku`, same identity change as `evaluate`). Response: free product offers (FreeProductBenefit + BuyXGetY) applicable to the given context. **(rev — V2, P5/D-R4-7)** Respects the caller's buyer scope exactly as `dynamic-labels` does: a reward the buyer's assortment would hide is never offered here either, closing the read-side half of the free-item visibility gap `cart` closes on the write side.
 
-#### `POST /api/promotions/delivery-methods` — deferred past Release 4 (rev — D-R4-14)
+#### `POST /api/promotions/delivery-methods` — still deferred (rev — D-R5-17, amends D-R4-14)
 
-Request: cart context + delivery method codes to check. Response: which delivery methods have active discount benefits. Not built in Phases 1–3: `delivery_method` has no data source until a later release resolves shipping methods ahead of this call.
+Request: cart context + delivery method codes to check. Response: which delivery methods have active discount benefits. Not built in Phases 1–3, and still not built by Release 5's D-R5-17: that decision un-hid the `delivery_method` rule/`DELIVERY_DISCOUNT` benefit and gave `evaluate` its `deliveryMethodCode`/`deliveryCost` data source, but building this separate per-delivery-method badge-check route was explicitly out of that Step's scope — checkout's own delivery-step UI (Phase 2, Step 2.13) calls `evaluate` directly instead.
 
 #### `POST /api/promotions/product-page`
 
@@ -1640,6 +1673,8 @@ export interface EvaluateInput {
   customerOrderCount: number | null
   cartWeight: string | null
   codes: CodeRef[]
+  deliveryMethodCode?: string | null  // additive, Release 5 D-R5-17 (amends D-R4-14) — present once a caller (checkout) has a selected delivery method
+  deliveryCost?: string | null        // additive, same gate as deliveryMethodCode
 }
 
 export type EffectBasis = 'net' | 'gross'
@@ -1671,7 +1706,7 @@ export interface CartDiscountEffect extends ResolvedEffectBase {
 }
 
 export interface DeliveryDiscountEffect extends ResolvedEffectBase {
-  type: 'DELIVERY_DISCOUNT'       // defined; unreachable in Release 4 (D-R4-14)
+  type: 'DELIVERY_DISCOUNT'       // Release 5 (D-R5-17, amends D-R4-14): reachable once a caller supplies deliveryMethodCode/deliveryCost
   deliveryMethodCode: string
   amountNet: string
   amountGross: string
@@ -1696,8 +1731,16 @@ export interface EvaluateResult { appliedPromotions: AppliedPromotion[] }
 export interface ReserveCodeInput { codeString: string; cartId: string; customerId: string | null }
 export interface CodeReservationResult { ok: true; codeId: string; type: 'static' | 'dynamic' }
 export interface CodeValidationResult { valid: boolean; reason?: string }
-export interface UseCodeInput { codeId: string; codeString: string; cartId: string; customerId: string | null; type: 'static' | 'dynamic' }
+// `orderId` is additive (rev — Release 5 C5): optional because nothing calls `useCode`
+// yet, but checkout's Phase 4 submit sequence calls it AFTER document creation (§C19),
+// so the order already exists and can be recorded for a later `revertCodeUse`.
+export interface UseCodeInput { codeId: string; codeString: string; cartId: string; orderId?: string | null; customerId: string | null; type: 'static' | 'dynamic' }
 export interface CodeUseResult { ok: true }
+
+// Reversal (rev — Release 5 C5, additive). At least one of `cartId`/`orderId` is
+// required; either locates the `CodeUsage` row(s) `useCode` wrote.
+export interface RevertCodeUseInput { cartId?: string; orderId?: string }
+export interface RevertCodeUseResult { ok: true; revertedCount: number }
 
 // Usage (D-R4-12, D-R4-26)
 export interface RegisterUsageInput {
@@ -1718,6 +1761,7 @@ export interface PromotionsService {
   validateCode(input: ReserveCodeInput): Promise<CodeValidationResult>
   useCode(input: UseCodeInput): Promise<CodeUseResult>
   releaseCode(codeId: string, cartId: string): Promise<void>
+  revertCodeUse(input: RevertCodeUseInput): Promise<RevertCodeUseResult>   // rev — Release 5 C5, additive
   registerUsage(input: RegisterUsageInput): Promise<{ ok: true; budgetExceeded: string[] }>
   revertUsage(input: RevertUsageInput): Promise<{ ok: true; revertedCount: number }>
 }
@@ -1817,7 +1861,7 @@ Nothing is deployed under the old paths, so this is a specification change and n
 
 **Superseded 2026-10-14 (C5/D-R4-10, and by Amendment §B.6 below for the line-targeted case).** The original mapping used a single `amount` plus a `basis: 'net' | 'gross'` flag, with `salesCalculationService` expected to apply tax to convert sides. That flag alone cannot do it correctly for an order-scoped discount — `resolveAdjustmentAmounts` on `develop` falls back to `net = gross` (and vice versa) when only one side is supplied, silently misapportioning tax. Release 4's `ResolvedEffect` carries **both** `amountNet` and `amountGross` directly (D-R4-10): the engine computes both sides itself, from the same per-item `unitPriceNet`/`unitPriceGross` it was given, and `cart` consumes whichever side `salesCalculationService` needs without ever deriving one from the other. `basis` survives only as an audit-trail field, never the thing a consumer branches on.
 
-Order-scope effects (`CART_DISCOUNT`; `DELIVERY_DISCOUNT` unreachable in Release 4, D-R4-14) still map to `SalesAdjustmentDraft` with `scope: 'order'`, `amountNet`/`amountGross` from the effect. Line-scope effects (`LINE_DISCOUNT`) do **not** map to a `SalesAdjustmentDraft` at all — `sales` still rejects a line-attributed draft (`"Line-scoped adjustments are not supported yet."`) — they map to `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'`, taken from `amountNet` **as-is**, never divided. This is Amendment §B.6's rule, restated normatively here because this section is where a reader lands first; §B.6 is the section with the full derivation and the arithmetic showing why the old per-unit-division reading (introduced 2026-09-09, superseded 2026-10-14) does not match `sales` as shipped.
+Order-scope effects (`CART_DISCOUNT`; `DELIVERY_DISCOUNT`, reachable as of Release 5/D-R5-17 but not yet mapped here — see §Resolution table above) still map to `SalesAdjustmentDraft` with `scope: 'order'`, `amountNet`/`amountGross` from the effect. Line-scope effects (`LINE_DISCOUNT`) do **not** map to a `SalesAdjustmentDraft` at all — `sales` still rejects a line-attributed draft (`"Line-scoped adjustments are not supported yet."`) — they map to `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'`, taken from `amountNet` **as-is**, never divided. This is Amendment §B.6's rule, restated normatively here because this section is where a reader lands first; §B.6 is the section with the full derivation and the arithmetic showing why the old per-unit-division reading (introduced 2026-09-09, superseded 2026-10-14) does not match `sales` as shipped.
 
 `ADD_FREE_ITEM` does not map to an adjustment or a snapshot discount — it instructs `cart` to insert a `CartLine` with `origin: 'promotion'` and `promotion_id` set to this effect's `promotionId` (rev — D-R4-7, replacing the `added_by: 'merge'` language, which predates `cart` rev 7's `added_by_actor_type` rename). Such a line is **excluded from the next evaluation's eligibility computation** (sent to `evaluate` with nothing that would let it re-trigger its own promotion), or a buy-2-get-1 promotion re-triggers on its own free item and loops. This exclusion is an explicit invariant, tested (`TC-PROM-053`).
 
@@ -1914,7 +1958,7 @@ Without `appliedQuantity` the coverage is unrecoverable downstream. The cart can
 |--------|-----------|
 | `LINE_DISCOUNT` (`appliesTo: 'line'` or `'unit'`) | `SalesLineSnapshot.discountAmount` on the matching line, with `discountAmountBasis: 'line'`, set to `\|amountNet\|` **taken as-is — never divided by `lineQuantity` or `appliedQuantity`** |
 | `CART_DISCOUNT` (`appliesTo: 'order'`) | `SalesAdjustmentDraft` with `scope: 'order'`, carrying `amountNet`/`amountGross` directly (§A.5) |
-| `DELIVERY_DISCOUNT` | Unreachable in Release 4 (D-R4-14) |
+| `DELIVERY_DISCOUNT` | Unreachable in Release 4 (D-R4-14). Reachable from `evaluate` as of Release 5 (D-R5-17), but **not yet mapped anywhere** — per D-R5-17 the discount must reach an order as an adjustment on the shipping charge `sales` computes, never via promotions arithmetic; that adjustment-mapping is checkout/sales integration work, not this amendment's scope |
 | `ADD_FREE_ITEM` | A new `CartLine` with `origin: 'promotion'` + `promotion_id` (§A.5, D-R4-7) |
 
 Three rules bind `cart` here, each of them a mispriced order if broken. **Their normative home is the `cart` module spec (§3.2, rev 9), not this document** — they constrain `cart`'s implementation, and a promotions amendment does not get to legislate another module's code any more than it gets to legislate `sales`'s (§B.7). They are restated here because this section is where a reader checking the promotions-side contract lands first:
@@ -2000,3 +2044,5 @@ The one place this spec diverges is Sylius, whose unit-level actions attach an a
 | 2026-10-15 | 2.2.1 | **Release 4 Phases 1–3 implemented** (`adeptofvoltron/open-mercato#15`; implementation record in `.ai/runs/2026-10-14-ecommerce-release-4-write-side/{PLAN,HANDOFF,NOTIFY}.md`). Per PLAN.md's Step 7.7, this spec stays in `.ai/specs/` — Phases 4–5 remain unbuilt. Findings a future reader should know about without re-reading the run: (1) `evaluate`/`evaluateForProduct`'s frozen signatures carry no tenant/org parameter, and no DI-resolvable "current auth" context existed anywhere in the codebase — resolved by having `promotionsService` read `container.resolve('auth')` and fail closed with `400` when absent; every in-process caller (the four Phase 2 cart-facing routes, the six Phase 3 codes/usage routes, and the `cart` module's own `cart.reprice`) now registers `{ auth }` onto its own request container before resolving the service — a cross-module convention this document did not anticipate, now load-bearing for `cart`. (2) `Code` has no `promotionId` column; a code links to a promotion only through a `ruleType: 'code'` rule's `config.codeId`, the same mechanism `evaluate()`'s own `evaluateCode` evaluator reads — `cart.promotions.apply` resolves "which promotion does this code unlock" the same way, since there is no FK shortcut. (3) `Code` CRUD commands (`promotions.code.{create,update,delete}`) were missing from the Phase 1 implementation plan — only `reserve`/`release`/`use` were built there — and were added once the admin `codes` route needed them. (4) `codes/release`'s documented body (`{codeString,cartId,customerId}`) doesn't match `releaseCode`'s service signature (`codeId, cartId`); the route resolves the string via `code-service.ts`'s own `resolveCodeByString` rather than a second resolution path. (5) `commandBus.execute()` does not run mutation guards internally — every mutating Phase 2/3 route wires `runRouteMutationGuards` explicitly. (6) Real concurrency proof landed against live Postgres, not mocked: 8 concurrent `codes/use` calls on one single-use code → exactly 1 succeeded; 10 concurrent `usage/register` calls (100 each, 500 budget) → exactly 5 accepted/5 blocked, DB sum exactly 500. Validation evidence: 220 `promotions` jest tests; 34/34 `promotions/__integration__/` Playwright specs passed. |
 | 2026-10-16 | 2.2.2 | **Phase 8 manual-QA fixes** (F2, F1, F3, F5, F8, F4, F7, F9 — tracked in `.ai/runs/2026-10-14-ecommerce-release-4-write-side/{PLAN,HANDOFF,NOTIFY}.md` Phase 8, each with its own regression test against the live repro). **F2 (commit `8e372e4598`)**: `promotionUpdateSchema`'s `.partial()` over a default-carrying base schema still applied Zod 4's `.default()` inside `.partial()`, so `commands/promotions.ts`'s `!== undefined` guards always fired — a `PUT {id, eligibleCurrencies}` silently reset `active`/`tags` to their create-time defaults. Rebuilt the update shape from default-free field schemas; defaults stay create-only. **F1/F3 (commit `9827edb6f6`)**: the promotion form had no `eligibleCurrencies`/`maxBudget`/`budgetCurrency` fields, so a D-R4-27 tree (`order_value`/`row_total` rules, fixed/tiered benefits) couldn't be saved from the UI at all; added (currency select from `currencies`, budget with its required currency). `RuleTreeBuilder.tsx`'s tree-save flow used to flash a generic error and drop the `422` `issues[]` array — now surfaces the real message, pointing at the `eligibleCurrencies` field when that's the failing path. **F5/F8/F4 (commit `92cc2c294a`)**: `RuleCard`/`BenefitCard` used a free-text-filter `ComboboxInput` for closed lists, so the pre-selected first rule/benefit type filtered the dropdown to one visible option (a tester could not find "Product count"; a benefit silently stayed `product_discount`) — switched to the `Select` primitive, open shows all 11 rule types / 5 benefit types. The benefit labels editor's locale field is now a `Select` of the app's real supported locales (was free text); dropped an arbitrary `grid-cols-[100px_1fr_auto]` for DS-scale classes and aligned the `IconButton`/`Input` control heights. **F7 (commit `b0d766608d`)**: a date-only `endsAt` coerced to `00:00:00.000 UTC`, so a promotion "ending today" was dead for the whole day (`evaluation-engine.ts`'s `evaluatedAt > endsAt` check). `clearableEndOfDayDateSchema` bumps a date-only `endsAt` to `23:59:59.999 UTC` of the same day on write (form → API); a full ISO timestamp passes through unchanged — `startsAt` and the engine's own comparison are untouched. **F9 (commit `8d9c24baef`)**: a static code's `code`/`prefix`/`suffix` were stored and matched case-sensitively, so `summer10` missed a stored `SUMMER10`. Normalized to trimmed, upper-cased, `A-Z0-9`-only on write (`clearableUppercaseStringSchema`) and on every lookup path (`resolveCodeByString`, plus `useCode`'s own row-locking `GeneratedCode` query, the one direct lookup that bypasses `resolveCodeByString` because it needs `LockMode.PESSIMISTIC_WRITE`). Validation evidence: full `cart`+`promotions` jest suite 466/466 at Checkpoint 4 (up from 419 at the start of Phase 8); live `promotions/__integration__/` Playwright re-run recorded in `checkpoint-5-checks.md` under the same run folder. |
 | 2026-10-23 | 2.2.3 | **QA round 2 fixes** (PR #7592 answers to the 2026-10-23 extended QA pass). `cart_weight`, `customer_order_history` and `product_attribute` move to **Hidden** under D-R4-14's own rule (the UI shows only rules with a data source): implementation found none of them has one (`cart` sends `cartWeight`/`customerOrderCount` as `null`; catalog has no attribute-code concept), so each could be saved but never matched. They leave `RELEASE_4_SHIPPED_RULE_TYPES` and the write-path `ruleInputSchema` and stay in `ruleInputSchemaFull`; implementing them is follow-up #7887. `order_date` now compares whole UTC calendar days instead of instants (previously `eq` matched only at midnight and `lte` dropped most of its own day). `tiered_discount` thresholds and the `row_total` value are labelled as net in the editor; a gross switch is follow-up #7886. |
+| 2026-10-26 | 2.3.0 | **eComm Release 5, finding C5 — code-use reversal and a promotions-owned cancellation subscriber** (see `ANALYSIS-2026-10-26-checkout-release-5.md` §C5; accepted as an owner decision directly, no separate D-R5 row). `useCode` had nothing identifying which cart or order a use belonged to, so nothing could reverse it — `CodeUsage` gains additive `cart_id`, `order_id`, `generated_code_id` and `reverted_at` columns (migration `Migration20261026161603_promotions`); `UseCodeInput` gains an additive, optional `orderId`. New `PromotionCodeService.revertCodeUse({ cartId?, orderId? })` (registered command `promotions.code.use.revert`, additive to §A.2a's own five) reverses the specific `GeneratedCode`/`Code.used` flip `codes/use` made and marks the `CodeUsage` row `reverted_at` — idempotent, tenant/organization-scoped, never deletes. New persistent subscriber `subscribers/order-cancelled-usage-revert.ts` on `sales.order.cancelled` calls `PromotionUsageService.revertUsage` then `PromotionCodeService.revertCodeUse`, both keyed by the event's `orderId`, replacing the original §3.3 text ("`sales` calls `revertUsage`" — impossible, upstream never depends on downstream) with the correct direction: `promotions` owns the subscription, reads only FK ids off the event payload, never imports a `sales` entity. No HTTP route and no checkout caller ship in this revision — checkout's Phase 4 submit sequence (D-R4-26) is `useCode`'s first caller and lands later; this revision only makes reversal already work end to end once it does. |
+| 2026-10-26 | 2.4.0 | **eComm Release 5, D-R5-17 — `delivery_method` rule and `DELIVERY_DISCOUNT` benefit un-hidden** (amends D-R4-14; see `ANALYSIS-2026-10-26-ecommerce-release-5-decisions.md` D-R5-17). Checkout is the data source D-R4-14 said these two were waiting for: `EvaluateInput`/`EvaluationContext`/`EvaluationInput` (`lib/types.ts`) gain additive, optional `deliveryMethodCode`/`deliveryCost`. `delivery_method` moves from `hiddenRuleVariants` to `shippedRuleVariants` and `delivery_discount` from `hiddenBenefitVariants` to `shippedBenefitVariants` (`data/validators.ts`) — the exact mechanism D-R4-14 used to hide them (excluded from the write-path `ruleInputSchema`/`benefitInputSchema` discriminated unions, and from `RULE_TYPE_OPTIONS`/`BENEFIT_TYPE_OPTIONS` in the admin tree builder, which import those lists directly) — `RELEASE_4_SHIPPED_RULE_TYPES`/`RELEASE_4_SHIPPED_BENEFIT_TYPES` keep their names but grow by one entry each, rather than a repo-wide rename. `rule-evaluators.ts#evaluateDeliveryMethod` matches `context.deliveryMethodCode` against the rule's configured code, failing closed (not throwing) when the caller omits delivery context — every cart-stage caller today, per D-R4-14's cart-stage exclusion, unchanged by this amendment. `effect-resolvers.ts#resolveDeliveryDiscount` resolves a `DELIVERY_DISCOUNT` against `context.deliveryCost` as its base amount, clamped to it the same way every other benefit's base amount is already clamped; no effect resolves without both the matching delivery method and a cost. `benefitRequiresSingleEligibleCurrency` (D-R4-27) now also covers `delivery_discount` with `discountType: 'fixed'`, the same guard `cart_discount` already has. Budget/usage accounting (`promotion-usage-service.ts`) required no code change — `computeTotalDiscountAmount` already summed any amount-carrying effect generically. The admin rule/benefit-type pickers (`RuleCard.tsx`/`BenefitCard.tsx`/`ruleFieldSpecs.ts`) gained matching entries with i18n labels across all five locales. **Explicitly out of scope** (later Steps): checkout calling `evaluate` with real delivery context (Step 2.13); the shipping-charge adjustment mapping in `sales` (checkout/sales integration, not this amendment). |
