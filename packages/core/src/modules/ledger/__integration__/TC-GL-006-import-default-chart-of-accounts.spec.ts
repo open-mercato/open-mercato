@@ -187,6 +187,65 @@ test.describe('TC-GL-006: import-default-chart-of-accounts 200/409/403 + button 
     }
   });
 
+  test('types-only chart: 409 from the route and no import button on the accounts page (R3)', async ({ page, request }) => {
+    test.slow();
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const stamp = randomUUID();
+    let tenantId: string | null = null;
+    let organizationId: string | null = null;
+    let managerRoleId: string | null = null;
+    let managerUserId: string | null = null;
+    try {
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-006g Tenant ${stamp}`);
+      organizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-GL-006g Organization ${stamp}`,
+        tenantId,
+      });
+      const headers = scopedHeaders({ tenantId, organizationId });
+
+      // One account type and no account: a normal state while building a
+      // chart by hand.
+      await createAccountTypeFixture(
+        request,
+        superadminToken,
+        { organizationId, tenantId, number: randomNumber('qa-gl-006g-type'), name: 'QA types-only', normalBalance: 'DEBIT' },
+        { headers },
+      );
+
+      const res = await apiRequest(request, 'POST', IMPORT_PATH, { token: superadminToken, headers });
+      expect(res.status(), 'import against a types-only chart should return 409').toBe(409);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/non-empty chart of accounts/i);
+
+      const managerEmail = `qa-gl-006g-manage-${randomUUID().slice(0, 8)}@acme.com`;
+      const managerPassword = 'Valid1!Pass';
+      managerRoleId = await createRoleFixture(request, superadminToken, { name: randomNumber('QA-GL-006g-manage'), tenantId });
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: managerRoleId,
+        features: ['ledger.accounts.view', 'ledger.accounts.manage'],
+      });
+      managerUserId = await createUserFixture(request, superadminToken, {
+        email: managerEmail,
+        password: managerPassword,
+        organizationId,
+        roles: [managerRoleId],
+      });
+
+      await loginAsUser(page, managerEmail, managerPassword);
+      await page.goto('/backend/ledger/accounts', { waitUntil: 'domcontentloaded' });
+      await expect(page.getByRole('heading', { name: /chart of accounts/i })).toBeVisible({ timeout: 10_000 });
+      // The manager may create accounts (the "New account" action renders), but
+      // the import is not offered while an account type exists.
+      await expect(page.getByRole('link', { name: /new account/i }).first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole('button', { name: /import default chart of accounts/i })).toHaveCount(0);
+    } finally {
+      await deleteUserIfExists(request, superadminToken, managerUserId);
+      await deleteRoleIfExists(request, superadminToken, managerRoleId);
+      await deleteOrganizationIfExists(request, superadminToken, organizationId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
+    }
+  });
+
   test('imported accounts are found by search, by number and by description (PR #6439 review)', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = randomUUID();

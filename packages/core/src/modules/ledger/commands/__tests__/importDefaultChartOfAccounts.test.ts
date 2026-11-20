@@ -120,7 +120,7 @@ describe('ledger.importDefaultChartOfAccounts', () => {
     }
   })
 
-  it('refuses to run against a non-empty chart of accounts and writes nothing', async () => {
+  it('refuses to run against a non-empty chart of accounts and writes nothing — one account type and no accounts (types-only chart, R3)', async () => {
     const command = loadImportCommand()
     const em = buildFakeEm()
     seedAccountGroups(em, { organizationId: ORG_A, tenantId: TENANT })

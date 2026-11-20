@@ -1,5 +1,6 @@
 import { DEFAULT_CHART_OF_ACCOUNTS_PL } from '../defaultChartOfAccounts'
 import { accountNumberFitsType, checkTypeNumber } from '../accountNumbering'
+import { DEFAULT_CHART_OF_ACCOUNTS_PL_COUNTS } from '../defaultChartOfAccountsCounts'
 
 // The template is Polish, so it must satisfy the same numbering rules the
 // commands enforce for every PL group (PR #6340 review): a type number is
@@ -34,5 +35,14 @@ describe('DEFAULT_CHART_OF_ACCOUNTS_PL numbering', () => {
     const accountNumbers = DEFAULT_CHART_OF_ACCOUNTS_PL.flatMap((type) => type.accounts.map((account) => account.number))
     expect(new Set(typeNumbers).size).toBe(typeNumbers.length)
     expect(new Set(accountNumbers).size).toBe(accountNumbers.length)
+  })
+})
+
+describe('DEFAULT_CHART_OF_ACCOUNTS_PL_COUNTS', () => {
+  it('matches the template the import creates', () => {
+    expect(DEFAULT_CHART_OF_ACCOUNTS_PL_COUNTS).toEqual({
+      typeCount: DEFAULT_CHART_OF_ACCOUNTS_PL.length,
+      accountCount: DEFAULT_CHART_OF_ACCOUNTS_PL.reduce((sum, type) => sum + type.accounts.length, 0),
+    })
   })
 })

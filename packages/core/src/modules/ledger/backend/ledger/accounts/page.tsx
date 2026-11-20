@@ -21,7 +21,7 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { loadLedgerAccountTypeLabelsByIds } from '../../lib/optionLoaders'
-import { DEFAULT_CHART_OF_ACCOUNTS_PL } from '../../../lib/defaultChartOfAccounts'
+import { DEFAULT_CHART_OF_ACCOUNTS_PL_COUNTS } from '../../../lib/defaultChartOfAccountsCounts'
 
 type LedgerAccountRow = {
   id: string
@@ -42,13 +42,12 @@ type ResponsePayload = {
   totalIsCapped?: boolean
 }
 
-// Shown in the import confirmation. Derived from the template itself so the
+type TotalOnlyPayload = { total?: number }
+
+// Shown in the import confirmation. Taken from the template's own counts so the
 // text cannot drift from what the import creates (it did, in de/es/ko, when
 // the counts were literals in each locale).
-const DEFAULT_CHART_COUNTS = {
-  typeCount: DEFAULT_CHART_OF_ACCOUNTS_PL.length,
-  accountCount: DEFAULT_CHART_OF_ACCOUNTS_PL.reduce((sum, type) => sum + type.accounts.length, 0),
-}
+const DEFAULT_CHART_COUNTS = DEFAULT_CHART_OF_ACCOUNTS_PL_COUNTS
 
 export default function LedgerAccountsPage() {
   const t = useT()
@@ -66,13 +65,16 @@ export default function LedgerAccountsPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
-  // Whether the chart has no accounts at all, taken from the last *unsearched*
-  // load (a search that matches nothing says nothing about the chart). `null`
-  // until the first load answers, so the import action never flashes up for a
-  // chart that already has accounts. The import command refuses a non-empty
-  // chart with a 409, so the button is only offered while it can succeed
-  // (PR #6439 review, point 1).
-  const [chartIsEmpty, setChartIsEmpty] = React.useState<boolean | null>(null)
+  // Whether the chart has no accounts, taken from the last *unsearched* load
+  // (a search that matches nothing says nothing about the chart), and whether
+  // it has no account types, from `GET /api/ledger/account-types?pageSize=1`.
+  // Each is `null` until its read answers. The import command refuses with a
+  // 409 when either total is nonzero, so the button is offered only when both
+  // reads answered zero (PR #6439 review, point 1; spec R3: a chart with types
+  // but no accounts is a normal state while building one by hand).
+  const [noAccounts, setNoAccounts] = React.useState<boolean | null>(null)
+  const [noAccountTypes, setNoAccountTypes] = React.useState<boolean | null>(null)
+  const chartIsEmpty = noAccounts === true && noAccountTypes === true
   const [search, setSearch] = React.useState('')
   const [filters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -94,6 +96,7 @@ export default function LedgerAccountsPage() {
     let cancelled = false
     async function load() {
       setIsLoading(true)
+      if (!search) setNoAccounts(null)
       try {
         const params = new URLSearchParams()
         params.set('page', String(page))
@@ -115,7 +118,7 @@ export default function LedgerAccountsPage() {
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload.totalIsCapped === true)
-          if (!search) setChartIsEmpty((payload.total || 0) === 0)
+          if (!search) setNoAccounts((payload.total || 0) === 0)
 
           // Resolve `accountTypeId` to a human-readable label for the column
           // below, batched into one request via `?ids=` (raw UUIDs were shown
@@ -142,6 +145,23 @@ export default function LedgerAccountsPage() {
       cancelled = true
     }
   }, [page, search, filters, reloadToken, scopeVersion, t])
+
+  React.useEffect(() => {
+    let cancelled = false
+    setNoAccountTypes(null)
+    async function loadAccountTypesTotal() {
+      try {
+        const call = await apiCall<TotalOnlyPayload>('/api/ledger/account-types?pageSize=1')
+        if (!cancelled && call.ok) setNoAccountTypes((call.result?.total ?? 0) === 0)
+      } catch {
+        // Unknown total: the import action stays hidden.
+      }
+    }
+    loadAccountTypesTotal()
+    return () => {
+      cancelled = true
+    }
+  }, [reloadToken, scopeVersion])
 
   const handleDelete = React.useCallback(
     async (row: LedgerAccountRow) => {
@@ -303,7 +323,7 @@ export default function LedgerAccountsPage() {
           actions={
             canManage ? (
               <div className="flex items-center gap-2">
-                {chartIsEmpty === true ? (
+                {chartIsEmpty ? (
                   <Button variant="outline" onClick={handleImportDefaultChartOfAccounts}>
                     <Upload className="mr-2 h-4 w-4" />
                     {t('ledger.accounts.list.actions.importDefault', 'Import default chart of accounts')}
