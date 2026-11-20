@@ -87,7 +87,7 @@ describe('offer description nested in a product update', () => {
     const result = productUpdateSchema.parse({
       ...scope,
       id: productId,
-      offers: [{ id: offerId, channelId, title: 'Synthetic offer', description: null }],
+      offers: [{ channelId, title: 'Synthetic offer', description: null }],
     })
 
     expect(result.offers?.[0]?.description).toBeNull()

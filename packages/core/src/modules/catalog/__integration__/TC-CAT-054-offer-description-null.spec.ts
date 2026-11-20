@@ -5,8 +5,8 @@ import { deleteGeneralEntityIfExists, expectId, readJsonSafe } from '@open-merca
 /**
  * TC-CAT-054: an offer description accepts an explicit null
  *
- * `GET /api/catalog/offers` returns `description: null` for an offer without
- * its own description, but the write schema rejected that same value with a
+ * `GET /api/catalog/offers` returns `description: null` for an offer with no
+ * stored description, but the write schema rejected that same value with a
  * 400, so a client could not send an offer back the way it read it. A null
  * description now takes the same path as an empty string: the offer falls back
  * to the product description.
@@ -74,7 +74,7 @@ test.describe('TC-CAT-054: offer description accepts an explicit null', () => {
         token,
         data: {
           id: productId,
-          offers: [{ id: offerId, channelId, title: `QA TC-CAT-054 Offer ${stamp}`, description: null }],
+          offers: [{ channelId, title: `QA TC-CAT-054 Offer ${stamp}`, description: null }],
         },
       })
       expect(productUpdate.status(), 'PUT /api/catalog/products with a nested offer description null should succeed').toBe(200)
