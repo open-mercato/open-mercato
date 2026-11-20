@@ -65,7 +65,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
         let baseQuery = trx
           .selectFrom(source.table as any)
-          .select(['deleted_at' as any])
+          .selectAll()
           .where('id' as any, '=', recordId)
         if (source.organizationColumn) {
           baseQuery = baseQuery.where(
@@ -77,7 +77,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         if (source.tenantColumn) {
           baseQuery = baseQuery.where(sql`${sql.ref(source.tenantColumn)} is not distinct from ${tenantId}`)
         }
-        const row = await baseQuery.executeTakeFirst() as { deleted_at: Date | null } | undefined
+        const row = await baseQuery.executeTakeFirst() as { deleted_at?: Date | null } | undefined
         const baseDelta = !row || row.deleted_at != null ? -1 : 0
 
         const baseDeltaOverride =
@@ -132,7 +132,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       const db = (em as any).getKysely()
       let baseQuery = db
         .selectFrom(source.table as any)
-        .select(['deleted_at' as any])
+        .selectAll()
         .where('id' as any, '=', recordId)
       if (source.organizationColumn) {
         baseQuery = baseQuery.where(
@@ -144,7 +144,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       if (source.tenantColumn) {
         baseQuery = baseQuery.where(sql`${sql.ref(source.tenantColumn)} is not distinct from ${tenantId}`)
       }
-      const row = await baseQuery.executeTakeFirst() as { deleted_at: Date | null } | undefined
+      const row = await baseQuery.executeTakeFirst() as { deleted_at?: Date | null } | undefined
       const baseMissing = !row
       const baseDeleted = baseMissing || (row && row.deleted_at != null)
       baseCheckSucceeded = true

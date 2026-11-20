@@ -60,10 +60,12 @@ function createAlwaysConsistentContext() {
   const eventBus = { emitEvent }
   const rowQuery: Record<string, jest.Mock> = {
     select: jest.fn(),
+    selectAll: jest.fn(),
     where: jest.fn(),
     executeTakeFirst: jest.fn(async () => ({ deleted_at: new Date() })),
   }
   rowQuery.select.mockReturnValue(rowQuery)
+  rowQuery.selectAll.mockReturnValue(rowQuery)
   rowQuery.where.mockReturnValue(rowQuery)
   const trx = { selectFrom: jest.fn(() => rowQuery) }
   const db = {
@@ -184,7 +186,7 @@ describe('query_index delete_one coverage refresh throttling', () => {
     }
     baseQuery.where.mockReturnValue(baseQuery)
     const select = jest.fn(() => baseQuery)
-    const selectFrom = jest.fn(() => ({ select }))
+    const selectFrom = jest.fn(() => ({ select, selectAll: select }))
     const { ctx } = createContext(() => ({ selectFrom }))
     mockResolveQueryIndexSourceMetadata.mockReturnValue({
       table: 'feature_toggles',
@@ -242,5 +244,40 @@ describe('query_index delete_one coverage refresh throttling', () => {
     expect(trx.selectFrom).toHaveBeenCalledWith('feature_toggles')
     expect(rowQuery.where).toHaveBeenCalledTimes(1)
     expect(rowQuery.where).toHaveBeenCalledWith('id', '=', 'toggle-consistent-1')
+  })
+
+  it.each([false, true].flatMap((alwaysConsistent) => [
+    { alwaysConsistent, state: 'live hard-delete row', row: { id: 'section-1' }, baseDelta: 0 },
+    { alwaysConsistent, state: 'live soft-delete row', row: { deleted_at: null }, baseDelta: 0 },
+    { alwaysConsistent, state: 'soft-deleted row', row: { deleted_at: new Date('2026-01-01') }, baseDelta: -1 },
+    { alwaysConsistent, state: 'missing row', row: undefined, baseDelta: -1 },
+  ]))('handles $state when synchronous consistency is $alwaysConsistent', async ({ alwaysConsistent, row, baseDelta }) => {
+    mockIsReadProjectionAlwaysConsistent.mockReturnValue(alwaysConsistent)
+    mockResolveQueryIndexRecordScope.mockReturnValue({ organizationId: 'org-1', tenantId: 'tenant-1' })
+    const { ctx: consistentContext, rowQuery } = createAlwaysConsistentContext()
+    if (!row || !('deleted_at' in row)) {
+      rowQuery.select.mockImplementation(() => { throw new Error('[internal] column deleted_at does not exist') })
+    }
+    rowQuery.executeTakeFirst.mockResolvedValue(row)
+    const { ctx: deferredContext } = createContext(() => ({ selectFrom: () => rowQuery }))
+
+    await handleDeleteOne({
+      entityType: 'attachments:attachment_document_section',
+      recordId: 'section-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      suppressCoverage: true,
+    }, alwaysConsistent ? consistentContext : deferredContext)
+    await flushFireAndForget()
+
+    expect(mockCreateCoverageAdjustments).toHaveBeenCalledWith({
+      entityType: 'attachments:attachment_document_section',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      baseDelta,
+      indexDelta: -1,
+    })
+    expect(mockRecordIndexerError).not.toHaveBeenCalled()
+    expect(rowQuery.where).toHaveBeenCalledWith('organization_id', '=', 'org-1')
   })
 })
