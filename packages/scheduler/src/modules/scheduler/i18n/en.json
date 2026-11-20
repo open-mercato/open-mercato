@@ -37,6 +37,7 @@
   "scheduler.error.fetch_job_failed": "Failed to fetch job details",
   "scheduler.error.forbidden": "Forbidden",
   "scheduler.error.invalidPayload": "Invalid JSON payload",
+  "scheduler.error.invalid_id": "Invalid schedule id",
   "scheduler.error.invalid_queue_name": "Invalid queue name",
   "scheduler.error.invalid_schedule_value": "Invalid schedule value.",
   "scheduler.error.job_not_found": "Job not found in BullMQ (may have been removed)",
