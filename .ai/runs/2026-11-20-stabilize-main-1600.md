@@ -65,6 +65,10 @@ Queue debug logs and read-only inspection of the owned ephemeral database establ
 - Worker-disabled app-scoped integration run: all twelve affected cases passed together (5.1 minutes), including partition toggle-off, search/agent visibility, tenant/owner access, re-extraction, and message/staff attachment cleanup. The separate real toggle-off regression passed too. Assertions and timeouts were preserved. This proves the affected workers-disabled paths; no new package publication or full published standalone run is claimed.
 - The required ONE final independent review task `681643f5` approved this exact source head with zero findings after inspecting all nine changed files, security/scoping, compatibility, behavior and validation evidence. [Authoritative review](https://github.com/open-mercato/open-mercato/pull/10154#issuecomment-7047091723). The parent validated the report and proof. No child code was authored or merged. GitHub refused native self-approval by the App author; the review evidence does not bypass any native approval requirement.
 
+## Final tracking-head gate
+
+The final commits only record this plan's completed source validation and independent review; no source changes follow the approved head. After pushing this tracking record, keep the PR draft with `Status: in-progress` and withhold `automerge` until its exact new head passes all 15 shards, coverage merge and every applicable reported check/workflow. Publish that final outcome on the PR without another tracking commit, then promote, label and release the owned claim. The Progress record below closes the committed implementation and review; PR status and verification evidence remain authoritative for the final publication gate.
+
 Claim run: `5032d9a6-7403-48b9-a8f0-93368de201fa`
 
 Engine: om-auto-create-pr (steps: 5, --loop: no)
@@ -85,5 +89,5 @@ PR: #10154
 
 ### Phase 3: Review and finalize
 
-- [ ] 3.1 Dispatch ONE final independent review task, validate its evidence and resolve actionable findings.
-- [ ] 3.2 Publish evidence, finish tracking, promote the PR and apply automerge only after final-head CI is green.
+- [x] 3.1 Dispatch ONE final independent review task, validate its evidence and resolve actionable findings. — b290286776 (review 681643f5, zero findings)
+- [x] 3.2 Publish evidence, finish tracking, promote the PR and apply automerge only after final-head CI is green. — a12c3fcbfe (final tracking-head publication gate above)
