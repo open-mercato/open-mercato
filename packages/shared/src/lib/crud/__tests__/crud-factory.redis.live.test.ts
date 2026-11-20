@@ -16,10 +16,11 @@ type Actor = { sub: string; orgId: string; tenantId: string }
 type Lot = { id: string; title: string; storage: string }
 let mockActor: Actor
 let mockRevision = 0
+let mockEncryptedFields: string[] = []
 let mockCache: CacheStrategy
 const queryEngine = { query: jest.fn(async () => ({ items: [{ ...lot(), organization_id: mockActor.orgId, tenant_id: mockActor.tenantId }], total: 1 })) }
 const accessLogService = { log: jest.fn(async () => {}) }
-const container = { resolve: (name: string): unknown => ({ em: {}, queryEngine, cache: mockCache, accessLogService } as Record<string, unknown>)[name] }
+const container = { resolve: (name: string): unknown => ({ em: {}, queryEngine, cache: mockCache, accessLogService, tenantEncryptionService: { getEncryptedFieldNames: async () => mockEncryptedFields } } as Record<string, unknown>)[name] }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: async () => container }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -74,7 +75,7 @@ async function fixture(compression: 'off' | 'gzip', run: (actors: Actor[], admin
     { sub: 'user-a', orgId: orgs[1], tenantId: tenants[0] },
     { sub: 'user-a', orgId: orgs[0], tenantId: tenants[1] },
   ]
-  mockActor = actors[0]; mockRevision = 0
+  mockActor = actors[0]; mockRevision = 0; mockEncryptedFields = []
   queryEngine.query.mockClear(); accessLogService.log.mockClear(); registerApiInterceptors([])
   mockCache = createCacheService({ strategy: 'redis', redisUrl, compression, defaultTtl: 60_000 })
   const admin = new Redis(redisUrl!, { protocol: 2, maxRetriesPerRequest: 1 })
@@ -111,6 +112,26 @@ describeWithRedis.each(['off', 'gzip'] as const)('CRUD factory with live Redis (
     if (previousFlag === undefined) delete process.env.ENABLE_CRUD_API_CACHE
     else process.env.ENABLE_CRUD_API_CACHE = previousFlag
   })
+
+  it('keeps encrypted list payloads out of the physical Redis store', async () => fixture(compression, async ([actor], admin) => {
+    mockEncryptedFields = ['title', 'storage']
+    for (let occurrence = 0; occurrence < 2; occurrence += 1) {
+      const response = await scoped(actor, () => route.GET(new Request(url)))
+      expect(response.status).toBe(200)
+      expect(response.headers.get('x-om-cache')).toBeNull()
+      expect((await response.json()).items).toEqual([lot()])
+    }
+    expect(queryEngine.query).toHaveBeenCalledTimes(2)
+    expect(await scoped(actor, () => mockCache.keys('crud|*'))).toEqual([])
+    const physicalKeys: string[] = []
+    let cursor = '0'
+    do {
+      const [next, keys] = await admin.scan(cursor, 'MATCH', `cache:tenant:${actor.tenantId}:key:*`, 'COUNT', 256)
+      cursor = next
+      physicalKeys.push(...keys)
+    } while (cursor !== '0')
+    expect(physicalKeys).toEqual([])
+  }))
 
   it('round-trips miss -> hit -> real tag invalidation -> fresh miss', async () => fixture(compression, async ([actor], admin) => {
     const expected = lot()

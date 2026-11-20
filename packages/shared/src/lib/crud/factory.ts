@@ -63,6 +63,8 @@ import {
   resolveCrudCache,
 } from './cache'
 import { deriveCrudSegmentTag } from './cache-stats'
+import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import { getTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 import { applyResponseEnrichers, applyResponseEnricherToRecord, resolveListCacheEnricherPlan, type ListCacheEnricherPlan } from './enricher-runner'
@@ -1118,6 +1120,30 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     tenantField: opts.orm.tenantField === null ? null : opts.orm.tenantField ?? 'tenantId',
     softDeleteField: opts.orm.softDeleteField === null ? null : opts.orm.softDeleteField ?? 'deletedAt',
   }
+  const canCacheList = async (ctx: CrudCtx): Promise<boolean> => {
+    if (!isTenantDataEncryptionEnabled()) return true
+    const entityId = opts.list?.entityId ?? opts.indexer?.entityType
+    if (!entityId || opts.list?.omitAutomaticTenantOrgScope) return false
+    const entityIds = new Set([
+      String(entityId),
+      ...(opts.list?.customFieldSources ?? []).map((source) => String(source.entityId)),
+      ...(opts.list?.joins ?? []).flatMap((join) => join.entityId ? [String(join.entityId)] : []),
+    ])
+    try {
+      const service = ctx.container.resolve<Pick<TenantDataEncryptionService, 'getEncryptedFieldNames'>>('tenantEncryptionService')
+      const em = ctx.container.resolve<EntityManager>('em')
+      for (const target of entityIds) {
+        const fields = await service.getEncryptedFieldNames(target, ctx.auth?.tenantId, null, {
+          ignoreRuntimeHealth: true,
+          em,
+        })
+        if (fields.length > 0) return false
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
   const entityName = typeof ormCfg.entity?.name === 'string' && ormCfg.entity.name.length > 0 ? ormCfg.entity.name : undefined
   const resourceInfo = resolveResourceAliasesList(opts, entityName)
   const resourceKind = resourceInfo.primary
@@ -1723,7 +1749,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
 
       const cacheEnabled =
-        isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
+        isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache && await canCacheList(ctx)
       const cacheTimerStart = cacheEnabled && isCrudCacheDebugEnabled()
         ? process.hrtime.bigint()
         : null
