@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -22,6 +22,7 @@ import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
 import { getMessageListParticipantLabel } from './messageListLabels'
 import { toErrorMessage } from './message-detail/utils'
 import { useMessagesInboxBulkActions, type MessageFolder } from './useMessagesInboxBulkActions'
+import { messageDetailHref, messageListHref, parseMessageFolder } from './messageFolderRoutes'
 import {
   buildMessagesInboxFilters,
   buildMessagesListParams,
@@ -99,7 +100,8 @@ export function MessagesInboxPageClient() {
   // Reconnect means events were missed while offline, so it refreshes uncoalesced.
   useAppEvent('om:bridge:reconnected', invalidateMessageListQueries, [invalidateMessageListQueries])
 
-  const [folder, setFolder] = React.useState<MessageFolder>('inbox')
+  const searchParams = useSearchParams()
+  const [folder, setFolder] = React.useState<MessageFolder>(() => parseMessageFolder(searchParams?.get('folder')))
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -319,7 +321,7 @@ export function MessagesInboxPageClient() {
               actionTaken: item.actionTaken ?? null,
               unread: item.status === 'unread',
             }}
-            onClick={() => router.push(`/backend/messages/${item.id}`)}
+            onClick={() => router.push(messageDetailHref(item.id, folder))}
           />
         )
       },
@@ -438,6 +440,7 @@ export function MessagesInboxPageClient() {
                         className={`w-full justify-start h-auto px-2 py-1.5 text-sm font-normal ${isActive ? 'bg-accent/60' : ''}`}
                         onClick={() => {
                           setFolder(option.id)
+                          router.replace(messageListHref(option.id))
                           setPage(1)
                           setFolderMenuOpen(false)
                         }}
@@ -456,7 +459,7 @@ export function MessagesInboxPageClient() {
           </div>
         }
         onRowClick={(row) => {
-          router.push(`/backend/messages/${row.id}`)
+          router.push(messageDetailHref(row.id, folder))
         }}
         emptyState={(
           <ListEmptyState

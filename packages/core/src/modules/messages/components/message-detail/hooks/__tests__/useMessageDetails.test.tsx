@@ -9,10 +9,13 @@ const mockInvalidateQueries = jest.fn()
 const mockUseAppEvent = jest.fn()
 const mockRouterPush = jest.fn()
 
+let mockSearchParams = new URLSearchParams()
+
 jest.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockRouterPush,
   }),
+  useSearchParams: () => mockSearchParams,
 }))
 
 jest.mock('@tanstack/react-query', () => ({
@@ -90,6 +93,20 @@ describe('useMessageDetails', () => {
     mockInvalidateQueries.mockReset()
     mockUseAppEvent.mockReset()
     mockRouterPush.mockReset()
+    mockSearchParams = new URLSearchParams()
+  })
+
+  it('returns to the folder the message was opened from', () => {
+    mockSearchParams = new URLSearchParams('folder=scheduled')
+    const { result } = renderHook(() => useMessageDetails('message-1'))
+    expect(result.current.listHref).toBe('/backend/messages?folder=scheduled')
+    act(() => result.current.backToList())
+    expect(mockRouterPush).toHaveBeenCalledWith('/backend/messages?folder=scheduled')
+  })
+
+  it('returns to the inbox when no folder is given', () => {
+    const { result } = renderHook(() => useMessageDetails('message-1'))
+    expect(result.current.listHref).toBe('/backend/messages')
   })
 
   it('invalidates the message list cache when a message event arrives', () => {

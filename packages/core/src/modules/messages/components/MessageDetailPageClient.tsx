@@ -236,6 +236,7 @@ export function MessageDetailPageClient({ id }: { id: string }) {
   return (
     <div className="space-y-3">
       <MainMessageHeader
+        backHref={state.listHref}
         subject={detail.subject}
         priority={(detail.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal'}
         canReply={!detail.isDraft && detail.typeDefinition.allowReply && Boolean(firstConversationMessageId)}
