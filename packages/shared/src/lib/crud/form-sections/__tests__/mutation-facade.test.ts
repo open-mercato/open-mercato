@@ -1,5 +1,7 @@
 import { asValue, createContainer } from 'awilix'
 import { z } from 'zod'
+import { CommandBus, registerCommand, unregisterCommand } from '../../../commands'
+import { registerCommandInterceptors } from '../../../commands/command-interceptor-store'
 import { registerTelemetryErrorReporter } from '../../../telemetry/runtime'
 import type { CrudFormSectionMutationSurfaceFact } from '../../../../modules/form-section-facts'
 import type { CrudFormSectionHostProvider, CrudFormSectionServerModule } from '../../../../modules/form-sections'
@@ -146,6 +148,15 @@ function identity(targetId?: string, selected = surface): CrudFormSectionMutatio
   }
 }
 
+function finalProjection(targetId: string | undefined, payload: Payload, selected = surface) {
+  return {
+    ...identity(targetId, selected),
+    targetOrganizationId: 'org',
+    expectedUpdatedAt: targetId ? expectedDate : null,
+    payload,
+  }
+}
+
 function policyHeaders(targetId?: string, selected = surface): Headers {
   const manifest = getCrudFormSectionManifest()
   const policy = manifest.policies.get(crudFormSectionHostKey(address))
@@ -214,7 +225,7 @@ function fixture(
     maxBodyBytes: 4096,
     authorizeRoute: route,
     validateDomain: jest.fn(),
-    projectFinalInput: (payload: unknown) => ({ ...identity(targetId, selected), payload: payload as Payload }),
+    projectFinalInput: (payload: unknown) => finalProjection(targetId, payload as Payload, selected),
     beforeTransactionalWrite: existingHook,
     execute,
   }
@@ -231,6 +242,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  unregisterCommand(delegatedTarget.id)
+  unregisterCommand('example.offers.create')
+  registerCommandInterceptors([])
   registerMutationGuards([])
   registerCrudFormSectionManifest([])
 })
@@ -362,7 +376,7 @@ describe('CrudForm section guarded mutation', () => {
     const setup = fixture()
     await expect(runCrudFormSectionMutation({
       ...setup.options,
-      projectFinalInput: () => ({ ...identity('other-offer'), payload: { sku: 'VALID' } }),
+      projectFinalInput: () => finalProjection('other-offer', { sku: 'VALID' }),
     })).rejects.toMatchObject(expectedMismatch)
     expect(setup.events).toEqual(['begin', 'existing-hook', 'rollback'])
   })
@@ -412,7 +426,7 @@ describe('CrudForm section guarded mutation', () => {
     await expect(runCrudFormSectionMutation({
       ...setup.options,
       validateFields: async (payload) => payload.sku === 'BAD' ? { sku: 'example.errors.sku' } : {},
-      projectFinalInput: () => ({ ...identity('offer-1'), payload: { sku: 'BAD' } }),
+      projectFinalInput: () => finalProjection('offer-1', { sku: 'BAD' }),
     })).rejects.toMatchObject({
       status: 422,
       body: { code: 'mutation_guard_rejected', details: { fieldErrors: { sku: 'example.errors.sku' } } },
@@ -532,8 +546,138 @@ it('keeps authorized bindings and ownership immutable when a callback tries to c
     projectFinalInput: (_value, context) => {
       expect(Reflect.set(context.route.target, 'resourceId', 'other-offer')).toBe(false)
       expect(Reflect.set(context.policy.surface.ownershipFacts[0].payloadPaths, 1, 'cost')).toBe(false)
-      return { ...identity('offer-1'), payload: { sku: 'VALID', cost: 120 } }
+      return finalProjection('offer-1', { sku: 'VALID', cost: 120 })
     },
   })).rejects.toMatchObject(expectedMismatch)
   expect(setup.events).toEqual(['begin', 'existing-hook', 'rollback'])
+})
+
+type OfferCommandInput = {
+  payload: Payload
+  targetId?: string
+  targetOrganizationId: string | null
+  expectedUpdatedAt: string | null
+}
+
+function runThroughCommandBus(
+  setup: ReturnType<typeof fixture>,
+  selected: CrudFormSectionMutationSurfaceFact,
+  targetId?: string,
+): Pick<FacadeOptions, 'execute' | 'projectFinalInput'> {
+  return {
+    projectFinalInput(value) {
+      const input = value as OfferCommandInput
+      return {
+        ...identity(input.targetId, selected),
+        payload: input.payload,
+        targetOrganizationId: input.targetOrganizationId,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+      }
+    },
+    async execute({ payload, context, commandContext, expectedUpdatedAt }) {
+      const execution = await new CommandBus().execute<OfferCommandInput, Result>(selected.delegatedTarget.id, {
+        input: {
+          payload, targetId, targetOrganizationId: context.scope.organizationId, expectedUpdatedAt,
+        },
+        ctx: {
+          ...commandContext,
+          auth: context.auth,
+          container: setup.container,
+          selectedOrganizationId: context.scope.organizationId,
+          organizationIds: [...(context.scope.allowedOrganizationIds ?? [])],
+          organizationScope: null,
+        },
+      })
+      if (!execution.ambient) throw new Error('[internal] Expected an ambient command result handle')
+      return execution.ambient
+    },
+  }
+}
+
+describe('real command interception at the write boundary', () => {
+  it.each([
+    { rewrite: { payload: { sku: 'BLOCKED' } }, expected: { status: 422, body: { code: 'mutation_guard_rejected' } } },
+    { rewrite: { payload: { sku: 'VALID', cost: 100 } }, expected: expectedMismatch },
+    { rewrite: { targetId: 'different-offer' }, expected: expectedMismatch },
+    { rewrite: { targetOrganizationId: 'different-org' }, expected: expectedMismatch },
+    { rewrite: { expectedUpdatedAt: '2026-11-21T00:00:00.000Z' }, expected: expectedMismatch },
+  ])('rejects a rewritten transactional input before snapshots, writes and effects (%j)', async ({ rewrite, expected }) => {
+    const setup = fixture()
+    const after = jest.fn()
+    const audit = jest.fn()
+    setup.container.register('actionLogService', asValue({ log: audit }))
+    registerCommandInterceptors([{ moduleId: 'example', interceptors: [{
+      id: 'example.offer-command-interceptor', targetCommand: delegatedTarget.id,
+      beforeExecute: async () => ({ ok: true, modifiedInput: rewrite }),
+      afterExecute: after,
+    }] }])
+    registerCommand<OfferCommandInput, Result>({
+      id: delegatedTarget.id,
+      prepare() {
+        setup.events.push('snapshot')
+        return { before: {} }
+      },
+      captureAfter() {
+        setup.events.push('after-snapshot')
+        return {}
+      },
+      buildLog: () => ({ resourceKind: 'example.offer', resourceId: 'offer-1' }),
+      async execute(input, context) {
+        if (!context.transactionalEm) throw new Error('[internal] Expected a transactional EntityManager')
+        setup.events.push('lock')
+        await context.beforeTransactionalWrite?.(context.transactionalEm, input)
+        setup.events.push('write')
+        return { id: input.targetId ?? 'offer-1' }
+      },
+    })
+    await expect(runCrudFormSectionMutation({
+      ...setup.options,
+      ...runThroughCommandBus(setup, surface, 'offer-1'),
+      validateFields: async (payload) => payload.sku === 'BLOCKED' ? { sku: 'example.errors.sku' } : {},
+    })).rejects.toMatchObject(expected)
+    expect(setup.events).toEqual(['begin', 'lock', 'existing-hook', 'rollback'])
+    expect(audit).not.toHaveBeenCalled()
+    expect(after).not.toHaveBeenCalled()
+  })
+
+  it('uses the finalized response and gives post-commit guards the authoritative tentative create ID', async () => {
+    const create: CrudFormSectionMutationSurfaceFact = {
+      ...surface,
+      id: 'example.offer-create',
+      guardedFacade: { method: 'POST', routePattern: '/example/products/[productId]/offers' },
+      delegatedTarget: { kind: 'command', id: 'example.offers.create' },
+      requestOperation: 'create',
+      optimisticLock: 'none',
+    }
+    addManifest(true, create)
+    const setup = fixture(create, null)
+    const afterSuccess = jest.fn(async () => { setup.events.push('after-success') })
+    registerMutationGuards([{ moduleId: 'example', guards: [{
+      id: 'example.track-created-offer', targetEntity: 'example.offer', operations: ['create'],
+      validate: async () => ({ ok: true, shouldRunAfterSuccess: true }),
+      afterSuccess,
+    }] }])
+    registerCommandInterceptors([{ moduleId: 'example', interceptors: [{
+      id: 'example.offer-output', targetCommand: create.delegatedTarget.id,
+      afterExecute: async () => {
+        setup.events.push('after-execute')
+        return { modifiedResult: { id: 'response-id' } }
+      },
+    }] }])
+    registerCommand<OfferCommandInput, Result>({
+      id: create.delegatedTarget.id,
+      async execute(input, context) {
+        if (!context.transactionalEm) throw new Error('[internal] Expected a transactional EntityManager')
+        await context.beforeTransactionalWrite?.(context.transactionalEm, input)
+        setup.events.push('write')
+        return { id: 'created-offer' }
+      },
+    })
+    await expect(runCrudFormSectionMutation({
+      ...setup.options,
+      ...runThroughCommandBus(setup, create),
+    })).resolves.toEqual({ id: 'response-id' })
+    expect(afterSuccess).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'created-offer' }))
+    expect(setup.events).toEqual(['begin', 'existing-hook', 'write', 'flush', 'commit', 'after-execute', 'after-success'])
+  })
 })

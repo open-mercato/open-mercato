@@ -5,7 +5,11 @@ import { z } from 'zod'
 import type { AuthContext } from '../../auth/server'
 import { withAtomicFlush } from '../../commands/flush'
 import { getTransactionLifetime, ownsTransactionLifetime } from '../../commands/transaction-lifetime'
-import type { CommandRuntimeContext } from '../../commands/types'
+import {
+  isAmbientCommandExecution,
+  type AmbientCommandExecution,
+  type CommandRuntimeContext,
+} from '../../commands/types'
 import { createLogger } from '../../logger'
 import { reportTelemetryError } from '../../telemetry/runtime'
 import { isRecord } from '../../utils'
@@ -106,6 +110,8 @@ export type CrudFormSectionMutationFacadeOptions<Payload extends PayloadRecord, 
   validateFields?(payload: Payload, context: AuthorizedContext): Promise<Record<string, string>>
   projectFinalInput(input: unknown, context: AuthorizedContext): (CrudFormSectionMutationIdentity & {
     payload: PayloadRecord
+    targetOrganizationId: string | null
+    expectedUpdatedAt: string | null
   }) | null
   beforeTransactionalWrite?: CommandRuntimeContext['beforeTransactionalWrite']
   beforeExecute?(payload: Payload, context: AuthorizedContext): Promise<void>
@@ -114,7 +120,7 @@ export type CrudFormSectionMutationFacadeOptions<Payload extends PayloadRecord, 
     context: AuthorizedContext
     commandContext: MutableCommandContext
     expectedUpdatedAt: string | null
-  }): Promise<Result>
+  }): Promise<Result | AmbientCommandExecution<Result>>
 } & (
   | { operation: 'create'; resolveCommittedResourceId(result: Result): string }
   | { operation: 'update' | 'delete' }
@@ -472,7 +478,8 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
   const em = container.resolve<EntityManager>('em').fork()
   const executionContext = Object.freeze({ ...callbackContext, transactionalEm: em })
   let committed: {
-    value: Result
+    value: Result | AmbientCommandExecution<Result>
+    resourceId: string | undefined
     callbacks: Awaited<ReturnType<typeof runMutationGuards>>['afterSuccessCallbacks']
     guardInput: MutationGuardInput
   } | undefined
@@ -554,7 +561,11 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
           return rejectPolicy(route.address, 'transactional_manifest_mismatch')
         }
         const projected = options.projectFinalInput(input, executionContext)
-        if (!projected || !sameIdentity(route, projected)) return rejectPolicy(route.address, 'final_resource_binding_mismatch')
+        if (!projected || !sameIdentity(route, projected)
+            || projected.targetOrganizationId !== route.targetOrganizationId
+            || projected.expectedUpdatedAt !== expectedUpdatedAt) {
+          return rejectPolicy(route.address, 'final_resource_binding_mismatch')
+        }
         const normalized = await validate(projected.payload)
         if (!isDeepStrictEqual(normalized, projected.payload)) return rejectPolicy(route.address, 'final_payload_not_normalized')
         verified = true
@@ -564,7 +575,17 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
         commandContext: { transactionalEm: em, transactionLifetime, beforeTransactionalWrite },
       })
       if (!verified || !ownsTransactionLifetime(em, transactionLifetime) || !em.isInTransaction()) return rejectPolicy(route.address, 'transactional_input_unverified')
-      committed = { value, callbacks: guardResult.afterSuccessCallbacks, guardInput }
+      let resourceId = route.target.resourceId
+      if (options.operation === 'create' && guardResult.afterSuccessCallbacks.length) {
+        try {
+          const tentative = isAmbientCommandExecution(value) ? value.tentativeResult : value
+          const created = resourceIdSchema.safeParse(options.resolveCommittedResourceId(tentative))
+          resourceId = created.success ? created.data : undefined
+        } catch {
+          resourceId = undefined
+        }
+      }
+      committed = { value, resourceId, callbacks: guardResult.afterSuccessCallbacks, guardInput }
     }], { transaction: true, label: 'crud-form-section-mutation' })
   } catch (error) {
     if (isCrudHttpError(error) && error.body.code === 'crud_form_section_hidden_field_invalid') throw error
@@ -575,15 +596,9 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
   }
   if (!committed) throw new Error('[internal] CrudForm section mutation completed without a result')
 
-  let resourceId = route.target.resourceId
-  if (options.operation === 'create' && committed.callbacks.length) {
-    try {
-      const created = resourceIdSchema.safeParse(options.resolveCommittedResourceId(committed.value))
-      resourceId = created.success ? created.data : undefined
-    } catch {
-      resourceId = undefined
-    }
-    if (!resourceId) reportCallbackFailure('committed_resource_id_unavailable', policyDiagnosticAddress(route.address))
+  const { resourceId } = committed
+  if (!resourceId && options.operation === 'create' && committed.callbacks.length) {
+    reportCallbackFailure('committed_resource_id_unavailable', policyDiagnosticAddress(route.address))
   }
   if (resourceId) {
     const { mutationPayload: _validatedPayload, ...callbackInput } = committed.guardInput
@@ -595,5 +610,5 @@ export async function runCrudFormSectionMutation<Payload extends PayloadRecord, 
       }
     }
   }
-  return committed.value
+  return isAmbientCommandExecution(committed.value) ? committed.value.finalizedResult() : committed.value
 }

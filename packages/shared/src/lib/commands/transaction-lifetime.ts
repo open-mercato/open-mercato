@@ -78,11 +78,15 @@ export async function completeTransactionLifetime(
     }
   }
   for (const err of failures) {
-    logger.error('Transaction completion callback failed', { outcome, failures: failures.length, err })
-    getTelemetryRuntime()?.reportError(err, {
-      module: 'shared',
-      code: 'shared.transaction_completion_callback_failed',
-      attributes: { outcome },
-    })
+    try {
+      logger.error('Transaction completion callback failed', { outcome, failures: failures.length, err })
+    } catch {}
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'shared',
+        code: 'shared.transaction_completion_callback_failed',
+        attributes: { outcome },
+      })
+    } catch {}
   }
 }

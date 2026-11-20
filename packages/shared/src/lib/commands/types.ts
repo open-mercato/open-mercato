@@ -77,7 +77,8 @@ export type CommandRuntimeContext = {
   beforeTransactionalWrite?: (em: EntityManager, input?: unknown) => Promise<void>
   /**
    * Identifies the owner of an already-active {@link transactionalEm} lifetime.
-   * Atomic replay accepts an ambient EntityManager only when this is the exact
+   * Normal execution opts in to an ambient transaction when this token is
+   * supplied. Atomic replay also requires that it be the exact
    * token returned by `getTransactionLifetime(transactionalEm)` from the outer
    * `withAtomicFlush` phase. The owner completes the token after its real commit
    * or rollback, allowing replay leases and post-commit work to follow that
@@ -163,9 +164,25 @@ export type CommandLogMetadata = {
   context?: Record<string, unknown> | null
 }
 
+export const ambientCommandExecutionMarker: unique symbol = Symbol.for('open-mercato.ambient-command-execution')
+
+export type AmbientCommandExecution<TResult> = {
+  readonly [ambientCommandExecutionMarker]: true
+  readonly tentativeResult: TResult
+  readonly logEntry: CommandUndoLogEntry | null
+  finalizedResult(): TResult
+}
+
+export function isAmbientCommandExecution<TResult>(
+  value: TResult | AmbientCommandExecution<TResult>,
+): value is AmbientCommandExecution<TResult> {
+  return !!value && typeof value === 'object' && ambientCommandExecutionMarker in value
+}
+
 export type CommandExecuteResult<TResult> = {
   result: TResult
   logEntry: any | null
+  ambient?: AmbientCommandExecution<TResult>
   /**
    * True when an atomic redo finalized its source action log in the same
    * transaction as the domain mutation and the newly persisted log entry, and
