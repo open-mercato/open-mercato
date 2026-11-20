@@ -1,3 +1,4 @@
+import type { AuthService } from '../services/authService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -108,6 +109,13 @@ export async function resolveCanonicalStaffAuthContext(
     return null
   }
   if (!(await isStaffTenantActive(em, currentTenantId))) return null
+
+  if (session?.ssoProvenance != null) {
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const container = await createRequestContainer()
+    const authService = container.resolve<AuthService>('authService')
+    if (!(await authService.isSessionEligible(session, user))) return null
+  }
 
   // Role links and the per-user super-admin flag are likewise independent, so they
   // run concurrently. The role-level super-admin lookup depends on the resolved

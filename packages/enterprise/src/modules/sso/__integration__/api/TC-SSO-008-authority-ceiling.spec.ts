@@ -9,7 +9,7 @@ import {
   deleteUserIfExists,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken, postForm, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { createScimTokenFixture, scimRequest } from '../helpers/ssoFixtures'
@@ -19,6 +19,7 @@ type AuthorityFixture = {
   adminUserId: string
   managerToken: string
   managerUserId: string
+  managerRoleId: string
   managerRoleName: string
   privilegedRoleId: string
   privilegedRoleName: string
@@ -71,7 +72,7 @@ async function withAuthorityFixture(
     userIds.push(managerUserId)
     const managerToken = await getAuthToken(request, managerEmail, password)
     await run({
-      adminToken, adminUserId, managerToken, managerUserId, managerRoleName,
+      adminToken, adminUserId, managerToken, managerUserId, managerRoleId, managerRoleName,
       privilegedRoleId, privilegedRoleName, organizationId, tenantId, userIds, configIds, tokenIds,
     })
   } finally {
@@ -318,6 +319,96 @@ test.describe('TC-SSO-008: SSO authority ceilings', () => {
           [ordinary.userId, configId, fixture.organizationId, fixture.tenantId],
         )
         expect(deactivations.rows[0]?.count).toBe(0)
+      })
+    })
+  })
+
+  test('shows the translated error when an SSO configuration save is refused', async ({ request, page, baseURL }) => {
+    await withAuthorityFixture(request, async (fixture) => {
+      const configId = await createConfig(request, fixture)
+      const cookieUrl = baseURL ?? 'http://localhost:3000'
+      await page.context().addCookies([
+        { name: 'auth_token', value: fixture.managerToken, url: cookieUrl },
+        { name: 'locale', value: 'en', url: cookieUrl },
+      ])
+      await page.goto(`/backend/sso/config/${configId}`)
+      const name = page.getByLabel('Configuration Name', { exact: true })
+      await expect(name).toHaveValue(/^Authority config /)
+      await name.fill('This change must be refused')
+
+      const update = await apiRequest(request, 'PUT', `/api/sso/config/${configId}`, {
+        token: fixture.adminToken,
+        data: { appRoleMappings: { 'idp-privileged': fixture.privilegedRoleName } },
+      })
+      expect(update.status()).toBe(200)
+      const rejectedSave = page.waitForResponse((response) =>
+        response.request().method() === 'PUT' && response.url().endsWith(`/api/sso/config/${configId}`))
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      expect((await rejectedSave).status()).toBe(403)
+      await expect(page.getByText(/SSO authorization is no longer valid/)).toBeVisible()
+    })
+  })
+
+  test('rejects existing SSO access and refresh credentials after the config author loses authority', async ({ request }) => {
+    await withAuthorityFixture(request, async (fixture) => {
+      const response = await apiRequest(request, 'POST', '/api/sso/config', {
+        token: fixture.managerToken, data: configPayload(fixture),
+      })
+      expect(response.status()).toBe(201)
+      const config = await readJsonSafe<{ id: string }>(response)
+      if (!config?.id) throw new Error('[internal] Missing fixture SSO config ID')
+      fixture.configIds.push(config.id)
+      await activateFixture(fixture, config.id)
+
+      const email = `sso-session-${randomUUID()}@example.com`
+      const password = `Test-${randomUUID()}!`
+      const userId = await createUserFixture(request, fixture.adminToken, {
+        email, password, organizationId: fixture.organizationId, roles: [], name: 'SSO session fixture',
+      })
+      fixture.userIds.push(userId)
+
+      await withCredentialIsolatedRequest(async (isolated) => {
+        const login = await postForm(isolated, '/api/auth/login', { email, password, remember: '1' })
+        expect(login.status()).toBe(200)
+        const credentials = await readJsonSafe<{ token: string; refreshToken: string }>(login)
+        if (!credentials?.token || !credentials.refreshToken) throw new Error('[internal] Missing fixture credentials')
+        const { sid } = JSON.parse(Buffer.from(credentials.token.split('.')[1], 'base64url').toString()) as { sid: string }
+
+        await withClient(async (client) => {
+          const { rows } = await client.query<{ updated_at: Date }>(
+            'select updated_at from sso_configs where id = $1 and organization_id = $2 and tenant_id = $3',
+            [config.id, fixture.organizationId, fixture.tenantId],
+          )
+          const provenance = { configId: config.id, configUpdatedAt: rows[0].updated_at.getTime() }
+          const scoped = await client.query(
+            'update sessions set sso_provenance = $1::jsonb where id = $2 and user_id = $3',
+            [JSON.stringify(provenance), sid, userId],
+          )
+          expect(scoped.rowCount).toBe(1)
+        })
+
+        const profile = () => apiRequest(isolated, 'GET', '/api/auth/profile', { token: credentials.token })
+        const refresh = () => isolated.post('/api/auth/session/refresh', {
+          data: { refreshToken: credentials.refreshToken },
+        })
+        expect((await profile()).status()).toBe(200)
+        expect((await refresh()).status()).toBe(200)
+        await setRoleAclFeatures(request, fixture.adminToken, {
+          roleId: fixture.managerRoleId,
+          features: ['sso.config.view'],
+          organizations: null,
+        })
+        expect((await profile()).status()).toBe(401)
+        expect((await refresh()).status()).toBe(401)
+
+        const passwordLogin = await postForm(isolated, '/api/auth/login', { email, password, remember: '1' })
+        expect(passwordLogin.status()).toBe(200)
+        const passwordCredentials = await readJsonSafe<{ refreshToken: string }>(passwordLogin)
+        expect(passwordCredentials?.refreshToken).toBeTruthy()
+        const passwordRefresh = await isolated.post('/api/auth/session/refresh', {
+          data: { refreshToken: passwordCredentials?.refreshToken },
+        })
+        expect(passwordRefresh.status()).toBe(200)
       })
     })
   })

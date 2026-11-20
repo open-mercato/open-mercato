@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { SsoConfig, SsoUserDeactivation } from '../../data/entities'
@@ -113,11 +114,14 @@ describe('atomic SSO-aware session issuance', () => {
   it('checks current account authority in the session transaction after locking the config', async () => {
     const { service, txEm, config, authorization } = fixture()
 
-    await service.createSession(user, expiresAt, {
+    const { session } = await service.createSession(user, expiresAt, {
       tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
       configUpdatedAt: config.updatedAt.getTime(),
     })
 
+    expect(session.ssoProvenance).toEqual({
+      configId: config.id, configUpdatedAt: config.updatedAt.getTime(),
+    })
     expect(authorization.assertAccount).toHaveBeenCalledWith(txEm, config, user)
     expect(jest.mocked(findOneWithDecryption).mock.invocationCallOrder[0]).toBeLessThan(
       authorization.assertAccount.mock.invocationCallOrder[0],
@@ -141,6 +145,29 @@ describe('atomic SSO-aware session issuance', () => {
       expect(txEm.persist).not.toHaveBeenCalled()
     },
   )
+
+  it('denies a previously issued session when the configuration author loses authority', async () => {
+    const { service, config, authorization } = fixture()
+    const { session } = await service.createSession(user, expiresAt, {
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
+      configUpdatedAt: config.updatedAt.getTime(),
+    })
+
+    await expect(service.isSessionEligible(session, user)).resolves.toBe(true)
+    authorization.assertAccount.mockRejectedValue(forbidden())
+    await expect(service.isSessionEligible(session, user)).resolves.toBe(false)
+  })
+
+  it('rejects a previously issued session after the issuing configuration changes', async () => {
+    const { service, config } = fixture()
+    const { session } = await service.createSession(user, expiresAt, {
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
+      configUpdatedAt: config.updatedAt.getTime(),
+    })
+
+    config.updatedAt = new Date(config.updatedAt.getTime() + 1)
+    await expect(service.isSessionEligible(session, user)).resolves.toBe(false)
+  })
 
   it('rejects a configuration edited after its provider verified the assertion', async () => {
     const { service, txEm, config, authorization } = fixture()

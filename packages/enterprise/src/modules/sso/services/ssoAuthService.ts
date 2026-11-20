@@ -2,8 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import { User, type Session } from '@open-mercato/core/modules/auth/data/entities'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { AuthSessionRejectedError, isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isSsoUserDeactivated } from '../lib/deactivation'
 import { SsoConfig } from '../data/entities'
@@ -47,21 +48,7 @@ export class SsoAuthService extends AuthService {
   ): Promise<{ session: Session; token: string }> {
     return this.ssoEm.transactional(async (txEm) => {
       if (scope) {
-        if (!this.ssoAuthorizationService) {
-          throw new Error('[internal] SSO authorization service is unavailable')
-        }
-        const config = await findOneWithDecryption(
-          txEm,
-          SsoConfig,
-          { id: scope.ssoConfigId, organizationId: scope.organizationId, isActive: true, deletedAt: null },
-          { refresh: true, lockMode: LockMode.PESSIMISTIC_WRITE },
-          { tenantId: scope.tenantId, organizationId: scope.organizationId },
-        )
-        if (!config || !Number.isFinite(scope.configUpdatedAt) || config.updatedAt.getTime() !== scope.configUpdatedAt) {
-          throw new AuthSessionRejectedError()
-        }
-        const tenantId = await this.ssoAuthorizationService.assertAccount(txEm, config, user)
-        if (scope.tenantId !== tenantId) throw new AuthSessionRejectedError()
+        await this.assertSsoSessionAuthority(txEm, user, scope)
       } else {
         await lockAuthorizationUserRows(txEm, [user.id])
       }
@@ -79,7 +66,52 @@ export class SsoAuthService extends AuthService {
       })) {
         throw new AuthSessionRejectedError()
       }
-      return this.createSessionWithEntityManager(txEm, currentUser, expiresAt)
+      return this.createSessionWithEntityManager(
+        txEm, currentUser, expiresAt,
+        scope && scope.configUpdatedAt !== undefined
+          ? { configId: scope.ssoConfigId, configUpdatedAt: scope.configUpdatedAt }
+          : undefined,
+      )
     })
+  }
+
+  override async isSessionEligible(session: Session, user: User): Promise<boolean> {
+    const provenance = session.ssoProvenance
+    if (provenance == null) return super.isSessionEligible(session, user)
+    const { tenantId, organizationId } = user
+    if (!tenantId || !organizationId || typeof provenance.configId !== 'string'
+      || !Number.isFinite(provenance.configUpdatedAt)) return false
+
+    try {
+      return await this.ssoEm.transactional(async (txEm) => {
+        await this.assertSsoSessionAuthority(txEm, user, {
+          tenantId, organizationId, ssoConfigId: provenance.configId, configUpdatedAt: provenance.configUpdatedAt,
+        })
+        return !await isSsoUserDeactivated(txEm, {
+          userId: user.id, tenantId, organizationId, ssoConfigId: provenance.configId,
+        })
+      })
+    } catch (error) {
+      if (isAuthSessionRejectedError(error) || (isCrudHttpError(error) && error.status === 403)) return false
+      throw error
+    }
+  }
+
+  private async assertSsoSessionAuthority(txEm: EntityManager, user: User, scope: SsoSessionScope): Promise<void> {
+    if (!this.ssoAuthorizationService) {
+      throw new Error('[internal] SSO authorization service is unavailable')
+    }
+    const config = await findOneWithDecryption(
+      txEm,
+      SsoConfig,
+      { id: scope.ssoConfigId, organizationId: scope.organizationId, isActive: true, deletedAt: null },
+      { refresh: true, lockMode: LockMode.PESSIMISTIC_WRITE },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )
+    if (!config || !Number.isFinite(scope.configUpdatedAt) || config.updatedAt.getTime() !== scope.configUpdatedAt) {
+      throw new AuthSessionRejectedError()
+    }
+    const tenantId = await this.ssoAuthorizationService.assertAccount(txEm, config, user)
+    if (scope.tenantId !== tenantId) throw new AuthSessionRejectedError()
   }
 }

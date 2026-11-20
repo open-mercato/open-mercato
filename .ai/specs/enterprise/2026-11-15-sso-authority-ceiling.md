@@ -40,9 +40,11 @@ The migration adds only the nullable config column. Existing `updated_at` contin
 
 HTTP methods, request schemas, public response fields, ACL feature IDs, and event IDs remain unchanged. Provenance is server-managed and is not accepted from the body. `POST /api/sso/config`, `PUT /api/sso/config/:id`, activation/domain writes, and SCIM user/token mutations may now return the existing 403 error shape for authorization failures. OIDC failure retains the generic `sso_failed` redirect. SCIM failures retain its standard error resource.
 
+New federated sessions store the issuing SSO configuration ID and version in nullable `sessions.sso_provenance`. Staff access-token validation and session refresh recheck the same configuration and current author and account authority. Disabled, deleted or modified configurations, lost authority and deactivated accounts deny both credentials. Users can sign in again after an authorized administrator resolves the configuration or authority issue. Password sessions use the existing path. Operators must review and revoke historical SSO sessions because those rows have no issuing configuration provenance.
+
 ## UI/UX
 
-No UI is added. Administrators re-save an existing configuration through its current edit form, then revoke/reissue SCIM tokens. Existing translated error surfaces show the authorization failure without disclosing a target account's privileges.
+The existing settings page reports translated authorization refusals when saving general settings or role mappings, activating a configuration, or issuing a SCIM token. Administrators re-save an existing configuration through its current edit form, then revoke/reissue SCIM tokens. Existing translated error surfaces show the authorization failure without disclosing a target account's privileges.
 
 ## Migration & Backward Compatibility
 
@@ -78,6 +80,8 @@ Missing/deleted/non-human/unconfirmed/deprovisioned authors, removed config/SCIM
 - Configuration create/update, retained mappings on issuer edits, activation/domain changes, and legacy re-save.
 - SCIM token provenance, creation/linking to protected targets, and PATCH/DELETE on subsequently elevated targets.
 - OIDC first email link, existing identity link, JIT role mapping, and final-session config/authority drift.
+- Protected staff API and session refresh reject existing federated credentials after the issuing author loses authority. Password login and refresh continue.
+- The SSO settings page displays the translated server refusal for a rejected save.
 - Same-tenant organization isolation, nullable config tenant resolution, direct user ACL elevation, author demotion/deletion, and normalized role-name matching.
 
 `TC-SSO-008-authority-ceiling.spec.ts` contains three self-contained native API scenarios for mapping/provenance enforcement, protected and subsequently elevated SCIM targets, cross-organization identity GET denial in both directions, and legacy recovery. Unit tests exercise OIDC linking/final-session denial, authorization-to-sync role drift, disabled authors, and transaction/event failure paths. Native runtime execution and real PostgreSQL concurrency remain unverified locally; no migration was applied.
@@ -89,3 +93,5 @@ Root, enterprise, auth, shared, and integration-test guides were reviewed. The d
 ## Changelog
 
 - 2026-11-15: Implemented approved provenance and live authority checks, exact mapped-role footprints, protected account/session/SCIM handling, migration/snapshot, regression coverage, and operator recovery documentation. Independent source review closed the role-selection race and related boundary issues. Validation, human compatibility sign-off, QA, and rollout are tracked separately.
+
+- 2026-11-20: Added authority revalidation when using or refreshing federated sessions, plus translated error feedback in SSO settings.

@@ -3,7 +3,7 @@
 ## SSO configuration and SCIM authority (#9014)
 
 **Operators:** deploy the additive `sso_configs.authorization_user_id` migration
-before application code. Existing SSO configurations have no trusted author and
+and `sessions.sso_provenance` migrations before application code. Existing SSO configurations have no trusted author and
 must be reviewed and saved by an authorized human administrator before SSO
 authentication or provisioning resumes. Review the issuer, credentials, domains,
 and complete role mappings. Each mapped role name must match exactly one live
@@ -19,7 +19,11 @@ grant authority; SCIM mutations also require the token creator's authority. Auth
 deletion/demotion or a target's later elevation can therefore block sign-in and
 provisioning. Audit historical SSO grants, identities, direct ACLs, and sessions
 and revoke unauthorized access; the fix does not automatically repair past
-compromise. Rolling back application code reintroduces the vulnerability.
+compromise. New SSO sessions stop authorizing access and refresh when their
+configuration changes or loses authority. Users should sign in again after an
+authorized administrator resolves the issue. Revoke suspect pre-upgrade sessions
+explicitly because they lack configuration provenance. Rolling back application
+code reintroduces the vulnerability.
 
 **Clients and module authors:** HTTP payloads, URLs, and response schemas are
 unchanged. Pass the authenticated `actorUserId` to direct config/token service

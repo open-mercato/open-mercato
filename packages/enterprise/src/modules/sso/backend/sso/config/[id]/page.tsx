@@ -134,8 +134,8 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       setNewClientSecret('')
       setShowSecretField(false)
       fetchConfig()
-    } catch {
-      // apiCallOrThrow handles the error
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('sso.admin.error.saveFailed', 'Failed to save SSO configuration'), 'error')
     } finally {
       setIsSaving(false)
     }
@@ -173,7 +173,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
         setActivationError(t('sso.admin.error.noDomainsForActivation', 'Add at least one allowed email domain before activating'))
         setActiveTab('domains')
       } else {
-        setActivationError(message)
+        flash(message, 'error')
       }
     } finally {
       setIsActivating(false)
@@ -382,8 +382,9 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
               </h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('sso.admin.field.name', 'Configuration Name')}</label>
+                  <label htmlFor="sso-config-name" className="block text-sm font-medium mb-1">{t('sso.admin.field.name', 'Configuration Name')}</label>
                   <input
+                    id="sso-config-name"
                     type="text"
                     className="w-full rounded-md border px-3 py-2 text-sm"
                     value={name}
@@ -632,8 +633,8 @@ function RoleMappingsTab({
       )
       flash(t('sso.admin.roles.saved', 'Role mappings saved'), 'success')
       onSaved()
-    } catch {
-      // handled by apiCallOrThrow
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('sso.admin.roles.error.saveFailed', 'Failed to save role mappings'), 'error')
     } finally {
       setIsSaving(false)
     }
@@ -788,8 +789,8 @@ function ScimProvisioningTab({ configId, jitEnabled, issuer, onProvisioningChang
         fetchData()
         onProvisioningChange()
       }
-    } catch {
-      // handled by apiCallOrThrow
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('sso.admin.scim.error.createFailed', 'Failed to create SCIM token'), 'error')
     } finally {
       setIsCreating(false)
     }
