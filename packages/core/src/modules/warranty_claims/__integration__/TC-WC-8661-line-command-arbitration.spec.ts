@@ -42,16 +42,19 @@ test.describe('TC-WC-8661: actual line commands in the native PostgreSQL integra
     try {
       await orm?.close(true)
     } finally {
-      if (observer) {
-        try {
-          await observer.query(`drop schema if exists "${schema}" cascade`)
-          expect((await observer.query('select 1 from pg_namespace where nspname = $1', [schema])).rowCount).toBe(0)
-        } finally {
-          await observer.end()
+      try {
+        if (observer) {
+          try {
+            await observer.query(`drop schema if exists "${schema}" cascade`)
+            expect((await observer.query('select 1 from pg_namespace where nspname = $1', [schema])).rowCount).toBe(0)
+          } finally {
+            await observer.end()
+          }
         }
+      } finally {
+        if (previousLockSetting === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+        else process.env.OM_OPTIMISTIC_LOCK = previousLockSetting
       }
-      if (previousLockSetting === undefined) delete process.env.OM_OPTIMISTIC_LOCK
-      else process.env.OM_OPTIMISTIC_LOCK = previousLockSetting
     }
   })
 
@@ -126,14 +129,39 @@ test.describe('TC-WC-8661: actual line commands in the native PostgreSQL integra
     throw new Error(`[internal] Expected ${count} actual PostgreSQL lock waiters`)
   }
 
+  async function releaseParentLock(lock: Client, pending: Promise<Outcome>[] = [], connected = true) {
+    const errors: unknown[] = []
+    const actions = connected ? [() => lock.query('rollback'), () => lock.end()] : [() => lock.end()]
+    for (const cleanup of actions) {
+      try {
+        await cleanup()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    await Promise.allSettled(pending)
+    if (errors.length) throw new AggregateError(errors, '[internal] Failed to release the owned parent lock')
+  }
+
   async function heldParent(claimId: string) {
-    const lock = new Client({ connectionString: clientUrl, statement_timeout: 10000 })
-    await lock.connect()
-    await lock.query('begin')
-    const owner = await lock.query<{ pid: number }>('select pg_backend_pid() as pid')
-    await lock.query(`select id from "${schema}".warranty_claims where id=$1 and tenant_id=$2 and organization_id=$3 for update`,
-      [claimId, scope.tenantId, scope.organizationId])
-    return { lock, pid: owner.rows[0].pid }
+    const lock = new Client({ connectionString: clientUrl, statement_timeout: 10000, connectionTimeoutMillis: 5000 })
+    let connected = false
+    try {
+      await lock.connect()
+      connected = true
+      await lock.query('begin')
+      const owner = await lock.query<{ pid: number }>('select pg_backend_pid() as pid')
+      await lock.query(`select id from "${schema}".warranty_claims where id=$1 and tenant_id=$2 and organization_id=$3 for update`,
+        [claimId, scope.tenantId, scope.organizationId])
+      return { lock, pid: owner.rows[0].pid }
+    } catch (error) {
+      try {
+        await releaseParentLock(lock, [], connected)
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], '[internal] Parent lock setup and cleanup failed')
+      }
+      throw error
+    }
   }
 
   for (const [first, second] of [['update', 'update'], ['update', 'delete'], ['assessment', 'assessment']] as const) {
@@ -148,9 +176,7 @@ test.describe('TC-WC-8661: actual line commands in the native PostgreSQL integra
         pending.push(execute(second, line.id, 1, contenders[1].ctx))
         await waitForBlocked(pid, 2)
       } finally {
-        await lock.query('rollback')
-        await lock.end()
-        await Promise.allSettled(pending)
+        await releaseParentLock(lock, pending)
       }
       const outcomes = await Promise.all(pending)
       expect(outcomes.map((outcome) => outcome.status)).toEqual([200, 409])
@@ -195,9 +221,7 @@ test.describe('TC-WC-8661: actual line commands in the native PostgreSQL integra
         await lock.query(`update "${schema}".warranty_claims set status='closed' where id=$1`, [claim.id])
         await lock.query('commit')
       } finally {
-        await lock.query('rollback')
-        await lock.end()
-        await pending
+        await releaseParentLock(lock, pending ? [pending] : [])
       }
       expect(await pending).toMatchObject({ status: 400 })
       const stored = await orm.em.fork().findOneOrFail(WarrantyClaimLine, { id: line.id, ...scope })
