@@ -13,6 +13,31 @@ their existing behavior. No request or response fields change; no data migration
 is required. Integrations that expected a different bulk scope should use explicit
 per-notification actions for their intended set.
 
+## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
+
+The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
+`PipelineStepper` and replaced the Won / Lost buttons with a "Close deal" menu under the header
+actions. The inputs that fed the old presentation stay accepted and are marked `@deprecated`:
+
+- `DealDetailHeader` `stageOptions`, `currentStageId`, `onStageChange`, `isStageSaving`: when a
+  caller passes `stageOptions` together with `onStageChange` for an open deal, the header still
+  renders a stage menu (`StageSelectMenu`) in its action cluster, disabled while the form is dirty
+  or saving. The built-in page no longer passes them; it passes `onStageChange` and
+  `stageChangeDisabled` to `PipelineStepper` instead.
+- `PipelineStepper.footer`: still rendered under the stage strip, separated by a rule, with and
+  without stages. The built-in page renders closure controls through
+  `DealDetailHeader.secondaryActions`.
+- `DealClosureActionBar.embedded`: accepted and ignored. The bar is a popover trigger and draws no
+  card, so there is nothing to embed.
+- `CollapsibleGroupProps.fieldCount` (`@open-mercato/ui/backend/crud/CollapsibleGroup`): accepted
+  and ignored; the group title no longer shows the "N fields" counter.
+
+Below the `sm` breakpoint `PipelineStepper` now shows a "Move stage" menu next to the current
+stage, so narrow screens keep the quick stage change the header dropdown used to provide.
+
+All of these stay for at least one minor release after 0.10.0 and are tracked in
+`.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
+
 ## CRM preset enables the scheduler (#8804)
 
 New apps scaffolded with `create-mercato-app --preset crm` now enable the
@@ -2115,6 +2140,31 @@ because a bad window never produced a rule; it only deleted existing hours.
 
 Existing data is not repaired: hours already lost through this path are not restored by the
 upgrade and have to be re-entered through the editor or the API. No database migration is needed.
+
+### `GET` time-project employees now enforces project membership (#8885)
+
+`GET /api/staff/timesheets/time-projects/{id}/employees` only required the global
+`staff.timesheets.projects.view` feature. A staff member holding that feature, but not an
+active member of the project in the URL and without `staff.timesheets.projects.manage`, could
+read that project's membership roster — roles, status, assignment start/end dates — the same
+way the sibling `time-projects` list route already prevents for the project itself.
+
+The route now resolves the caller's project access the same way (`resolveFeatureAccess` +
+`resolveProjectAccess` + `assertProjectAccess` from `lib/time-tracking/{featureAccess,access}.ts`)
+and denies a non-member with the same non-enumerable `404 { "error": "...", "reason":
+"no_project_access" }` the project-list route answers for a project the caller cannot see — so
+the response cannot be used to tell "exists but forbidden" apart from "doesn't exist." A caller
+with `staff.timesheets.projects.manage` is unaffected. Neither `?timeProjectId=` on the query
+string nor an advanced-filter condition on `time_project_id`
+(`?filter[conditions][0][field]=time_project_id...`) can override the URL's project id — the
+latter is consumed via `consumeAdvancedFilterState`/`mergeAdvancedFilterTree` and AND-combined
+with the route's own scope, the same pattern `devices`/`customers.people` already use, so it can
+only narrow the result, never redirect or widen it onto another project.
+
+**Action for integrators:** a caller that was relying on this endpoint to read a project it is
+not a member of (and does not manage) now gets `404` instead of `200`. This was always a bug —
+treat it as the fix it is, not as a behavior to route around. No route path, request shape, or
+response schema changed for an authorized caller.
 
 ## 0.8.0 → 0.9.0 (2026-10-09)
 

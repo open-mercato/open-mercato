@@ -18,7 +18,11 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InventoryBalance, InventoryReservation } from '../../data/entities'
 import { emitWmsEvent } from '../../events'
 import { loadExplicitWarehouseIdForOrder } from '../salesOrderWarehouseAssignment'
-import { isSalesOrderCancelled, reserveInventoryForConfirmedOrder } from '../salesOrderInventoryAutomation'
+import {
+  isSalesOrderCancelled,
+  releaseInventoryForCancelledOrder,
+  reserveInventoryForConfirmedOrder,
+} from '../salesOrderInventoryAutomation'
 
 const findWithDecryptionMock = jest.mocked(findWithDecryption)
 const loadExplicitWarehouseIdForOrderMock = jest.mocked(loadExplicitWarehouseIdForOrder)
@@ -346,5 +350,58 @@ describe('cancelled sales orders (issue #4521)', () => {
     await reserveInventoryForConfirmedOrder(payload, ctx)
     expect(queryEngine.query).toHaveBeenCalledTimes(1)
     expect(execute).not.toHaveBeenCalled()
+  })
+})
+
+describe('releaseInventoryForCancelledOrder', () => {
+  const execute = jest.fn(async () => ({ result: {} }))
+
+  beforeEach(() => {
+    findWithDecryptionMock.mockReset()
+    execute.mockReset()
+    emitWmsEventMock.mockReset()
+  })
+
+  it('continues releasing remaining reservations when one was already released', async () => {
+    findWithDecryptionMock.mockResolvedValue([
+      { id: 'reservation-already-released' } as InventoryReservation,
+      { id: 'reservation-still-active' } as InventoryReservation,
+    ])
+    execute
+      .mockRejectedValueOnce(new CrudHttpError(409, { error: 'invalid_reservation_state' }))
+      .mockResolvedValueOnce({ result: {} })
+
+    const em = { fork: () => ({}) }
+    const featureTogglesService = {
+      getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(
+      releaseInventoryForCancelledOrder(
+        {
+          orderId: 'order-1',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        },
+        {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'commandBus') return { execute }
+            if (name === 'featureTogglesService') return featureTogglesService
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(emitWmsEventMock).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenLastCalledWith(
+      'wms.inventory.release',
+      expect.objectContaining({
+        input: expect.objectContaining({ reservationId: 'reservation-still-active' }),
+      }),
+    )
   })
 })
