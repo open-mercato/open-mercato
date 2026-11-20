@@ -704,15 +704,6 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
 
-# 2026-11-07 — CRUD sort-map boundary (#3827)
+## 2026-11-07 — CRUD sort-map boundary (#3827)
 
-Surface: query-engine CRUD list sorting (stable API behavior). When a route
-declares `sortFieldMap`, unmapped ordinary client selectors now fall back to its
-trusted default. Own aliases, trusted defaults/tiebreaks, dynamic custom fields
-and routes without maps retain their behavior. Retaining raw ordinary selectors
-for mapped routes would preserve the reported boundary bypass. Clients must use
-a declared alias; route authors can add aliases for intended sortable columns.
-No operator startup, configuration or data migration is required. See
-`.ai/specs/2026-11-07-crud-sort-map-boundary.md` and `UPGRADE_NOTES.md`.
-This entry requests the emergency security exception; a named human maintainer
-must acknowledge the waiver before merge. Automated review does not grant it.
+STABLE list ordering: mapped CRUD routes use trusted defaults for undeclared ordinary sort keys. Explicit aliases, custom fields, trusted defaults and tiebreaks, and routes without maps retain their behavior. Raw fallback would retain the boundary bypass. Route authors declare supported aliases. A named human maintainer must waive steps 1–3 before merge. [Migration](UPGRADE_NOTES.md#crud-sort-map-boundary-3827) · [Spec](.ai/specs/2026-11-07-crud-sort-map-boundary.md).
