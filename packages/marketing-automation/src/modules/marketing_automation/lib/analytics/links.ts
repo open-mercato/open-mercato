@@ -89,16 +89,18 @@ export function buildLinkReport(rows: LinkRow[], clickers: number, limit = LINK_
  * The grouping key, redacted before Postgres groups on it.
  *
  * `link_url` is stored as sent: the send step interpolates first and adds tracking second
- * (`steps/send-email.ts`), and `{{customer.email}}` is an advertised placeholder
- * (`lib/interpolate.ts`). A link that carries it — `https://shop.example/vip?email={{customer.email}}`
- * — would otherwise put every clicker's address on this report, AND split into one row per
- * recipient, which is the "ranking stops meaning anything" failure this module's rules warn about.
- * Redacting before `GROUP BY` fixes both in the same place the split happens: the address never
- * reaches this response, in a row or in a count, and every personalised variant of the same link
- * collapses back into the one row it should have been. Reuses `lib/redact.ts`'s own `EMAIL_PATTERN`
- * rather than copying its text, so the two cannot drift apart.
+ * (`steps/send-email.ts`), so any placeholder a link carried — `{{customer.email}}`,
+ * `{{customer.displayName}}`, or one added later — is already the recipient's real value by the
+ * time it reaches this table. An email has a detectable shape a regex can redact; a name does not,
+ * so matching placeholder-by-placeholder cannot generalise. The query string is dropped entirely
+ * instead: it is where a send-step author puts per-recipient values (`?email=...`, `?name=...`),
+ * so stripping it closes every current and future personalisation shape in one place, at the cost
+ * of two links that differ only by a legitimate static query param collapsing into one row — an
+ * acceptable trade for a ranking report, not a precise link-by-link audit. `EMAIL_PATTERN` still
+ * runs on what is left (`lib/redact.ts`) as defence in depth, for the rarer case of an address
+ * baked into the path itself.
  */
-const REDACTED_URL_SQL = `regexp_replace(e.link_url, '${EMAIL_PATTERN.source}', '${REDACTED_EMAIL}', 'g')`
+const REDACTED_URL_SQL = `regexp_replace(split_part(e.link_url, '?', 1), '${EMAIL_PATTERN.source}', '${REDACTED_EMAIL}', 'g')`
 
 /**
  * One statement, asking for one row more than it will report.

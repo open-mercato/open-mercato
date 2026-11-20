@@ -64,29 +64,41 @@ describe('buildLinkReport', () => {
   })
 
   /**
-   * A personalised link — `{{customer.email}}` interpolated into the href before tracking is
-   * added — must never reach this report as a raw address, and every recipient's variant of it
-   * must collapse back into one row rather than splitting the ranking apart.
+   * A personalised link — `{{customer.email}}` or `{{customer.displayName}}` interpolated into
+   * the href before tracking is added — must never reach this report carrying a recipient's
+   * value, and every recipient's variant of it must collapse back into one row rather than
+   * splitting the ranking apart. An email has a detectable shape to redact; a name does not, so
+   * the query string (where a send-step author puts per-recipient values) is dropped entirely
+   * instead of matching placeholder-by-placeholder.
    *
    * `LINK_SQL` groups in Postgres, which this unit test cannot run, so it asserts the redaction
    * both ways: the SAME expression is used in the select list and the group by (so grouping and
-   * output can never disagree), and the pattern embedded in the SQL — read back as a RegExp — is
-   * `lib/redact.ts`'s own `EMAIL_PATTERN`, applied to a realistic personalised link, actually
-   * removes the address rather than matching nothing.
+   * output can never disagree), and a JS mirror of that expression — `split_part(url, '?', 1)`
+   * then `EMAIL_PATTERN` — applied to realistic personalised links, actually removes the
+   * per-recipient value rather than matching nothing.
    */
   it('redacts a personalised link before grouping, in both the select and the group by', () => {
-    const redactedExpression = `regexp_replace(e.link_url, '${EMAIL_PATTERN.source}', '${REDACTED_EMAIL}', 'g')`
+    const redactedExpression = `regexp_replace(split_part(e.link_url, '?', 1), '${EMAIL_PATTERN.source}', '${REDACTED_EMAIL}', 'g')`
     const selectClause = LINK_SQL.slice(LINK_SQL.indexOf('select'), LINK_SQL.indexOf('from'))
     const groupByClause = LINK_SQL.slice(LINK_SQL.indexOf('group by'), LINK_SQL.indexOf('order by'))
     expect(selectClause).toContain(redactedExpression)
     expect(groupByClause).toContain(redactedExpression)
 
-    const personalised = 'https://shop.example/vip?email=alice@example.com'
-    const otherRecipient = 'https://shop.example/vip?email=bob@example.com'
-    const redacted = personalised.replace(EMAIL_PATTERN, REDACTED_EMAIL)
-    expect(redacted).toBe(`https://shop.example/vip?email=${REDACTED_EMAIL}`)
-    expect(redacted).not.toContain('alice@example.com')
-    // Two different recipients' personalised links reduce to the identical grouping key.
-    expect(otherRecipient.replace(EMAIL_PATTERN, REDACTED_EMAIL)).toBe(redacted)
+    // Mirrors the SQL expression: drop everything from the first `?` on, then redact any email
+    // shape left in what remains.
+    const redact = (url: string) => url.split('?')[0].replace(EMAIL_PATTERN, REDACTED_EMAIL)
+
+    const emailPersonalised = 'https://shop.example/vip?email=alice@example.com'
+    const otherRecipientEmail = 'https://shop.example/vip?email=bob@example.com'
+    const namePersonalised = 'https://shop.example/vip?name=Alice+Smith'
+    const plain = 'https://shop.example/vip'
+
+    expect(redact(emailPersonalised)).toBe(plain)
+    expect(redact(emailPersonalised)).not.toContain('alice@example.com')
+    // Two different recipients' personalised links — by email or by name — reduce to the
+    // identical grouping key, the same key the un-personalised link already has.
+    expect(redact(otherRecipientEmail)).toBe(plain)
+    expect(redact(namePersonalised)).toBe(plain)
+    expect(redact(namePersonalised)).not.toContain('Alice')
   })
 })
