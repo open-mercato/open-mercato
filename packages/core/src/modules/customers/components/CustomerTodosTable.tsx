@@ -109,6 +109,7 @@ export function CustomerTodosTable(): React.JSX.Element {
 
   const [search, setSearch] = React.useState('')
   const [pageState, setPageState] = React.useState<{ customerId: string | null; page: number }>({ customerId, page: 1 })
+  if (pageState.customerId !== customerId) setPageState({ customerId, page: 1 })
   const page = pageState.customerId === customerId ? pageState.page : 1
   const setPage = React.useCallback((next: number) => {
     setPageState({ customerId, page: next })

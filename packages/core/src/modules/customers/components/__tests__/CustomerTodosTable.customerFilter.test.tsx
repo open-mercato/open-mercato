@@ -211,4 +211,31 @@ describe('CustomerTodosTable customer filter', () => {
     expect(switchCalls[0].get('entityId')).toBe(OTHER_CUSTOMER_ID)
     expect(switchCalls[0].get('page')).toBe('1')
   })
+
+  it('opens a previously paged customer on the first page after switching back to it', async () => {
+    activeQuery = `customerId=${CUSTOMER_ID}`
+    respondWith([taskRow(CUSTOMER_ID, 'Acme Corp', 'task-acme')])
+
+    const { rerender } = renderWithProviders(<CustomerTodosTable />)
+
+    await waitFor(() => expect(latestOnPageChange).toBeDefined())
+    act(() => latestOnPageChange!(3))
+    await waitFor(() => expect(requestedUrl().searchParams.get('page')).toBe('3'))
+
+    respondWith([taskRow(OTHER_CUSTOMER_ID, 'Globex', 'task-globex')])
+    activeQuery = `customerId=${OTHER_CUSTOMER_ID}`
+    rerender(<CustomerTodosTable />)
+    await waitFor(() => expect(screen.getByTestId('rendered-rows')).toHaveTextContent('Globex'))
+
+    const callsBeforeReturn = readApiResultOrThrowMock.mock.calls.length
+    respondWith([taskRow(CUSTOMER_ID, 'Acme Corp', 'task-acme')])
+    activeQuery = `customerId=${CUSTOMER_ID}`
+    rerender(<CustomerTodosTable />)
+    await waitFor(() => expect(screen.getByTestId('rendered-rows')).toHaveTextContent('Acme Corp'))
+
+    const returnCalls = readApiResultOrThrowMock.mock.calls.slice(callsBeforeReturn).map(([url]) => new URL(url as string, 'http://localhost').searchParams)
+    expect(returnCalls).toHaveLength(1)
+    expect(returnCalls[0].get('entityId')).toBe(CUSTOMER_ID)
+    expect(returnCalls[0].get('page')).toBe('1')
+  })
 })
