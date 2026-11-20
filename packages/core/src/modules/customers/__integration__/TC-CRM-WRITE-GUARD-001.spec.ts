@@ -214,8 +214,16 @@ test.describe('TC-CRM-WRITE-GUARD-001: writes never silently discard a field', (
         expect(await readAppearance()).toMatchObject({ appearanceIcon: null, appearanceColor: null });
         expect(await readAppearance('activities')).toMatchObject({ appearanceIcon: null, appearanceColor: null });
       } finally {
-        await deleteEntityIfExists(request, token, '/api/customers/activities', activityId);
-        await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
+        try {
+          if (activityId) {
+            const deleted = await apiRequest(request, 'DELETE', '/api/customers/activities', {
+              token, data: { id: activityId },
+            });
+            expect(deleted.ok() || deleted.status() === 404).toBeTruthy();
+          }
+        } finally {
+          await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
+        }
       }
     });
   }
