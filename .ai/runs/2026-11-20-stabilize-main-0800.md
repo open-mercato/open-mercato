@@ -36,6 +36,14 @@ The read-only investigation (child `09a3a872`) was independently checked against
 
 Existing role-cancel and payment-edit failures already have merged fixes and pass in newer main logs; do not repeat those changes. Initial draft PR full run [44709996730](https://github.com/open-mercato/open-mercato/actions/runs/44709996730) passed all 15 shards. Correct the demonstrated standalone defect without dependency pinning, weaker typechecking, API changes or workflow changes. Unit coverage checks the actual resolver expressions for no-this/generic compatibility and verifies runtime scope, optional lookup and missing-token behavior. Test both locked 13.0.5 and isolated 13.0.7 installs, including a failing-baseline regression.
 
+## Focused validation
+
+Runner: local. The 13 source-expression compiler and scoped-resolution checks pass with locked Awilix 13.0.5 and isolated Awilix 13.0.7. Against the original six source files with 13.0.7, the same regression exits 1: six compiler cases fail, all seven other cases pass. Runtime expressions are transpiled before evaluation so existing TypeScript casts do not mask the baseline diagnostic. No production dependency or lockfile changed.
+
+A fresh standalone app uses published snapshot `0.11.1-develop.8352.1.063474b385`, actual Awilix 13.0.7, and only the six corrected package source files overlaid after verifying each published baseline file byte-for-byte against this branch's base. Its production build is in progress; this is a source-overlay build check, not a package publication or full standalone browser suite. An initial scaffold from a newer create-app dist-tag could not install its not-yet-visible core snapshot; the complete older snapshot avoids that registry timing issue.
+
+The newest supported release line `release/v0.10.x` contains the faulty bindings too. Applied its existing backport label under the repository's high-priority bug-fix policy; no release branch is edited here.
+
 ## Risks
 
 Main can advance independently. Inspect both checks and workflow runs for each exact head; pending jobs and skipped gates are not proof of execution. Snapshot publishing failures may require distinguishing external registry propagation from repository defects. Do not publish packages to reproduce a failure. Hosted CI can provide the configured gate evidence when local prerequisites are unavailable; disclose any local limitations.
