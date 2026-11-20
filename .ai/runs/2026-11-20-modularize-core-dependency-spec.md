@@ -42,4 +42,4 @@ Static analysis misses indirect activation and transaction dependencies. The spe
 
 ### Phase 2: Workflows and dependency-aware installation
 
-- [ ] 2.1 Add the Workflows extraction, per-module dependency audit and selector/install gates
+- [x] 2.1 Add the Workflows extraction, per-module dependency audit and selector/install gates — cb70fc32b8
