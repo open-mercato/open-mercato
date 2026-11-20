@@ -738,8 +738,6 @@
   "ui.calendar.selectMonthAndYear": "월 및 연도 선택",
   "ui.collapsible.errorPlural": "오류 {{count}}개",
   "ui.collapsible.errorSingular": "오류 {{count}}개",
-  "ui.collapsible.fieldPlural": "필드",
-  "ui.collapsible.fieldSingular": "필드",
   "ui.colorPicker.add": "새 색상 추가",
   "ui.colorPicker.choose": "색상 선택",
   "ui.colorPicker.edit": "편집",

@@ -738,8 +738,6 @@
   "ui.calendar.selectMonthAndYear": "Seleccionar mes y año",
   "ui.collapsible.errorPlural": "{{count}} errores",
   "ui.collapsible.errorSingular": "{{count}} error",
-  "ui.collapsible.fieldPlural": "campos",
-  "ui.collapsible.fieldSingular": "campo",
   "ui.colorPicker.add": "Añadir nuevo color",
   "ui.colorPicker.choose": "Elegir color",
   "ui.colorPicker.edit": "Editar",
