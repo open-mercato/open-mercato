@@ -11,7 +11,7 @@ import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } fro
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -39,7 +39,7 @@ import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
-import { useInteractionMutations } from '../../../../components/detail/hooks/useInteractionMutations'
+import { usePlannedActivities } from '../../../../components/detail/hooks/usePlannedActivities'
 import {
   buildCompanyEditPayload,
   createCompanyEditFields,
@@ -56,6 +56,7 @@ const logger = createLogger('customers')
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -109,7 +110,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   ], [t])
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
-  const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
   const [dealCount, setDealCount] = React.useState(0)
 
   const currentCompanyId = data?.company?.id ?? null
@@ -176,15 +176,9 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setDealCount(data?.counts?.deals ?? 0)
   }, [data?.counts?.deals])
 
-  const handleActivityCreated = React.useCallback(() => {
-    setActivityRefreshKey((k) => k + 1)
+  const reloadAfterActivityChange = React.useCallback(() => {
     loadData().catch((err) => logger.warn('reload after activity failed', { component: 'companies-v2', err }))
   }, [loadData])
-
-  // Planned activities for the activity-log tab
-  const plannedActivities = React.useMemo(() => {
-    return data?.plannedActivitiesPreview ?? []
-  }, [data?.plannedActivitiesPreview])
 
   // Injection context for UMES
   const injectionContext = React.useMemo(
@@ -211,11 +205,26 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     [injectionContext, runMutation],
   )
 
-  const { completeInteraction: handleMarkDone, cancelInteraction: handleCancelActivity } = useInteractionMutations({
+  const {
+    plannedActivities,
+    plannedLoadFailed,
+    activityRefreshKey,
+    loadPlannedActivities,
+    handleActivityCreated,
+    handleMarkDone,
+    handleCancelActivity,
+  } = usePlannedActivities({
+    scope: { entityId: currentCompanyId ?? id ?? '' },
     runMutationWithContext,
-    onAfterChange: handleActivityCreated,
     logContext: 'customers.companies-v2',
+    onAfterChange: reloadAfterActivityChange,
   })
+
+  const isActivityTabActive = activeTab === 'activity-log'
+  React.useEffect(() => {
+    if (!isActivityTabActive) return
+    void loadPlannedActivities({ cache: true })
+  }, [isActivityTabActive, loadPlannedActivities])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `customers.company` + id
@@ -275,27 +284,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const openNewScheduleDialog = React.useCallback(() => {
     setScheduleEditData(null)
-    setScheduleDialogOpen(true)
-  }, [])
-
-  const handleAddActivity = React.useCallback((kind: 'meeting' | 'call' | 'task' | 'email') => {
-    setScheduleEditData({
-      id: '',
-      interactionType: kind,
-      title: null,
-      body: null,
-      scheduledAt: null,
-      durationMinutes: null,
-      location: null,
-      allDay: null,
-      recurrenceRule: null,
-      recurrenceEnd: null,
-      participants: null,
-      reminderMinutes: null,
-      visibility: null,
-      linkedEntities: null,
-      guestPermissions: null,
-    })
     setScheduleDialogOpen(true)
   }, [])
 
@@ -392,7 +380,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       try {
         let payload: Record<string, unknown>
         try {
-          payload = buildCompanyEditPayload(values, organizationId)
+          payload = buildCompanyEditPayload(values, organizationId, locale)
         } catch (err) {
           if (err instanceof Error) {
             if (err.message === 'DISPLAY_NAME_REQUIRED') {
@@ -413,7 +401,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
         setIsSaving(false)
       }
     },
-    [loadData, organizationId, t],
+    [loadData, locale, organizationId, t],
   )
 
   // Save handler (triggers form submit via ref)
@@ -530,7 +518,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
                 isLoadingInjectedTabs={injectedTabsLoading}
-                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
                 peopleCount={data.counts?.people ?? 0}
                 dealsCount={dealCount}
                 activitiesCount={data.counts?.activities ?? 0}
@@ -582,11 +570,14 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
                 {activeTab === 'activity-log' && (
                   <ActivityLogTab
+                    entityType="company"
                     entityId={companyId}
+                    entityName={companyName}
                     plannedActivities={plannedActivities}
-                    onActivityCreated={handleActivityCreated}
+                    plannedLoadFailed={plannedLoadFailed}
+                    onRetryPlannedLoad={() => { void loadPlannedActivities() }}
+                    onActivityCreated={() => { void handleActivityCreated() }}
                     onScheduleRequested={openNewScheduleDialog}
-                    onAddActivity={handleAddActivity}
                     onMarkDone={handleMarkDone}
                     onEditActivity={handleEditActivity}
                     onCancelActivity={handleCancelActivity}
@@ -605,7 +596,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     entityId={E.customers.customer_entity}
                     recordId={companyId}
                     title={t('customers.companies.detail.tabs.files', 'Files')}
-                    description={t('customers.companies.detail.files.subtitle', 'Upload and manage files linked to this company.')}
                   />
                 )}
 
@@ -628,7 +618,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             entityId={companyId}
             entityName={companyName}
             entityType="company"
-            onActivityCreated={handleActivityCreated}
+            onActivityCreated={() => { void handleActivityCreated() }}
             editData={scheduleEditData}
           />
           {ConfirmDialogElement}

@@ -117,6 +117,22 @@ describe('customer role ACL PUT — optimistic locking + mutation guard (#3194)'
     expect(invalidateRoleCacheMock).not.toHaveBeenCalled()
   })
 
+  it('uses the creation timestamp to protect a legacy role before its first edit', async () => {
+    em.findOne.mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerRoleStub) {
+        return { id: roleId, tenantId, createdAt: new Date(CURRENT_VERSION), updatedAt: null, name: 'Buyer' }
+      }
+      return null
+    })
+
+    const response = await PUT(makeRequest(['portal.orders.view'], STALE_VERSION), { params: { id: roleId } })
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).currentUpdatedAt).toBe(CURRENT_VERSION)
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(invalidateRoleCacheMock).not.toHaveBeenCalled()
+  })
+
   it('writes the ACL, bumps the role version, invalidates the cache, and returns the new updatedAt on a matching version', async () => {
     const res = await PUT(makeRequest(['portal.orders.view'], CURRENT_VERSION), { params: { id: roleId } })
     expect(res.status).toBe(200)

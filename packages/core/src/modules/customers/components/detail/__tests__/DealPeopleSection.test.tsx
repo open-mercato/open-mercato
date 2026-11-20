@@ -12,10 +12,11 @@
  * The last two cases here are the guard on that: they fail if either surface leaks in early.
  */
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { DealPeopleSection } from '../DealPeopleSection'
 import type { LinkedPersonSummary } from '../LinkedPeopleSection'
+import { formatDate } from '../utils'
 
 const readApiResultOrThrowMock = jest.fn()
 
@@ -63,25 +64,20 @@ jest.mock('../LinkedPeopleSection', () => {
   }
 })
 
-jest.mock('../PersonCard', () => ({
-  PersonCard: ({
-    person,
-    onUnlink,
-    showLinkedDate,
-  }: {
-    person: LinkedPersonSummary
-    onUnlink: (personId: string) => void
-    showLinkedDate?: boolean
-  }) => (
-    <div>
-      <span>{person.displayName}</span>
-      <span>{`linked-date-shown:${showLinkedDate === true}`}</span>
-      <button type="button" onClick={() => onUnlink(person.id)}>
-        {`unlink-${person.id}`}
-      </button>
-    </div>
-  ),
+const mockNoInjectedDataWidgets = { widgets: [], isLoading: false, error: null }
+
+jest.mock('@open-mercato/ui/backend/injection/useInjectionDataWidgets', () => ({
+  useInjectionDataWidgets: () => mockNoInjectedDataWidgets,
 }))
+
+jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
+  getInjectionRegistryVersion: () => 0,
+  subscribeToInjectionRegistryChanges: () => () => {},
+  loadInjectionWidgetsForSpot: jest.fn(async () => []),
+  loadInjectionDataWidgetsForSpot: jest.fn(async () => []),
+}))
+
+const LINKED_AT = '2026-04-10T00:00:00.000Z'
 
 describe('DealPeopleSection', () => {
   const emptyState = {
@@ -90,8 +86,8 @@ describe('DealPeopleSection', () => {
   }
 
   const linkedPeople: LinkedPersonSummary[] = [
-    { id: 'person-1', displayName: 'Ada Lovelace', jobTitle: 'VP Partnerships' },
-    { id: 'person-2', displayName: 'Grace Hopper', jobTitle: 'Procurement lead' },
+    { id: 'person-1', displayName: 'Ada Lovelace', jobTitle: 'VP Partnerships', linkedAt: LINKED_AT },
+    { id: 'person-2', displayName: 'Grace Hopper', jobTitle: 'Procurement lead', linkedAt: LINKED_AT },
   ]
 
   function renderSection(
@@ -124,8 +120,9 @@ describe('DealPeopleSection', () => {
 
   async function waitForInitialLoad() {
     await waitFor(() => {
-      expect(screen.queryByText(/Loading people/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Loading data/)).not.toBeInTheDocument()
     })
+    await screen.findByRole('link', { name: 'Ada Lovelace' })
   }
 
   it('loads linked people from the deal endpoint', async () => {
@@ -146,7 +143,9 @@ describe('DealPeopleSection', () => {
     renderSection(onSaveSelection)
     await waitForInitialLoad()
 
-    fireEvent.click(screen.getByRole('button', { name: 'unlink-person-1' }))
+    const row = screen.getByRole('link', { name: 'Ada Lovelace' }).closest('tr') as HTMLElement
+    fireEvent.click(within(row).getByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Unlink' }))
 
     await waitFor(() => {
       expect(onSaveSelection).toHaveBeenCalledWith(['person-2'])
@@ -167,11 +166,10 @@ describe('DealPeopleSection', () => {
         undefined,
         expect.any(Object),
       )
-    })
+    }, { timeout: 3000 })
 
-    fireEvent.change(screen.getByDisplayValue('Sort: Name A-Z'), {
-      target: { value: 'name-desc' },
-    })
+    await waitForInitialLoad()
+    fireEvent.click(screen.getByRole('button', { name: 'Name' }))
 
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
@@ -182,17 +180,18 @@ describe('DealPeopleSection', () => {
     })
   })
 
-  it('toggles the filter controls off and on', async () => {
+  it('keeps the search box visible and sorts from the Name column header (#7493)', async () => {
     renderSection(jest.fn(async () => {}))
     await waitForInitialLoad()
 
-    expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeVisible()
+    expect(screen.queryByRole('button', { name: /search and sort/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Filters/ }))
-    expect(screen.queryByPlaceholderText('Search by name, role, email...')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /Filters/ }))
-    expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeInTheDocument()
+    const nameHeader = screen.getByRole('columnheader', { name: 'Name' })
+    await waitFor(() => expect(nameHeader).toHaveAttribute('aria-sort', 'ascending'))
+    fireEvent.click(screen.getByRole('button', { name: 'Name' }))
+    await waitFor(() => expect(nameHeader).toHaveAttribute('aria-sort', 'descending'))
   })
 
   it('renders the empty state with both link and add actions when nothing is linked', async () => {
@@ -204,9 +203,8 @@ describe('DealPeopleSection', () => {
     }))
 
     renderSection(jest.fn(async () => {}), { selectedIds: [] })
-    await waitForInitialLoad()
 
-    expect(screen.getByText('Link the people involved')).toBeInTheDocument()
+    expect(await screen.findByText('Link the people involved')).toBeInTheDocument()
     expect(screen.getByText('No people linked to this deal yet.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Link existing person/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add person' })).toBeInTheDocument()
@@ -239,15 +237,12 @@ describe('DealPeopleSection', () => {
 
   // --- guards on the two surfaces deferred until `linkedAt` is durable ---
 
-  it('offers only the name sorts, never "recently linked"', async () => {
+  it('offers only the name sort, never a "Linked" column or "recently linked" sort', async () => {
     renderSection(jest.fn(async () => {}))
     await waitForInitialLoad()
 
-    const sortSelect = screen.getByDisplayValue('Sort: Name A-Z') as HTMLSelectElement
-    const offered = Array.from(sortSelect.options).map((option) => option.value)
-
-    expect(offered).toEqual(['name-asc', 'name-desc'])
-    expect(offered).not.toContain('recent')
+    expect(screen.getByRole('button', { name: 'Name' })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Linked' })).not.toBeInTheDocument()
   })
 
   // `LinkEntityDialog` resets its query, results and draft selection whenever `adapter`
@@ -277,11 +272,10 @@ describe('DealPeopleSection', () => {
     expect(capturedAdapters[capturedAdapters.length - 1]).toBe(first)
   })
 
-  it('does not render the linked date on the card', async () => {
+  it('does not render the linked date in the rows', async () => {
     renderSection(jest.fn(async () => {}))
     await waitForInitialLoad()
 
-    expect(screen.getAllByText('linked-date-shown:false')).toHaveLength(linkedPeople.length)
-    expect(screen.queryByText('linked-date-shown:true')).not.toBeInTheDocument()
+    expect(screen.queryByText(formatDate(LINKED_AT) as string)).not.toBeInTheDocument()
   })
 })

@@ -85,7 +85,14 @@ describe('recomputeOrderPaymentTotals — payment status (#7082)', () => {
 
     const totals = await recomputeOrderPaymentTotals(em, order)
 
-    expect(totals).toEqual({ paidTotalAmount: 30, refundedTotalAmount: 0, outstandingAmount: 70 })
+    expect(totals).toEqual({
+      paidTotalAmount: 30,
+      paidTotalAmountExact: '30',
+      refundedTotalAmount: 0,
+      refundedTotalAmountExact: '0',
+      outstandingAmount: 70,
+      outstandingAmountExact: '70',
+    })
   })
 
   describe.each([
@@ -98,7 +105,14 @@ describe('recomputeOrderPaymentTotals — payment status (#7082)', () => {
 
       const totals = await recomputeOrderPaymentTotals(em, order)
 
-      expect(totals).toEqual({ paidTotalAmount: 0, refundedTotalAmount: 0, outstandingAmount: 100 })
+      expect(totals).toEqual({
+        paidTotalAmount: 0,
+        paidTotalAmountExact: '0',
+        refundedTotalAmount: 0,
+        refundedTotalAmountExact: '0',
+        outstandingAmount: 100,
+        outstandingAmountExact: '100',
+      })
       expect(order.paidTotalAmount).toBe('0')
       expect(order.outstandingAmount).toBe('100')
     })
@@ -116,7 +130,14 @@ describe('recomputeOrderPaymentTotals — payment status (#7082)', () => {
 
       const totals = await recomputeOrderPaymentTotals(em, order)
 
-      expect(totals).toEqual({ paidTotalAmount: 75, refundedTotalAmount: 0, outstandingAmount: 25 })
+      expect(totals).toEqual({
+        paidTotalAmount: 75,
+        paidTotalAmountExact: '75',
+        refundedTotalAmount: 0,
+        refundedTotalAmountExact: '0',
+        outstandingAmount: 25,
+        outstandingAmountExact: '25',
+      })
     })
 
     it('keeps counting pending and statusless payments as before', async () => {
@@ -131,7 +152,14 @@ describe('recomputeOrderPaymentTotals — payment status (#7082)', () => {
 
       const totals = await recomputeOrderPaymentTotals(em, order)
 
-      expect(totals).toEqual({ paidTotalAmount: 100, refundedTotalAmount: 0, outstandingAmount: 0 })
+      expect(totals).toEqual({
+        paidTotalAmount: 100,
+        paidTotalAmountExact: '100',
+        refundedTotalAmount: 0,
+        refundedTotalAmountExact: '0',
+        outstandingAmount: 0,
+        outstandingAmountExact: '0',
+      })
     })
   })
 })
