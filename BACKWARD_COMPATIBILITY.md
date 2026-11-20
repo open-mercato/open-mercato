@@ -709,3 +709,8 @@ unregistered translations would preserve the vulnerability. See
 for client and operator migration guidance. Piotr Karwatka (@pkarw) acknowledged
 the emergency waiver of steps 1–3 on 2026-11-20:
 [human approval](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
+
+## SSO authority (2026-11-15, #9014)
+
+STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
