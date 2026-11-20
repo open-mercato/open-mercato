@@ -11,7 +11,7 @@ Status: in-progress
 | Phase | Step | Title | Exec | Status | Commit |
 | --- | --- | --- | --- | --- | --- |
 | 1 | 1.1 | Compose and dispatch the forms.sections override domain | dispatch | done | this commit |
-| 1 | 1.2 | Discover section facts and lazy browser loaders with deterministic parity | dispatch | todo | — |
+| 1 | 1.2 | Discover section facts and lazy browser loaders with deterministic parity | dispatch | done | this commit |
 | 1 | 1.3 | Define serializable section, capability, dependency and surface facts | dispatch | todo | — |
 | 1 | 1.4 | Add stable section scopes and pin legacy handle compatibility | dispatch | todo | — |
 | 2 | 2.1 | Match final server capabilities by canonical facts | dispatch | todo | — |

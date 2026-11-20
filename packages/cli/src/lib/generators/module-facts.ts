@@ -3758,6 +3758,12 @@ const OVERRIDE_DOMAIN_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> 
     status: 'framework-only',
     note: 'nav.groupOrder is an app-level framework setting; no module target is ever emitted for it',
   },
+  forms: {
+    value: 'forms',
+    status: 'pending-emission',
+    pendingEmission: '.ai/specs/2026-10-22-crudform-section-overrides-framework.md',
+    note: 'forms.sections targets require the example section descriptors and generated form facts',
+  },
 }
 
 const OVERRIDE_MODE_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> = {

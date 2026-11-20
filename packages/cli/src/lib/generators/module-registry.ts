@@ -78,6 +78,7 @@ import {
   resolveStandaloneSourceMirrorBase,
 } from './scanner'
 import { loadGeneratorExtensions } from './extensions'
+import { writeCrudFormSectionRegistries } from './form-sections'
 import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
 import {
   renderRouteManifestShardOutputs,
@@ -4797,6 +4798,15 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   exitOnMissingModuleRequires(discovery.identities, requiresByModule)
 
   const structureChecksum = discovery.getStructureChecksum()
+  writeCrudFormSectionRegistries({
+    modules: discovery.modules,
+    identities: discovery.identities,
+    requiresByModule,
+    outputDir,
+    structureChecksum,
+    result,
+    quiet,
+  })
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: bootstrapOutFile, checksumFile: bootstrapChecksumFile, content: bootstrapOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: i18nOutFile, checksumFile: i18nChecksumFile, content: i18nOutput, structureChecksum, result, quiet })

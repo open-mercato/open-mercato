@@ -807,6 +807,13 @@ const navAdapter: InternalAdapter = {
   },
 }
 
+const formsAdapter: InternalAdapter = {
+  domain: 'forms',
+  run() {
+    return { targets: [], diagnostics: [] }
+  },
+}
+
 const INTERNAL_ADAPTERS: InternalAdapter[] = [
   aiAdapter,
   routesAdapter,
@@ -824,6 +831,7 @@ const INTERNAL_ADAPTERS: InternalAdapter[] = [
   diAdapter,
   encryptionAdapter,
   navAdapter,
+  formsAdapter,
 ]
 
 /**
@@ -850,6 +858,7 @@ const OVERRIDE_DOMAIN_PRESENCE: Record<ModuleOverrideDomain, true> = {
   di: true,
   encryption: true,
   nav: true,
+  forms: true,
 }
 
 export const ALL_OVERRIDE_DOMAINS = Object.keys(OVERRIDE_DOMAIN_PRESENCE) as ModuleOverrideDomain[]

@@ -241,6 +241,7 @@ describe('module extension facts', () => {
       ['module-override:encryption.maps', 'disable-replace'],
       ['module-override:enrichers', 'disable-replace'],
       ['module-override:events.subscribers', 'disable-replace'],
+      ['module-override:forms.sections', 'disable-replace'],
       ['module-override:guards', 'disable-replace'],
       ['module-override:interceptors', 'disable-replace'],
       ['module-override:nav.groupOrder', 'additive'],

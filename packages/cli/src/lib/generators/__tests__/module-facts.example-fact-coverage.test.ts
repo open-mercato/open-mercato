@@ -327,7 +327,7 @@ describe('factCoverage ledger — checked against the real example extraction', 
       }
     }
     expect(wronglyPending).toEqual([])
-    expect(pending).toEqual([])
+    expect(pending).toEqual(['ModuleOverrideDomain.forms'])
   })
 
   it('keeps every catalog-only row at a real count of zero, since the example contributes nothing for it', () => {
@@ -350,16 +350,13 @@ describe('factCoverage ledger — checked against the real example extraction', 
     expect(fs.existsSync(path.join(findRepoRoot(), 'apps/mercato/src/modules/example/generators.ts'))).toBe(true)
   })
 
-  it('emits a real override target for all fifteen module-owned domains and none for framework-only nav', () => {
+  it('emits targets for the example-backed override domains', () => {
     const domainCounts = counts.ModuleOverrideDomain
-    for (const domain of ALL_OVERRIDE_DOMAINS) {
-      if (domain === 'nav') {
-        expect(domainCounts[domain] ?? 0).toBe(0)
-        continue
-      }
-      expect(domainCounts[domain] ?? 0).toBeGreaterThan(0)
-    }
-    expect(Object.keys(domainCounts)).toHaveLength(ALL_OVERRIDE_DOMAINS.length - 1)
+    const emitted = familyOf(ledger, 'ModuleOverrideDomain').rows
+      .filter((row) => row.status === 'emitted-example')
+      .map((row) => row.value)
+    expect(Object.keys(domainCounts).sort()).toEqual(emitted.sort())
+    for (const domain of emitted) expect(domainCounts[domain]).toBeGreaterThan(0)
   })
 
   it('round-trips all three modes and both closed notes through real targets', () => {
