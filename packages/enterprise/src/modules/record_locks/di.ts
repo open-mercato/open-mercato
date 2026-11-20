@@ -11,6 +11,17 @@ import { createRecordLockService } from './lib/recordLockService'
 import type { RecordLockService } from './lib/recordLockService'
 import { createRecordLockCrudMutationGuardService } from './lib/crudMutationGuardService'
 
+// The CLASSIC/proxy cradle getter throws for an unregistered key, so a plain
+// `cradle.x ?? null` never falls back when an optional peer module
+// (configs, audit_logs) is disabled.
+function readOptionalCradleValue<T>(read: () => T | null | undefined): T | null {
+  try {
+    return read() ?? null
+  } catch {
+    return null
+  }
+}
+
 export function register(container: AppContainer) {
   container.register({
     recordLockService: asFunction((cradle: {
@@ -21,8 +32,8 @@ export function register(container: AppContainer) {
     }) =>
       createRecordLockService({
         em: cradle.em,
-        moduleConfigService: cradle.moduleConfigService ?? null,
-        actionLogService: cradle.actionLogService ?? null,
+        moduleConfigService: readOptionalCradleValue(() => cradle.moduleConfigService),
+        actionLogService: readOptionalCradleValue(() => cradle.actionLogService),
         rbacService: cradle.rbacService ?? null,
       }),
     ).scoped().proxy(),
