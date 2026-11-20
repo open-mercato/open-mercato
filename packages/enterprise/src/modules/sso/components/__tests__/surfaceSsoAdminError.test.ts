@@ -42,6 +42,26 @@ describe('surfaceSsoAdminError', () => {
     expect(flashMock).not.toHaveBeenCalled()
   })
 
+  it('uses the translated fallback instead of the server message for any 5xx', () => {
+    expect(resolveSsoAdminErrorMessage(httpError('Internal server error', 500), 'Nie udało się utworzyć konfiguracji SSO'))
+      .toBe('Nie udało się utworzyć konfiguracji SSO')
+    expect(resolveSsoAdminErrorMessage(httpError('Upstream exploded', 502), 'Failed to delete')).toBe('Failed to delete')
+    expect(surfaceSsoAdminError(httpError('Internal server error', 503), t, 'Failed to add domain')).toBe('Failed to add domain')
+    expect(flashMock).toHaveBeenCalledWith('Failed to add domain', 'error')
+  })
+
+  it('uses the translated fallback when the message is the generic internal-error text', () => {
+    expect(resolveSsoAdminErrorMessage(new Error('Internal server error'), 'Failed to save')).toBe('Failed to save')
+    expect(resolveSsoAdminErrorMessage(new Error('  internal SERVER error '), 'Failed to save')).toBe('Failed to save')
+  })
+
+  it('keeps the server message for 4xx responses', () => {
+    expect(resolveSsoAdminErrorMessage(httpError('SSO configuration not found', 404), 'Failed to delete'))
+      .toBe('SSO configuration not found')
+    expect(resolveSsoAdminErrorMessage(httpError('An SSO configuration already exists for this organization', 409), 'Failed'))
+      .toBe('An SSO configuration already exists for this organization')
+  })
+
   it('resolves trimmed messages', () => {
     expect(resolveSsoAdminErrorMessage(new Error('  Denied  '), 'fallback')).toBe('Denied')
     expect(resolveSsoAdminErrorMessage(null, 'fallback')).toBe('fallback')
