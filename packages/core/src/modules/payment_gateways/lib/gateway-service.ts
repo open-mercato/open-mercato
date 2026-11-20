@@ -24,7 +24,7 @@ import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransacti
 import { canApplyManualAction, isValidTransition, resolveImpliedCaptureStatus, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
-import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
+import { reconcileSessionAmountWithOrder, resolvePaymentGatewayTranslator } from './order-amount-reconciliation'
 import { decimalToNumber, resolveExactDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { resolveCurrencyDecimalPlaces, type CurrencyPrecisionResolver } from '@open-mercato/shared/lib/currencyPrecision'
 import {
@@ -157,6 +157,12 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     return transaction
   }
 
+  async function withFreshCancelIdentityMap<TResult>(
+    run: (transactionEm: EntityManager) => Promise<TResult>,
+  ): Promise<TResult> {
+    return em.fork({ clear: true }).transactional(run)
+  }
+
   function readProviderSessionId(transaction: GatewayTransaction): string {
     if (typeof transaction.providerSessionId === 'string' && transaction.providerSessionId.trim().length > 0) {
       return transaction.providerSessionId
@@ -286,24 +292,43 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
       )
-      const result = await input.invoke({
-        adapter,
-        credentials,
-        transaction,
-        idempotencyKey: prepared.claim.providerIdempotencyKey,
-      })
-      providerInvoked = true
-      const statusChanged = await completePaymentOperation(
-        em,
-        prepared.claim,
-        result as unknown as Record<string, unknown>,
-        async (tx) => {
-          const current = await findTransactionOrThrow(input.transactionId, input.scope, tx)
-          const changed = applyAdapterResultStatus(input.action, current, result.status)
-          input.applyResult(current, result)
-          return changed
-        },
-      )
+      const invokeAndComplete = async (targetEm: EntityManager, currentTransaction: GatewayTransaction) => {
+        const result = await input.invoke({
+          adapter,
+          credentials,
+          transaction: currentTransaction,
+          idempotencyKey: prepared.claim.providerIdempotencyKey,
+        })
+        providerInvoked = true
+        const statusChanged = await completePaymentOperation(
+          targetEm,
+          prepared.claim,
+          result as unknown as Record<string, unknown>,
+          async (tx) => {
+            const current = await findTransactionOrThrow(input.transactionId, input.scope, tx)
+            const changed = applyAdapterResultStatus(input.action, current, result.status)
+            input.applyResult(current, result)
+            return changed
+          },
+        )
+        return { result, statusChanged }
+      }
+      const { result, statusChanged } = input.action === 'cancel'
+        ? await withFreshCancelIdentityMap(async (tx) => {
+          const current = await findTransactionOrThrow(input.transactionId, input.scope, tx, {
+            lockMode: LockMode.PESSIMISTIC_WRITE,
+          })
+          assertManualActionAllowed(input.action, current)
+          if (toDecimal(current.capturedAmount ?? '0').gt(0)) {
+            const translate = await resolvePaymentGatewayTranslator()
+            throw conflict(translate(
+              'payment_gateways.errors.cancelCaptureConflict',
+              'Cannot cancel a payment with captured funds or an outstanding capture reservation.',
+            ))
+          }
+          return invokeAndComplete(tx, current)
+        })
+        : await invokeAndComplete(em, transaction)
       settled = true
       if (statusChanged) {
         await emitStatusEvent(result.status, {
