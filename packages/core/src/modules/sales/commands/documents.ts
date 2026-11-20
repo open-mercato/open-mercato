@@ -217,6 +217,62 @@ import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/tran
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+const documentCreateReplay = Symbol('sales.documentCreateReplay');
+const documentCreateLineIds = new WeakMap<object, string[]>();
+type DocumentCreateReplay = {
+  id: string;
+  tenantId: string;
+  organizationId: string;
+  lines: Array<{ id: string; snapshot: OmnibusSnapshotTarget }>;
+};
+type DocumentCreateReplayContext = CommandRuntimeContext & {
+  [documentCreateReplay]?: DocumentCreateReplay;
+};
+
+function readDocumentCreateReplay(ctx: CommandRuntimeContext, scope: { tenantId: string; organizationId: string }) {
+  const replay = (ctx as DocumentCreateReplayContext)[documentCreateReplay];
+  if (replay && (replay.tenantId !== scope.tenantId || replay.organizationId !== scope.organizationId)) {
+    throw badRequest("[internal] sales document redo scope mismatch");
+  }
+  return replay;
+}
+
+function buildDocumentCreateReplay(
+  document: { id: string; tenantId: string; organizationId: string },
+  lines: OrderGraphSnapshot['lines'],
+  inputLines: Array<Partial<OrderLineCreateInput>>,
+  lineIds?: string[],
+): DocumentCreateReplay {
+  const remaining = [...lines];
+  const replayLines = inputLines.map((inputLine, index) => {
+    let candidates = remaining.filter((line) => lineIds
+      ? line.id === lineIds[index]
+      : line.lineNumber === (inputLine.lineNumber ?? index + 1));
+    if (!lineIds && candidates.length > 1) {
+      candidates = candidates.filter((line) => {
+        const fields = ['kind', 'statusEntryId', 'productId', 'productVariantId', 'name', 'description', 'comment', 'quantityUnit', 'currencyCode', 'promotionCode', 'customFieldSetId'] as const;
+        return fields.every((field) => inputLine[field] === undefined || isDeepStrictEqual(inputLine[field], line[field]));
+      });
+    }
+    if (!lineIds && candidates.length > 1) {
+      candidates = candidates.filter((line) => {
+        const fields = ['configuration', 'promotionSnapshot', 'metadata', 'customFields'] as const;
+        const amounts = ['quantity', 'unitPriceNet', 'unitPriceGross', 'discountPercent', 'taxRate'] as const;
+        const exactInput = inputLine as Partial<OrderLineCreateInput> & Record<string, unknown>;
+        return fields.every((field) => inputLine[field] === undefined || isDeepStrictEqual(inputLine[field], line[field]))
+          && amounts.every((field) => inputLine[field] === undefined || decimalsEqual(resolveExactDecimal(exactInput[`${field}Exact`], inputLine[field]), line[field]));
+      });
+    }
+    if (candidates.length > 1) throw badRequest("[internal] sales document redo line correspondence is ambiguous");
+    const position = candidates.length ? remaining.findIndex((line) => line.id === candidates[0].id) : -1;
+    if (position < 0) throw badRequest("[internal] sales document redo line unavailable");
+    const [line] = remaining.splice(position, 1);
+    return { id: line.id, snapshot: snapshotForReplay(line) };
+  });
+  if (remaining.length) throw badRequest("[internal] sales document redo line count mismatch");
+  return { id: document.id, tenantId: document.tenantId, organizationId: document.organizationId, lines: replayLines };
+}
+
 const omnibusReplaySnapshots = Symbol('sales.omnibusReplaySnapshots');
 type OmnibusReplayContext = CommandRuntimeContext & {
   [omnibusReplaySnapshots]?: Map<string, OmnibusSnapshotTarget>;
@@ -559,11 +615,13 @@ type OrderUndoPayload = {
 };
 
 type OrderLineBulkUndoPayload = OrderUndoPayload & { lineIds?: string[] };
+type OrderCreateUndoPayload = OrderUndoPayload & { lineIds?: string[] };
 
 type QuoteUndoPayload = {
   before?: QuoteGraphSnapshot | null;
   after?: QuoteGraphSnapshot | null;
 };
+type QuoteCreateUndoPayload = QuoteUndoPayload & { lineIds?: string[] };
 
 type QuoteConvertUndoPayload = {
   quote?: QuoteGraphSnapshot | null;
@@ -3729,8 +3787,13 @@ async function replaceQuoteLines(
   calculation: SalesDocumentCalculationResult,
   lineInputs: QuoteLineCreateInput[],
   omnibusService: CatalogOmnibusService | null = null,
-): Promise<void> {
+  replay?: DocumentCreateReplay,
+): Promise<string[]> {
+  if (replay && replay.lines.length !== calculation.lines.length) {
+    throw badRequest("[internal] sales document redo line count mismatch");
+  }
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
+  const lineIds: string[] = [];
   const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3753,11 +3816,14 @@ async function replaceQuoteLines(
     const lineEntity = em.create(SalesQuoteLine, {
       quote,
       ...entityInput,
+      ...(replay ? { id: replay.lines[index].id } : {}),
       status: statusValue,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
+    if (replay) Object.assign(lineEntity, replay.lines[index].snapshot);
+    else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
+    lineIds.push(lineEntity.id);
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3779,6 +3845,7 @@ async function replaceQuoteLines(
       em: em.fork(), service: omnibusService, lines: snapshotLines, document: quote, documentKind: "quote",
     });
   }
+  return lineIds;
 }
 
 async function replaceQuoteAdjustments(
@@ -3865,8 +3932,13 @@ async function replaceOrderLines(
   calculation: SalesDocumentCalculationResult,
   lineInputs: OrderLineCreateInput[],
   omnibusService: CatalogOmnibusService | null = null,
-): Promise<void> {
+  replay?: DocumentCreateReplay,
+): Promise<string[]> {
+  if (replay && replay.lines.length !== calculation.lines.length) {
+    throw badRequest("[internal] sales document redo line count mismatch");
+  }
   await em.nativeDelete(SalesOrderLine, { order: order.id });
+  const lineIds: string[] = [];
   const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3889,6 +3961,7 @@ async function replaceOrderLines(
     const lineEntity = em.create(SalesOrderLine, {
       order,
       ...entityInput,
+      ...(replay ? { id: replay.lines[index].id } : {}),
       reservedQuantity: "0",
       fulfilledQuantity: "0",
       invoicedQuantity: "0",
@@ -3897,7 +3970,9 @@ async function replaceOrderLines(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
+    if (replay) Object.assign(lineEntity, replay.lines[index].snapshot);
+    else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
+    lineIds.push(lineEntity.id);
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3919,6 +3994,7 @@ async function replaceOrderLines(
       em: em.fork(), service: omnibusService, lines: snapshotLines, document: order, documentKind: "order",
     });
   }
+  return lineIds;
 }
 
 async function replaceOrderAdjustments(
@@ -5425,7 +5501,8 @@ const createQuoteCommand: CommandHandler<
       parsed.statusEntryId ?? null,
       { tenantId: parsed.tenantId },
     );
-    const quoteId = randomUUID();
+    const replay = readDocumentCreateReplay(ctx, parsed);
+    const quoteId = replay?.id ?? randomUUID();
     const quote = em.create(SalesQuote, {
       id: quoteId,
       organizationId: parsed.organizationId,
@@ -5633,17 +5710,19 @@ const createQuoteCommand: CommandHandler<
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
+    let lineIds: string[] = [];
     await withAtomicFlush(
       em,
       [
         async () => {
           em.persist(quote);
-          await replaceQuoteLines(
+          lineIds = await replaceQuoteLines(
             em,
             quote,
             calculation,
             normalizedLineInputs,
             resolveOmnibusService(ctx),
+            replay,
           );
           await replaceQuoteAdjustments(
             em,
@@ -5749,7 +5828,9 @@ const createQuoteCommand: CommandHandler<
       "created",
     );
 
-    return { quoteId: quote.id };
+    const result = { quoteId: quote.id };
+    documentCreateLineIds.set(result, lineIds);
+    return result;
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -5769,7 +5850,8 @@ const createQuoteCommand: CommandHandler<
       payload: {
         undo: {
           after,
-        } satisfies QuoteUndoPayload,
+          lineIds: documentCreateLineIds.get(result),
+        } satisfies QuoteCreateUndoPayload,
       },
     };
   },
@@ -5797,6 +5879,19 @@ const createQuoteCommand: CommandHandler<
       tx.remove(quote);
       await tx.flush();
     });
+  },
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<QuoteCreateUndoPayload>(logEntry);
+    const after = payload?.after;
+    if (!after) return createQuoteCommand.execute(input, ctx);
+    ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId);
+    const parsed = quoteCreateSchema.parse(input);
+    const replayInputs = withExactListAmounts(parsed.lines, input, "lines", LINE_EXACT_AMOUNT_FIELDS) ?? parsed.lines;
+    const replayCtx: DocumentCreateReplayContext = {
+      ...ctx,
+      [documentCreateReplay]: buildDocumentCreateReplay(after.quote, after.lines, replayInputs ?? [], payload.lineIds),
+    };
+    return createQuoteCommand.execute({ ...input, quoteNumber: after.quote.quoteNumber }, replayCtx);
   },
 };
 
@@ -6818,7 +6913,8 @@ const createOrderCommand: CommandHandler<
       paymentMethod,
     } = await resolveDocumentReferences(em, parsed);
 
-    const orderId = randomUUID()
+    const replay = readDocumentCreateReplay(ctx, parsed);
+    const orderId = replay?.id ?? randomUUID()
     const order = em.create(SalesOrder, {
       id: orderId,
       organizationId: parsed.organizationId,
@@ -7071,17 +7167,19 @@ const createOrderCommand: CommandHandler<
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
+    let lineIds: string[] = [];
     await withAtomicFlush(
       em,
       [
         async () => {
           em.persist(order);
-          await replaceOrderLines(
+          lineIds = await replaceOrderLines(
             em,
             order,
             calculation,
             modedLineInputs,
             resolveOmnibusService(ctx),
+            replay,
           );
           await replaceOrderAdjustments(
             em,
@@ -7192,7 +7290,7 @@ const createOrderCommand: CommandHandler<
       previousStatus: null,
     });
 
-    return {
+    const result = {
       orderId: order.id,
       ...(deprecatedPaymentLedgerFields.length
         ? {
@@ -7205,6 +7303,8 @@ const createOrderCommand: CommandHandler<
           }
         : {}),
     };
+    documentCreateLineIds.set(result, lineIds);
+    return result;
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -7224,7 +7324,8 @@ const createOrderCommand: CommandHandler<
       payload: {
         undo: {
           after,
-        } satisfies OrderUndoPayload,
+          lineIds: documentCreateLineIds.get(result),
+        } satisfies OrderCreateUndoPayload,
       },
     };
   },
@@ -7260,6 +7361,19 @@ const createOrderCommand: CommandHandler<
         await tx.flush();
       },
     );
+  },
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<OrderCreateUndoPayload>(logEntry);
+    const after = payload?.after;
+    if (!after) return createOrderCommand.execute(input, ctx);
+    ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId);
+    const parsed = orderCreateSchema.parse(input);
+    const replayInputs = withExactListAmounts(parsed.lines, input, "lines", LINE_EXACT_AMOUNT_FIELDS) ?? parsed.lines;
+    const replayCtx: DocumentCreateReplayContext = {
+      ...ctx,
+      [documentCreateReplay]: buildDocumentCreateReplay(after.order, after.lines, replayInputs ?? [], payload.lineIds),
+    };
+    return createOrderCommand.execute({ ...input, orderNumber: after.order.orderNumber }, replayCtx);
   },
 };
 

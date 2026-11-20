@@ -50,6 +50,7 @@ jest.mock('../../../../lib/omnibusPresentedEntry', () => ({
 }))
 
 import { GET, metadata, openApi } from '../route'
+import { buildOmnibusBlock } from '../../../../services/catalogOmnibusService'
 import {
   CatalogPriceKind,
   CatalogProduct,
@@ -76,7 +77,7 @@ const block = {
 
 const presentedEntry = {
   priceId,
-  changeType: 'update',
+  changeType: 'update' as const,
   recordedAt: '2026-06-01T00:00:00.000Z',
   startsAt: '2026-06-01T00:00:00.000Z',
 }
@@ -147,6 +148,31 @@ describe('GET /api/catalog/prices/omnibus-preview', () => {
   it('requires catalog.price_history.view and documents the route', () => {
     expect(metadata.GET).toEqual({ requireAuth: true, requireFeatures: ['catalog.price_history.view'] })
     expect(openApi.methods.GET).toBeDefined()
+  })
+
+  it('serializes exact reference rows as fixed4 on the preview response only', async () => {
+    const row = {
+      id: 'history', priceId, changeType: 'update' as const,
+      recordedAt: '2026-05-01T00:00:00.000Z',
+      unitPriceNet: '100000000000000.1234567890123456789',
+      unitPriceGross: '123.1234567890123456789',
+    }
+    const exact = buildOmnibusBlock({
+      reason: null, presentedPriceKindId: priceKindId, lowestRow: row,
+      previousRow: { ...row, unitPriceNet: '99.9999999999999999999', unitPriceGross: null },
+      insufficientHistory: false, promotionAnchorAt: block.promotionAnchorAt,
+      coverageStartAt: null, windowStart: block.windowStart, windowEnd: block.windowEnd,
+      lookbackDays: 30, minimizationAxis: 'gross',
+    }, { tenantId, organizationId, currencyCode: 'PLN' }, presentedEntry, true)
+    resolveOmnibusBlockMock.mockResolvedValue(exact)
+    const response = await GET(previewUrl({ priceKindId, currencyCode: 'PLN', productId }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ...exact, lowestPriceNet: '100000000000000.1235', lowestPriceGross: '123.1235',
+      previousPriceNet: '100.0000', previousPriceGross: null,
+    })
+    expect(exact.lowestPriceNet).toBe(row.unitPriceNet)
+    expect(exact.lowestPriceGross).toBe(row.unitPriceGross)
   })
 
   it('returns 401 when unauthenticated', async () => {

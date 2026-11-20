@@ -14,6 +14,7 @@ import {
   createSalesChannelFixture,
   deleteEntityIfExists,
   deleteSalesChannelIfExists,
+  fetchOmnibusPreview,
   insertPriceHistoryRows,
   patchOmnibusConfig,
   readPriceKindCode,
@@ -87,6 +88,97 @@ function frozenSnapshot(line: OrderLineRow | undefined) {
 
 test.describe('TC-SALES-045: Omnibus snapshot on order lines', () => {
   test.describe.configure({ timeout: 240_000 });
+
+  for (const kind of ['order', 'quote'] as const) {
+    for (const change of ['disabled', 'history changed'] as const) {
+      test(`whole ${kind} create undo redo preserves exact snapshots and IDs after ${change}`, async ({ request }) => {
+        const superadminToken = await getAuthToken(request, 'superadmin');
+        const stamp = uniqueStamp();
+        let actor: OmnibusTenantActor | null = null;
+        let channelId: string | null = null;
+        let productId: string | null = null;
+        let priceKindId: string | null = null;
+        let priceId: string | null = null;
+        let documentId: string | null = null;
+        const path = `/api/sales/${kind}s`;
+        const linesPath = kind === 'order' ? ORDER_LINES_PATH : QUOTE_LINES_PATH;
+        try {
+          actor = await createOmnibusTenantActor(request, superadminToken, stamp, ACTOR_FEATURES);
+          const token = actor.token;
+          channelId = await createSalesChannelFixture(request, token, stamp);
+          priceKindId = await createPriceKindFixture(request, token, { stamp, suffix: `create-${kind}` });
+          productId = await createOmnibusProductFixture(request, token, stamp);
+          priceId = await createPriceFixture(request, token, { productId, priceKindId, channelId, unitPriceNet: 120, unitPriceGross: 120 });
+          const now = Date.now();
+          const baseRow = {
+            tenantId: actor.tenantId, organizationId: actor.organizationId, priceId, productId,
+            channelId, priceKindId, priceKindCode: await readPriceKindCode(priceKindId), currencyCode: 'EUR', taxRate: '0',
+          };
+          const referenceNet = '77.2358491234567891234';
+          const referenceGross = '95.1234567890123456789';
+          await insertPriceHistoryRows([
+            { ...baseRow, unitPriceNet: '110', unitPriceGross: '110', recordedAt: new Date(now - 40 * DAY_MS), changeType: 'create' },
+            { ...baseRow, unitPriceNet: referenceNet, unitPriceGross: referenceGross, recordedAt: new Date(now - 20 * DAY_MS), changeType: 'update' },
+            { ...baseRow, unitPriceNet: '120', unitPriceGross: '120', recordedAt: new Date(now - 10 * DAY_MS), changeType: 'update' },
+          ]);
+          const startsAt = new Date(now - 5 * 60 * 1000).toISOString();
+          const promotion = await apiRequest(request, 'PUT', PRICES_PATH, {
+            token, data: { id: priceId, productId, priceKindId, channelId, currencyCode: 'EUR', unitPriceNet: 80, unitPriceGross: 80, startsAt },
+          });
+          expect(promotion.status()).toBe(200);
+          expect(runOmnibusBackfillCli({ tenantId: actor.tenantId, channelId })).toContain('[omnibus:backfill] Complete');
+          expect((await patchOmnibusConfig(request, token, {
+            enabled: true, enabledCountryCodes: ['PL'], lookbackDays: 30,
+            channels: { [channelId]: { presentedPriceKindId: priceKindId, countryCode: 'PL' } },
+          })).status).toBe(200);
+          const created = await apiRequest(request, 'POST', path, { token, data: {
+            currencyCode: 'EUR', channelId,
+            lines: [
+              { name: `priced ${stamp}`, lineNumber: 9, productId, priceId, quantity: 1, currencyCode: 'EUR', unitPriceNet: 80, unitPriceGross: 80 },
+              { name: `manual ${stamp}`, lineNumber: 2, quantity: 1, currencyCode: 'EUR', unitPriceNet: 40, unitPriceGross: 40 },
+            ],
+          } });
+          expect(created.status(), await created.text()).toBe(201);
+          documentId = expectId((await readJsonSafe<{ id?: string }>(created))?.id, 'created document id');
+          const operation = expectOperation(created, `whole ${kind} creation`);
+          const original = await readOrderLines(request, token, documentId, linesPath);
+          const priced = original.find((line) => line.name === `priced ${stamp}`);
+          expect(priced?.omnibus_reference_net).toBe(referenceNet);
+          expect(priced?.omnibus_reference_gross).toBe(referenceGross);
+          expect(priced?.omnibus_promotion_anchor_at).toBe(startsAt);
+          expect(priced?.omnibus_applicability_reason).toBe('announced_promotion');
+          expect(priced?.is_personalized).toBe(false);
+          expect(priced?.personalization_reason).toBeNull();
+          await undoOk(request, token, operation.undoToken, `whole ${kind} creation`);
+          expect(await readOrderLines(request, token, documentId, linesPath)).toEqual([]);
+          expect((await patchOmnibusConfig(request, token, { enabled: false })).status).toBe(200);
+          if (change === 'history changed') {
+            await insertPriceHistoryRows([{ ...baseRow, unitPriceNet: '1', unitPriceGross: '2', recordedAt: new Date(now - DAY_MS), changeType: 'update' }]);
+            expect((await patchOmnibusConfig(request, token, { enabled: true })).status).toBe(200);
+            const preview = await fetchOmnibusPreview(request, token, { productId, priceKindId, channelId, currencyCode: 'EUR' });
+            expect(preview.status, preview.text).toBe(200);
+            expect(preview.body?.lowestPriceGross).toBe('2.0000');
+          }
+          const replayed = await redoOk(request, token, operation.logId, `whole ${kind} creation`);
+          const restored = await readOrderLines(request, token, documentId, linesPath);
+          expect(restored.map(frozenSnapshot)).toEqual(original.map(frozenSnapshot));
+          expect(restored.map((line) => ({ id: line.id, name: line.name }))).toEqual(original.map((line) => ({ id: line.id, name: line.name })));
+          expect(replayed.undoToken).toBeTruthy();
+          await undoOk(request, token, replayed.undoToken!, `replayed whole ${kind} creation`);
+          expect(await readOrderLines(request, token, documentId, linesPath)).toEqual([]);
+        } finally {
+          if (actor) {
+            if (documentId) await deleteSalesEntityIfExists(request, actor.token, path, documentId);
+            await deleteEntityIfExists(request, actor.token, PRICES_PATH, priceId);
+            await deleteEntityIfExists(request, actor.token, PRODUCTS_PATH, productId);
+            await deleteEntityIfExists(request, actor.token, '/api/catalog/price-kinds', priceKindId);
+            await deleteSalesChannelIfExists(request, actor.token, channelId);
+          }
+          await cleanupOmnibusTenantActor(request, superadminToken, actor);
+        }
+      });
+    }
+  }
 
   [1, 2].forEach((firstPosition) => test(`captures the reference price and replays bulk insertion at ${firstPosition} then 1`, async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');

@@ -20,7 +20,7 @@ import {
   uniqueStamp,
   type OmnibusTenantActor,
 } from './omnibusHelpers';
-import { OMNIBUS_IN_WINDOW_LIMIT } from '../lib/omnibusHistoryQueries';
+import { createOmnibusOverflowObservations } from './omnibusOverflowFixture';
 
 /**
  * TC-CAT-OMNI-005: member-state derogations of the Omnibus reference price.
@@ -381,13 +381,10 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
         previousPriceGross: '70.0000',
       });
 
-      const overflowRows = Array.from({ length: OMNIBUS_IN_WINDOW_LIMIT + 1 }, (_, index) => ({
+      const overflowRows = createOmnibusOverflowObservations(now).map((observation) => ({
         ...baseRow,
         offerId,
-        unitPriceNet: '56.9106',
-        unitPriceGross: (69.99 - index / 1000).toFixed(4),
-        recordedAt: new Date(now + (index + 1) * 60 * 60 * 1000),
-        changeType: 'update' as const,
+        ...observation,
       }));
       await insertPriceHistoryRows(overflowRows);
 
@@ -397,6 +394,10 @@ test.describe('TC-CAT-OMNI-005: Omnibus member-state derogations', () => {
         overflowed.body?.applicabilityReason,
         'a campaign past the observation cap must fall back instead of freezing a truncated sequence',
       ).not.toBe('progressive_reduction_frozen');
+      expect(overflowed.body).toMatchObject({
+        applicabilityReason: 'announced_promotion',
+        lowestPriceGross: '100.0000',
+      });
     } finally {
       if (actor) {
         await deleteEntityIfExists(request, actor.token, PRICES_PATH, firstVariantPriceId);
