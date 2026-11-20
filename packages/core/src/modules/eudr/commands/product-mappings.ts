@@ -32,6 +32,7 @@ import {
   type ProductMappingUpdateInput,
 } from '../data/validators'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 
 const PRODUCT_MAPPING_ENTITY_ID = 'eudr:eudr_product_mapping'
 
@@ -360,6 +361,7 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
       const record = await lockForUndo(entityManager, EudrProductMapping, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'EUDR product mapping not found' })
       const before = structuredClone(await buildProductMappingSnapshot(entityManager, record))
+      await guardUpdateRedo(ctx, before)
 
       const nextProductId = parsed.productId ?? record.productId
       const nextCommodity = parsed.commodity ?? record.commodity
@@ -415,6 +417,7 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
       return result
     })
   },
+  redo: ({ input, ctx, logEntry }) => updateProductMappingCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result) => updateProductMappingSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {
     const lockedSnapshots = updateProductMappingSnapshots.get(result)

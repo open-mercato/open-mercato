@@ -135,6 +135,195 @@ function buildService(transaction: GatewayTransaction, results: AdapterResults) 
   return { service, captureFn, refundFn, cancelFn, flush, em }
 }
 
+function deferred() {
+  let resolve: () => void = () => {}
+  const promise = new Promise<void>((complete) => { resolve = complete })
+  return { promise, resolve }
+}
+
+function buildConcurrentService(transaction: GatewayTransaction) {
+  const fixture = buildService(transaction, {})
+  const originalFind = findOneMock.getMockImplementation()!
+  const originalUpdate = fixture.em.nativeUpdate.getMockImplementation()!
+  const reservationAttempted = deferred()
+  type Manager = typeof fixture.em
+  const snapshots = new Map<unknown, GatewayTransaction>()
+  let lockOwner: Manager | null = null
+  let lockReleased = deferred()
+
+  function makeManager(): Manager {
+    let depth = 0
+    const manager: Manager = {
+      ...fixture.em,
+      fork: jest.fn(() => makeManager()),
+      flush: jest.fn(async () => {
+        const snapshot = snapshots.get(manager)
+        if (snapshot) Object.assign(transaction, snapshot)
+      }),
+      transactional: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
+        depth += 1
+        try {
+          return await callback(manager)
+        } finally {
+          depth -= 1
+          if (depth === 0 && lockOwner === manager) {
+            lockOwner = null
+            lockReleased.resolve()
+          }
+        }
+      }),
+      nativeUpdate: jest.fn(async (entity, where, update) => {
+        if ((entity as { name?: string }).name === 'GatewayTransaction') {
+          reservationAttempted.resolve()
+          while (lockOwner && lockOwner !== manager) await lockReleased.promise
+        }
+        return originalUpdate(entity, where, update)
+      }),
+    }
+    return manager
+  }
+
+  const requestManager = makeManager()
+  fixture.em.fork.mockImplementation(() => makeManager())
+  fixture.em.nativeUpdate.mockImplementation(requestManager.nativeUpdate)
+  fixture.em.flush.mockImplementation(async () => {
+    const snapshot = snapshots.get(fixture.em)
+    if (snapshot) Object.assign(transaction, snapshot)
+  })
+  findOneMock.mockImplementation(async (manager, entity, where, options, encryptionScope) => {
+    if ((entity as { name?: string }).name !== 'GatewayTransaction') {
+      return originalFind(manager, entity, where, options, encryptionScope)
+    }
+    if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+      while (lockOwner && lockOwner !== manager) await lockReleased.promise
+      lockOwner = manager as unknown as Manager
+      lockReleased = deferred()
+    }
+    const snapshot = { ...transaction }
+    snapshots.set(manager, snapshot)
+    return snapshot as never
+  })
+  return { ...fixture, reservationAttempted }
+}
+
+describe('payment gateway cancel/capture concurrency (#8224)', () => {
+  beforeAll(() => { setGlobalEventBus({ emit: async () => {} }) })
+  beforeEach(() => {
+    clearGatewayAdapters()
+    findOneMock.mockReset()
+  })
+  afterEach(() => { clearGatewayAdapters() })
+
+  it('rejects a stale capture after an in-flight cancellation commits', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, cancelFn, captureFn, reservationAttempted } = buildConcurrentService(transaction)
+    const cancelEntered = deferred()
+    const finishCancel = deferred()
+    cancelFn.mockImplementation(async () => {
+      cancelEntered.resolve()
+      await finishCancel.promise
+      return { status: 'cancelled' }
+    })
+    const cancelling = service.cancelPayment(transaction.id, undefined, scope, 'cancel-race')
+    await cancelEntered.promise
+    const capturing = service.capturePayment(transaction.id, 60, scope, 'capture-race')
+    const captureOutcome = capturing.then(() => 'captured', () => 'rejected')
+    try {
+      await reservationAttempted.promise
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(captureFn).not.toHaveBeenCalled()
+    } finally {
+      finishCancel.resolve()
+      await Promise.allSettled([cancelling, capturing])
+    }
+    await expect(cancelling).resolves.toMatchObject({ status: 'cancelled' })
+    expect(await captureOutcome).toBe('rejected')
+    await expect(capturing).rejects.toMatchObject({ status: 409 })
+    expect(transaction.unifiedStatus).toBe('cancelled')
+    expect(transaction.capturedAmount).toBe('0.0000')
+  })
+
+  it('refuses cancellation while a capture reservation is reaching the provider', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, cancelFn, captureFn } = buildConcurrentService(transaction)
+    const captureEntered = deferred()
+    const finishCapture = deferred()
+    captureFn.mockImplementation(async () => {
+      captureEntered.resolve()
+      await finishCapture.promise
+      return { status: 'captured', capturedAmount: 60 }
+    })
+    const capturing = service.capturePayment(transaction.id, 60, scope, 'capture-first')
+    await captureEntered.promise
+    const cancelling = service.cancelPayment(transaction.id, undefined, scope, 'cancel-second')
+    const cancelOutcome = cancelling.then(() => 'cancelled', () => 'rejected')
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(cancelFn).not.toHaveBeenCalled()
+    } finally {
+      finishCapture.resolve()
+      await Promise.allSettled([capturing, cancelling])
+    }
+    expect(await cancelOutcome).toBe('rejected')
+    await expect(cancelling).rejects.toMatchObject({ status: 409 })
+    await expect(capturing).resolves.toMatchObject({ capturedAmount: 60 })
+    expect(transaction.capturedAmount).toBe('60')
+  })
+
+  it('releases the cancel lock after provider failure so a waiting capture can proceed', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, cancelFn, captureFn, reservationAttempted } = buildConcurrentService(transaction)
+    const cancelEntered = deferred()
+    const finishCancel = deferred()
+    cancelFn.mockImplementation(async () => {
+      cancelEntered.resolve()
+      await finishCancel.promise
+      throw new Error('synthetic cancel failure')
+    })
+    const cancelling = service.cancelPayment(transaction.id, undefined, scope, 'cancel-fails')
+    const cancelOutcome = cancelling.catch((error: unknown) => error)
+    await cancelEntered.promise
+    const capturing = service.capturePayment(transaction.id, 60, scope, 'capture-after-cancel')
+    try {
+      await reservationAttempted.promise
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(captureFn).not.toHaveBeenCalled()
+    } finally {
+      finishCancel.resolve()
+      await Promise.allSettled([cancelling, capturing])
+    }
+    expect(await cancelOutcome).toEqual(new Error('synthetic cancel failure'))
+    await expect(capturing).resolves.toMatchObject({ status: 'captured' })
+    expect(captureFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a failed cancellation and replays its result without another provider call', async () => {
+    const transaction = makeTransaction('authorized')
+    const { service, cancelFn } = buildConcurrentService(transaction)
+    cancelFn.mockRejectedValueOnce(new Error('synthetic cancel failure'))
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope, 'cancel-retry'))
+      .rejects.toThrow('synthetic cancel failure')
+    const result = await service.cancelPayment(transaction.id, undefined, scope, 'cancel-retry')
+    await expect(service.cancelPayment(transaction.id, undefined, scope, 'cancel-retry')).resolves.toEqual(result)
+
+    expect(cancelFn).toHaveBeenCalledTimes(2)
+    expect(cancelFn.mock.calls[0]).toEqual(cancelFn.mock.calls[1])
+    expect(transaction.unifiedStatus).toBe('cancelled')
+  })
+
+  it('retains exact sub-cent capture reservations when checking cancel eligibility', async () => {
+    const transaction = makeTransaction('authorized', '0.000000000000000001')
+    const { service, cancelFn } = buildConcurrentService(transaction)
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope, 'cancel-exact'))
+      .rejects.toMatchObject({ status: 409 })
+
+    expect(cancelFn).not.toHaveBeenCalled()
+    expect(transaction.capturedAmount).toBe('0.000000000000000001')
+  })
+})
+
 function refundWithOperation(
   service: ReturnType<typeof createPaymentGatewayService>,
   transactionId: string,
@@ -831,6 +1020,39 @@ describe('payment gateway service — cancel with captured funds', () => {
 
     expect(cancelFn).not.toHaveBeenCalled()
     expect(transaction.unifiedStatus).toBe('partially_captured')
+  })
+
+  it.each([false, true])('refuses a status-only partial capture first observed under the cancel lock (retry: %s)', async (retry) => {
+    const transaction = makeTransaction('authorized', '0')
+    const { service, cancelFn } = buildService(transaction, {})
+    const operationId = 'cancel-late-partial'
+    if (retry) {
+      cancelFn.mockRejectedValueOnce(new Error('provider unavailable'))
+      await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toThrow('provider unavailable')
+      cancelFn.mockClear()
+    }
+    const originalFind = findOneMock.getMockImplementation()!
+    let lockedReads = 0
+    findOneMock.mockImplementation(async (...args) => {
+      if ((args[1] as { name?: string }).name === 'GatewayTransaction' && args[3]?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+        lockedReads += 1
+        transaction.unifiedStatus = 'partially_captured'
+        transaction.capturedAmount = '0'
+      }
+      return originalFind(...args)
+    })
+
+    await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'payment_cancel_captured_funds' },
+    })
+
+    expect(lockedReads).toBe(1)
+    expect(cancelFn).not.toHaveBeenCalled()
+    expect(transaction.unifiedStatus).toBe('partially_captured')
+    expect(transaction.capturedAmount).toBe('0')
+    await expect(service.cancelPayment(transaction.id, undefined, scope, operationId)).rejects.toMatchObject({ status: 409 })
+    expect(cancelFn).not.toHaveBeenCalled()
   })
 
   it.each(['25.0000', '0.000000000000000001'])('refuses to cancel an authorized transaction holding %s in capture reservations', async (capturedAmount) => {
