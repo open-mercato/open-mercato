@@ -71,12 +71,17 @@ export function MetadataEditor({
   const [collapsed, setCollapsed] = React.useState(defaultCollapsed)
   const [entries, setEntries] = React.useState<MetadataEntry[]>(() => toEntries(value))
   const skipSyncRef = React.useRef(false)
+  const lastSyncedValueRef = React.useRef(serializeMetadataValue(value))
 
   React.useEffect(() => {
+    const serializedValue = serializeMetadataValue(value)
     if (skipSyncRef.current) {
       skipSyncRef.current = false
+      lastSyncedValueRef.current = serializedValue
       return
     }
+    if (lastSyncedValueRef.current === serializedValue) return
+    lastSyncedValueRef.current = serializedValue
     setEntries(toEntries(value))
   }, [value])
 
