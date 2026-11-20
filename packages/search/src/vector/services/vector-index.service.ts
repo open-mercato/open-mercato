@@ -3,7 +3,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptVectorResultFields, type VectorResultFields } from '../lib/result-decryption'
 import {
   type VectorModuleConfig,
   type VectorEntityConfig,
@@ -305,79 +305,10 @@ export class VectorIndexService {
     }
   }
 
-  private async decryptResultFields(args: {
-    tenantId: string
-    organizationId: string | null
-    resultTitle: string
-    resultSubtitle: string | null
-    resultIcon: string | null
-    resultSnapshot: string | null
-    primaryLinkHref: string | null
-    primaryLinkLabel: string | null
-    links: VectorLinkDescriptor[] | string | null
-    payload: Record<string, unknown> | string | null
-  }): Promise<{
-    resultTitle: string
-    resultSubtitle: string | null
-    resultIcon: string | null
-    resultSnapshot: string | null
-    primaryLinkHref: string | null
-    primaryLinkLabel: string | null
-    links: VectorLinkDescriptor[] | string | null
-    payload: Record<string, unknown> | string | null
-  }> {
-    const service = this.resolveEncryptionService()
-    if (!service || !service.isEnabled?.() || typeof service.decryptEntityPayload !== 'function') {
-      return {
-        resultTitle: args.resultTitle,
-        resultSubtitle: args.resultSubtitle,
-        resultIcon: args.resultIcon,
-        resultSnapshot: args.resultSnapshot,
-        primaryLinkHref: args.primaryLinkHref,
-        primaryLinkLabel: args.primaryLinkLabel,
-        links: args.links,
-        payload: args.payload,
-      }
-    }
-    try {
-      const decrypted = await service.decryptEntityPayload(
-        VECTOR_ENTRY_ENCRYPTION_ENTITY_ID,
-        {
-          resultTitle: args.resultTitle,
-          resultSubtitle: args.resultSubtitle,
-          resultIcon: args.resultIcon,
-          resultSnapshot: args.resultSnapshot,
-          primaryLinkHref: args.primaryLinkHref,
-          primaryLinkLabel: args.primaryLinkLabel,
-          links: args.links,
-          payload: args.payload,
-        },
-        args.tenantId,
-        args.organizationId,
-      )
-      const decryptedLinks = (decrypted as any).links ?? args.links
-      const decryptedPayload = (decrypted as any).payload ?? args.payload
-      return {
-        resultTitle: String((decrypted as any).resultTitle ?? args.resultTitle),
-        resultSubtitle: ((decrypted as any).resultSubtitle ?? args.resultSubtitle) as any,
-        resultIcon: ((decrypted as any).resultIcon ?? args.resultIcon) as any,
-        resultSnapshot: ((decrypted as any).resultSnapshot ?? args.resultSnapshot) as any,
-        primaryLinkHref: ((decrypted as any).primaryLinkHref ?? args.primaryLinkHref) as any,
-        primaryLinkLabel: ((decrypted as any).primaryLinkLabel ?? args.primaryLinkLabel) as any,
-        links: (typeof decryptedLinks === 'string' ? parseDecryptedFieldValue(decryptedLinks) : decryptedLinks) as any,
-        payload: (typeof decryptedPayload === 'string' ? parseDecryptedFieldValue(decryptedPayload) : decryptedPayload) as any,
-      }
-    } catch (err) {
-      searchDebugWarn('vector.index', 'Vector entry decryption failed; refusing to return ciphertext as plaintext', {
-        entityId: VECTOR_ENTRY_ENCRYPTION_ENTITY_ID,
-        tenantId: args.tenantId,
-        organizationId: args.organizationId,
-        error: err instanceof Error ? err.message : String(err),
-      })
-      throw err instanceof Error
-        ? err
-        : new Error('[internal] Vector entry decryption failed')
-    }
+  private async decryptResultFields(
+    args: VectorResultFields & { tenantId: string; organizationId: string | null },
+  ): Promise<VectorResultFields> {
+    return decryptVectorResultFields(args, this.resolveEncryptionService())
   }
 
   listEnabledEntities(): EntityId[] {
