@@ -25,7 +25,7 @@ const fetchRatesRequestSchema = z.object({
   date: z.string().trim().min(1)
     .refine((value) => Number.isFinite(new Date(value).getTime()), 'Date must be a valid date')
     .optional(),
-  providers: z.array(z.string().trim().min(1).max(50)).optional(),
+  providers: z.array(z.string()).optional(),
 })
 const fetchRatesGuardedRequestSchema = fetchRatesRequestSchema.strip()
 
