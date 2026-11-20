@@ -313,6 +313,22 @@ describe('executeScheduleWorker queue target payload contract', () => {
     ;(createQueue as jest.Mock).mockReturnValue({ enqueue, close })
   })
 
+  it('skips a schedule whose source module is disabled instead of dispatching it (#8381)', async () => {
+    emitSchedulerEvent.mockClear()
+    const schedule = buildQueueSchedule({ sourceModule: 'push_notifications' })
+
+    await runWorker(schedule)
+
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(emitSchedulerEvent).toHaveBeenCalledTimes(1)
+    expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.skipped', {
+      id: scheduleId,
+      tenantId: 'tenant-a',
+      organizationId: 'org-a',
+      reason: 'Source module is not enabled: push_notifications',
+    })
+  })
+
   it('delivers the flat targetPayload contract with scheduler-owned fields applied last (#5213)', async () => {
     const schedule = buildQueueSchedule({
       targetPayload: {
