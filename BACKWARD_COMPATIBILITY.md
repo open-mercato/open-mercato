@@ -180,6 +180,7 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 
 ### 7. API Route URLs (STABLE)
 
+- Built-in Documents link owner list routes (Customers people/companies/deals, Catalog products/offers, Sales quotes/orders, and Documents) accept optional UUID query parameters `exactOrganizationId` and `exactTenantId` (#7780). They narrow the existing authenticated scope; they never grant access to another scope. Omitting them preserves ordinary list behavior.
 - MUST NOT rename or remove an existing API route URL
 - MUST NOT change the HTTP method for an existing operation
 - MUST NOT remove fields from existing response schemas

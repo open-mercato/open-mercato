@@ -1,5 +1,16 @@
 # Upgrade Notes
 
+## Documents record links require exact ownership (#7780)
+
+Built-in record links now verify that the target belongs to the document's tenant and
+organization, including template rendering, duplication, link restoration and related-record
+filtering. Visibility through a descendant organization no longer qualifies a target. Existing
+links outside the document's organization are redacted; move or relink the record in the
+document's organization to restore access. No migration or configuration change is required.
+
+The owner list APIs accept optional UUID filters `exactOrganizationId` and `exactTenantId`,
+intersected with the caller's existing scope. Unqualified lists retain their current behavior.
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
