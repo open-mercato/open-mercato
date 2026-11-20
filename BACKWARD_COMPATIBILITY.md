@@ -552,15 +552,15 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 ## Organization Update Preserves Omitted Hierarchy Fields (2026-10-01)
 
-`directory.organizations.update` treated an omitted `parentId` as `null` and an omitted `childIds` as `[]`, so a partial update — notably `PUT /api/directory/organization-branding`, which sends only logo fields — detached the organization from its parent and orphaned its children. Omitted hierarchy fields are now preserved:
+Omitted `parentId`/`childIds` acted as `null`/`[]`, detaching parents/children on partial updates, e.g. logo-only `PUT /api/directory/organization-branding`. They are now preserved.
 
 |Surface|Change|Classification|
 |---|---|---|
-|Command behaviour (`directory.organizations.update`)|`parentId` is written and validated only when present in the input; children are reconciled only when `childIds` is present. Explicit `parentId: null` and `childIds: []` still clear. With `childIds` present and `parentId` omitted, listing the current parent answers `400 Child cannot equal parent` (it answered `400 Cannot assign ancestor as child`)|⚠️ Behaviour change on a previously-corrupting path. A caller that omitted the fields to clear the hierarchy must send the explicit values. Regression-tested in `updateOrganization.partial-hierarchy.test.ts` and `TC-DIR-018`|
-|API routes (`PUT /api/directory/organizations`, `PUT /api/directory/organization-branding`)|Same URLs, request schema (`organizationUpdateSchema` already declares both fields optional) and response shapes|✓ No shape change|
-|Database schema, event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
+|`directory.organizations.update`|Validate/write `parentId` only if present; reconcile children only if `childIds` is present. Explicit null/[] still clear. Listing the current parent with `childIds` but no `parentId` returns `400 Child cannot equal parent`, formerly `400 Cannot assign ancestor as child`|⚠️ Correction; tests: `updateOrganization.partial-hierarchy.test.ts`, `TC-DIR-018`|
+|`PUT /api/directory/organizations`, `PUT /api/directory/organization-branding`|URLs, response shapes and `organizationUpdateSchema` (both fields already optional) unchanged|✓ No shape change|
+|DB schema, event IDs, ACL features, DI names, CLI commands|Unchanged|✓ n/a|
 
-**Migration path for existing modules**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
+**Migration**: send `parentId: null` / `childIds: []` to clear. Previously flattened trees stay unrepaired (UPGRADE_NOTES.md).
 
 ---
 
@@ -693,3 +693,7 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## #9136 2026-11-18
+
+STABLE notification settings: global writes/external links enable cross-tenant tampering; bridging retains it. Migration: UPGRADE_NOTES.md; details: `.ai/specs/2026-11-18-notification-delivery-tenant-isolation.md`. Named human waiver pending.

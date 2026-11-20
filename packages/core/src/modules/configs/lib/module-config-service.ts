@@ -207,7 +207,7 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     } else {
       entity.valueJson = value ?? null
       entity.organizationId = organizationId
-      entity.updatedAt = now
+      entity.updatedAt = new Date(Math.max(now.getTime(), entity.updatedAt.getTime() + 1))
     }
     await em.flush()
     const record = toRecord(entity, tenantId ? 'tenant' : 'instance')
