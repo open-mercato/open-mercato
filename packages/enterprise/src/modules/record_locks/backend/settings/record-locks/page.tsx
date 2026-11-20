@@ -3,7 +3,9 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { TagsInput } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -24,6 +26,11 @@ type RecordLockSettings = {
   allowForceUnlock: boolean
   allowIncomingOverride: boolean
   notifyOnConflict: boolean
+}
+
+type RecordLockSettingsResponse = {
+  settings?: RecordLockSettings
+  updatedAt?: string | null
 }
 
 const DEFAULT_SETTINGS: RecordLockSettings = {
@@ -53,6 +60,7 @@ const RECORD_LOCK_RESOURCE_SUGGESTIONS = Array.from(
 export default function RecordLockingSettingsPage() {
   const t = useT()
   const [settings, setSettings] = React.useState<RecordLockSettings>(DEFAULT_SETTINGS)
+  const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
 
@@ -71,8 +79,9 @@ export default function RecordLockingSettingsPage() {
   const load = React.useCallback(async () => {
     setLoading(true)
     try {
-      const call = await apiCall<{ settings?: RecordLockSettings }>('/api/record_locks/settings')
+      const call = await apiCall<RecordLockSettingsResponse>('/api/record_locks/settings')
       const next = call.result?.settings ?? DEFAULT_SETTINGS
+      setUpdatedAt(call.result?.updatedAt ?? null)
       setSettings({
         ...next,
         enabledResources: normalizeResources(next.enabledResources ?? []),
@@ -95,28 +104,33 @@ export default function RecordLockingSettingsPage() {
         ...settings,
         enabledResources: normalizeResources(settings.enabledResources ?? []),
       }
-      const call = await apiCallOrThrow<{ settings?: RecordLockSettings }>(
-        '/api/record_locks/settings',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
-        { errorMessage: t('record_locks.settings.save_error', 'Failed to save settings') },
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(updatedAt),
+        () => apiCallOrThrow<RecordLockSettingsResponse>(
+          '/api/record_locks/settings',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('record_locks.settings.save_error', 'Failed to save settings') },
+        ),
       )
 
       const next = call.result?.settings ?? payload
+      setUpdatedAt(call.result?.updatedAt ?? null)
       setSettings({
         ...next,
         enabledResources: normalizeResources(next.enabledResources ?? []),
       })
       flash(t('record_locks.settings.saved', 'Settings saved'), 'success')
-    } catch {
+    } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: () => void load() })) return
       flash(t('record_locks.settings.save_error', 'Failed to save settings'), 'error')
     } finally {
       setSaving(false)
     }
-  }, [normalizeResources, settings, t])
+  }, [load, normalizeResources, settings, t, updatedAt])
 
   if (loading) {
     return (

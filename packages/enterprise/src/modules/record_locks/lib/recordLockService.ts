@@ -197,6 +197,11 @@ export type RecordLockServiceDeps = {
 
 export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
 
+export type RecordLockSettingsRecord = {
+  settings: RecordLockSettings
+  updatedAt: string | null
+}
+
 function normalizeDate(value: Date): string {
   return value.toISOString()
 }
@@ -435,13 +440,37 @@ export class RecordLockService {
     return normalizeRecordLockSettings(value ?? DEFAULT_RECORD_LOCK_SETTINGS)
   }
 
+  async getSettingsRecord(tenantId?: string): Promise<RecordLockSettingsRecord> {
+    if (!this.moduleConfigService) return { settings: DEFAULT_RECORD_LOCK_SETTINGS, updatedAt: null }
+
+    const record = await this.moduleConfigService.getRecord(
+      RECORD_LOCKS_MODULE_ID,
+      RECORD_LOCKS_SETTINGS_NAME,
+      { tenantId },
+    )
+    return {
+      settings: normalizeRecordLockSettings(record?.value ?? DEFAULT_RECORD_LOCK_SETTINGS),
+      updatedAt: record?.updatedAt ?? null,
+    }
+  }
+
   async saveSettings(input: RecordLockSettingsInput, tenantId: string): Promise<RecordLockSettings> {
+    const { settings } = await this.saveSettingsRecord(input, tenantId)
+    return settings
+  }
+
+  async saveSettingsRecord(input: RecordLockSettingsInput, tenantId: string): Promise<RecordLockSettingsRecord> {
     if (!tenantId?.trim()) throw new Error('[internal] Record-lock settings require a tenant')
     const settings = normalizeRecordLockSettings(input)
-    if (!this.moduleConfigService) return settings
+    if (!this.moduleConfigService) return { settings, updatedAt: null }
 
-    await this.moduleConfigService.setValue(RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETTINGS_NAME, settings, { tenantId })
-    return settings // NOSONAR — both paths return settings by design; the branch controls persistence
+    const record = await this.moduleConfigService.setValue(
+      RECORD_LOCKS_MODULE_ID,
+      RECORD_LOCKS_SETTINGS_NAME,
+      settings,
+      { tenantId },
+    )
+    return { settings, updatedAt: record?.updatedAt ?? null }
   }
 
   /**

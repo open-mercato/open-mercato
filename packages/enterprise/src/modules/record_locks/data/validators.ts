@@ -68,6 +68,14 @@ export const recordLockMutationHeaderSchema = z.object({
 
 export const recordLockSettingsResponseSchema = z.object({
   settings: recordLockSettingsSchema,
+  updatedAt: z.string().nullable().optional(),
+})
+
+export const recordLockSettingsConflictSchema = z.object({
+  error: z.string(),
+  code: z.string(),
+  currentUpdatedAt: z.string(),
+  expectedUpdatedAt: z.string(),
 })
 
 export const recordLockSettingsUpsertSchema = recordLockSettingsSchema

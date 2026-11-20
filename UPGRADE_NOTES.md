@@ -1,5 +1,28 @@
 # Upgrade Notes
 
+## Record-lock settings are scoped per tenant (#3889)
+
+Record-locking settings (`record_locks` / `settings` in `module_configs`) are now stored per tenant.
+`GET /api/record_locks/settings` returns the caller's tenant row, or the instance row when the tenant
+has not saved its own settings yet. `POST` writes only the caller's tenant row, and lock enforcement,
+heartbeats, releases and conflict notifications read the settings of the operation's tenant.
+
+- `RecordLockService.saveSettings(input, tenantId)` now **requires** a tenant id and throws without
+  one. Code that called `saveSettings(input)` to change the instance-wide defaults must pass a tenant
+  id instead. Instance defaults come from the module setup (`onTenantCreated`) or
+  `moduleConfigService.restoreDefaults`, not from `saveSettings`.
+- `RecordLockService.getSettings(tenantId?)` accepts an optional tenant id; without it the instance
+  row is used, as before.
+- Additive: `RecordLockService.getSettingsRecord(tenantId?)` and `saveSettingsRecord(input, tenantId)`
+  return the settings together with their `updatedAt` version.
+- Additive: the settings `GET` and `POST` responses include `updatedAt`. `POST` honours the
+  `x-om-ext-optimistic-lock-expected-updated-at` header and returns the standard
+  `409 optimistic_lock_conflict` body when the settings changed since they were loaded. Clients that
+  do not send the header are not affected. The backend settings page sends it and shows the conflict
+  bar on a stale save.
+
+No database migration is required: `module_configs` already has a `tenant_id` column and `updated_at`.
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
