@@ -160,7 +160,7 @@ function formatBusyLabel(busy: DayBusyness, t: TranslateFn): string {
   const durationLabel = busy.totalMinutes < 60
     ? t('customers.activities.calendar.minutesShort', '{minutes}m', { minutes: Math.max(Math.round(busy.totalMinutes), 1) })
     : t('customers.activities.calendar.hoursShort', '{hours}h', { hours: Math.floor(busy.totalMinutes / 60) })
-  return t('customers.activities.calendar.eventsSummary', '{count} {countLabel} · {duration}', {
+  return t('customers.activities.calendar.eventsSummary', '{count} {countLabel}, {duration}', {
     count: busy.eventCount,
     countLabel: busy.eventCount === 1
       ? t('customers.activities.calendar.eventSingular', 'event')
