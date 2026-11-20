@@ -1,5 +1,52 @@
 # Upgrade Notes
 
+## SSO configuration and SCIM authority (#9014)
+
+**Operators:** deploy the additive `sso_configs.authorization_user_id` migration
+and `sessions.sso_provenance` migrations before application code. Existing SSO configurations have no trusted author and
+must be reviewed and saved by an authorized human administrator before SSO
+authentication or provisioning resumes. Review the issuer, credentials, domains,
+and complete role mappings. Each mapped role name must match exactly one live
+role in the tenant (case-insensitive): a mapping to a missing or ambiguous role
+now blocks saving the configuration and denies every SSO sign-in and SCIM
+operation through it, instead of being skipped. Revoke and replace old SCIM
+tokens: their creator must now be known and retain `sso.scim.manage`. Keep password break-glass access
+available while performing this rollout. Disabling/deleting an unsafe config
+remains available without reauthorization.
+
+SSO role grants and existing-account links now require the config author's current
+grant authority; SCIM mutations also require the token creator's authority. Author
+deletion/demotion or a target's later elevation can therefore block sign-in and
+provisioning. Audit historical SSO grants, identities, direct ACLs, and sessions
+and revoke unauthorized access; the fix does not automatically repair past
+compromise. New SSO sessions stop authorizing access and refresh when their
+configuration changes or loses authority. Users should sign in again after an
+authorized administrator resolves the issue. Revoke suspect pre-upgrade sessions
+explicitly because they lack configuration provenance. Rolling back application
+code reintroduces the vulnerability.
+
+**Clients and module authors:** HTTP payloads, URLs, and response schemas are
+unchanged. Pass the authenticated `actorUserId` to direct config/token service
+calls, retain the injected authorization service, and handle 403 authorization
+errors through existing error handling. Provenance is server-managed; do not
+accept it from request bodies. Legacy acceptance cannot be bridged safely because
+it retains the escalation path. A named human maintainer must approve the
+emergency compatibility waiver before merge; automated review cannot grant it.
+
+[Specification](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
+## `sync_akeneo` no longer requires `sales` (#9211)
+
+`sync_akeneo` now declares `requires: ['integrations', 'data_sync', 'catalog', 'progress']`.
+`sales` is an optional peer: with it disabled, product import still runs and skips
+channel-bound offers and prices, logging the `sync_akeneo.sales_channels_unavailable`
+warning. `progress`, which import jobs already used, is now an explicit requirement; it was
+previously enabled transitively through `sales` → `customers`. Apps that pass
+`yarn generate` today are not newly rejected, and no action is needed unless your app
+relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API, schema
+or configuration change. See
+[module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
