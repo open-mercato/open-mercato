@@ -5,6 +5,8 @@ jest.mock('@open-mercato/enterprise/modules/record_locks/api/utils', () => ({
   resolveRecordLocksApiContext: jest.fn(),
 }))
 
+const TENANT_ID = '60000000-0000-4000-8000-000000000001'
+
 function makeRequest(body: unknown) {
   return new Request('http://localhost/api/record_locks/settings', {
     method: 'POST',
@@ -30,16 +32,17 @@ describe('record_locks settings route', () => {
       notifyOnConflict: true,
     }
 
-    ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue({
-      recordLockService: {
-        getSettings: jest.fn().mockResolvedValue(settings),
-      },
-    })
+    const getSettings = jest.fn().mockResolvedValue(settings)
+    jest.mocked(resolveRecordLocksApiContext).mockResolvedValue({
+      auth: { tenantId: TENANT_ID },
+      recordLockService: { getSettings },
+    } as Awaited<ReturnType<typeof resolveRecordLocksApiContext>>)
 
     const response = await GET(new Request('http://localhost/api/record_locks/settings'))
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toEqual({ settings })
+    expect(getSettings).toHaveBeenCalledWith(TENANT_ID)
   })
 
   test('POST returns 400 when payload is invalid', async () => {
@@ -65,6 +68,7 @@ describe('record_locks settings route', () => {
 
     const saveSettings = jest.fn().mockResolvedValue(settings)
     ;(resolveRecordLocksApiContext as jest.Mock).mockResolvedValue({
+      auth: { tenantId: TENANT_ID },
       recordLockService: { saveSettings },
     })
 
@@ -80,6 +84,6 @@ describe('record_locks settings route', () => {
       enabledResources: ['sales.quote'],
       allowForceUnlock: true,
       notifyOnConflict: true,
-    }))
+    }), TENANT_ID)
   })
 })

@@ -1,5 +1,5 @@
 import { RecordLockService } from '../lib/recordLockService'
-import type { RecordLockSettings } from '../lib/config'
+import { DEFAULT_RECORD_LOCK_SETTINGS, type RecordLockSettings } from '../lib/config'
 import { emitRecordLocksEvent } from '../events'
 
 jest.mock('../events', () => ({
@@ -59,6 +59,33 @@ function createService(
     rbacService,
   }
 }
+
+describe('record-lock settings scope', () => {
+  const tenantId = '60000000-0000-4000-8000-000000000001'
+
+  test('uses the tenant scope and supplies the built-in fallback', async () => {
+    const { service, moduleConfigService } = createService()
+    moduleConfigService.getValue.mockResolvedValueOnce(null)
+    await expect(service.getSettings(tenantId)).resolves.toEqual(DEFAULT_RECORD_LOCK_SETTINGS)
+    expect(moduleConfigService.getValue).toHaveBeenCalledWith('record_locks', 'settings', {
+      defaultValue: DEFAULT_RECORD_LOCK_SETTINGS,
+      scope: { tenantId },
+    })
+  })
+
+  test('persists settings to the tenant scope', async () => {
+    const { service, moduleConfigService } = createService()
+    const settings = await service.saveSettings(DEFAULT_SETTINGS, tenantId)
+    expect(moduleConfigService.setValue).toHaveBeenCalledTimes(1)
+    expect(moduleConfigService.setValue).toHaveBeenCalledWith('record_locks', 'settings', settings, { tenantId })
+  })
+
+  test('requires a tenant for persistence', async () => {
+    const { service, moduleConfigService } = createService()
+    await expect(service.saveSettings(DEFAULT_SETTINGS, '')).rejects.toThrow('require a tenant')
+    expect(moduleConfigService.setValue).not.toHaveBeenCalled()
+  })
+})
 
 function buildLock(overrides: Partial<Record<string, unknown>> = {}) {
   const now = new Date('2026-02-17T10:00:00.000Z')

@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const ctxOrResponse = await resolveRecordLocksApiContext(req)
   if (ctxOrResponse instanceof Response) return ctxOrResponse
 
-  const settings = await ctxOrResponse.recordLockService.getSettings()
+  const settings = await ctxOrResponse.recordLockService.getSettings(ctxOrResponse.auth.tenantId)
   return NextResponse.json({ settings })
 }
 
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid settings payload', details: parsed.error.issues }, { status: 400 })
   }
 
-  const settings = await ctxOrResponse.recordLockService.saveSettings(parsed.data)
+  const settings = await ctxOrResponse.recordLockService.saveSettings(parsed.data, ctxOrResponse.auth.tenantId)
   return NextResponse.json({ settings })
 }
 

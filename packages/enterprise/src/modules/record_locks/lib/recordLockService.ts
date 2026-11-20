@@ -423,23 +423,24 @@ export class RecordLockService {
     this.rbacService = deps.rbacService ?? null
   }
 
-  async getSettings(): Promise<RecordLockSettings> {
+  async getSettings(tenantId?: string): Promise<RecordLockSettings> {
     if (!this.moduleConfigService) return DEFAULT_RECORD_LOCK_SETTINGS
 
     const value = await this.moduleConfigService.getValue<RecordLockSettings>(
       RECORD_LOCKS_MODULE_ID,
       RECORD_LOCKS_SETTINGS_NAME,
-      { defaultValue: DEFAULT_RECORD_LOCK_SETTINGS },
+      { defaultValue: DEFAULT_RECORD_LOCK_SETTINGS, scope: { tenantId } },
     )
 
     return normalizeRecordLockSettings(value ?? DEFAULT_RECORD_LOCK_SETTINGS)
   }
 
-  async saveSettings(input: RecordLockSettingsInput): Promise<RecordLockSettings> {
+  async saveSettings(input: RecordLockSettingsInput, tenantId: string): Promise<RecordLockSettings> {
+    if (!tenantId?.trim()) throw new Error('[internal] Record-lock settings require a tenant')
     const settings = normalizeRecordLockSettings(input)
     if (!this.moduleConfigService) return settings
 
-    await this.moduleConfigService.setValue(RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETTINGS_NAME, settings)
+    await this.moduleConfigService.setValue(RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETTINGS_NAME, settings, { tenantId })
     return settings // NOSONAR — both paths return settings by design; the branch controls persistence
   }
 
@@ -470,7 +471,7 @@ export class RecordLockService {
 
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
     this.scheduleCleanup(input.tenantId)
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const latest = await this.findLatestActionLogWithScopeFallback(input)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
 
@@ -815,7 +816,7 @@ export class RecordLockService {
   }
 
   async heartbeat(input: RecordLockHeartbeatInput): Promise<RecordLockHeartbeatResult> {
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     if (!resourceEnabled) return { ok: true, expiresAt: null }
 
@@ -841,7 +842,7 @@ export class RecordLockService {
   }
 
   async release(input: RecordLockReleaseInput): Promise<RecordLockReleaseResult> {
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     if (!resourceEnabled) return { ok: true, released: false, conflictResolved: false }
 
@@ -904,7 +905,7 @@ export class RecordLockService {
   }
 
   async forceRelease(input: RecordLockForceReleaseInput): Promise<RecordLockForceReleaseResult> {
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     const canForceRelease = await this.canUserForceRelease(input, settings)
     if (!resourceEnabled || !settings.allowForceUnlock || !canForceRelease) {
@@ -942,7 +943,7 @@ export class RecordLockService {
 
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {
     this.scheduleCleanup(input.tenantId)
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     const canOverrideIncoming = await this.canUserOverrideIncoming(input, settings)
 
@@ -1144,7 +1145,7 @@ export class RecordLockService {
     method: 'PUT' | 'DELETE'
   }): Promise<void> {
     if (input.method !== 'PUT') return
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     if (!settings.notifyOnConflict || !isRecordLockingEnabledForResource(settings, input.resourceKind)) return
 
     const now = new Date()
@@ -1234,7 +1235,7 @@ export class RecordLockService {
     method: 'PUT' | 'DELETE'
   }): Promise<void> {
     if (input.method !== 'DELETE') return
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     if (!isRecordLockingEnabledForResource(settings, input.resourceKind)) return
 
     const now = new Date()
@@ -1294,7 +1295,7 @@ export class RecordLockService {
     userId: string
     resolution: 'accept_incoming' | 'accept_mine' | 'merged'
   }): Promise<boolean> {
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const canOverrideIncoming = await this.canUserOverrideIncoming(input, settings)
     const conflict = await this.em.findOne(RecordLockConflict, {
       id: input.conflictId,

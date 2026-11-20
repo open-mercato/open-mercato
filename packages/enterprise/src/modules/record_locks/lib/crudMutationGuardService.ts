@@ -97,9 +97,9 @@ export function createRecordLockCrudMutationGuardService(
   ossFloorGuardService: OssCrudMutationGuardServiceLike,
   options: CreateRecordLockCrudMutationGuardServiceOptions = {},
 ): RecordLockCrudMutationGuardService {
-  async function isRecordLockEnrichmentEnabled(resourceKind: string): Promise<boolean> {
+  async function isRecordLockEnrichmentEnabled(resourceKind: string, tenantId: string): Promise<boolean> {
     try {
-      const settings = await recordLockService.getSettings()
+      const settings = await recordLockService.getSettings(tenantId)
       return isRecordLockingEnabledForResource(settings, resourceKind)
     } catch {
       return false
@@ -119,7 +119,7 @@ export function createRecordLockCrudMutationGuardService(
       if (!floorResult.ok) return floorResult
 
       // 2. Enterprise enrichment — only when the resource is enabled in settings.
-      if (!(await isRecordLockEnrichmentEnabled(input.resourceKind))) {
+      if (!(await isRecordLockEnrichmentEnabled(input.resourceKind, input.tenantId))) {
         return { ok: true, shouldRunAfterSuccess: false, metadata: null }
       }
 
