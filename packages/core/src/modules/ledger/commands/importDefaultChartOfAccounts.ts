@@ -17,7 +17,7 @@ import {
   ledgerAccountCrudIndexer,
   ledgerAccountTypeCrudEvents,
   ledgerAccountTypeCrudIndexer,
-} from '../lib/crudSideEffects'
+} from '../lib/ledgerAccountCrud'
 import { DEFAULT_CHART_OF_ACCOUNTS_PL } from '../lib/defaultChartOfAccounts'
 
 type Scope = { organizationId: string; tenantId: string }

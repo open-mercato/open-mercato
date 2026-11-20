@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount } from '../../data/entities'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../openapi'
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
@@ -16,8 +17,8 @@ import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 // `reverseJournalEntry` (see commands/), never through this route.
 //
 // A request narrowed to one entry (`?id=`) also returns that entry's posted
-// lines (account number, name, debit, credit) for the read-only detail page
-// (PR #6340 review, item 1). The list itself stays headers only.
+// lines (account number, name, debit, credit) for the read-only detail page.
+// The list itself stays headers only.
 //
 // `accountId` and `periodId` are not stored columns on `JournalEntry`
 // itself (see data/entities.ts) — `accountId` lives on `JournalEntryLine`,
@@ -207,7 +208,13 @@ export async function GET(req: Request) {
 // between lines and accounts). Debit lines first, then credit lines.
 async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<JournalEntryLineRow[]> {
   const scope = { organizationId: entry.organizationId, tenantId: entry.tenantId }
-  const lines = await em.find(JournalEntryLine, { journalEntryId: entry.id, ...scope })
+  const lines = await findWithDecryption(
+    em,
+    JournalEntryLine,
+    { journalEntryId: entry.id, ...scope },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
   const accountIds = [...new Set(lines.map((line) => line.accountId))]
   const accounts = accountIds.length
     ? await em.find(LedgerAccount, { id: { $in: accountIds }, ...scope }, { fields: ['id', 'number', 'description'] })

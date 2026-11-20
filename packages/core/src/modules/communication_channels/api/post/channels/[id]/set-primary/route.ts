@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import {
@@ -82,6 +83,19 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   if (result.status === 'not_owner') {
     return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
   }
+  if (result.status === 'disconnected') {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      {
+        error: translate(
+          'communication_channels.errors.setPrimaryDisconnected',
+          'This channel is disconnected. Reconnect it before setting it as primary.',
+        ),
+        code: 'channel_disconnected',
+      },
+      { status: 409 },
+    )
+  }
   if (result.status === 'noop') {
     return NextResponse.json({ channelId: id, isPrimary: true, unchanged: true }, { status: 200 })
   }
@@ -107,6 +121,7 @@ export const openApi = {
         { status: 400, description: 'Invalid channel id' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Channel not found or not owned by current user' },
+        { status: 409, description: 'Channel is disconnected and cannot be set as primary' },
       ],
     },
   },

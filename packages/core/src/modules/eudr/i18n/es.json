@@ -123,6 +123,7 @@
   "eudr.errors.plot_required": "El ID de parcela es obligatorio",
   "eudr.errors.pointAreaRequired": "Las parcelas de punto requieren un área positiva.",
   "eudr.errors.polygonRequired": "Usa geometría de polígono para parcelas de más de 4 hectáreas.",
+  "eudr.errors.redoConflict": "Este registro cambió después de deshacer la acción. Se rechazó rehacerla y se conservó la versión actual. Recargue el registro y vuelva a aplicar el cambio manualmente.",
   "eudr.errors.referenceIssuedAtImmutable": "La fecha de emisión de la referencia no se puede cambiar.",
   "eudr.errors.referenceIssuedAtInvalid": "La fecha de emisión de la referencia no puede estar en el futuro.",
   "eudr.errors.referenceNumbersRequired": "Los números de referencia y verificación son obligatorios.",
@@ -136,6 +137,7 @@
   "eudr.errors.statement_required": "El ID de la declaración de diligencia debida es obligatorio",
   "eudr.errors.submission_required": "El ID del envío de evidencia es obligatorio.",
   "eudr.errors.unauthorized": "No autorizado",
+  "eudr.errors.undoConflict": "Este registro cambió después de la acción que intentas deshacer. Se rechazó la acción de deshacer.",
   "eudr.evidence.attachAfterCreateHint": "Envío de evidencia creado. Ahora puedes adjuntar archivos de evidencia.",
   "eudr.evidenceSubmissions.create.title": "Crear envío de evidencia",
   "eudr.evidenceSubmissions.edit.title": "Editar envío de evidencia",
@@ -745,6 +747,7 @@
   "eudr.supplierPanel.warnings": "Con advertencias",
   "eudr.warnings.harvestBeforeCutoff": "Cosecha anterior a la fecha de corte EUDR",
   "eudr.warnings.speciesMissing": "A una asignación de madera vinculada le falta el nombre científico o común de la especie",
+  "notifications.categories.eudr": "EUDR",
   "search.entityType.eudr.eudr_due_diligence_statement": "Declaración DDS",
   "search.entityType.eudr.eudr_evidence_submission": "Envío de evidencia",
   "search.entityType.eudr.eudr_plot": "Parcela"

@@ -1,6 +1,8 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import type { CalendarEventTypeBehavior } from '../calendar-event-types'
 
 export type CustomerEntityKind = 'person' | 'company'
 export type CustomerAddressFormat = 'line_first' | 'street_first'
@@ -281,8 +283,11 @@ export class CustomerCompanyProfile {
   @Property({ name: 'size_bucket', type: 'text', nullable: true })
   sizeBucket?: string | null
 
-  @Property({ name: 'annual_revenue', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  @Property({ name: 'annual_revenue', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   annualRevenue?: string | null
+
+  @Property({ name: 'tax_id', type: 'text', nullable: true })
+  taxId?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -334,7 +339,7 @@ export class CustomerDeal {
   @Property({ name: 'pipeline_stage_id', type: 'uuid', nullable: true })
   pipelineStageId?: string | null
 
-  @Property({ name: 'value_amount', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  @Property({ name: 'value_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   valueAmount?: string | null
 
   @Property({ name: 'value_currency', type: 'text', nullable: true })
@@ -571,7 +576,7 @@ export class CustomerActivity {
     `create index "customer_interactions_email_channel_idx" on "customer_interactions" ("channel_id", "entity_id") where "interaction_type" = 'email' and "channel_id" is not null and "deleted_at" is null`,
 })
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey' | 'channelId'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'timezone' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility' | 'linkedEntities' | 'guestPermissions' | 'externalMessageId' | 'channelProviderKey' | 'channelId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -660,6 +665,9 @@ export class CustomerInteraction {
 
   @Property({ name: 'deal_id', type: 'uuid', nullable: true })
   dealId?: string | null
+
+  @Property({ name: 'timezone', type: 'text', nullable: true })
+  timezone?: string | null
 
   @Property({ name: 'duration_minutes', type: 'int', nullable: true })
   durationMinutes?: number | null
@@ -953,6 +961,9 @@ export class CustomerDictionaryEntry {
   @Property({ type: 'text', nullable: true })
   icon?: string | null
 
+  @Property({ name: 'activity_type_behavior', type: 'jsonb', nullable: true })
+  activityTypeBehavior?: CalendarEventTypeBehavior | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -963,7 +974,7 @@ export class CustomerDictionaryEntry {
 @Entity({ tableName: 'customer_pipelines' })
 @Index({ name: 'customer_pipelines_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 export class CustomerPipeline {
-  [OptionalProps]?: 'isDefault' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'isDefault' | 'stageProbabilitiesEnabled' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -979,6 +990,9 @@ export class CustomerPipeline {
 
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
+
+  @Property({ name: 'stage_probabilities_enabled', type: 'boolean', default: false })
+  stageProbabilitiesEnabled: boolean = false
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -1010,6 +1024,9 @@ export class CustomerPipelineStage {
 
   @Property({ name: 'position', type: 'int', default: 0 })
   order: number = 0
+
+  @Property({ name: 'default_probability', type: 'int', nullable: true })
+  defaultProbability?: number | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

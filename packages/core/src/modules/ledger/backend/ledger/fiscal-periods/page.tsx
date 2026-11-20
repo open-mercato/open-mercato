@@ -129,7 +129,7 @@ export default function FiscalPeriodsPage() {
           operation: async () => {
             const call = await withScopedApiRequestHeaders(
               buildOptimisticLockHeader(row.updatedAt),
-              () => apiCall<FiscalPeriodDto>(`/api/ledger/fiscal-periods/${row.id}/${lock ? 'lock' : 'unlock'}`, {
+              () => apiCall<FiscalPeriodDto>(`/api/ledger/fiscal-periods/${encodeURIComponent(row.id)}/${lock ? 'lock' : 'unlock'}`, {
                 method: 'POST',
               }),
             )

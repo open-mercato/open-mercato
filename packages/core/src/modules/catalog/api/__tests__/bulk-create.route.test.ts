@@ -135,9 +135,9 @@ describe('catalog bulk-create routes — organization scoping', () => {
     expect(mockQueue.enqueue).not.toHaveBeenCalled()
   })
 
-  it('falls back to the account organization when no organization is selected', async () => {
+  it('uses the account organization the scope resolves to when no organization is selected', async () => {
     ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
-      selectedId: null,
+      selectedId: 'org-home',
       filterIds: ['org-home'],
       allowedIds: null,
       tenantId: 'tenant-1',
@@ -152,5 +152,81 @@ describe('catalog bulk-create routes — organization scoping', () => {
       expect.anything(),
       expect.objectContaining({ organizationId: 'org-home' }),
     )
+  })
+
+  const routes = [
+    {
+      name: 'products/bulk-create',
+      post: () => postProductsBulkCreate(
+        request('/api/catalog/products/bulk-create', { items: [{ title: 'Widget' }] }),
+      ),
+    },
+    {
+      name: 'categories/bulk-create',
+      post: () => postCategoriesBulkCreate(
+        request('/api/catalog/categories/bulk-create', { items: [{ name: 'Widgets' }] }),
+      ),
+    },
+  ]
+
+  describe.each(routes)('$name — organization selection the single create refuses (issue #7076)', ({ post }) => {
+    it('answers 422 and queues nothing when the selected organization is rejected', async () => {
+      ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+        selectedId: 'org-home',
+        filterIds: ['org-home'],
+        allowedIds: null,
+        tenantId: 'tenant-1',
+        selectionRejected: true,
+      })
+
+      const response = await post()
+
+      expect(response.status).toBe(422)
+      await expect(response.json()).resolves.toEqual(
+        expect.objectContaining({ ok: false, progressJobId: null, message: expect.stringContaining('no longer available') }),
+      )
+      expect(runBulkCreateMutationGuards as jest.Mock).not.toHaveBeenCalled()
+      expect(createJob).not.toHaveBeenCalled()
+      expect(mockQueue.enqueue).not.toHaveBeenCalled()
+    })
+
+    it('answers 400 and queues nothing under "All organizations" instead of writing into the home organization', async () => {
+      ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+        selectedId: null,
+        filterIds: null,
+        allowedIds: null,
+        tenantId: 'tenant-1',
+      })
+
+      const response = await post()
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual(
+        expect.objectContaining({ ok: false, progressJobId: null, message: 'Organization context is required' }),
+      )
+      expect(createJob).not.toHaveBeenCalled()
+      expect(mockQueue.enqueue).not.toHaveBeenCalled()
+    })
+
+    it('answers 400, not 401, for a superadmin without a home organization under "All organizations"', async () => {
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+        sub: 'superadmin-1',
+        tenantId: 'tenant-1',
+        orgId: null,
+        isSuperAdmin: true,
+      })
+      ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+        selectedId: null,
+        filterIds: null,
+        allowedIds: null,
+        tenantId: 'tenant-1',
+      })
+
+      const response = await post()
+
+      expect(response.status).toBe(400)
+      expect(createJob).not.toHaveBeenCalled()
+      expect(mockQueue.enqueue).not.toHaveBeenCalled()
+    })
   })
 })

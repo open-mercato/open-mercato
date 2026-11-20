@@ -8,6 +8,7 @@ import { getNotificationType } from '../lib/notification-type-registry'
 import { getNotificationTypeOverrides } from '../lib/typeOverrides'
 import { resolveNotificationPreferenceService } from '../lib/notificationPreferenceService'
 import { resolveNotificationCopy } from '../lib/notificationCopy'
+import { toSafeNotificationHref } from '../lib/safeHref'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../auth/data/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -137,7 +138,8 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
         if (href && notification.sourceEntityId) {
           href = href.replace('{sourceEntityId}', notification.sourceEntityId)
         }
-        const fullHref = (href && baseOrigin) ? `${baseOrigin}${href}` : panelLink
+        const safeHref = toSafeNotificationHref(href)
+        const fullHref = (safeHref && baseOrigin) ? `${baseOrigin}${safeHref}` : panelLink
         if (!fullHref) return null
         return {
           id: action.id,

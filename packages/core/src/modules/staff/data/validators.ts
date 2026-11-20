@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decimalToNumber, decimalToString, isDecimalInput, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { PROJECT_COLOR_KEYS } from '../lib/timesheets-ui/colors'
 import { hasTimeEntrySource, timeEntrySourceIds } from '../lib/time-tracking/timeEntrySources'
 import { hasReportGrouping, reportGroupingIds } from '../lib/timesheets-reports/reportGroupings'
@@ -286,7 +287,17 @@ const timeProjectStatusSchema = z.enum(['active', 'on_hold', 'completed'])
 const timeProjectMemberStatusSchema = z.enum(['active', 'inactive'])
 const timeEntrySegmentTypeSchema = z.enum(['work', 'break'])
 const projectCodeSchema = z.string().min(1).max(50).regex(/^[a-zA-Z0-9-]+$/)
-const moneyAmountSchema = z.number().min(0).max(99_999_999)
+/**
+ * A non-negative amount sent as a JSON number or a decimal string. The parsed
+ * value stays a `number` (float copy); commands keep the exact digits through
+ * `withExactAmounts`.
+ */
+const moneyAmountSchema = z
+  .union([z.number(), z.string()])
+  .refine((value) => isDecimalInput(value) && !toDecimal(value).lt(0), {
+    message: 'staff.validation.nonNegativeAmount',
+  })
+  .transform((value) => decimalToNumber(value))
 const timeProjectBudgetKindSchema = z.enum(['none', 'hours', 'amount'])
 
 // Upper-cased at the boundary so every writer stores canonical ISO 4217. The report
@@ -294,8 +305,8 @@ const timeProjectBudgetKindSchema = z.enum(['none', 'hours', 'amount'])
 // otherwise read as two currencies and wrongly block a customer report.
 const currencyCodeSchema = z.string().trim().length(3).transform((value) => value.toUpperCase())
 
-// numeric(14,4): ten integer digits, four decimals, never negative.
-const numericAmountPattern = /^\d{1,10}(?:\.\d{1,4})?$/
+// Unconstrained numeric: any number of digits, never negative.
+const numericAmountPattern = /^\d+(?:\.\d+)?$/
 
 /**
  * `numeric(14,4)` columns are surfaced by MikroORM as strings, and the project
@@ -306,19 +317,28 @@ const numericAmountPattern = /^\d{1,10}(?:\.\d{1,4})?$/
  * `moneyAmountSchema` above: `rate_override_amount` is consumed by the cost
  * calculator as a number, not written straight onto a numeric column.)
  */
+// `String(1e-8)` is "1e-8", which the plain-decimal pattern rejects; write it out in full.
+function numberToPlainDecimal(value: number): string | null {
+  return isDecimalInput(value) ? decimalToString(value) : null
+}
+
 const numericAmountSchema = z
   .union([z.number(), z.string()])
   .transform((value, ctx) => {
-    const raw = typeof value === 'number' ? String(value) : value.trim().replace(',', '.')
+    const raw = typeof value === 'number' ? numberToPlainDecimal(value) : value.trim().replace(',', '.')
+    if (raw === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'staff.validation.nonNegativeAmount' })
+      return z.NEVER
+    }
     if (raw.length === 0) return null
-    if (!numericAmountPattern.test(raw)) {
+    if (!numericAmountPattern.test(raw) || !isDecimalInput(raw)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Expected a non-negative amount with at most 10 digits and 4 decimals.',
+        message: 'staff.validation.nonNegativeAmount',
       })
       return z.NEVER
     }
-    return raw
+    return decimalToString(raw)
   })
 
 export const staffTimeEntryCreateSchema = z.object({
@@ -381,6 +401,16 @@ export const staffTimeEntryStartTimerSchema = z.object({
   timeProjectId: z.string().uuid().optional().nullable(),
   taskId: z.string().uuid().optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
+})
+
+export const staffTimeEntryStopTimerSchema = z.object({
+  ...scopedCreateFields,
+  ...scopedUpdateFields,
+})
+
+export const staffTimeEntryStartTimerExistingSchema = z.object({
+  ...scopedCreateFields,
+  ...scopedUpdateFields,
 })
 
 export const staffTimeEntryBulkItemSchema = z.object({
@@ -476,6 +506,7 @@ export const staffTimeProjectUpdateSchema = z.object({
   budgetKind: timeProjectBudgetKindSchema.optional(),
   budgetValue: numericAmountSchema.optional().nullable(),
   budgetWarnAtPercent: z.number().int().min(1).max(100).optional(),
+  defaultAssigneeStaffMemberId: z.string().uuid().optional().nullable(),
 })
 
 export const staffTimeProjectMemberAssignSchema = z.object({
@@ -486,6 +517,7 @@ export const staffTimeProjectMemberAssignSchema = z.object({
   status: timeProjectMemberStatusSchema.optional().default('active'),
   assignedStartDate: z.coerce.date(),
   assignedEndDate: z.coerce.date().optional().nullable(),
+  isAssigner: z.boolean().optional(),
 })
 
 export const staffTimeProjectMemberUpdateSchema = z.object({
@@ -493,15 +525,22 @@ export const staffTimeProjectMemberUpdateSchema = z.object({
   role: z.string().max(100).optional().nullable(),
   status: timeProjectMemberStatusSchema.optional(),
   assignedEndDate: z.coerce.date().optional().nullable(),
+  isAssigner: z.boolean().optional(),
 })
 
 export const staffMyProjectVisibilityUpdateSchema = z.object({
   showInGrid: z.boolean(),
 })
 
+export const staffTimesheetPreferenceUpdateSchema = z.object({
+  lastProjectId: z.string().uuid().nullable(),
+})
+
 export type StaffTimeEntryCreateInput = z.infer<typeof staffTimeEntryCreateSchema>
 export type StaffTimeEntryUpdateInput = z.infer<typeof staffTimeEntryUpdateSchema>
 export type StaffTimeEntryStartTimerInput = z.infer<typeof staffTimeEntryStartTimerSchema>
+export type StaffTimeEntryStopTimerInput = z.infer<typeof staffTimeEntryStopTimerSchema>
+export type StaffTimeEntryStartTimerExistingInput = z.infer<typeof staffTimeEntryStartTimerExistingSchema>
 export type StaffTimeEntryBulkSaveInput = z.infer<typeof staffTimeEntryBulkSaveSchema>
 export type StaffTimeEntrySegmentCreateInput = z.infer<typeof staffTimeEntrySegmentCreateSchema>
 export type StaffTimeEntrySegmentUpdateInput = z.infer<typeof staffTimeEntrySegmentUpdateSchema>
@@ -510,6 +549,7 @@ export type StaffTimeProjectUpdateInput = z.infer<typeof staffTimeProjectUpdateS
 export type StaffTimeProjectMemberAssignInput = z.infer<typeof staffTimeProjectMemberAssignSchema>
 export type StaffTimeProjectMemberUpdateInput = z.infer<typeof staffTimeProjectMemberUpdateSchema>
 export type StaffMyProjectVisibilityUpdateInput = z.infer<typeof staffMyProjectVisibilityUpdateSchema>
+export type StaffTimesheetPreferenceUpdateInput = z.infer<typeof staffTimesheetPreferenceUpdateSchema>
 
 // --- Time tracking consulting suite validators (tasks, tags, reports, settings) ---
 
@@ -596,12 +636,23 @@ export const staffTimeTaskCommentCreateSchema = z.object({
   taskId: z.string().uuid(),
   body: z.string().trim().min(1).max(5000),
   authorUserId: z.string().uuid().optional().nullable(),
+  visibility: z.enum(['internal', 'customer']).optional(),
 })
 
 export const staffTimeTaskCommentUpdateSchema = z.object({
   ...scopedUpdateFields,
   body: z.string().trim().min(1).max(5000),
+  visibility: z.enum(['internal', 'customer']).optional(),
 })
+
+export const staffTimeTaskCommentUpdateRequestSchema = staffTimeTaskCommentUpdateSchema
+  .extend({
+    body: z.string().trim().min(1).max(5000).optional(),
+  })
+  .refine((value) => value.body !== undefined || value.visibility !== undefined, {
+    message: 'body or visibility is required',
+    path: ['body'],
+  })
 
 export const staffTimeTagCreateSchema = z.object({
   ...scopedCreateFields,
@@ -699,7 +750,7 @@ export const staffTimeProjectChangeCurrencySchema = z.object({
 /**
  * EP-42 — built from the setting-key registry rather than a literal, so a module can
  * contribute a key without patching this file. With no contribution the shape is the
- * eight built-in keys in their five groups, exactly as it was.
+ * built-in keys in their five groups.
  *
  * This constant is evaluated once at module load. A key registered later still
  * validates on the wire because the settings route parses with
@@ -721,6 +772,7 @@ export type StaffTimeTaskUpdateInput = z.infer<typeof staffTimeTaskUpdateSchema>
 export type StaffTimeTaskStatusChangeInput = z.infer<typeof staffTimeTaskStatusChangeSchema>
 export type StaffTimeTaskCommentCreateInput = z.infer<typeof staffTimeTaskCommentCreateSchema>
 export type StaffTimeTaskCommentUpdateInput = z.infer<typeof staffTimeTaskCommentUpdateSchema>
+export type StaffTimeTaskCommentUpdateRequestInput = z.infer<typeof staffTimeTaskCommentUpdateRequestSchema>
 export type StaffTimeTagCreateInput = z.infer<typeof staffTimeTagCreateSchema>
 export type StaffTimeTaskTagAssignmentInput = z.infer<typeof staffTimeTaskTagAssignmentSchema>
 export type StaffTimeEntryTagAssignmentInput = z.infer<typeof staffTimeEntryTagAssignmentSchema>
@@ -731,3 +783,24 @@ export type StaffTimeReportCloseInput = z.infer<typeof staffTimeReportCloseSchem
 export type StaffTimeReportUnlockInput = z.infer<typeof staffTimeReportUnlockSchema>
 export type StaffTimeProjectChangeCurrencyInput = z.infer<typeof staffTimeProjectChangeCurrencySchema>
 export type StaffTimeTrackingSettingsInput = z.infer<typeof staffTimeTrackingSettingsSchema>
+
+export const staffSupportRoutingRuleCreateSchema = z.object({
+  ...scopedCreateFields,
+  categoryValue: z.string().trim().min(1).max(150).optional().nullable(),
+  timeProjectId: z.string().uuid(),
+  isActive: z.boolean().optional().default(true),
+})
+
+export const staffSupportRoutingRuleUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  timeProjectId: z.string().uuid().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const staffSupportFallbackProjectCreateSchema = z.object({
+  ...scopedCreateFields,
+})
+
+export type StaffSupportRoutingRuleCreateInput = z.infer<typeof staffSupportRoutingRuleCreateSchema>
+export type StaffSupportRoutingRuleUpdateInput = z.infer<typeof staffSupportRoutingRuleUpdateSchema>
+export type StaffSupportFallbackProjectCreateInput = z.infer<typeof staffSupportFallbackProjectCreateSchema>

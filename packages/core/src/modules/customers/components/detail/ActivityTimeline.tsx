@@ -4,9 +4,11 @@ import { Check, ListTodo, Phone, Mail, Users, StickyNote, User } from 'lucide-re
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
-import { isOpenInteractionStatus } from '../../lib/interactionStatus'
+import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
@@ -36,9 +38,9 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTim
   return (
     <div>
       {activities.map((activity, index) => {
-        const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
+        const dateStr = activity.scheduledAt ?? activity.occurredAt
         const activityYear = dateStr ? new Date(dateStr).getFullYear() : null
-        const prevDateStr = index > 0 ? (activities[index - 1].scheduledAt ?? activities[index - 1].occurredAt ?? activities[index - 1].createdAt) : null
+        const prevDateStr = index > 0 ? (activities[index - 1].scheduledAt ?? activities[index - 1].occurredAt) : null
         const prevYear = prevDateStr ? new Date(prevDateStr).getFullYear() : null
         const showYearSeparator = activityYear !== null && prevYear !== null && activityYear !== prevYear
 
@@ -80,11 +82,12 @@ function TimelineEntry({
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }) {
-  const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
+  const dateStr = activity.scheduledAt ?? activity.occurredAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
   const isOpen = isOpenInteractionStatus(activity.status)
+  const isCanceled = isCanceledInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
 
   const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
@@ -96,24 +99,24 @@ function TimelineEntry({
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onMarkDone])
+  }, [activity.id, activity.updatedAt, markingDone, onMarkDone])
 
   return (
     <div
-      className={`py-2.5 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/40 transition-colors' : ''}`}
+      className={`@container py-2.5 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/40 transition-colors' : ''}`}
       onClick={() => onEdit?.(activity)}
       role={onEdit ? 'button' : undefined}
       tabIndex={onEdit ? 0 : undefined}
       onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
     >
-      <div className="grid items-start gap-3" style={{ gridTemplateColumns: '75px 32px 1fr' }}>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5 @md:flex-nowrap">
         {/* Column 1: Date */}
-        <div className="shrink-0">
-          <span className="block text-[11px] font-semibold leading-tight text-foreground">
-            {formatRelativeDate(dateStr, t)}
+        <div className="flex basis-full items-baseline gap-1.5 @md:block @md:w-19 @md:shrink-0 @md:basis-auto">
+          <span className="block text-xs font-semibold leading-tight text-foreground">
+            {dateStr ? formatRelativeDate(dateStr, t) : t('customers.timeline.date.unknown', 'Unknown date')}
           </span>
-          <span className="block text-[10px] leading-tight text-muted-foreground">
-            {formatTime(dateStr)}
+          <span className="block text-xs leading-tight text-muted-foreground">
+            {dateStr ? formatTime(dateStr) : null}
           </span>
         </div>
 
@@ -123,11 +126,23 @@ function TimelineEntry({
         </div>
 
         {/* Column 3: Content */}
-        <div className="min-w-0 space-y-1.5">
-          <div className="flex items-start justify-between gap-2">
-            <span className="block text-[12px] font-semibold leading-tight text-foreground">
-              {title}{duration}
-            </span>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-start justify-end gap-2">
+            <div className="flex min-w-32 flex-1 flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  'block text-xs font-semibold leading-tight',
+                  isCanceled ? 'text-muted-foreground line-through' : 'text-foreground',
+                )}
+              >
+                {title}{duration}
+              </span>
+              {isCanceled ? (
+                <StatusBadge variant="neutral" className="shrink-0">
+                  {t('customers.interactions.status.canceled', 'Canceled')}
+                </StatusBadge>
+              ) : null}
+            </div>
             {isOpen && onMarkDone ? (
               <Button
                 type="button"

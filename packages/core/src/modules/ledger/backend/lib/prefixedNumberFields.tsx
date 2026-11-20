@@ -4,12 +4,14 @@ import * as React from 'react'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
-import { ACCOUNT_NUMBER_MAX_LENGTH, reprefixNumber } from '../../lib/accountNumbering'
+import { ACCOUNT_NUMBER_MAX_LENGTH, PL_JURISDICTION, reprefixNumber } from '../../lib/accountNumbering'
 
 // Number inputs for the PL numbering rule (lib/accountNumbering.ts): the
 // group's digit (type) or the type's number (account) is shown as a fixed
-// prefix and the user types only the ending. The backend enforces the same
-// rule whatever the form sends — this is convenience, not the control.
+// prefix and the user types only the ending. The rule binds only groups of
+// the Polish chart; any other group leaves the input free. The backend
+// enforces the same rule whatever the form sends — this is convenience, not
+// the control.
 
 function PrefixedInput({
   id,
@@ -84,12 +86,13 @@ export function TypeNumberField(props: CrudCustomFieldRenderProps) {
       setGroupCode(null)
       return
     }
-    apiCall<{ items?: Array<{ code?: string }> }>(`/api/ledger/account-groups?ids=${encodeURIComponent(groupId)}`, undefined, {
+    apiCall<{ items?: Array<{ code?: string; jurisdiction?: string }> }>(`/api/ledger/account-groups?ids=${encodeURIComponent(groupId)}`, undefined, {
       fallback: { items: [] },
     })
       .then((response) => {
         if (cancelled) return
-        const code = response.result?.items?.[0]?.code
+        const group = response.result?.items?.[0]
+        const code = group?.jurisdiction === PL_JURISDICTION ? group.code : null
         setGroupCode(typeof code === 'string' && code.length ? code : null)
       })
       .catch(() => {
@@ -124,15 +127,25 @@ export function AccountNumberField(props: CrudCustomFieldRenderProps) {
       setTypeNumber(null)
       return
     }
-    apiCall<{ items?: Array<{ number?: string; accountGroupId?: string | null }> }>(
+    const typeRequest = apiCall<{ items?: Array<{ number?: string; accountGroupId?: string | null }> }>(
       `/api/ledger/account-types?id=${encodeURIComponent(typeId)}`,
       undefined,
       { fallback: { items: [] } },
     )
-      .then((response) => {
-        if (cancelled) return
+    typeRequest
+      .then(async (response) => {
         const item = response.result?.items?.[0]
-        setTypeNumber(item?.accountGroupId && typeof item.number === 'string' ? item.number : null)
+        if (!item?.accountGroupId || typeof item.number !== 'string') return null
+        // The type's number is a prefix only inside a Polish group.
+        const group = await apiCall<{ items?: Array<{ jurisdiction?: string }> }>(
+          `/api/ledger/account-groups?ids=${encodeURIComponent(item.accountGroupId)}`,
+          undefined,
+          { fallback: { items: [] } },
+        )
+        return group.result?.items?.[0]?.jurisdiction === PL_JURISDICTION ? item.number : null
+      })
+      .then((number) => {
+        if (!cancelled) setTypeNumber(number)
       })
       .catch(() => {
         if (!cancelled) setTypeNumber(null)

@@ -5,9 +5,10 @@ import {
   registerCommandLoaders,
   CommandBus,
   isCommandInterceptorError,
+  withAuditCorrelation,
 } from '@open-mercato/shared/lib/commands'
 import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
-import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'
+import type { CommandInterceptor, CommandInterceptorContext } from '@open-mercato/shared/lib/commands/command-interceptor'
 
 describe('CommandBus', () => {
   afterEach(() => {
@@ -296,6 +297,57 @@ describe('CommandBus', () => {
     )
   })
 
+  it('defers opted-in before snapshots until after the transactional write guard', async () => {
+    const calls: string[] = []
+    const transactionalEm = { id: 'transaction-em' }
+    const buildLogMock = jest.fn(() => ({
+      actionLabel: 'Transaction snapshot',
+      resourceKind: 'test',
+      resourceId: 'transactional',
+    }))
+    const prepare = jest.fn(async (_input, ctx) => {
+      calls.push('prepare')
+      expect(ctx.transactionalEm).toBe(transactionalEm)
+      return { before: { state: 'locked-before' } }
+    })
+
+    registerCommand({
+      id: 'test.command.transactional-snapshot',
+      prepare,
+      prepareSnapshotInsideTransaction: true,
+      execute: jest.fn(async (_input, ctx) => {
+        calls.push('execute')
+        await ctx.beforeTransactionalWrite?.(transactionalEm as never)
+        calls.push('mutate')
+        return { ok: true }
+      }),
+      buildLog: buildLogMock,
+    })
+
+    const logMock = jest.fn(async () => ({ id: 'transaction-log' }))
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-transaction', tenantId: 'tenant-transaction', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+      beforeTransactionalWrite: jest.fn(async () => {
+        calls.push('lock')
+      }),
+    }
+
+    await bus.execute('test.command.transactional-snapshot', { input: {}, ctx })
+
+    expect(calls).toEqual(['execute', 'lock', 'prepare', 'mutate'])
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(buildLogMock).toHaveBeenCalledWith(expect.objectContaining({
+      snapshots: { before: { state: 'locked-before' }, after: undefined },
+    }))
+  })
+
   it('loads a command file lazily before execution', async () => {
     const execute = jest.fn(async () => ({ ok: true }))
     registerCommandLoaders([
@@ -510,6 +562,109 @@ describe('CommandBus', () => {
     )
   })
 
+  describe('auditCorrelation', () => {
+    async function runWithCorrelation(
+      commandId: string,
+      auditCorrelation: Record<string, unknown> | undefined,
+      metadataContext?: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> {
+      const logMock = jest.fn(async () => ({ id: 'log-correlation' }))
+      registerCommand({
+        id: commandId,
+        execute: jest.fn(async () => ({ ok: true })),
+        buildLog: jest.fn(() => ({ actionLabel: 'Correlated', resourceKind: 'test', resourceId: '1' })),
+      })
+      const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+      container.register({ actionLogService: asValue({ log: logMock }) })
+      await new CommandBus().execute(commandId, {
+        input: {},
+        ctx: {
+          container,
+          auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+          organizationScope: null,
+          selectedOrganizationId: 'org-1',
+          organizationIds: ['org-1'],
+          auditCorrelation: auditCorrelation as Record<string, string> | undefined,
+        },
+        metadata: metadataContext ? { context: metadataContext } : undefined,
+      })
+      return logMock.mock.calls[0][0] as Record<string, unknown>
+    }
+
+    it('merges ctx.auditCorrelation into context.correlation', async () => {
+      const payload = await runWithCorrelation('test.correlation.merge', { agentRunId: 'run-1', proposalId: 'prop-1' })
+      expect(payload.context).toEqual({ correlation: { agentRunId: 'run-1', proposalId: 'prop-1' } })
+    })
+
+    it('keeps existing context and correlation keys instead of overwriting them', async () => {
+      const payload = await runWithCorrelation(
+        'test.correlation.no-overwrite',
+        { agentRunId: 'run-new', proposalId: 'prop-1', source: 'evil' },
+        { source: 'api', correlation: { agentRunId: 'run-existing' } },
+      )
+      expect(payload.context).toEqual({
+        source: 'api',
+        correlation: { agentRunId: 'run-existing', proposalId: 'prop-1', source: 'evil' },
+      })
+    })
+
+    it('drops non-string values and leaves the context untouched when nothing remains', async () => {
+      const payload = await runWithCorrelation(
+        'test.correlation.non-string',
+        { agentRunId: 42, nested: { id: 'x' }, empty: '' },
+        { untouched: true },
+      )
+      expect(payload.context).toEqual({ untouched: true })
+    })
+
+    it('does not replace a non-object correlation value', async () => {
+      const payload = await runWithCorrelation(
+        'test.correlation.scalar',
+        { agentRunId: 'run-1' },
+        { correlation: 'legacy' },
+      )
+      expect(payload.context).toEqual({ correlation: 'legacy' })
+    })
+
+    it('omits correlation when no auditCorrelation is provided', async () => {
+      const payload = await runWithCorrelation('test.correlation.absent', undefined)
+      expect(payload.context).toBeUndefined()
+    })
+
+    it('merges the ambient correlation when no explicit correlation is provided', async () => {
+      const payload = await withAuditCorrelation({ agentRunId: 'run-ambient' }, () =>
+        runWithCorrelation('test.correlation.ambient', undefined),
+      )
+      expect(payload.context).toEqual({ correlation: { agentRunId: 'run-ambient' } })
+    })
+
+    it('ranks existing context keys over explicit correlation over the ambient scope', async () => {
+      const payload = await withAuditCorrelation(
+        { agentRunId: 'run-ambient', proposalId: 'prop-ambient', workflowInstanceId: 'wf-ambient' },
+        () =>
+          runWithCorrelation(
+            'test.correlation.precedence',
+            { proposalId: 'prop-explicit', correlationId: 'corr-explicit' },
+            { correlation: { workflowInstanceId: 'wf-existing' } },
+          ),
+      )
+      expect(payload.context).toEqual({
+        correlation: {
+          workflowInstanceId: 'wf-existing',
+          proposalId: 'prop-explicit',
+          correlationId: 'corr-explicit',
+          agentRunId: 'run-ambient',
+        },
+      })
+    })
+
+    it('does not leak an ambient correlation into writes outside the scope', async () => {
+      await withAuditCorrelation({ agentRunId: 'run-scoped' }, async () => undefined)
+      const payload = await runWithCorrelation('test.correlation.outside-scope', undefined)
+      expect(payload.context).toBeUndefined()
+    })
+  })
+
   it('does not set onBehalfOfUserId for ordinary (non-runAs) human writes — additive default', async () => {
     const logMock = jest.fn(async () => ({ id: 'log-plain' }))
     registerCommand({
@@ -538,6 +693,54 @@ describe('CommandBus', () => {
   })
 
   describe('interceptor rejections', () => {
+    it('passes the original request to beforeExecute for preflight version checks', async () => {
+      registerCommand({ id: 'test.request-context', execute: jest.fn(async () => ({ ok: true })) })
+      const beforeExecute = jest.fn(async (_input: unknown, context: { request?: Request | null }) => {
+        expect(context.request?.headers.get('x-om-ext-optimistic-lock-expected-updated-at')).toBe('2026-09-29T11:00:00.000Z')
+        return { ok: false, status: 422 }
+      })
+      registerCommandInterceptors([{ moduleId: 'test', interceptors: [{
+        id: 'test.request-context-interceptor', targetCommand: 'test.request-context', beforeExecute,
+      }] }])
+      const request = new Request('http://localhost/test', { headers: { 'x-om-ext-optimistic-lock-expected-updated-at': '2026-09-29T11:00:00.000Z' } })
+      const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+      const bus = new CommandBus()
+      await expect(bus.execute('test.request-context', { input: {}, ctx: {
+        container,
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+        organizationScope: null,
+        selectedOrganizationId: null,
+        organizationIds: null,
+        request,
+      } })).rejects.toMatchObject({ status: 422 })
+      expect(beforeExecute).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes request and organization scope to both execution lifecycle hooks', async () => {
+      registerCommand({ id: 'test.lifecycle-context', execute: async () => ({ ok: true }) })
+      const request = new Request('http://localhost/test')
+      const organizationScope = { selectedId: 'parent', filterIds: ['parent', 'child'], allowedIds: ['parent', 'child'], tenantId: 'tenant-1' }
+      const beforeExecute = jest.fn(async (_input: unknown, context: CommandInterceptorContext) => {
+        expect(context.request).toBe(request)
+        expect(context.organizationScope).toBe(organizationScope)
+        return { ok: true }
+      })
+      const afterExecute = jest.fn(async (_input: unknown, _result: unknown, context: CommandInterceptorContext) => {
+        expect(context.request).toBe(request)
+        expect(context.organizationScope).toBe(organizationScope)
+      })
+      registerCommandInterceptors([{ moduleId: 'test', interceptors: [{
+        id: 'test.lifecycle-context-interceptor', targetCommand: 'test.lifecycle-context', beforeExecute, afterExecute,
+      }] }])
+      await new CommandBus().execute('test.lifecycle-context', { input: {}, ctx: {
+        container: createContainer({ injectionMode: InjectionMode.CLASSIC }),
+        auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'parent' },
+        organizationScope, selectedOrganizationId: 'parent', organizationIds: ['parent', 'child'], request,
+      } })
+      expect(beforeExecute).toHaveBeenCalledTimes(1)
+      expect(afterExecute).toHaveBeenCalledTimes(1)
+    })
+
     const blockingInterceptor = (result: Record<string, unknown>): CommandInterceptor => ({
       id: 'test.block',
       targetCommand: 'test.*',

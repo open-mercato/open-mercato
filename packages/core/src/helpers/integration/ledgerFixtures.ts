@@ -64,6 +64,7 @@ export async function createAccountTypeFixture(
     number: string;
     name: string;
     normalBalance: 'DEBIT' | 'CREDIT';
+    accountGroupId?: string;
   },
   opts: { headers?: Record<string, string> } = {},
 ): Promise<string> {
@@ -129,12 +130,31 @@ export type SeedJournalEntryInput = {
  * route either): every real query scopes by `organizationId`, so rows left
  * behind under a deleted organization are simply never read again.
  */
-export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promise<string> {
+export async function seedJournalEntryInDb(
+  input: SeedJournalEntryInput,
+  opts: {
+    /**
+     * Take `for share` on these account rows right after `begin`, the first thing
+     * `postJournalEntry` does with the accounts it posts to.
+     */
+    lockAccountIds?: string[];
+    /**
+     * Runs after the rows are inserted and before COMMIT, so a spec can act while a
+     * posting is in flight: its locks are held and its lines are not yet visible.
+     */
+    whileOpen?: () => Promise<void>;
+  } = {},
+): Promise<string> {
   const entryId = randomUUID();
   const sequenceNumber = input.sequenceNumber ?? Date.now();
   return withClient(async (client) => {
     await client.query('begin');
     try {
+      if (opts.lockAccountIds?.length) {
+        await client.query('select id from ledger_accounts where id = any($1::uuid[]) order by id for share', [
+          opts.lockAccountIds,
+        ]);
+      }
       await client.query(
         `insert into journal_entries
            (id, organization_id, tenant_id, sequence_number, posted_at, operation_date,
@@ -157,11 +177,15 @@ export async function seedJournalEntryInDb(input: SeedJournalEntryInput): Promis
       for (const line of input.lines) {
         await client.query(
           `insert into journal_entry_lines
-             (id, organization_id, tenant_id, journal_entry_id, account_id, debit, credit, amount_currency, contractor_snapshot)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, null)`,
-          [randomUUID(), input.organizationId, input.tenantId, entryId, line.accountId, line.debit, line.credit, '0'],
+             (id, organization_id, tenant_id, journal_entry_id, account_id, debit, credit,
+              currency_id, exchange_rate, amount_currency, contractor_snapshot)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, 1, ($6::numeric + $7::numeric), null)`,
+          // Seeded as a base-currency line (rate 1, amount = debit + credit): callers pass the
+          // organization's base currency id as `currencyId`.
+          [randomUUID(), input.organizationId, input.tenantId, entryId, line.accountId, line.debit, line.credit, input.currencyId],
         );
       }
+      await opts.whileOpen?.();
       await client.query('commit');
     } catch (err) {
       await client.query('rollback').catch(() => undefined);

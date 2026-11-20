@@ -23,6 +23,7 @@ const AI_ASSISTANT = '@open-mercato/ai-assistant'
 const SEARCH = '@open-mercato/search'
 const CHANNEL_IMAP = '@open-mercato/channel-imap'
 const CHANNEL_GMAIL = '@open-mercato/channel-gmail'
+const SCHEDULER = '@open-mercato/scheduler'
 
 const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'auth', from: CORE },
@@ -51,6 +52,11 @@ const EMPTY_MODULES: ModuleEntry[] = [
   // template's package.json, and every `OM_ATTACHMENT_*` / OCR / S3 setting defaults to
   // a working local-filestore configuration.
   { id: 'attachments', from: CORE },
+  // `auth` locks the `ApiKey` rows that reference a role whenever it writes roles or
+  // ACLs — `mercato init` included — so the `ApiKey` entity must be registered or
+  // setup aborts with "Metadata for entity ApiKey not found". Only `api_keys`
+  // registers it, so it belongs in the baseline next to `auth`.
+  { id: 'api_keys', from: CORE },
 ]
 
 export const STARTER_PRESETS: Record<string, StarterPreset> = {
@@ -101,6 +107,13 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         { id: 'communication_channels', from: CORE },
         { id: 'channel_imap', from: CHANNEL_IMAP },
         { id: 'channel_gmail', from: CHANNEL_GMAIL },
+        // `communication_channels` only polls connected mailboxes and renews Gmail push
+        // watches through schedules it registers with `schedulerService`, and it skips
+        // that registration when `scheduler` is absent — without this entry mail arrives
+        // only after a manual "Poll now" (issue #8804). `@open-mercato/scheduler` is
+        // already pinned in the template's package.json, and with the default local queue
+        // strategy `mercato server dev/start` auto-spawn the polling engine.
+        { id: 'scheduler', from: SCHEDULER },
         { id: 'ai_assistant', from: AI_ASSISTANT },
       ],
     },

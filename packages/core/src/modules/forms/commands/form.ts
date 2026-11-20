@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -17,6 +18,7 @@ import {
 import {
   FORMS_CACHE_TAGS,
   FORM_RESOURCE_KIND,
+  applyFormsUndo,
   emitForms,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -37,7 +39,11 @@ import {
 type FormUndoPayload = {
   before?: FormSnapshot | null
   after?: FormSnapshot | null
+  staleCheck?: boolean
 }
+
+const FORM_RENAME_UNDO_FIELDS = ['name', 'description', 'defaultLocale', 'supportedLocales', 'retentionDays'] as const
+const FORM_STATUS_UNDO_FIELDS = ['status', 'archivedAt'] as const
 
 // ----------------------------------------------------------------------------
 // Helpers
@@ -123,9 +129,10 @@ const createFormCommand: CommandHandler<FormCreateCommandInput, { formId: string
     return form ? serializeFormSnapshot(form) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const after = snapshots.after as FormSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form.create',
+      actionLabel: translate('forms.audit.form.create', 'Create form'),
       resourceKind: FORM_RESOURCE_KIND,
       resourceId: result.formId,
       tenantId: after?.tenantId ?? null,
@@ -240,13 +247,15 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
     const form = await em.findOne(Form, { id: result.formId })
+    if (form) await em.refresh(form)
     return form ? serializeFormSnapshot(form) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormSnapshot | undefined
     const after = snapshots.after as FormSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form.rename',
+      actionLabel: translate('forms.audit.form.rename', 'Rename form'),
       resourceKind: FORM_RESOURCE_KIND,
       resourceId: result.formId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -257,6 +266,7 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
         undo: {
           before: before ?? null,
           after: after ?? null,
+          staleCheck: true,
         } satisfies FormUndoPayload,
       },
     }
@@ -265,16 +275,22 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
     const payload = extractUndoPayload<FormUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = resolveEntityManager(ctx).fork()
-    const form = await em.findOne(Form, { id: before.id })
+    const form = await applyFormsUndo({
+      ctx,
+      entity: Form,
+      target: before,
+      expected: payload?.staleCheck ? payload.after : null,
+      fields: FORM_RENAME_UNDO_FIELDS,
+      apply: (record) => {
+        record.name = before.name
+        record.description = before.description ?? null
+        record.defaultLocale = before.defaultLocale
+        record.supportedLocales = [...before.supportedLocales]
+        record.retentionDays = before.retentionDays ?? null
+        record.updatedAt = new Date()
+      },
+    })
     if (!form) return
-    form.name = before.name
-    form.description = before.description ?? null
-    form.defaultLocale = before.defaultLocale
-    form.supportedLocales = [...before.supportedLocales]
-    form.retentionDays = before.retentionDays ?? null
-    form.updatedAt = new Date()
-    await em.flush()
     await invalidateFormsCacheTags(ctx, [
       FORMS_CACHE_TAGS.formList(form.organizationId),
       FORMS_CACHE_TAGS.form(form.id),
@@ -332,13 +348,15 @@ const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: stri
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
     const form = await em.findOne(Form, { id: result.formId })
+    if (form) await em.refresh(form)
     return form ? serializeFormSnapshot(form) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormSnapshot | undefined
     const after = snapshots.after as FormSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form.archive',
+      actionLabel: translate('forms.audit.form.archive', 'Archive form'),
       resourceKind: FORM_RESOURCE_KIND,
       resourceId: result.formId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -349,6 +367,7 @@ const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: stri
         undo: {
           before: before ?? null,
           after: after ?? null,
+          staleCheck: true,
         } satisfies FormUndoPayload,
       },
     }
@@ -357,13 +376,19 @@ const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: stri
     const payload = extractUndoPayload<FormUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = resolveEntityManager(ctx).fork()
-    const form = await em.findOne(Form, { id: before.id })
+    const form = await applyFormsUndo({
+      ctx,
+      entity: Form,
+      target: before,
+      expected: payload?.staleCheck ? payload.after : null,
+      fields: FORM_STATUS_UNDO_FIELDS,
+      apply: (record) => {
+        record.status = before.status
+        record.archivedAt = before.archivedAt ? new Date(before.archivedAt) : null
+        record.updatedAt = new Date()
+      },
+    })
     if (!form) return
-    form.status = before.status
-    form.archivedAt = before.archivedAt ? new Date(before.archivedAt) : null
-    form.updatedAt = new Date()
-    await em.flush()
     await invalidateFormsCacheTags(ctx, [
       FORMS_CACHE_TAGS.formList(form.organizationId),
       FORMS_CACHE_TAGS.form(form.id),
@@ -420,13 +445,15 @@ const restoreFormCommand: CommandHandler<FormRestoreCommandInput, { formId: stri
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
     const form = await em.findOne(Form, { id: result.formId })
+    if (form) await em.refresh(form)
     return form ? serializeFormSnapshot(form) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormSnapshot | undefined
     const after = snapshots.after as FormSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form.restore',
+      actionLabel: translate('forms.audit.form.restore', 'Restore form'),
       resourceKind: FORM_RESOURCE_KIND,
       resourceId: result.formId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -437,6 +464,7 @@ const restoreFormCommand: CommandHandler<FormRestoreCommandInput, { formId: stri
         undo: {
           before: before ?? null,
           after: after ?? null,
+          staleCheck: true,
         } satisfies FormUndoPayload,
       },
     }
@@ -445,13 +473,19 @@ const restoreFormCommand: CommandHandler<FormRestoreCommandInput, { formId: stri
     const payload = extractUndoPayload<FormUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = resolveEntityManager(ctx).fork()
-    const form = await em.findOne(Form, { id: before.id })
+    const form = await applyFormsUndo({
+      ctx,
+      entity: Form,
+      target: before,
+      expected: payload?.staleCheck ? payload.after : null,
+      fields: FORM_STATUS_UNDO_FIELDS,
+      apply: (record) => {
+        record.status = before.status
+        record.archivedAt = before.archivedAt ? new Date(before.archivedAt) : null
+        record.updatedAt = new Date()
+      },
+    })
     if (!form) return
-    form.status = before.status
-    form.archivedAt = before.archivedAt ? new Date(before.archivedAt) : null
-    form.updatedAt = new Date()
-    await em.flush()
     await invalidateFormsCacheTags(ctx, [
       FORMS_CACHE_TAGS.formList(form.organizationId),
       FORMS_CACHE_TAGS.form(form.id),

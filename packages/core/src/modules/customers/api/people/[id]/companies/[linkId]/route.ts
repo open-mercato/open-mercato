@@ -227,6 +227,9 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
+    }
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
@@ -334,6 +337,9 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
     }
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {

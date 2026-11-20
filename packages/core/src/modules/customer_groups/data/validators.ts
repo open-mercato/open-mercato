@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withDecimalCaps } from '@open-mercato/shared/lib/decimal'
 
 const uuid = () => z.string().uuid()
 
@@ -51,7 +52,6 @@ const INT4_MAX = 2147483647
 // tenant's lowest priority and adopt places placeholders 10 below it, and both must stay
 // inside `int4` or they fail as a raw overflow 500.
 const PRIORITY_MIN = -1000000000
-const NUMERIC_16_2_MAX = 99999999999999.99
 
 export const customerGroupKindValues = ['b2c', 'b2b', 'internal', 'partner'] as const
 export const customerGroupKindSchema = z.enum(customerGroupKindValues)
@@ -191,12 +191,27 @@ const clearableNonNegativeIntSchema = z.preprocess(
   z.coerce.number().int().min(0).max(INT4_MAX).nullable().optional(),
 )
 
+const moneyInputSchema = <T extends z.ZodType>(schema: T) => withDecimalCaps(schema)
+
 const clearableNonNegativeNumberSchema = z.preprocess(
   emptyStringToNull,
-  z.coerce.number().min(0).max(NUMERIC_16_2_MAX).nullable().optional(),
+  moneyInputSchema(z.coerce.number().min(0)).nullable().optional(),
 )
 
 const currencyCodeSchema = clearableStringSchema(4)
+
+export const assortmentScopeSchema = z
+  .object({
+    categoryIds: z.array(uuid()).optional(),
+    tagIds: z.array(uuid()).optional(),
+    excludeProductIds: z.array(uuid()).optional(),
+    excludeCategoryIds: z.array(uuid()).optional(),
+    excludeTagIds: z.array(uuid()).optional(),
+  })
+  .strict()
+  .nullable()
+
+export type AssortmentScopeInput = z.infer<typeof assortmentScopeSchema>
 
 // Default-free, for the same reason as `customerGroupBaseShape` above.
 const customerGroupTermsBaseShape = {
@@ -210,6 +225,7 @@ const customerGroupTermsBaseShape = {
   creditCurrencyCode: currencyCodeSchema,
   approvalRequiredAbove: clearableNonNegativeNumberSchema,
   minOrderValue: clearableNonNegativeNumberSchema,
+  assortmentScope: assortmentScopeSchema.optional(),
   metadata: clearableMetadataSchema,
 }
 

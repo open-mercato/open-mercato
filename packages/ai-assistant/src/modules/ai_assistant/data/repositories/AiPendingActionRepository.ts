@@ -1,13 +1,17 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import {
+  findAndCountWithDecryption,
   findOneWithDecryption,
   findWithDecryption,
 } from '@open-mercato/shared/lib/encryption/find'
 import { AiPendingAction } from '../entities'
 import {
   AI_PENDING_ACTION_ALLOWED_TRANSITIONS,
+  AI_RAW_TOOL_AGENT_ID,
   AiPendingActionStateError,
   resolveAiPendingActionTtlSeconds,
+  type AiPendingActionChannel,
   type AiPendingActionExecutionResult,
   type AiPendingActionFailedRecord,
   type AiPendingActionFieldDiff,
@@ -37,13 +41,70 @@ export interface AiPendingActionCreateInput {
   recordVersion?: string | null
   attachmentIds?: string[]
   queueMode?: AiPendingActionQueueMode
+  channel?: AiPendingActionChannel
+  apiKeyId?: string | null
+  correlationId?: string | null
   /** Optional explicit TTL in seconds; overrides the env/default TTL. */
   ttlSeconds?: number
   /** Optional explicit `now` for deterministic tests. */
   now?: Date
 }
 
+export interface AiPendingActionCreateResult {
+  row: AiPendingAction
+  /**
+   * True when `row` is an existing row returned as-is (a still-`pending`
+   * row, or a `confirmed`/`executing` row whose mutation already ran) —
+   * i.e. no new row was inserted.
+   */
+  reused: boolean
+}
+
+export interface AiPendingActionCreateOutcome {
+  row: AiPendingAction
+  created: boolean
+}
+
+export interface AiPendingActionApproverScope {
+  tenantId: string
+  organizationId?: string | null
+}
+
+export interface AiPendingActionViewer {
+  userId: string
+  canApproveAny: boolean
+}
+
+export interface AiPendingActionListFilters {
+  status?: AiPendingActionStatus
+  channel?: AiPendingActionChannel
+  toolName?: string
+  mine?: boolean
+}
+
+export interface AiPendingActionListPage {
+  page: number
+  pageSize: number
+}
+
+export interface AiPendingActionListResult {
+  items: AiPendingAction[]
+  total: number
+}
+
+const AI_PENDING_ACTION_LIST_MAX_PAGE_SIZE = 100
+
+export function canViewerAccessPendingAction(
+  row: Pick<AiPendingAction, 'createdByUserId' | 'channel'>,
+  viewer: AiPendingActionViewer,
+): boolean {
+  if (!viewer?.userId) return false
+  if (row.createdByUserId === viewer.userId) return true
+  return (row.channel ?? 'agent') !== 'agent' && viewer.canApproveAny === true
+}
+
 export interface AiPendingActionSetStatusExtra {
+  expectedStatus?: AiPendingActionStatus
   resolvedByUserId?: string | null
   executionResult?: AiPendingActionExecutionResult | null
   failedRecords?: AiPendingActionFailedRecord[] | null
@@ -59,7 +120,14 @@ export interface AiPendingActionSetStatusExtra {
  *   idempotency within the window (same `idempotencyKey` returns the same
  *   row as long as it is still `pending`; any terminal state mints a new row).
  * - Tenant-scoped lookups for the confirm/cancel/reconnect routes and the
- *   in-app UI's "open actions" list.
+ *   in-app UI's "open actions" list. `getById`, `listPendingForAgent` and
+ *   `setStatus` are also owner-scoped: they match the row's
+ *   `createdByUserId` against `ctx.userId`, so only the proposing user can
+ *   read or resolve it. `setStatus` exempts non-`agent` channel rows (MCP,
+ *   tools-api), which an approver resolves under their own identity after
+ *   `getByIdForApprover` has authorized them. System callers (the expiry sweeper) pass
+ *   `userId: null` to skip the owner filter; a missing or non-UUID
+ *   `userId` (for example an API-key subject) matches no row.
  * - State-machine enforcement: `setStatus` rejects illegal transitions via
  *   {@link AiPendingActionStateError}. The runtime callers translate this
  *   to a 409 Conflict response.
@@ -76,7 +144,7 @@ export class AiPendingActionRepository {
   async create(
     input: AiPendingActionCreateInput,
     ctx: AiPendingActionContext,
-  ): Promise<AiPendingAction> {
+  ): Promise<AiPendingActionCreateResult> {
     if (!ctx?.tenantId) {
       throw new Error('AiPendingActionRepository.create requires tenantId')
     }
@@ -124,24 +192,52 @@ export class AiPendingActionRepository {
         },
       )
       if (existing && existing.status === 'pending') {
-        return existing
+        return { row: existing, reused: true }
       }
-      // Terminal stale row would collide on the unique
-      // `(tenantId, organizationId, idempotencyKey)` constraint when we
-      // try to insert a fresh one with the same hash — and that exact
-      // collision happens whenever the operator clicks "Fix with AI"
-      // and the model retries the SAME tool with the SAME args. Remove
-      // the stale row first so a retry can always proceed; success rows
-      // stay (they represent a real, applied change), and failed /
-      // cancelled / expired rows are cleared because they're blocking
-      // exactly the recovery flow they were created to enable.
+      // A `confirmed`/`executing` row represents a mutation that already
+      // ran (or is running). Inserting a fresh row with the same key would
+      // collide with the unique `(tenantId, organizationId,
+      // idempotencyKey)` index — this happens whenever the model repeats
+      // the same tool call with the same arguments after it already
+      // succeeded. Return the existing row instead of inserting; the
+      // caller (`prepareMutation`) uses `reused` to tell the model the
+      // operation already ran rather than re-queuing it.
+      //
+      // This only holds within the row's own dedupe/TTL window
+      // (`now < expiresAt`, per the spec's "within the TTL" dedupe
+      // promise). Outside it, treat the row as stale: a legitimate repeat
+      // of the same arguments later on would otherwise be refused forever,
+      // and a process that died mid-execution would leave every retry
+      // stuck reading a dead `executing` row.
+      const isRawToolRow =
+        (input.channel ?? 'agent') !== 'agent' && input.agentId === AI_RAW_TOOL_AGENT_ID
+      if (
+        existing &&
+        !isRawToolRow &&
+        (existing.status === 'confirmed' || existing.status === 'executing') &&
+        now.getTime() < existing.expiresAt.getTime()
+      ) {
+        return { row: existing, reused: true }
+      }
+      // A terminal (`failed`/`cancelled`/`expired`) row, or a stale
+      // `confirmed`/`executing` row past its dedupe window, would also
+      // collide on the same unique index when we insert a fresh one with
+      // the same key — which happens whenever the operator clicks "Fix
+      // with AI" and the model retries the SAME tool with the SAME args,
+      // or simply repeats the same arguments later. Re-key the stale row
+      // (instead of deleting it) so a retry can always proceed: the stale
+      // row's own card keeps resolving to its terminal/prior state via a
+      // GET by id, rather than 404ing.
       if (
         existing &&
         (existing.status === 'failed' ||
           existing.status === 'cancelled' ||
-          existing.status === 'expired')
+          existing.status === 'expired' ||
+          existing.status === 'confirmed' ||
+          existing.status === 'executing')
       ) {
-        await tx.remove(existing).flush()
+        existing.idempotencyKey = `${existing.idempotencyKey}:superseded:${existing.id}`
+        await tx.persist(existing).flush()
       }
       const row = tx.create(AiPendingAction, {
         tenantId: ctx.tenantId,
@@ -164,6 +260,9 @@ export class AiPendingActionRepository {
         createdByUserId: input.createdByUserId,
         status: 'pending' as AiPendingActionStatus,
         queueMode: (input.queueMode ?? 'inline') as AiPendingActionQueueMode,
+        channel: input.channel ?? 'agent',
+        apiKeyId: input.apiKeyId ?? null,
+        correlationId: input.correlationId ?? null,
         executionResult: null,
         createdAt: now,
         expiresAt,
@@ -171,8 +270,16 @@ export class AiPendingActionRepository {
         resolvedByUserId: null,
       } as unknown as AiPendingAction)
       await tx.persist(row).flush()
-      return row
+      return { row, reused: false }
     })
+  }
+
+  async createOrReuse(
+    input: AiPendingActionCreateInput,
+    ctx: AiPendingActionContext,
+  ): Promise<AiPendingActionCreateOutcome> {
+    const { row, reused } = await this.create(input, ctx)
+    return { row, created: !reused }
   }
 
   async getById(
@@ -180,6 +287,8 @@ export class AiPendingActionRepository {
     ctx: AiPendingActionContext,
   ): Promise<AiPendingAction | null> {
     if (!id || !ctx?.tenantId) return null
+    const owner = resolveOwnerScope(ctx)
+    if (!owner) return null
     const row = await findOneWithDecryption<AiPendingAction>(
       this.em,
       AiPendingAction,
@@ -187,8 +296,9 @@ export class AiPendingActionRepository {
         id,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
+        ...owner,
       } as any,
-      {},
+      { refresh: true },
       {
         tenantId: ctx.tenantId ?? null,
         organizationId: ctx.organizationId ?? null,
@@ -197,12 +307,68 @@ export class AiPendingActionRepository {
     return row ?? null
   }
 
+  async getByIdForApprover(
+    id: string,
+    scope: AiPendingActionApproverScope,
+    viewer: AiPendingActionViewer,
+  ): Promise<AiPendingAction | null> {
+    const row = await this.getById(id, { ...scope, userId: null })
+    if (!row) return null
+    return canViewerAccessPendingAction(row, viewer) ? row : null
+  }
+
+  async listForCaller(
+    scope: AiPendingActionApproverScope,
+    viewer: AiPendingActionViewer,
+    filters: AiPendingActionListFilters,
+    page: AiPendingActionListPage,
+  ): Promise<AiPendingActionListResult> {
+    if (!scope?.tenantId || !viewer?.userId) return { items: [], total: 0 }
+    const pageSize = Math.max(
+      1,
+      Math.min(Math.floor(page?.pageSize || 1), AI_PENDING_ACTION_LIST_MAX_PAGE_SIZE),
+    )
+    const pageNumber = Math.max(1, Math.floor(page?.page || 1))
+    const where: Record<string, unknown> = {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+    }
+    if (filters?.status) where.status = filters.status
+    if (filters?.channel) where.channel = filters.channel
+    if (filters?.toolName) where.toolName = filters.toolName
+    if (filters?.mine || !viewer.canApproveAny) {
+      where.createdByUserId = viewer.userId
+    } else {
+      where.$or = [
+        { createdByUserId: viewer.userId },
+        { channel: { $ne: 'agent' } },
+      ]
+    }
+    const [items, total] = await findAndCountWithDecryption<AiPendingAction>(
+      this.em,
+      AiPendingAction,
+      where as FilterQuery<AiPendingAction>,
+      {
+        orderBy: { createdAt: 'desc' },
+        limit: pageSize,
+        offset: (pageNumber - 1) * pageSize,
+      },
+      {
+        tenantId: scope.tenantId ?? null,
+        organizationId: scope.organizationId ?? null,
+      },
+    )
+    return { items, total }
+  }
+
   async listPendingForAgent(
     agentId: string,
     ctx: AiPendingActionContext,
     limit: number = 50,
   ): Promise<AiPendingAction[]> {
     if (!agentId || !ctx?.tenantId) return []
+    const owner = resolveOwnerScope(ctx)
+    if (!owner) return []
     const capped = Math.max(1, Math.min(Math.floor(limit), 200))
     const rows = await findWithDecryption<AiPendingAction>(
       this.em,
@@ -212,6 +378,7 @@ export class AiPendingActionRepository {
         organizationId: ctx.organizationId ?? null,
         agentId,
         status: 'pending',
+        ...owner,
       } as any,
       {
         orderBy: { createdAt: 'desc' } as any,
@@ -237,23 +404,30 @@ export class AiPendingActionRepository {
     if (!id) {
       throw new Error('AiPendingActionRepository.setStatus requires id')
     }
+    const owner = resolveStatusOwnerScope(ctx)
     return this.em.transactional(async (tx) => {
-      const existing = await findOneWithDecryption<AiPendingAction>(
-        tx as unknown as EntityManager,
-        AiPendingAction,
-        {
-          id,
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId ?? null,
-        } as any,
-        {},
-        {
-          tenantId: ctx.tenantId ?? null,
-          organizationId: ctx.organizationId ?? null,
-        },
-      )
+      const existing = owner
+        ? await findOneWithDecryption<AiPendingAction>(
+            tx as unknown as EntityManager,
+            AiPendingAction,
+            {
+              id,
+              tenantId: ctx.tenantId,
+              organizationId: ctx.organizationId ?? null,
+              ...owner,
+            } as any,
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            {
+              tenantId: ctx.tenantId ?? null,
+              organizationId: ctx.organizationId ?? null,
+            },
+          )
+        : null
       if (!existing) {
         throw new Error(`AiPendingAction not found: ${id}`)
+      }
+      if (extra?.expectedStatus && existing.status !== extra.expectedStatus) {
+        throw new AiPendingActionStateError(existing.status, nextStatus)
       }
       if (existing.status === nextStatus) {
         return existing
@@ -315,6 +489,22 @@ export class AiPendingActionRepository {
     )
     return rows
   }
+}
+
+const OWNER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function resolveOwnerScope(ctx: AiPendingActionContext): { createdByUserId?: string } | null {
+  if (ctx.userId === null) return {}
+  if (typeof ctx.userId === 'string' && OWNER_ID_PATTERN.test(ctx.userId)) {
+    return { createdByUserId: ctx.userId }
+  }
+  return null
+}
+
+function resolveStatusOwnerScope(ctx: AiPendingActionContext): Record<string, unknown> | null {
+  const owner = resolveOwnerScope(ctx)
+  if (!owner || !owner.createdByUserId) return owner
+  return { $or: [{ createdByUserId: owner.createdByUserId }, { channel: { $ne: 'agent' } }] }
 }
 
 function normalizeRecords(

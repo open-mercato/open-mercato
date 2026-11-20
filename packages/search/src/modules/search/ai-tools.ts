@@ -3,6 +3,7 @@ import type {
   SearchEntityConfig,
   SearchResult,
   SearchStrategyId,
+  SearchViewer,
 } from '@open-mercato/shared/modules/search'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import {
@@ -10,6 +11,13 @@ import {
   resolveReadableEntityTypes,
   type SearchEntityConfigLookup,
 } from './lib/entity-access'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AwilixContainer } from 'awilix'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const searchToolsLogger = createLogger('search.ai-tools')
 
 /**
  * AI Tools definitions for the Search module.
@@ -37,6 +45,7 @@ type ToolContext = {
   }
   userFeatures: string[]
   isSuperAdmin: boolean
+  apiKeyId?: string | null
 }
 
 /**
@@ -113,6 +122,110 @@ function authorizeEntityAccess(entityType: string, ctx: ToolContext): SearchEnti
 }
 
 /**
+ * Resolve the actor's allowed-organization scope the same way the HTTP search
+ * route does, so AI search tools can never return results outside a
+ * restricted user's organization allowlist — even when their current
+ * organization is null. Mirrors packages/search/.../api/search/route.ts.
+ *
+ * `organizationId` is the re-validated selection (`scope.selectedId`), not the
+ * raw `ctx.organizationId` — `SearchOptions.organizationId` takes precedence
+ * over `organizationIds` in `normalizeOrganizationFilter`, so passing the
+ * unvalidated context value through would let a stale/out-of-allowlist
+ * selection bypass the allowlist below.
+ */
+async function resolveActorOrganizationScope(ctx: ToolContext): Promise<{
+  organizationId: string | undefined
+  organizationIds: string[] | undefined
+  denyAll: boolean
+}> {
+  if (!ctx.userId) return { organizationId: undefined, organizationIds: undefined, denyAll: true }
+  const auth: AuthContext = {
+    sub: ctx.userId,
+    tenantId: ctx.tenantId,
+    orgId: ctx.organizationId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  }
+  const scope = await resolveOrganizationScopeForRequest({
+    container: ctx.container as unknown as AwilixContainer,
+    auth,
+    selectedId: ctx.organizationId,
+  })
+  const scopeFilter = resolveOrganizationScopeFilter(scope, auth)
+  const denyAll = Array.isArray(scope.filterIds) && scope.filterIds.length === 0
+  const organizationId = typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0
+    ? scope.selectedId.trim()
+    : undefined
+  return { organizationId, organizationIds: scopeFilter.organizationIds, denyAll }
+}
+
+/**
+ * The caller the search runs for, so entities with a per-record `filterResults`
+ * hook (e.g. document sections) apply their own open rule instead of dropping
+ * every hit. An API-key caller is the key itself (`api_key:<id>`, no user), so
+ * owner checks see the key's own ACL rather than its creator's.
+ */
+function buildSearchViewer(ctx: ToolContext, organizationId: string | undefined): SearchViewer | undefined {
+  if (!ctx.userId || !ctx.tenantId) return undefined
+  const apiKeyId = typeof ctx.apiKeyId === 'string' && ctx.apiKeyId.length > 0 ? ctx.apiKeyId : null
+  return {
+    auth: {
+      sub: apiKeyId ? `api_key:${apiKeyId}` : ctx.userId,
+      tenantId: ctx.tenantId,
+      orgId: organizationId ?? null,
+      features: [...ctx.userFeatures],
+      isSuperAdmin: ctx.isSuperAdmin === true,
+      ...(apiKeyId ? { isApiKey: true, keyId: apiKeyId } : { userId: ctx.userId }),
+    },
+    container: ctx.container,
+  }
+}
+
+/**
+ * Apply an entity's per-record `filterResults` hook to records a data-returning
+ * tool reads directly through the query engine. Entities without the hook keep
+ * every record; with the hook, a missing viewer or a throw keeps none.
+ */
+async function filterRecordsByVisibility<TRecord extends Record<string, unknown>>(
+  entityType: string,
+  records: TRecord[],
+  config: SearchEntityConfig,
+  ctx: ToolContext,
+  organizationId: string | undefined,
+  organizationIds: string[] | null | undefined,
+): Promise<TRecord[]> {
+  const filterResults = config.filterResults
+  if (!filterResults || records.length === 0) return records
+  const viewer = buildSearchViewer(ctx, organizationId)
+  if (!viewer || !ctx.tenantId) return []
+  const candidates: Array<{ record: TRecord; result: SearchResult }> = []
+  for (const record of records) {
+    const recordId = typeof record.id === 'string' ? record.id : null
+    if (!recordId) continue
+    candidates.push({ record, result: { entityId: entityType, recordId, score: 1, source: 'tokens' } })
+  }
+  if (!candidates.length) return []
+  try {
+    const visible = new Set(
+      await filterResults({
+        entityId: entityType,
+        results: candidates.map((candidate) => candidate.result),
+        tenantId: ctx.tenantId,
+        organizationId: organizationId ?? null,
+        organizationIds: organizationIds ?? null,
+        viewer,
+      }),
+    )
+    return candidates.filter((candidate) => visible.has(candidate.result)).map((candidate) => candidate.record)
+  } catch (error) {
+    searchToolsLogger.warn('Result visibility filter failed; returning no records', {
+      entityType,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return []
+  }
+}
+
+/**
  * Strip fields that the entity's field policy marks as sensitive
  * (`hashOnly` exact-match PII or fully `excluded`) from a query-engine record.
  * Defense-in-depth so even an authorized caller never receives decrypted PII or
@@ -129,7 +242,8 @@ function stripSensitiveFields(
   if (sensitive.size === 0) return record
   const safe: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(record)) {
-    if (sensitive.has(key)) continue
+    const fieldName = key.replace(/^cf[:_]/, '')
+    if (sensitive.has(key) || sensitive.has(fieldName)) continue
     safe[key] = value
   }
   return safe
@@ -202,12 +316,19 @@ Searches customers, products, orders, deals, and more in one call.`,
       return { query: input.query, totalResults: 0, results: [] }
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return { query: input.query, totalResults: 0, results: [] }
+    }
+
     const rawResults = await searchService.search(input.query, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       entityTypes: readableEntityTypes,
       strategies: input.strategies as SearchStrategyId[],
       limit: input.limit,
+      viewer: buildSearchViewer(ctx, orgScope.organizationId),
     })
 
     const results = filterSearchResultsByEntityAccess(rawResults, searchIndexer, subject)
@@ -287,19 +408,37 @@ const searchGetTool: AiToolDefinition = {
 
     const entityConfig = authorizeEntityAccess(input.entityType, ctx)
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        found: false,
+        entityType: input.entityType,
+        recordId: input.recordId,
+        error: 'Record not found',
+      }
+    }
+
     const queryEngine = ctx.container.resolve<{
       query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
     }>('queryEngine')
 
     const result = await queryEngine.query(input.entityType, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       filters: { id: input.recordId },
       includeCustomFields: true,
       page: { page: 1, pageSize: 1 },
     })
 
-    const rawRecord = result.items[0] as Record<string, unknown> | undefined
+    const [rawRecord] = await filterRecordsByVisibility(
+      input.entityType,
+      result.items.slice(0, 1) as Record<string, unknown>[],
+      entityConfig,
+      ctx,
+      orgScope.organizationId,
+      orgScope.organizationIds,
+    )
     if (!rawRecord) {
       return {
         found: false,
@@ -457,6 +596,16 @@ const searchAggregateTool: AiToolDefinition = {
       )
     }
 
+    const orgScope = await resolveActorOrganizationScope(ctx)
+    if (orgScope.denyAll) {
+      return {
+        entityType: input.entityType,
+        groupBy: input.groupBy,
+        total: 0,
+        buckets: [],
+      }
+    }
+
     const queryEngine = ctx.container.resolve<{
       query: (entityId: string, options: any) => Promise<{ items: unknown[]; total: number }>
     }>('queryEngine')
@@ -465,18 +614,27 @@ const searchAggregateTool: AiToolDefinition = {
     // Note: For large datasets, this should use database GROUP BY
     const result = await queryEngine.query(input.entityType, {
       tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+      organizationId: orgScope.organizationId,
+      organizationIds: orgScope.organizationIds,
       page: { page: 1, pageSize: 100 },
     })
 
+    const items = await filterRecordsByVisibility(
+      input.entityType,
+      result.items as Record<string, unknown>[],
+      entityConfig,
+      ctx,
+      orgScope.organizationId,
+      orgScope.organizationIds,
+    )
     const counts = new Map<string | null, number>()
-    for (const item of result.items as Record<string, unknown>[]) {
+    for (const item of items) {
       const value = item[input.groupBy]
       const key = value === null || value === undefined ? null : String(value)
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
 
-    const total = result.items.length
+    const total = items.length
     const buckets = Array.from(counts.entries())
       .map(([value, count]) => ({
         value,
@@ -515,7 +673,9 @@ const searchReindexTool: AiToolDefinition = {
       .boolean()
       .optional()
       .default(false)
-      .describe('Whether to recreate the index from scratch (default: false)'),
+      .describe(
+        'Fulltext only: whether to clear the reindexed documents first (the given entity type, within the current organization when one is set); reindexing all entities with no organization recreates the whole index (default: false)'
+      ),
   }),
   requiredFeatures: ['search.reindex'],
   // Reindex changes server-side index state — must surface as a write so

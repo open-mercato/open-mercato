@@ -1,5 +1,5 @@
 /**
- * PL account-numbering rules (PR #5663 review, rules 3 and 4).
+ * PL account-numbering rules.
  *
  * Applied in the commands, not only in the forms, so the backend rejects a
  * mismatch whatever the UI sends. They bind only types whose group belongs
@@ -50,15 +50,19 @@ export function accountNumberFitsType(accountNumber: string, typeNumber: string,
  * it is still loading or when there is none).
  *
  * Keeps the ending the user typed and swaps the prefix. When the prefix only
- * just became known (`previous` is `null`) and the value already starts with
- * it — an edit form that loaded `406` before the group code `4` arrived —
- * the value is left alone; prefixing it again would turn `406` into `4406`.
+ * just became known (`previous` is `null`) a non-empty value is left alone:
+ * an edit form that loaded `406` or `999` before the group code arrived must
+ * not have its stored number rewritten (`406` → `4406`, `999` → `4999`).
+ * Only an empty field takes the new prefix.
  */
 export function reprefixNumber(current: string, previous: string | null, next: string | null): string {
   if (previous === next) return current
-  const carriesPrevious = !!previous && current.startsWith(previous)
-  if (!previous && next && current.startsWith(next)) return current
-  const ending = carriesPrevious ? current.slice((previous as string).length) : current
+  // The prefix only just became known: this is the form finishing its load
+  // (or the first group/type pick on a new form), not a change the user made.
+  // A stored value is never rewritten — only an empty field takes the prefix.
+  if (!previous) return current === '' && next ? next : current
+  const carriesPrevious = current.startsWith(previous)
+  const ending = carriesPrevious ? current.slice(previous.length) : current
   if (next) return `${next}${ending}`
   return carriesPrevious ? ending : current
 }

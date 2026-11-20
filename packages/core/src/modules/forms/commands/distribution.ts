@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -15,6 +16,7 @@ import {
 import { generatePublicSlug } from '../services/distribution-token'
 import {
   FORMS_CACHE_TAGS,
+  applyFormsUndo,
   emitForms,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -58,7 +60,14 @@ export type FormDistributionSnapshot = {
 type FormDistributionUndoPayload = {
   before?: FormDistributionSnapshot | null
   after?: FormDistributionSnapshot | null
+  staleCheck?: boolean
 }
+
+const DISTRIBUTION_UPDATE_UNDO_FIELDS = [
+  'status', 'title', 'maxResponses', 'opensAt', 'closesAt', 'redirectUrl',
+  'allowMultipleSubmissions', 'requireCustomerAuth', 'settings',
+] as const
+const DISTRIBUTION_CLOSE_UNDO_FIELDS = ['status'] as const
 
 export function serializeDistributionSnapshot(distribution: FormDistribution): FormDistributionSnapshot {
   return {
@@ -227,9 +236,10 @@ const createDistributionCommand: CommandHandler<FormDistributionCreateCommandInp
     return distribution ? serializeDistributionSnapshot(distribution) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const after = snapshots.after as FormDistributionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.distribution.create',
+      actionLabel: translate('forms.audit.distribution.create', 'Create distribution'),
       resourceKind: FORM_DISTRIBUTION_RESOURCE_KIND,
       resourceId: result.distributionId,
       tenantId: after?.tenantId ?? null,
@@ -359,13 +369,15 @@ const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInp
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
     const distribution = await em.findOne(FormDistribution, { id: result.distributionId })
+    if (distribution) await em.refresh(distribution)
     return distribution ? serializeDistributionSnapshot(distribution) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormDistributionSnapshot | undefined
     const after = snapshots.after as FormDistributionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.distribution.update',
+      actionLabel: translate('forms.audit.distribution.update', 'Update distribution'),
       resourceKind: FORM_DISTRIBUTION_RESOURCE_KIND,
       resourceId: result.distributionId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -373,7 +385,11 @@ const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInp
       snapshotBefore: before ?? null,
       snapshotAfter: after ?? null,
       payload: {
-        undo: { before: before ?? null, after: after ?? null } satisfies FormDistributionUndoPayload,
+        undo: {
+          before: before ?? null,
+          after: after ?? null,
+          staleCheck: true,
+        } satisfies FormDistributionUndoPayload,
       },
     }
   },
@@ -381,20 +397,26 @@ const updateDistributionCommand: CommandHandler<FormDistributionUpdateCommandInp
     const payload = extractUndoPayload<FormDistributionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = resolveEntityManager(ctx).fork()
-    const distribution = await em.findOne(FormDistribution, { id: before.id })
+    const distribution = await applyFormsUndo({
+      ctx,
+      entity: FormDistribution,
+      target: before,
+      expected: payload?.staleCheck ? payload.after : null,
+      fields: DISTRIBUTION_UPDATE_UNDO_FIELDS,
+      apply: (record) => {
+        record.status = before.status
+        record.title = before.title
+        record.maxResponses = before.maxResponses
+        record.opensAt = before.opensAt ? new Date(before.opensAt) : null
+        record.closesAt = before.closesAt ? new Date(before.closesAt) : null
+        record.redirectUrl = before.redirectUrl
+        record.allowMultipleSubmissions = before.allowMultipleSubmissions
+        record.requireCustomerAuth = before.requireCustomerAuth
+        record.settings = before.settings
+        record.updatedAt = new Date()
+      },
+    })
     if (!distribution) return
-    distribution.status = before.status
-    distribution.title = before.title
-    distribution.maxResponses = before.maxResponses
-    distribution.opensAt = before.opensAt ? new Date(before.opensAt) : null
-    distribution.closesAt = before.closesAt ? new Date(before.closesAt) : null
-    distribution.redirectUrl = before.redirectUrl
-    distribution.allowMultipleSubmissions = before.allowMultipleSubmissions
-    distribution.requireCustomerAuth = before.requireCustomerAuth
-    distribution.settings = before.settings
-    distribution.updatedAt = new Date()
-    await em.flush()
     await invalidateFormsCacheTags(ctx, [
       DISTRIBUTION_CACHE_TAGS.distribution(distribution.id),
       DISTRIBUTION_CACHE_TAGS.distributionList(distribution.formId),
@@ -455,13 +477,15 @@ const closeDistributionCommand: CommandHandler<FormDistributionCloseCommandInput
   captureAfter: async (_input, result, ctx) => {
     const em = resolveEntityManager(ctx)
     const distribution = await em.findOne(FormDistribution, { id: result.distributionId })
+    if (distribution) await em.refresh(distribution)
     return distribution ? serializeDistributionSnapshot(distribution) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormDistributionSnapshot | undefined
     const after = snapshots.after as FormDistributionSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.distribution.close',
+      actionLabel: translate('forms.audit.distribution.close', 'Close distribution'),
       resourceKind: FORM_DISTRIBUTION_RESOURCE_KIND,
       resourceId: result.distributionId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -469,7 +493,11 @@ const closeDistributionCommand: CommandHandler<FormDistributionCloseCommandInput
       snapshotBefore: before ?? null,
       snapshotAfter: after ?? null,
       payload: {
-        undo: { before: before ?? null, after: after ?? null } satisfies FormDistributionUndoPayload,
+        undo: {
+          before: before ?? null,
+          after: after ?? null,
+          staleCheck: true,
+        } satisfies FormDistributionUndoPayload,
       },
     }
   },
@@ -477,12 +505,18 @@ const closeDistributionCommand: CommandHandler<FormDistributionCloseCommandInput
     const payload = extractUndoPayload<FormDistributionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = resolveEntityManager(ctx).fork()
-    const distribution = await em.findOne(FormDistribution, { id: before.id })
+    const distribution = await applyFormsUndo({
+      ctx,
+      entity: FormDistribution,
+      target: before,
+      expected: payload?.staleCheck ? payload.after : null,
+      fields: DISTRIBUTION_CLOSE_UNDO_FIELDS,
+      apply: (record) => {
+        record.status = before.status
+        record.updatedAt = new Date()
+      },
+    })
     if (!distribution) return
-    distribution.status = before.status
-    distribution.updatedAt = new Date()
-    await em.flush()
     await invalidateFormsCacheTags(ctx, [
       DISTRIBUTION_CACHE_TAGS.distribution(distribution.id),
       DISTRIBUTION_CACHE_TAGS.distributionList(distribution.formId),

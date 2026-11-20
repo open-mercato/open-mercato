@@ -3,6 +3,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 import fs from 'fs/promises'
 import path from 'path'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOcrMaxOutputTokens, resolveOcrPageTimeoutMs } from './ocrLimits'
 
 const logger = createLogger('attachments').child({ component: 'ocr-service' })
 
@@ -14,6 +15,12 @@ export type OcrServiceOptions = {
 export type OcrInput = {
   filePath: string
   mimeType: string | null
+  model?: string
+}
+
+export type OcrImageBufferInput = {
+  imageBuffer: Buffer
+  mediaType?: string
   model?: string
 }
 
@@ -48,7 +55,7 @@ function isPdfMimeType(mimeType: string | null, filePath?: string): boolean {
   return false
 }
 
-function getImageMediaType(mimeType: string | null, filePath: string): string {
+export function getImageMediaType(mimeType: string | null, filePath: string): string {
   if (mimeType && mimeType.startsWith('image/')) {
     return mimeType
   }
@@ -102,6 +109,9 @@ export class OcrService {
     try {
       const result = await generateText({
         model: client(model),
+        abortSignal: AbortSignal.timeout(resolveOcrPageTimeoutMs()),
+        maxRetries: 0,
+        maxOutputTokens: resolveOcrMaxOutputTokens(),
         messages: [
           {
             role: 'user',
@@ -151,6 +161,14 @@ export class OcrService {
           guidance = 'Rate limit exceeded. Please try again later.'
           break
         default:
+          if (err?.name === 'TimeoutError') {
+            guidance = `OCR request timed out: ${rawMessage}`
+            break
+          }
+          if (err?.name === 'AbortError') {
+            guidance = `OCR request was aborted: ${rawMessage}`
+            break
+          }
           guidance = rawMessage.includes('https://')
             ? rawMessage
             : `${rawMessage}. Check OPENAI_API_KEY.`
@@ -169,6 +187,14 @@ export class OcrService {
       (wrapped as any).cause = err
       throw wrapped
     }
+  }
+
+  async processImageBuffer(input: OcrImageBufferInput): Promise<string> {
+    return this.generateTextFromImageBuffer({
+      imageBuffer: input.imageBuffer,
+      mediaType: input.mediaType ?? 'image/png',
+      model: input.model ?? this.defaultModel,
+    })
   }
 
   async processImage(input: OcrInput): Promise<OcrResult> {

@@ -31,6 +31,7 @@ import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount, type Journ
 import { postJournalEntrySchema, type PostJournalEntryInput } from '../data/validators'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
 import { emitLedgerEvent } from '../events'
+import { isLineConsistent, resolveLineCurrency, type LineCurrencyProblem } from '../lib/lineCurrency'
 
 export type PostJournalEntryResult = {
   journalEntryId: string
@@ -43,20 +44,35 @@ export type PostJournalEntryResult = {
   // command to create. A plain serializable shape, not the
   // `JournalEntryLine` entities themselves (`PostRunResult` below is the
   // internal type that still carries those).
-  lines: Array<{ id: string; accountId: string; debit: string; credit: string }>
+  lines: PostedLine[]
+}
+
+// One posted line as the result and the `ledger.journal_entry.posted` payload
+// carry it: the base-currency amounts plus the line's own currency, rate and
+// original amount (#5663, OQ-2), all numeric strings like the entity columns.
+export type PostedLine = {
+  id: string
+  accountId: string
+  debit: string
+  credit: string
+  currencyId: string
+  exchangeRate: string
+  amountCurrency: string
+}
+
+export function toPostedLine(line: JournalEntryLine): PostedLine {
+  return {
+    id: line.id,
+    accountId: line.accountId,
+    debit: line.debit,
+    credit: line.credit,
+    currencyId: line.currencyId,
+    exchangeRate: line.exchangeRate,
+    amountCurrency: line.amountCurrency,
+  }
 }
 
 type Scope = { organizationId: string; tenantId: string }
-
-// This used to be a module-local `TranslateFn` widened to
-// `params?: Record<string, unknown>` for requireValidPostingReferences's
-// {placeholder} interpolation needs. `resolveTranslations().translate` is
-// actually a `TranslateWithFallbackFn` (params: `TranslateParams`, i.e.
-// `Record<string, string | number>`), and `Record<string, unknown>` isn't
-// assignable to that — every call site that passed the real `translate`
-// failed TS2345. Importing the real type instead of re-declaring a wider
-// one, as `reverseJournalEntry.ts` already did, fixes it at the source
-// rather than at each call site.
 
 /**
  * Detects the deferred `journal_entry_lines_balanced` constraint trigger
@@ -201,9 +217,17 @@ export type JournalEntryPostCore = {
     accountId: string
     debit?: string
     credit?: string
+    // Omitted → the header's currency and rate (resolved at write time).
+    currencyId?: string
+    exchangeRate?: string
     amountCurrency?: string
     contractorSnapshot?: Record<string, unknown> | null
   }[]
+}
+
+type PostingReferences = {
+  baseCurrency: Currency
+  accountsById: Map<string, LedgerAccount>
 }
 
 export type PostRunResult = Omit<PostJournalEntryResult, 'lines'> & { lines: JournalEntryLine[] }
@@ -230,27 +254,46 @@ async function requireValidPostingReferences(
   scope: Scope,
   input: JournalEntryPostCore,
   translate: TranslateWithFallbackFn,
-): Promise<void> {
-  const currency = await em.findOne(Currency, {
-    id: input.currencyId,
+): Promise<PostingReferences> {
+  // The header's currency and every line's own currency are plain FK-ids
+  // with no DB constraint behind them, so each must be checked here.
+  const currencyIds = [
+    ...new Set([input.currencyId, ...input.lines.map((line) => line.currencyId).filter((id): id is string => Boolean(id))]),
+  ]
+  const currencies = await em.find(Currency, {
+    id: { $in: currencyIds },
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
     deletedAt: null,
   })
-  if (!currency) {
+  const foundCurrencyIds = new Set(currencies.map((currency) => currency.id))
+  if (currencyIds.some((id) => !foundCurrencyIds.has(id))) {
     throw new CrudHttpError(422, {
       error: translate('ledger.errors.currencyNotFound', 'The specified currency does not exist for this organization.'),
     })
   }
+  const baseCurrency = await em.findOne(Currency, {
+    isBase: true,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  if (!baseCurrency) {
+    throw new CrudHttpError(422, {
+      error: translate(
+        'ledger.errors.baseCurrencyNotConfigured',
+        'No base currency is configured for this organization, so a journal entry cannot be posted.',
+      ),
+    })
+  }
 
   const accountIds = [...new Set(input.lines.map((line) => line.accountId))]
-  // `for share` on the referenced account rows closes a race with a
-  // concurrent delete (`ledgerAccounts.ts`'s
-  // `deleteLedgerAccountCommand`, which takes `for update` on the same
-  // row) — without a lock here, a delete's `accountHasPostedEntries`
-  // check and this posting's own existence check could both read a
-  // pre-write snapshot and both succeed, leaving posted lines on an
-  // account that gets soft-deleted moments later.
+  // `for share` on the referenced account rows, in id order. Every command
+  // that checks "has posted entries" before changing an account (delete,
+  // update, and the account-type update that cascades to its accounts) takes
+  // `for update` on the same rows first, so a check and a post cannot both
+  // act on a stale snapshot. The id order matches the order those commands
+  // lock a type's accounts in, so they cannot deadlock on a shared set.
   const accounts = await em.find(
     LedgerAccount,
     {
@@ -259,7 +302,7 @@ async function requireValidPostingReferences(
       tenantId: scope.tenantId,
       deletedAt: null,
     },
-    { lockMode: LockMode.PESSIMISTIC_READ },
+    { lockMode: LockMode.PESSIMISTIC_READ, orderBy: { id: 'asc' } },
   )
   const foundIds = new Set(accounts.map((account) => account.id))
   const missing = accountIds.filter((id) => !foundIds.has(id))
@@ -272,6 +315,63 @@ async function requireValidPostingReferences(
       ),
     })
   }
+  return { baseCurrency, accountsById: new Map(accounts.map((account) => [account.id, account])) }
+}
+
+const LINE_CURRENCY_PROBLEMS: Record<LineCurrencyProblem, [string, string]> = {
+  rateMissing: [
+    'ledger.errors.lineExchangeRateMissing',
+    'Line {line}: a line in a foreign currency needs an exchange rate (the entry header supplies one only for lines in the header currency).',
+  ],
+  rateNotPositive: ['ledger.errors.lineExchangeRateNotPositive', 'Line {line}: the exchange rate must be greater than zero.'],
+  baseRateNotOne: ['ledger.errors.lineBaseCurrencyRateNotOne', 'Line {line}: a line in the base currency must have an exchange rate of 1.'],
+  amountCurrencyMissing: [
+    'ledger.errors.lineAmountCurrencyMissing',
+    'Line {line}: a line in a foreign currency needs an original-currency amount (amountCurrency).',
+  ],
+}
+
+type ResolvedLine = JournalEntryPostCore['lines'][number] & { currencyId: string; exchangeRate: string; amountCurrency: string }
+
+/**
+ * Resolves every line's currency, rate and original amount at write time and
+ * enforces the two consistency rules: `amountCurrency x exchangeRate`
+ * matches the base `debit`/`credit` within half the smallest base-currency
+ * unit (lines with `amountCurrency = 0` exempt), and a line on an account
+ * that has a currency carries that currency.
+ */
+function resolvePostingLines(
+  input: JournalEntryPostCore,
+  refs: PostingReferences,
+  translate: TranslateWithFallbackFn,
+): ResolvedLine[] {
+  return input.lines.map((line, index) => {
+    const resolved = resolveLineCurrency(line, { currencyId: input.currencyId, exchangeRate: input.exchangeRate }, refs.baseCurrency.id)
+    if (!resolved.ok) {
+      const [key, fallback] = LINE_CURRENCY_PROBLEMS[resolved.problem]
+      throw new CrudHttpError(422, { error: translate(key, fallback, { line: index + 1 }) })
+    }
+    const account = refs.accountsById.get(line.accountId)
+    if (account?.currencyId && account.currencyId !== resolved.value.currencyId) {
+      throw new CrudHttpError(422, {
+        error: translate(
+          'ledger.errors.lineCurrencyDiffersFromAccount',
+          'Line {line}: the line currency differs from its account, which is kept in one currency.',
+          { line: index + 1 },
+        ),
+      })
+    }
+    if (!isLineConsistent(resolved.value, line, refs.baseCurrency.decimalPlaces)) {
+      throw new CrudHttpError(422, {
+        error: translate(
+          'ledger.errors.lineAmountInconsistent',
+          'Line {line}: the original-currency amount times the exchange rate does not match the base-currency amount.',
+          { line: index + 1 },
+        ),
+      })
+    }
+    return { ...line, ...resolved.value }
+  })
 }
 
 export async function runPostJournalEntry(
@@ -281,7 +381,8 @@ export async function runPostJournalEntry(
 ): Promise<PostRunResult> {
   const scope: Scope = { organizationId: input.organizationId, tenantId: input.tenantId }
   await requireCoveringUnlockedFiscalPeriod(em, scope, input.operationDate, translate)
-  await requireValidPostingReferences(em, scope, input, translate)
+  const references = await requireValidPostingReferences(em, scope, input, translate)
+  const resolvedLines = resolvePostingLines(input, references, translate)
 
   const sequenceNumber = await claimNextSequenceNumber(em, scope)
   const entryId = randomUUID()
@@ -305,7 +406,7 @@ export async function runPostJournalEntry(
   })
   em.persist(entry)
 
-  const lines = input.lines.map((line) =>
+  const lines = resolvedLines.map((line) =>
     em.create(JournalEntryLine, {
       id: randomUUID(),
       organizationId: input.organizationId,
@@ -314,7 +415,9 @@ export async function runPostJournalEntry(
       accountId: line.accountId,
       debit: line.debit ?? '0',
       credit: line.credit ?? '0',
-      amountCurrency: line.amountCurrency ?? '0',
+      currencyId: line.currencyId,
+      exchangeRate: line.exchangeRate,
+      amountCurrency: line.amountCurrency,
       contractorSnapshot: line.contractorSnapshot ?? null,
     }),
   )
@@ -421,12 +524,7 @@ export async function emitPostedEvent(input: JournalEntryPostCore, result: PostR
     tenantId: input.tenantId,
     referenceType: input.referenceType ?? null,
     referenceId: input.referenceId ?? null,
-    lines: result.lines.map((line) => ({
-      id: line.id,
-      accountId: line.accountId,
-      debit: line.debit,
-      credit: line.credit,
-    })),
+    lines: result.lines.map(toPostedLine),
   })
 }
 
@@ -457,12 +555,7 @@ const postJournalEntryCommand: CommandHandler<PostJournalEntryInput, PostJournal
     return {
       journalEntryId: result.journalEntryId,
       sequenceNumber: result.sequenceNumber,
-      lines: result.lines.map((line) => ({
-        id: line.id,
-        accountId: line.accountId,
-        debit: line.debit,
-        credit: line.credit,
-      })),
+      lines: result.lines.map(toPostedLine),
     }
   },
   buildLog: async ({ input, result, ctx }) => {

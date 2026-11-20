@@ -1,11 +1,14 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { createRequire } from 'module'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveMaxOcrPages, resolvePdfPageIterationLimit } from './ocrLimits'
 
 const moduleRequire = createRequire(path.join(process.cwd(), 'package.json'))
 const pdfJsPackageRoot = path.dirname(moduleRequire.resolve('pdfjs-dist/package.json'))
 const cMapUrl = `${path.join(pdfJsPackageRoot, 'cmaps')}${path.sep}`
 const standardFontDataUrl = `${path.join(pdfJsPackageRoot, 'standard_fonts')}${path.sep}`
+const logger = createLogger('attachments').child({ component: 'pdf-processing' })
 
 const MIN_RENDER_SCALE = 2
 const MAX_RENDER_SCALE = 4
@@ -45,6 +48,26 @@ export type PdfPageOcrInput = {
 export type PdfOcrPreparationResult = {
   pageCount: number
   pages: PdfPageOcrInput[]
+}
+
+export type PreparePdfPagesForOcrOptions = {
+  pageNumbers?: readonly number[]
+  alwaysRender?: boolean
+}
+
+function resolveSelectedPageNumbers(
+  numPages: number,
+  maxPages: number,
+  pageNumbers: readonly number[] | undefined,
+): number[] {
+  if (pageNumbers === undefined) {
+    const pageLimit = resolvePdfPageIterationLimit(numPages, maxPages)
+    return Array.from({ length: pageLimit }, (_value, index) => index + 1)
+  }
+  const selected = [...new Set(pageNumbers)]
+    .filter((pageNumber) => Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= numPages)
+    .sort((left, right) => left - right)
+  return selected.slice(0, Math.max(0, Math.floor(maxPages)))
 }
 
 function normalizePdfText(rawText: string): string | null {
@@ -99,7 +122,10 @@ async function renderPdfPageToImageBuffer(
   }
 }
 
-export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPreparationResult> {
+export async function preparePdfPagesForOcr(
+  filePath: string,
+  options: PreparePdfPagesForOcrOptions = {},
+): Promise<PdfOcrPreparationResult> {
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const data = new Uint8Array(await fs.readFile(filePath))
   const loadingTask = getDocument({
@@ -113,15 +139,24 @@ export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPre
 
   try {
     const pages: PdfPageOcrInput[] = []
+    const maxPages = resolveMaxOcrPages()
+    const selectedPageNumbers = resolveSelectedPageNumbers(pdfDocument.numPages, maxPages, options.pageNumbers)
+    if (options.pageNumbers === undefined && pdfDocument.numPages > selectedPageNumbers.length) {
+      logger.warn('PDF page count exceeds OCR cap; truncating', {
+        numPages: pdfDocument.numPages,
+        maxPages: selectedPageNumbers.length,
+        filePath,
+      })
+    }
 
-    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+    for (const pageNumber of selectedPageNumbers) {
       const page = await pdfDocument.getPage(pageNumber)
 
       try {
         const textContent = await page.getTextContent()
         const extractedText = extractPdfTextContent(textContent.items)
 
-        if (extractedText) {
+        if (extractedText && !options.alwaysRender) {
           pages.push({
             pageNumber,
             extractedText,
@@ -141,7 +176,7 @@ export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPre
     }
 
     return {
-      pageCount: pdfDocument.numPages,
+      pageCount: pages.length,
       pages,
     }
   } finally {

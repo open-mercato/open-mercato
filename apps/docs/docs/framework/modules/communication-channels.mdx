@@ -100,9 +100,11 @@ ExternalMessage + MessageChannelLink rows written
 
 ### Receive path
 
+Polling needs the `scheduler` module. The hub registers its poll tick and the Gmail watch renewal from `seedDefaults` and `onOrganizationCreated`, and skips both when `schedulerService` is not available — mail then arrives only on a manual "Poll now", and the profile page "My communication channels" shows an "Automatic sync is off" warning while any connected channel relies on polling and the organization's poll-tick schedule is missing, disabled, or deleted. The `crm` starter preset enables `scheduler`; an app that enables it later must run `yarn mercato seed:defaults --module communication_channels` once so existing organizations get their schedules, and `yarn mercato auth sync-role-acls` so existing roles get the scheduler features.
+
 ```
-@open-mercato/scheduler "poll-channel" cron (5 minutes by default)
-     │
+@open-mercato/scheduler "poll-tick" (every OM_HUB_POLL_SCHEDULER_TICK_SECONDS, 60 s by default)
+     │   enqueues channels whose poll interval is due (OM_HUB_POLL_DEFAULT_SECONDS, 5 minutes by default)
      ▼
 poll-channel worker (per channel)
      │
@@ -281,11 +283,11 @@ No tenant setup required. The integrations admin page lets you toggle the provid
 
 ## Environment variables
 
-The hub reads a small set of env vars; sensible defaults exist for all of them.
+The hub reads a small set of env vars; most have sensible defaults, but a few must be set explicitly — production-required ones are called out in the rows below.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OM_HUB_OAUTH_STATE_KEY` | derived from `AUTH_SECRET` | AES-256-GCM key used to encrypt the OAuth state cookie. **Rotate this on a schedule** — see runbook below. |
+| `OM_HUB_OAUTH_STATE_KEY` | falls back to `KMS_MASTER_KEY`, then to `JWT_SECRET` (non-production only) | AES-256-GCM key used to encrypt the OAuth state cookie. **Required in production** — set this or `KMS_MASTER_KEY`, or the per-user OAuth connect flow fails closed. **Rotate this on a schedule** — see runbook below. |
 | `OM_HUB_OAUTH_STATE_TTL_SECONDS` | `300` (5 minutes) | TTL on the state cookie. OAuth callbacks older than this are rejected. |
 | `OM_HUB_POLL_DEFAULT_SECONDS` | `300` (5 minutes) | Default poll cadence applied to channels that don't set `poll_interval_seconds`. |
 | `OM_HUB_POLL_CONCURRENCY` | `10` | Max parallel poll-channel worker jobs per process. Bound by your DB connection pool. |
@@ -309,7 +311,7 @@ The hub reads a small set of env vars; sensible defaults exist for all of them.
 2. **Sync the ACL grants** — `yarn mercato auth sync-role-acls` so the new `communication_channels.*` features (including `communication_channels.connect_user_channel`) are granted to the appropriate roles.
 3. **Run the structural cache purge** — `yarn mercato configs cache structural --all-tenants`. Mandatory after any `modules.ts` change that adds a provider (slices 3e/3f enable `channel_imap` and `channel_gmail`).
 4. **Configure the OAuth apps** — follow the per-provider setup sections above and register the client IDs/secrets via the **Integrations** admin UI.
-5. **Optional: set `OM_HUB_OAUTH_STATE_KEY`** — derived from `AUTH_SECRET` by default; set explicitly if you want to rotate independently.
+5. **Set `OM_HUB_OAUTH_STATE_KEY`** — required in production unless `KMS_MASTER_KEY` is set; set it explicitly even when `KMS_MASTER_KEY` is present if you want to rotate the state-cookie key independently of it.
 
 ### Routine ops
 
@@ -359,6 +361,7 @@ Each slice ships its own module-local integration specs under `__integration__/`
 | `TC-CHANNEL-EMAIL-001..003` | channel-imap | IMAP provider registration + webhook no-op + profile page |
 | `TC-CHANNEL-EMAIL-006..008` | channel-gmail | Gmail OAuth router + webhook no-op + profile page |
 | `TC-CHANNEL-EMAIL-014..020` | hub | Phase 4 cross-provider scenarios: primary swap, admin RBAC, tenant OAuth override, disconnect, send-as-user guard, user-deleted cascade, rich-content widget |
+| `TC-CHANNEL-EMAIL-HUB-007..008` | hub | `send-as-user` attachments: bytes delivered to the adapter, caller-written refs dropped, refusals (no file sharing, wrong owner, other organization, type not allowed) |
 
 Run with:
 

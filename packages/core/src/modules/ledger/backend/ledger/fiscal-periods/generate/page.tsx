@@ -10,7 +10,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 // "Generate 12 months": twelve consecutive calendar-month periods from the
-// first day of the month the user picks (PR #5663 review, point 3). Any other
+// first day of the month the user picks. Any other
 // range is still created one at a time on the "New fiscal period" page.
 export default function GenerateFiscalPeriodsPage() {
   const t = useT()

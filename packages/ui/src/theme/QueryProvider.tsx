@@ -2,7 +2,8 @@
 import * as React from 'react'
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { redirectToSessionRefresh, notifyForbiddenAccess, UnauthorizedError, ForbiddenError, apiFetch, setAuthRedirectConfig } from '../backend/utils/api'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
+import { redirectToSessionRefresh, notifyForbiddenAccess, UnauthorizedError, ForbiddenError, apiFetch, setAuthRedirectConfig, registerAuthNoticeTranslator } from '../backend/utils/api'
 
 // Ensure global fetch calls also flow through apiFetch so 401 session-refresh
 // and 403 access-denied flash banners fire consistently.
@@ -68,6 +69,11 @@ const client = new QueryClient({
 type QueryProviderProps = { children: React.ReactNode; defaultForbiddenRoles?: string[] }
 
 export function QueryProvider({ children, defaultForbiddenRoles }: QueryProviderProps) {
+  const t = useOptionalT()
+  React.useEffect(() => {
+    if (!t) return
+    return registerAuthNoticeTranslator(t)
+  }, [t])
   React.useEffect(() => {
     ensureGlobalFetchInterception()
     if (defaultForbiddenRoles && defaultForbiddenRoles.length) {

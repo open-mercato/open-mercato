@@ -8,6 +8,7 @@ import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/en
 import { SalesOrderLine, SalesShipment, SalesShipmentItem, SalesShippingMethod } from '../../data/entities'
 import { shipmentCreateSchema, shipmentUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
+import { withExactShipmentInput } from '../../lib/exactAmountFields'
 import { readShipmentItemsSnapshot } from '../../lib/shipments/snapshots'
 import {
   createPagedListResponseSchema,
@@ -59,6 +60,16 @@ export async function enrichShipmentListResponse(
 ): Promise<void> {
   const items = Array.isArray(payload.items) ? payload.items : []
   if (!items.length) return
+  const tenantId = ctx.auth?.tenantId
+  if (!tenantId) return
+  const referenceScope = {
+    tenantId,
+    ...(ctx.organizationIds
+      ? { organizationId: { $in: ctx.organizationIds } }
+      : ctx.organizationScope?.allowedIds === null
+        ? {}
+        : { organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null }),
+  }
   const snapshotMap = new Map<string, ReturnType<typeof readShipmentItemsSnapshot>>()
   items.forEach((item: unknown) => {
     if (!item || typeof item !== 'object') return
@@ -95,7 +106,7 @@ export async function enrichShipmentListResponse(
     findWithDecryption(
       em,
       SalesShipmentItem,
-      { shipment: { $in: shipmentIds } },
+      { shipment: { $in: shipmentIds }, ...referenceScope },
       { populate: ['orderLine'] },
       { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
     ),
@@ -112,9 +123,9 @@ export async function enrichShipmentListResponse(
         )
       )
       if (!ids.length) return []
-      return em.find(SalesShippingMethod, { id: { $in: ids } })
+      return findWithDecryption(em, SalesShippingMethod, { id: { $in: ids }, ...referenceScope }, {}, { tenantId })
     })(),
-    statusIds.length ? em.find(DictionaryEntry, { id: { $in: statusIds } }) : [],
+    statusIds.length ? findWithDecryption(em, DictionaryEntry, { id: { $in: statusIds }, ...referenceScope }, {}, { tenantId }) : [],
   ])
   const orderLineIds = Array.from(
     new Set(
@@ -128,7 +139,7 @@ export async function enrichShipmentListResponse(
     )
   )
   const orderLines = orderLineIds.length
-    ? await em.find(SalesOrderLine, { id: { $in: orderLineIds } })
+    ? await findWithDecryption(em, SalesOrderLine, { id: { $in: orderLineIds }, ...referenceScope }, {}, { tenantId })
     : []
   const lineMap = new Map(
     orderLines.map((line) => [
@@ -265,10 +276,11 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base, custom } = splitCustomFieldPayload(scoped)
-        return shipmentCreateSchema.parse({
+        const payload = {
           ...base,
           ...(Object.keys(custom).length ? { customFields: custom } : {}),
-        })
+        }
+        return withExactShipmentInput(shipmentCreateSchema.parse(payload), payload)
       },
       response: ({ result }) => ({ id: result?.shipmentId ?? null }),
       status: 201,
@@ -280,10 +292,11 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base, custom } = splitCustomFieldPayload(scoped)
-        return shipmentUpdateSchema.parse({
+        const payload = {
           ...base,
           ...(Object.keys(custom).length ? { customFields: custom } : {}),
-        })
+        }
+        return withExactShipmentInput(shipmentUpdateSchema.parse(payload), payload)
       },
       response: () => ({ ok: true }),
     },
@@ -310,6 +323,7 @@ const crud = makeCrudRoute({
   hooks: {
     afterList: (payload, ctx) => enrichShipmentListResponse(payload, ctx),
   },
+  enrichers: { entityId: 'sales.shipment' },
 })
 
 const { GET, POST, PUT, DELETE } = crud
@@ -343,8 +357,8 @@ const shipmentSchema = z
     delivered_at: z.string().nullable().optional(),
     weight_value: z.number().nullable().optional(),
     weight_unit: z.string().nullable().optional(),
-    declared_value_net: z.number().nullable().optional(),
-    declared_value_gross: z.number().nullable().optional(),
+    declared_value_net: z.string().nullable().optional(),
+    declared_value_gross: z.string().nullable().optional(),
     currency_code: z.string().nullable().optional(),
     notes: z.string().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
