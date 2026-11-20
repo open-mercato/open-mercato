@@ -1,5 +1,10 @@
 import { GET, POST } from '../api/pull/route'
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string) => jest.requireActual('../i18n/pl.json')[key],
+  }),
+}))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({ runRouteMutationGuards: jest.fn() }))
@@ -161,7 +166,7 @@ describe('pull without the progress module', () => {
     const response = await POST(request({ from: '2026-08-01', to: '2026-08-02' }))
     expect(response.status).toBe(409)
     await expect(response.json()).resolves.toEqual({
-      ok: false, code: 'progress_unavailable', section: 'environment', message: expect.any(String),
+      ok: false, code: 'progress_unavailable', section: 'environment', message: 'Pobieranie połączeń wymaga modułu progress. Włącz go, aby kontynuować.',
     })
     expect(runRouteMutationGuards).not.toHaveBeenCalled()
     expect(getTillioQueue).not.toHaveBeenCalled()

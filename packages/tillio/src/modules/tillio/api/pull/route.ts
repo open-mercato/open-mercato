@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -50,7 +51,7 @@ export const openApi = {
       { status: 202, description: 'Pull queued; returns { progressJobId }' },
       { status: 400, description: 'Invalid day range' },
       { status: 401, description: 'Unauthorized' },
-      { status: 409, description: 'Tillio is not ready to pull (environment or operator blocker)' },
+      { status: 409, description: 'Tillio is not ready to pull (environment or operator blocker, or progress_unavailable when the progress module is disabled)' },
       { status: 429, description: 'A pull is already running for this scope' },
     ],
   },
@@ -113,12 +114,15 @@ export async function POST(req: Request) {
   const { readiness } = await resolvePullContext(credentialsService, em, scope)
   if (readiness.blocker || !progressService) {
     const blocker = readiness.blocker ?? 'progress_unavailable'
+    const message = blocker === 'progress_unavailable'
+      ? (await resolveTranslations()).t('tillio.pull.progressUnavailable')
+      : PULL_BLOCKER_MESSAGES[blocker]
     return NextResponse.json(
       {
         ok: false,
         code: blocker,
         section: blockerSection(blocker),
-        message: PULL_BLOCKER_MESSAGES[blocker],
+        message,
       },
       { status: 409 },
     )
