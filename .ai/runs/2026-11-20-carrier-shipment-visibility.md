@@ -41,8 +41,8 @@ Tenant/organization leakage is prevented by trusted scope and tested explicitly.
 
 ### Phase 1: Scoped read API
 
-- [ ] 1.1 Add validated and scoped carrier shipment summaries.
-- [ ] 1.2 Add route permission, scoping and pagination regressions.
+- [x] 1.1 Add validated and scoped carrier shipment summaries. — 12e6a32679
+- [x] 1.2 Add route permission, scoping and pagination regressions. — 12e6a32679
 
 ### Phase 2: User-facing flows
 
