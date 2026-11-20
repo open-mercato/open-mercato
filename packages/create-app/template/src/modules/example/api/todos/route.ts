@@ -237,7 +237,7 @@ type BaseFields = {
   updated_at: Date | string | null
 } & Record<`cf:${string}` | `cf_${string}`, unknown>
 
-export const todoCrudRoute = makeCrudRoute({
+export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   metadata: {
     GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
     POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
@@ -253,7 +253,6 @@ export const todoCrudRoute = makeCrudRoute({
   },
   events: { module: 'example', entity: 'todo', persistent: true },
   indexer: { entityType: ENTITY_ID },
-  enrichers: { entityId: 'example.todo' },
   list: {
     schema: querySchema,
     entityId: ENTITY_ID,
@@ -375,8 +374,6 @@ export const todoCrudRoute = makeCrudRoute({
     },
   },
 })
-
-export const { metadata, GET, POST, PUT, DELETE } = todoCrudRoute
 
 const todoDeleteSchema = z.object({
   id: z.string().uuid(),

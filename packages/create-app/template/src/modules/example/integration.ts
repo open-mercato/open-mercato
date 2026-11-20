@@ -49,16 +49,6 @@ export const integrations: IntegrationDefinition[] = [
     version: '1.0.0',
     credentials: { fields: [] },
   },
-  {
-    id: 'example_todo_erp',
-    title: 'Example Todo ERP',
-    description: 'Offline ERP used by the Todo form extension showcase.',
-    category: 'other',
-    bundleId: 'example_reference_bundle',
-    package: 'src/modules/example',
-    version: '1.0.0',
-    credentials: { fields: [] },
-  },
 ]
 
 export const bundles: IntegrationBundle[] = [bundle]

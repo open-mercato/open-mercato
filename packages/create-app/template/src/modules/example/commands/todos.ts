@@ -10,12 +10,11 @@ import {
   normalizeCustomFieldValues,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { asValue } from 'awilix'
-import { makeCreateRedo, resolveRedoSnapshot, restoreCreatedRow } from '@open-mercato/shared/lib/commands/redo'
-import { CrudHttpError, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { assertOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { LockMode, type EntityData, type EntityManager, type FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityData, EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { z } from 'zod'
@@ -23,8 +22,7 @@ import { Todo } from '../data/entities'
 import { todoNotesSchema } from '../data/validators'
 
 const ENTITY_ID = 'example:todo' as const
-import { onTransactionLifetimeComplete, ownsTransactionLifetime } from '@open-mercato/shared/lib/commands/transaction-lifetime'
-import type { CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
@@ -167,39 +165,9 @@ export const todoCrudIndexer: CrudIndexerConfig<Todo> = {
   }),
 }
 
-const redoLegacyTodoCreate = makeCreateRedo<Todo, SerializedTodo, Record<string, unknown>, Todo>({
-  entityClass: Todo,
-  getSnapshotId: (snapshot) => snapshot.id,
-  seedFromSnapshot: todoSeedFromSnapshot,
-  buildResult: (entity) => entity,
-  events: todoCrudEvents,
-  indexer: todoCrudIndexer,
-  afterRestore: restoreTodoCreateFields,
-})
-
-async function restoreTodoCreateFields({ ctx, entity, snapshot }: {
-  ctx: CommandRuntimeContext
-  entity: Todo
-  snapshot: SerializedTodo
-}) {
-  if (!snapshot.custom || !Object.keys(snapshot.custom).length) return
-  const de = (ctx.container.resolve('dataEngine') as DataEngine)
-  const values = normalizeCustomFieldValues(snapshot.custom)
-  if (!Object.keys(values).length) return
-  await de.setCustomFields({
-    entityId: ENTITY_ID,
-    recordId: String(entity.id),
-    tenantId: entity.tenantId ? String(entity.tenantId) : null,
-    organizationId: entity.organizationId ? String(entity.organizationId) : null,
-    values,
-    notify: false,
-  })
-}
-
 const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   id: 'example.todos.create',
   isUndoable: true,
-  atomicReplay: true,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(todoCreateSchema, rawInput)
     const scope = ensureScope(ctx)
@@ -211,7 +179,6 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       ? null
       : (await buildTodoUpdatePatch({ notes: parsed.notes }, scope, encryption)).notes ?? null
 
-    await beforeTodoTransactionalWrite(ctx, rawInput)
     const todo = await de.createOrmEntity({
       entity: Todo,
       data: {
@@ -252,12 +219,10 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
 
     return todo
   },
-  captureAfter: async (input, result, ctx) => ctx.transactionalEm
-    ? snapshotCreatedTodo(input, result, ctx.transactionalEm)
-    : serializeTodo(result),
-  buildLog: async ({ input, result, ctx }) => {
+  captureAfter: (_input, result) => serializeTodo(result),
+  buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadTodoCustomSnapshot(
       em,
       String(result.id),
@@ -270,98 +235,85 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       resourceId: String(result.id),
       tenantId: result.tenantId ? String(result.tenantId) : null,
       organizationId: result.organizationId ? String(result.organizationId) : null,
-      snapshotAfter: ctx.transactionalEm
-        ? serializeTodo(result, custom, parseWithCustomFields(todoCreateSchema, input).parsed.notes ?? null)
-        : serializeTodo(result, custom),
+      snapshotAfter: serializeTodo(result, custom),
     }
   },
-  async undo({ logEntry, ctx: caller }) {
-    return withTodoReplayDataEngine(caller, async (ctx) => {
-      const payload = (logEntry?.commandPayload as { undo?: { after?: SerializedTodo } } | undefined)?.undo
-      const snapshot = (logEntry.snapshotAfter as SerializedTodo | undefined) ?? payload?.after
-      const id = snapshot?.id ?? logEntry.resourceId
-      if (!id) throw new Error('Missing todo id for undo')
-      const scope = resolveTodoReplayScope(ctx, logEntry, snapshot)
-      if (ctx.transactionalEm && !await readScopedTodo(ctx.transactionalEm, id, scope, { lock: true })) throw todoNotFound()
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      const removed = await de.deleteOrmEntity({
-        entity: Todo,
-        where: {
-          id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-        } as FilterQuery<Todo>,
-        soft: true,
-        softDeleteField: 'deletedAt',
-      })
-      if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-        const rawValues = buildCustomFieldResetMap(undefined, snapshot.custom)
-        const values = normalizeCustomFieldValues(rawValues)
-        if (Object.keys(values).length) {
-          await de.setCustomFields({
-            entityId: ENTITY_ID,
-            recordId: id,
-            tenantId: scope.tenantId,
-            organizationId: scope.organizationId,
-            values,
-            notify: false,
-          })
-        }
-      }
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'deleted',
-        entity: removed,
-        identifiers: {
-          id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-        },
-        syncOrigin: ctx.syncOrigin,
-        events: todoCrudEvents,
-        indexer: todoCrudIndexer,
-      })
+  async undo({ logEntry, ctx }) {
+    const payload = (logEntry?.commandPayload as { undo?: { after?: SerializedTodo } } | undefined)?.undo
+    const snapshot = (logEntry.snapshotAfter as SerializedTodo | undefined) ?? payload?.after
+    const id = snapshot?.id ?? logEntry.resourceId
+    if (!id) throw new Error('Missing todo id for undo')
+    const scope = resolveUndoScope(ctx, snapshot)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const removed = await de.deleteOrmEntity({
+      entity: Todo,
+      where: {
+        id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      } as FilterQuery<Todo>,
+      soft: true,
+      softDeleteField: 'deletedAt',
     })
-  },
-  async redo(args) {
-    if (!args.ctx.transactionalEm) return redoLegacyTodoCreate(args)
-    const snapshot = resolveRedoSnapshot<SerializedTodo>(args.logEntry)
-    if (!snapshot?.id) throw new CrudHttpError(400, { error: '[internal] Todo redo snapshot is unavailable' })
-    const scope = resolveTodoReplayScope(args.ctx, args.logEntry, snapshot)
-    return withTodoReplayDataEngine(args.ctx, async (ctx, em) => {
-      try {
-        const notes = (await buildTodoUpdatePatch({ notes: snapshot.notes ?? null }, scope, tryResolveTodoEncryptionService(ctx))).notes ?? null
-        const entity = await restoreCreatedRow(em, Todo, snapshot.id,
-          () => ({ ...todoSeedFromSnapshot(snapshot), ...scope, notes }),
-          (manager, id) => readScopedTodo(manager, id, scope, { lock: true, includeDeleted: true }))
-        await em.flush()
-        await restoreTodoCreateFields({ ctx, entity, snapshot })
-        await emitCrudSideEffects({
-          dataEngine: ctx.container.resolve<DataEngine>('dataEngine'),
-          action: 'created',
-          entity,
-          identifiers: { id: snapshot.id, ...scope },
-          syncOrigin: ctx.syncOrigin,
-          events: todoCrudEvents,
-          indexer: todoCrudIndexer,
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const rawValues = buildCustomFieldResetMap(undefined, snapshot.custom)
+      const values = normalizeCustomFieldValues(rawValues)
+      if (Object.keys(values).length) {
+        await de.setCustomFields({
+          entityId: ENTITY_ID,
+          recordId: id,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          values,
+          notify: false,
         })
-        return entity
-      } catch (error) {
-        if (isUniqueViolation(error)) throw conflict('[internal] Cannot redo: a record with the same unique key already exists.')
-        throw error
       }
+    }
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: removed,
+      identifiers: {
+        id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      syncOrigin: ctx.syncOrigin,
+      events: todoCrudEvents,
+      indexer: todoCrudIndexer,
     })
   },
+  redo: makeCreateRedo<Todo, SerializedTodo, Record<string, unknown>, Todo>({
+    entityClass: Todo,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: todoSeedFromSnapshot,
+    buildResult: (entity) => entity,
+    events: todoCrudEvents,
+    indexer: todoCrudIndexer,
+    afterRestore: async ({ ctx, entity, snapshot }) => {
+      if (!snapshot.custom || !Object.keys(snapshot.custom).length) return
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      const values = normalizeCustomFieldValues(snapshot.custom)
+      if (!Object.keys(values).length) return
+      await de.setCustomFields({
+        entityId: ENTITY_ID,
+        recordId: String(entity.id),
+        tenantId: entity.tenantId ? String(entity.tenantId) : null,
+        organizationId: entity.organizationId ? String(entity.organizationId) : null,
+        values,
+        notify: false,
+      })
+    },
+  }),
 }
 
 const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   id: 'example.todos.update',
   isUndoable: true,
-  atomicReplay: true,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(todoUpdateSchema, rawInput)
     const scope = ensureScope(ctx)
-    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager)
     // `notes` is encrypted at rest, so the undo snapshot has to be built from the
     // decrypted entity — a raw `em.findOne` would snapshot ciphertext and undo
     // would write it back as if it were the user's text.
@@ -370,8 +322,8 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
-    } as FilterQuery<Todo>, ctx.transactionalEm ? todoWriteLock : undefined, scope)
-    if (!existing) throw todoNotFound()
+    } as FilterQuery<Todo>, undefined, { tenantId: scope.tenantId, organizationId: scope.organizationId })
+    if (!existing) throw new CrudHttpError(404, { error: 'Todo not found' })
     // Runs in `prepare`, which the command bus always awaits before `execute`, so a
     // stale version aborts the write instead of racing it.
     assertOptimisticLock({
@@ -399,13 +351,11 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       scope,
       encryption,
     )
-    await beforeTodoTransactionalWrite(ctx, rawInput, parsed.id)
-    const todo = await writeTodoUpdate(ctx.transactionalEm ?? em.fork({ clear: true, freshEventManager: true }), {
+    const todo = await updateTodoWithoutFlushingRequestScope(em, {
       id: parsed.id,
-      ...scope,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
       patch,
-      refresh: !!ctx.transactionalEm,
-      touchVersion: !!ctx.transactionalEm && Object.keys(custom).length > 0,
     })
     if (!todo) throw new CrudHttpError(404, { error: 'Todo not found' })
 
@@ -435,7 +385,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     return todo
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const custom = await loadTodoCustomSnapshot(
       em,
       String(result.id),
@@ -471,73 +421,66 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       snapshotAfter: after,
     }
   },
-  async undo({ logEntry, ctx: caller }) {
-    return withTodoReplayDataEngine(caller, async (ctx) => {
-      const payload = (logEntry?.commandPayload as { undo?: { before?: SerializedTodo; after?: SerializedTodo } } | undefined)?.undo
-      const before = (logEntry.snapshotBefore as SerializedTodo | undefined) ?? payload?.before
-      if (!before?.id) throw new Error('Missing previous snapshot for undo')
-      const scope = resolveTodoReplayScope(ctx, logEntry, before)
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      if (ctx.transactionalEm && !await readScopedTodo(ctx.transactionalEm, before.id, scope, { lock: true })) throw todoNotFound()
-      const after = (logEntry.snapshotAfter as SerializedTodo | undefined) ?? payload?.after
-      const updated = await de.updateOrmEntity({
-        entity: Todo,
-        where: {
-          id: before.id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          deletedAt: null,
-        } as FilterQuery<Todo>,
-        // `updateOrmEntity` persists through the request `EntityManager`, so the
-        // `beforeUpdate` encryption hook re-encrypts `notes` on the way back down.
-        apply: (entity) => {
-          entity.title = before.title
-          entity.isDone = before.is_done
-          entity.notes = before.notes ?? null
-          entity.tenantId = before.tenantId ?? scope.tenantId
-          entity.organizationId = before.organizationId ?? scope.organizationId
-        },
-      })
-      const customResetValues = buildCustomFieldResetMap(before.custom, after?.custom)
-      const customValues = normalizeCustomFieldValues(customResetValues)
-      if (Object.keys(customValues).length > 0) {
-        await de.setCustomFields({
-          entityId: ENTITY_ID,
-          recordId: before.id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          values: customValues,
-          notify: false,
-        })
-      }
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'updated',
-        entity: updated,
-        identifiers: {
-          id: before.id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-        },
-        syncOrigin: ctx.syncOrigin,
-        events: todoCrudEvents,
-        indexer: todoCrudIndexer,
-      })
+  async undo({ logEntry, ctx }) {
+    const payload = (logEntry?.commandPayload as { undo?: { before?: SerializedTodo; after?: SerializedTodo } } | undefined)?.undo
+    const before = (logEntry.snapshotBefore as SerializedTodo | undefined) ?? payload?.before
+    if (!before?.id) throw new Error('Missing previous snapshot for undo')
+    const scope = resolveUndoScope(ctx, before)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const after = (logEntry.snapshotAfter as SerializedTodo | undefined) ?? payload?.after
+    const updated = await de.updateOrmEntity({
+      entity: Todo,
+      where: {
+        id: before.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      } as FilterQuery<Todo>,
+      // `updateOrmEntity` persists through the request `EntityManager`, so the
+      // `beforeUpdate` encryption hook re-encrypts `notes` on the way back down.
+      apply: (entity) => {
+        entity.title = before.title
+        entity.isDone = before.is_done
+        entity.notes = before.notes ?? null
+        entity.tenantId = before.tenantId ?? scope.tenantId
+        entity.organizationId = before.organizationId ?? scope.organizationId
+      },
     })
-  },
-  async redo({ input, ctx }) {
-    return withTodoReplayDataEngine(ctx, (scoped) => updateTodoCommand.execute(input, scoped))
+    const customResetValues = buildCustomFieldResetMap(before.custom, after?.custom)
+    const customValues = normalizeCustomFieldValues(customResetValues)
+    if (Object.keys(customValues).length > 0) {
+      await de.setCustomFields({
+        entityId: ENTITY_ID,
+        recordId: before.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        values: customValues,
+        notify: false,
+      })
+    }
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: updated,
+      identifiers: {
+        id: before.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      syncOrigin: ctx.syncOrigin,
+      events: todoCrudEvents,
+      indexer: todoCrudIndexer,
+    })
   },
 }
 
 const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, Todo> = {
   id: 'example.todos.delete',
   isUndoable: true,
-  atomicReplay: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Todo id required')
     const scope = ensureScope(ctx)
-    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager)
     // Same reason as the update `prepare`: the delete-undo snapshot must hold the
     // plaintext `notes`, not the stored ciphertext.
     const existing = await findOneWithDecryption(em, Todo, {
@@ -545,11 +488,8 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
-    } as FilterQuery<Todo>, ctx.transactionalEm ? todoWriteLock : undefined, scope)
-    if (!existing) {
-      if (ctx.transactionalEm) throw todoNotFound()
-      return {}
-    }
+    } as FilterQuery<Todo>, undefined, { tenantId: scope.tenantId, organizationId: scope.organizationId })
+    if (!existing) return {}
     const custom = await loadTodoCustomSnapshot(
       em,
       String(existing.id),
@@ -562,17 +502,6 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const id = requireId(input, 'Todo id required')
     const scope = ensureScope(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await beforeTodoTransactionalWrite(ctx, input, id)
-    if (ctx.transactionalEm && typeof input.body?.expected_updated_at === 'string') {
-      const current = await readScopedTodo(ctx.transactionalEm, id, scope, { lock: true })
-      if (!current) throw todoNotFound()
-      assertOptimisticLock({
-        resourceKind: ENTITY_ID,
-        resourceId: id,
-        expected: input.body.expected_updated_at,
-        current: current.updatedAt,
-      })
-    }
     const todo = await de.deleteOrmEntity({
       entity: Todo,
       where: {
@@ -581,7 +510,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         organizationId: scope.organizationId,
         deletedAt: null,
       } as FilterQuery<Todo>,
-      soft: !isConfiguredTodoHardDelete(ctx),
+      soft: true,
       softDeleteField: 'deletedAt',
     })
     if (!todo) throw new CrudHttpError(404, { error: 'Todo not found' })
@@ -602,7 +531,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
 
     return todo
   },
-  buildLog: async ({ snapshots, input, ctx }) => {
+  buildLog: async ({ snapshots, input }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as SerializedTodo | undefined
     const id = requireId(input, 'Todo id required')
@@ -613,166 +542,70 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       tenantId: before?.tenantId ?? null,
       organizationId: before?.organizationId ?? null,
       snapshotBefore: before ?? null,
-      ...(isConfiguredTodoHardDelete(ctx) ? { context: { exampleTodoDeleteMode: 'hard' } } : {}),
     }
   },
-  async undo({ logEntry, ctx: caller }) {
-    return withTodoReplayDataEngine(caller, async (ctx) => {
-      const before = logEntry.snapshotBefore as SerializedTodo | undefined
-      if (!before?.id) throw new Error('Missing snapshot for undo')
-      const scope = resolveTodoReplayScope(ctx, logEntry, before)
-      const em = (ctx.container.resolve('em') as EntityManager)
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      let restored = ctx.transactionalEm
-        ? await readScopedTodo(em, before.id, scope, { lock: true, includeDeleted: true })
-        : await em.findOne(Todo, { id: before.id, ...scope } as FilterQuery<Todo>)
-      if (ctx.transactionalEm && restored && !restored.deletedAt) throw conflict('[internal] Todo already exists')
-      if (restored) {
-        restored.deletedAt = null
-        restored.title = before.title
-        restored.isDone = before.is_done
-        restored.notes = before.notes ?? null
-        restored.tenantId = before.tenantId ?? scope.tenantId
-        restored.organizationId = before.organizationId ?? scope.organizationId
-        await em.persist(restored).flush()
-      } else {
-        restored = await de.createOrmEntity({
-          entity: Todo,
-          data: {
-            id: before.id,
-            title: before.title,
-            isDone: before.is_done,
-            notes: before.notes ?? null,
-            tenantId: before.tenantId ?? scope.tenantId,
-            organizationId: before.organizationId ?? scope.organizationId,
-          },
-        })
-      }
-      if (before.custom && Object.keys(before.custom).length > 0) {
-        const values = normalizeCustomFieldValues(before.custom)
-        await de.setCustomFields({
-          entityId: ENTITY_ID,
-          recordId: before.id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          values,
-          notify: false,
-        })
-      }
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'updated',
-        entity: restored,
-        identifiers: {
+  async undo({ logEntry, ctx }) {
+    const before = logEntry.snapshotBefore as SerializedTodo | undefined
+    if (!before?.id) throw new Error('Missing snapshot for undo')
+    const scope = resolveUndoScope(ctx, before)
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    let restored = await em.findOne(Todo, {
+      id: before.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    } as FilterQuery<Todo>)
+    if (restored) {
+      restored.deletedAt = null
+      restored.title = before.title
+      restored.isDone = before.is_done
+      restored.notes = before.notes ?? null
+      restored.tenantId = before.tenantId ?? scope.tenantId
+      restored.organizationId = before.organizationId ?? scope.organizationId
+      await em.persist(restored).flush()
+    } else {
+      restored = await de.createOrmEntity({
+        entity: Todo,
+        data: {
           id: before.id,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
+          title: before.title,
+          isDone: before.is_done,
+          notes: before.notes ?? null,
+          tenantId: before.tenantId ?? scope.tenantId,
+          organizationId: before.organizationId ?? scope.organizationId,
         },
-        syncOrigin: ctx.syncOrigin,
-        events: todoCrudEvents,
-        indexer: todoCrudIndexer,
       })
+    }
+    if (before.custom && Object.keys(before.custom).length > 0) {
+      const values = normalizeCustomFieldValues(before.custom)
+      await de.setCustomFields({
+        entityId: ENTITY_ID,
+        recordId: before.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        values,
+        notify: false,
+      })
+    }
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: restored,
+      identifiers: {
+        id: before.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      },
+      syncOrigin: ctx.syncOrigin,
+      events: todoCrudEvents,
+      indexer: todoCrudIndexer,
     })
-  },
-  async redo({ input, ctx, logEntry }) {
-    return withTodoReplayDataEngine(ctx, (scoped) => deleteTodoCommand.execute(input, {
-      ...scoped,
-      crudFormSectionDeleteMode: logEntry.contextJson?.exampleTodoDeleteMode === 'hard' ? 'hard' : undefined,
-    }))
   },
 }
 
 registerCommand(createTodoCommand)
 registerCommand(updateTodoCommand)
 registerCommand(deleteTodoCommand)
-
-const todoWriteLock = { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } as const
-
-function todoNotFound(): CrudHttpError {
-  return new CrudHttpError(404, { error: 'Todo not found' })
-}
-
-function readScopedTodo(
-  em: EntityManager,
-  id: string,
-  scope: { tenantId: string; organizationId: string },
-  options: { lock?: boolean; includeDeleted?: boolean } = {},
-) {
-  return findOneWithDecryption(em, Todo,
-    { id, ...scope, ...(options.includeDeleted ? {} : { deletedAt: null }) },
-    options.lock ? todoWriteLock : undefined,
-    scope,
-  )
-}
-
-async function beforeTodoTransactionalWrite(ctx: CommandRuntimeContext, input: unknown, id?: string) {
-  const em = ctx.transactionalEm
-  if (!em) return
-  if (!ownsTransactionLifetime(em, ctx.transactionLifetime)) {
-    throw new Error('[internal] Todo write requires the owned transaction')
-  }
-  if (id && !await readScopedTodo(em, id, ensureScope(ctx), { lock: true })) throw todoNotFound()
-  await ctx.beforeTransactionalWrite?.(em, input)
-}
-
-function isConfiguredTodoHardDelete(ctx: CommandRuntimeContext): boolean {
-  return !!ctx.transactionalEm && ctx.crudFormSectionDeleteMode === 'hard'
-    && ownsTransactionLifetime(ctx.transactionalEm, ctx.transactionLifetime)
-}
-
-async function snapshotCreatedTodo(input: Record<string, unknown>, todo: Todo, em: EntityManager) {
-  const custom = await loadTodoCustomSnapshot(em, String(todo.id), todo.tenantId, todo.organizationId)
-  return serializeTodo(todo, custom, parseWithCustomFields(todoCreateSchema, input).parsed.notes ?? null)
-}
-
-function resolveTodoReplayScope(ctx: CommandRuntimeContext, log: CommandUndoLogEntry, snapshot?: SerializedTodo) {
-  if (!ctx.transactionalEm) return resolveUndoScope(ctx, snapshot)
-  if (!snapshot || (log.resourceId && log.resourceId !== snapshot.id)
-      || (log.tenantId && log.tenantId !== snapshot.tenantId)
-      || (log.organizationId && log.organizationId !== snapshot.organizationId)) {
-    throw new CrudHttpError(409, { error: 'record_conflict' })
-  }
-  const scope = resolveUndoScope(ctx, snapshot)
-  const allowed = ctx.organizationScope ? ctx.organizationScope.filterIds : ctx.organizationIds
-  if (Array.isArray(allowed) && !allowed.includes(scope.organizationId)) {
-    throw new CrudHttpError(403, { error: 'Undo scope is not permitted for this organization' })
-  }
-  return scope
-}
-
-async function withTodoReplayDataEngine<TResult>(
-  ctx: CommandRuntimeContext,
-  run: (scoped: CommandRuntimeContext, em: EntityManager) => Promise<TResult>,
-): Promise<TResult> {
-  const em = ctx.transactionalEm
-  if (!em) return run(ctx, ctx.container.resolve<EntityManager>('em'))
-  if (!ownsTransactionLifetime(em, ctx.transactionLifetime)) {
-    throw new Error('[internal] Todo replay requires the owned transaction')
-  }
-  const container = ctx.container.createScope()
-  let registered = false
-  let completed = false
-  try {
-    container.register('em', asValue(em))
-    const parent = ctx.container.resolve<DataEngine>('dataEngine')
-    const scope = parent.createCommandTransactionScope?.(em, container)
-    if (!scope || scope.dataEngine === parent) throw new Error('[internal] Todo replay requires an isolated data engine')
-    container.register('dataEngine', asValue(scope.dataEngine))
-    onTransactionLifetimeComplete(em, async (outcome) => {
-      try {
-        await scope.complete(completed ? outcome : 'rolled_back', ctx.bulkImport)
-      } finally {
-        await container.dispose()
-      }
-    })
-    registered = true
-    const result = await run({ ...ctx, container }, em)
-    completed = true
-    return result
-  } finally {
-    if (!registered) await container.dispose()
-  }
-}
 
 function resolveUndoScope(
   ctx: CommandRuntimeContext,
@@ -805,12 +638,12 @@ function todoSeedFromSnapshot(snapshot: SerializedTodo): Record<string, unknown>
   }
 }
 
-function serializeTodo(todo: Todo, custom?: Record<string, unknown> | null, notes = todo.notes ?? null): SerializedTodo {
+function serializeTodo(todo: Todo, custom?: Record<string, unknown> | null): SerializedTodo {
   const payload: SerializedTodo = {
     id: String(todo.id),
     title: String(todo.title),
     is_done: !!todo.isDone,
-    notes,
+    notes: todo.notes ?? null,
     tenantId: todo.tenantId ? String(todo.tenantId) : null,
     organizationId: todo.organizationId ? String(todo.organizationId) : null,
   }
@@ -830,17 +663,16 @@ function ensureScope(ctx: CommandRuntimeContext): { tenantId: string; organizati
 // pending changes from the request-scoped EM. This is required when the
 // sync bridge calls update inside a worker context where the shared EM may
 // carry state from prior operations within the same job batch.
-async function writeTodoUpdate(
+async function updateTodoWithoutFlushingRequestScope(
   em: EntityManager,
   input: {
     id: string
     tenantId: string
     organizationId: string
     patch: EntityData<Todo>
-    refresh: boolean
-    touchVersion: boolean
   },
 ): Promise<Todo | null> {
+  const isolatedEm = em.fork({ clear: true, freshEventManager: true })
   const where = {
     id: input.id,
     tenantId: input.tenantId,
@@ -849,9 +681,9 @@ async function writeTodoUpdate(
   } as FilterQuery<Todo>
   const patch: EntityData<Todo> = { ...input.patch }
 
-  if (Object.keys(patch).length > 0 || input.touchVersion) {
+  if (Object.keys(patch).length > 0) {
     patch.updatedAt = new Date()
-    const updatedRows = await em.nativeUpdate(Todo, where, patch)
+    const updatedRows = await isolatedEm.nativeUpdate(Todo, where, patch)
     if (updatedRows === 0) return null
   }
 
@@ -859,7 +691,7 @@ async function writeTodoUpdate(
   // ORM subscribers, so the `onLoad` decryption hook never fires here. The explicit
   // helper is what turns the stored `notes` ciphertext back into plaintext for the
   // audit snapshot the caller builds from this entity.
-  return await findOneWithDecryption(em, Todo, where, input.refresh ? { refresh: true } : undefined, {
+  return await findOneWithDecryption(isolatedEm, Todo, where, undefined, {
     tenantId: input.tenantId,
     organizationId: input.organizationId,
   })

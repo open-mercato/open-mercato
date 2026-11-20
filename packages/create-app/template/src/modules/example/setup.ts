@@ -36,20 +36,6 @@ import {
  * carry deterministic ids that upsert, and the todo seeder returns early once the scope
  * already has todos.
  */
-type TodoErpScope = { tenantId: string; organizationId: string }
-type TodoErpCredentials = {
-  resolve(id: string, scope: TodoErpScope): Promise<Record<string, unknown> | null>
-  save(id: string, credentials: Record<string, unknown>, scope: TodoErpScope): Promise<void>
-}
-
-async function ensureTodoErpCredentials(container: AwilixContainer, scope: TodoErpScope) {
-  if (!container.hasRegistration('integrationCredentialsService')) return
-  const credentials = container.resolve<TodoErpCredentials>('integrationCredentialsService')
-  if (await credentials.resolve('example_todo_erp', scope) === null) {
-    await credentials.save('example_todo_erp', {}, scope)
-  }
-}
-
 const logger = createLogger('example').child({ component: 'setup' })
 
 type SchedulerServiceLike = {
@@ -147,15 +133,11 @@ export const setup: ModuleSetupConfig = {
         notify: false,
       })
     }
-    const scope = { tenantId, organizationId }
-    await ensureTodoBulkDispatchSchedule(container, scope)
-    await ensureTodoErpCredentials(container, scope)
+    await ensureTodoBulkDispatchSchedule(container, { tenantId, organizationId })
   },
 
   async onOrganizationCreated({ container, tenantId, organizationId }) {
-    const scope = { tenantId, organizationId }
-    await ensureTodoBulkDispatchSchedule(container, scope)
-    await ensureTodoErpCredentials(container, scope)
+    await ensureTodoBulkDispatchSchedule(container, { tenantId, organizationId })
   },
 
   async seedExamples({ em, container, tenantId, organizationId }) {
