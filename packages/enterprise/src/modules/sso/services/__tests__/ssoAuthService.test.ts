@@ -115,7 +115,7 @@ describe('SSO-scoped password verification', () => {
 
   it('registers the scoped verifier under the authService used by the core login route', async () => {
     const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-    container.register({ em: asValue(em) })
+    container.register({ em: asValue(em), rbacService: asValue({}) })
     register(container)
     jest.mocked(findOneWithDecryption).mockResolvedValue({ id: 'deactivation-1' } as SsoUserDeactivation)
     const service = container.resolve<SsoAuthService>('authService')
@@ -228,7 +228,7 @@ describe('SSO-scoped password verification', () => {
       { verified: false, deactivated: false, resolved: false, reads: 4, ambiguous: true },
     ])('returns the same public denial for $verified/$deactivated/$resolved', async ({ verified, deactivated, resolved, reads, ambiguous }) => {
       const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-      container.register({ em: asValue(em) })
+      container.register({ em: asValue(em), rbacService: asValue({}) })
       register(container)
       const service = container.resolve<SsoAuthService>('authService')
       const accounts = resolved ? [user] : []
