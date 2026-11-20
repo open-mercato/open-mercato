@@ -160,6 +160,26 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     expect(openApiDoc.paths['/api/demo/details']?.get?.summary).toBe('package details')
   })
 
+  it('uses the runtime metadata path for routes published outside their module prefix', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'policy', 'route.ts'),
+      [
+        'export async function POST() { return new Response() }',
+        "export const metadata = { path: '/extensions/example/resolve', POST: { requireAuth: true } }",
+        "export const openApi = { POST: { summary: 'resolve example policy' } }",
+      ].join('\n'),
+    )
+    const resolver = createMockResolver([{ id: 'demo', from: '@open-mercato/core' }])
+    const result = await generateOpenApi({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+    const generatedPath = path.join(tmpDir, 'output', 'generated', 'openapi.generated.json')
+    const document = JSON.parse(fs.readFileSync(generatedPath, 'utf8')) as {
+      paths: Record<string, { post?: { summary?: string } }>
+    }
+    expect(document.paths['/api/extensions/example/resolve']?.post?.summary).toBe('resolve example policy')
+    expect(document.paths['/api/demo/policy']).toBeUndefined()
+  })
+
   it('bundles into a per-run file and leaves no bundle behind', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'health', 'route.ts'),

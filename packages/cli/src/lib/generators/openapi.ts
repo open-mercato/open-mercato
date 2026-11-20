@@ -12,6 +12,7 @@ import * as path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../resolver'
 import { getEnabledModuleIdentities } from '../module-identity'
 import { isModuleRouteFile } from './scanner'
+import { resolveNamedObjectExport } from './module-registry'
 import {
   calculateChecksum,
   calculateStructureChecksum,
@@ -31,12 +32,13 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 interface ApiRouteInfo {
   path: string
+  moduleId: string
   methods: HttpMethod[]
   openApiPath: string
 }
 
 interface OpenApiInputManifest {
-  version: 1
+  version: 2
   inputPaths: string[]
 }
 
@@ -56,7 +58,7 @@ interface OpenApiBundleResult {
   inputPaths: string[]
 }
 
-const OPENAPI_INPUT_MANIFEST_VERSION = 1
+const OPENAPI_INPUT_MANIFEST_VERSION = 2
 
 function createOpenApiInputContext(resolver: PackageResolver): OpenApiInputContext {
   const enabled = resolver.loadEnabledModules()
@@ -195,12 +197,17 @@ async function findApiRoutes(
 
       // Build API path
       const routeSegs = relativePath ? relativePath.split('/') : []
-      const apiPath = `/api/${modId}${routeSegs.length ? '/' + routeSegs.join('/') : ''}`
+      const metadataPath = resolveNamedObjectExport(fullPath, 'metadata')?.path
+      const routePath = typeof metadataPath === 'string' && metadataPath
+        ? metadataPath
+        : `/${modId}${routeSegs.length ? '/' + routeSegs.join('/') : ''}`
+      const apiPath = `/api/${routePath.replace(/^\/+/, '')}`
         // Convert [param] to {param} for OpenAPI format
         .replace(/\[([^\]]+)\]/g, '{$1}')
 
       routes.push({
         path: fullPath,
+        moduleId: modId,
         methods: await detectMethods(fullPath),
         openApiPath: apiPath,
       })
@@ -358,7 +365,7 @@ async function generateOpenApiViaBundle(
     importLines.push(`import * as R${i} from ${JSON.stringify(route.path)};`)
     // Use [param] format so normalizePath in buildOpenApiDocument extracts path params
     const bracketPath = route.openApiPath.replace(/\{([^}]+)\}/g, '[$1]')
-    routeMapLines.push(`  [${JSON.stringify(bracketPath)}, R${i}],`)
+    routeMapLines.push(`  [${JSON.stringify(bracketPath)}, ${JSON.stringify(route.moduleId)}, R${i}],`)
   }
 
   const entryScript = `${importLines.join('\n')}
@@ -368,8 +375,7 @@ ${routeMapLines.join('\n')}
 ];
 
 const modules = new Map();
-for (const [apiPath, mod] of routeEntries) {
-  const moduleId = apiPath.replace(/^\\/api\\//, '').split('/')[0];
+for (const [apiPath, moduleId, mod] of routeEntries) {
   if (!modules.has(moduleId)) modules.set(moduleId, { id: moduleId, apis: [] });
   modules.get(moduleId).apis.push({
     path: apiPath,

@@ -35,6 +35,8 @@ type ModuleSections = {
   moduleId: string
   importPath: string
   descriptors: Descriptor[]
+  clientHosts: readonly unknown[]
+  contributedOverrides: unknown
 }
 
 function compareIds(left: string, right: string): number {
@@ -82,6 +84,21 @@ function fieldsOf(node: ts.Expression, invalid: (reason: string) => never): Map<
     fields.set(name, property.initializer)
   }
   return fields
+}
+
+function literalData(node: ts.Expression, invalid: (reason: string) => never): unknown {
+  const value = unwrap(node)
+  if (ts.isStringLiteralLike(value)) return value.text
+  if (ts.isNumericLiteral(value)) return Number(value.text)
+  if (value.kind === ts.SyntaxKind.NullKeyword) return null
+  if (value.kind === ts.SyntaxKind.TrueKeyword) return true
+  if (value.kind === ts.SyntaxKind.FalseKeyword) return false
+  if (ts.isArrayLiteralExpression(value)) return value.elements.map((element) => literalData(element, invalid))
+  if (ts.isObjectLiteralExpression(value)) {
+    return Object.fromEntries([...fieldsOf(value, invalid)]
+      .map(([key, entry]) => [key, literalData(entry, invalid)]))
+  }
+  return invalid('expected JSON-serializable client facts')
 }
 
 function literalValue(node: ts.Expression | undefined, name: string, invalid: (reason: string) => never): string {
@@ -189,11 +206,25 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
   }
 
   const descriptors: Descriptor[] = []
+  const clientHosts: Array<{ id: string; roundTripId: string; hostResourceKind?: string; alternatives: unknown[] }> = []
   const factIds = new Set<string>()
   for (const [kind, field] of factFields) {
     const facts = arrayField(fields, field, invalid)
     for (const [index, fact] of facts.entries()) {
-      const { id, roundTripId } = readIdentity(fieldsOf(fact, invalid), invalid)
+      const properties = fieldsOf(fact, invalid)
+      const { id, roundTripId } = readIdentity(properties, invalid)
+      if (kind === 'host') {
+        const alternatives = arrayField(properties, 'alternatives', invalid).map((entry) => {
+          const surface = fieldsOf(entry, invalid).get('surface')
+          if (!surface) return invalid('missing finite surface alternative')
+          return literalData(surface, invalid)
+        })
+        const hostResourceKind = properties.has('hostResourceKind')
+          ? literalValue(properties.get('hostResourceKind'), 'hostResourceKind', invalid)
+          : undefined
+        if (alternatives.length && !hostResourceKind) return invalid('host alternatives require a hostResourceKind')
+        clientHosts.push({ id, roundTripId, hostResourceKind, alternatives })
+      }
       if (factIds.has(id)) invalid(`duplicate fact id "${id}"`)
       factIds.add(id)
       const runtime = runtimes.get(id)
@@ -210,6 +241,10 @@ function parseModuleSections(module: ModuleSource): ModuleSections | null {
   return {
     moduleId: module.modId,
     importPath: declaration.importPath,
+    clientHosts: clientHosts.sort((left, right) => compareIds(left.id, right.id)),
+    contributedOverrides: fields.has('contributedOverrides')
+      ? literalData(fields.get('contributedOverrides')!, invalid)
+      : {},
     descriptors: descriptors.sort((left, right) => compareIds(left.id, right.id)),
   }
 }
@@ -254,12 +289,16 @@ function renderFactRegistry(modules: readonly ModuleSections[]): string {
   ))
   return [
     generatedHeader,
-    "import type { CrudFormSectionFactEntry } from '@open-mercato/shared/modules/form-sections'",
+    "import type { CrudFormSectionFactEntry, CrudFormSectionServerModule } from '@open-mercato/shared/modules/form-sections'",
     ...imports,
     '',
     'export const crudFormSectionFactEntries = [',
     ...entries,
     '] as const satisfies readonly CrudFormSectionFactEntry[]',
+    '',
+    'export const crudFormSectionServerModules = [',
+    ...modules.map(({ moduleId }, index) => `  { moduleId: ${JSON.stringify(moduleId)}, sections: sections${index} },`),
+    '] as const satisfies readonly CrudFormSectionServerModule[]',
     '',
   ].join('\n')
 }
@@ -270,7 +309,11 @@ function renderRuntimeRegistry(modules: readonly ModuleSections[]): string {
   ))
   return [
     generatedHeader,
-    "import type { CrudFormSectionRuntimeEntry } from '@open-mercato/shared/modules/form-sections'",
+    "import type { CrudFormSectionClientHostFact, CrudFormSectionRuntimeEntry } from '@open-mercato/shared/modules/form-sections'",
+    "import type { FormSectionOverridesMap } from '@open-mercato/shared/modules/overrides'",
+    '',
+    `export const crudFormSectionClientHostFacts = ${JSON.stringify(modules.flatMap((module) => module.clientHosts), null, 2)} as const satisfies readonly CrudFormSectionClientHostFact[]`,
+    `export const crudFormSectionContributedOverrides = ${JSON.stringify(Object.assign({}, ...modules.map((module) => module.contributedOverrides)), null, 2)} as const satisfies Readonly<FormSectionOverridesMap>`,
     '',
     'export const crudFormSectionRuntimeEntries: readonly CrudFormSectionRuntimeEntry[] = [',
     ...entries,
@@ -297,7 +340,7 @@ export function writeCrudFormSectionRegistries(options: {
   const sections = new Map<string, ModuleSections>()
   for (const module of options.modules) {
     const declaration = parseModuleSections(module)
-    if (declaration?.descriptors.length) sections.set(module.modId, declaration)
+    if (declaration) sections.set(module.modId, declaration)
   }
   const modules = orderedSectionModules(sections, options.identities, options.requiresByModule)
   const modulesById = new Map<string, string>()

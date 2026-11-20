@@ -1,3 +1,4 @@
+import type { CrudFormSectionServerModule } from '../../modules/form-sections'
 import type { AppDiRegistrar, DiRegistrar } from '../di/container'
 import type { EntityIds } from '../encryption/entityIds'
 import type { EntityFieldsRegistry } from '../encryption/entityFields'
@@ -47,6 +48,7 @@ export interface NotificationHandlerBootstrapEntry {
 export type CommandLoaderBootstrapEntry = import('../commands/registry').CommandLoader
 
 export interface BootstrapData {
+  crudFormSectionServerModules?: readonly CrudFormSectionServerModule[]
   modules: Module[]
   entities: OrmEntity[]
   diRegistrars: (DiRegistrar | undefined)[]

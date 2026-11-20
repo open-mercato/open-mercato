@@ -1,3 +1,4 @@
+import { registerCrudFormSectionManifest } from '../crud/form-sections/manifest'
 import type { BootstrapData, BootstrapOptions } from './types'
 import { registerOrmEntities } from '../db/mikro'
 import { registerAppDiRegistrar, registerDiRegistrars } from '../di/container'
@@ -107,6 +108,10 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6f. Command interceptors (for command bus lifecycle) ===
     if (data.commandInterceptorEntries) {
       registerCommandInterceptors(data.commandInterceptorEntries)
+    }
+
+    if (data.crudFormSectionServerModules) {
+      registerCrudFormSectionManifest(data.crudFormSectionServerModules)
     }
 
     // === 6f.1. Command loaders (for lazy command handler registration) ===

@@ -118,6 +118,38 @@ describe('CrudForm section registry generation', () => {
     expect(secondRun.flatMap((result) => result.filesWritten)).toEqual([])
   })
 
+  it('exposes only literal host surface facts to the browser registry', async () => {
+    const base = 'app/src/modules/example'
+    write(`${base}/form-sections.ts`, `
+      import { defineCrudFormSections, lazyCrudFormSectionRuntime } from '@open-mercato/shared/modules/form-sections'
+      export const crudFormSections = defineCrudFormSections({
+        hostFacts: [{
+          id: 'example.host', roundTripId: 'example.host@v1', hostResourceKind: 'example.todo',
+          alternatives: [{ surface: {
+            id: 'example.base', hostId: 'example.todo', formVariant: 'default', formOperation: 'update',
+            orderedSectionIds: ['details'], callerIds: ['example.page'], contributionIds: [],
+            ownershipFacts: [], mutationSurfaceIds: [], dependencies: [],
+          }, activeDataContractIds: ['server-contract'] }],
+        }],
+        hostProviders: [{ hostDescriptorId: 'example.host', requireFeatures: [],
+          authorizeHost: async function serverAuthorization() { return null },
+        }],
+        runtimes: [{ id: 'example.host', roundTripId: 'example.host@v1',
+          load: lazyCrudFormSectionRuntime(() => import('./descriptor.client')),
+        }],
+      })
+    `)
+    write(`${base}/descriptor.client.ts`, runtime('example.host'))
+    await generateModuleRegistryApp({ resolver: resolver([{ id: 'example', from: '@app' }]), quiet: true })
+
+    expect(generated('facts')).toContain('crudFormSectionServerModules')
+    expect(generated('runtime')).toContain('crudFormSectionClientHostFacts')
+    expect(generated('runtime')).toContain('"id": "example.base"')
+    expect(generated('runtime')).toContain('"hostResourceKind": "example.todo"')
+    expect(generated('runtime')).not.toMatch(/serverAuthorization|server-contract/)
+    expect(generated('runtime')).not.toContain('/form-sections"')
+  })
+
   it('reads standalone npm dist .js declarations and runtime exports without a source mirror', async () => {
     const base = 'package/dist/modules/installed'
     write(`${base}/form-sections.js`, declaration('installed.notes')

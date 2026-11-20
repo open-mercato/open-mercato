@@ -16,6 +16,8 @@ import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-m
 import type { Metadata } from 'next'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
+import { getCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
+import { CrudFormSectionLedgerProvider } from '@open-mercato/ui/backend/injection/crud-form-section-ledger'
 import { backendMiddlewareEntries } from '@/.mercato/generated/backend-middleware.generated'
 
 bootstrap()
@@ -119,12 +121,12 @@ export default async function BackendCatchAll(props: BackendParams) {
   const Component = resolveRegisteredComponent(pageHandle, LoadedComponent)
 
   return (
-    <>
+    <CrudFormSectionLedgerProvider value={getCrudFormSectionManifest().ledger}>
       <ApplyBreadcrumb breadcrumb={match.route.breadcrumb} title={match.route.title} titleKey={match.route.titleKey} />
       <div data-component-handle={pageHandle}>
         <Component params={match.params} />
       </div>
-    </>
+    </CrudFormSectionLedgerProvider>
   )
 }
 

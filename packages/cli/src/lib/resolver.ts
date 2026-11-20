@@ -289,10 +289,146 @@ function collectPushEntriesFromStatement(
   })
 }
 
+function validateFormSectionGates(sourceFile: ts.SourceFile, targetVariableName: string): void {
+  const initializers = new Map<string, ts.Expression>()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      const initializer = declaration.initializer
+      if (!initializer) continue
+      function mapBinding(binding: ts.BindingName, value: ts.Expression): void {
+        if (ts.isIdentifier(binding)) initializers.set(binding.text, value)
+        else for (const element of binding.elements) if (ts.isBindingElement(element)) mapBinding(element.name, value)
+      }
+      mapBinding(declaration.name, initializer)
+    }
+  }
+
+  function serverEnvironmentReads(expression: ts.Expression): string[] {
+    const found = new Set<string>()
+    const seen = new Set<string>()
+    function visit(node: ts.Node): void {
+      if (ts.isIdentifier(node) && !seen.has(node.text)) {
+        seen.add(node.text)
+        const initializer = initializers.get(node.text)
+        if (initializer && node.text !== targetVariableName) visit(initializer)
+      }
+      if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+          && node.expression.text === 'process' && node.name.text === 'env') {
+        found.add('<dynamic process.env>')
+        return
+      }
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+        const target = node.expression
+        if (ts.isPropertyAccessExpression(target) && target.name.text === 'env'
+            && ts.isIdentifier(target.expression) && target.expression.text === 'process') {
+          const environmentKey = ts.isPropertyAccessExpression(node) ? node.name.text
+            : ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : '<dynamic process.env>'
+          if (!environmentKey.startsWith('NEXT_PUBLIC_')) found.add(environmentKey)
+          return
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(expression)
+    return [...found].sort()
+  }
+
+  function assertGates(gates: readonly ts.Expression[]): void {
+    const serverKeys = [...new Set(gates.flatMap(serverEnvironmentReads))].sort()
+    if (serverKeys.length) {
+      throw new Error(`[resolver] forms.sections in src/modules.ts requires browser-visible module gating; server-only: ${serverKeys.join(', ')}`)
+    }
+  }
+
+  function inspectOverride(
+    node: ts.Expression,
+    keys: readonly string[],
+    gates: readonly ts.Expression[],
+    seen: ReadonlySet<string> = new Set(),
+  ): void {
+    if (ts.isParenthesizedExpression(node) || ts.isSatisfiesExpression(node) || ts.isAsExpression(node)) {
+      inspectOverride(node.expression, keys, gates, seen)
+    } else if (ts.isConditionalExpression(node)) {
+      inspectOverride(node.whenTrue, keys, [...gates, node.condition], seen)
+      inspectOverride(node.whenFalse, keys, [...gates, node.condition], seen)
+    } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      inspectOverride(node.right, keys, [...gates, node.left], seen)
+    } else if (ts.isIdentifier(node) && !seen.has(node.text) && initializers.has(node.text)) {
+      const initializer = initializers.get(node.text)
+      if (initializer) inspectOverride(initializer, keys, gates, new Set([...seen, node.text]))
+    } else if (!keys.length) {
+      assertGates([...gates, node])
+    } else if (ts.isObjectLiteralExpression(node)) {
+      for (const property of node.properties) {
+        if (ts.isSpreadAssignment(property)) inspectOverride(property.expression, keys, gates, seen)
+        if (ts.isShorthandPropertyAssignment(property) && property.name.text === keys[0]) {
+          inspectOverride(property.name, keys.slice(1), gates, seen)
+        }
+        if (ts.isPropertyAssignment(property)
+            && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+            && property.name.text === keys[0]) {
+          inspectOverride(property.initializer, keys.slice(1), gates, seen)
+        }
+      }
+    }
+  }
+
+  function inspectModules(node: ts.Node, gates: readonly ts.Expression[], seen: ReadonlySet<string> = new Set()): void {
+    if (ts.isIdentifier(node) && !seen.has(node.text)) {
+      const initializer = initializers.get(node.text)
+      if (initializer && node.text !== targetVariableName) inspectModules(initializer, gates, new Set([...seen, node.text]))
+    } else if (ts.isObjectLiteralExpression(node)) {
+      inspectOverride(node, ['overrides', 'forms', 'sections'], gates)
+    } else if (ts.isConditionalExpression(node)) {
+      inspectModules(node.whenTrue, [...gates, node.condition], seen)
+      inspectModules(node.whenFalse, [...gates, node.condition], seen)
+    } else {
+      ts.forEachChild(node, (child) => inspectModules(child, gates, seen))
+    }
+  }
+
+  function inspectStatement(statement: ts.Statement, gates: readonly ts.Expression[]): void {
+    if (ts.isBlock(statement)) {
+      for (const child of statement.statements) inspectStatement(child, gates)
+      return
+    }
+    if (ts.isIfStatement(statement)) {
+      const branchGates = [...gates, statement.expression]
+      inspectStatement(statement.thenStatement, branchGates)
+      if (statement.elseStatement) inspectStatement(statement.elseStatement, branchGates)
+      return
+    }
+    if (ts.isExpressionStatement(statement)) inspectPush(statement.expression, gates)
+  }
+
+  function inspectPush(node: ts.Expression, gates: readonly ts.Expression[]): void {
+    if (ts.isParenthesizedExpression(node)) inspectPush(node.expression, gates)
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      inspectPush(node.right, [...gates, node.left])
+    }
+    if (ts.isConditionalExpression(node)) {
+      inspectPush(node.whenTrue, [...gates, node.condition])
+      inspectPush(node.whenFalse, [...gates, node.condition])
+    }
+    if (!ts.isCallExpression(node)) return
+    const { expression, arguments: entries } = node
+    if (ts.isPropertyAccessExpression(expression) && expression.name.text === 'push'
+        && ts.isIdentifier(expression.expression) && expression.expression.text === targetVariableName) {
+      for (const entry of entries) inspectModules(entry, gates)
+    }
+  }
+
+  const enabled = initializers.get(targetVariableName)
+  if (enabled) inspectModules(enabled, [])
+  for (const statement of sourceFile.statements) inspectStatement(statement, [])
+}
+
 function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process.env): ModuleEntry[] {
   const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const modules: ModuleEntry[] = []
   const variableName = 'enabledModules'
+  validateFormSectionGates(sourceFile, variableName)
   const scope = new Map<string, unknown>()
   let foundDeclaration = false
 

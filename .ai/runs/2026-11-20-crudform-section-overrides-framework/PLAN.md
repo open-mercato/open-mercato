@@ -15,7 +15,7 @@ Status: in-progress
 | 1 | 1.3 | Define serializable section, capability, dependency and surface facts | dispatch | done | 498703b028 |
 | 1 | 1.4 | Add stable section scopes and pin legacy handle compatibility | dispatch | done | 05f57ef0aa |
 | 2 | 2.1 | Match final server capabilities by canonical facts | dispatch | done | this commit |
-| 2 | 2.2 | Build the accepted manifest, host ledger and authenticated resolver | dispatch | todo | — |
+| 2 | 2.2 | Build the accepted manifest, host ledger and authenticated resolver | dispatch | done | this commit |
 | 2 | 2.3 | Bind guarded mutation requests to reauthorized providers and resources | dispatch | todo | — |
 | 2 | 2.4 | Enforce required leaves and scoped default providers | dispatch | todo | — |
 | 2 | 2.5 | Compose ambient command lifecycle with the final-input transaction boundary | group:A | todo | — |
