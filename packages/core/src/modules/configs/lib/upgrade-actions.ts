@@ -3,7 +3,6 @@ import * as semver from 'semver'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
-import { reconcileAttachmentOrganizations } from '@open-mercato/core/modules/attachments/lib/reconcileOrganization'
 
 const logger = createLogger('configs').child({ component: 'upgrade-actions' })
 
@@ -64,7 +63,11 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'configs.upgrades.attachmentsOrgReconcile.cta',
     successKey: 'configs.upgrades.attachmentsOrgReconcile.success',
     loadingKey: 'configs.upgrades.attachmentsOrgReconcile.loading',
+    requiredModules: ['attachments'],
     async run({ container, em, tenantId }) {
+      const { reconcileAttachmentOrganizations } = await import(
+        '@open-mercato/core/modules/attachments/lib/reconcileOrganization'
+      )
       const queryEngine = container.resolve('queryEngine') as QueryEngine
       const report = await reconcileAttachmentOrganizations({ em, queryEngine, tenantId })
       logger.info('attachments organization reconcile completed', {
@@ -83,6 +86,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'configs.upgrades.devicesPushTokenEncryption.cta',
     successKey: 'configs.upgrades.devicesPushTokenEncryption.success',
     loadingKey: 'configs.upgrades.devicesPushTokenEncryption.loading',
+    requiredModules: ['devices'],
     // Encryption maps are seeded once at tenant creation (`entities seed-encryption`), so a tenant
     // that predates the devices push-token feature has no `devices:user_device` map row. Without it
     // `encryptEntityPayload` no-ops and `push_token` is written as PLAINTEXT (the map is a declaration
@@ -115,6 +119,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'customers.config.upgradeActions.interactionStatuses.cta',
     successKey: 'customers.config.upgradeActions.interactionStatuses.success',
     loadingKey: 'customers.config.upgradeActions.interactionStatuses.loading',
+    requiredModules: ['customers'],
     // Existing tenants predate the `interaction_status` dictionary, so their status
     // dropdown is empty until seeded. New tenants get it via customers `seedDefaults`.
     // Lazy-imported so configs stays decoupled from customers (the catalog of actions
@@ -159,6 +164,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     ctaKey: 'phone_calls.config.upgradeActions.encryptionMaps.cta',
     successKey: 'phone_calls.config.upgradeActions.encryptionMaps.success',
     loadingKey: 'phone_calls.config.upgradeActions.encryptionMaps.loading',
+    requiredModules: ['phone_calls'],
     // `Migration20260822120000` backfills these maps, but only for scopes that had active maps when
     // it ran. A tenant that upgraded with encryption disabled and turned it on afterwards is left
     // without a map, so ingest writes call PII as plaintext with nothing to signal it. This is the
