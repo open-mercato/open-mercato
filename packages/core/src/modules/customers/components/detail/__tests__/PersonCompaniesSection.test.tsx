@@ -71,7 +71,7 @@ describe('PersonCompaniesSection', () => {
         companyId: 'company-1',
         displayName: 'Alpha Corp',
         isPrimary: true,
-        subtitle: 'Industry · Warsaw',
+        subtitle: 'Industry, Warsaw',
         profile: null,
         billing: null,
         primaryAddress: null,
