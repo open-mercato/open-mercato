@@ -64,14 +64,14 @@ async function createRecurringOrder(
   return (await readJson(response)).id as string
 }
 
-async function insertPeriod(orderId: string, startsOn: string): Promise<void> {
+async function insertPeriod(orderId: string, startsOn: string, periodIndex = 0): Promise<void> {
   await withClient(async (client) => {
     const result = await client.query(
       `insert into sales_recurring_periods
          (organization_id, tenant_id, order_id, period_index, period_start, period_end, created_at, updated_at)
-       select organization_id, tenant_id, id, 0, $2::date, ($2::date + interval '1 month' - interval '1 day')::date, now(), now()
+       select organization_id, tenant_id, id, $3, $2::date, ($2::date + interval '1 month' - interval '1 day')::date, now(), now()
          from sales_orders where id = $1`,
-      [orderId, startsOn],
+      [orderId, startsOn, periodIndex],
     )
     expect(result.rowCount, 'the ledger fixture row should be inserted').toBe(1)
   })
@@ -141,6 +141,8 @@ test.describe('TC-SALES-046 recurring order locks and status guards', () => {
       const lineId = await firstLineId(request, token, orderId)
 
       await insertPeriod(orderId, startsOn)
+      expect((await readOrder(request, token, orderId)).recurrence).toMatchObject({ locked: true })
+      await insertPeriod(orderId, isoDayFromToday(40), 1)
       expect((await readOrder(request, token, orderId)).recurrence).toMatchObject({ locked: true })
 
       const attempts: Array<[string, () => Promise<APIResponse>]> = [

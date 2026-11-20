@@ -12,7 +12,6 @@ import {
   SalesDocumentTagAssignment,
   SalesOrderRecurrence,
   SalesQuoteRecurrence,
-  SalesRecurringPeriod,
 } from '../../data/entities'
 import {
   snapshotOrderRecurrence,
@@ -336,17 +335,19 @@ export const attachRecurrences = async (
   const scoped = orgIds.length ? { tenantId, organizationId: { $in: orgIds } } : { tenantId }
   const byDocument = new Map<string, Record<string, unknown>>()
   if (kind === 'order') {
+    const periodOrders = em.getKysely<{
+      sales_recurring_periods: { order_id: string; tenant_id: string; organization_id: string }
+    }>()
+      .selectFrom('sales_recurring_periods')
+      .select('order_id')
+      .distinct()
+      .where('order_id', 'in', ids)
+      .where('tenant_id', '=', tenantId)
     const [recurrences, periods] = await Promise.all([
       findWithDecryption(em, SalesOrderRecurrence, { orderId: { $in: ids }, ...scoped, deletedAt: null }, undefined, scope),
-      findWithDecryption(
-        em,
-        SalesRecurringPeriod,
-        { order: { $in: ids }, ...scoped },
-        { fields: ['id', 'order'] },
-        scope,
-      ),
+      (orgIds.length ? periodOrders.where('organization_id', 'in', orgIds) : periodOrders).execute(),
     ])
-    const invoiced = new Set(periods.map((period) => period.order.id))
+    const invoiced = new Set(periods.map((period) => period.order_id))
     recurrences.forEach((recurrence) => {
       const orderId = recurrence.orderId
       byDocument.set(orderId, {

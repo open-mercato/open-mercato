@@ -211,6 +211,14 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid or expired quote', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Cross-site request rejected', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Quote not found', schema: z.object({ error: z.string() }) },
+        {
+          status: 422,
+          description: 'Recurring quote has no lines or its start date has passed',
+          schema: z.object({
+            error: z.string(),
+            code: z.enum(['recurring_quote_no_lines', 'recurring_quote_started']),
+          }),
+        },
         { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
       ],
     },
