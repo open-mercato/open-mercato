@@ -78,6 +78,24 @@ test.describe('TC-WMS-018: Hierarchy and inventory-profile validation', () => {
         isActive: true,
       })
 
+      for (const direction of ['asc', 'desc'] as const) {
+        const query = new URLSearchParams({
+          ids: [warehouseId, secondWarehouseId].join(','),
+          sortField: 'city',
+          sortDir: direction,
+          pageSize: '1',
+        })
+        for (const [index, expectedId] of (
+          direction === 'asc' ? [warehouseId, secondWarehouseId] : [secondWarehouseId, warehouseId]
+        ).entries()) {
+          query.set('page', String(index + 1))
+          const response = await apiRequest(request, 'GET', `/api/wms/warehouses?${query}`, { token: adminToken })
+          expect(response.ok()).toBeTruthy()
+          const body = await readJsonSafe<{ items: Array<{ id: string }> }>(response)
+          expect(body?.items.map((item) => item.id)).toEqual([expectedId])
+        }
+      }
+
       zoneId = await createCrudFixture(request, adminToken, '/api/wms/zones', {
         warehouseId,
         code: `ZONE-${stamp}`,

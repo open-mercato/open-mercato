@@ -104,12 +104,7 @@ function customFieldKeysFor(ctx: CrudCtx): string[] {
 // Sorting on `cf_<key>` needs no entry here: the CRUD factory normalizes any
 // unmapped `cf_` sort field to the `cf:` query-engine selector.
 //
-// `notes` is absent here, but note what that does and does NOT do: the factory
-// falls through to the raw field name for an unmapped sort field, so `?sortField=notes`
-// still reaches the engine. It is not blocked. What happens is that the engine
-// recognizes `notes` as encrypted and routes the query to its decrypt-then-sort-in-
-// memory path, which is CORRECT but row-capped — past the cap the ordering is
-// silently partial. Omitting it from this map is documentation, not enforcement.
+// Encrypted notes are excluded from the ordinary sort allowlist.
 const sortFieldMap: Record<string, string> = {
   id,
   title,

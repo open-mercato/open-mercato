@@ -41,3 +41,7 @@ confirm ordinary mapped sorting and custom-field sorting after deployment.
 ## Changelog
 
 - 2026-11-07: Implemented sort-map enforcement for ordinary client selectors.
+
+- 2026-11-20: Restored explicit sort keys for existing WMS, CRM, staff, resources,
+  and planner list consumers (#9548). WMS integration coverage checks warehouse
+  city ordering in both directions across pages.

@@ -199,6 +199,7 @@ const crud = makeCrudRoute({
       F.updated_at,
     ],
     sortFieldMap: {
+      status: F.status,
       startDate: F.start_date,
       endDate: F.end_date,
       createdAt: F.created_at,

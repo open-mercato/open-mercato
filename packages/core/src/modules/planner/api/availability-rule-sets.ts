@@ -63,6 +63,7 @@ const crud = makeCrudRoute({
     ],
     decorateCustomFields: { entityIds: [E.planner.planner_availability_rule_set] },
     sortFieldMap: {
+      timezone: 'timezone',
       name: 'name',
       createdAt: 'created_at',
       updatedAt: 'updated_at',

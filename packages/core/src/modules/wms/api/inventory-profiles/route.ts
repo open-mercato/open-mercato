@@ -67,6 +67,8 @@ const crud = makeCrudRoute({
       'updated_at',
     ],
     sortFieldMap: {
+      default_strategy: 'default_strategy',
+      default_uom: 'default_uom',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
       defaultStrategy: 'default_strategy',

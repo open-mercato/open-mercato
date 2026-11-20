@@ -529,6 +529,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       entityIds: E.customers.customer_deal,
     },
     sortFieldMap: {
+      status: 'status',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
       title: 'title',

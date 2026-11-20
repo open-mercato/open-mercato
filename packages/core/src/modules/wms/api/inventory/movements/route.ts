@@ -54,6 +54,10 @@ const crud = makeCrudRoute({
       'updated_at',
     ],
     sortFieldMap: {
+      catalog_variant_id: 'catalog_variant_id',
+      warehouse_id: 'warehouse_id',
+      performed_at: 'performed_at',
+      reference_type: 'reference_type',
       catalogVariantId: 'catalog_variant_id',
       warehouseId: 'warehouse_id',
       quantity: 'quantity',

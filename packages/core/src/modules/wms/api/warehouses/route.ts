@@ -81,6 +81,10 @@ const crud = makeCrudRoute({
       entityIds: E.wms.warehouse,
     },
     sortFieldMap: {
+      city: F.city,
+      country: F.country,
+      is_primary: F.is_primary,
+      is_active: F.is_active,
       name: F.name,
       code: F.code,
       createdAt: F.created_at,

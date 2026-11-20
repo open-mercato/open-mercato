@@ -128,6 +128,7 @@ const crud = makeCrudRoute({
       'updated_at',
     ],
     sortFieldMap: {
+      display_name: 'display_name',
       name: 'display_name',
       email: 'primary_email',
       primaryEmail: 'primary_email',
