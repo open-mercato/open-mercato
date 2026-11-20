@@ -12,6 +12,7 @@ const translate = (_key: string, fallback?: string) => fallback ?? ''
 
 function containerWith(services: Record<string, unknown>): CrudCtx['container'] {
   return {
+    hasRegistration: (name: string) => name in services,
     resolve: (name: string) => {
       if (!(name in services)) throw new Error(`[internal] Could not resolve '${name}'`)
       return services[name]
@@ -52,7 +53,17 @@ describe('assertDomainMappingInScope', () => {
 
   it('answers the domainMappingId field error when the customer_accounts module is absent', async () => {
     const container = containerWith({})
+    const resolve = jest.spyOn(container, 'resolve')
 
     expectDomainMappingFieldError(await captureError(assertDomainMappingInScope(container, MAPPING_ID, scope, translate)))
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
+  it('propagates resolution failures for a registered domainMappingService', async () => {
+    const failure = new Error('Domain mapping dependency failed')
+    const container = containerWith({ domainMappingService: {} })
+    jest.spyOn(container, 'resolve').mockImplementation(() => { throw failure })
+
+    await expect(assertDomainMappingInScope(container, MAPPING_ID, scope, translate)).rejects.toBe(failure)
   })
 })

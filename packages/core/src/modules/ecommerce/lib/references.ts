@@ -11,11 +11,8 @@ type DomainMappingReader = {
 }
 
 function resolveDomainMappingReader(container: CrudCtx['container']): DomainMappingReader | null {
-  try {
-    return container.resolve<DomainMappingReader>('domainMappingService') ?? null
-  } catch {
-    return null
-  }
+  if (!container.hasRegistration('domainMappingService')) return null
+  return container.resolve<DomainMappingReader>('domainMappingService')
 }
 
 export async function assertStoreInScope(

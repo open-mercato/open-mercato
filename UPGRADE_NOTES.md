@@ -4,12 +4,12 @@
 
 `ecommerce` now declares `requires: ['catalog', 'sales']`. With `customer_groups` disabled,
 storefront buyer context falls back to channel-only pricing and assortment (no group terms,
-no purchase on account, no approval threshold); with `customer_accounts` disabled, a store
-domain binding that sets `domainMappingId` is rejected with the existing 400 validation
-error. Behavior is unchanged when both modules are enabled. Apps that pass `yarn generate`
-today are not newly rejected, and no action is needed unless your app relied on `ecommerce`
-to force these modules on; enable them explicitly in `src/modules.ts` in that case. No API,
-schema or configuration change. See
+no purchase on account, no approval threshold). With `customer_accounts` disabled, hostname
+routing returns 404, and slug-based storefront requests require `OM_ECOMMERCE_DEV_STORE_SLUG=true`.
+A store domain binding that sets `domainMappingId` still returns a 400 validation error in this
+configuration. Behavior is unchanged when both optional modules are enabled. Previously,
+`yarn generate` required both modules in the enabled module list. Keep them enabled in
+`src/modules.ts` if your app uses their features. See
 [module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
 
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
