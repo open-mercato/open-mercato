@@ -463,7 +463,8 @@ for an asset that was never impaired) would be negative. Deletes every
 same delete-and-regenerate mechanism already established for an
 unaccrued schedule tail — see Data Models) and generates
 `remainingUsefulLifeMonths` new rows starting the period immediately
-after the latest accrued entry (or from `depreciationStartDate` if none
+after the latest completed entry, after the shared pending-period guard
+passes (or from `depreciationStartDate` if none
 has accrued yet), each `plannedAmount = (baseAcquisitionValue - baseSalvageValue -
 accruedDepreciationTotal - netImpairmentTotal) / remainingUsefulLifeMonths`,
 with the same final-row rounding-remainder rule `acceptFixedAsset` uses. Updates
@@ -658,8 +659,9 @@ already-closed periods," extended below to cover this). `recognizeImpairment`
 therefore applies the same delete-and-regenerate mechanism
 `reviseDepreciationParameters` already uses (see above and Data Models →
 `DepreciationScheduleEntry`): if the asset has any `accruedAt IS NULL`
-rows, they are deleted and replaced with the same count of new rows
-(impairment does not change `usefulLifeMonths`, so the period count is
+rows, regeneration first checks for a pending period before a completed
+one (see Commands). If the guard passes, they are deleted and replaced
+with the same count of new rows (impairment does not change `usefulLifeMonths`, so the period count is
 preserved, not caller-supplied), each `plannedAmount = (recoverableAmount
 - baseSalvageValue) / remainingPeriodCount`, final row absorbing the rounding
 remainder, starting the period immediately after the latest accrued
@@ -1309,9 +1311,25 @@ a validation failure returns the standard 400 shape (see API Contracts).
   `otDocumentNumber`/`otDate`/`lowValueThresholdSnapshot`/`exchangeRate`/
   `baseAcquisitionValue`/`baseSalvageValue`.
   Requires `fixed_assets.assets.manage`.
+- **Schedule regeneration across pending periods.** After taking the
+  common asset lock, revision, impairment recognition and impairment
+  reversal must re-read the scoped schedule before a write that would
+  regenerate it. If a pending row's `periodEndDate` is earlier than a
+  completed row's `periodEndDate`, return 409
+  `schedule_regeneration_pending_gap`. Use `accruedAt` to determine
+  completion, including zero rows without journals. This check uses
+  schedule period order. The separate posting-date check uses ledger
+  operation dates. The refusal makes no asset, schedule, revision,
+  impairment or ledger write. Preserve the pending row so ordinary
+  accrual can complete it on unlock. Unlocking alone does not clear
+  the gap. A later request rechecks the gap and other eligibility
+  rules after the earlier row completes. Accounting approval is
+  required before introducing any treatment that regenerates across
+  a gap while the earlier period is pending.
 - `reviseDepreciationParameters` — given `assetId`,
   `remainingUsefulLifeMonths`, an optional revised `salvageValue`, and a
-  required `reason`: rejects unless the asset is `ACTIVE`, non-`ONE_TIME`,
+  required `reason`: applies the shared pending-period guard and rejects unless
+  the asset is `ACTIVE`, non-`ONE_TIME`,
   with at least one unaccrued schedule entry, and rejects a resulting
   negative remaining depreciable base (see Design Decisions). Deletes the
   unaccrued `DepreciationScheduleEntry` rows and regenerates them over
@@ -1890,9 +1908,9 @@ Custom write route (`reviseDepreciationParameters`), mapped to `update`.
 - **Response 400**: zod validation error, or the revision would produce a
   negative remaining depreciable base (see Design Decisions).
 - **Response 409**: `OptimisticLockConflictBody`, or the asset is not
-  `ACTIVE`, is `ONE_TIME`, or has no
-  unaccrued schedule entry left to revise (all distinct, named error
-  codes — see Internationalization).
+  `ACTIVE`, is `ONE_TIME`, has no pending row left to revise, or the
+  shared pending-period guard returns `schedule_regeneration_pending_gap`.
+  These refusals have distinct localized codes.
 - **Response 403**: caller lacks `fixed_assets.assets.manage`.
 
 ### `POST /api/fixed_assets/depreciation/accrue`
@@ -2018,7 +2036,8 @@ Custom write route (`recognizeImpairment`), mapped to `update`.
   locked, either operating account is unset in `FixedAssetSettings`, or
   the scoped chronology check returns `impairment_precedes_existing_posting`,
   `capitalization_history_inconsistent` or `impairment_history_inconsistent`.
-  These chronology and history refusals occur before any writes.
+  The pending-period guard returns `schedule_regeneration_pending_gap`.
+  These refusals occur before any writes.
 - **Response 403**: caller lacks `fixed_assets.impairment.manage`.
 
 ### `POST /api/fixed_assets/assets/:id/impairments/:impairmentId/reverse`
@@ -2045,7 +2064,8 @@ Custom write route (`reverseImpairment`), mapped to `update`.
   or the common chronology check rejects
   (`impairment_precedes_existing_posting`,
   `capitalization_history_inconsistent` or `impairment_history_inconsistent`).
-  These chronology and history refusals occur before any writes.
+  The pending-period guard returns `schedule_regeneration_pending_gap`.
+  These refusals occur before any writes.
 - **Response 403**: caller lacks `fixed_assets.impairment.manage`.
 
 `AssetClass`/`FixedAssetSettings` list/create/update, and the three
@@ -2090,6 +2110,7 @@ All user-facing strings resolve through `useT()` client-side /
   `.reversal_exceeds_original_impairment`,
   `.reversal_precedes_original_impairment`, `.impairment_precedes_existing_posting`,
   `.impairment_history_inconsistent`, `.disposal_catch_up_outcome_unresolved`,
+  `.schedule_regeneration_pending_gap`,
   `.cannot_impair_inactive_asset`, `.recoverable_amount_below_salvage_value`,
   `.cannot_reverse_impairment_disposed_asset`,
   `.cannot_dispose_inactive_asset`,
@@ -2142,7 +2163,10 @@ All user-facing strings resolve through `useT()` client-side /
   refusals as localized errors and suppress retry of an unresolved mutation
   until reconciliation — the same guarded-row-action
   pattern `ledger`'s `FiscalPeriod` lock/unlock action already uses, since
-  none of these is a field-level `CrudForm` edit.
+  none of these is a field-level `CrudForm` edit. On
+  `schedule_regeneration_pending_gap`, the revise and impairment dialogs
+  explain that the earlier period must be completed and link to the
+  asset’s depreciation schedule.
 - **Asset create/edit form** (`CrudForm`): acquisition fields (including
   an optional salvage value, defaulting to and usually left at zero), an
   entry-source selector that conditionally reveals either a
@@ -2329,7 +2353,8 @@ All user-facing strings resolve through `useT()` client-side /
 7. Implement `reviseDepreciationParameters`: the `ACTIVE`/non-`ONE_TIME`/
    has-unaccrued-period guard, the negative-remaining-base rejection, the
    unaccrued-schedule-row delete-and-regenerate over
-   `remainingUsefulLifeMonths`, and the `FixedAsset.usefulLifeMonths`/
+   `remainingUsefulLifeMonths` after applying the shared pending-period
+   guard, and the `FixedAsset.usefulLifeMonths`/
    `salvageValue` and `baseSalvageValue` update and both-currency revision audit — posts no journal entry (see Design Decisions).
 8. Implement `accrueDepreciation`: the due/unposted schedule-entry scan
    in pages of 500, the per-entry transaction boundary, the per-entry
@@ -2337,7 +2362,8 @@ All user-facing strings resolve through `useT()` client-side /
    the five result buckets, the locked reconciliation of unresolved commits,
    and the `FULLY_DEPRECIATED` transition when the last pending row completes.
 9. Implement `recognizeImpairment`/`reverseImpairment`: the locked
-   chronology checks before any write, the `accruedDepreciationTotal`/
+   chronology and pending-period checks before any write,
+   the `accruedDepreciationTotal`/
    `netImpairmentTotal` aggregation shared with `disposeAsset` (implement this helper once, reuse it in both), the
    `ACTIVE`/`FULLY_DEPRECIATED` status guard on recognition and the
    not-`DISPOSED` guard on reversal, the operating-account-unset
@@ -2602,6 +2628,18 @@ All user-facing strings resolve through `useT()` client-side /
   even when a later row completes. Unlock and complete the last pending
   row, assert `FULLY_DEPRECIATED`, then retry and assert no further writes.
   The UI shows the completed rows without journal links.
+- Integration: create a January pending row in a locked period and let
+  a due February zero row complete, with March still pending. On separate
+  otherwise eligible fixtures, request estimate revision, impairment
+  recognition and reversal. Assert 409 `schedule_regeneration_pending_gap`
+  and zero changes to the asset, schedule IDs, dates and amounts,
+  revision audit, impairment history and ledger. Verify that the UI
+  explains the gap and links to the schedule. Unlock January,
+  then prove that the same January row can complete through accrual
+  and that a fresh request passes the gap guard when otherwise eligible.
+  Include a fixture with a positive January amount to prove it remains
+  due for posting, and verify that an unlocked but still-pending January
+  row continues to trigger the guard.
 - Integration: revise an unimpaired `ACTIVE` asset to exactly zero
   remaining depreciable basis. Complete one due zero row while another
   is pending, assert reopen refuses with `cannot_reopen_after_accrual`,
@@ -2913,8 +2951,10 @@ for its own manual `CLOSING`/`OPENING` entries.
   `fixed_assets.recognizeImpairment`, `fixed_assets.reverseImpairment`,
   depreciation-schedule accuracy.
 - **Mitigation**: All participating writers hold the same asset lock;
-  after acquisition they re-read accrued rows and totals. Regeneration and
-  its financial posting commit together, so an accrual wins before the
+  after acquisition they re-read schedule rows and totals. An earlier
+  pending period that precedes a completed one makes regeneration fail
+  without writes until accrual closes the gap. Regeneration and its
+  financial posting commit together, so an accrual wins before the
   calculation or sees a deleted/ineligible candidate afterward.
 - **Residual risk**: Lock acquisition can delay a competing operation; an
   interrupted or unknown commit requires reconciliation before retry.
@@ -3135,6 +3175,12 @@ gates, not defects in this document.
   Define completion of a due zero row without a ledger entry, preserve
   the completed-row and period guards, and omit exact zero disposal
   lines under existing ledger validation.
+- In [re-review 5998517885](https://github.com/open-mercato/open-mercato/pull/9786#pullrequestreview-5998517885),
+  the reviewer confirmed the three original findings were addressed.
+  Revision, impairment and reversal now refuse regeneration before any
+  writes when a pending period precedes a completed row. Keep the earlier
+  row available for ordinary accrual and leave accounting treatment
+  across that gap for approval.
 - Refuse impairment and reversal dates preceding committed scoped
   postings, including reversal before the original loss, under the
   same asset lock used for amounts and schedule changes.
