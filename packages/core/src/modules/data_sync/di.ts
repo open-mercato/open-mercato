@@ -41,8 +41,8 @@ export function register(container: AppContainer) {
       integrationLogService,
       integrationStateService,
       progressService,
-    })).inject(scope => ({ progressService: resolveProgressService(scope) }))
-      .scoped().proxy(),
+    })).proxy().inject(scope => ({ progressService: resolveProgressService(scope) }))
+      .scoped(),
 
     SyncRun: asValue(SyncRun),
     SyncCursor: asValue(SyncCursor),
