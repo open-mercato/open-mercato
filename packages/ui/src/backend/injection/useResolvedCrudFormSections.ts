@@ -21,7 +21,7 @@ import { getComponentEntry, getComponentOverrides } from '@open-mercato/shared/m
 import type { CrudFormSectionSurfaceAlternativeFact } from '@open-mercato/shared/modules/form-section-facts'
 import { parseCrudFormSectionClientMutationFacts } from '@open-mercato/shared/lib/crud/form-sections/client-mutation-facts'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { useBackendChrome } from '../BackendChromeProvider'
+import { useBackendChromePolicy } from '../BackendChromeProvider'
 import { apiCall } from '../utils/apiCall'
 import {
   useComponentOverridesReadiness, useOverrideRegistryRevision, useOverrideUserFeatures,
@@ -121,12 +121,12 @@ export function useResolvedCrudFormSections<TValues, TPayload>(inputs: Inputs) {
   const overrideRevision = useOverrideRegistryRevision()
   const overrideFeatures = useOverrideUserFeatures()
   const componentReadiness = useComponentOverridesReadiness()
-  const { payload, isReady: backendChromeReady } = useBackendChrome()
+  const { state: chromeState, features } = useBackendChromePolicy()
   const request = useMemo(() => ({
-    inputs, registry, features: payload?.grantedFeatures, overrideFeatures,
+    inputs, registry, features, overrideFeatures,
     widgetError: getInjectionRegistryError(), widgetsReady: isInjectionRegistryReady(),
-    componentReadiness, backendChromeReady,
-  }), [inputs, registry, widgetVersion, orgVersion, overrideRevision, overrideFeatures, componentReadiness, backendChromeReady, payload?.grantedFeatures])
+    componentReadiness, chromeState,
+  }), [inputs, registry, widgetVersion, orgVersion, overrideRevision, overrideFeatures, componentReadiness, chromeState, features])
   const [settled, setSettled] = useState<{ request: typeof request; result: Resolution<TValues, TPayload> } | null>(null)
 
   useEffect(() => {
@@ -141,9 +141,9 @@ export function useResolvedCrudFormSections<TValues, TPayload>(inputs: Inputs) {
       }
       setSettled({ request, result })
     }
-    if (registry.state === 'failed' || request.widgetError || request.componentReadiness === 'failed') {
+    if (registry.state === 'failed' || request.widgetError || request.componentReadiness === 'failed' || request.chromeState === 'failed') {
       settle(failed('registry_registration_failed'))
-    } else if (registry.state === 'ready' && request.widgetsReady && request.componentReadiness === 'ready' && request.backendChromeReady) {
+    } else if (registry.state === 'ready' && request.widgetsReady && request.componentReadiness === 'ready' && request.chromeState === 'ready') {
       if (getComponentEntry(inputs.formHandle) || getComponentOverrides(inputs.formHandle, request.overrideFeatures).length) {
         settle(failed('unsupported_form_replacement'))
       } else {

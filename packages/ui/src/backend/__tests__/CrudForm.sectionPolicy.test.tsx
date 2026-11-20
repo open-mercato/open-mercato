@@ -7,6 +7,7 @@ import { deserialize, serialize } from 'node:v8'
 import { TextEncoder } from 'node:util'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
 import { z } from 'zod'
 import {
@@ -20,6 +21,7 @@ import {
   registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds, setInjectionRegistryError,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { registerComponentOverrides, ComponentReplacementHandles, crudFormSectionScope } from '@open-mercato/shared/modules/widgets/component-registry'
+import { BackendChromeProvider } from '../BackendChromeProvider'
 import { CrudForm, type CrudField, type CrudFormProps } from '../CrudForm'
 import { ComponentOverrideProvider } from '../injection/ComponentOverrideProvider'
 import { CrudFormSectionLedgerProvider } from '../injection/crud-form-section-ledger'
@@ -555,4 +557,89 @@ it('exposes a section action to a rendered group without enabling parent control
     expect(init.method).toBe('POST')
     expect(new Headers(init.headers).get('x-om-ext-crud-form-sections-mutation-surface')).toBe(action.id)
   } finally { globalThis.fetch = originalFetch }
+})
+
+function chromePayload(grantedFeatures: string[]) {
+  return {
+    groups: [], settingsSections: [], settingsPathPrefixes: [], profileSections: [], profilePathPrefixes: [],
+    grantedFeatures, roles: [], currentOrganization: null,
+  }
+}
+
+it('keeps user edits and request count when focus refresh returns the same grant set', async () => {
+  let chromeRequests = 0
+  let policyRequests = 0
+  jest.mocked(apiCall).mockImplementation(async (url) => {
+    if (String(url) === '/api/nav?test=focus-preservation') {
+      return apiResponse(chromePayload(chromeRequests++ ? ['feature.b', 'feature.a', 'feature.b'] : ['feature.a', 'feature.b']))
+    }
+    policyRequests++
+    return apiResponse(response)
+  })
+  render(<BackendChromeProvider adminNavApi="/api/nav?test=focus-preservation">{configured()}</BackendChromeProvider>,
+    { wrapper: Providers })
+  const input = await screen.findByRole('textbox', { name: 'Replacement name' })
+  fireEvent.change(input, { target: { value: 'draft' } })
+  await act(async () => { window.dispatchEvent(new Event('focus')) })
+  expect(chromeRequests).toBe(2)
+  expect(policyRequests).toBe(1)
+  expect(screen.getByRole('textbox', { name: 'Replacement name' })).toBe(input)
+  expect(input).toHaveValue('draft')
+})
+
+it.each([false, true])('waits for current registry grants on a scope change, failed chrome=%s', async (chromeFailed) => {
+  let navCalls = 0
+  let featureCalls = 0
+  let policyCalls = 0
+  let settleNav: (result: Awaited<ReturnType<typeof apiCall>>) => void = () => {}
+  let settleFeatures: (result: Awaited<ReturnType<typeof apiCall>>) => void = () => {}
+  const nav = `/api/nav?test=scope-change-${chromeFailed}`
+  jest.mocked(apiCall).mockImplementation(async (url) => {
+    if (String(url) === nav) {
+      return navCalls++ ? new Promise((resolve) => { settleNav = resolve }) : apiResponse(chromePayload([]))
+    }
+    if (String(url) === '/api/auth/feature-check') {
+      return featureCalls++ ? new Promise((resolve) => { settleFeatures = resolve }) : apiResponse({ granted: [] })
+    }
+    policyCalls++
+    return apiResponse(response)
+  })
+  const component = jest.fn(() => <div>Unavailable replacement</div>)
+  const { container } = render(
+    <BackendChromeProvider adminNavApi={nav}>
+      <ComponentOverrideProvider overrides={[{
+        target: { componentId: 'crud-form:test.record' }, priority: 1, features: ['scope.b'],
+        replacement: component, propsSchema: z.unknown(),
+      }]}>
+        {configured()}
+      </ComponentOverrideProvider>
+    </BackendChromeProvider>,
+    { wrapper: Providers },
+  )
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  expect(policyCalls).toBe(1)
+  act(() => emitOrganizationScopeChanged({ organizationId: `scope-b-${chromeFailed}`, tenantId: 'same-tenant' }))
+  expect(container.querySelector('form')).toBeNull()
+  await waitFor(() => expect([navCalls, featureCalls]).toEqual([2, 2]))
+  await act(async () => settleNav(chromeFailed ? { ...apiResponse(null), ok: false, status: 503 } : apiResponse(chromePayload(['scope.b']))))
+  expect(container.querySelector('form')).toBeNull()
+  await act(async () => settleFeatures(apiResponse({ granted: ['scope.b'] })))
+  await screen.findByRole('alert')
+  expect(container.querySelector('form')).toBeNull()
+  expect(component).not.toHaveBeenCalled()
+  expect(policyCalls).toBe(1)
+})
+
+it.each(['crud-form:test.record', 'crud-form:test.legacy'])('fails closed for a broken registered header at %s', async (spot) => {
+  const entries = [{
+    moduleId: 'test', key: 'test/broken-header', widgetId: 'test.broken-header', source: 'package' as const,
+    loader: async () => { throw new Error('Fixture import rejected') },
+  }]
+  registerCoreInjectionWidgets(entries)
+  registerCoreInjectionTables([{ moduleId: 'test', table: { [`${spot}:header`]: 'test.broken-header' } }], entries)
+  publishResponse()
+  const { container } = render(configured('actual-id', { legacyInjectionSpotId: 'crud-form:test.legacy' }), { wrapper: Providers })
+  await screen.findByRole('alert')
+  expect(container.querySelector('form')).toBeNull()
+  expect(apiCall).not.toHaveBeenCalled()
 })

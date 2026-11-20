@@ -1,8 +1,5 @@
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
-import {
-  loadInjectionDataWidgetsForSpot,
-  loadInjectionWidgetsForSpot,
-} from '@open-mercato/shared/modules/widgets/injection-loader'
+import { loadConfiguredFormWidgetsForSpot } from '@open-mercato/shared/modules/widgets/injection-loader'
 import type { CrudFormSectionSurfaceAlternativeFact } from '@open-mercato/shared/modules/form-section-facts'
 import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import type { CrudFormSectionRuntime } from './crud-form-section-runtime'
@@ -15,12 +12,14 @@ export async function checkCrudFormSectionDependencies<TValues, TPayload>({
   spots: readonly string[]
   grantedFeatures: readonly string[] | undefined
 }): Promise<boolean> {
-  const widgetsBySpot = await Promise.all(spots.map(async (spot) => [
-    ...await loadInjectionWidgetsForSpot(spot),
-    ...await loadInjectionDataWidgetsForSpot(extensionSpotChildId(spot, 'fields')),
-  ]))
-  const activeWidgets = new Map(widgetsBySpot.flat().filter(({ metadata }) =>
-    metadata.enabled !== false && (grantedFeatures === undefined || hasAllFeatures(grantedFeatures, metadata.features ?? [])),
+  const widgets = (await Promise.all(spots.flatMap((spot) => [
+    loadConfiguredFormWidgetsForSpot(spot, 'render'),
+    loadConfiguredFormWidgetsForSpot(extensionSpotChildId(spot, 'header'), 'render'),
+    loadConfiguredFormWidgetsForSpot(extensionSpotChildId(spot, 'fields'), 'data'),
+  ]))).flat()
+  if (grantedFeatures === undefined && widgets.some(({ metadata }) => metadata.features?.length)) return false
+  const activeWidgets = new Map(widgets.filter(({ metadata }) =>
+    hasAllFeatures(grantedFeatures, metadata.features),
   ).map(({ metadata }) => [metadata.id, metadata]))
   const sections = new Set(surface.orderedSectionIds)
   const contracts = new Set(descriptors.flatMap(({ providedDataContractIds }) => providedDataContractIds ?? []))

@@ -30,6 +30,7 @@ Status: in-progress
 | 3 | 3.2 | Resolve policies and block mutations until the host is ready | dispatch | done | this commit |
 | 3 | 3.3 | Validate and project section fields and payload leaves | dispatch | done | this commit |
 | 3 | 3.4 | Bind submit, delete and action clients to their own resource versions | dispatch | done | this commit |
+| 3 | 3.2-review-fix | Fence form readiness by organization and isolate group preferences | dispatch | done | this commit |
 | 4 | 4.1 | Build the non-production framework fixture | dispatch | todo | — |
 | 4 | 4.2 | Verify discovery, resolution, mutations and no-policy compatibility | dispatch | todo | — |
 | 4 | 4.3 | Define the discovery, runtime and generator compatibility guarantees | dispatch | todo | — |
@@ -147,6 +148,10 @@ Framework spec item 10. Validate explicit section projections, then composition;
 #### 3.4 Bind submit, delete and action clients to their own resource versions
 
 Framework spec item 11. Add immutable bound clients to submit/delete contexts and `runSectionMutation` to group/widget contexts. Test parent update/delete, child update/delete, create, policy-header protection, and overlapping requests.
+
+#### 3.2-review-fix Fence form readiness by organization and isolate group preferences
+
+Reject stale feature grants, settle registration failures, check actual header and form widget dependencies, and preserve the legacy group preference when applying policy composition.
 
 ### Phase 4 — framework proof and docs
 

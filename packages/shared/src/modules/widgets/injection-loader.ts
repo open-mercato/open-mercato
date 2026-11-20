@@ -712,3 +712,31 @@ export async function loadInjectionDataWidgetsForSpot(spotId: InjectionSpotId): 
   }
   return widgets
 }
+
+/** Read explicitly bound widget dependencies without the fail-soft rendering fallback. */
+export async function loadConfiguredFormWidgetsForSpot(
+  spotId: InjectionSpotId,
+  kind: 'render' | 'data',
+): Promise<(LoadedInjectionWidget | LoadedInjectionDataWidget)[]> {
+  const slots = await getResolvedEntriesForSpot(spotId)
+  if (!slots.length) return []
+  const entries = await loadWidgetEntries()
+  const hinted = new Map<string, WidgetEntry>()
+  for (const entry of entries) {
+    if (entry.widgetId && !hinted.has(entry.widgetId)) hinted.set(entry.widgetId, entry)
+  }
+  const enabled = getEnabledModuleIdsForInjection()
+  const widgets = await Promise.all(slots.map(async ({ widgetId }) => {
+    const entry = hinted.get(widgetId)
+    const widget = entry
+      ? { ...await loadEntry(entry), moduleId: entry.moduleId, key: entry.key }
+      : await loadWidgetLookupIndex().then((index) => index.widgetsById.get(widgetId) ?? index.dataWidgetsById.get(widgetId))
+    if (!widget || widget.metadata.id !== widgetId) throw new Error('[internal] Invalid configured form widget binding')
+    if (widget.metadata.enabled === false || !applyRequiredModuleGate(widget, enabled)) return null
+    if ((kind === 'render') !== isLoadedInjectionWidget(widget)) {
+      throw new Error('[internal] Invalid configured form widget kind')
+    }
+    return widget
+  }))
+  return widgets.filter((widget) => widget !== null)
+}

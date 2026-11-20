@@ -2458,7 +2458,7 @@ function CrudFormImpl<
   const defaultGroupIds = React.useMemo(() => declaredGroupsForLayout.map((g) => g.id), [declaredGroupsForLayout])
   const { orderedIds: sortedGroupIds, reorder: reorderGroups } = useGroupOrder(
     sortablePageType,
-    defaultGroupIds,
+    defaultGroupIds, acceptedSectionPolicy && crudFormSectionScope(acceptedSectionPolicy.identity),
   )
   const sortableSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
