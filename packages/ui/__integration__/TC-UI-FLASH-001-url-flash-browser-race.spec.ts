@@ -48,6 +48,29 @@ async function runLateSecondaryRace(
   )
 }
 
+const CLOCK_START = new Date('2026-01-01T00:00:00Z')
+const CLOCK_PAUSED_AT = new Date('2026-01-01T01:00:00Z')
+const FLASH_DISMISS_MS = 3_000
+
+// React schedules commits through `MessageChannel`, which Playwright's clock
+// does not fake. Two round trips through a fresh channel queue behind any
+// render React already scheduled, so state changes caused by a fired fake
+// timer are committed to the DOM before the next assertion reads it.
+async function settleReactCommits(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    for (let hop = 0; hop < 2; hop += 1) {
+      await new Promise<void>((resolve) => {
+        const channel = new MessageChannel()
+        channel.port1.onmessage = () => {
+          channel.port1.close()
+          resolve()
+        }
+        channel.port2.postMessage(null)
+      })
+    }
+  })
+}
+
 /**
  * TC-UI-FLASH-001: regression for #8471/#8685, automated per #8709.
  *
@@ -77,15 +100,18 @@ test.describe('TC-UI-FLASH-001: FlashMessages late-secondary URL flash race (bro
   test('shows exactly one toast via the primary host across ten late-secondary races, then expires after 3s', async ({ page }) => {
     test.slow()
 
+    // The page's timers run on a Playwright-controlled clock: it flows
+    // naturally while the harness loads, then is paused, so every deferred
+    // navigation observer and the 3s dismiss timer fire only when the test
+    // explicitly advances time. That pins the expiry boundary exactly,
+    // independent of CI scheduler jitter or CDP round-trip latency.
+    await page.clock.install({ time: CLOCK_START })
     await page.goto(harness.url)
     await page.waitForFunction(() => Boolean(window.__flashRaceHarness))
+    await page.clock.pauseAt(CLOCK_PAUSED_AT)
     // `showFlash` (which schedules the 3s dismiss timer) runs as a direct
-    // listener of the same `flash` DOM event this records against — both
-    // fire synchronously in the same turn, so this captures the exact
-    // instant the dismiss timer started. The expiry check below anchors to
-    // this timestamp rather than to "now" at that point in the test, so the
-    // toast/URL assertions and the unmount round trip in between can take
-    // however long they take without eating into the 3s margin.
+    // listener of the same `flash` DOM event this records against, so this
+    // captures the fake-clock instant the dismiss timer started.
     await page.evaluate(() => {
       window.addEventListener('flash', () => {
         window.__lastFlashShownAt = Date.now()
@@ -101,6 +127,9 @@ test.describe('TC-UI-FLASH-001: FlashMessages late-secondary URL flash race (bro
       lastMessage = message
 
       await runLateSecondaryRace(page, message, keep)
+      // Fire the primary host's deferred (`setTimeout(…, 0)`) navigation
+      // observer only now, after the secondary host has synchronously mounted.
+      await page.clock.runFor(1)
 
       const toasts = page.locator('[data-slot="alert"]')
       await expect(toasts).toHaveCount(1)
@@ -115,33 +144,29 @@ test.describe('TC-UI-FLASH-001: FlashMessages late-secondary URL flash race (bro
       expect(currentUrl.endsWith(`#frag-${keep}`)).toBe(true)
 
       // Unmount the secondary before the next iteration so the following
-      // race exercises a genuinely fresh "late" mount, not a no-op update
-      // — except after the last one, where there is no next iteration and
-      // every extra round trip here only delays the expiry check below
-      // under CI load, eating into its margin against the real 3s timer.
+      // race exercises a genuinely fresh "late" mount, not a no-op update.
       if (attempt < attempts) {
         await page.evaluate(() => window.__flashRaceHarness!.unmountSecondary())
       }
     }
 
-    // Auto-dismiss boundary, anchored to the exact instant the last toast
-    // appeared (captured via the `flash` event listener above) rather than
-    // to "now" at this point in the test — the preceding toast/URL
-    // assertions already consumed an unknown amount of real time, so
-    // computing the remaining wait relative to the actual anchor (instead
-    // of a fixed offset from here) keeps both checks pinned to the real 3s
-    // boundary regardless of how long those steps took. The margins are
-    // ±1s rather than ±1ms: CDP round trips under CI's parallel-shard load
-    // can occasionally stall for over a second on their own (confirmed via
-    // a CI failure with ~1ms margins), so a tight boundary chases
-    // precision the environment can't reliably deliver; ±1s still clearly
-    // distinguishes "dismissed at ~3s" from "immediately" or "never".
-    const toastShownAt = await page.evaluate(() => window.__lastFlashShownAt!)
-    const elapsedBeforeFirstCheck = (await page.evaluate(() => Date.now())) - toastShownAt
-    await page.waitForTimeout(Math.max(0, 2_000 - elapsedBeforeFirstCheck))
-    await expect(page.getByText(lastMessage)).toBeVisible()
-    const elapsedBeforeSecondCheck = (await page.evaluate(() => Date.now())) - toastShownAt
-    await page.waitForTimeout(Math.max(0, 4_000 - elapsedBeforeSecondCheck))
-    await expect(page.getByText(lastMessage)).toHaveCount(0)
+    // Auto-dismiss boundary on the paused clock: advance to 1ms before the
+    // 3s deadline (measured from the instant the last toast was delivered),
+    // let React commit whatever that produced, and assert the toast is still
+    // shown; then advance through the deadline and assert it is gone. With
+    // the clock paused no later timer can fire on its own, so a dismiss delay
+    // longer than 3s fails the final assertion instead of being retried into
+    // a pass.
+    const toast = page.getByText(lastMessage)
+    const { shownAt, now } = await page.evaluate(() => ({
+      shownAt: window.__lastFlashShownAt!,
+      now: Date.now(),
+    }))
+    await page.clock.runFor(shownAt + FLASH_DISMISS_MS - 1 - now)
+    await settleReactCommits(page)
+    await expect(toast).toHaveCount(1)
+    await page.clock.runFor(2)
+    await settleReactCommits(page)
+    await expect(toast).toHaveCount(0)
   })
 })
