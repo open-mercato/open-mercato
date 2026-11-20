@@ -5,7 +5,8 @@ import { Pool } from 'pg'
 import type { StartedTestContainer } from 'testcontainers'
 import { fetchOmnibusCampaignIds, fetchOmnibusPrecedingIds, fetchOmnibusWindowIds, type OmnibusWindowLookup } from '../omnibusHistoryQueries'
 
-const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
+const postgresUrl = process.env.OM_OMNIBUS_PG_URL
+const describeWithPostgres = postgresUrl || process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
 
 describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
   let postgres: StartedTestContainer | undefined
@@ -13,21 +14,25 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
   let database: Kysely<Record<string, never>> | undefined
   let em: EntityManager
   let lookup: OmnibusWindowLookup
+  const schema = `omnibus_history_${randomUUID().replace(/-/g, '')}`
 
   beforeAll(async () => {
-    const { GenericContainer, Wait } = await import('testcontainers')
-    postgres = await new GenericContainer('postgres:16')
-      .withEnvironment({ POSTGRES_DB: 'omnibus_test', POSTGRES_USER: 'omnibus_test', POSTGRES_PASSWORD: 'omnibus_test' })
-      .withExposedPorts(5432)
-      .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
-      .start()
+    if (!postgresUrl) {
+      const { GenericContainer, Wait } = await import('testcontainers')
+      postgres = await new GenericContainer('postgres:16')
+        .withEnvironment({ POSTGRES_DB: 'omnibus_test', POSTGRES_USER: 'omnibus_test', POSTGRES_PASSWORD: 'omnibus_test' })
+        .withExposedPorts(5432)
+        .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
+        .start()
+    }
     pool = new Pool({
-      host: postgres.getHost(),
-      port: postgres.getMappedPort(5432),
-      database: 'omnibus_test',
-      user: 'omnibus_test',
-      password: 'omnibus_test',
+      ...(postgresUrl ? { connectionString: postgresUrl } : {
+        host: postgres!.getHost(), port: postgres!.getMappedPort(5432),
+        database: 'omnibus_test', user: 'omnibus_test', password: 'omnibus_test',
+      }),
+      options: `-c search_path=${schema}`,
     })
+    await pool.query(`CREATE SCHEMA "${schema}"`)
     database = new Kysely<Record<string, never>>({ dialect: new PostgresDialect({ pool }) })
     em = { fork: () => ({ getKysely: () => database }) } as unknown as EntityManager
     await pool.query(`CREATE TABLE catalog_price_history_entries (
@@ -55,9 +60,9 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
 
   afterAll(async () => {
     try {
-      await database?.destroy()
+      if (database) await pool.query(`DROP SCHEMA "${schema}" CASCADE`)
     } finally {
-      await postgres?.stop()
+      try { await database?.destroy() } finally { await postgres?.stop() }
     }
   }, 30_000)
 
@@ -87,7 +92,7 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
         lookup.priceKindId,
         lookup.currencyCode,
         input.changeType ?? 'create',
-        input.recordedAt ?? '2026-06-01T00:00:00.000Z',
+        new Date(input.recordedAt ?? '2026-06-01T00:00:00.000Z').toISOString(),
         input.undoneCommand
           ? { undoneCommand: input.undoneCommand }
           : input.redoneCommand ? { redoneCommand: input.redoneCommand } : null,

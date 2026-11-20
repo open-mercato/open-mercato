@@ -558,6 +558,8 @@ type OrderUndoPayload = {
   after?: OrderGraphSnapshot | null;
 };
 
+type OrderLineBulkUndoPayload = OrderUndoPayload & { lineIds?: string[] };
+
 type QuoteUndoPayload = {
   before?: QuoteGraphSnapshot | null;
   after?: QuoteGraphSnapshot | null;
@@ -9206,12 +9208,12 @@ const orderLineBulkUpsertCommand: CommandHandler<
       snapshotBefore: before ?? null,
       snapshotAfter: after,
       payload: {
-        undo: { before, after } satisfies OrderUndoPayload,
+        undo: { before, after, lineIds: result.lineIds } satisfies OrderLineBulkUndoPayload,
       },
     };
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
+    const payload = extractUndoPayload<OrderLineBulkUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
     // Same path as every other order-graph undo: it locks the order, refuses
@@ -9222,7 +9224,7 @@ const orderLineBulkUpsertCommand: CommandHandler<
     await undoOrderGraph(ctx, before, payload?.after);
   },
   redo: async ({ input, ctx, logEntry }) => {
-    const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
+    const payload = extractUndoPayload<OrderLineBulkUndoPayload>(logEntry);
     if (!payload?.before || !payload.after) {
       throw badRequest("[internal] sales line redo snapshot unavailable");
     }
@@ -9239,9 +9241,12 @@ const orderLineBulkUpsertCommand: CommandHandler<
       return [line.id];
     }));
     created.forEach((line) => affectedIds.add(line.id));
-    const lines = payload.after.lines
-      .filter((line) => affectedIds.has(line.id))
-      .map((line) => Object.fromEntries(Object.entries(line).filter(([, value]) => value !== null)));
+    const snapshotsById = new Map(payload.after.lines.map((line) => [line.id, line]));
+    const lineIds = payload.lineIds ?? payload.after.lines.filter((line) => affectedIds.has(line.id)).map((line) => line.id);
+    const lines = lineIds.flatMap((id) => {
+      const line = snapshotsById.get(id);
+      return line ? [Object.fromEntries(Object.entries(line).filter(([, value]) => value !== null))] : [];
+    });
     return orderLineBulkUpsertCommand.execute(replayLineInput(input, { ...body, lines }), replayCtx);
   },
 };

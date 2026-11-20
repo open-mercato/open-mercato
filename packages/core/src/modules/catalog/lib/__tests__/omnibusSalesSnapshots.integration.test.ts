@@ -1,47 +1,109 @@
 import { randomUUID } from 'node:crypto'
 import { MikroORM } from '@mikro-orm/postgresql'
 import { Kysely, PostgresDialect } from 'kysely'
-import { Pool } from 'pg'
+import { Client, Pool } from 'pg'
 import type { StartedTestContainer } from 'testcontainers'
 import type { ModuleConfigService } from '../../../configs/lib/module-config-service'
 import * as catalogEntities from '../../data/entities'
 import { DefaultCatalogOmnibusService } from '../../services/catalogOmnibusService'
 import { applyOmnibusSnapshotsToLines, type OmnibusSnapshotTarget } from '../../../sales/lib/omnibusSnapshot'
+import { Migration20261015120000_sales_line_omnibus_snapshot } from '../../../sales/migrations/Migration20261015120000_sales_line_omnibus_snapshot'
+import { Migration20261120010000_sales_omnibus_exact_decimal } from '../../../sales/migrations/Migration20261120010000_sales_omnibus_exact_decimal'
 
-const describeWithPostgres = process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
+const postgresUrl = process.env.OM_OMNIBUS_PG_URL
+const describeWithPostgres = postgresUrl || process.env.OM_PG_INTEGRATION === '1' ? describe : describe.skip
 
 describeWithPostgres('sales snapshot SQL statement count', () => {
   let postgres: StartedTestContainer | undefined
   let orm: MikroORM | undefined
   let database: Kysely<Record<string, never>> | undefined
   const queries: string[] = []
+  const schema = `omnibus_snapshots_${randomUUID().replace(/-/g, '')}`
 
   beforeAll(async () => {
-    const { GenericContainer, Wait } = await import('testcontainers')
-    postgres = await new GenericContainer('postgres:16')
-      .withEnvironment({ POSTGRES_DB: 'snapshots', POSTGRES_USER: 'snapshots', POSTGRES_PASSWORD: 'snapshots' })
-      .withExposedPorts(5432)
-      .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
-      .start()
+    if (!postgresUrl) {
+      const { GenericContainer, Wait } = await import('testcontainers')
+      postgres = await new GenericContainer('postgres:16')
+        .withEnvironment({ POSTGRES_DB: 'snapshots', POSTGRES_USER: 'snapshots', POSTGRES_PASSWORD: 'snapshots' })
+        .withExposedPorts(5432)
+        .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
+        .start()
+    }
     database = new Kysely<Record<string, never>>({
-      dialect: new PostgresDialect({ pool: new Pool({ database: 'snapshots', user: 'snapshots', password: 'snapshots', host: postgres.getHost(), port: postgres.getMappedPort(5432) }) }),
+      dialect: new PostgresDialect({ pool: new Pool({
+        ...(postgresUrl ? { connectionString: postgresUrl } : { database: 'snapshots', user: 'snapshots', password: 'snapshots', host: postgres!.getHost(), port: postgres!.getMappedPort(5432) }),
+        options: `-c search_path=${schema}`,
+      }) }),
       log: (event) => { queries.push(event.query.sql) },
     })
+    await database.schema.createSchema(schema).execute()
     orm = await MikroORM.init({
       entities: Object.values(catalogEntities),
-      dbName: 'snapshots', user: 'snapshots', password: 'snapshots',
-      host: postgres.getHost(), port: postgres.getMappedPort(5432),
+      dbName: postgresUrl ? new URL(postgresUrl).pathname.slice(1) : 'snapshots',
+      user: 'snapshots', password: 'snapshots',
+      schema,
       driverOptions: database,
     })
-    await orm.schema.createSchema()
+    await orm.schema.create()
   }, 120_000)
 
   afterAll(async () => {
     try {
-      if (orm) await orm.close(true)
-      else await database?.destroy()
-    } finally { await postgres?.stop() }
+      try { await orm?.close(true) } finally { await database?.destroy() }
+    } finally {
+      if (postgresUrl || postgres) {
+        const cleanup = new Pool(postgresUrl ? { connectionString: postgresUrl } : {
+          database: 'snapshots', user: 'snapshots', password: 'snapshots', host: postgres!.getHost(), port: postgres!.getMappedPort(5432),
+        })
+        try { await cleanup.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`) } finally { await cleanup.end() }
+      }
+      await postgres?.stop()
+    }
   }, 30_000)
+
+  it('persists exact references through both the initial and forward-widening migrations', async () => {
+    const client = new Client(postgresUrl ? { connectionString: postgresUrl } : {
+      database: 'snapshots', user: 'snapshots', password: 'snapshots', host: postgres!.getHost(), port: postgres!.getMappedPort(5432),
+    })
+    await client.connect()
+    const migrationSchema = `omnibus_decimal_${randomUUID().replace(/-/g, '')}`
+    try {
+      await client.query('BEGIN')
+      await client.query(`CREATE SCHEMA "${migrationSchema}"`)
+      await client.query(`SET LOCAL search_path TO "${migrationSchema}"`)
+      for (const table of ['sales_order_lines', 'sales_quote_lines']) await client.query(`CREATE TABLE "${table}" (id uuid PRIMARY KEY)`)
+      const execute = async (migration: Migration20261015120000_sales_line_omnibus_snapshot | Migration20261120010000_sales_omnibus_exact_decimal, direction: 'up' | 'down') => {
+        migration.reset()
+        await migration[direction]()
+        for (const query of migration.getQueries()) await client.query(String(query))
+      }
+      const initial = new Migration20261015120000_sales_line_omnibus_snapshot({} as never, {} as never)
+      const forward = new Migration20261120010000_sales_omnibus_exact_decimal({} as never, {} as never)
+      const assertExact = async () => {
+        for (const table of ['sales_order_lines', 'sales_quote_lines']) {
+          for (const reference of ['100000000000000', '123.1234567890123456789']) {
+            const id = randomUUID()
+            await client.query(`INSERT INTO "${table}" (id, omnibus_reference_net, omnibus_reference_gross) VALUES ($1, $2, $2)`, [id, reference])
+            const persisted = await client.query<{ net: string; gross: string }>(`SELECT omnibus_reference_net::text AS net, omnibus_reference_gross::text AS gross FROM "${table}" WHERE id = $1`, [id])
+            expect(persisted.rows[0]).toEqual({ net: reference, gross: reference })
+            await client.query(`DELETE FROM "${table}" WHERE id = $1`, [id])
+          }
+        }
+      }
+      await execute(initial, 'up')
+      await assertExact()
+      for (const table of ['sales_order_lines', 'sales_quote_lines']) await client.query(`ALTER TABLE "${table}" ALTER COLUMN omnibus_reference_net TYPE numeric(18,4), ALTER COLUMN omnibus_reference_gross TYPE numeric(18,4)`)
+      await execute(forward, 'up')
+      await assertExact()
+      await execute(forward, 'down')
+      await assertExact()
+      await execute(initial, 'down')
+      await execute(initial, 'up')
+      await assertExact()
+    } finally {
+      try { await client.query('ROLLBACK') } finally { await client.end() }
+    }
+  })
 
   it('keeps actual SQL reads constant for 1 versus 100 distinct prices and performs none when disabled', async () => {
     const tenantId = randomUUID()

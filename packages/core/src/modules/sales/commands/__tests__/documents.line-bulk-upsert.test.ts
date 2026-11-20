@@ -26,6 +26,7 @@ import {
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import {
   SalesOrder,
+  SalesQuote,
   SalesShipment,
   SalesShipmentItem,
 } from '../../data/entities'
@@ -52,7 +53,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(
     async (em: TestEntityManager, entityClass: unknown, where: TestWhere) => {
       const { order } = em.world
-      if (entityClass !== SalesOrder) return null
+      if (entityClass !== SalesOrder && entityClass !== SalesQuote) return null
       return order.id === where.id && order.deletedAt === null ? order : null
     },
   ),
@@ -266,10 +267,10 @@ function makeEm(world: World, trace: string[] = []): TestEntityManager {
     find: jest.fn(async (entityClass: unknown, where: TestWhere) => {
       const entityName = readEntityName(entityClass)
       findCounts[entityName] = (findCounts[entityName] ?? 0) + 1
-      if (entityName === 'SalesOrderLine') {
+      if (entityName === 'SalesOrderLine' || entityName === 'SalesQuoteLine') {
         return [...world.lines].sort((left, right) => left.lineNumber - right.lineNumber)
       }
-      if (entityName === 'SalesOrderAdjustment') return world.adjustments
+      if (entityName === 'SalesOrderAdjustment' || entityName === 'SalesQuoteAdjustment') return world.adjustments
       if (entityName === 'SalesShipmentItem') {
         const orderLineIds = readIdList(where?.orderLine)
         return world.shipmentItems.filter((item) => orderLineIds.includes(item.orderLine))
@@ -489,13 +490,16 @@ describe('sales.orders.lines.upsert_many', () => {
     jest.mocked(setRecordCustomFields).mockClear()
   })
 
-  it.each(['single', 'batch'] as const)('replays %s creation with original ids and all six frozen snapshot values', async (mode) => {
+  it.each(['single', 'quote', 'batch'] as const)('replays %s creation with original ids and all six frozen snapshot values', async (mode) => {
     const world = makeWorld(1)
-    const before = { order: { ...world.order }, lines: world.lines.map((line) => ({ ...line })) }
-    const body = { organizationId: ORG_ID, tenantId: TENANT_ID, orderId: ORDER_ID }
+    const documentKey = mode === 'quote' ? 'quote' : 'order'
+    const before = { [documentKey]: { ...world.order }, lines: world.lines.map((line) => ({ ...line })) }
+    const body = { organizationId: ORG_ID, tenantId: TENANT_ID, [mode === 'quote' ? 'quoteId' : 'orderId']: ORDER_ID }
+    const handler = mode === 'batch' ? bulkHandler() : commandRegistry.get(mode === 'quote' ? 'sales.quotes.lines.upsert' : 'sales.orders.lines.upsert')!
+    const batchLines = [newLineBody(1, { lineNumber: 3 }), newLineBody(2, { lineNumber: 2 })]
     const created = mode === 'batch'
-      ? (await runBulk(world, { lines: [newLineBody(1), newLineBody(2)] })).result?.lineIds
-      : [(await runSingle(world, newLineBody(1))).lineId]
+      ? (await runBulk(world, { lines: batchLines })).result?.lineIds
+      : [(await handler.execute({ body: { ...body, ...newLineBody(1) } }, makeHarness(world).ctx as never) as { lineId: string }).lineId]
     expect(created).toBeDefined()
     const frozen = {
       omnibusReferenceNet: '100000000000000.123456789',
@@ -506,12 +510,13 @@ describe('sales.orders.lines.upsert_many', () => {
       personalizationReason: 'user_specific_price',
     }
     for (const line of world.lines.filter((line) => created?.includes(line.id))) Object.assign(line, frozen)
-    const after = { order: { ...world.order }, lines: world.lines.map((line) => ({ ...line })) }
+    const after = { [documentKey]: { ...world.order }, lines: world.lines.map((line) => ({ ...line })) }
     world.lines = world.lines.filter((line) => !created?.includes(line.id))
     const harness = makeHarness(world)
-    const handler = mode === 'batch' ? bulkHandler() : commandRegistry.get('sales.orders.lines.upsert')!
-    const input = { body: { ...body, ...(mode === 'batch' ? { lines: [newLineBody(1), newLineBody(2)] } : newLineBody(1)) } }
-    await handler.redo!({ input, ctx: harness.ctx, logEntry: { commandPayload: { undo: { before, after } } } } as never)
+    const input = { body: { ...body, ...(mode === 'batch' ? { lines: batchLines } : newLineBody(1)) } }
+    const log = await handler.buildLog!({ input, ctx: harness.ctx, result: { ...body, lineId: created?.[0], lineIds: created }, snapshots: { before, after } } as never)
+    const replayed = await handler.redo!({ input, ctx: harness.ctx, logEntry: { commandPayload: log?.payload } } as never) as { lineIds?: string[] }
+    if (mode === 'batch') expect(replayed.lineIds).toEqual(created)
     for (const id of created ?? []) {
       expect(world.lines.find((line) => line.id === id)).toMatchObject({ ...frozen, omnibusPromotionAnchorAt: new Date(frozen.omnibusPromotionAnchorAt) })
     }
