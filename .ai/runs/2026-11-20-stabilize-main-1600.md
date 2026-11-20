@@ -36,21 +36,28 @@ At most two cezar subtasks: one independent, read-only main CI investigation wit
 
 Main may advance independently. Earlier snapshot failures may predate the merged Awilix compatibility fix in #10073. Read checks and workflow runs for the exact head before declaring success. Use hosted gate evidence if local prerequisites are unavailable and disclose that limit. Never publish packages to reproduce a failure.
 
+## Verified failure and correction
+
+Initial full PR run [44761357637](https://github.com/open-mercato/open-mercato/actions/runs/44761357637) passed all 15 integration shards, package and app builds, full typecheck and unit suites, lint, Docker, timezone and multi-instance checks. Its `test` job failed in the unfiltered root scripts gate: `scripts/__tests__/check-lessons.test.mjs` found 193 records but `.ai/lessons.md` declared 192. Commit `741205319c` added the canonical-read lesson row without updating the count. The failing catalog test reproduces locally (one failed, four passed). Commit `2fb9c77989` corrects only the declared count; the same five tests and the catalog checker now pass. No assertions or checker behavior changed. Later test-job guards and coverage merge were not executed on the initial run and remain required on the corrected head.
+
+Runner: local for focused checks. All 45 scope/concurrency/coverage regressions also pass. Local `yarn build:packages` cannot start because this checkout lacks Yarn install state; do not claim a complete local gate. Hosted CI provides the remaining gate evidence. No workflow change is needed: existing trusted `stabilize/*` and `ci-full` selection already forces full scope.
+
 Claim run: `5032d9a6-7403-48b9-a8f0-93368de201fa`
 
 Engine: om-auto-create-pr (steps: 5, --loop: no)
 
 ## Progress
+PR: #10154
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence
 
-- [ ] 1.1 Open a full-suite draft PR and independently investigate current main failures.
+- [x] 1.1 Open a full-suite draft PR and independently investigate current main failures. — 0ea43043c2
 
 ### Phase 2: Correct and verify
 
-- [ ] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established.
+- [x] 2.1 Fix demonstrated root causes with regression coverage, preserving behavior when no defect is established. — 2fb9c77989
 - [ ] 2.2 Run configured validation and verify all applicable workflows, including 15 integration shards, on the exact PR head.
 
 ### Phase 3: Review and finalize
