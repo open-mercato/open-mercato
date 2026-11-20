@@ -169,6 +169,7 @@ export function moneyFromColumns(columns: MoneyColumns): Money
 - `MoneyColumns` has the `MoneySnapshot` shape. `moneyToColumns` is `snapshotMoney`, and `moneyFromColumns` delegates to `restoreMoney`, so the database and the transport paths share one validation. For a nullable embedded field, MikroORM leaves the property `null`, so adopters call `columns ? moneyFromColumns(columns) : null`. A partially null snapshot throws.
 - `restoreMoney` (and through it `moneyFromColumns`) is the **only** synchronous path that creates a `Currency`. It restores a snapshot taken from a resolved currency. The symbol is not part of a snapshot, so the restored value has `symbol: null`. That is harmless because `symbol` does not affect equality (D3).
 - Entities hold `MoneyColumns`, not `Money`. MikroORM hydrates mutable embeddable instances, so conversion happens at the command or service boundary.
+- An entity that also references `currencies.Currency` by `currency_id` keeps that FK-id as the relational link and `MoneyColumns` per amount as the snapshot (the platform's FK-id + snapshot pattern). On write, the currency row for the id is loaded with the same tenant/organization scope (`findOneWithDecryption`, `deletedAt: null`), its code is resolved with `resolveCurrency`, and the id is stored next to `moneyToColumns(money)`. A stored `Money` is always restored from its snapshot, never rebuilt from the id, because the referenced currency may since have been disabled, soft-deleted, renamed (code changed) or re-scaled.
 
 ### Resolver contract extension (`packages/shared/src/lib/currencyPrecision.ts`)
 
@@ -373,6 +374,7 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - `MoneyScope.organizationId` and the `CurrencyLookup` organization are required (`string`), matching the runtime rule in `resolveCurrency`; a call without an organization is now a type error instead of an unconditional runtime failure. The legacy `CurrencyPrecisionLookup` keeps its optional organization.
   - `resolveMoney` throws `InvalidMoneyInputError` and `restoreMoney`/`moneyFromColumns` throw `InvalidMoneySnapshotError`, each with the `ZodError` as `cause`, instead of a plain `Error`.
   - The `resolveCurrency` docs no longer claim an inactive code always throws: only a resolver that implements `getCurrency` (as `CurrencyPrecisionService` does) can reject inactive currencies; the `getDecimalPlaces`-only fallback cannot report activity.
+  - The adopter recipe (shared `AGENTS.md`, docs, this spec, the standalone harness Money Contract) covers entities that also reference a currency by `currency_id`: keep the FK-id and the `MoneyColumns` snapshot side by side.
 
 ## Implementation Status
 

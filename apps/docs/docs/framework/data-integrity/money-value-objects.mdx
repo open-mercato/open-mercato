@@ -138,6 +138,20 @@ state carry a `MoneySnapshot`. Never pass request input to `restoreMoney`:
    const discount = invoice.discount ? moneyFromColumns(invoice.discount) : null
    ```
 
+### Entities that also reference a currency by id
+
+If the entity also references `currencies.Currency` by `currency_id` (an FK-id, as
+ledger, payables and cash documents do), keep that column as the relational link
+for joins, reporting and rate lookups, and keep `MoneyColumns` per amount as the
+snapshot. This is the platform's "FK-id + snapshot" pattern:
+
+- On write, load the currency row for the id with the same tenant and organization
+  scope (`findOneWithDecryption`, `deletedAt: null`), resolve its code with
+  `resolveCurrency`, and store the id next to `moneyToColumns(money)`.
+- Never rebuild a stored `Money`'s currency from the id on read. The referenced
+  currency can since have been disabled, soft-deleted, renamed (its code changed)
+  or re-scaled; the `MoneyColumns` snapshot restores exactly as written.
+
 Stored money keeps the precision it was written with. If a tenant later changes a
 currency's decimal places, mixing stored and freshly resolved money throws
 `CurrencyMismatchError`. Call `rescaleMoney(stored, freshCurrency, rounding)` at

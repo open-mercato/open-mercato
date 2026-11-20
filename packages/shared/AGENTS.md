@@ -140,6 +140,7 @@ Adopter recipe for a new entity:
 2. Migration: `yarn db:generate`, keep only this entity's three columns per money field.
 3. Boundary: commands/services convert with `moneyToColumns(money)` / `moneyFromColumns(columns)` (`columns ? moneyFromColumns(columns) : null` for nullable fields). Entities never hold `Money`.
 4. Mixing stored money with freshly resolved money after a tenant precision change throws `CurrencyMismatchError`; call `rescaleMoney(stored, freshCurrency, rounding)` at the read boundary.
+5. If the entity also references `currencies.Currency` by `currency_id` (an FK-id, as ledger, payables and cash documents do), keep it as the relational link for joins, reporting and rate lookups and keep `MoneyColumns` per amount as the snapshot (the "FK-id + snapshot" pattern). On write, load the currency row for the id with the same tenant/organization scope (`findOneWithDecryption`, `deletedAt: null`), resolve its code with `resolveCurrency`, and store the id next to `moneyToColumns(money)`. Never rebuild a stored `Money`'s currency from the id on read: the referenced currency can since have been disabled, soft-deleted, renamed (code changed) or re-scaled, while the snapshot restores exactly as written.
 
 MUST NOT: build a `Currency` by hand or from the ISO table, pass request input to `restoreMoney`, round implicitly, or hide a `CurrencyMismatchError` in a `try`/`catch`. `lib/money/internal.ts` is not public API. Docs: `apps/docs/docs/framework/data-integrity/money-value-objects.mdx`.
 
