@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft (rev 3.19) — pkarw re-review findings addressed; haxiorz approved rev 3.17; awaiting re-review |
+| **Status** | Draft (rev 3.30) — pkarw re-review (b957af69) addressed; not yet pushed to PR #10009 |
 | **Created** | 2026-11-19 |
 | **Builds on** | [CRM Calendar](./2026-06-11-crm-calendar.md), [Configurable Calendar Event Types](./2026-09-28-configurable-calendar-event-types.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md), [CRM Email Integration](./implemented/2026-05-27-crm-email-integration.md), [Email Integration Foundation](./2026-05-21-email-integration-foundation.md) |
 | **Reuses** | `communication_channels` hub OAuth flow + token refresh, `@open-mercato/channel-gmail` Google OAuth client, `customers` interaction/person commands + `syncOrigin`, `findPeopleByAddresses`, `hashForLookup`, the `communication_channels` adapter-registry pattern (`registerChannelAdapter`) |
@@ -304,7 +304,7 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
                                engine: placement · shared-meeting identity · redaction · conflict │
                                workers: inbound-sync, outbound-sync, promote, notifications-renew,│
                                         horizon-roll (+retention), poll-tick                      │
-                               subscribers: communication_channels.channel.connected/disconnected/deleted
+                               subscribers: communication_channels.channel.connected/disconnected/deleted → lifecycle reconcile job
                                             customers.interaction.* → outbound
                                             customers.person.created/updated → promote / link
                                api: connections, settings, events (redacted), events/[id]/promote,
@@ -326,14 +326,62 @@ else → EXTERNAL (kind meeting if other attendees exist, else event)
    - **Fencing scope.** The lease fence covers **everything an inbound job mutates**, not only cursor writes: link and placement changes, external rows, attach, auto-promote decisions taken while applying a page, the full-sync sweep, and customers writes. The separate `promote` job holds no lease and is not fenced by it; it is serialized by its per-meeting coalescing key, the primary-per-meeting unique index, and the per-interaction lock below.
    - **The fence check** is `SELECT lease_epoch FROM calendar_sync_connections WHERE id = ? AND sync_lease_owner = :me AND lease_epoch = :epoch AND status = 'active' AND deleted_at IS NULL FOR SHARE`, aborting when no row comes back. Renewals and cursor writes carry the same `status`/`deleted_at` conditions.
    - `FOR SHARE` blocks a concurrent lease takeover or revocation (an `UPDATE` of the row) until the checking transaction ends. A takeover is therefore either visible before the mutation (abort), or waits until after it (the old worker's mutation is still valid).
-   - **Revocation on leaving `active`:** every transition of a connection out of `active` revokes the lease **in the same `UPDATE`** that changes the status: `SET status = :new, status_changed_at = now(), lease_epoch = lease_epoch + 1, sync_lease_owner = NULL, sync_lease_until = NULL`.
-     - **External transitions** are unconditional (`WHERE id = ?`):
-       - disconnect sets `status = 'paused'` and `paused_reason = 'disconnect'`;
-       - channel delete sets `status = 'paused'` and `paused_reason = 'channel_deleted'`.
-       - Channel delete is undoable, so it does **not** soft-delete the connection row; `deleted_at` is set only when the connection is permanently removed.
-     - **Transitions the inbound worker makes itself** (`requires_reauth` after an auth error, `error` after repeated failures) are conditional on still holding the lease: `WHERE id = ? AND status = 'active' AND sync_lease_owner = :me AND lease_epoch = :epoch`. Zero rows updated means the worker was already fenced out, so it exits without touching status. A stale job whose delayed provider call fails with `CalendarAuthError` after a disconnect and immediate reconnect can therefore never push the reconnected connection back into `requires_reauth`.
+   - **Revocation on leaving `active`:** every transition of a connection out of `active` revokes the lease **in the same `UPDATE`** that changes the status: `SET status = :new, status_changed_at = now(), lease_epoch = lease_epoch + 1, sync_lease_owner = NULL, sync_lease_until = NULL, cleanup_attempts = 0`.
+     - **External transitions are level-triggered, never edge-triggered.** The channel lifecycle events (`channel.connected`, `channel.disconnected`, `channel.deleted`, and the `connected` emitted by their undo) are persistent and retryable, so they can arrive late, repeated or out of order. A handler therefore **never applies the transition its event names**. Every lifecycle event, including `channel.requires_reauth`, only enqueues the **lifecycle reconcile job**. It runs on queue `calendar-sync-lifecycle`, `coalesceBy: (p) => \`channel:${p.channelId}\``. Its payload is `{ channelId, tenantId, organizationId }`, with no intent, which fits queue `AGENTS.md` rule 4: recompute from state. Every lookup is tenant-scoped, never by bare id. Channels are read by `(id, tenant_id)`, and connections by `(channel_id, tenant_id)`, each using its own stored `organization_id`. A connection's organization can legitimately differ from its channel's (a channel without an organization is pinned to the user's home organization), so neither read filters on the event's organization. In **one transaction**, that job:
+       1. locks the `CalendarConnection` row(s) of the channel `FOR UPDATE`, in ascending `id` order;
+       2. re-reads the **current** `CommunicationChannel` row `FOR SHARE`. That blocks any concurrent channel lifecycle write until this transaction commits, so the decision and the write are serialized with the channel state they are based on;
+       3. derives the **desired** connection state from that persisted channel state:
+
+          | Channel row now (checked in this order) | Desired connection state |
+          |---|---|
+          | channel row **not found** (hard-deleted) or `deleted_at` set | `paused`, `paused_reason = 'channel_deleted'` |
+          | `status = 'requires_reauth'` (including a reconnect whose credentials failed to persist, which also sets `is_active = false`) | `requires_reauth` (non-destructive: no cleanup) |
+          | `status = 'error'` | `error` with `last_error = 'channel_error'` (non-destructive; the error belongs to the channel, so it clears when the channel returns to `connected`) |
+          | `status = 'disconnected'` | `paused`, `paused_reason = 'disconnect'` |
+          | `status = 'connected'`, not deleted | `active` when the connection is `paused`, `requires_reauth`, or `error` with `last_error = 'channel_error'`. A connection in a **sync** `error` (any `last_error` other than `channel_error`/`organization_required`) stays `error` (see below). A connection in `error`/`organization_required` stays there **until pinned** by the pinning rule (below). After a successful pin, its status is then derived from this table as if it were `paused`. |
+
+       4. applies the transition only if desired ≠ current. **Every** transition away from `active`, and **every** transition into `paused` (whatever the previous state), bumps `lease_epoch` and clears the lease owner in that same `UPDATE`. The value returned by that `UPDATE` is the `:revocationEpoch` the cleanup fence uses. Entering `active` reactivates.
+     - **The channel row is the single source of truth for authorization state.** When the inbound or outbound worker hits `CalendarAuthError`, it does not set `requires_reauth` on the connection alone.
+       - **Guard against a fresh reconnect first.** The worker compares the credentials record's version (`credentialsService.resolveUpdatedAt`) with a baseline it read **after its own `refreshCredentialsIfNeeded`**, so its own token refresh never looks like a reconnect. If the credentials changed meanwhile (a reconnect stored new tokens), the failure came from the old token: the worker re-reads the baseline and retries once with the new credentials instead of marking anything. If that retry also fails with an auth error and the version is unchanged, it marks reauth as below. If the version changed **again**, it does not mark: the job is requeued with backoff.
+       - Otherwise, in one transaction it marks the connection and the channel. The condition is the lease for the inbound worker (below). The outbound worker holds no lease, so its condition is `status = 'active' AND lease_epoch = :epochAtJobStart`: any pause, revocation or reauth since the job started has bumped the epoch, so a stale outbound job never marks anything. Because routine inbound lease acquisitions also bump the epoch, an outbound job often does not mark a genuine auth error. That is by design: **the inbound worker is the authoritative reauth detector** (it hits the same token on its next run), and an outbound job that does not mark retries with backoff. Under that condition, it moves the connection to `requires_reauth` **and** marks the channel row `status = 'requires_reauth'` (with `last_error`) through the new exported hub helper `markChannelRequiresReauth(em, { channelId, tenantId, organizationId, reason })` (Part B prerequisite in `communication_channels`, the same write the Gmail poller makes in `workers/poll-channel.ts`). After commit it emits the existing `communication_channels.channel.requires_reauth` event.
+       - A real reconnect then genuinely changes the channel row (`requires_reauth` → `connected`, a real `UPDATE`), so the reconcile reactivates the connection.
+       - A stale or duplicate `connected` delivery finds the channel still `requires_reauth` and is a no-op. No timestamp comparison is needed.
+     - **`error`** is a calendar-sync condition (repeated provider failures), not an authorization state, so it stays on the connection only and is **sticky**. It is cleared only by an explicit or automatic retry, both using the same **retryable** condition: `status = 'error' AND last_error NOT IN ('organization_required','channel_error')` (with `last_error` never null for `error`), plus the channel row being `connected` (re-read `FOR SHARE` in the same transaction).
+       - The explicit retry is "Sync now" or "Full resync" on the settings page.
+       - The **automatic** retry by `poll-tick` additionally requires `status_changed_at < now() − OM_CALENDAR_SYNC_ERROR_RETRY_MINUTES` (default 60). That age predicate applies to the automatic retry only, not to "Sync now".
+       - Both clear `last_error`.
+       - A connection whose channel is itself in `error` (`last_error = 'channel_error'`) is never retried by either path; it follows the channel. A `connected` delivery never clears a **retryable** `error`.
+       - **Non-retryable error `organization_required`:** neither retry path touches it. Every lifecycle reconcile **re-runs the creation pinning rule** while the error persists: the channel's `organizationId`, else the connecting user's home organization from `auth`. When one resolves, it pins it, clears `organization_required`, and then applies the mapping table **as if the connection were `paused`**:
+         - `connected` channel → `active`;
+         - disconnected or deleted → `paused`;
+         - channel `requires_reauth` → `requires_reauth`;
+         - channel `error` → `error`/`channel_error`.
+         A paused connection whose channel is disconnected therefore stays `paused`, and only a connection on a `connected` channel becomes `active`. No intermediate `error`-without-reason state ever exists.
+       - Reactivation of **any** connection (from `paused`, `requires_reauth` or an error) requires a non-null `organization_id`. When the desired state is `active` but no organization can be pinned, the connection lands in `error` with `last_error = 'organization_required'`. An active connection always has an organization, so this never revokes a live lease. **Every** transition of an org-less connection keeps `last_error = 'organization_required'`: the move into `paused`, a mapping to `requires_reauth`, a channel-level `error`, and a capped cleanup, which records its failure in `calendar_sync.connection.failed` instead of overwriting `last_error`. The invariant "`organization_id` is null ⇔ `last_error = 'organization_required'`" therefore holds in every state, and an org-less connection is never `active`. Disconnect → reconnect or an Undo can therefore never yield an org-less active connection.
+       - **Trigger:** changing a user's home organization emits no channel event, so the `poll-tick` safety net enqueues the reconcile for `organization_required` connections (any status; after a successful pin the mapping decides the status, as if `paused`, see above), throttled to once per `OM_CALENDAR_SYNC_ERROR_RETRY_MINUTES` per connection, using the connection's `last_reconcile_requested_at`. The safety net sets it, in the same short transaction, whenever it enqueues this trigger, and enqueues only when it is older than the window. The settings page also offers "Retry setup" (`POST /api/calendar_sync/setups/retry`), which enqueues the reconcile immediately.
+       - Reconnecting heals the channel row in place without updating its `organizationId` (`connect-channel.ts`), so a plain reconnect does **not** fix this. The settings page tells the user to set a home organization (picked up by the trigger above), or to delete the channel and connect it again from inside an organization.
+     - **Result:** a disconnect or delete delivered **after its Undo** sees a connected channel and is a no-op. A `connected` delivered **after a newer** disconnect or delete sees the paused or deleted channel and is a no-op. Duplicate deliveries are no-ops.
+     - **Discovery runs only when a connection is created.** Reactivating an existing connection reuses its stored `external_calendar_id` and never calls `resolvePrimaryCalendar`, so a failing lookup can never be repeated on every tick through the reactivation path. Discovery attempts are throttled per channel by `calendar_sync_channel_setups`, below.
+     - **Discovery in flight:** creating a connection needs `resolvePrimaryCalendar`, a provider call. It runs **outside** the transaction, before step 1. Its result is used only if the reconcile transaction, re-reading the channel `FOR SHARE`, still finds the channel connected; otherwise it is discarded.
+     - **Discovery failures:**
+       - If the channel is no longer connected when the job re-reads it (for example a concurrent disconnect cleared its credentials), the **discovery result is discarded** and **no connection is created**. The setup row is deleted (the channel was removed).
+       - On `CalendarAuthError`, the **same credentials-version guard** as the worker applies first: if the credentials changed since discovery read them (a reconnect landed meanwhile), discovery retries once with the new credentials instead of marking. Only then is the channel marked `requires_reauth` through `markChannelRequiresReauth` (conditional; see Phase 1 step 3a). **No connection is created**: a connection always has an `external_calendar_id`. The setup row is kept with `last_error = 'requires_reauth'` (state `setup_blocked_reauth`), and the user's reconnect changes the credentials version, which resets `attempts` and re-runs discovery. A user who unticked the Calendar permission in Google's consent screen recovers by reconnecting with it ticked. **Precedence:** the rule above (channel no longer connected → discard, create nothing) is evaluated **first**, so a stale `connected` delivery whose discovery fails because a concurrent disconnect cleared the credentials leaves the channel `disconnected` and creates nothing.
+       - On `CalendarRateLimitError`, the attempt's closing transaction **decrements `attempts`** (undoing its own pre-attempt increment), sets `last_error = 'rate_limited'` and `last_attempt_at = now()`. A rate limit therefore never moves the setup toward the cap, while a crash mid-attempt (no closing transaction) still counts. When the error carries `retryAfter` (from the provider's `Retry-After` header), the same transaction sets `retry_after_at = now() + retryAfter`, and the safety-net scan waits for it too; any later attempt clears it.
+       - Any other error records `last_error` on the setup row and retries with backoff (setup throttling). A connection is created **only** after discovery succeeds; until then the settings page shows "Setting up…" (or "Setup failed" after the cap) for the channel.
+     - **Safety net for writes without events:** each `poll-tick` performs two batched, **tenant-scoped** reads, each row keeping its own organization: the connections, and the channel rows for their `channel_id`s through the hub's channel read path, not a cross-module ORM join. It applies the **same mapping function** as the reconcile, and enqueues a reconcile job for every connection that either:
+       - disagrees with its channel. A `connected` channel with a connection in a retryable `error` **or** in `error`/`organization_required` counts as **agreeing**, so the safety net never fights the sticky-error rule. `organization_required` connections are enqueued **only** by the throttled pinning trigger below;
+       - or is `paused` with **unfinished cleanup** (`cleanup_epoch IS DISTINCT FROM lease_epoch`). Cleanup attempts are capped at `OM_CALENDAR_SYNC_CLEANUP_MAX_ATTEMPTS` (default 10) per epoch. `cleanup_attempts` is reset to 0 by the pausing `UPDATE` and incremented in its own short transaction before each attempt, so a crash still counts. After the cap, `last_error = 'cleanup_failed'` is recorded (except on an org-less connection, which keeps `organization_required`; the failure is then only reported) and reported via `calendar_sync.connection.failed`, and the safety net stops re-enqueuing until the epoch changes or an operator retries with the CLI command `yarn mercato calendar_sync retry-cleanup --tenant <tenantId> --connection <id>`, which acts only on a `paused` connection with unfinished cleanup, resets `cleanup_attempts`, clears `last_error = 'cleanup_failed'` and enqueues the reconcile.
+       - It also scans **connected calendar-provider channels that have no connection yet** (discovery not finished, "Setting up…"). Discovery attempts are tracked per channel in `calendar_sync_channel_setups`, and the scan re-enqueues the reconcile only when `last_attempt_at < now() − backoff(attempts)` (exponential, starting at 5 minutes), `retry_after_at` (set from a rate limit's `Retry-After`) is null or past, and `attempts < OM_CALENDAR_SYNC_DISCOVERY_MAX_ATTEMPTS` (default 10). After the cap, the settings page shows "Setup failed" with the last error and a "Retry setup" action that resets `attempts`. A deterministically failing lookup (e.g. a `403 accessNotConfigured` because the Calendar API is disabled in the Google Cloud project) therefore stops calling the provider.
+       - That covers channel writes that emit no lifecycle event, lost deliveries, and interrupted cleanups.
+     - Channel delete is undoable, so the connection row is paused, never soft-deleted. `deleted_at` on the connection is set only when the connection is permanently removed.
+     - **Failure counter:** `consecutive_failures` on the connection counts failed inbound runs. A run that fails with a provider error other than `CalendarAuthError` or `CalendarRateLimitError` increments it (lease-conditional, like every worker write); a successful run resets it to 0, and so does every transition back to `active` (explicit or automatic retry, reactivation). When it reaches `OM_CALENDAR_SYNC_ERROR_THRESHOLD` (default 5), the same `UPDATE` moves the connection to `error` with the failure's machine code in `last_error`.
+     - **Transitions the inbound worker makes itself** (`requires_reauth` after an auth error, `error` when `consecutive_failures` reaches the threshold) are conditional on still holding the lease: `WHERE id = ? AND status = 'active' AND sync_lease_owner = :me AND lease_epoch = :epoch`. For `requires_reauth`, the same transaction also marks the channel row through `markChannelRequiresReauth`, but only when the conditional connection update matched; the event is emitted after commit. Zero rows updated means the worker was already fenced out, so it exits without touching status. It touches neither the connection nor the channel. A stale job whose delayed provider call fails with `CalendarAuthError` after a disconnect and immediate reconnect can therefore never push the reconnected connection back into `requires_reauth`.
      - The revoking `UPDATE` conflicts with the `FOR SHARE` fence, so an in-flight fenced transaction finishes first: its mutation predates the revocation and is cleaned up by the flow that follows. Every later fenced transaction fails the epoch, status or `deleted_at` check. A provider call still in flight at disconnect therefore cannot recreate links or external rows, write CRM records, or advance the cursor when it returns.
-     - **Cleanup is fenced against reactivation.** The disconnect/delete cleanup (unlink, handover, purge) runs after the revoking `UPDATE` commits, in short transactions. Each one first locks the connection row `FOR UPDATE` and proceeds only while `status <> 'active' AND lease_epoch = :revocationEpoch`. If the connection was reactivated meanwhile (Undo or reconnect), the cleanup stops, and the reactivation's full resync reconciles whatever was already cleaned. Reactivation's own `UPDATE` serializes with these locks, so cleanup never undoes links that a new job re-attached.
+     - **Cleanup is level-triggered and resumable.** The reconcile runs, or resumes, the disconnect/delete cleanup (unlink, handover, purge) whenever the connection is `paused`, `cleanup_epoch IS DISTINCT FROM lease_epoch`, and the channel is still disconnected or deleted. This holds whether or not this run just paused it.
+       - `:revocationEpoch` is **always** the connection's current `lease_epoch`, read under `FOR UPDATE` when the cleanup starts or resumes. Right after a pause, that is exactly the value the pausing `UPDATE` wrote. While a connection stays paused, its epoch changes only through another pause, and reactivation flips the status, so this is safe.
+       - The **last** cleanup transaction sets `cleanup_epoch = lease_epoch`.
+       - A crash, a deploy or a transient error mid-cleanup therefore leaves `cleanup_epoch` behind, and the next reconcile, a retry or the `poll-tick` safety net, finishes it.
+     - **Cleanup is fenced against reactivation.** The cleanup runs after the revoking `UPDATE` commits, in short transactions. Each one first locks the connection row `FOR UPDATE` and re-reads the channel row `FOR SHARE`. It proceeds only while `status = 'paused' AND lease_epoch = :revocationEpoch` **and** the channel is still disconnected or deleted. Every move into `paused` bumps the epoch, so an older cleanup can never pass the fence of a later pause. Because **moves into `paused`** come only from the level-triggered reconcile (the worker's own `requires_reauth`/`error` transitions revoke the lease but never pause or trigger cleanup), a stale delivery can never create a revocation epoch in the first place, so it can never authorize a cleanup. If the connection was reactivated meanwhile (Undo or reconnect), the cleanup stops, and the reactivation's full resync reconciles whatever was already cleaned. Reactivation's own `UPDATE` serializes with these locks, so cleanup never undoes links that a new job re-attached.
      - **Immediate reconnect:** reactivation sets `status = 'active'`, clears `paused_reason`, and never lowers `lease_epoch`; a new lease increments it again. The old job's epoch therefore stays invalid forever, even if the same connection row is reactivated while that job's provider call is still pending.
    - **Hub-only mutations** (links, external rows, sweep) run in short hub transactions that start with the fence check.
    - **Customers writes keep their own transaction**, so their side effects stay durable-after-commit. They are **not** run on a hub transaction via `ctx.transactionalEm`: a command that joins a caller-owned transaction emits its CRUD side effects (events, query-index jobs) **before** the outer commit (`customers/commands/interactions.ts`, `runInTransaction`), and `CommandBus.execute` runs post-commit work immediately. Instead:
@@ -438,7 +486,7 @@ Applied on the primary link only, and only when the provider copy changed (see I
 | Event (hub) | `calendar_sync.external_event.promoted` | `{ meetingKey, interactionId, trigger: 'match'\|'person_created'\|'manual'\|'link_existing' }` |
 | Event (hub) | `calendar_sync.event_link.conflict_resolved` | `{ linkId, interactionId, winner }` |
 | Event (hub) | `calendar_sync.interaction.demoted` | `{ meetingKey, interactionId, linkCount }`; emitted after demotion finalizes |
-| Event (hub, new) | `communication_channels.channel.connected` | `{ channelId, providerKey, channelType, userId, tenantId, organizationId }`; emitted by the OAuth callback, the credential connect command, and the undo of channel disconnect/delete |
+| Event (hub, new) | `communication_channels.channel.connected` | `{ channelId, providerKey, channelType, userId, tenantId, organizationId }`; emitted by the OAuth callback, the credential connect command, and the undo of channel disconnect, delete and admin-delete. The user-deleted cascade additionally emits the existing `channel.disconnected` per channel it disconnects (its bulk update must return the affected ids), and `markChannelRequiresReauth` emits the existing `channel.requires_reauth` only when it matched |
 
 ## Provider Contract (`calendar-provider.v1`)
 
@@ -545,7 +593,7 @@ interface CalendarProviderAdapter {
 function buildInstanceKey(input: { originalStart: string | null; allDay: boolean; timezone: string | null }): string
 ```
 
-Errors are typed: `CalendarVersionConflictError`, `CalendarAuthError` (→ reauth), `CalendarRateLimitError` (→ backoff), `CalendarNotFoundError`. Adapters never log payloads.
+Errors are typed: `CalendarVersionConflictError`, `CalendarAuthError` (→ reauth), `CalendarRateLimitError` (→ backoff; optional `retryAfter` in seconds, parsed from `Retry-After`), `CalendarNotFoundError`. Adapters never log payloads.
 
 **Fit check (design-time):**
 
@@ -576,12 +624,16 @@ One row per (communication channel, external calendar). User-editable → `updat
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | |
-| `tenant_id`, `organization_id` | uuid | `organization_id` is **pinned at first creation**: the channel's `organizationId`; when that is null (the OAuth state had no active org), the connecting user's home organization from `auth`; if neither exists, the connection is created with `status = 'error'`, `last_error = 'organization_required'` and the settings page asks the user to reconnect from inside an organization. Reconnects never change it. |
+| `tenant_id`, `organization_id` | uuid | `organization_id` is **pinned at first creation**: the channel's `organizationId`; when that is null (the OAuth state had no active org), the connecting user's home organization from `auth`; if neither exists, the connection is created with `status = 'error'`, `last_error = 'organization_required'`, and the settings page asks the user to set a home organization, or to delete and reconnect the channel from inside an organization (a plain reconnect keeps the channel's null organization). Reconnects never change a pinned organization; the only exception is a connection still in `organization_required`, which the reconcile pins later. **Nullable**: `organization_id IS NULL` ⇔ `last_error = 'organization_required'` (kept through every transition; such a connection is never `active`). |
 | `provider_key` | text | e.g. `google_calendar` |
 | `channel_id` | uuid | FK id → `communication_channels` |
 | `user_id` | uuid | connected user |
 | `external_calendar_id` | text | |
 | `status` | text | `active` \| `paused` \| `error` \| `requires_reauth` |
+| `cleanup_attempts` | int default 0 | cleanup attempts for the current `lease_epoch`; capped by `OM_CALENDAR_SYNC_CLEANUP_MAX_ATTEMPTS` |
+| `consecutive_failures` | int default 0 | failed inbound runs since the last success, excluding auth and rate-limit errors; reaching `OM_CALENDAR_SYNC_ERROR_THRESHOLD` moves the connection to `error`; reset on success and on every return to `active` |
+| `last_reconcile_requested_at` | timestamptz null | when the safety net last enqueued the throttled `organization_required` pinning trigger for this connection |
+| `cleanup_epoch` | bigint null | `lease_epoch` value whose disconnect/delete cleanup has completed; a paused connection with `cleanup_epoch IS DISTINCT FROM lease_epoch` has unfinished cleanup, which the reconcile resumes |
 | `paused_reason` | text null | `disconnect` \| `channel_deleted` while `status = 'paused'`; cleared on reactivation (channel delete is undoable, so it pauses rather than soft-deletes the row) |
 | `provider_state` | jsonb null | committed cursor owned by the adapter (validated by `providerStateSchema`); no PII |
 | `provider_page_state` | jsonb null | in-progress page token of the current traversal; persisted atomically with the traversal record, cleared on completion or invalidation |
@@ -698,6 +750,24 @@ Indexes:
 
 `calendar_sync/encryption.ts` declares the encrypted fields; reads use `findWithDecryption`.
 
+#### `CalendarChannelSetup` → `calendar_sync_channel_setups`
+
+One row per calendar-provider channel whose connection does not exist yet. It throttles discovery retries.
+- **Deleted** when the connection is created, and also by the reconcile when it finds the channel disconnected or deleted, so no rows linger for channels removed mid-setup. The reconcile also deletes a setup row for a channel that already has a connection (a late `/setups/retry` insert).
+- **Cap reset:** "Retry setup" resets `attempts` explicitly. A **real reconnect** also resets them: the reconcile resets `attempts` when the channel's credentials version (`credentialsService.resolveUpdatedAt`), read **before** this attempt's own token refresh, differs from `credentials_version_seen`, which each attempt records **after** its own refresh. A routine access-token refresh therefore never looks like a reconnect, and a deterministically failing lookup does reach the cap. A stale or duplicate `channel.connected` delivery, with unchanged credentials, never resets the cap.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `channel_id` | uuid PK | FK id → `communication_channels` |
+| `tenant_id`, `organization_id` | uuid / uuid null | the channel's own scope |
+| `attempts` | int default 0 | incremented in its own transaction before each discovery attempt, so a crash still counts; decremented again by the attempt's closing transaction when it ended in `CalendarRateLimitError` |
+| `user_id` | uuid | the channel's user; used by the user-scoped setup listing |
+| `credentials_version_seen` | timestamptz null | credentials version recorded **after** the attempt's own `refreshCredentialsIfNeeded` (same baseline rule as the worker's reconnect guard); compared **before** the next attempt refreshes, so only a real reconnect, never a routine token refresh, resets `attempts` |
+| `last_attempt_at` | timestamptz null | |
+| `retry_after_at` | timestamptz null | earliest next attempt requested by the provider's `Retry-After` on a rate limit; the safety-net scan waits for `max(last_attempt_at + backoff(attempts), retry_after_at)` |
+| `last_error` | text null | machine code of the last failure |
+| `created_at`, `updated_at` | timestamptz | |
+
 #### `CalendarSyncSettings` → `calendar_sync_settings`
 
 One row per organization. User-editable → `updated_at` for optimistic locking. A missing row means the defaults apply.
@@ -770,7 +840,27 @@ All routes:
 |-------|------|----------|
 | `GET /api/calendar_sync/connections` | `calendar_sync.connect` | `makeCrudRoute` list of the caller's connections: `{ id, providerKey, providerLabelKey, externalCalendarId, status, shareEventDetails, importInteractionType, pushDefaultEnabled, notifyAttendeesDefault, lastFullSyncAt, lastIncrementalSyncAt, lastError, notificationsActive, updatedAt }`; `pageSize ≤ 100` |
 | `PUT /api/calendar_sync/connections` | same | Settings + lock on `settings_updated_at` (the route configures the shared optimistic-lock reader with `updatedAtField: 'settingsUpdatedAt'`; the link route uses `'intentUpdatedAt'`) → `connection.update` (sync activity never causes 409). 400 unknown activity type; 404 not owned; 409 stale. |
-| `POST /api/calendar_sync/connections/run` | same | `{ id, mode }`. `mode: 'full'` first **persists** `full_resync_requested_at` on the connection, then enqueues the coalesced inbound job, so a waiting incremental job cannot swallow the full-resync request (the worker reads the mode from state). Response `202 { queued: true }`. 409 `requires_reauth`. Full resync ≤ 1 per 10 min. |
+| `GET /api/calendar_sync/setups` | `calendar_sync.connect` | Custom route, **user-scoped, not organization-scoped**: `tenant_id = auth.tenant AND user_id = auth.sub`. It returns what the org-scoped `makeCrudRoute` list cannot show:
+- pending setups (`calendar_sync_channel_setups` rows: `{ channelId, providerKey, attempts, lastAttemptAt, lastError, state: 'setting_up' \| 'setup_failed' \| 'setup_blocked_reauth' }`). Precedence: `last_error = 'requires_reauth'` → `setup_blocked_reauth` (the fix is a reconnect), even when the attempt cap is also reached; otherwise cap reached → `setup_failed`; else `setting_up`;
+- the caller's connections with `organization_id IS NULL` (`organization_required`), with their guidance code.
+
+(`state` values and their precedence are defined above.)
+
+Deliberately **cross-organization for the caller's own rows**. Unlike `/me/channels`, which filters by the active organization, it must show the user's pending setups and org-less connections whichever organization is selected; every row belongs to `auth.sub`, so nothing of another user is exposed.
+
+The settings page merges it with `GET /connections`. Keyset paging: `?cursor=<opaque>&limit=` (`limit ≤ 100`), ordered by `(created_at, channel_id)`. |
+| `POST /api/calendar_sync/setups/retry` | `calendar_sync.connect` | `{ channelId }`. Mutation guards apply (operation `update`); user-scoped like the GET. Guard `resourceKind: 'calendar_sync.channel_setup'`, resource id = `channelId`.
+- For a pending setup it resets `attempts` and enqueues the lifecycle reconcile.
+- For an `organization_required` connection it enqueues the reconcile (re-running pinning).
+- A connected calendar channel with **neither** a setup row nor a connection yet (the reconcile has not run) → inserts the setup row **only while the channel still has no connection** (`INSERT … SELECT … WHERE NOT EXISTS (connection for channel_id) ON CONFLICT (channel_id) DO NOTHING`, since the reconcile may create the row or the connection concurrently) and enqueues the reconcile, `202 { queued: true }`. As a backstop, the reconcile deletes any setup row for a channel that already has a connection.
+- Nothing to retry (the channel already has a connection that is not `organization_required`) → `200 { queued: false }`.
+- For `setup_blocked_reauth` the settings page offers **"Reconnect"** (the OAuth flow), not "Retry setup": the channel is `requires_reauth`, so retry would return 409 `channel_not_connected`.
+- Rate limited to 1 call per channel per minute (429), since each call can lead to a provider call.
+- 404 when the channel is not the caller's.
+- 409 `channel_not_connected` applies **only** to the pending-setup and no-setup-row branches, which need a connected channel for discovery.
+- The `organization_required` branch **always** queues: pinning is useful whatever the channel state, and the resulting status still comes from the mapping, so the connection stays `paused` while its channel is disconnected.
+- Otherwise `202 { queued: true }`. |
+| `POST /api/calendar_sync/connections/run` | same | `{ id, mode }`. `mode: 'full'` first **persists** `full_resync_requested_at` on the connection, then enqueues the coalesced inbound job, so a waiting incremental job cannot swallow the full-resync request (the worker reads the mode from state). On an `error` connection with a retryable error, it first clears the error, in one transaction that re-reads the channel `FOR SHARE`: `UPDATE … SET status = 'active', last_error = NULL WHERE status = 'error' AND last_error NOT IN ('organization_required','channel_error')`, and only if the channel is `connected`. Response `202 { queued: true }`. 409 `requires_reauth`, `paused` (reconnect first), `organization_required`, `channel_error` (the channel itself is failing; it recovers with the channel) or `channel_not_connected` (a retryable error, but the channel row is not `connected`). Full resync ≤ 1 per 10 min. |
 | `GET/PUT /api/calendar_sync/settings` | `calendar_sync.configure` | The caller's organization row `{ autoCreateEnabled, autoCreateExcludedDomains, autoCreateMaxAttendees, updatedAt }`, with defaults when absent; PUT + lock → `settings.update`. Turning auto-create on is not retroactive; the response hints to run a full resync. |
 | `GET /api/calendar_sync/events?from&to[&ownerUserId][&cursor][&limit≤100]` | `calendar_sync.view` | Keyset `(starts_at, id)`; range `starts_at < :to AND ends_at > :from`. Items = `CalendarExternalItem` + `updatedAt`. **Redaction:** owner ≠ viewer and (`is_private` or the owner's `share_event_details = false`) → busy-only shape; focus/OOO for others → kind + times only. |
 | `GET /api/calendar_sync/events/[id]` | same | Details (owner, or shared non-private) incl. `attendees: [{ email, name, status, personId \| null, canCreatePerson }]` (one batched matcher call). Redacted → `{ redacted: true }`. |
@@ -846,6 +936,11 @@ These are needed because calendar channels would otherwise be offered as email s
   - `insertEvent`: client `id` = base32hex-safe hex digest of the idempotency key `<link id>:<insert_generation>`, `conferenceDataVersion=1`, `createRequest` `hangoutsMeet`, `extendedProperties.private.omInteractionId`;
   - `patchEvent`: `If-Match` → `CalendarVersionConflictError` on `412`;
   - notifications: `events.watch` / `channels.stop`; `parseNotification` maps `X-Goog-Channel-ID/Token/Resource-State`;
+  - **error mapping:**
+    - `401` → `CalendarAuthError`;
+    - **`429`, and `403` with reason `rateLimitExceeded` or `userRateLimitExceeded` → `CalendarRateLimitError`** (backoff; never counts toward the sticky `error` threshold or the discovery attempt cap). This is checked before the other `403` rules, mirroring Gmail's `isRateLimit403` in `packages/channel-gmail/src/modules/channel_gmail/lib/gmail-client.ts`.
+    - **`403` with reason `insufficientPermissions` (in `error.errors[].reason`) or `ACCESS_TOKEN_SCOPE_INSUFFICIENT` (in `error.details[]`, `ErrorInfo.reason`) — the user unticked the Calendar permission in Google's granular consent screen → `CalendarAuthError`**, because only a reconnect that grants the scope fixes it;
+    - other `403`s (e.g. `accessNotConfigured` / `SERVICE_DISABLED`, the Calendar API disabled in the Google Cloud project) → a non-auth provider error.
   - normalize: `eventType` → kind, `visibility ∈ {private, confidential}` → `isPrivate`, `transparency` → `isBusy`, `conferenceData` → conference (`hangoutsMeet` → `google_meet`, add-ons by name).
 - **No API routes or tables of its own.** It contributes `integration.ts` (optional `clientId` / `clientSecret`; empty → Gmail's), a connect widget and i18n.
 
@@ -941,6 +1036,10 @@ None touched.
 | `OM_CALENDAR_SYNC_EXTERNAL_RETENTION_DAYS` | `365` | hub | external-event retention |
 | `OM_CALENDAR_SYNC_PAGE_BUDGET` | `8` | hub | pages per job run (a follow-up job continues the listing) |
 | `OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS` | `7` | hub | a `deleting` link on a connection inactive this long is abandoned (`provider_delete_abandoned`, reported) |
+| `OM_CALENDAR_SYNC_DISCOVERY_MAX_ATTEMPTS` | `10` | hub | cap on calendar discovery attempts per channel (exponential backoff from 5 min) before "Setup failed" |
+| `OM_CALENDAR_SYNC_CLEANUP_MAX_ATTEMPTS` | `10` | hub | cap on disconnect/delete cleanup attempts per lease epoch before `cleanup_failed` is reported |
+| `OM_CALENDAR_SYNC_ERROR_THRESHOLD` | `5` | hub | consecutive failed inbound runs (auth and rate-limit errors excluded) before a connection moves to the sticky `error` |
+| `OM_CALENDAR_SYNC_ERROR_RETRY_MINUTES` | `60` | hub | `poll-tick` moves retryable `error` connections back to `active` (conditional update) after this long and enqueues an inbound run; also the throttle window for the `organization_required` pinning trigger (`last_reconcile_requested_at`) |
 | `OM_CALENDAR_SYNC_STALE_STATE_MINUTES` | `15` | hub | age after which `promoting`/`demoting` links are swept and resumed |
 | `OM_GOOGLE_CALENDAR_REQUEST_TIMEOUT_MS` | `30000` | Google | per request |
 | `OM_GOOGLE_CALENDAR_API_BASE_URL` | Google | Google | test-only override, ignored in production |
@@ -963,7 +1062,7 @@ None touched.
 
 ## Migration & Compatibility
 
-- **DB:** three new hub tables; customers additive columns + GIN index + encryption backfill. No provider tables.
+- **DB:** five new hub tables (`calendar_sync_connections`, `calendar_sync_event_links`, `calendar_sync_external_events`, `calendar_sync_channel_setups`, `calendar_sync_settings`); customers additive columns + GIN index + encryption backfill. No provider tables.
 - **New contract surfaces (STABLE once released):**
   - `calendar-provider.v1` types and `registerCalendarProviderAdapter` (import path `@open-mercato/core/modules/calendar_sync/lib/provider`);
   - `customers.calendar.item-sources.v1`;
@@ -971,6 +1070,7 @@ None touched.
   - events `calendar_sync.*`, `communication_channels.channel.connected`;
   - DI `customerPersonEmailMatcher`, `customerInteractionAccess`, `calendarProviderRegistry`;
   - ACL `calendar_sync.*`.
+  - CLI `yarn mercato calendar_sync retry-cleanup --tenant <tenantId> --connection <id>` (operator retry of a capped cleanup; tenant-scoped lookup; acts only on a `paused` connection with unfinished cleanup; resets `cleanup_attempts`, clears `last_error = 'cleanup_failed'` and enqueues the reconcile).
   - The provider contract evolves additively; breaking changes need `calendar-provider.v2` with a bridge (`BACKWARD_COMPATIBILITY.md`).
 - **Existing surfaces:**
   - Gmail `lib/oauth` exports re-exported;
@@ -997,7 +1097,8 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
 
 1. `resolveOAuthClientCredentials` fallback keys, plus its callers (`lib/credential-refresh.ts`, the OAuth initiate and callback routes).
 2. The type-scoped mailbox guard (`lib/connect-channel.ts`).
-3. `channel.connected` from the OAuth callback, `commands/connect-credential-channel.ts`, **and the `undo()` handlers of `commands/disconnect-channel.ts` and `commands/delete-channel.ts`** (a restored channel must reactivate its calendar connection).
+3. `channel.connected` from the OAuth callback, `commands/connect-credential-channel.ts`, **and the `undo()` handlers of `commands/disconnect-channel.ts`, `commands/delete-channel.ts` and `commands/admin-delete-channel.ts`** (a restored channel must reactivate its calendar connection). `subscribers/user-deleted-cascade.ts` emits `channel.disconnected` for each channel it disconnects, which it does silently today.
+3a. Exported helper `markChannelRequiresReauth(em, { channelId, tenantId, organizationId, reason })`. On the caller's transaction-bound EntityManager it performs a **conditional** update: `SET status = 'requires_reauth', last_error = :reason WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL AND is_active AND status IN ('connected','error')`, the same precondition style as the Gmail poller's `writePollFailure`. It returns `{ matched: boolean, emitAfterCommit }`, and `communication_channels.channel.requires_reauth` is emitted only when `matched`. A user's `disconnected` or deleted channel can therefore never be overwritten into `requires_reauth`. It factors out the write the Gmail poller already does inline (`workers/poll-channel.ts`), which may adopt it.
 4. Cross-type primary rejection.
 4a. **Issuing-client refresh:** the OAuth callback stores `oauthClientId` (the client that issued the tokens) in the user credentials. `oauthClientId` is a declared optional field of `googleUserCredentialsSchema` (and so of the `gmailUserCredentialsSchema` alias, which `.strip()`s unknown keys). Every refresh writes it back, so it survives re-parsing. `refreshCredentialsIfNeeded` refreshes with the client config whose `clientId` matches it, searching the provider's own row, then its fallback rows. An admin later configuring a dedicated calendar client therefore does not break refresh for tokens issued by Gmail's client; users reconnect at their own pace.
 4b. The generic messaging webhook `POST /api/communication_channels/webhook/[provider]` returns 404 for adapters with `channelType: 'calendar'`, instead of calling a `verifyWebhook` that throws.
@@ -1019,13 +1120,13 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
 
 11. Module scaffold (`acl`, `setup`, `di`, `events`, `encryption`), provider contract + `registerCalendarProviderAdapter` (`registerChannelAdapter` semantics) + typed errors + `buildInstanceKey`. Ship the exported **conformance suite** `runCalendarProviderConformanceSuite` (`calendar_sync/lib/provider/conformance.ts`, test-time only). It checks idempotent insert per `idempotencyKey`, `requestConference` honoured when `conference ≠ null`, `CalendarVersionConflictError` on a stale `expectedVersion`, `buildInstanceKey` usage, `fullResyncRequired` semantics, `parseNotification` shapes and `predictIcalUid` accuracy. Add the fake adapter, which passes the suite.
 12. Entities + migrations (all indexes in Data Models, including the primary-per-meeting unique index).
-13. The `channel.connected` subscriber (the channel's adapter resolves to a registered calendar provider) **upserts** the connection by `(channel_id, external_calendar_id)` via `resolvePrimaryCalendar`:
+13. Lifecycle handling. Subscribers on `channel.connected`, `channel.disconnected` and `channel.deleted` only enqueue the **lifecycle reconcile job** (Inbound flow step 2), restricted to channels whose adapter resolves to a registered calendar provider. The job reads the current channel state. When the channel is connected and **no connection exists**, it creates one via `resolvePrimaryCalendar` (discovery outside the transaction, throttled by the setup row, result discarded if the channel is no longer connected at commit). An **existing** connection is reactivated **without** discovery, reusing its stored `external_calendar_id`:
    - **new** → create;
-   - **existing** `paused` / `requires_reauth` / `error` (a reconnect, or the Undo of a disconnect or channel delete, reuses the same channel id and the same, never soft-deleted connection row) → reactivate (`status = 'active'`, clear `last_error` and `paused_reason`), set `full_resync_requested_at`, enqueue inbound, and **re-enqueue outbound for its `deleting` links**, so a provider delete lost while the connection needed reauth is completed. Its `provider_delete_abandoned` rows are re-evaluated as described under Re-enabling push.
+   - **existing** `paused` / `requires_reauth` connection on a **connected** channel (a reconnect, or the Undo of a disconnect or channel delete, reuses the same channel id and the same, never soft-deleted connection row) → reactivate (`status = 'active'`, clear `last_error` and `paused_reason`). A connection in a **sync** `error` (any `last_error` other than `channel_error` and `organization_required`) is not reactivated by the lifecycle job; it waits for an explicit or automatic retry (Inbound flow step 2). A `channel_error` connection **is** reactivated once its channel is `connected` again. An `organization_required` connection is handled by the pinning rule. On reactivation the job also sets `full_resync_requested_at`, enqueues inbound, and **re-enqueue outbound for its `deleting` links**, so a provider delete lost while the connection needed reauth is completed. Its `provider_delete_abandoned` rows are re-evaluated as described under Re-enabling push.
    - The full resync reuses the connection's existing, unlinked link rows by `(connection_id, external_event_id)`, re-attaches them to shared meetings, and re-elects the primary where this connection outranks the current one.
-   - Disconnect/delete subscribers first **revoke the lease** in the same `UPDATE` that pauses the connection (Inbound flow step 2, revocation on leaving `active`). Only after that commits do they unlink its links, hand over primaries, and purge its external rows.
+   - When the job derives a paused state, it first **revokes the lease** in the same `UPDATE` that pauses the connection (Inbound flow step 2, revocation on leaving `active`). Only after that commits does the job unlink its links, hand over primaries, and purge its external rows.
      - **Disconnect and channel delete** (both are undoable, and their undo emits `channel.connected`): links in `deleting` are kept and completed on reactivation, or abandoned by the sweep after `OM_CALENDAR_SYNC_DELETE_ABANDON_DAYS`. All other links are unlinked with `unlink_reason = 'disconnect'` / `'channel_deleted'`.
-14. Connections + settings APIs, user and org settings pages, i18n; `yarn generate`.
+14. Connections + settings APIs, the user-scoped `/setups` routes (`GET /setups`, `POST /setups/retry`), user and org settings pages, i18n; `yarn generate`.
 15. Add the hub env vars (`OM_CALENDAR_SYNC_*`) to `apps/mercato/.env.example` and mirror them into the create-app template with `yarn template:sync:fix` (root `AGENTS.md` → Template Sync).
 
 *Exit:* a fake-provider connection appears with settings round-trip.
@@ -1080,15 +1181,16 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
 | File | Action | Purpose |
 |------|--------|---------|
 | `packages/google-auth/**` | Create | Shared Google OAuth |
+| `packages/core/src/modules/communication_channels/lib/channel-reauth.ts` | Create | `markChannelRequiresReauth` conditional helper (Phase 1 step 3a) |
 | `packages/shared/src/lib/url/meetingEntryPoint.ts` (new `lib/url/` directory) | Create | `isAllowedMeetingEntryPointUri` per-type scheme allowlist (pure, domain-free), shared by customers and the hub |
 | `packages/channel-gmail/src/modules/channel_gmail/lib/{oauth,credentials}.ts` | Modify | Re-export |
-| `packages/core/src/modules/communication_channels/{lib/adapter.ts,lib/oauth-client-config.ts,lib/credential-refresh.ts,lib/connect-channel.ts,events.ts,api/post/oauth/[provider]/initiate/route.ts,api/get/oauth/[provider]/callback/route.ts,commands/connect-credential-channel.ts,commands/disconnect-channel.ts,commands/delete-channel.ts,commands/set-primary-channel.ts,api/post/webhook/[provider]/route.ts}` | Modify | Seams (fallback keys reach every `resolveOAuthClientCredentials` caller; `channel.connected` from both connect paths and both undo handlers; issuing-client refresh; calendar channel types rejected by the messaging webhook) |
+| `packages/core/src/modules/communication_channels/{lib/adapter.ts,lib/oauth-client-config.ts,lib/credential-refresh.ts,lib/connect-channel.ts,events.ts,api/post/oauth/[provider]/initiate/route.ts,api/get/oauth/[provider]/callback/route.ts,commands/connect-credential-channel.ts,commands/disconnect-channel.ts,commands/delete-channel.ts,commands/admin-delete-channel.ts,subscribers/user-deleted-cascade.ts,commands/set-primary-channel.ts,api/post/webhook/[provider]/route.ts}` | Modify | Seams (fallback keys reach every `resolveOAuthClientCredentials` caller; `channel.connected` from both connect paths and the disconnect/delete/admin-delete undo handlers; `channel.disconnected` from the user-deleted cascade; callers of the new `markChannelRequiresReauth` helper (created in `lib/channel-reauth.ts`, see the Create row); issuing-client refresh; calendar channel types rejected by the messaging webhook) |
 | `apps/mercato/.env.example`, create-app template (via `yarn template:sync:fix`) | Modify | New `OM_CALENDAR_SYNC_*` / `OM_GOOGLE_CALENDAR_*` variables |
 | `apps/mercato/src/modules.ts`, `packages/create-app/template/src/modules.ts` | Modify | Enable `{ id: 'calendar_sync', from: '@open-mercato/core' }` and `{ id: 'channel_google_calendar', from: '@open-mercato/channel-google-calendar' }` (same pattern as `channel_gmail`) |
 | `apps/mercato/package.json`, `packages/create-app/template/package.json.template` | Modify | Add `@open-mercato/channel-google-calendar` and `@open-mercato/google-auth` |
 | `packages/channel-gmail/package.json` | Modify | Depend on `@open-mercato/google-auth` |
 | `packages/core/src/modules/customers/**` (entities, validators, encryption, migrations, di, extension-points, `lib/personEmailMatcher.ts`, `lib/interactionAccess.ts`, `commands/interactions.ts` (`beforeTransactionalWrite` for cancel/delete), `lib/calendar/*`, calendar components, interactions route, email components) | Modify/Create | Part A |
-| `packages/core/src/modules/calendar_sync/**` | Create | Hub (contract, registry, entities, engine, workers, subscribers, API, widgets, pages, i18n, tests, fake adapter) |
+| `packages/core/src/modules/calendar_sync/**` | Create | Hub (contract, registry, entities, engine, workers, subscribers, API incl. `/setups`, `cli.ts` with `retry-cleanup`, widgets, pages, i18n, tests, fake adapter) |
 | `packages/channel-google-calendar/src/modules/channel_google_calendar/**` | Create | Google provider |
 | `apps/docs/docs/framework/modules/building-calendar-sync-provider.mdx`, `apps/docs/docs/user-guide/calendar-sync-google.mdx` | Create | Docs |
 
@@ -1139,6 +1241,40 @@ Phases 1 and 2 can run in parallel. Phases 3–6 need Phase 1 (`channel.connecte
     - the same delayed response across a disconnect **followed by an immediate reconnect** → still rejected (the reactivated connection has a higher `lease_epoch`; the old epoch never becomes valid again); the new lease's job syncs normally;
     - channel delete with a job mid-flight → the lease is revoked (`paused`, `paused_reason = 'channel_deleted'`) and acquisition is refused while paused; Undo of the channel delete reactivates the **same** row (`paused_reason` cleared), a lease can be acquired, and its `deleting` links complete;
     - a delayed `CalendarAuthError` from the old epoch after disconnect + immediate reconnect → the conditional update matches zero rows and the connection stays `active`;
+    - **stale lifecycle deliveries:** a `channel.disconnected` delivered after its Undo was processed → no-op; the same for `channel.deleted` after its Undo; a `channel.connected` delivered after a newer disconnect or delete → no-op; a duplicate `connected` after a worker-detected auth error → no-op (the channel row itself is `requires_reauth`); a real reconnect that changes **no other** channel field (only `status` `requires_reauth` → `connected`) → reactivated; a stale `connected` arriving after an unrelated channel write (`set-primary-channel`, `set-channel-visibility`, `lastPolledAt`) → no effect on a `requires_reauth` or `error` connection; an `error` connection is reactivated only by "Sync now" or the automatic retry;
+    - Undo of an admin channel delete → `channel.connected` → the connection is reactivated; the user-deleted cascade → `channel.disconnected` → the connection is paused; a lifecycle write that emitted no event is corrected by the `poll-tick` safety net;
+    - a reconnect whose credentials failed to persist (`requires_reauth`, `is_active = false`) → the connection goes to `requires_reauth` and **no** disconnect cleanup runs;
+    - reactivate → disconnect → an older pending cleanup → its fence fails (epoch bumped on every move into `paused`);
+    - crash after the pause commits and part-way through cleanup → the retry or the `poll-tick` safety net resumes cleanup (`cleanup_epoch` behind `lease_epoch`) and finishes it, setting `cleanup_epoch`; a reconnect mid-cleanup still stops it;
+    - an outbound job's auth error after the connection was paused or reconnected → no mark (`lease_epoch` changed); an auth error from the old token after a same-channel reconnect → credentials version changed → retried once with the new token, and the channel stays `connected`;
+    - an `organization_required` connection is ignored by "Sync now" and the automatic retry; a plain reconnect does **not** resolve it; deleting the channel and connecting it again from inside an organization → a new connection with that organization;
+    - the safety net treats a connected channel + retryable `error` connection as agreeing (no reconcile churn);
+    - an `organization_required` connection on a connected channel → the safety net treats it as agreeing and enqueues it only through the throttled trigger (`last_reconcile_requested_at`), at most once per window;
+    - reactivating a `paused`/`requires_reauth` connection never calls `resolvePrimaryCalendar` (stored `external_calendar_id` reused);
+    - a channel disconnected mid-setup → its setup row is deleted; a real reconnect (credentials version changed) resets a capped setup; a stale `connected` delivery does not;
+    - an `organization_required` connection whose channel is disconnected → `paused` with `last_error = 'organization_required'` kept;
+    - a paused org-less connection whose user then sets a home organization → the organization is pinned but the connection **stays `paused`** while its channel is disconnected; reconnecting then activates it;
+    - a routine access-token refresh between two failing setup attempts → does **not** reset `attempts` (the version is recorded after the refresh); a real reconnect does;
+    - a user who unticked the Calendar permission (Google `403 insufficientPermissions` / `ACCESS_TOKEN_SCOPE_INSUFFICIENT`, mapped to `CalendarAuthError` by the Google adapter) → no connection, setup `setup_blocked_reauth`; reconnecting with it ticked → setup resets and the connection is created;
+    - `POST /setups/retry` twice within a minute → 429; on a channel that already has a healthy connection → `200 { queued: false }`;
+    - "Sync now" on a `channel_error` connection → 409 `channel_error` (no reactivation, no flip-flop with the safety net); the automatic retry ignores it; the channel back to `connected` → reactivated by the reconcile;
+    - Google `403 rateLimitExceeded` / `userRateLimitExceeded` or `429` during sync or discovery → `CalendarRateLimitError`, backoff only: it does not count toward the sticky `error` threshold or the discovery attempt cap;
+    - a rate-limited discovery attempt leaves `attempts` unchanged, records `last_error = 'rate_limited'` and honours `Retry-After` via `retry_after_at`; a crash mid-attempt still counts;
+    - `OM_CALENDAR_SYNC_ERROR_THRESHOLD` consecutive non-auth, non-rate-limit inbound failures → `error`; a success in between resets `consecutive_failures`; a retry back to `active` resets it;
+    - `/setups/retry` racing a reconcile that creates the connection → no setup row is left behind (conditional insert, plus the reconcile's cleanup);
+    - "Retry setup" on an `organization_required` connection whose channel is disconnected → `202`, the organization is pinned and the connection stays `paused`; on a pending setup whose channel is disconnected → 409 `channel_not_connected`;
+    - a deterministically failing discovery (`403 accessNotConfigured`) → retried with backoff, stops after `OM_CALENDAR_SYNC_DISCOVERY_MAX_ATTEMPTS`, "Setup failed" shown; "Retry setup" resets it;
+    - discovery `CalendarAuthError` with a reconnect landing mid-lookup → retried once with the new credentials, and the fresh channel is not marked `requires_reauth`;
+    - a crash mid-cleanup still increments `cleanup_attempts`; `retry-cleanup` resets it;
+    - a channel in `error` → the connection is `error`/`channel_error`; neither "Sync now" nor the automatic retry reactivates it while the channel is in `error` (no retry/safety-net flip-flop); the channel back to `connected` → the reconcile reactivates it;
+    - a stale `connected` + discovery `CalendarAuthError` after a disconnect → the channel stays `disconnected` (conditional helper does not match, no reauth event); nothing is created and the setup row is deleted;
+    - `organization_required` → user sets a home organization → the throttled safety-net reconcile (or "Retry setup") pins it and activates it **if the channel is connected** (otherwise the mapping status is kept, e.g. `paused`); a blocked reactivation (no organization) → `error`/`organization_required`, not left half-active; disconnect → reconnect of an org-less connection never yields an active connection without an organization;
+    - a channel without an organization whose connection is pinned to the home organization → the reconcile and safety net find both rows (tenant-scoped reads); a hard-deleted channel row → `paused`/`channel_deleted`;
+    - the job's own token refresh followed by an auth error → no false "reconnect" (baseline read after refresh); the retry after a real reconnect also failing → reauth marked;
+    - a connected calendar channel whose discovery **queue** retries ran out while still under `OM_CALENDAR_SYNC_DISCOVERY_MAX_ATTEMPTS` → re-enqueued by the safety net after its backoff; a credentials version that changed **again** during the retry → no reauth mark, the job is requeued; a deterministically failing cleanup → stops after `OM_CALENDAR_SYNC_CLEANUP_MAX_ATTEMPTS`, `cleanup_failed` reported;
+    - `resolvePrimaryCalendar` (creation only) fails after a concurrent disconnect → the discovery result is discarded, nothing is created and the setup row is deleted; it fails with an auth error → the channel is marked `requires_reauth`, **no** connection is created, and the setup row shows `setup_blocked_reauth` until a reconnect resets it; a transient error → retried via the setup throttle;
+    - `resolvePrimaryCalendar` still in flight when a channel delete commits → the discovery result is discarded and no connection is created;
+    - a disconnect delivery processed after an Undo can never start cleanup (no revocation epoch is created);
     - disconnect followed by Undo while cleanup is still running → cleanup stops at the next transaction (connection active again, epoch changed); links re-attached by the new job are not unlinked;
     - a full traversal of 3× the page budget calls `listChanges` once per page with the persisted `pageState` and fixed horizon; job 2 resumes on page `budget + 1` (not page 1); the adapter never receives a page budget;
     - the primary applies a genuine organizer change while an attached link's hub write is committed but un-bookkept → no `conflict_resolved` (the conflict rule uses the effectively-pristine predicate after recovery);
@@ -1215,7 +1351,7 @@ Self-contained Playwright specs in `calendar_sync/__integration__/`, `channel_go
 
 | Id | Covers |
 |----|--------|
-| TC-CALSYNC-001 | Connections/settings APIs: 401, 403 (`connect`/`configure`), foreign connection 404, stale 409, invalid domain 400; **two organizations in one tenant** keep separate auto-create settings (each GET returns only its own values); a sync tick between GET and PUT of connection settings does not cause 409 |
+| TC-CALSYNC-001 | Connections/settings APIs: 401, 403 (`connect`/`configure`), foreign connection 404, stale 409, invalid domain 400; **two organizations in one tenant** keep separate auto-create settings (each GET returns only its own values); a sync tick between GET and PUT of connection settings does not cause 409; `GET /setups` returns a pending setup and an org-less (`organization_required`) connection to its own user only (another user in the same tenant → not listed); `POST /setups/retry` resets attempts and enqueues the reconcile, another user's channel → 404, a pending setup on a disconnected channel → 409 `channel_not_connected`, an `organization_required` connection on a disconnected channel → 202 and stays `paused`; `POST /connections/run` on a retryable-error connection whose channel is disconnected → 409 `channel_not_connected` |
 | TC-CALSYNC-002 | Webhook: unknown provider → 404; unknown channel id, bad token and valid change all → uniform 202 (only the valid one enqueues a job, asserted via the job count); a `validation` response is served as `text/plain` with `X-Content-Type-Options: nosniff`; `POST /api/communication_channels/webhook/google_calendar` → 404; a body with a declared `Content-Length` over the limit → 413, and a chunked body without `Content-Length` that streams past the limit → 413, neither reaching the adapter (asserted by no job and no adapter call) |
 | TC-CALSYNC-003 | Placement: matched meeting with an unknown email + Meet → interaction (entity, participants, meeting fields, `source = calendar_sync:google_calendar`); internal meeting → external item; cancelled → `canceled` |
 | TC-CALSYNC-004 | User settings page hydration + settings round-trip |
@@ -1272,7 +1408,7 @@ Self-contained Playwright specs in `calendar_sync/__integration__/`, `channel_go
 
 ### Cascading Failures & Side Effects
 
-- **Provider outage:** isolated per connection and adapter; backoff; `error` after 5 failures.
+- **Provider outage:** isolated per connection and adapter; backoff; `error` after `OM_CALENDAR_SYNC_ERROR_THRESHOLD` (default 5) consecutive failures (`consecutive_failures`).
 - **Auto-create:** bounded per event and per tick; individually undoable; tagged `source`.
 - **Item source failure:** isolated; interactions still render.
 - **`customers` absent:** everything is placed external; promotion and auto-create no-op (`customers_unavailable`).
@@ -1711,6 +1847,111 @@ None blocking. (`CustomerInteraction.participants` encryption, previously a foll
   - Disconnect/delete cleanup is fenced against reactivation (row `FOR UPDATE` + revocation epoch).
   - **Nits:** fence sentence placement, `sync_lease_owner` doc, step 4 → step 6 completion order.
 
+- 2026-11-20 — **Rev 3.20 (pkarw re-review of `b957af69`):** channel lifecycle handling is now **level-triggered**. Every `channel.connected/disconnected/deleted` delivery only enqueues a coalesced per-channel reconcile job. That job locks the connection `FOR UPDATE`, re-reads the current channel row `FOR SHARE` (serialized with channel lifecycle writes), derives the desired connection state from it, and applies only the difference.
+  - Stale, duplicate or out-of-order deliveries (disconnect/delete after Undo, connected after a newer disconnect/delete) are no-ops by construction.
+  - `channel_updated_at_seen` distinguishes a real reconnect from a stale `connected`.
+  - In-flight discovery results are discarded when the channel is no longer connected.
+  - Cleanup re-checks the channel state, and a stale delivery can no longer create a revocation epoch.
+
+- 2026-11-20 — **Rev 3.21 (independent review of rev 3.20):**
+  - **Major fix:** the channel row is the single source of truth for authorization state. On `CalendarAuthError`, the worker marks the channel `requires_reauth` via the new hub helper `markChannelRequiresReauth` (the same write the Gmail poller makes) in its lease-held transaction, so a real reconnect genuinely changes the channel row. `channel_updated_at_seen` and its timestamp heuristic are removed. `error` is sticky on the connection and cleared only by an explicit or automatic retry.
+  - **Minor fixes:**
+    - Phase 3 step 13 aligned with the lifecycle rules;
+    - admin-delete Undo and the user-deleted cascade now emit lifecycle events, plus a `poll-tick` reconcile safety net;
+    - every move into `paused` bumps `lease_epoch`, and the cleanup fence uses the returned value;
+    - the reconcile payload carries tenant and organization;
+    - discovery failures are defined (no-op / reauth / retry).
+  - **Nits:** the mapping checks `requires_reauth` before `disconnected`, so a failed-credential reconnect is non-destructive; status line updated.
+
+- 2026-11-20 — **Rev 3.22 (independent review of rev 3.21):**
+  - **Major fix:** disconnect/delete cleanup is level-triggered and resumable (`cleanup_epoch`). The reconcile and the `poll-tick` safety net resume any paused connection whose cleanup did not complete, so an interrupted cleanup can no longer stall forever.
+  - **Minor fixes:**
+    - the outbound auth-error mark is fenced by the epoch read at job start;
+    - an auth error after a credentials change is retried, never marked;
+    - `organization_required` is non-retryable and is resolved by the reconcile when the channel gains an organization;
+    - the discovery-failure wording is corrected;
+    - the safety net uses two scoped batched reads and the same mapping function (connected + retryable `error` agree).
+  - **Nits:** grammar, manifest purpose, `/connections/run` contract.
+
+- 2026-11-20 — **Rev 3.23 (precision fixes from the rev 3.22 verification, verdict approve):**
+  - `markChannelRequiresReauth` is conditional (it never overwrites a disconnected or deleted channel), with the event emitted only when it matched; the discard rule has precedence during discovery.
+  - `organization_required`: the reconcile re-runs pinning, reactivation requires an organization, and the settings-page guidance is defined.
+  - Tenant-scoped lookups use each row's own organization; a "channel not found" mapping row is added; locks are taken in id order.
+  - The outbound fence is documented: inbound is the authoritative reauth detector, and outbound retries.
+  - The credentials baseline is read after the job's own refresh, with a defined second-failure outcome.
+  - The safety net scans connected channels with no connection.
+  - Cleanup attempts are capped (`cleanup_attempts`, `OM_CALENDAR_SYNC_CLEANUP_MAX_ATTEMPTS`).
+  - **Nits:** a single `:revocationEpoch` definition; `IS DISTINCT FROM` plus the retry age predicate, clearing `last_error`; the events table lists the new emissions.
+
+- 2026-11-20 — **Rev 3.24:** the remaining rev 3.22 nit. A channel-level `error` maps to connection `error` with `last_error = 'channel_error'`. It follows the channel (reactivated when the channel returns to `connected`) and is excluded from "Sync now" and the automatic retry, so the retry and the safety net cannot flip-flop.
+
+- 2026-11-20 — **Rev 3.25 (minors from the rev 3.23–3.24 review, verdict approve):**
+  - Phase 3 step 13 is aligned with `channel_error`.
+  - "Sync now" and the automatic retry share one retryable condition that excludes `organization_required` and `channel_error` and requires a connected channel; `/connections/run` returns 409 `channel_error`.
+  - `organization_required`:
+    - a blocked reactivation lands in `error`/`organization_required`;
+    - a throttled safety-net trigger and "Retry setup" pick up a home-organization change;
+    - stale "reconnect fixes it" text is corrected;
+    - `organization_id` is documented as nullable.
+  - Discovery retries are throttled and capped per channel in the new `calendar_sync_channel_setups` table (`OM_CALENDAR_SYNC_DISCOVERY_MAX_ATTEMPTS`); the discovery auth mark uses the credentials-version guard.
+  - **Nits:**
+    - the age predicate applies to the automatic retry only;
+    - `cleanup_attempts` is reset by the pausing `UPDATE` and incremented per attempt;
+    - an operator `retry-cleanup` CLI command is defined;
+    - the manifest lists `lib/channel-reauth.ts` as Create;
+    - a credentials version that changed again leads to a requeue.
+
+- 2026-11-20 — **Rev 3.26 (minors from the rev 3.25 review, verdict approve):**
+  - `organization_required` is classified explicitly: the mapping leaves it to the pinning rule, and the safety net counts it as agreeing and enqueues it only through the throttled trigger, with new state `last_reconcile_requested_at`.
+  - Setup visibility and actions get an API: user-scoped `GET /setups` (pending setups and org-less connections, which the org-scoped list cannot show) and `POST /setups/retry`, both tested.
+  - Reactivation never runs discovery; it reuses the stored `external_calendar_id`.
+  - **Nits:**
+    - setup rows are deleted when the channel is removed, and the cap resets on a real reconnect only (credentials version);
+    - 409 `channel_not_connected`;
+    - `retry-cleanup` is tenant-scoped, clears `cleanup_failed` and acts only on paused connections with unfinished cleanup;
+    - five-table count, the retry-minutes description and the manifest text are fixed;
+    - an unreachable clause is removed;
+    - the null-organization invariant holds across pause;
+    - test wording and a test for a credentials version that changed again.
+
+- 2026-11-20 — **Rev 3.27 (minors from the rev 3.26 review, verdict approve):**
+  - Discovery runs **only** at creation, everywhere in the spec: step 13, the failure paths and the tests. A discovery auth error creates no connection; the setup row shows `setup_blocked_reauth`, and a reconnect resets it.
+  - `credentials_version_seen` is recorded after the attempt's own token refresh, so routine refreshes never reset the cap.
+  - Pinning an organization never changes the status; the mapping decides, so a paused org-less connection stays paused.
+  - **Nits:**
+    - the org-less invariant holds across every transition;
+    - the inline `retry-cleanup` text is aligned;
+    - `/setups/retry` gets its guard `resourceKind`, a `200 { queued: false }` no-op and a 1/min rate limit;
+    - `/setups` gets keyset paging, the `state` enum and its cross-organization rationale;
+    - Phase 3 step 14 lists the `/setups` routes.
+
+- 2026-11-20 — **Rev 3.28 (minors from the rev 3.27 review, verdict approve):**
+  - The pinning rule and the mapping no longer defer to each other: after a successful pin, the mapping is applied as if the connection were `paused`.
+  - The Google adapter maps a `403` with `insufficientPermissions` / `ACCESS_TOKEN_SCOPE_INSUFFICIENT` (unticked Calendar permission) to `CalendarAuthError`. The "deterministic 403" example is now `accessNotConfigured`.
+  - **Nits:**
+    - stale test wording fixed;
+    - the `/setups` `state` union is complete, with precedence;
+    - the activation test is conditional on the channel being connected;
+    - the null-organization invariant is stated as `⇔` in the data model;
+    - `/setups/retry` handles channels with no setup row yet, and the UI offers "Reconnect" for blocked setups.
+
+- 2026-11-20 — **Rev 3.30 (minor + nits from the rev 3.29 review, verdict approve):**
+  - A rate-limited discovery attempt no longer counts toward the setup cap: its closing transaction decrements `attempts`, records `rate_limited`, and `retry_after_at` honours `Retry-After`.
+  - **Nits:**
+    - the sticky `error` threshold is now a named counter (`consecutive_failures`) with `OM_CALENDAR_SYNC_ERROR_THRESHOLD` (default 5);
+    - TC-CALSYNC-001 distinguishes a pending setup (409) from an `organization_required` connection (202) on a disconnected channel;
+    - `/setups/retry` inserts the setup row only while no connection exists, and the reconcile removes any stale setup row.
+
+- 2026-11-20 — **Rev 3.29 (minors from the rev 3.28 review, verdict approve):**
+  - The stale "pinning never changes the status" phrase is fixed.
+  - Google `429` and `403 rateLimitExceeded` / `userRateLimitExceeded` map to `CalendarRateLimitError` (backoff only, never counted toward the sticky error or the discovery cap), mirroring Gmail's `isRateLimit403`.
+  - `/setups/retry`'s 409 `channel_not_connected` is limited to the setup branches; the `organization_required` branch always queues.
+  - **Nits:**
+    - the duplicate `state` list is removed;
+    - the setup row is upserted;
+    - where each Google error reason lives is stated, plus `SERVICE_DISABLED`;
+    - the review-record nit count is reconciled.
+
 ### Review — 2026-11-19 (rev 3)
 
 - **Reviewer:** Agent (author pass, checklist §§2–7) + fresh-context agent (checklist §1 + consistency, given only this file)
@@ -1899,3 +2140,53 @@ None blocking. (`CustomerInteraction.participants` encryption, previously a foll
   - minor: cleanup vs reconnect race;
   - nits.
 - All addressed in rev 3.19.
+
+### Review — 2026-11-20 (PR #10009, pkarw re-review of `b957af69`)
+
+- **Verdict:** changes requested. Both rev 3.18 findings were confirmed addressed.
+- **New finding:** 1 high (lifecycle transitions applied from stale or out-of-order channel event deliveries).
+- Addressed in rev 3.20.
+
+### Review — 2026-11-20 (rev 3.20, internal independent `om-code-review`)
+
+- **Verdict:** request changes. pkarw's lifecycle finding was confirmed resolved.
+- **New findings:**
+  - major: the `channel_updated_at_seen` reconnect gate is unreliable, because a reconnect writes identical values (no `UPDATE`, `updated_at` unchanged), and unrelated writes move it;
+  - 5 minor and 2 nits.
+- All addressed in rev 3.21.
+
+### Review — 2026-11-20 (rev 3.21, internal independent `om-code-review`)
+
+- **Verdict:** request changes. The upstream lifecycle finding and every rev 3.21 change were confirmed resolved.
+- **New findings:** 1 major (interrupted disconnect cleanup never resumed after the level-triggered switch), 5 minor, 3 nits.
+- All addressed in rev 3.22.
+
+### Review — 2026-11-20 (rev 3.22, internal independent `om-code-review`)
+
+- **Verdict: approve.** The upstream lifecycle finding and every rev 3.22 change were confirmed, with no Blocker or Major.
+- 7 minor and 5 nit precision items were folded into rev 3.23.
+
+### Review — 2026-11-20 (rev 3.23–3.24, internal independent `om-code-review`)
+
+- **Verdict: approve.** All rev 3.22 minors were confirmed resolved in the authoritative sections.
+- 5 minor and 5 nit consistency items were addressed in rev 3.25.
+
+### Review — 2026-11-20 (rev 3.25, internal independent `om-code-review`)
+
+- **Verdict: approve.** All ten rev 3.23–3.24 items were confirmed resolved.
+- 4 minor and 9 nit consistency items were addressed in rev 3.26.
+
+### Review — 2026-11-20 (rev 3.26, internal independent `om-code-review`)
+
+- **Verdict: approve.** 11 of 13 rev 3.25 items fully resolved and 2 partly.
+- 3 minor and 5 nit items were addressed in rev 3.27.
+
+### Review — 2026-11-20 (rev 3.27, internal independent `om-code-review`)
+
+- **Verdict: approve.** All 8 rev 3.26 items were confirmed resolved.
+- 2 minor and 4 nit items were addressed in rev 3.28. The rev 3.28 changelog lists 5 nit bullets, because one nit was split into two edits.
+
+### Review — 2026-11-20 (rev 3.28, internal independent `om-code-review`)
+
+- **Verdict: approve.** All rev 3.27 items were confirmed resolved.
+- 3 minor and 4 nit items were addressed in rev 3.29.
