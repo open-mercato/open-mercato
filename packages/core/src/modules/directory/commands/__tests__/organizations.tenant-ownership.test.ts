@@ -1350,4 +1350,52 @@ describe('directory organization command tenant ownership', () => {
     expect(harness.actionLogService.markUndone).toHaveBeenCalled()
   })
 
+  it('denies delete undo after the covering grant is revoked and restores once it is granted again', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { parentId: PARENT_ID, childIds: [CHILD_ID] })
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: TARGET_ID })
+    const harness = makeHarness([parent, target, child])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.delete', {
+      input: { body: { id: TARGET_ID }, query: {} },
+      ctx: makeContext(harness, { allowedIds: [PARENT_ID, TARGET_ID, CHILD_ID] }),
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+
+    await expect(bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [NEW_ORG_ID] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(target.deletedAt).not.toBeNull()
+    expect(target.parentId).toBeNull()
+    expect(child.parentId).toBe(PARENT_ID)
+    expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
+    expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
+
+    await bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [PARENT_ID, CHILD_ID] }))
+    expect(target.deletedAt).toBeNull()
+    expect(target.parentId).toBe(PARENT_ID)
+    expect(child.parentId).toBe(TARGET_ID)
+    expect(harness.actionLogService.markUndone).toHaveBeenCalled()
+  })
+
+  it('denies restoring a deleted root organization after its direct grant is revoked', async () => {
+    const unrelated = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([unrelated, target])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.delete', {
+      input: { body: { id: TARGET_ID }, query: {} },
+      ctx: makeContext(harness, { aclOrganizations: [TARGET_ID] }),
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+
+    await expect(bus.undo(String(logEntry.undoToken), makeContext(harness, { aclOrganizations: [PARENT_ID] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(target.deletedAt).not.toBeNull()
+    expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
+
+    await bus.undo(String(logEntry.undoToken), makeContext(harness, { aclOrganizations: [TARGET_ID] }))
+    expect(target.deletedAt).toBeNull()
+    expect(harness.actionLogService.markUndone).toHaveBeenCalled()
+  })
+
 })
