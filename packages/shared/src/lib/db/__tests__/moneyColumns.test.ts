@@ -1,6 +1,7 @@
 import { Embedded, Entity, PrimaryKey } from '@mikro-orm/decorators/legacy'
 import { MikroORM } from '@mikro-orm/postgresql'
 import { createMoney, moneyEquals } from '../../money/money'
+import { InvalidMoneySnapshotError } from '../../money/errors'
 import { currencyOf } from '../../money/__tests__/helpers'
 import { MoneyColumns, moneyFromColumns, moneyToColumns } from '../moneyColumns'
 
@@ -75,8 +76,8 @@ describe('MoneyColumns conversion', () => {
 
   it('throws on a partially null or invalid row', () => {
     const partial = Object.assign(new MoneyColumns(), { amount: '1', currencyCode: null, currencyDecimalPlaces: 2 })
-    expect(() => moneyFromColumns(partial as unknown as MoneyColumns)).toThrow('[internal]')
+    expect(() => moneyFromColumns(partial as unknown as MoneyColumns)).toThrow(InvalidMoneySnapshotError)
     const forged = Object.assign(new MoneyColumns(), { amount: '1', currencyCode: 'USD', currencyDecimalPlaces: 99 })
-    expect(() => moneyFromColumns(forged)).toThrow('[internal]')
+    expect(() => moneyFromColumns(forged)).toThrow(InvalidMoneySnapshotError)
   })
 })

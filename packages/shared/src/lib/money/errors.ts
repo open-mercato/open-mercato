@@ -39,3 +39,19 @@ export class InvalidMoneyRoundingError extends Error {
     this.name = 'InvalidMoneyRoundingError'
   }
 }
+
+/** `resolveMoney` received input that `moneyInputSchema` rejects; `cause` is the `ZodError`. */
+export class InvalidMoneyInputError extends Error {
+  constructor(cause?: unknown) {
+    super('[internal] Invalid money input', cause === undefined ? undefined : { cause })
+    this.name = 'InvalidMoneyInputError'
+  }
+}
+
+/** `restoreMoney` / `moneyFromColumns` received a snapshot `moneySnapshotSchema` rejects; `cause` is the `ZodError`. */
+export class InvalidMoneySnapshotError extends Error {
+  constructor(cause?: unknown) {
+    super('[internal] Invalid money snapshot', cause === undefined ? undefined : { cause })
+    this.name = 'InvalidMoneySnapshotError'
+  }
+}

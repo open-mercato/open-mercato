@@ -7,7 +7,15 @@ type ServiceContainer = {
   resolve<T = unknown>(name: string): T
 }
 
-export type CurrencyLookup = CurrencyPrecisionLookup
+/**
+ * Lookup for `resolveCurrency`. Unlike the legacy `CurrencyPrecisionLookup`, the
+ * organization is required: a lookup without one is never resolved.
+ */
+export type CurrencyLookup = {
+  code: string
+  tenantId: string
+  organizationId: string
+}
 
 function resolvePrecisionService(container: ServiceContainer): CurrencyPrecisionResolver | null {
   try {
@@ -32,9 +40,12 @@ function hasScope(value: unknown): value is string {
 
 /**
  * The tenant's `Currency` for `code`, read from `currencyPrecisionService`. There is
- * no ISO fallback: a missing service, an unknown or inactive code, a lookup without
- * a tenant or an organization (checked here, before any resolver override runs) or
- * a failing lookup all throw `CurrencyNotResolvedError`.
+ * no ISO fallback: a missing service, an unknown code, a lookup without a tenant or
+ * an organization (checked here, before any resolver override runs) or a failing
+ * lookup all throw `CurrencyNotResolvedError`. An inactive currency throws only when
+ * the resolver implements `getCurrency` and returns `null` for it, as
+ * `CurrencyPrecisionService` does; a resolver that implements only
+ * `getDecimalPlaces` cannot report activity, so it is not checked on that path.
  * Existing `<field>Exact` code keeps using `resolveCurrencyDecimalPlaces`.
  */
 export async function resolveCurrency(container: ServiceContainer, lookup: CurrencyLookup): Promise<Currency> {

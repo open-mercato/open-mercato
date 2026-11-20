@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals'
 import type { CurrencyPrecisionResolver } from '../../currencyPrecision'
-import { assertSameCurrency, currenciesEqual, resolveCurrency } from '../currency'
+import { assertSameCurrency, currenciesEqual, resolveCurrency, type CurrencyLookup } from '../currency'
 import { CurrencyMismatchError, CurrencyNotResolvedError } from '../errors'
 import { createContainer, createResolver, currencyOf, defaultTable, scope } from './helpers'
 
@@ -32,7 +32,7 @@ describe('resolveCurrency', () => {
 
   it('throws instead of falling back to ISO when the resolver returns null', async () => {
     const resolver: CurrencyPrecisionResolver = { getDecimalPlaces: async () => null }
-    const error = await resolveCurrency(createContainer(resolver), { code: 'USD', tenantId: 't1' }).catch((err) => err)
+    const error = await resolveCurrency(createContainer(resolver), { code: 'USD', ...scope }).catch((err) => err)
     expect(error).toBeInstanceOf(CurrencyNotResolvedError)
     expect((error as CurrencyNotResolvedError).code).toBe('USD')
     expect((error as Error).message.startsWith('[internal]')).toBe(true)
@@ -73,13 +73,13 @@ describe('resolveCurrency', () => {
     ['blank organization', { code: 'USD', tenantId: 't1', organizationId: '  ' }],
   ])('rejects a lookup without a %s before calling either resolver variant', async (_label, lookup) => {
     const decimalPlacesOnly: CurrencyPrecisionResolver = { getDecimalPlaces: jest.fn(async () => 2) }
-    await expect(resolveCurrency(createContainer(decimalPlacesOnly), lookup)).rejects.toBeInstanceOf(
+    await expect(resolveCurrency(createContainer(decimalPlacesOnly), lookup as unknown as CurrencyLookup)).rejects.toBeInstanceOf(
       CurrencyNotResolvedError,
     )
     expect(decimalPlacesOnly.getDecimalPlaces).not.toHaveBeenCalled()
     const withDetails = createResolver(defaultTable)
     const getCurrency = jest.spyOn(withDetails, 'getCurrency')
-    await expect(resolveCurrency(createContainer(withDetails), lookup)).rejects.toBeInstanceOf(CurrencyNotResolvedError)
+    await expect(resolveCurrency(createContainer(withDetails), lookup as unknown as CurrencyLookup)).rejects.toBeInstanceOf(CurrencyNotResolvedError)
     expect(getCurrency).not.toHaveBeenCalled()
   })
 

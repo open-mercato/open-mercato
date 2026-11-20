@@ -136,7 +136,7 @@ The result always sums exactly to `m`, and the order is decided only by exact in
 
 ### Errors (`errors.ts`)
 
-`CurrencyMismatchError` (carries `left` and `right` currencies), `CurrencyNotResolvedError` (carries `code` and `cause`), `InvalidAllocationError`, and `InvalidMoneyRoundingError`. All extend `Error`. Messages start with `[internal]` because they signal programmer errors and are not shown to users. A route that wants a 400 maps them explicitly.
+`CurrencyMismatchError` (carries `left` and `right` currencies), `CurrencyNotResolvedError` (carries `code` and `cause`), `InvalidAllocationError`, `InvalidMoneyRoundingError`, `InvalidMoneyInputError` (`resolveMoney` input rejected by `moneyInputSchema`; `cause` is the `ZodError`) and `InvalidMoneySnapshotError` (`restoreMoney`/`moneyFromColumns` snapshot rejected by `moneySnapshotSchema`; `cause` is the `ZodError`). All extend `Error`. Messages start with `[internal]` because they signal programmer errors and are not shown to users. A route that wants a 400 maps them explicitly.
 
 ### Serialization (`serialization.ts`)
 
@@ -180,7 +180,7 @@ export type CurrencyPrecisionResolver = {
 }
 ```
 
-`CurrencyPrecisionService` (currencies module) implements `getCurrency`. The per-request lookup cache holds the currency record, and `getDecimalPlaces` reads from it. The query is unchanged: `findOneWithDecryption`, scoped to the tenant and organization, `deletedAt: null`, and `null` without an organization. `getCurrency` returns `null` for an inactive currency (`is_active = false`), so no new money is created in it; `getDecimalPlaces` keeps reporting its precision for existing amounts, and stored snapshots still restore. The resolver type documents the same expectation for third-party `getCurrency` implementations. `resolveCurrency` itself rejects a lookup without a tenant or an organization before it calls any resolver.
+`CurrencyPrecisionService` (currencies module) implements `getCurrency`. The per-request lookup cache holds the currency record, and `getDecimalPlaces` reads from it. The query is unchanged: `findOneWithDecryption`, scoped to the tenant and organization, `deletedAt: null`, and `null` without an organization. `getCurrency` returns `null` for an inactive currency (`is_active = false`), so no new money is created in it; `getDecimalPlaces` keeps reporting its precision for existing amounts, and stored snapshots still restore. The resolver type documents the same expectation for third-party `getCurrency` implementations. A third-party resolver that implements only `getDecimalPlaces` cannot report activity, so `resolveCurrency` does not reject inactive currencies on that fallback path. `resolveCurrency` itself rejects a lookup without a tenant or an organization before it calls any resolver.
 
 ### Harness enforcement (D9)
 
@@ -369,6 +369,10 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
   - Money inputs given as `Big` (amounts, factors, divisors, rates, ratios) are copied exactly and rejected when they exceed the decimal caps (`Decimal value out of range`; `InvalidAllocationError` for ratios), instead of being rounded half-up by the legacy `toDecimal` normalisation.
   - Phase 3 is marked In Review: Step 4 stays open until the certified routing lane passes or a maintainer waiver is recorded.
 - 2026-11-20 — Merged upstream `main`, which added its own OMH-243 (Markdown language customization, #8622). The Money routing case is renumbered to OMH-244 and the catalog counts move to 244; the knowledge-change manifest is re-pinned to the merge.
+- 2026-11-20 — PR #9978 review (`mikoajp`) follow-ups:
+  - `MoneyScope.organizationId` and the `CurrencyLookup` organization are required (`string`), matching the runtime rule in `resolveCurrency`; a call without an organization is now a type error instead of an unconditional runtime failure. The legacy `CurrencyPrecisionLookup` keeps its optional organization.
+  - `resolveMoney` throws `InvalidMoneyInputError` and `restoreMoney`/`moneyFromColumns` throw `InvalidMoneySnapshotError`, each with the `ZodError` as `cause`, instead of a plain `Error`.
+  - The `resolveCurrency` docs no longer claim an inactive code always throws: only a resolver that implements `getCurrency` (as `CurrencyPrecisionService` does) can reject inactive currencies; the `getDecimalPlaces`-only fallback cannot report activity.
 
 ## Implementation Status
 
@@ -409,5 +413,5 @@ Validation per step: `yarn workspace @open-mercato/shared test`, `yarn workspace
 ### Implementation notes
 - The public entry point is `@open-mercato/shared/lib/money` (`index.ts`, added to the package `exports`). `lib/money/internal.ts` holds the brand/freeze helpers shared by the money files and is **not** part of the contract; `exports` maps `./lib/money/internal`, `.ts`, `.tsx` and `.js` to `null`, and other spellings resolve to no file on case-sensitive filesystems (on macOS a case variant such as `Internal` can still load it through the generic wildcards). This is a guardrail against accidental imports, not a security boundary.
 - `allocateMoney` computes each share as `floor(U × ratio_i / S)` with a single private-constructor division (`DP = 0`, `RM = down`) and the remainder as `U × ratio_i − share × S`. This is the same exact integer remainder as `mod`, without calling `mod` at all.
-- `restoreMoney` and `resolveMoney` throw a plain `[internal]` `Error` for an invalid snapshot or input. No extra error class was added.
+- `resolveMoney` throws `InvalidMoneyInputError` and `restoreMoney` (and through it `moneyFromColumns`) throws `InvalidMoneySnapshotError` for an invalid input or snapshot, each with the `ZodError` as `cause`, so callers can tell a validation failure from an internal error without matching messages.
 - A zero result is normalised to a positive sign, so `negateMoney(zero)` is never `-0`.

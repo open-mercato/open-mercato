@@ -40,11 +40,14 @@ const usd = await resolveCurrency(container, { code: 'USD', tenantId, organizati
 ```
 
 The call does not fall back to the ISO table. It throws `CurrencyNotResolvedError`
-when the `currencies` module is disabled, the code is unknown, soft-deleted or
-inactive, the lookup has no tenant or organization (checked before any resolver
-runs), or the lookup itself fails (the original error is kept as `cause`). An
-inactive currency still restores from a stored snapshot; it only cannot be used
-for new money.
+when the `currencies` module is disabled, the code is unknown or soft-deleted,
+the lookup has no tenant or organization (checked before any resolver runs), or
+the lookup itself fails (the original error is kept as `cause`). With the stock
+`currencies` module an inactive currency throws too, because its resolver's
+`getCurrency` returns `null` for it. A custom resolver that implements only
+`getDecimalPlaces` cannot report activity, so on that path an inactive currency is
+not rejected. An inactive currency still restores from a stored snapshot; it only
+cannot be used for new money.
 
 ## Arithmetic
 
@@ -152,5 +155,7 @@ them explicitly.
 | `CurrencyNotResolvedError` | `resolveCurrency` cannot resolve the code (carries `code` and `cause`) |
 | `InvalidAllocationError` | Invalid `allocateMoney` input |
 | `InvalidMoneyRoundingError` | A missing or invalid `{ decimalPlaces, mode }` |
+| `InvalidMoneyInputError` | `resolveMoney` received input `moneyInputSchema` rejects (`cause` is the `ZodError`) |
+| `InvalidMoneySnapshotError` | `restoreMoney` / `moneyFromColumns` received a snapshot or row `moneySnapshotSchema` rejects (`cause` is the `ZodError`) |
 
 The full design is in the [Money and Currency Value Objects spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-10-22-money-value-object.md).

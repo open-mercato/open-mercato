@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals'
 import { resolveCurrency } from '../currency'
-import { CurrencyMismatchError, CurrencyNotResolvedError } from '../errors'
+import { ZodError } from 'zod'
+import { CurrencyMismatchError, CurrencyNotResolvedError, InvalidMoneyInputError, InvalidMoneySnapshotError } from '../errors'
 import { addMoney, createMoney, fitsCurrencyPrecision, moneyEquals, rescaleMoney } from '../money'
 import {
   moneyInputSchema,
@@ -9,6 +10,7 @@ import {
   restoreMoney,
   serializeMoney,
   snapshotMoney,
+  type MoneyInput,
   type MoneySnapshot,
 } from '../serialization'
 import { createContainer, createResolver, currencyOf, defaultTable, scope, type CurrencyTable } from './helpers'
@@ -52,6 +54,17 @@ describe('MoneyInput (untrusted)', () => {
     expect(fitsCurrencyPrecision(await resolveMoney(container, scope, { amount: '0.10', currencyCode: 'USD' }))).toBe(true)
     expect(fitsCurrencyPrecision(await resolveMoney(container, scope, { amount: '5', currencyCode: 'JPY' }))).toBe(true)
     expect(fitsCurrencyPrecision(await resolveMoney(container, scope, { amount: '5.5', currencyCode: 'JPY' }))).toBe(false)
+  })
+
+  it('throws a typed InvalidMoneyInputError carrying the ZodError for invalid input', async () => {
+    const container = createContainer(createResolver(defaultTable))
+    const error = await resolveMoney(container, scope, { amount: 'abc', currencyCode: 'USD' }).catch((err) => err)
+    expect(error).toBeInstanceOf(InvalidMoneyInputError)
+    expect((error as Error).message).toBe('[internal] Invalid money input')
+    expect((error as Error).cause).toBeInstanceOf(ZodError)
+    await expect(
+      resolveMoney(container, scope, { amount: 12.5, currencyCode: 'USD' } as unknown as MoneyInput),
+    ).rejects.toBeInstanceOf(InvalidMoneyInputError)
   })
 
   it('resolves against the current tenant precision and throws for an unknown currency', async () => {
@@ -111,6 +124,6 @@ describe('MoneySnapshot (trusted)', () => {
     [{ amount: '1', currencyCode: null, currencyDecimalPlaces: 2 }],
     [{ amount: '1', currencyCode: 'USD', currencyDecimalPlaces: null }],
   ])('rejects the invalid snapshot %p', (snapshot) => {
-    expect(() => restoreMoney(snapshot as unknown as MoneySnapshot)).toThrow('[internal]')
+    expect(() => restoreMoney(snapshot as unknown as MoneySnapshot)).toThrow(InvalidMoneySnapshotError)
   })
 })

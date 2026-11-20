@@ -5,7 +5,9 @@ export {
   CurrencyMismatchError,
   CurrencyNotResolvedError,
   InvalidAllocationError,
+  InvalidMoneyInputError,
   InvalidMoneyRoundingError,
+  InvalidMoneySnapshotError,
 } from './errors'
 export type { CurrencyLookup } from './currency'
 export { assertSameCurrency, currenciesEqual, resolveCurrency } from './currency'

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { decimalStringSchema, decimalToString, isDecimalInput } from '../decimal'
 import { resolveCurrency } from './currency'
+import { InvalidMoneyInputError, InvalidMoneySnapshotError } from './errors'
 import { brandCurrency } from './internal'
 import { createMoney } from './money'
 import { MAX_MONEY_DECIMAL_PLACES, type Money } from './types'
@@ -9,9 +10,10 @@ type ServiceContainer = {
   resolve<T = unknown>(name: string): T
 }
 
+/** Trusted tenant scope; `resolveCurrency` requires the organization, so the type does too. */
 export type MoneyScope = {
   tenantId: string
-  organizationId?: string | null
+  organizationId: string
 }
 
 const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/)
@@ -55,11 +57,11 @@ export function serializeMoney(money: Money): MoneyInput {
  */
 export async function resolveMoney(container: ServiceContainer, scope: MoneyScope, input: MoneyInput): Promise<Money> {
   const parsed = moneyInputSchema.safeParse(input)
-  if (!parsed.success) throw new Error('[internal] Invalid money input')
+  if (!parsed.success) throw new InvalidMoneyInputError(parsed.error)
   const currency = await resolveCurrency(container, {
     code: parsed.data.currencyCode,
     tenantId: scope.tenantId,
-    organizationId: scope.organizationId ?? null,
+    organizationId: scope.organizationId,
   })
   return createMoney(parsed.data.amount, currency)
 }
@@ -79,7 +81,7 @@ export function snapshotMoney(money: Money): MoneySnapshot {
  */
 export function restoreMoney(snapshot: MoneySnapshot): Money {
   const parsed = moneySnapshotSchema.safeParse(snapshot)
-  if (!parsed.success) throw new Error('[internal] Invalid money snapshot')
+  if (!parsed.success) throw new InvalidMoneySnapshotError(parsed.error)
   const { amount, currencyCode, currencyDecimalPlaces } = parsed.data
   return createMoney(amount, brandCurrency(currencyCode, currencyDecimalPlaces, null))
 }
